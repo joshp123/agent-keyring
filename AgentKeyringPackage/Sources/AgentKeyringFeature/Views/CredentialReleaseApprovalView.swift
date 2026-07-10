@@ -3,6 +3,15 @@ import SwiftUI
 @available(macOS 26.0, *)
 struct CredentialReleaseApprovalView: View {
     let request: CredentialReleaseAuthorizationRequest
+    let showsProgressIndicator: Bool
+
+    init(
+        request: CredentialReleaseAuthorizationRequest,
+        showsProgressIndicator: Bool = true
+    ) {
+        self.request = request
+        self.showsProgressIndicator = showsProgressIndicator
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -83,8 +92,13 @@ struct CredentialReleaseApprovalView: View {
                 }
 
                 Spacer()
-                ProgressView()
-                    .controlSize(.small)
+                if showsProgressIndicator {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(16)
             .background(.teal.opacity(0.08), in: .rect(cornerRadius: 16))

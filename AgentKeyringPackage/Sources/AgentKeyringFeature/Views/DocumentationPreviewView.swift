@@ -140,7 +140,8 @@ private struct DocumentationApprovalView: View {
                     account: "alex@example.com",
                     field: .password,
                     credentialTitle: "Example invoices"
-                )
+                ),
+                showsProgressIndicator: false
             )
             .padding(32)
         }
