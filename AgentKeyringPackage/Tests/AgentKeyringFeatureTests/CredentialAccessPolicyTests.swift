@@ -65,6 +65,26 @@ struct CredentialAccessPolicyTests {
         #expect(controller.visibleRows.isEmpty)
     }
 
+    @MainActor
+    @Test("Bulk recommendations update groups in one saved policy set")
+    func bulkRecommendations() async {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let controller = CredentialAccessController(store: fixture.store)
+        let first = fixture.generation()
+        let firstID = first.items[0].id
+        await controller.refresh(from: first)
+
+        await controller.setPolicies([firstID: .block])
+
+        #expect(controller.count(for: .ask) == 0)
+        #expect(controller.count(for: .block) == 1)
+        #expect(controller.visibleRows.isEmpty)
+
+        controller.selectedPolicy = .block
+        #expect(controller.visibleRows.map(\.id) == [firstID])
+    }
+
     @Test("The policy file contains no credential metadata and is owner-only")
     func securePolicyFile() async throws {
         let fixture = Fixture()

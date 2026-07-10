@@ -6,53 +6,12 @@ public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Se
     case ask
     case allowAutomatically
     case block
-
-    public var title: String {
-        switch self {
-        case .ask: "Ask each time"
-        case .allowAutomatically: "Allow automatically"
-        case .block: "Block"
-        }
-    }
-
-    public var sortKey: String {
-        switch self {
-        case .ask: "1-ask"
-        case .allowAutomatically: "2-allow"
-        case .block: "3-block"
-        }
-    }
 }
 
 public enum CredentialReleaseDecision: Equatable, Sendable {
     case requestAuthorization
     case release
     case block
-}
-
-public enum CredentialAccessFilter: String, CaseIterable, Equatable, Sendable {
-    case all
-    case ask
-    case allowAutomatically
-    case block
-
-    public var title: String {
-        switch self {
-        case .all: "All access"
-        case .ask: "Ask each time"
-        case .allowAutomatically: "Allow automatically"
-        case .block: "Blocked"
-        }
-    }
-
-    fileprivate func includes(_ policy: CredentialAccessPolicy) -> Bool {
-        switch self {
-        case .all: true
-        case .ask: policy == .ask
-        case .allowAutomatically: policy == .allowAutomatically
-        case .block: policy == .block
-        }
-    }
 }
 
 public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
@@ -173,7 +132,7 @@ public final class CredentialAccessController {
     public var searchText = "" {
         didSet { recomputeVisibleRows() }
     }
-    public var filter = CredentialAccessFilter.all {
+    public var selectedPolicy: CredentialAccessPolicy? = .ask {
         didSet { recomputeVisibleRows() }
     }
     public var sortOrder = [KeyPathComparator(\AccessCredentialRow.title)] {
@@ -240,19 +199,32 @@ public final class CredentialAccessController {
     }
 
     public func setPolicy(_ policy: CredentialAccessPolicy, for credentialIDs: Set<UUID>) async {
-        guard !credentialIDs.isEmpty else { return }
+        let assignments = Dictionary(uniqueKeysWithValues: credentialIDs.map { ($0, policy) })
+        await setPolicies(assignments)
+    }
+
+    public func setPolicies(_ assignments: [UUID: CredentialAccessPolicy]) async {
+        guard !assignments.isEmpty else { return }
+        let knownIDs = Set(rows.map(\.id))
+        guard assignments.keys.allSatisfy(knownIDs.contains) else {
+            errorMessage = "The access change included an unknown credential. No rule was changed."
+            return
+        }
         let previousPolicies = policies
         let previousRows = rows
         errorMessage = nil
 
-        for id in credentialIDs {
+        for (id, policy) in assignments {
             if policy == .ask {
                 policies.removeValue(forKey: id)
             } else {
                 policies[id] = policy
             }
         }
-        rows = rows.map { credentialIDs.contains($0.id) ? $0.changingPolicy(to: policy) : $0 }
+        rows = rows.map { row in
+            guard let policy = assignments[row.id] else { return row }
+            return row.changingPolicy(to: policy)
+        }
         recomputeVisibleRows()
 
         do {
@@ -270,11 +242,15 @@ public final class CredentialAccessController {
     }
 
     private func recomputeVisibleRows() {
+        guard let selectedPolicy else {
+            visibleRows = []
+            return
+        }
         let query = searchText.foldedForCredentialSearch
         let terms = query.split(separator: " ").map(String.init)
         visibleRows =
             rows
-            .filter { filter.includes($0.policy) }
+            .filter { $0.policy == selectedPolicy }
             .filter { row in
                 terms.allSatisfy { term in
                     row.searchableText.contains(term)

@@ -48,6 +48,25 @@ struct AgentKeyringApp: App {
         Window("Credential access", id: "access") {
             AccessControlView(controller: appDelegate.model.accessControl)
         }
-        .defaultSize(width: 900, height: 620)
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+        .defaultWindowPlacement { _, context in
+            let display = context.defaultDisplay.visibleRect
+            return WindowPlacement(
+                size: CGSize(
+                    width: min(960, display.width),
+                    height: min(680, display.height)
+                )
+            )
+        }
+        .windowIdealPlacement { _, context in
+            let display = context.defaultDisplay.visibleRect
+            return WindowPlacement(
+                size: CGSize(
+                    width: min(1_080, display.width),
+                    height: min(740, display.height)
+                )
+            )
+        }
     }
 }

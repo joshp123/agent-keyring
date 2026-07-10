@@ -33,6 +33,15 @@ Each credential has one of 3 rules:
 
 New credentials use Ask each time. Rules use stable credential IDs, so they survive a full refresh. The rule file contains IDs and policy values only.
 
+The Let AI choose workflow can classify the full mirror for you:
+
+1. Agent Keyring copies a prompt that asks your preferred model to interview you about unattended tasks and risk.
+2. You paste the prompt into that model and answer its questions.
+3. You paste the final response back into Agent Keyring.
+4. Agent Keyring rejects missing, duplicated or unknown credential IDs and shows the 3 proposed totals before applying anything.
+
+The prompt contains credential IDs, titles, websites, account labels and current rules. It never contains passwords, TOTP seeds or verification codes. Pasting it into a model shares that metadata with the model provider you choose.
+
 Allow automatically trusts any local process running as your macOS user that can call the broker. Agent Keyring does not yet authenticate individual agents.
 
 ## Build and install
