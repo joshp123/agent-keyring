@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Keyring"
+  short_description: "Use Apple Passwords credentials safely"
+  default_prompt: "Use $agent-keyring to sign in with the matching local credential."

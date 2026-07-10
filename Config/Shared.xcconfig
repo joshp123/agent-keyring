@@ -1,0 +1,41 @@
+// Shared.xcconfig
+// Shared application settings
+
+#include "Identity.xcconfig"
+
+// ==========================================
+// Project Identity
+// ==========================================
+PRODUCT_NAME = AgentKeyring
+PRODUCT_DISPLAY_NAME = Agent Keyring
+PRODUCT_BUNDLE_IDENTIFIER = $(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 2
+
+// ==========================================
+// Platform Configuration
+// ==========================================
+MACOSX_DEPLOYMENT_TARGET = 26.0
+
+// ==========================================
+// Info PLIST
+// ==========================================
+GENERATE_INFOPLIST_FILE = NO
+INFOPLIST_FILE = AgentKeyring/Info.plist
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+
+// ==========================================
+// Entitlements
+// ==========================================
+// AI agents can modify Config/AgentKeyring.entitlements to add capabilities
+CODE_SIGN_ENTITLEMENTS = Config/AgentKeyring.entitlements
+
+// ==========================================
+// Signing and Swift
+// ==========================================
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM = $(AGENT_KEYRING_TEAM_ID)
+ENABLE_APP_SANDBOX = YES
+ENABLE_HARDENED_RUNTIME = YES
+SWIFT_VERSION = 6.0
+ALWAYS_SEARCH_USER_PATHS = NO

@@ -1,0 +1,6 @@
+// Public signing defaults. Copy Local.xcconfig.example to Local.xcconfig
+// and replace these values for a signed local build.
+AGENT_KEYRING_BUNDLE_ID_PREFIX = com.example
+AGENT_KEYRING_TEAM_ID =
+
+#include? "Local.xcconfig"

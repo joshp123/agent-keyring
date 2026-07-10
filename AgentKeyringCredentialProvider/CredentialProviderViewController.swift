@@ -1,0 +1,3 @@
+import AuthenticationServices
+
+final class CredentialProviderViewController: ASCredentialProviderViewController {}

@@ -1,0 +1,3 @@
+// Copy this file to Local.xcconfig. Local.xcconfig is ignored by Git.
+AGENT_KEYRING_BUNDLE_ID_PREFIX = com.example
+AGENT_KEYRING_TEAM_ID = YOUR_TEAM_ID
