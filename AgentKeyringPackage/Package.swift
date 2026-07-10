@@ -16,6 +16,10 @@ let package = Package(
             name: "agent-keyring",
             targets: ["AgentKeyringCLI"]
         ),
+        .executable(
+            name: "agent-keyring-docs-renderer",
+            targets: ["AgentKeyringDocsRenderer"]
+        ),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -26,6 +30,11 @@ let package = Package(
         .executableTarget(
             name: "AgentKeyringCLI",
             dependencies: ["AgentKeyringFeature"]
+        ),
+        .executableTarget(
+            name: "AgentKeyringDocsRenderer",
+            dependencies: ["AgentKeyringFeature"],
+            path: "Tools/AgentKeyringDocsRenderer"
         ),
         .testTarget(
             name: "AgentKeyringFeatureTests",
