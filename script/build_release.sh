@@ -127,6 +127,7 @@ fi
 "$sparkle_tools/generate_appcast" \
   --download-url-prefix "https://github.com/joshp123/agent-keyring/releases/download/v$VERSION/" \
   --link 'https://github.com/joshp123/agent-keyring' \
+  --embed-release-notes \
   --maximum-versions 5 \
   --maximum-deltas 0 \
   -o "$ROOT_DIR/docs/appcast.xml" \
@@ -134,8 +135,8 @@ fi
 
 expected_url="https://github.com/joshp123/agent-keyring/releases/download/v$VERSION/Agent-Keyring-$VERSION.zip"
 zip_size="$(/usr/bin/stat -f %z "$ZIP_PATH")"
-/usr/bin/grep -Fq "sparkle:shortVersionString=\"$VERSION\"" "$ROOT_DIR/docs/appcast.xml"
-/usr/bin/grep -Fq "sparkle:version=\"$BUILD_NUMBER\"" "$ROOT_DIR/docs/appcast.xml"
+/usr/bin/grep -Fq "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$ROOT_DIR/docs/appcast.xml"
+/usr/bin/grep -Fq "<sparkle:version>$BUILD_NUMBER</sparkle:version>" "$ROOT_DIR/docs/appcast.xml"
 /usr/bin/grep -Fq "url=\"$expected_url\"" "$ROOT_DIR/docs/appcast.xml"
 /usr/bin/grep -Fq "length=\"$zip_size\"" "$ROOT_DIR/docs/appcast.xml"
 /usr/bin/grep -Eq 'sparkle:edSignature="[A-Za-z0-9+/=]+"' "$ROOT_DIR/docs/appcast.xml"
