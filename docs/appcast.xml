@@ -1,0 +1,23 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>AgentKeyring</title>
+        <item>
+            <title>0.1.0</title>
+            <pubDate>Fri, 10 Jul 2026 13:35:53 +0200</pubDate>
+            <link>https://github.com/joshp123/agent-keyring</link>
+            <sparkle:version>202607101133</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[First public preview.
+
+- mirrors supported Apple Passwords credentials into encrypted local storage
+- lets you ask each time, allow automatically or block each credential
+- requests Touch ID or Apple Watch approval before releasing protected secrets
+- includes a Codex skill and CLI that keep secrets out of command output
+- uses Sparkle for signed updates from GitHub Releases
+]]></description>
+            <enclosure url="https://github.com/joshp123/agent-keyring/releases/download/v0.1.0/Agent-Keyring-0.1.0.zip" length="6198965" type="application/octet-stream" sparkle:edSignature="GIQtkvzPIiHBwBgTg3vzyZmIQ28QRe6Dnvp6dw9oollnCOqyJyxwMUY7GlEp11cMuTN57HKhR3E0xiYopi4XDA=="/>
+        </item>
+    </channel>
+</rss>
