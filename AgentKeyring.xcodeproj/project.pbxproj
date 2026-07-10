@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		4D10000B0000000000000001 /* AgentKeyringCredentialProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 4D1000010000000000000001 /* AgentKeyringCredentialProvider.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		4D2000020000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 4D2000010000000000000001 /* Sparkle */; };
 		8B90D1482DEDD44A00FBD189 /* AgentKeyringFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B90D1472DEDD44A00FBD189 /* AgentKeyringFeature */; };
 /* End PBXBuildFile section */
 
@@ -125,6 +126,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4D2000020000000000000001 /* Sparkle in Frameworks */,
 				8B90D1482DEDD44A00FBD189 /* AgentKeyringFeature in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -201,6 +203,7 @@
 				8BC265592DEDD3F400F279A4 /* Frameworks */,
 				8BC2655A2DEDD3F400F279A4 /* Resources */,
 				4D10000A0000000000000001 /* Embed App Extensions */,
+				4D3000000000000000000001 /* Bundle Agent Tools */,
 			);
 			buildRules = (
 			);
@@ -213,6 +216,7 @@
 			);
 			name = AgentKeyring;
 			packageProductDependencies = (
+				4D2000010000000000000001 /* Sparkle */,
 				8B90D1472DEDD44A00FBD189 /* AgentKeyringFeature */,
 			);
 			productName = AgentKeyring;
@@ -276,6 +280,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8BC2655D2DEDD3F400F279A4 /* Products */;
+			packageReferences = (
+				4D2000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -309,6 +316,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4D3000000000000000000001 /* Bundle Agent Tools */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle Agent Tools";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/script/bundle_agent_tools.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		4D1000040000000000000001 /* Sources */ = {
@@ -502,11 +531,27 @@
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		4D2000010000000000000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4D2000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
 		8B90D1472DEDD44A00FBD189 /* AgentKeyringFeature */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AgentKeyringFeature;
 		};
 /* End XCSwiftPackageProductDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4D2000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = 8BC265542DEDD3F400F279A4 /* Project object */;
 }

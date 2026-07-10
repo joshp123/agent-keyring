@@ -1,7 +1,33 @@
 import AppKit
 import AuthenticationServices
+import Sparkle
 import SwiftUI
 import AgentKeyringFeature
+
+@MainActor
+private final class CheckForUpdatesViewModel: ObservableObject {
+    @Published var canCheckForUpdates = false
+
+    init(updater: SPUUpdater) {
+        updater.publisher(for: \.canCheckForUpdates)
+            .assign(to: &$canCheckForUpdates)
+    }
+}
+
+private struct CheckForUpdatesView: View {
+    @ObservedObject private var viewModel: CheckForUpdatesViewModel
+    private let updater: SPUUpdater
+
+    init(updater: SPUUpdater) {
+        self.updater = updater
+        viewModel = CheckForUpdatesViewModel(updater: updater)
+    }
+
+    var body: some View {
+        Button("Check for Updates…", action: updater.checkForUpdates)
+            .disabled(!viewModel.canCheckForUpdates)
+    }
+}
 
 @MainActor
 final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
@@ -39,11 +65,22 @@ struct AgentKeyringApp: App {
     @NSApplicationDelegateAdaptor(AgentKeyringAppDelegate.self)
     private var appDelegate
 
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
+
     var body: some Scene {
         Window("Agent Keyring", id: "main") {
             ContentView(model: appDelegate.model)
         }
         .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
+        }
 
         Window("Credential access", id: "access") {
             AccessControlView(controller: appDelegate.model.accessControl)

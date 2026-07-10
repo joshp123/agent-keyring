@@ -13,26 +13,37 @@ mkdir -p "$MEDIA_DIR"
   agent-keyring-docs-renderer \
   "$MEDIA_DIR"
 
+"$FFMPEG" -hide_banner -loglevel error -y \
+  -i "$MEDIA_DIR/approval.png" \
+  -i "$MEDIA_DIR/native-watch-prompt.png" \
+  -filter_complex "
+    color=c=0xf3f5f9:s=1280x640[base];
+    [0:v]scale=-1:590[app];
+    [1:v]scale=-1:340[prompt];
+    [base][app]overlay=55:25[with_app];
+    [with_app][prompt]overlay=900:150[out]
+  " \
+  -map '[out]' -frames:v 1 "$MEDIA_DIR/approval-watch.png"
+
 FILTER_COMPLEX="
-[0:v]scale=1200:600:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:20:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='1. Enable secure import once':fontcolor=0x17191c:fontsize=36:x=(w-text_w)/2:y=650[v0];
-[1:v]scale=1200:600:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:20:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='2. Export all items from Apple Passwords':fontcolor=0x17191c:fontsize=36:x=(w-text_w)/2:y=650[v1];
-[2:v]scale=1200:600:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:20:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='3. Choose which credentials agents can use':fontcolor=0x17191c:fontsize=36:x=(w-text_w)/2:y=650[v2];
-[3:v]scale=1200:600:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:20:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='4. Ask a model to suggest the rules':fontcolor=0x17191c:fontsize=36:x=(w-text_w)/2:y=650[v3];
-[4:v]scale=1200:600:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:20:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='5. Approve sensitive requests once':fontcolor=0x17191c:fontsize=36:x=(w-text_w)/2:y=650[v4];
-[v0][v1]xfade=transition=fade:duration=0.5:offset=3.5[x1];
-[x1][v2]xfade=transition=fade:duration=0.5:offset=7.0[x2];
-[x2][v3]xfade=transition=fade:duration=0.5:offset=10.5[x3];
-[x3][v4]xfade=transition=fade:duration=0.5:offset=14.0,format=yuv420p[video]
+color=c=0x0b1020:s=1280x720:r=30:d=3.6,drawtext=fontfile=${FONT}:text='Ask Codex to sign in.':fontcolor=white:fontsize=58:x=(w-text_w)/2:y=260,drawtext=fontfile=${FONT}:text='Agent Keyring handles the password — with your rules.':fontcolor=0xa7f3d0:fontsize=31:x=(w-text_w)/2:y=350[intro];
+[0:v]scale=1200:610:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:16:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='Apple Passwords stays your source of truth':fontcolor=0x17191c:fontsize=34:x=(w-text_w)/2:y=658[ready];
+[1:v]scale=1200:610:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:16:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='Sensitive access asks on Apple Watch or Touch ID':fontcolor=0x17191c:fontsize=34:x=(w-text_w)/2:y=658[approval];
+[2:v]scale=1200:610:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:16:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='Choose Ask, Automatic or Blocked':fontcolor=0x17191c:fontsize=34:x=(w-text_w)/2:y=658[access];
+[3:v]scale=1200:610:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:16:color=0xf3f5f9,drawtext=fontfile=${FONT}:text='Or let a model suggest every rule':fontcolor=0x17191c:fontsize=34:x=(w-text_w)/2:y=658[assistant];
+[intro][ready]xfade=transition=fade:duration=0.45:offset=3.15[x1];
+[x1][approval]xfade=transition=fade:duration=0.45:offset=6.30[x2];
+[x2][access]xfade=transition=fade:duration=0.45:offset=9.45[x3];
+[x3][assistant]xfade=transition=fade:duration=0.45:offset=12.60,format=yuv420p[video]
 "
 
 "$FFMPEG" -hide_banner -loglevel error -y \
-  -loop 1 -framerate 30 -t 4 -i "$MEDIA_DIR/setup.png" \
-  -loop 1 -framerate 30 -t 4 -i "$MEDIA_DIR/ready.png" \
-  -loop 1 -framerate 30 -t 4 -i "$MEDIA_DIR/access.png" \
-  -loop 1 -framerate 30 -t 4 -i "$MEDIA_DIR/assistant.png" \
-  -loop 1 -framerate 30 -t 4 -i "$MEDIA_DIR/approval.png" \
+  -loop 1 -framerate 30 -t 3.6 -i "$MEDIA_DIR/ready.png" \
+  -loop 1 -framerate 30 -t 3.6 -i "$MEDIA_DIR/approval-watch.png" \
+  -loop 1 -framerate 30 -t 3.6 -i "$MEDIA_DIR/access.png" \
+  -loop 1 -framerate 30 -t 3.6 -i "$MEDIA_DIR/assistant.png" \
   -filter_complex "$FILTER_COMPLEX" \
-  -map "[video]" -t 18 -r 30 -an -movflags +faststart \
+  -map "[video]" -t 15.75 -r 30 -an -movflags +faststart \
   "$MEDIA_DIR/agent-keyring-demo.mp4"
 
 "$FFMPEG" -hide_banner -loglevel error -y \

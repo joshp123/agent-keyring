@@ -6,7 +6,12 @@ import AgentKeyringFeature
 struct AgentKeyringCLI {
     static func main() async {
         do {
-            let request = try parse(Array(CommandLine.arguments.dropFirst()))
+            let arguments = Array(CommandLine.arguments.dropFirst())
+            if arguments == ["install"] {
+                writeJSON(try installIntegration())
+                return
+            }
+            let request = try parse(arguments)
             let response = try await send(request)
             writeJSON(response)
             if !response.ok { exit(1) }
@@ -23,6 +28,77 @@ struct AgentKeyringCLI {
             )
             exit(1)
         }
+    }
+
+    private static func installIntegration() throws -> CLIInstallResponse {
+        let fileManager = FileManager.default
+        let executable = URL(fileURLWithPath: CommandLine.arguments[0])
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let helpersDirectory = executable.deletingLastPathComponent()
+        let contentsDirectory = helpersDirectory.deletingLastPathComponent()
+        let application = contentsDirectory.deletingLastPathComponent()
+        guard
+            executable.lastPathComponent == "agent-keyring",
+            helpersDirectory.lastPathComponent == "Helpers",
+            contentsDirectory.lastPathComponent == "Contents",
+            application.pathExtension == "app"
+        else {
+            throw CLIError(
+                "not_bundled",
+                "Run install using the agent-keyring helper inside AgentKeyring.app."
+            )
+        }
+
+        let home = fileManager.homeDirectoryForCurrentUser
+        let commandDestination = home.appendingPathComponent(".local/bin/agent-keyring")
+        let codexHome =
+            ProcessInfo.processInfo.environment["CODEX_HOME"].map {
+                URL(fileURLWithPath: $0, isDirectory: true)
+            } ?? home.appendingPathComponent(".codex", isDirectory: true)
+        let skillSource =
+            contentsDirectory
+            .appendingPathComponent("Resources/AgentTools/CodexSkill/agent-keyring")
+        let skillDestination = codexHome.appendingPathComponent("skills/agent-keyring")
+        guard fileManager.fileExists(atPath: skillSource.path) else {
+            throw CLIError("skill_missing", "The bundled Codex skill is missing.")
+        }
+
+        try replaceSymlink(at: commandDestination, with: executable)
+        try replaceSymlink(at: skillDestination, with: skillSource)
+        return CLIInstallResponse(
+            ok: true,
+            commandPath: commandDestination.path,
+            skillPath: skillDestination.path,
+            restartCodex: true
+        )
+    }
+
+    private static func replaceSymlink(at destination: URL, with source: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        if let existingTarget = try? fileManager.destinationOfSymbolicLink(
+            atPath: destination.path
+        ) {
+            if URL(
+                fileURLWithPath: existingTarget, relativeTo: destination.deletingLastPathComponent()
+            )
+            .standardizedFileURL == source.standardizedFileURL {
+                return
+            }
+            try fileManager.removeItem(at: destination)
+        } else if fileManager.fileExists(atPath: destination.path) {
+            throw CLIError(
+                "install_conflict",
+                "Refusing to replace the existing file at \(destination.path)."
+            )
+        }
+
+        try fileManager.createSymbolicLink(at: destination, withDestinationURL: source)
     }
 
     private static func parse(_ arguments: [String]) throws -> AgentBridgeRequest {
@@ -169,6 +245,7 @@ struct AgentKeyringCLI {
         agent-keyring — use the local encrypted Agent Keyring without printing secrets
 
         Usage:
+          agent-keyring install
           agent-keyring status
           agent-keyring resolve --url URL [--username USERNAME]
           agent-keyring copy --url URL --field username|password|totp
@@ -197,4 +274,11 @@ private struct CLIErrorResponse: Encodable {
     let ok: Bool
     let error: String
     let message: String
+}
+
+private struct CLIInstallResponse: Encodable {
+    let ok: Bool
+    let commandPath: String
+    let skillPath: String
+    let restartCodex: Bool
 }

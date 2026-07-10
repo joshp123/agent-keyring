@@ -39,7 +39,8 @@ enum AgentKeyringDocsRenderer {
                 .appendingPathComponent("\(screen.rawValue).png")
             try render(
                 DocumentationPreviewView(screen: screen, controller: controller),
-                size: screen.logicalSize,
+                contentSize: screen.logicalSize,
+                title: screen.windowTitle,
                 to: outputURL
             )
             print("Rendered \(outputURL.path)")
@@ -60,18 +61,20 @@ enum AgentKeyringDocsRenderer {
     @MainActor
     private static func render<Content: View>(
         _ content: Content,
-        size: CGSize,
+        contentSize: CGSize,
+        title: String,
         to outputURL: URL
     ) throws {
         let hostingView = NSHostingView(rootView: content)
-        hostingView.frame = CGRect(origin: .zero, size: size)
+        hostingView.frame = CGRect(origin: .zero, size: contentSize)
         let window = NSWindow(
             contentRect: hostingView.bounds,
-            styleMask: .borderless,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
+        window.title = title
         window.contentView = hostingView
         window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
         window.orderBack(nil)
@@ -79,11 +82,17 @@ enum AgentKeyringDocsRenderer {
         window.displayIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
+        guard let frameView = window.contentView?.superview else {
+            throw RendererError.renderFailed
+        }
+        frameView.layoutSubtreeIfNeeded()
+        let captureSize = frameView.bounds.size
+
         guard
             let bitmap = NSBitmapImageRep(
                 bitmapDataPlanes: nil,
-                pixelsWide: Int(size.width * 2),
-                pixelsHigh: Int(size.height * 2),
+                pixelsWide: Int(captureSize.width * 2),
+                pixelsHigh: Int(captureSize.height * 2),
                 bitsPerSample: 8,
                 samplesPerPixel: 4,
                 hasAlpha: true,
@@ -95,15 +104,15 @@ enum AgentKeyringDocsRenderer {
         else {
             throw RendererError.renderFailed
         }
-        bitmap.size = size
+        bitmap.size = captureSize
         if let context = NSGraphicsContext(bitmapImageRep: bitmap) {
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = context
             NSColor(calibratedRed: 0.93, green: 0.95, blue: 0.98, alpha: 1).setFill()
-            NSBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
+            NSBezierPath(rect: CGRect(origin: .zero, size: captureSize)).fill()
             NSGraphicsContext.restoreGraphicsState()
         }
-        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        frameView.cacheDisplay(in: frameView.bounds, to: bitmap)
         window.close()
 
         guard let data = bitmap.representation(using: .png, properties: [:]) else {

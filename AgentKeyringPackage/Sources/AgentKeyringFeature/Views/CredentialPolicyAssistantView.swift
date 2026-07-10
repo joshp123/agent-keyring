@@ -10,9 +10,22 @@ struct CredentialPolicyAssistantView: View {
     @State private var isApplying = false
     private let controller: CredentialAccessController
     private let assistant = CredentialPolicyAssistant()
+    private let showsReviewFirst: Bool
 
-    init(controller: CredentialAccessController) {
+    init(
+        controller: CredentialAccessController,
+        initialResponse: String = "",
+        showsReviewFirst: Bool = false
+    ) {
         self.controller = controller
+        self.showsReviewFirst = showsReviewFirst
+        _responseText = State(initialValue: initialResponse)
+        let initialReview = try? CredentialPolicyAssistant().review(
+            response: initialResponse,
+            against: controller.rows
+        )
+        _review = State(initialValue: initialReview)
+        _message = State(initialValue: initialReview == nil ? nil : .responseReady)
     }
 
     var body: some View {
@@ -22,6 +35,9 @@ struct CredentialPolicyAssistantView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if showsReviewFirst, let review {
+                        RecommendationReviewView(review: review)
+                    }
                     CopyPromptStep(
                         credentialCount: controller.rows.count,
                         didCopy: message == .promptCopied,
@@ -33,7 +49,7 @@ struct CredentialPolicyAssistantView: View {
                         checkResponse: checkResponse
                     )
 
-                    if let review {
+                    if !showsReviewFirst, let review {
                         RecommendationReviewView(review: review)
                     }
 
@@ -52,7 +68,7 @@ struct CredentialPolicyAssistantView: View {
                 apply: applyRecommendations
             )
         }
-        .frame(width: 700, height: 680)
+        .frame(width: 780, height: 680)
         .interactiveDismissDisabled(isApplying)
         .onChange(of: responseText) {
             review = nil

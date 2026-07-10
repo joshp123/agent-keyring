@@ -43,5 +43,15 @@
 	<array>
 		<string>ASCredentialExchangeActivity</string>
 	</array>
+	<key>SUEnableDownloaderService</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://joshp123.github.io/agent-keyring/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>plozm79Eiw9FXBlXYpZOHStIYydwLn+5iYV+DQ1aVFw=</string>
 </dict>
 </plist>

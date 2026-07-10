@@ -11,17 +11,17 @@ public enum DocumentationScreen: String, CaseIterable, Sendable {
     public var logicalSize: CGSize {
         switch self {
         case .setup, .ready:
-            CGSize(width: 828, height: 572)
+            CGSize(width: 780, height: 496)
         case .access:
-            CGSize(width: 1_008, height: 728)
+            CGSize(width: 960, height: 680)
         case .assistant:
-            CGSize(width: 748, height: 728)
+            CGSize(width: 780, height: 680)
         case .approval:
-            CGSize(width: 668, height: 620)
+            CGSize(width: 560, height: 552)
         }
     }
 
-    var windowTitle: LocalizedStringResource {
+    public var windowTitle: String {
         switch self {
         case .setup, .ready, .approval: "Agent Keyring"
         case .access, .assistant: "Credential access"
@@ -40,7 +40,7 @@ public struct DocumentationPreviewView: View {
     }
 
     public var body: some View {
-        DocumentationWindow(title: screen.windowTitle) {
+        Group {
             switch screen {
             case .setup:
                 DocumentationStatusView(status: nil, providerState: .unknown)
@@ -54,7 +54,11 @@ public struct DocumentationPreviewView: View {
                     blockedCount: controller.count(for: .block)
                 )
             case .assistant:
-                CredentialPolicyAssistantView(controller: controller)
+                CredentialPolicyAssistantView(
+                    controller: controller,
+                    initialResponse: Self.assistantResponse(for: controller.rows),
+                    showsReviewFirst: true
+                )
             case .approval:
                 DocumentationApprovalView()
             }
@@ -62,6 +66,24 @@ public struct DocumentationPreviewView: View {
         .frame(width: screen.logicalSize.width, height: screen.logicalSize.height)
         .environment(\.locale, Locale(identifier: "en_GB"))
         .environment(\.colorScheme, .light)
+    }
+
+    private static func assistantResponse(for rows: [AccessCredentialRow]) -> String {
+        let recommendations = rows.map { row in
+            let policy: CredentialAccessPolicy =
+                switch row.title {
+                case "Code Forge": .allowAutomatically
+                case "Home Lab": .block
+                default: row.policy
+                }
+            return CredentialPolicyRecommendation(credentialID: row.id, policy: policy)
+        }
+        let document = CredentialPolicyRecommendationDocument(
+            recommendations: recommendations
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return String(decoding: (try? encoder.encode(document)) ?? Data(), as: UTF8.self)
     }
 
     private static var readyStatus: SafeMirrorStatus {
@@ -77,54 +99,6 @@ public struct DocumentationPreviewView: View {
             skippedCredentialCount: 2,
             skippedCredentialSummary: MirrorSkippedCredentialSummary(passkeyCount: 2)
         )
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationWindow<Content: View>: View {
-    let title: LocalizedStringResource
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(spacing: 0) {
-            DocumentationTitleBar(title: title)
-            Divider()
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .background(.background)
-        .clipShape(.rect(cornerRadius: 14))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(.black.opacity(0.12), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
-        .padding(24)
-        .background(Color(red: 0.93, green: 0.95, blue: 0.98))
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationTitleBar: View {
-    let title: LocalizedStringResource
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(.red.opacity(0.85)).frame(width: 12, height: 12)
-            Circle().fill(.yellow.opacity(0.90)).frame(width: 12, height: 12)
-            Circle().fill(.green.opacity(0.85)).frame(width: 12, height: 12)
-            Text(title)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.leading, 8)
-            Spacer()
-        }
-        .frame(height: 38)
-        .padding(.horizontal, 14)
-        .background(.bar)
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
     }
 }
 
@@ -162,10 +136,10 @@ private struct DocumentationApprovalView: View {
             DocumentationGradient()
             CredentialReleaseApprovalView(
                 request: CredentialReleaseAuthorizationRequest(
-                    destination: "accounts.example.com",
+                    destination: "billing.example.com",
                     account: "alex@example.com",
                     field: .password,
-                    credentialTitle: "Example account"
+                    credentialTitle: "Example invoices"
                 )
             )
             .padding(32)

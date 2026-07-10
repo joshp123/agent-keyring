@@ -4,188 +4,89 @@ written_by: ai
 
 # Agent Keyring
 
-Agent Keyring lets local AI agents use usernames, passwords and verification codes from Apple Passwords without printing secrets in command output. Apple Passwords remains the source of truth.
+Let Codex sign in for you without moving your passwords out of Apple Passwords.
 
-[![Agent Keyring setup and credential access demo](docs/media/agent-keyring-demo.gif)](docs/media/agent-keyring-demo.mp4)
+Agent Keyring keeps an encrypted local mirror, gives agents only the credentials you allow and asks on Apple Watch or Touch ID before releasing protected passwords.
 
-Select the demo to open the 18-second MP4. Every screenshot and demo credential uses synthetic data.
+[![Agent Keyring demo](docs/media/agent-keyring-demo.gif)](docs/media/agent-keyring-demo.mp4)
 
-## Before you start
+Demo data is synthetic. Product screens are rendered off-screen from the real SwiftUI views. The Watch prompt is a genuine macOS prompt captured separately, not a recording of completed approval.
 
-Agent Keyring is a developer preview. There is no prebuilt download yet.
+## Download
 
-You need:
+[Download the latest release](https://github.com/joshp123/agent-keyring/releases/latest)
 
-- macOS 26
-- Xcode 27
-- a paid Apple Developer Program team that can sign the AutoFill Credential Provider entitlement
-- Apple Passwords as your password manager
+You need macOS 26 or later and Apple Passwords. The app is signed and notarised. Agent Keyring is free, open source and has no account or subscription.
 
-Passkeys are not supported. They remain in Apple Passwords and continue to use Apple's normal flow.
+1. Unzip Agent Keyring and move it to Applications.
+2. Run `/Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install` in Terminal, then restart Codex once.
+3. Open Agent Keyring and select `Enable secure import`.
+4. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
 
-## What Agent Keyring does
+Repeat step 4 when you want to refresh the mirror. Apple does not provide silent or incremental password export.
 
-Agent Keyring has 3 local parts:
+## Why it exists
 
-- a signed macOS app receives a full export from Apple Passwords and stores an encrypted mirror
-- the `agent-keyring` command resolves a credential by HTTPS origin and copies one field to the pasteboard
-- a bundled Codex skill tells agents how to use the command without reading or printing the secret
+Codex can use Safari and its built-in browser, but it cannot read Apple Passwords when a login appears. Agent Keyring adds a narrow local hand-off:
 
-Passwords and TOTP seeds use AES-GCM encryption at rest. The encryption key stays in the login Keychain. Agent Keyring clears its own pasteboard value after 30 seconds.
+- Apple Passwords stays the source of truth
+- the mirror is encrypted with a key in your login Keychain
+- secrets never appear in command output or chat
+- approved secrets use the shared macOS pasteboard, where other processes in your user session can read them until Agent Keyring clears its value after 30 seconds
 
-## Install from source
+## Approval on Apple Watch
 
-1. Clone the repository.
+For protected credentials, Agent Keyring shows the exact website, account and requested field before macOS asks for approval.
 
-   ```sh
-   git clone https://github.com/joshp123/agent-keyring.git
-   cd agent-keyring
-   ```
+![Agent Keyring and the native Apple Watch approval prompt](docs/media/approval-watch.png)
 
-2. Create your local signing configuration.
+One Apple Watch or Touch ID approval releases one requested field. The request expires if the agent goes away.
 
-   ```sh
-   cp Config/Local.xcconfig.example Config/Local.xcconfig
-   ```
+## Choose what agents can use
 
-3. Set your own bundle ID prefix and Apple Developer team ID in `Config/Local.xcconfig`.
+Each credential has one rule:
 
-   ```text
-   AGENT_KEYRING_BUNDLE_ID_PREFIX = com.example
-   AGENT_KEYRING_TEAM_ID = YOUR_TEAM_ID
-   ```
-
-4. Build, sign, install and verify Agent Keyring.
-
-   ```sh
-   ./script/build_and_run.sh --verify
-   ```
-
-The script installs:
-
-- `/Applications/AgentKeyring.app`
-- `~/.local/bin/agent-keyring`
-- `~/.codex/skills/agent-keyring`
-
-Restart Codex after the first installation so it discovers the skill.
-
-## Connect Apple Passwords
-
-![Agent Keyring first-run setup](docs/media/setup.png)
-
-1. Open Agent Keyring and select `Enable secure import` once.
-2. Open Apple Passwords.
-3. Select `File`, then `Export All Items to App`.
-4. Select Agent Keyring.
-5. Approve the full export once with Touch ID or Apple Watch.
-
-Use `Export All Items to App` for every normal refresh. A selected-item export is not a complete mirror.
-
-Apple excludes some records before Agent Keyring receives the export. These can include passkeys, Sign in with Apple entries, credentials shared by someone else and records without a usable password. Agent Keyring reports the skipped count after each refresh.
-
-![A completed synthetic mirror](docs/media/ready.png)
-
-## Choose what agents may use
-
-Open Agent Keyring and select `Manage access`.
-
-![Credential access groups with synthetic credentials](docs/media/access.png)
-
-Every credential has one rule:
-
-| Rule | What happens |
+| Rule | Result |
 | --- | --- |
-| Ask each time | Usernames are available. Passwords and verification codes need Touch ID or Apple Watch. |
-| Allow automatically | Any process running as your macOS user can copy the credential without a prompt. |
-| Blocked | Local agents cannot copy any field from the credential. |
+| Ask each time | Usernames are available. Passwords and codes need Apple Watch or Touch ID. |
+| Allow automatically | Any process running as your macOS user can copy the credential. |
+| Blocked | Local agents cannot copy any field. |
 
-New credentials start in `Ask each time`. Rules use stable credential IDs, so they survive a full refresh.
+New credentials start in `Ask each time`.
 
-### Let a model suggest the rules
+<p>
+  <img src="docs/media/access.png" width="55%" alt="Three credential access groups">
+  <img src="docs/media/assistant.png" width="40%" alt="Checked AI recommendations">
+</p>
 
-Select `Let AI choose` if you do not want to classify every credential yourself.
+Select `Let AI choose` if you do not want to sort everything yourself. Agent Keyring creates a prompt for any model. The model first asks about your tasks and risk preferences, then returns a rule for every credential. You review every change before applying it.
 
-![The model-assisted access rule workflow](docs/media/assistant.png)
+The prompt contains credential names, sites and account labels. It never contains passwords or verification codes.
 
-1. Copy the generated prompt into your preferred model.
-2. Answer its questions about unattended tasks and sensitive accounts.
-3. Paste its final response back into Agent Keyring.
-4. Review every proposed change, then apply it.
+## Security limits
 
-The prompt includes credential IDs, titles, websites, account labels and current rules. It never includes passwords, TOTP seeds or verification codes. Pasting the prompt shares that metadata with the model provider you choose.
+- passkeys stay in Apple Passwords and are not supported yet
+- Apple may omit shared credentials, Sign in with Apple records and items without passwords
+- Agent Keyring cannot detect a password changed in Apple Passwords until you refresh
+- `Allow automatically` trusts every process running as your unlocked macOS user
+- the agent states its destination URL because browsers do not provide Agent Keyring with an attested active-tab origin
+- using `Let AI choose` shares non-secret credential metadata with the model you choose
 
-Agent Keyring rejects malformed responses and any response with missing, duplicated or unknown credential IDs.
+Sparkle checks this repository for signed updates. Automatic installation is off.
 
-## Ask Codex to do the task normally
+## Build from source
 
-After installation, ask Codex for the outcome you want. For example:
-
-> Sign in to example.com and download my latest invoice.
-
-When Codex reaches a login, the installed skill tells it to resolve the current HTTPS origin and request the required field. The secret moves through the pasteboard and never appears in command output or chat.
-
-An `Ask each time` rule shows the destination, account, credential and requested field before macOS asks for approval.
-
-![A synthetic credential approval request](docs/media/approval.png)
-
-Approve once with Touch ID or Apple Watch. Agent Keyring then copies the requested field for the waiting agent.
-
-## Use the command directly
-
-All commands return JSON with safe metadata and receipts. Secret values never appear in standard output or standard error.
+You need Xcode 27 and an Apple Developer team with the AutoFill Credential Provider capability.
 
 ```sh
-agent-keyring status
-agent-keyring resolve --url 'https://example.com/login'
-agent-keyring copy --url 'https://example.com/login' --field username
-agent-keyring copy --url 'https://example.com/login' --field password
-agent-keyring copy --url 'https://example.com/login' --field totp
+git clone https://github.com/joshp123/agent-keyring.git
+cd agent-keyring
+cp Config/Local.xcconfig.example Config/Local.xcconfig
+./script/build_and_run.sh --verify
 ```
 
-If several accounts match, narrow the request with `--username` or a candidate UUID returned by `resolve`. Agent Keyring does not guess between accounts.
-
-## Refresh behaviour
-
-Apple does not provide silent background export or an incremental change feed.
-
-Agent Keyring can tell when its mirror is old. It cannot discover an unseen password change inside Apple Passwords. Refresh the mirror by repeating `File`, `Export All Items to App` and approving once.
-
-Each complete refresh reports credentials added, changed, removed and skipped.
-
-## Security boundaries
-
-- the agent states the destination URL because Safari and Codex do not provide an attested active-tab origin
-- access rules apply per credential, not per agent or calling app
-- `Allow automatically` trusts every process running as the unlocked macOS user
-- anyone who controls that macOS user account is inside the current trust boundary
-- the browser handoff uses a short-lived pasteboard value
-- passkeys remain outside Agent Keyring
-- the encrypted mirror is local and Apple Passwords is never modified
-
-## Current limits
-
-- no passkey support
-- no silent or incremental Apple Passwords sync
-- no per-agent identity or per-app rules
-- no signed binary release for other users yet
-- macOS 26 and an eligible Apple Developer Program team are required
-
-## Develop and test
-
-Run the package tests:
-
-```sh
-swift test --package-path ./AgentKeyringPackage
-```
-
-Regenerate the synthetic README screenshots, MP4 and GIF without opening the app:
-
-```sh
-./script/render_readme_media.sh
-```
-
-The media script needs `ffmpeg`. Its renderer uses an off-screen window with a prohibited activation policy, so it cannot take keyboard focus.
+Run the tests with `swift test --package-path AgentKeyringPackage`.
 
 ## Licence
 
-Agent Keyring uses the MIT Licence. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
