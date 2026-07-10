@@ -1,6 +1,7 @@
 import AgentKeyringFeature
 import AppKit
 import Foundation
+import ScreenCaptureKit
 import SwiftUI
 
 @main
@@ -9,8 +10,13 @@ enum AgentKeyringDocsRenderer {
     static func main() async throws {
         NSApplication.shared.setActivationPolicy(.prohibited)
         let outputDirectory = try outputDirectory()
+        let storyDirectory = storyOutputDirectory(outputDirectory: outputDirectory)
         try FileManager.default.createDirectory(
             at: outputDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: storyDirectory,
             withIntermediateDirectories: true
         )
 
@@ -37,7 +43,7 @@ enum AgentKeyringDocsRenderer {
             let outputURL =
                 outputDirectory
                 .appendingPathComponent("\(screen.rawValue).png")
-            try render(
+            try await render(
                 DocumentationPreviewView(screen: screen, controller: controller),
                 contentSize: screen.logicalSize,
                 title: screen.windowTitle,
@@ -45,10 +51,21 @@ enum AgentKeyringDocsRenderer {
             )
             print("Rendered \(outputURL.path)")
         }
+
+        let assets = try storyAssets(from: outputDirectory)
+        for scene in StoryScene.allCases {
+            let outputURL = storyDirectory.appendingPathComponent("\(scene.rawValue).png")
+            try renderCanvas(
+                StoryFrame(scene: scene, assets: assets),
+                size: CGSize(width: 1_920, height: 1_080),
+                to: outputURL
+            )
+            print("Rendered \(outputURL.path)")
+        }
     }
 
     private static func outputDirectory() throws -> URL {
-        if CommandLine.arguments.count == 2 {
+        if CommandLine.arguments.count >= 2 {
             return URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         }
         guard let workingDirectory = ProcessInfo.processInfo.environment["PWD"] else {
@@ -58,13 +75,20 @@ enum AgentKeyringDocsRenderer {
             .appendingPathComponent("docs/media", isDirectory: true)
     }
 
+    private static func storyOutputDirectory(outputDirectory: URL) -> URL {
+        if CommandLine.arguments.count >= 3 {
+            return URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+        }
+        return outputDirectory.appendingPathComponent("story", isDirectory: true)
+    }
+
     @MainActor
     private static func render<Content: View>(
         _ content: Content,
         contentSize: CGSize,
         title: String,
         to outputURL: URL
-    ) throws {
+    ) async throws {
         let hostingView = NSHostingView(rootView: content)
         hostingView.frame = CGRect(origin: .zero, size: contentSize)
         let window = NSWindow(
@@ -76,23 +100,63 @@ enum AgentKeyringDocsRenderer {
         window.isReleasedWhenClosed = false
         window.title = title
         window.contentView = hostingView
-        window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+        let visibleFrame = NSScreen.main?.visibleFrame ?? .zero
+        window.setFrameOrigin(
+            NSPoint(x: visibleFrame.minX + 24, y: visibleFrame.minY + 24)
+        )
         window.orderBack(nil)
         hostingView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        try await Task.sleep(for: .milliseconds(250))
 
-        guard let frameView = window.contentView?.superview else {
+        let shareableContent = try await SCShareableContent.excludingDesktopWindows(
+            false,
+            onScreenWindowsOnly: false
+        )
+        guard
+            let capturedWindow = shareableContent.windows.first(where: {
+                $0.windowID == CGWindowID(window.windowNumber)
+            })
+        else {
             throw RendererError.renderFailed
         }
-        frameView.layoutSubtreeIfNeeded()
-        let captureSize = frameView.bounds.size
+
+        let configuration = SCScreenshotConfiguration()
+        configuration.showsCursor = false
+        configuration.ignoreShadows = false
+        configuration.includeChildWindows = true
+        configuration.dynamicRange = .sdr
+        let output = try await SCScreenshotManager.captureScreenshot(
+            contentFilter: SCContentFilter(desktopIndependentWindow: capturedWindow),
+            configuration: configuration
+        )
+        window.close()
+
+        guard let image = output.sdrImage else {
+            throw RendererError.renderFailed
+        }
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            throw RendererError.renderFailed
+        }
+        try data.write(to: outputURL, options: .atomic)
+    }
+
+    @MainActor
+    private static func renderCanvas<Content: View>(
+        _ content: Content,
+        size: CGSize,
+        to outputURL: URL
+    ) throws {
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.frame = CGRect(origin: .zero, size: size)
+        hostingView.layoutSubtreeIfNeeded()
 
         guard
             let bitmap = NSBitmapImageRep(
                 bitmapDataPlanes: nil,
-                pixelsWide: Int(captureSize.width * 2),
-                pixelsHigh: Int(captureSize.height * 2),
+                pixelsWide: Int(size.width),
+                pixelsHigh: Int(size.height),
                 bitsPerSample: 8,
                 samplesPerPixel: 4,
                 hasAlpha: true,
@@ -104,21 +168,30 @@ enum AgentKeyringDocsRenderer {
         else {
             throw RendererError.renderFailed
         }
-        bitmap.size = captureSize
-        if let context = NSGraphicsContext(bitmapImageRep: bitmap) {
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
-            NSColor(calibratedRed: 0.93, green: 0.95, blue: 0.98, alpha: 1).setFill()
-            NSBezierPath(rect: CGRect(origin: .zero, size: captureSize)).fill()
-            NSGraphicsContext.restoreGraphicsState()
-        }
-        frameView.cacheDisplay(in: frameView.bounds, to: bitmap)
-        window.close()
-
+        bitmap.size = size
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else {
             throw RendererError.renderFailed
         }
         try data.write(to: outputURL, options: .atomic)
+    }
+
+    private static func storyAssets(from directory: URL) throws -> StoryAssets {
+        StoryAssets(
+            ready: try image(named: "ready.png", in: directory),
+            access: try image(named: "access.png", in: directory),
+            assistant: try image(named: "assistant.png", in: directory),
+            approval: try image(named: "approval.png", in: directory),
+            watchPrompt: try image(named: "native-watch-prompt.png", in: directory)
+        )
+    }
+
+    private static func image(named name: String, in directory: URL) throws -> NSImage {
+        let url = directory.appendingPathComponent(name)
+        guard let image = NSImage(contentsOf: url) else {
+            throw RendererError.missingImage(url)
+        }
+        return image
     }
 
     private static func fixtureGeneration() -> MirrorGeneration {
@@ -181,5 +254,6 @@ enum AgentKeyringDocsRenderer {
 
 private enum RendererError: Error {
     case missingWorkingDirectory
+    case missingImage(URL)
     case renderFailed
 }

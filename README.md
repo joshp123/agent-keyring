@@ -4,73 +4,67 @@ written_by: ai
 
 # Agent Keyring
 
-Let Codex sign in for you without moving your passwords out of Apple Passwords.
+Tell Codex what you want. Agent Keyring handles the login.
 
-Agent Keyring keeps an encrypted local mirror, gives agents only the credentials you allow and asks on Apple Watch or Touch ID before releasing protected passwords.
+When Codex reaches a password in Safari or its built-in browser, Agent Keyring finds the matching Apple Passwords credential and follows your rule:
 
-[![Agent Keyring demo](docs/media/agent-keyring-demo.gif)](docs/media/agent-keyring-demo.mp4)
+| Rule | What happens |
+| --- | --- |
+| Allow automatically | Codex continues without interrupting you. |
+| Ask each time | Approve the exact website and account on Apple Watch or Touch ID. |
+| Blocked | Agent Keyring refuses the request. |
 
-Demo data is synthetic. Product screens are rendered off-screen from the real SwiftUI views. The Watch prompt is a genuine macOS prompt captured separately, not a recording of completed approval.
+Apple Passwords remains your source of truth. Agent Keyring uses Apple's credential exchange flow, Keychain and LocalAuthentication. Passwords and codes never appear in chat or command output.
 
-## Download
+[Download the signed and notarised app](https://github.com/joshp123/agent-keyring/releases/latest) · macOS 26 or later · free and open source
 
-[Download the latest release](https://github.com/joshp123/agent-keyring/releases/latest)
+[![Agent Keyring: automatic, approved or blocked credential access for Codex](docs/media/agent-keyring-demo.gif)](docs/media/agent-keyring-demo.mp4)
 
-You need macOS 26 or later and Apple Passwords. The app is signed and notarised. Agent Keyring is free, open source and has no account or subscription.
+The demo uses synthetic accounts. Product screens are real native window captures. The macOS Watch prompt is genuine and captured separately; it does not claim to show a completed Watch approval.
 
-1. Unzip Agent Keyring and move it to Applications.
-2. Run `/Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install` in Terminal, then restart Codex once.
-3. Open Agent Keyring and select `Enable secure import`.
-4. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
+## Let your AI choose the rules
 
-Repeat step 4 when you want to refresh the mirror. Apple does not provide silent or incremental password export.
+You do not need to classify every credential yourself.
 
-## Why it exists
+1. In `Credential access`, select `Let your AI choose` and copy the generated prompt.
+2. Paste it into the AI you already use. It interviews you about your tasks and risk preferences, then recommends a rule for every credential.
+3. Paste its final answer back into Agent Keyring. Review every proposed change, then apply it.
 
-Codex can use Safari and its built-in browser, but it cannot read Apple Passwords when a login appears. Agent Keyring adds a narrow local hand-off:
+The prompt contains credential names, websites and account labels. It never contains passwords, verification codes or TOTP seeds.
 
-- Apple Passwords stays the source of truth
-- the mirror is encrypted with a key in your login Keychain
-- secrets never appear in command output or chat
-- approved secrets use the shared macOS pasteboard, where other processes in your user session can read them until Agent Keyring clears its value after 30 seconds
+![Agent Keyring's copy-and-paste AI policy assistant](docs/media/assistant.png)
 
 ## Approval on Apple Watch
 
-For protected credentials, Agent Keyring shows the exact website, account and requested field before macOS asks for approval.
+For credentials set to `Ask each time`, Agent Keyring shows the requested website, account and field before macOS asks for approval. One Apple Watch or Touch ID approval releases one requested field.
 
-![Agent Keyring and the native Apple Watch approval prompt](docs/media/approval-watch.png)
+![Agent Keyring beside the native macOS Apple Watch approval prompt](docs/media/approval-watch.png)
 
-One Apple Watch or Touch ID approval releases one requested field. The request expires if the agent goes away.
+## Set up once
 
-## Choose what agents can use
+1. Download the ZIP, move `AgentKeyring.app` to Applications and open it.
+2. Ask Codex to run:
 
-Each credential has one rule:
+   ```text
+   Set up Agent Keyring for me by running:
+   /Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install
+   ```
 
-| Rule | Result |
-| --- | --- |
-| Ask each time | Usernames are available. Passwords and codes need Apple Watch or Touch ID. |
-| Allow automatically | Any process running as your macOS user can copy the credential. |
-| Blocked | Local agents cannot copy any field. |
+3. In Agent Keyring, select `Enable secure import`. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
 
-New credentials start in `Ask each time`.
+That is it. Ask Codex normally. You do not need to restart Codex.
 
-<p>
-  <img src="docs/media/access.png" width="55%" alt="Three credential access groups">
-  <img src="docs/media/assistant.png" width="40%" alt="Checked AI recommendations">
-</p>
+Repeat the Apple Passwords export when you want to refresh the mirror. Apple does not provide silent or incremental password export.
 
-Select `Let AI choose` if you do not want to sort everything yourself. Agent Keyring creates a prompt for any model. The model first asks about your tasks and risk preferences, then returns a rule for every credential. You review every change before applying it.
+## Security boundaries
 
-The prompt contains credential names, sites and account labels. It never contains passwords or verification codes.
-
-## Security limits
-
-- passkeys stay in Apple Passwords and are not supported yet
-- Apple may omit shared credentials, Sign in with Apple records and items without passwords
-- Agent Keyring cannot detect a password changed in Apple Passwords until you refresh
+- the local mirror is encrypted with AES-GCM; its key is stored in your login Keychain
 - `Allow automatically` trusts every process running as your unlocked macOS user
-- the agent states its destination URL because browsers do not provide Agent Keyring with an attested active-tab origin
-- using `Let AI choose` shares non-secret credential metadata with the model you choose
+- approved secrets use the shared macOS pasteboard; another process in your user session could read them before Agent Keyring clears its value after 30 seconds
+- the agent supplies the destination URL because browsers do not give Agent Keyring an attested active-tab origin
+- passkeys are not supported yet
+- Apple may omit shared credentials, Sign in with Apple records and items without passwords
+- a changed password is not visible until you refresh the mirror
 
 Sparkle checks this repository for signed updates. Automatic installation is off.
 
@@ -85,7 +79,7 @@ cp Config/Local.xcconfig.example Config/Local.xcconfig
 ./script/build_and_run.sh --verify
 ```
 
-Run the tests with `swift test --package-path AgentKeyringPackage`.
+Run tests with `swift test --package-path AgentKeyringPackage`.
 
 ## Licence
 

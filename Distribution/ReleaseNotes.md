@@ -2,10 +2,9 @@
 written_by: ai
 ---
 
-First public preview.
+Sharper first-run guidance and a clearer product demo.
 
-- mirrors supported Apple Passwords credentials into encrypted local storage
-- lets you ask each time, allow automatically or block each credential
-- requests Touch ID or Apple Watch approval before releasing protected secrets
-- includes a Codex skill and CLI that keep secrets out of command output
-- uses Sparkle for signed updates from GitHub Releases
+- makes the copy-and-paste AI policy assistant a primary workflow
+- explains automatic, Apple Watch or Touch ID, and blocked access at a glance
+- installs the Codex integration without requiring a restart
+- replaces simulated product frames with native macOS window captures

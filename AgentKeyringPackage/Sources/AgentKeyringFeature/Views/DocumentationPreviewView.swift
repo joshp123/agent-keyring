@@ -201,7 +201,7 @@ private struct DocumentationAccessSidebar: View {
             Spacer()
 
             Button(action: {}) {
-                Label("Let AI choose…", systemImage: "sparkles")
+                Label("Let your AI choose…", systemImage: "sparkles")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.borderedProminent)

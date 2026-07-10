@@ -70,7 +70,7 @@ struct AgentKeyringCLI {
             ok: true,
             commandPath: commandDestination.path,
             skillPath: skillDestination.path,
-            restartCodex: true
+            restartCodex: false
         )
     }
 

@@ -73,7 +73,7 @@ private struct AssistantSidebarAction: View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
             Button(action: action) {
-                Label("Let AI choose…", systemImage: "sparkles")
+                Label("Let your AI choose…", systemImage: "sparkles")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.borderedProminent)

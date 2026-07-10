@@ -134,10 +134,10 @@ private struct AssistantHeader: View {
                 .background(.purple.opacity(0.12), in: Circle())
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("Let AI sort your credentials")
+                Text("Let your AI sort your credentials")
                     .font(.title2.weight(.semibold))
                 Text(
-                    "Copy a prompt to your preferred model. It will ask about your needs before recommending access rules."
+                    "Copy a prompt to the AI you already use. It will ask about your needs before recommending access rules."
                 )
                 .font(.body)
                 .foregroundStyle(.secondary)
@@ -156,7 +156,7 @@ private struct CopyPromptStep: View {
     let copyPrompt: () -> Void
 
     var body: some View {
-        AssistantStep(number: 1, title: "Ask a model to choose") {
+        AssistantStep(number: 1, title: "Ask your AI to choose") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(
                     "The prompt lists \(credentialCount) credential IDs, titles, websites and account labels. It never includes passwords, seeds or verification codes."
@@ -406,7 +406,7 @@ private enum AssistantMessage: Equatable {
 
     var text: String {
         switch self {
-        case .promptCopied: "Prompt copied. Paste it into your preferred model."
+        case .promptCopied: "Prompt copied. Paste it into your AI."
         case .responseReady: "Every mirrored credential has one valid recommendation."
         case let .error(text): text
         }
