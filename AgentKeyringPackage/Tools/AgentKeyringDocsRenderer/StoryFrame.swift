@@ -42,6 +42,7 @@ struct StoryFrame: View {
             }
 
             StoryBrand()
+            StoryFooter()
         }
         .frame(width: 1_920, height: 1_080)
     }
@@ -50,27 +51,27 @@ struct StoryFrame: View {
 private struct StoryBackdrop: View {
     var body: some View {
         ZStack {
-            LinearGradient(
+            StoryColour.background
+
+            RadialGradient(
                 colors: [
-                    Color(red: 0.96, green: 0.98, blue: 1),
-                    Color(red: 0.93, green: 1, blue: 0.97),
-                    Color(red: 0.97, green: 0.95, blue: 1),
+                    StoryColour.cyanGlow,
+                    StoryColour.background.opacity(0),
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                center: .topTrailing,
+                startRadius: 0,
+                endRadius: 940
             )
 
-            Circle()
-                .fill(Color.cyan.opacity(0.12))
-                .frame(width: 620, height: 620)
-                .blur(radius: 90)
-                .offset(x: 690, y: -370)
-
-            Circle()
-                .fill(Color.purple.opacity(0.10))
-                .frame(width: 720, height: 720)
-                .blur(radius: 110)
-                .offset(x: -720, y: 430)
+            RadialGradient(
+                colors: [
+                    StoryColour.violetGlow,
+                    StoryColour.background.opacity(0),
+                ],
+                center: .bottomLeading,
+                startRadius: 0,
+                endRadius: 1_020
+            )
         }
         .ignoresSafeArea()
     }
@@ -92,10 +93,27 @@ private struct StoryBrand: View {
                     in: .rect(cornerRadius: 15)
                 )
             Text("Agent Keyring")
-                .font(.system(size: 30, weight: .semibold, design: .rounded))
-                .foregroundStyle(StoryColour.ink)
+                .font(StoryFont.display(30, weight: .semibold))
+                .foregroundStyle(.white)
         }
         .position(x: 205, y: 78)
+    }
+}
+
+private struct StoryFooter: View {
+    var body: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Text("github.com/joshp123/agent-keyring")
+                Spacer()
+                Text("Apple Passwords  •  Apple Watch  •  local")
+            }
+            .font(StoryFont.display(20, weight: .medium))
+            .foregroundStyle(StoryColour.quiet)
+            .padding(.horizontal, 64)
+            .padding(.bottom, 38)
+        }
     }
 }
 
@@ -117,7 +135,7 @@ private struct ProblemStory: View {
                 )
                 Image(systemName: "arrow.right")
                     .font(.system(size: 38, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StoryColour.muted)
                 ConversationCard(
                     label: "CODEX",
                     symbol: "sparkles",
@@ -128,7 +146,7 @@ private struct ProblemStory: View {
             }
 
             Label("Without credential access, the task stops here.", systemImage: "lock.fill")
-                .font(.system(size: 34, weight: .semibold))
+                .font(StoryFont.display(34, weight: .semibold))
                 .foregroundStyle(Color.orange)
         }
         .frame(width: 1_600, alignment: .leading)
@@ -194,30 +212,30 @@ private struct ApprovalStory: View {
 
             HStack(spacing: 70) {
                 WindowCapture(image: approval)
-                    .frame(width: 760)
+                    .frame(width: 700)
 
                 VStack(spacing: 28) {
                     Text("Native macOS approval")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .font(StoryFont.display(28, weight: .semibold))
+                        .foregroundStyle(StoryColour.muted)
                     Image(nsImage: watchPrompt)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 510)
+                        .frame(width: 460)
                         .shadow(color: .black.opacity(0.22), radius: 34, y: 20)
                     Label(
                         "Approve on Apple Watch or Touch ID",
                         systemImage: "applewatch.radiowaves.left.and.right"
                     )
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(StoryColour.ink)
+                    .font(StoryFont.display(30, weight: .semibold))
+                    .foregroundStyle(.white)
                 }
-                .frame(width: 650)
+                .frame(width: 610)
             }
             .frame(maxWidth: .infinity)
         }
         .frame(width: 1_650)
-        .offset(y: 88)
+        .offset(y: 52)
     }
 }
 
@@ -247,8 +265,8 @@ private struct AssistantStory: View {
                     "The prompt contains metadata, never passwords or verification codes.",
                     systemImage: "lock.shield.fill"
                 )
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(.secondary)
+                .font(StoryFont.display(26, weight: .medium))
+                .foregroundStyle(StoryColour.muted)
             }
             .frame(width: 700)
 
@@ -286,8 +304,8 @@ private struct CompleteStory: View {
                         "Secrets stay out of chat and command output",
                         systemImage: "lock.shield.fill")
                 }
-                .font(.system(size: 28, weight: .medium))
-                .foregroundStyle(.secondary)
+                .font(StoryFont.display(28, weight: .medium))
+                .foregroundStyle(StoryColour.muted)
             }
             .frame(width: 760)
 
@@ -307,15 +325,16 @@ private struct StoryHeading: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             Text(eyebrow)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .font(StoryFont.display(26, weight: .bold))
                 .tracking(2.2)
-                .foregroundStyle(.teal)
+                .foregroundStyle(StoryColour.accent)
             Text(title)
-                .font(.system(size: 64, weight: .bold, design: .rounded))
-                .foregroundStyle(StoryColour.ink)
+                .font(StoryFont.display(68, weight: .bold))
+                .tracking(-1.2)
+                .foregroundStyle(.white)
             Text(detail)
-                .font(.system(size: 34, weight: .regular))
-                .foregroundStyle(.secondary)
+                .font(StoryFont.display(34))
+                .foregroundStyle(StoryColour.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -337,13 +356,13 @@ private struct ConversationCard: View {
                     .frame(width: 50, height: 50)
                     .background(tint.opacity(0.12), in: .circle)
                 Text(label)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(StoryFont.display(22, weight: .bold))
                     .tracking(1.4)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StoryColour.mutedInk)
                 Spacer()
                 if let status {
                     Text(status)
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(StoryFont.display(20, weight: .semibold))
                         .foregroundStyle(status == "Done" ? Color.green : Color.orange)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
@@ -354,19 +373,19 @@ private struct ConversationCard: View {
                 }
             }
             Text(text)
-                .font(.system(size: 34, weight: .medium))
+                .font(StoryFont.display(34, weight: .medium))
                 .foregroundStyle(StoryColour.ink)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(30)
         .frame(width: 700, alignment: .topLeading)
         .frame(minHeight: 245, alignment: .topLeading)
-        .background(.white.opacity(0.90), in: .rect(cornerRadius: 30))
+        .background(.white.opacity(0.97), in: .rect(cornerRadius: 26))
         .overlay {
-            RoundedRectangle(cornerRadius: 30)
-                .stroke(.white.opacity(0.85), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 26)
+                .stroke(StoryColour.hairline, lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.10), radius: 30, y: 18)
+        .shadow(color: .black.opacity(0.32), radius: 38, y: 24)
     }
 }
 
@@ -385,19 +404,19 @@ private struct RuleCard: View {
                 .background(colour.opacity(0.12), in: .circle)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.system(size: 32, weight: .bold))
+                    .font(StoryFont.display(32, weight: .bold))
                     .foregroundStyle(StoryColour.ink)
                 Text(detail)
-                    .font(.system(size: 25))
-                    .foregroundStyle(.secondary)
+                    .font(StoryFont.display(25))
+                    .foregroundStyle(StoryColour.mutedInk)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
         }
         .padding(22)
-        .background(.white.opacity(0.86), in: .rect(cornerRadius: 24))
+        .background(.white.opacity(0.97), in: .rect(cornerRadius: 22))
         .overlay {
-            RoundedRectangle(cornerRadius: 24)
+            RoundedRectangle(cornerRadius: 22)
                 .stroke(colour.opacity(0.18), lineWidth: 1)
         }
     }
@@ -410,13 +429,13 @@ private struct StoryStep: View {
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
             Text(number, format: .number)
-                .font(.system(size: 23, weight: .bold, design: .rounded))
+                .font(StoryFont.display(23, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(Color.purple, in: .circle)
+                .background(StoryColour.accent, in: .circle)
             Text(text)
-                .font(.system(size: 30, weight: .medium))
-                .foregroundStyle(StoryColour.ink)
+                .font(StoryFont.display(30, weight: .medium))
+                .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -433,5 +452,19 @@ private struct WindowCapture: View {
 }
 
 private enum StoryColour {
+    static let background = Color(red: 0.035, green: 0.055, blue: 0.09)
+    static let accent = Color(red: 0.05, green: 0.78, blue: 0.88)
+    static let cyanGlow = Color.cyan.opacity(0.17)
+    static let violetGlow = Color.purple.opacity(0.12)
+    static let muted = Color.white.opacity(0.68)
+    static let quiet = Color.white.opacity(0.38)
     static let ink = Color(red: 0.07, green: 0.10, blue: 0.16)
+    static let mutedInk = Color(red: 0.34, green: 0.38, blue: 0.44)
+    static let hairline = Color.white.opacity(0.20)
+}
+
+private enum StoryFont {
+    static func display(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .custom("Helvetica Neue", fixedSize: size).weight(weight)
+    }
 }
