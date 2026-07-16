@@ -65,9 +65,9 @@ final class AgentKeyringUITests: XCTestCase {
 
         accessWindow.buttons["policy-assistant"].click()
         XCTAssertTrue(
-            app.staticTexts["Set access rules with AI"].waitForExistence(timeout: 3)
+            app.staticTexts["Get rule suggestions from your AI"].waitForExistence(timeout: 3)
         )
-        XCTAssertTrue(app.buttons["Copy instructions"].exists)
-        XCTAssertTrue(app.buttons["Review changes"].exists)
+        XCTAssertTrue(app.buttons["Copy site list"].exists)
+        XCTAssertTrue(app.buttons["Review suggestions"].exists)
     }
 }
