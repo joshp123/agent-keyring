@@ -63,6 +63,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         } else {
             self.accessControlFixture = nil
             self.model = MirrorAppModel(
+                includeExampleCredential: true,
                 approvalWindowPresenter: {
                     await presentation.presentApprovalWindow()
                 }

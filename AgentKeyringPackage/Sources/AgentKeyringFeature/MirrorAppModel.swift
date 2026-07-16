@@ -58,6 +58,7 @@ public final class MirrorAppModel {
     private let bridge: AgentBridgeDirectory
     private let pasteboard: ExpiringPasteboard
     private let approvalWindowPresenter: ApprovalWindowPresenter
+    private let includeExampleCredential: Bool
     private var handledTokens = Set<UUID>()
     private var handledAgentRequests = Set<UUID>()
 
@@ -70,6 +71,7 @@ public final class MirrorAppModel {
         authorizer: any CredentialReleaseAuthorizing = LocalCredentialReleaseAuthorizer(),
         bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
         accessControl: CredentialAccessController = CredentialAccessController(),
+        includeExampleCredential: Bool = false,
         approvalWindowPresenter: ApprovalWindowPresenter? = nil
     ) {
         self.store = store
@@ -80,6 +82,7 @@ public final class MirrorAppModel {
         self.authorizer = authorizer
         self.bridge = bridge
         self.accessControl = accessControl
+        self.includeExampleCredential = includeExampleCredential
         self.pasteboard = ExpiringPasteboard()
         self.approvalWindowPresenter =
             approvalWindowPresenter
@@ -94,7 +97,7 @@ public final class MirrorAppModel {
     public func loadStatus() async {
         defer { isLoading = false }
         do {
-            let generation = try await store.loadCurrent()
+            let generation = generationIncludingExample(try await store.loadCurrent())
             status = generation?.safeStatus
             if let generation {
                 await accessControl.refresh(from: generation)
@@ -243,14 +246,16 @@ public final class MirrorAppModel {
                 importBatch: importBatch
             )
             try await store.save(generation)
-            await accessControl.refresh(from: generation)
+            let visibleGeneration = generationIncludingExample(generation) ?? generation
+            await accessControl.refresh(from: visibleGeneration)
             credentialExchangeLogger.info(
                 "Saved encrypted mirror with \(generation.items.count, privacy: .public) items"
             )
-            status = generation.safeStatus
+            status = visibleGeneration.safeStatus
             notice = MirrorNotice(
                 kind: .information,
-                text: "Import complete. Agent Keyring’s encrypted copy now matches this Passwords export."
+                text:
+                    "Import complete. Agent Keyring’s encrypted copy now matches this Passwords export."
             )
         } catch {
             let nsError = error as NSError
@@ -281,7 +286,7 @@ public final class MirrorAppModel {
                 throw AgentBridgeFailure(
                     .requestExpired, "The agent request expired before it was handled.")
             }
-            guard let generation = try await store.loadCurrent() else {
+            guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
                 throw AgentBridgeFailure(
                     .mirrorUnavailable, "No encrypted mirror is available yet.")
             }
@@ -463,6 +468,56 @@ public final class MirrorAppModel {
                 clipboardExpiresAt: Date().addingTimeInterval(TimeInterval(expiration))
             )
         }
+    }
+
+    private func generationIncludingExample(_ generation: MirrorGeneration?) -> MirrorGeneration? {
+        guard includeExampleCredential else { return generation }
+
+        let item = MirrorItem(
+            id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1)),
+            sourceIdentity: MirrorSourceIdentity(
+                exporterIdentifier: "com.agentkeyring.example",
+                accountID: Data("example@example.com".utf8),
+                itemID: Data("example.com".utf8)
+            ),
+            title: "example.com",
+            origins: ["https://example.com"],
+            credentials: [
+                .password(userName: "example@example.com", password: "example-password")
+            ]
+        )
+
+        guard let generation else {
+            return MirrorGeneration(
+                id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0)),
+                previousGenerationID: nil,
+                createdAt: Date(),
+                sourceExportedAt: Date(),
+                scope: .full,
+                exporterIdentifier: "com.agentkeyring.example",
+                exporterDisplayName: "Agent Keyring",
+                items: [item],
+                delta: MirrorDelta(addedItemIDs: [item.id]),
+                skippedCredentialCount: 0
+            )
+        }
+
+        guard !generation.items.contains(where: { $0.id == item.id }) else {
+            return generation
+        }
+        return MirrorGeneration(
+            id: generation.id,
+            previousGenerationID: generation.previousGenerationID,
+            createdAt: generation.createdAt,
+            sourceExportedAt: generation.sourceExportedAt,
+            scope: generation.scope,
+            exporterIdentifier: generation.exporterIdentifier,
+            exporterDisplayName: generation.exporterDisplayName,
+            items: generation.items + [item],
+            delta: generation.delta,
+            skippedCredentialCount: generation.skippedCredentialCount,
+            skippedCredentialSummary: generation.skippedCredentialSummary
+        )
     }
 
     private func approvalDestination(for targetURL: String) -> String {
