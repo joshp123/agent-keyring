@@ -391,6 +391,7 @@ public final class MirrorAppModel {
                 throw AgentBridgeFailure(
                     .invalidRequest, "The copy request needs a target URL and field.")
             }
+            try resolver.validateSecureTarget(targetURL)
             let candidates = try resolver.candidates(
                 in: generation,
                 targetURL: targetURL,
@@ -464,6 +465,7 @@ public final class MirrorAppModel {
                 id: request.id,
                 ok: true,
                 mirror: mirror,
+                candidates: [selected],
                 copiedField: field,
                 clipboardExpiresAt: Date().addingTimeInterval(TimeInterval(expiration))
             )

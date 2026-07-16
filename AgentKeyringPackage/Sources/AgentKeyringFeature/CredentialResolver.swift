@@ -62,6 +62,12 @@ public struct CredentialResolver: Sendable {
 
     public init() {}
 
+    func validateSecureTarget(_ targetURL: String) throws {
+        guard try parsedTarget(targetURL).isSecure else {
+            throw CredentialResolverError.insecureOrigin
+        }
+    }
+
     public func candidates(
         in generation: MirrorGeneration,
         targetURL: String,

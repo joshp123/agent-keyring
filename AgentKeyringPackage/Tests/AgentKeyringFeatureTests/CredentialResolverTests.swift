@@ -85,6 +85,9 @@ struct CredentialResolverTests {
         ])
 
         #expect(throws: CredentialResolverError.insecureOrigin) {
+            try resolver.validateSecureTarget("http://example.com/login")
+        }
+        #expect(throws: CredentialResolverError.insecureOrigin) {
             try resolver.secret(
                 in: snapshot,
                 targetURL: "http://example.com/login",
