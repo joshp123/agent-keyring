@@ -11,12 +11,15 @@ struct CredentialPolicyAssistantView: View {
     @State private var isApplying = false
     private let controller: CredentialAccessController
     private let assistant = CredentialPolicyAssistant()
+    private let initiallyShowsPrompt: Bool
 
     init(
         controller: CredentialAccessController,
-        initialResponse: String = ""
+        initialResponse: String = "",
+        initiallyShowsPrompt: Bool = false
     ) {
         self.controller = controller
+        self.initiallyShowsPrompt = initiallyShowsPrompt
         _responseText = State(initialValue: initialResponse)
         _promptText = State(
             initialValue: (try? CredentialPolicyAssistant().prompt(for: controller.rows)) ?? ""
@@ -48,6 +51,7 @@ struct CredentialPolicyAssistantView: View {
                         CopyPromptStep(
                             prompt: promptText,
                             didCopy: message == .promptCopied,
+                            initiallyExpanded: initiallyShowsPrompt,
                             copyPrompt: copyPrompt
                         )
                         PasteResponseStep(
@@ -72,7 +76,7 @@ struct CredentialPolicyAssistantView: View {
                 apply: applyRecommendations
             )
         }
-        .frame(width: 780, height: 680)
+        .frame(width: 720, height: 480)
         .interactiveDismissDisabled(isApplying)
         .onChange(of: responseText) {
             if review == nil, message != .promptCopied {
@@ -128,20 +132,20 @@ struct CredentialPolicyAssistantView: View {
 @available(macOS 26.0, *)
 private struct AssistantHeader: View {
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .center, spacing: 14) {
             Image(systemName: "sparkles")
-                .font(.title2)
+                .font(.title3)
                 .foregroundStyle(Color.accentColor)
-                .frame(width: 46, height: 46)
+                .frame(width: 38, height: 38)
                 .background(Color.accentColor.opacity(0.12), in: Circle())
 
             VStack(alignment: .leading) {
                 Text("Set Rules with AI")
-                    .font(.title2.weight(.semibold))
+                    .font(.title3.weight(.semibold))
             }
             Spacer()
         }
-        .padding(24)
+        .padding(18)
     }
 }
 
@@ -152,18 +156,44 @@ private struct CopyPromptStep: View {
     let didCopy: Bool
     let copyPrompt: () -> Void
 
+    init(
+        prompt: String,
+        didCopy: Bool,
+        initiallyExpanded: Bool,
+        copyPrompt: @escaping () -> Void
+    ) {
+        self.prompt = prompt
+        self.didCopy = didCopy
+        self.copyPrompt = copyPrompt
+        _isShowingPrompt = State(initialValue: initiallyExpanded)
+    }
+
     var body: some View {
         AssistantStep(number: 1, title: "Copy the Prompt") {
             VStack(alignment: .leading, spacing: 12) {
-                DisclosureGroup("Preview Prompt", isExpanded: $isShowingPrompt) {
+                Button {
+                    withAnimation(.snappy) {
+                        isShowingPrompt.toggle()
+                    }
+                } label: {
+                    Label(
+                        "Preview Prompt",
+                        systemImage: isShowingPrompt ? "chevron.down" : "chevron.right"
+                    )
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+
+                if isShowingPrompt {
                     ScrollView {
                         Text(prompt)
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(10)
                     }
-                    .frame(height: 160)
+                    .frame(height: 120)
                     .background(.background, in: .rect(cornerRadius: 8))
                 }
 
@@ -190,7 +220,7 @@ private struct PasteResponseStep: View {
             VStack(alignment: .leading, spacing: 12) {
                 TextEditor(text: $responseText)
                     .font(.system(.callout, design: .monospaced))
-                    .frame(minHeight: 150)
+                    .frame(minHeight: 120)
                     .padding(6)
                     .background(.background, in: .rect(cornerRadius: 8))
                     .overlay {

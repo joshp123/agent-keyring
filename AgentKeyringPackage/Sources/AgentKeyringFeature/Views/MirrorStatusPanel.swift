@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @available(macOS 26.0, *)
@@ -12,7 +13,7 @@ struct MirrorStatusPanel: View {
     let manageAccess: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 18) {
                 StatusMark(symbol: presentation.symbol, colour: presentation.colour)
 
@@ -31,6 +32,15 @@ struct MirrorStatusPanel: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("mirror-status")
+
+            if status != nil, !isImporting {
+                Text(
+                    "Agents use the `agent-keyring` command to copy a username, password or code. Access Rules decide whether to ask you, allow it or block it."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
 
             if let status, !isImporting, status.skippedCredentialCount > 0 {
                 Divider()
@@ -53,8 +63,13 @@ struct MirrorStatusPanel: View {
                 openPasswords: openPasswords,
                 manageAccess: manageAccess
             )
+
+            if status != nil, !isImporting {
+                Divider()
+                AgentInstructionsView()
+            }
         }
-        .padding(30)
+        .padding(24)
         .glassEffect(.regular, in: .rect(cornerRadius: 28))
     }
 
@@ -109,6 +124,49 @@ struct MirrorStatusPanel: View {
             symbol: "key.horizontal.fill",
             colour: .teal
         )
+    }
+}
+
+@available(macOS 26.0, *)
+private struct AgentInstructionsView: View {
+    @State private var didCopy = false
+
+    private static let instructions =
+        "Use `agent-keyring` before asking for credentials. Resolve the page URL, copy the needed field and paste with Cmd-V; never read or print the clipboard. Run `agent-keyring --help` for commands."
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Add to AGENTS.md")
+                    .font(.headline)
+                Spacer()
+                Button(action: copyInstructions) {
+                    Label(
+                        didCopy ? "Copied" : "Copy",
+                        systemImage: didCopy ? "checkmark" : "doc.on.doc"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("copy-agent-instructions")
+            }
+
+            Text(Self.instructions)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(.primary.opacity(0.04), in: .rect(cornerRadius: 8))
+        }
+        .accessibilityIdentifier("agent-instructions")
+    }
+
+    private func copyInstructions() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(Self.instructions, forType: .string)
+        didCopy = true
     }
 }
 

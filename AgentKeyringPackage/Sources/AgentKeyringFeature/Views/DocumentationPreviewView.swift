@@ -12,13 +12,13 @@ public enum DocumentationScreen: String, CaseIterable, Sendable {
     public var logicalSize: CGSize {
         switch self {
         case .setup, .ready:
-            CGSize(width: 780, height: 496)
+            CGSize(width: 720, height: 440)
         case .access:
             CGSize(width: 960, height: 680)
         case .assistant, .assistantReview:
-            CGSize(width: 780, height: 680)
+            CGSize(width: 720, height: 480)
         case .approval:
-            CGSize(width: 560, height: 552)
+            CGSize(width: 520, height: 420)
         }
     }
 
@@ -50,7 +50,10 @@ public struct DocumentationPreviewView: View {
             case .access:
                 AccessControlView(controller: controller)
             case .assistant:
-                CredentialPolicyAssistantView(controller: controller)
+                CredentialPolicyAssistantView(
+                    controller: controller,
+                    initiallyShowsPrompt: true
+                )
             case .assistantReview:
                 CredentialPolicyAssistantView(
                     controller: controller,
@@ -119,7 +122,7 @@ private struct DocumentationStatusView: View {
                     manageAccess: {}
                 )
             }
-            .padding(32)
+            .padding(24)
         }
         .tint(.teal)
     }
@@ -139,7 +142,7 @@ private struct DocumentationApprovalView: View {
                 ),
                 showsProgressIndicator: false
             )
-            .padding(32)
+            .padding(24)
         }
         .tint(.teal)
     }

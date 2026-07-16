@@ -32,10 +32,13 @@ public struct ContentView: View {
                     )
                 }
             }
-            .padding(32)
+            .padding(24)
             .animation(.snappy, value: model.pendingCredentialRelease)
         }
-        .frame(width: model.pendingCredentialRelease == nil ? 780 : 560)
+        .frame(
+            width: model.pendingCredentialRelease == nil ? 720 : 520,
+            height: model.pendingCredentialRelease == nil ? 440 : 420
+        )
         .tint(.teal)
         .containerBackground(windowGradient, for: .window)
         .task { await model.loadStatus() }

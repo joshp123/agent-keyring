@@ -24,6 +24,8 @@ final class AgentKeyringUITests: XCTestCase {
         let mainWindow = app.windows["main"]
         XCTAssertTrue(mainWindow.waitForExistence(timeout: 5))
         XCTAssertTrue(mainWindow.staticTexts["mirror-status"].exists)
+        XCTAssertTrue(mainWindow.descendants(matching: .any)["agent-instructions"].exists)
+        XCTAssertTrue(mainWindow.buttons["copy-agent-instructions"].exists)
         XCTAssertEqual(app.windows.count, 1)
     }
 
