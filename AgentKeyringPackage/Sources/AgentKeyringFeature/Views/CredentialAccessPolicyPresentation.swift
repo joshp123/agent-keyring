@@ -13,9 +13,9 @@ extension CredentialAccessPolicy {
     var detail: LocalizedStringResource {
         switch self {
         case .ask:
-            "Agents can use usernames. Passwords and verification codes ask you first."
+            "The default for new credentials. Agents can use usernames, but passwords and verification codes ask you first."
         case .allowAutomatically:
-            "Agents can use usernames, passwords and verification codes without asking."
+            "Agents can use usernames, passwords and verification codes without asking. Choose this for credentials you trust agents to use unattended."
         case .block:
             "Agents cannot use usernames, passwords or verification codes from these credentials."
         }
@@ -23,7 +23,7 @@ extension CredentialAccessPolicy {
 
     var sidebarDetail: LocalizedStringResource {
         switch self {
-        case .ask: "Ask before sharing secrets"
+        case .ask: "Default for new credentials"
         case .allowAutomatically: "Use without asking"
         case .block: "Agents cannot use"
         }

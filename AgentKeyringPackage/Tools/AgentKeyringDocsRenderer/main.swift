@@ -31,12 +31,13 @@ enum AgentKeyringDocsRenderer {
         )
         let generation = fixtureGeneration()
         await controller.refresh(from: generation)
-        let assignments = Dictionary(uniqueKeysWithValues: generation.items.enumerated().compactMap {
-            index, item -> (UUID, CredentialAccessPolicy)? in
-            if (440..<492).contains(index) { return (item.id, .allowAutomatically) }
-            if index >= 492 { return (item.id, .block) }
-            return nil
-        })
+        let assignments = Dictionary(
+            uniqueKeysWithValues: generation.items.enumerated().compactMap {
+                index, item -> (UUID, CredentialAccessPolicy)? in
+                if (440..<492).contains(index) { return (item.id, .allowAutomatically) }
+                if index >= 492 { return (item.id, .block) }
+                return nil
+            })
         await controller.setPolicies(assignments)
         controller.selectedPolicy = .ask
 
@@ -103,7 +104,9 @@ enum AgentKeyringDocsRenderer {
     private static func storyOutputDirectory(outputDirectory: URL) -> URL {
         let arguments = CommandLine.arguments.dropFirst().filter { $0 != "--" }
         if arguments.count >= 2 {
-            return URL(fileURLWithPath: arguments[arguments.index(after: arguments.startIndex)], isDirectory: true)
+            return URL(
+                fileURLWithPath: arguments[arguments.index(after: arguments.startIndex)],
+                isDirectory: true)
         }
         return outputDirectory.appendingPathComponent("story", isDirectory: true)
     }
@@ -134,9 +137,11 @@ enum AgentKeyringDocsRenderer {
         window.orderBack(nil)
         hostingView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
-        // Tables update asynchronously after their policy selection changes. Give the real
-        // view a full render cycle before asking ScreenCaptureKit for documentation proof.
-        try await Task.sleep(for: .milliseconds(700))
+        // SwiftUI-backed controls finish compositing asynchronously. Give the real view time
+        // to settle, then force one final layout and display pass before capturing proof.
+        try await Task.sleep(for: .milliseconds(1_500))
+        hostingView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
         if scrollToBottom, let scrollView = firstScrollView(in: hostingView) {
             let maximumY = max(
                 0,
@@ -262,15 +267,17 @@ enum AgentKeyringDocsRenderer {
                 8, title: "Recovery account", account: "recovery@example.com",
                 host: "id.example.com"),
         ]
-        let credentials = namedCredentials + (9...522).map { number in
-            let group = (number - 1) / 20 + 1
-            return fixtureItem(
-                number,
-                title: "Service \(number)",
-                account: "account-\(number)",
-                host: "login\(group).example.net"
-            )
-        }
+        let credentials =
+            namedCredentials
+            + (9...522).map { number in
+                let group = (number - 1) / 20 + 1
+                return fixtureItem(
+                    number,
+                    title: "Service \(number)",
+                    account: "account-\(number)",
+                    host: "login\(group).example.net"
+                )
+            }
         return MirrorGeneration(
             id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0)),
             previousGenerationID: nil,

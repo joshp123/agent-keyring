@@ -57,7 +57,7 @@ private struct AccessPolicyHeader: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Text("\(count) credentials")
                     .font(.callout.weight(.medium))
-                    .foregroundStyle(policy.colour)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
         }
@@ -75,7 +75,11 @@ private struct AccessPolicyList: View {
     var body: some View {
         VStack(spacing: 0) {
             AccessPolicySearchField(searchText: $searchText)
-            AccessCredentialColumnHeadings()
+            AccessCredentialColumnHeadings(
+                allRowsSelected: allRowsSelected,
+                someRowsSelected: someRowsSelected,
+                toggleAll: toggleAll
+            )
             Divider()
 
             if rows.isEmpty {
@@ -83,7 +87,8 @@ private struct AccessPolicyList: View {
                     ContentUnavailableView(
                         "No credentials under this rule",
                         systemImage: "tray",
-                        description: Text("Select credentials under another rule, then change their access rule.")
+                        description: Text(
+                            "Select credentials under another rule, then change their access rule.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -115,6 +120,27 @@ private struct AccessPolicyList: View {
             selection.insert(id)
         }
     }
+
+    private var selectedRowCount: Int {
+        rows.lazy.filter { selection.contains($0.id) }.count
+    }
+
+    private var allRowsSelected: Bool {
+        !rows.isEmpty && selectedRowCount == rows.count
+    }
+
+    private var someRowsSelected: Bool {
+        selectedRowCount > 0 && !allRowsSelected
+    }
+
+    private func toggleAll() {
+        let visibleIDs = Set(rows.map(\.id))
+        if allRowsSelected {
+            selection.subtract(visibleIDs)
+        } else {
+            selection.formUnion(visibleIDs)
+        }
+    }
 }
 
 @available(macOS 26.0, *)
@@ -134,9 +160,27 @@ private struct AccessPolicySearchField: View {
 
 @available(macOS 26.0, *)
 private struct AccessCredentialColumnHeadings: View {
+    let allRowsSelected: Bool
+    let someRowsSelected: Bool
+    let toggleAll: () -> Void
+
     var body: some View {
         AccessCredentialColumns(
-            selection: { Text("") },
+            selection: {
+                Button(action: toggleAll) {
+                    Image(systemName: selectionSymbol)
+                }
+                .buttonStyle(.plain)
+                .help(
+                    allRowsSelected
+                        ? "Deselect all shown credentials" : "Select all shown credentials"
+                )
+                .accessibilityLabel(
+                    allRowsSelected
+                        ? "Deselect all shown credentials" : "Select all shown credentials"
+                )
+                .accessibilityIdentifier("select-all-credentials")
+            },
             credential: { Text("Credential") },
             account: { Text("Account") },
             website: { Text("Website") }
@@ -146,6 +190,12 @@ private struct AccessCredentialColumnHeadings: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.quaternary.opacity(0.35))
+    }
+
+    private var selectionSymbol: String {
+        if allRowsSelected { return "checkmark.square.fill" }
+        if someRowsSelected { return "minus.square.fill" }
+        return "square"
     }
 }
 
@@ -159,7 +209,7 @@ private struct AccessCredentialListRow: View {
         Button(action: toggleSelection) {
             AccessCredentialColumns(
                 selection: {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                         .foregroundStyle(isSelected ? Color.accentColor : .secondary)
                 },
                 credential: {
@@ -185,7 +235,9 @@ private struct AccessCredentialListRow: View {
 }
 
 @available(macOS 26.0, *)
-private struct AccessCredentialColumns<Selection: View, Credential: View, Account: View, Website: View>: View {
+private struct AccessCredentialColumns<
+    Selection: View, Credential: View, Account: View, Website: View
+>: View {
     @ViewBuilder let selection: Selection
     @ViewBuilder let credential: Credential
     @ViewBuilder let account: Account

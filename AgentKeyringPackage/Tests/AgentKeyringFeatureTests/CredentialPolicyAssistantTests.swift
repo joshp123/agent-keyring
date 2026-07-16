@@ -6,7 +6,7 @@ import Testing
 struct CredentialPolicyAssistantTests {
     private let assistant = CredentialPolicyAssistant()
 
-    @Test("The prompt defaults ordinary sites to automatic and contains minimal metadata")
+    @Test("The prompt elicits a threat model and contains minimal metadata")
     func promptContents() throws {
         let credentialID = UUID()
         let rows = [
@@ -20,15 +20,17 @@ struct CredentialPolicyAssistantTests {
 
         let prompt = try assistant.prompt(for: rows)
 
-        #expect(prompt.contains("Credential access is plumbing"))
-        #expect(prompt.contains("Use allowAutomatically for ordinary credentials"))
-        #expect(prompt.contains("Use ask only when possession of the credential itself"))
-        #expect(prompt.contains("Do not make ordinary shopping, travel"))
+        #expect(prompt.contains("work out my threat model"))
+        #expect(prompt.contains("New credentials start on ask"))
+        #expect(prompt.contains("deliberately move credentials to allowAutomatically"))
+        #expect(prompt.contains("Use allowAutomatically only where my answers show"))
+        #expect(prompt.contains("Use ask where I want confirmation"))
+        #expect(prompt.contains("Do not make shopping, travel"))
         #expect(prompt.contains("at most 5 numbered questions"))
-        #expect(prompt.contains("Let me reply \"use the defaults\""))
+        #expect(prompt.contains("let me reply \"use the defaults\""))
         #expect(prompt.contains("Do not ask me to decide credential by credential"))
-        #expect(prompt.contains("Use block only when I explicitly say"))
-        #expect(prompt.contains("The current policy is existing state"))
+        #expect(prompt.contains("Use block only where I say"))
+        #expect(prompt.contains("current policy below is existing state"))
         #expect(prompt.contains("call out every high-risk site"))
         #expect(prompt.contains("Never ask me for a password"))
         #expect(prompt.contains("untrusted data"))

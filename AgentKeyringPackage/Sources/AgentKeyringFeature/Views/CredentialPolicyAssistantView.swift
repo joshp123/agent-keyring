@@ -10,15 +10,12 @@ struct CredentialPolicyAssistantView: View {
     @State private var isApplying = false
     private let controller: CredentialAccessController
     private let assistant = CredentialPolicyAssistant()
-    private let showsReviewFirst: Bool
 
     init(
         controller: CredentialAccessController,
-        initialResponse: String = "",
-        showsReviewFirst: Bool = false
+        initialResponse: String = ""
     ) {
         self.controller = controller
-        self.showsReviewFirst = showsReviewFirst
         _responseText = State(initialValue: initialResponse)
         let initialReview = try? CredentialPolicyAssistant().review(
             response: initialResponse,
@@ -35,25 +32,28 @@ struct CredentialPolicyAssistantView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if showsReviewFirst, let review {
-                        RecommendationReviewView(review: review)
+                    if let review {
+                        RecommendationReviewView(
+                            review: review,
+                            editResponse: {
+                                self.review = nil
+                                message = nil
+                            }
+                        )
+                    } else {
+                        CopyPromptStep(
+                            credentialCount: controller.rows.count,
+                            didCopy: message == .promptCopied,
+                            copyPrompt: copyPrompt
+                        )
+                        PasteResponseStep(
+                            responseText: $responseText,
+                            pasteResponse: pasteResponse,
+                            checkResponse: checkResponse
+                        )
                     }
-                    CopyPromptStep(
-                        credentialCount: controller.rows.count,
-                        didCopy: message == .promptCopied,
-                        copyPrompt: copyPrompt
-                    )
-                    PasteResponseStep(
-                        responseText: $responseText,
-                        pasteResponse: pasteResponse,
-                        checkResponse: checkResponse
-                    )
 
-                    if !showsReviewFirst, let review {
-                        RecommendationReviewView(review: review)
-                    }
-
-                    if let message, message != .promptCopied {
+                    if let message, case .error = message {
                         AssistantMessageRow(message: message)
                     }
                 }
@@ -71,8 +71,7 @@ struct CredentialPolicyAssistantView: View {
         .frame(width: 780, height: 680)
         .interactiveDismissDisabled(isApplying)
         .onChange(of: responseText) {
-            review = nil
-            if message != .promptCopied {
+            if review == nil, message != .promptCopied {
                 message = nil
             }
         }
@@ -92,7 +91,7 @@ struct CredentialPolicyAssistantView: View {
 
     private func pasteResponse() {
         guard let value = NSPasteboard.general.string(forType: .string), !value.isEmpty else {
-            message = .error("The pasteboard does not contain a model response.")
+            message = .error("The Clipboard does not contain an AI proposal.")
             return
         }
         responseText = value
@@ -134,10 +133,10 @@ private struct AssistantHeader: View {
                 .background(Color.accentColor.opacity(0.12), in: Circle())
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("Get rule suggestions from your AI")
+                Text("Work Out Your Rules with AI")
                     .font(.title2.weight(.semibold))
                 Text(
-                    "Agent Keyring cannot contact an AI itself. Copy a prompt into the AI you already use, answer its questions, then paste its suggestions here. You review every change before anything is applied."
+                    "Copy a prompt into the AI you already use. It will help you decide what you trust, then propose rules for your credentials. Paste the proposal here; nothing changes until you review and apply it."
                 )
                 .font(.body)
                 .foregroundStyle(.secondary)
@@ -156,10 +155,10 @@ private struct CopyPromptStep: View {
     let copyPrompt: () -> Void
 
     var body: some View {
-        AssistantStep(number: 1, title: "Copy the prompt") {
+        AssistantStep(number: 1, title: "Copy the Prompt") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(
-                    "The prompt explains the three rules, then lists \(credentialCount) opaque credential IDs, sites and current rules. It does not include account names, usernames, passwords or verification codes."
+                    "The prompt explains the three rules, then lists \(credentialCount) random IDs, sites and current rules. The IDs do not identify your accounts, and the prompt does not include account names, usernames, passwords or verification codes."
                 )
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -173,7 +172,7 @@ private struct CopyPromptStep: View {
 
                 Button(action: copyPrompt) {
                     Label(
-                        didCopy ? "Prompt copied" : "Copy prompt",
+                        didCopy ? "Prompt Copied" : "Copy Prompt",
                         systemImage: didCopy ? "checkmark" : "doc.on.doc"
                     )
                 }
@@ -190,10 +189,10 @@ private struct PasteResponseStep: View {
     let checkResponse: () -> Void
 
     var body: some View {
-        AssistantStep(number: 2, title: "Paste the suggestions") {
+        AssistantStep(number: 2, title: "Paste the Proposal") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(
-                    "After answering the AI’s questions, paste its complete reply below. Agent Keyring checks every credential and shows each changed rule before anything is applied."
+                    "After answering the AI’s questions, paste its complete reply below. Agent Keyring checks that every credential has one valid rule, then shows each proposed change."
                 )
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -211,7 +210,7 @@ private struct PasteResponseStep: View {
                 HStack {
                     Button("Paste from Clipboard", action: pasteResponse)
                     Spacer()
-                    Button("Review suggestions", action: checkResponse)
+                    Button("Review Proposal", action: checkResponse)
                         .disabled(
                             responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -249,6 +248,7 @@ private struct AssistantStep<Content: View>: View {
 @available(macOS 26.0, *)
 private struct RecommendationReviewView: View {
     let review: CredentialPolicyReview
+    let editResponse: () -> Void
 
     private var newlyAutomaticCount: Int {
         review.changes.lazy.filter { $0.proposedPolicy == .allowAutomatically }.count
@@ -256,9 +256,9 @@ private struct RecommendationReviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Suggestions checked", systemImage: "checkmark.shield.fill")
+            Label("Proposal ready to review", systemImage: "doc.text.magnifyingglass")
                 .font(.headline)
-                .foregroundStyle(.green)
+                .foregroundStyle(.primary)
 
             HStack(spacing: 12) {
                 RecommendationCount(policy: .ask, count: review.askCount)
@@ -266,9 +266,11 @@ private struct RecommendationReviewView: View {
                 RecommendationCount(policy: .block, count: review.blockedCount)
             }
 
-            Text("Applying these suggestions will change \(review.changedCount) agent access rules.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Text(
+                "Agent Keyring found one valid rule for every credential. Applying this proposal will change \(review.changedCount) rules."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
 
             if newlyAutomaticCount > 0 {
                 Label(
@@ -282,7 +284,7 @@ private struct RecommendationReviewView: View {
             }
 
             if review.changes.isEmpty {
-                Text("The AI suggests keeping every current rule.")
+                Text("The proposal keeps every current rule.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
@@ -290,9 +292,12 @@ private struct RecommendationReviewView: View {
                     .font(.headline)
                 RecommendationChangesTable(changes: review.changes)
             }
+
+            Button("Edit Pasted Response", action: editResponse)
+                .buttonStyle(.bordered)
         }
         .padding(18)
-        .background(.green.opacity(0.07), in: .rect(cornerRadius: 14))
+        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 14))
     }
 }
 
@@ -301,32 +306,70 @@ private struct RecommendationChangesTable: View {
     let changes: [CredentialPolicyChange]
 
     var body: some View {
-        Table(changes) {
-            TableColumn("Credential") { change in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(change.title)
-                        .font(.body.weight(.medium))
-                        .lineLimit(1)
-                    Text(change.account)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+        VStack(spacing: 0) {
+            RecommendationChangeColumns(
+                credential: { Text("Credential") },
+                current: { Text("Current") },
+                proposed: { Text("Proposed") }
+            )
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.quaternary.opacity(0.35))
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(changes) { change in
+                        RecommendationChangeColumns(
+                            credential: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(change.title)
+                                        .font(.body.weight(.medium))
+                                    Text(change.account)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                    if change.website != change.title {
+                                        Text(change.website)
+                                            .font(.callout)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .lineLimit(1)
+                                .help("\(change.title)\n\(change.account)\n\(change.website)")
+                            },
+                            current: { PolicyLabel(policy: change.currentPolicy) },
+                            proposed: { PolicyLabel(policy: change.proposedPolicy) }
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+
+                        Divider()
+                    }
                 }
-                .help("\(change.title)\n\(change.account)\n\(change.website)")
             }
-            .width(min: 220, ideal: 280)
-
-            TableColumn("Current") { change in
-                PolicyLabel(policy: change.currentPolicy)
-            }
-            .width(min: 120, ideal: 140)
-
-            TableColumn("Proposed") { change in
-                PolicyLabel(policy: change.proposedPolicy)
-            }
-            .width(min: 130, ideal: 160)
         }
-        .frame(height: min(CGFloat(changes.count * 44 + 34), 260))
+        .background(.background, in: .rect(cornerRadius: 8))
+        .frame(height: min(CGFloat(changes.count * 74 + 40), 300))
+    }
+}
+
+@available(macOS 26.0, *)
+private struct RecommendationChangeColumns<Credential: View, Current: View, Proposed: View>:
+    View
+{
+    @ViewBuilder let credential: Credential
+    @ViewBuilder let current: Current
+    @ViewBuilder let proposed: Proposed
+
+    var body: some View {
+        HStack(spacing: 16) {
+            credential.frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
+            current.frame(width: 150, alignment: .leading)
+            proposed.frame(width: 170, alignment: .leading)
+        }
     }
 }
 
@@ -390,7 +433,7 @@ private struct AssistantFooter: View {
                 ProgressView()
                     .controlSize(.small)
             }
-            Button("Apply changes", action: apply)
+            Button("Apply Changes", action: apply)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canApply || isApplying)
         }
@@ -408,7 +451,7 @@ private enum AssistantMessage: Equatable {
         switch self {
         case .promptCopied:
             "Prompt copied. Read it, then paste it into ChatGPT, Claude or another AI."
-        case .responseReady: "Every credential has one valid suggestion."
+        case .responseReady: "The proposal includes one valid rule for every credential."
         case let .error(text): text
         }
     }

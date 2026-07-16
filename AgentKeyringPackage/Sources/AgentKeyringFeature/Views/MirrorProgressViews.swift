@@ -8,7 +8,7 @@ struct SetupSteps: View {
         HStack(alignment: .top, spacing: 10) {
             SetupStep(
                 number: 1,
-                title: "Enable import",
+                title: "Allow imports",
                 state: firstStepState
             )
             StepConnector(isComplete: providerState == .enabled)

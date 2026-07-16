@@ -25,14 +25,16 @@ public struct AccessControlView: View {
                 blockedCount: controller.count(for: .block),
                 openAssistant: { isShowingAssistant = true }
             )
-            .frame(minWidth: 220, idealWidth: 250, maxWidth: 300)
+            .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
 
             Group {
                 if controller.rows.isEmpty {
                     ContentUnavailableView(
-                        "No mirrored credentials",
+                        "No credentials yet",
                         systemImage: "key.horizontal",
-                        description: Text("Import credentials from Apple Passwords before setting agent access rules.")
+                        description: Text(
+                            "Add credentials from Apple Passwords before choosing when agents must ask."
+                        )
                     )
                 } else if let selectedPolicy = controller.selectedPolicy {
                     AccessPolicyDetailView(

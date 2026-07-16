@@ -66,19 +66,19 @@ struct MirrorStatusPanel: View {
     private var presentation: MirrorPresentation {
         if isLoading {
             return MirrorPresentation(
-                eyebrow: "CHECKING MIRROR",
-                title: "Looking for your local copy",
-                detail: "Verifying the encrypted snapshot on this Mac.",
+                eyebrow: "CHECKING AGENT KEYRING",
+                title: "Checking your credentials",
+                detail: "Opening the encrypted credentials stored on this Mac.",
                 symbol: "ellipsis",
                 colour: .secondary
             )
         }
         if isImporting {
             return MirrorPresentation(
-                eyebrow: "IMPORT IN PROGRESS",
-                title: "Importing from Apple Passwords",
+                eyebrow: "UPDATING CREDENTIALS",
+                title: "Adding changes from Apple Passwords",
                 detail:
-                    "Your existing mirror stays available until the new snapshot is safely committed.",
+                    "Agents keep using the existing encrypted copy until the update is safely saved.",
                 symbol: "arrow.triangle.2.circlepath",
                 colour: .teal
             )
@@ -86,9 +86,9 @@ struct MirrorStatusPanel: View {
         if let status {
             return MirrorPresentation(
                 eyebrow: "READY",
-                title: "\(status.credentialItemCount) credentials available to agents",
+                title: "\(status.credentialItemCount) credentials ready for agent sign-ins",
                 detail:
-                    "Last imported from Apple Passwords \(status.importedAt.formatted(.relative(presentation: .named))).",
+                    "New credentials ask you before sharing a password or code. Last updated from Apple Passwords \(status.importedAt.formatted(.relative(presentation: .named))).",
                 symbol: "checkmark.shield.fill",
                 colour: .green
             )
@@ -105,19 +105,19 @@ struct MirrorStatusPanel: View {
         }
         if providerState == .enabled {
             return MirrorPresentation(
-                eyebrow: "READY TO IMPORT",
-                title: "Make your first encrypted mirror",
+                eyebrow: "READY FOR CREDENTIALS",
+                title: "Add credentials from Apple Passwords",
                 detail:
-                    "Open Passwords, export all items to Agent Keyring, then approve once with Touch ID or Apple Watch.",
+                    "Export your Passwords items to Agent Keyring. They are encrypted on this Mac and ask you before agents can use passwords or codes.",
                 symbol: "arrow.down.to.line.compact",
                 colour: .teal
             )
         }
         return MirrorPresentation(
             eyebrow: "LOCAL · ENCRYPTED",
-            title: "Connect Apple Passwords",
+            title: "Let local AI agents sign in",
             detail:
-                "Apple Passwords stays in charge. Enable local import once, then approve each update with Touch ID or Apple Watch.",
+                "Agent Keyring gives local agents the matching password or verification code from Apple Passwords without putting it in chat. New credentials ask you first.",
             symbol: "key.horizontal.fill",
             colour: .teal
         )

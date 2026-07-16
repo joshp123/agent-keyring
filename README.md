@@ -22,14 +22,14 @@ Apple Passwords remains your source of truth. Agent Keyring uses Apple's credent
 
 The demo uses synthetic accounts. Product screens are real native window captures. The macOS Watch prompt is genuine and captured separately; it does not claim to show a completed Watch approval.
 
-## Choose agent access rules with AI
+## Work out your rules with AI
 
 You do not need to classify every credential yourself.
 
-1. In `Agent access rules`, select `AI suggestions` and copy the prompt.
-2. Read the copied text, then paste it into ChatGPT, Claude or another AI. Answer its questions about the few credentials whose possession may itself be unusually risky.
+1. Open `When Agents Can Sign In`, select `Work Out Your Rules with AI` and copy the prompt.
+2. Read the copied text, then paste it into ChatGPT, Claude or another AI. It helps you describe what you trust local agents to access unattended, what should ask you first and what they should never use.
 3. Copy the AI's entire final response and paste it back into Agent Keyring.
-4. Select `Review suggestions`. Agent Keyring checks every credential ID and shows every proposed change before you can apply it.
+4. Select `Review Proposal`. Agent Keyring checks every credential ID and shows every proposed change before you can apply it.
 
 The copied text contains only opaque credential IDs, sites and current rules. It never contains account names, usernames, passwords, verification codes or TOTP seeds.
 
@@ -51,7 +51,7 @@ For credentials set to `Ask each time`, Agent Keyring shows the requested websit
    /Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install
    ```
 
-3. From the menu-bar key, choose `Open Agent Keyring`, then select `Enable secure import`. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
+3. From the menu-bar key, choose `Open Agent Keyring`, then select `Allow imports from Passwords`. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
 
 That is it. Ask Codex normally. You do not need to restart Codex.
 

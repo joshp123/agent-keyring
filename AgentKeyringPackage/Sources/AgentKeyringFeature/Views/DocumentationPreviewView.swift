@@ -25,7 +25,7 @@ public enum DocumentationScreen: String, CaseIterable, Sendable {
     public var windowTitle: String {
         switch self {
         case .setup, .ready, .approval: "Agent Keyring"
-        case .access, .assistant, .assistantReview: "Agent access rules"
+        case .access, .assistant, .assistantReview: "When Agents Can Sign In"
         }
     }
 }
@@ -54,8 +54,7 @@ public struct DocumentationPreviewView: View {
             case .assistantReview:
                 CredentialPolicyAssistantView(
                     controller: controller,
-                    initialResponse: Self.assistantResponse(for: controller.rows),
-                    showsReviewFirst: true
+                    initialResponse: Self.assistantResponse(for: controller.rows)
                 )
             case .approval:
                 DocumentationApprovalView()

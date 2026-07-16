@@ -41,11 +41,15 @@ final class AgentKeyringUITests: XCTestCase {
         XCTAssertTrue(accessWindow.buttons["policy-assistant"].exists)
         XCTAssertTrue(accessWindow.descendants(matching: .any)["policy-detail-ask"].exists)
         XCTAssertTrue(accessWindow.scrollViews["credential-list"].exists)
+        XCTAssertTrue(accessWindow.buttons["select-all-credentials"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Credential"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Account"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Website"].exists)
         XCTAssertTrue(accessWindow.staticTexts["440 credentials"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Credential 1"].exists)
+
+        accessWindow.buttons["select-all-credentials"].click()
+        XCTAssertTrue(accessWindow.staticTexts["440 selected"].waitForExistence(timeout: 2))
     }
 
     @MainActor
@@ -65,9 +69,9 @@ final class AgentKeyringUITests: XCTestCase {
 
         accessWindow.buttons["policy-assistant"].click()
         XCTAssertTrue(
-            app.staticTexts["Get rule suggestions from your AI"].waitForExistence(timeout: 3)
+            app.staticTexts["Work Out Your Rules with AI"].waitForExistence(timeout: 3)
         )
-        XCTAssertTrue(app.buttons["Copy prompt"].exists)
-        XCTAssertTrue(app.buttons["Review suggestions"].exists)
+        XCTAssertTrue(app.buttons["Copy Prompt"].exists)
+        XCTAssertTrue(app.buttons["Review Proposal"].exists)
     }
 }

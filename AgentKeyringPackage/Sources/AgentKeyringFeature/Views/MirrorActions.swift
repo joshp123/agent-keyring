@@ -32,7 +32,7 @@ struct PrimaryActionRow: View {
 
                     if status != nil {
                         Button(action: manageAccess) {
-                            Label("Agent access rules…", systemImage: "person.badge.key")
+                            Label("When Agents Can Sign In…", systemImage: "person.badge.key")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.large)
@@ -52,8 +52,8 @@ struct PrimaryActionRow: View {
     }
 
     private var progressLabel: String {
-        if isLoading { return "Checking the encrypted mirror…" }
-        if isImporting { return "Encrypting the new snapshot…" }
+        if isLoading { return "Checking encrypted credentials…" }
+        if isImporting { return "Saving the updated credentials…" }
         return "Asking macOS to enable the extension…"
     }
 
@@ -61,7 +61,7 @@ struct PrimaryActionRow: View {
         if status != nil { return "Open Passwords" }
         if providerState == .enabled { return "Open Passwords" }
         if providerState == .denied { return "Retry after profile setup" }
-        return "Enable secure import"
+        return "Allow imports from Passwords"
     }
 
     private var primarySymbol: String {
@@ -73,9 +73,11 @@ struct PrimaryActionRow: View {
 
     private var actionHint: String {
         if providerState == .denied {
-            return "Agent Keyring needs an eligible Apple Developer Program profile before macOS can enable credential import."
+            return
+                "Agent Keyring needs an eligible Apple Developer Program profile before macOS can enable credential import."
         }
-        return "This enables Agent Keyring as an export destination. It does not read any passwords."
+        return
+            "This lets Apple Passwords send an export you approve to Agent Keyring. It does not read Passwords in the background."
     }
 
     private var primaryAction: () -> Void {
@@ -91,12 +93,14 @@ struct PrimaryActionRow: View {
 private struct PasswordsImportInstructions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("Import changes from Apple Passwords:")
+            Text("To add new credentials or update changed ones:")
                 .font(.callout.weight(.semibold))
             Text("1. Open Passwords.")
             Text("2. Choose File → Export All Items to App.")
             Text("3. Select Agent Keyring and approve the export.")
-            Text("New, changed and removed credentials will update Agent Keyring’s encrypted copy.")
+            Text(
+                "Agent Keyring adds new credentials, updates changed ones and removes credentials no longer in Passwords."
+            )
         }
         .font(.callout)
         .foregroundStyle(.secondary)
