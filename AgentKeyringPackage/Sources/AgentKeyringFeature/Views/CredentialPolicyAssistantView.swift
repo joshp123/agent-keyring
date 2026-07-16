@@ -137,7 +137,7 @@ private struct AssistantHeader: View {
                 Text("Get rule suggestions from your AI")
                     .font(.title2.weight(.semibold))
                 Text(
-                    "Agent Keyring cannot contact an AI itself. Copy a site list into the AI you already use, answer its questions, then paste its suggestions here. You review every change before anything is applied."
+                    "Agent Keyring cannot contact an AI itself. Copy a prompt into the AI you already use, answer its questions, then paste its suggestions here. You review every change before anything is applied."
                 )
                 .font(.body)
                 .foregroundStyle(.secondary)
@@ -156,10 +156,10 @@ private struct CopyPromptStep: View {
     let copyPrompt: () -> Void
 
     var body: some View {
-        AssistantStep(number: 1, title: "Copy the site list") {
+        AssistantStep(number: 1, title: "Copy the prompt") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(
-                    "The copied text includes \(credentialCount) opaque credential IDs, sites and current rules. It does not include account names, usernames, passwords or verification codes."
+                    "The prompt explains the three rules, then lists \(credentialCount) opaque credential IDs, sites and current rules. It does not include account names, usernames, passwords or verification codes."
                 )
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -173,7 +173,7 @@ private struct CopyPromptStep: View {
 
                 Button(action: copyPrompt) {
                     Label(
-                        didCopy ? "Site list copied" : "Copy site list",
+                        didCopy ? "Prompt copied" : "Copy prompt",
                         systemImage: didCopy ? "checkmark" : "doc.on.doc"
                     )
                 }
@@ -272,7 +272,9 @@ private struct RecommendationReviewView: View {
 
             if newlyAutomaticCount > 0 {
                 Label(
-                    "\(newlyAutomaticCount) credentials will stop asking for confirmation.",
+                    newlyAutomaticCount == 1
+                        ? "1 credential will stop asking for confirmation."
+                        : "\(newlyAutomaticCount) credentials will stop asking for confirmation.",
                     systemImage: "exclamationmark.shield.fill"
                 )
                 .font(.callout.weight(.semibold))
@@ -405,7 +407,7 @@ private enum AssistantMessage: Equatable {
     var text: String {
         switch self {
         case .promptCopied:
-            "Site list copied. Read it, then paste it into ChatGPT, Claude or another AI."
+            "Prompt copied. Read it, then paste it into ChatGPT, Claude or another AI."
         case .responseReady: "Every credential has one valid suggestion."
         case let .error(text): text
         }

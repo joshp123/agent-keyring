@@ -65,7 +65,7 @@ struct PrimaryActionRow: View {
     }
 
     private var primarySymbol: String {
-        if status != nil { return "arrow.clockwise" }
+        if status != nil { return "arrow.up.forward.app" }
         if providerState == .enabled { return "arrow.up.forward.app" }
         if providerState == .denied { return "arrow.clockwise" }
         return "checkmark.shield"

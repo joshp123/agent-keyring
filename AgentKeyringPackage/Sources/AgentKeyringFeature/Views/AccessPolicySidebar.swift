@@ -101,7 +101,7 @@ private struct AssistantSidebarAction: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Get suggestions from AI…")
+                    Text("AI suggestions…")
                     Text("Review every change before applying")
                         .font(.caption)
                         .foregroundStyle(.secondary)

@@ -67,7 +67,7 @@ final class AgentKeyringUITests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts["Get rule suggestions from your AI"].waitForExistence(timeout: 3)
         )
-        XCTAssertTrue(app.buttons["Copy site list"].exists)
+        XCTAssertTrue(app.buttons["Copy prompt"].exists)
         XCTAssertTrue(app.buttons["Review suggestions"].exists)
     }
 }
