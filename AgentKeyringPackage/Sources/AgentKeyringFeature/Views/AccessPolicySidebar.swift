@@ -9,22 +9,44 @@ struct AccessPolicySidebar: View {
     let openAssistant: () -> Void
 
     var body: some View {
-        List(selection: $selectedPolicy) {
-            Section("Access groups") {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Credential access")
+                .font(.title2.weight(.semibold))
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 20)
+
+            Text("ACCESS RULES")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+
+            VStack(spacing: 4) {
                 ForEach(CredentialAccessPolicy.allCases, id: \.self) { policy in
-                    AccessPolicySidebarRow(
-                        policy: policy,
-                        count: count(for: policy)
+                    Button {
+                        selectedPolicy = policy
+                    } label: {
+                        AccessPolicySidebarRow(
+                            policy: policy,
+                            count: count(for: policy)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        selectedPolicy == policy ? Color.accentColor.opacity(0.14) : .clear,
+                        in: .rect(cornerRadius: 7)
                     )
-                    .tag(policy)
+                    .accessibilityIdentifier("policy-\(policy.rawValue)")
                 }
             }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
+            .padding(.horizontal, 8)
+
+            Spacer(minLength: 12)
+            Divider()
             AssistantSidebarAction(action: openAssistant)
         }
-        .navigationTitle("Credential access")
+        .background(.regularMaterial)
     }
 
     private func count(for policy: CredentialAccessPolicy) -> Int {
@@ -62,6 +84,9 @@ private struct AccessPolicySidebarRow: View {
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 9)
+        .contentShape(.rect)
     }
 }
 
@@ -70,17 +95,26 @@ private struct AssistantSidebarAction: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Divider()
-            Button(action: action) {
-                Label("Let your AI choose…", systemImage: "sparkles")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Set rules with AI…")
+                    Text("Copy instructions, then review changes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.purple)
-            .help("Create a prompt and import the model's recommendations")
+            .padding(.horizontal, 8)
+            .padding(.vertical, 9)
+            .contentShape(.rect)
         }
-        .padding(12)
-        .background(.regularMaterial)
+        .buttonStyle(.plain)
+        .padding(8)
+        .help("Copy instructions to your AI, then review its proposed access rules")
+        .accessibilityIdentifier("policy-assistant")
     }
 }

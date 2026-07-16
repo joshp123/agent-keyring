@@ -33,15 +33,41 @@ private struct CheckForUpdatesView: View {
 final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     let presentation: AgentKeyringPresentation
     let model: MirrorAppModel
+    private let accessControlFixture: MirrorGeneration?
 
     override init() {
         let presentation = AgentKeyringPresentation()
         self.presentation = presentation
-        self.model = MirrorAppModel(
-            approvalWindowPresenter: {
-                await presentation.presentApprovalWindow()
-            }
-        )
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-access-control") {
+            let fixtureDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "AgentKeyringUITest-\(ProcessInfo.processInfo.processIdentifier)",
+                    isDirectory: true
+                )
+            let accessControl = CredentialAccessController(
+                store: CredentialAccessPolicyStore(
+                    fileURL: fixtureDirectory.appendingPathComponent("access-policies.json")
+                )
+            )
+            self.accessControlFixture = AccessControlUITestFixture.generation()
+            self.model = MirrorAppModel(
+                store: EncryptedSnapshotStore(
+                    directoryURL: fixtureDirectory.appendingPathComponent("vault"),
+                    keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x45, count: 32))
+                ),
+                accessControl: accessControl,
+                approvalWindowPresenter: {
+                    await presentation.presentApprovalWindow()
+                }
+            )
+        } else {
+            self.accessControlFixture = nil
+            self.model = MirrorAppModel(
+                approvalWindowPresenter: {
+                    await presentation.presentApprovalWindow()
+                }
+            )
+        }
         super.init()
     }
 
@@ -52,6 +78,24 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
             let icon = NSImage(contentsOf: iconURL)
         else { return }
         NSApplication.shared.applicationIconImage = icon
+
+        if let accessControlFixture {
+            Task { @MainActor in
+                await model.accessControl.refresh(from: accessControlFixture)
+                let assignments = Dictionary(
+                    uniqueKeysWithValues: accessControlFixture.items.enumerated().compactMap {
+                        index, item -> (UUID, CredentialAccessPolicy)? in
+                        if (440..<492).contains(index) {
+                            return (item.id, .allowAutomatically)
+                        }
+                        if index >= 492 { return (item.id, .block) }
+                        return nil
+                    }
+                )
+                await model.accessControl.setPolicies(assignments)
+                presentation.requestAccessWindow()
+            }
+        }
 
     }
 
@@ -82,6 +126,41 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             model.receiveAgentRequest(url)
         }
+    }
+}
+
+private enum AccessControlUITestFixture {
+    static func generation() -> MirrorGeneration {
+        let items = (1...522).map(item)
+        return MirrorGeneration(
+            id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 10)),
+            previousGenerationID: nil,
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            sourceExportedAt: Date(timeIntervalSince1970: 1_900),
+            scope: .full,
+            exporterIdentifier: "com.apple.Passwords",
+            exporterDisplayName: "Passwords",
+            items: items,
+            delta: MirrorDelta(addedItemIDs: items.map(\.id)),
+            skippedCredentialCount: 0
+        )
+    }
+
+    private static func item(number: Int) -> MirrorItem {
+        let high = UInt8((number >> 8) & 0xFF)
+        let low = UInt8(number & 0xFF)
+        let id = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, high, low))
+        return MirrorItem(
+            id: id,
+            sourceIdentity: MirrorSourceIdentity(
+                exporterIdentifier: "com.apple.Passwords",
+                accountID: Data("account-\(number)".utf8),
+                itemID: Data("item-\(number)".utf8)
+            ),
+            title: "Credential \(number)",
+            origins: ["https://service-\(number).example/login"],
+            credentials: [.password(userName: "account-\(number)", password: "SYNTHETIC")]
+        )
     }
 }
 

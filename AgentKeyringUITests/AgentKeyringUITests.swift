@@ -28,27 +28,46 @@ final class AgentKeyringUITests: XCTestCase {
     }
 
     @MainActor
-    func testCredentialAccessWindowHasUsefulMaximumSize() throws {
+    func testCredentialAccessRendersRealScaleRulesAndActions() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing-access-control"]
         app.launch()
-
-        let mainWindow = app.windows["main"]
-        XCTAssertTrue(mainWindow.waitForExistence(timeout: 5))
-        let manageAccess = mainWindow.buttons["Manage access"]
-        XCTAssertTrue(manageAccess.waitForExistence(timeout: 2))
-        manageAccess.click()
 
         let accessWindow = app.windows["access"]
         XCTAssertTrue(accessWindow.waitForExistence(timeout: 5))
+        XCTAssertTrue(accessWindow.descendants(matching: .any)["policy-ask"].exists)
+        XCTAssertTrue(accessWindow.descendants(matching: .any)["policy-allowAutomatically"].exists)
+        XCTAssertTrue(accessWindow.descendants(matching: .any)["policy-block"].exists)
+        XCTAssertTrue(accessWindow.buttons["policy-assistant"].exists)
+        XCTAssertTrue(accessWindow.descendants(matching: .any)["policy-detail-ask"].exists)
+        XCTAssertTrue(accessWindow.scrollViews["credential-list"].exists)
+        XCTAssertTrue(accessWindow.staticTexts["Credential"].exists)
+        XCTAssertTrue(accessWindow.staticTexts["Account"].exists)
+        XCTAssertTrue(accessWindow.staticTexts["Website"].exists)
+        XCTAssertTrue(accessWindow.staticTexts["440 credentials"].exists)
+        XCTAssertTrue(accessWindow.staticTexts["Credential 1"].exists)
+    }
 
-        let windowMenu = app.menuBars.menuBarItems["Window"]
-        XCTAssertTrue(windowMenu.waitForExistence(timeout: 2))
-        windowMenu.click()
-        let fillItem = app.menuBars.menuItems["Fill"]
-        XCTAssertTrue(fillItem.waitForExistence(timeout: 2))
-        fillItem.click()
+    @MainActor
+    func testCredentialAccessChangesRuleAndOpensAssistant() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing-access-control"]
+        app.launch()
+        let accessWindow = app.windows["access"]
+        XCTAssertTrue(accessWindow.waitForExistence(timeout: 5))
 
-        XCTAssertLessThanOrEqual(accessWindow.frame.width, 1_100)
-        XCTAssertLessThanOrEqual(accessWindow.frame.height, 760)
+        accessWindow.staticTexts["Credential 1"].click()
+        let changeRule = accessWindow.buttons["change-access-rule"]
+        XCTAssertTrue(changeRule.waitForExistence(timeout: 2))
+        changeRule.click()
+        app.menuItems["Blocked"].click()
+        XCTAssertTrue(accessWindow.staticTexts["439 credentials"].waitForExistence(timeout: 2))
+
+        accessWindow.buttons["policy-assistant"].click()
+        XCTAssertTrue(
+            app.staticTexts["Set access rules with AI"].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(app.buttons["Copy instructions"].exists)
+        XCTAssertTrue(app.buttons["Review changes"].exists)
     }
 }

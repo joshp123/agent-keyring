@@ -129,15 +129,15 @@ private struct AssistantHeader: View {
         HStack(alignment: .top, spacing: 16) {
             Image(systemName: "sparkles")
                 .font(.title2)
-                .foregroundStyle(.purple)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 46, height: 46)
-                .background(.purple.opacity(0.12), in: Circle())
+                .background(Color.accentColor.opacity(0.12), in: Circle())
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("Let your AI sort your credentials")
+                Text("Set access rules with AI")
                     .font(.title2.weight(.semibold))
                 Text(
-                    "Copy a prompt to the AI you already use. It will ask about your needs before recommending access rules."
+                    "Agent Keyring does not contact an AI. Copy the instructions into the AI you already use, answer its questions, then paste its final response back here. Nothing changes until you review and apply it."
                 )
                 .font(.body)
                 .foregroundStyle(.secondary)
@@ -156,16 +156,16 @@ private struct CopyPromptStep: View {
     let copyPrompt: () -> Void
 
     var body: some View {
-        AssistantStep(number: 1, title: "Ask your AI to choose") {
+        AssistantStep(number: 1, title: "Copy the instructions") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(
-                    "The prompt lists \(credentialCount) credential IDs, titles, websites and account labels. It never includes passwords, seeds or verification codes."
+                    "The instructions include \(credentialCount) credential IDs, names, websites and account labels so the AI can propose a rule for each one. They never include passwords or verification codes."
                 )
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
                 Label(
-                    "Pasting the prompt shares that metadata with the model you choose.",
+                    "When you paste the instructions, that credential metadata is shared with the AI you choose.",
                     systemImage: "exclamationmark.shield"
                 )
                 .font(.callout)
@@ -173,12 +173,11 @@ private struct CopyPromptStep: View {
 
                 Button(action: copyPrompt) {
                     Label(
-                        didCopy ? "Prompt copied" : "Copy prompt",
+                        didCopy ? "Instructions copied" : "Copy instructions",
                         systemImage: didCopy ? "checkmark" : "doc.on.doc"
                     )
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.purple)
+                .buttonStyle(.bordered)
             }
         }
     }
@@ -191,10 +190,10 @@ private struct PasteResponseStep: View {
     let checkResponse: () -> Void
 
     var body: some View {
-        AssistantStep(number: 2, title: "Bring back its recommendations") {
+        AssistantStep(number: 2, title: "Paste the final response") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(
-                    "Finish the model's questions, then paste its final response here. Agent Keyring checks every ID before changing anything."
+                    "Paste the AI's entire final response below. Agent Keyring will check that every credential has exactly one rule, then show every proposed change for review."
                 )
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -210,10 +209,9 @@ private struct PasteResponseStep: View {
                     }
 
                 HStack {
-                    Button("Paste model response", action: pasteResponse)
+                    Button("Paste from Clipboard", action: pasteResponse)
                     Spacer()
-                    Button("Check recommendations", action: checkResponse)
-                        .buttonStyle(.borderedProminent)
+                    Button("Review changes", action: checkResponse)
                         .disabled(
                             responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -232,9 +230,9 @@ private struct AssistantStep<Content: View>: View {
         HStack(alignment: .top, spacing: 14) {
             Text(number, format: .number)
                 .font(.callout.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .frame(width: 26, height: 26)
-                .background(.purple, in: Circle())
+                .background(Color.accentColor.opacity(0.16), in: Circle())
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(title)
@@ -391,7 +389,7 @@ private struct AssistantFooter: View {
                     .controlSize(.small)
             }
             Button("Apply recommendations", action: apply)
-                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
                 .disabled(!canApply || isApplying)
         }
         .padding(16)
@@ -406,7 +404,8 @@ private enum AssistantMessage: Equatable {
 
     var text: String {
         switch self {
-        case .promptCopied: "Prompt copied. Paste it into your AI."
+        case .promptCopied:
+            "Instructions copied. Paste them into ChatGPT, Claude or another AI, then answer its questions."
         case .responseReady: "Every mirrored credential has one valid recommendation."
         case let .error(text): text
         }

@@ -103,6 +103,39 @@ struct CredentialAccessPolicyTests {
         #expect(permissions?.intValue == 0o600)
     }
 
+    @MainActor
+    @Test("A 522-credential mirror keeps all groups, search results, and stable endpoints")
+    func fullScaleAccessModel() async {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let controller = CredentialAccessController(store: fixture.store)
+        let generation = fixture.generation(count: 522)
+        await controller.refresh(from: generation)
+
+        let assignments = Dictionary(uniqueKeysWithValues: generation.items.enumerated().compactMap {
+            index, item -> (UUID, CredentialAccessPolicy)? in
+            if (440..<492).contains(index) { return (item.id, .allowAutomatically) }
+            if index >= 492 { return (item.id, .block) }
+            return nil
+        })
+        await controller.setPolicies(assignments)
+
+        #expect(controller.count(for: .ask) == 440)
+        #expect(controller.count(for: .allowAutomatically) == 52)
+        #expect(controller.count(for: .block) == 30)
+        #expect(controller.visibleRows.first?.title == "Credential 1")
+        #expect(controller.visibleRows.last?.title == "Credential 440")
+
+        controller.searchText = "service-522.example"
+        #expect(controller.visibleRows.isEmpty)
+        controller.selectedPolicy = .block
+        #expect(controller.visibleRows.map(\.title) == ["Credential 522"])
+
+        await controller.setPolicy(.ask, for: [generation.items[521].id])
+        #expect(controller.count(for: .ask) == 441)
+        #expect(controller.count(for: .block) == 29)
+    }
+
     @Test("A duplicated policy record is rejected as corrupt")
     func duplicateRecord() async throws {
         let fixture = Fixture()
@@ -175,6 +208,37 @@ private struct Fixture {
                 )
             ],
             delta: MirrorDelta(addedItemIDs: [credentialID]),
+            skippedCredentialCount: 0
+        )
+    }
+
+    func generation(count: Int) -> MirrorGeneration {
+        let items = (1...count).map { number in
+            let id = UUID()
+            return MirrorItem(
+                id: id,
+                sourceIdentity: MirrorSourceIdentity(
+                    exporterIdentifier: "com.apple.Passwords",
+                    accountID: Data("account-\(number)".utf8),
+                    itemID: Data("item-\(number)".utf8)
+                ),
+                title: "Credential \(number)",
+                origins: ["https://service-\(number).example/login"],
+                credentials: [
+                    .password(userName: "account-\(number)", password: "SYNTHETIC")
+                ]
+            )
+        }
+        return MirrorGeneration(
+            id: UUID(),
+            previousGenerationID: nil,
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            sourceExportedAt: Date(timeIntervalSince1970: 1_900),
+            scope: .full,
+            exporterIdentifier: "com.apple.Passwords",
+            exporterDisplayName: "Passwords",
+            items: items,
+            delta: MirrorDelta(addedItemIDs: items.map(\.id)),
             skippedCredentialCount: 0
         )
     }

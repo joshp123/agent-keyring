@@ -4,26 +4,34 @@ import SwiftUI
 struct AccessPolicyDetailView: View {
     let policy: CredentialAccessPolicy
     let rows: [AccessCredentialRow]
-    let searchText: String
+    @Binding var searchText: String
     @Binding var selection: Set<UUID>
-    @Binding var sortOrder: [KeyPathComparator<AccessCredentialRow>]
     let errorMessage: String?
+    let changePolicy: (CredentialAccessPolicy) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             AccessPolicyHeader(policy: policy, count: rows.count)
             Divider()
-            AccessPolicyTable(
+            AccessPolicyList(
                 rows: rows,
-                searchText: searchText,
-                selection: $selection,
-                sortOrder: $sortOrder
+                searchText: $searchText,
+                selection: $selection
             )
+
+            if !selection.isEmpty {
+                AccessRuleSelectionBar(
+                    currentPolicy: policy,
+                    selectionCount: selection.count,
+                    changePolicy: changePolicy
+                )
+            }
 
             if let errorMessage {
                 AccessControlErrorRow(message: errorMessage)
             }
         }
+        .accessibilityIdentifier("policy-detail-\(policy.rawValue)")
     }
 }
 
@@ -33,7 +41,7 @@ private struct AccessPolicyHeader: View {
     let count: Int
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .center, spacing: 16) {
             Image(systemName: policy.symbol)
                 .font(.title2)
                 .foregroundStyle(policy.colour)
@@ -53,92 +61,198 @@ private struct AccessPolicyHeader: View {
             }
             Spacer()
         }
-        .padding(24)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
     }
 }
 
 @available(macOS 26.0, *)
-private struct AccessPolicyTable: View {
+private struct AccessPolicyList: View {
     let rows: [AccessCredentialRow]
-    let searchText: String
+    @Binding var searchText: String
     @Binding var selection: Set<UUID>
-    @Binding var sortOrder: [KeyPathComparator<AccessCredentialRow>]
 
     var body: some View {
-        if rows.isEmpty {
-            if searchText.isEmpty {
-                ContentUnavailableView(
-                    "No credentials in this group",
-                    systemImage: "tray",
-                    description: Text("Select credentials in another group and use Move to.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ContentUnavailableView.search(text: searchText)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        } else {
-            Table(rows, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Credential", value: \.title) { row in
-                    CredentialNameCell(title: row.title, account: row.account)
-                }
-                .width(min: 250, ideal: 340)
+        VStack(spacing: 0) {
+            AccessPolicySearchField(searchText: $searchText)
+            AccessCredentialColumnHeadings()
+            Divider()
 
-                TableColumn("Website", value: \.website) { row in
-                    Text(row.website)
-                        .lineLimit(1)
+            if rows.isEmpty {
+                if searchText.isEmpty {
+                    ContentUnavailableView(
+                        "No credentials under this rule",
+                        systemImage: "tray",
+                        description: Text("Select credentials under another rule, then change their access rule.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView.search(text: searchText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(rows) { row in
+                            AccessCredentialListRow(
+                                row: row,
+                                isSelected: selection.contains(row.id),
+                                toggleSelection: { toggleSelection(row.id) }
+                            )
+                            Divider().padding(.leading, 50)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("credential-list")
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: UUID) {
+        if selection.contains(id) {
+            selection.remove(id)
+        } else {
+            selection.insert(id)
+        }
+    }
+}
+
+@available(macOS 26.0, *)
+private struct AccessPolicySearchField: View {
+    @Binding var searchText: String
+
+    var body: some View {
+        TextField("Search credentials", text: $searchText)
+            .textFieldStyle(.roundedBorder)
+            .frame(maxWidth: 360)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .accessibilityIdentifier("credential-search")
+    }
+}
+
+@available(macOS 26.0, *)
+private struct AccessCredentialColumnHeadings: View {
+    var body: some View {
+        AccessCredentialColumns(
+            selection: { Text("") },
+            credential: { Text("Credential") },
+            account: { Text("Account") },
+            website: { Text("Website") }
+        )
+        .font(.callout.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.35))
+    }
+}
+
+@available(macOS 26.0, *)
+private struct AccessCredentialListRow: View {
+    let row: AccessCredentialRow
+    let isSelected: Bool
+    let toggleSelection: () -> Void
+
+    var body: some View {
+        Button(action: toggleSelection) {
+            AccessCredentialColumns(
+                selection: {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                },
+                credential: {
+                    Text(row.title)
+                        .font(.body.weight(.medium))
+                        .help(row.title)
+                },
+                account: { Text(row.account).help(row.account) },
+                website: {
+                    Text(row.website == row.title ? "—" : row.website)
                         .help(row.website)
                 }
-                .width(min: 180, ideal: 260)
-            }
+            )
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(.rect)
+            .background(isSelected ? Color.accentColor.opacity(0.1) : .clear)
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("credential-\(row.id.uuidString)")
     }
 }
 
 @available(macOS 26.0, *)
-private struct CredentialNameCell: View {
-    let title: String
-    let account: String
+private struct AccessCredentialColumns<Selection: View, Credential: View, Account: View, Website: View>: View {
+    @ViewBuilder let selection: Selection
+    @ViewBuilder let credential: Credential
+    @ViewBuilder let account: Account
+    @ViewBuilder let website: Website
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.body.weight(.medium))
-                .lineLimit(1)
-            Text(account)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+        HStack(spacing: 12) {
+            selection.frame(width: 26)
+            credential.frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+            account.frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+            website.frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
         }
-        .help("\(title)\n\(account)")
     }
 }
 
 @available(macOS 26.0, *)
-struct MovePolicyMenu: View {
-    let currentPolicy: CredentialAccessPolicy?
+private struct AccessRuleSelectionBar: View {
+    let currentPolicy: CredentialAccessPolicy
     let selectionCount: Int
-    let move: (CredentialAccessPolicy) -> Void
+    let changePolicy: (CredentialAccessPolicy) -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("\(selectionCount) selected")
+                .font(.callout.weight(.medium))
+            Spacer()
+            ChangeAccessRuleMenu(
+                currentPolicy: currentPolicy,
+                selectionCount: selectionCount,
+                changePolicy: changePolicy
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+}
+
+@available(macOS 26.0, *)
+struct ChangeAccessRuleMenu: View {
+    let currentPolicy: CredentialAccessPolicy
+    let selectionCount: Int
+    let changePolicy: (CredentialAccessPolicy) -> Void
 
     var body: some View {
         Menu {
-            ForEach(CredentialAccessPolicy.allCases, id: \.self) { policy in
-                if policy != currentPolicy {
+            Section("Set access rule") {
+                ForEach(CredentialAccessPolicy.allCases, id: \.self) { policy in
                     Button {
-                        move(policy)
+                        changePolicy(policy)
                     } label: {
-                        Label(policy.displayName, systemImage: policy.symbol)
+                        Label(
+                            policy.displayName,
+                            systemImage: policy == currentPolicy ? "checkmark" : policy.symbol
+                        )
                     }
+                    .disabled(policy == currentPolicy)
                 }
             }
         } label: {
             Label(
-                selectionCount == 1 ? "Move credential" : "Move \(selectionCount) credentials",
-                systemImage: "arrow.right"
+                selectionCount == 1 ? "Change access rule…" : "Change access rules…",
+                systemImage: "slider.horizontal.3"
             )
         }
-        .disabled(selectionCount == 0)
-        .help("Move the selected credentials to another access group")
+        .help("Set the access rule for the selected credentials")
+        .accessibilityIdentifier("change-access-rule")
     }
 }
 

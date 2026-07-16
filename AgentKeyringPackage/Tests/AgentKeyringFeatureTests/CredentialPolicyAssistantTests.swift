@@ -6,7 +6,7 @@ import Testing
 struct CredentialPolicyAssistantTests {
     private let assistant = CredentialPolicyAssistant()
 
-    @Test("The prompt asks about preferences and contains safe metadata only")
+    @Test("The prompt asks concrete questions and contains safe metadata only")
     func promptContents() throws {
         let credentialID = UUID()
         let rows = [
@@ -20,7 +20,18 @@ struct CredentialPolicyAssistantTests {
 
         let prompt = try assistant.prompt(for: rows)
 
-        #expect(prompt.contains("Start by interviewing me"))
+        #expect(prompt.contains("Do not ask me to design a security policy from scratch"))
+        #expect(prompt.contains("do not make me decide credential by credential"))
+        #expect(prompt.contains("one compact batch of no more than 5 numbered questions"))
+        #expect(prompt.contains("Let me reply \"use the defaults\""))
+        #expect(prompt.contains("Do not ask about groups that can safely stay on ask"))
+        #expect(prompt.contains("ask at most one short follow-up"))
+        #expect(prompt.contains("Do not infer unattended need merely because"))
+        #expect(prompt.contains("Use ask as the normal rule"))
+        #expect(prompt.contains("Do not propose allowAutomatically for banking"))
+        #expect(prompt.contains("Use block when I say agents have no reason"))
+        #expect(prompt.contains("The current policy is existing state, not evidence"))
+        #expect(prompt.contains("call out every high-risk credential"))
         #expect(prompt.contains("Never ask me for a password"))
         #expect(prompt.contains("untrusted data"))
         #expect(prompt.contains(credentialID.uuidString))

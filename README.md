@@ -22,13 +22,14 @@ Apple Passwords remains your source of truth. Agent Keyring uses Apple's credent
 
 The demo uses synthetic accounts. Product screens are real native window captures. The macOS Watch prompt is genuine and captured separately; it does not claim to show a completed Watch approval.
 
-## Let your AI choose the rules
+## Set access rules with AI
 
 You do not need to classify every credential yourself.
 
-1. In `Credential access`, select `Let your AI choose` and copy the generated prompt.
-2. Paste it into the AI you already use. It interviews you about your tasks and risk preferences, then recommends a rule for every credential.
-3. Paste its final answer back into Agent Keyring. Review every proposed change, then apply it.
+1. In `Credential access`, select `Set rules with AI` and copy the instructions.
+2. Paste them into ChatGPT, Claude or another AI. Answer its concrete questions about which services your agents need and which tasks may run unattended.
+3. Copy the AI's entire final response and paste it back into Agent Keyring.
+4. Select `Review changes`. Agent Keyring checks every credential ID and shows every proposed change before you can apply it.
 
 The prompt contains credential names, websites and account labels. It never contains passwords, verification codes or TOTP seeds.
 
