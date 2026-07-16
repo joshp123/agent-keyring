@@ -3,6 +3,19 @@
     <channel>
         <title>AgentKeyring</title>
         <item>
+            <title>0.2.1</title>
+            <pubDate>Thu, 16 Jul 2026 21:38:32 +0200</pubDate>
+            <link>https://github.com/joshp123/agent-keyring</link>
+            <sparkle:version>202607161936</sparkle:version>
+            <sparkle:shortVersionString>0.2.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[Fixes `agent-keyring --version` when the command is run normally from `PATH`.
+
+This patch contains the same menu bar, Access Rules, safer Apple Passwords imports and human-first command line introduced in 0.2.0.
+]]></description>
+            <enclosure url="https://github.com/joshp123/agent-keyring/releases/download/v0.2.1/Agent-Keyring-0.2.1.zip" length="7225477" type="application/octet-stream" sparkle:edSignature="E5yiznxiw1jko84ZpdxPlwU6awqE+7JVnDcBBEsmAXmpv/1iaEiTJBShqsBABPxuApzMc4smMnUVZMAEaBseDw=="/>
+        </item>
+        <item>
             <title>0.2.0</title>
             <pubDate>Thu, 16 Jul 2026 21:29:55 +0200</pubDate>
             <link>https://github.com/joshp123/agent-keyring</link>
