@@ -2,9 +2,10 @@
 written_by: ai
 ---
 
-Sharper first-run guidance and a clearer product demo.
+Agent Keyring now stays out of the way and makes credential access easier to understand.
 
-- makes the copy-and-paste AI policy assistant a primary workflow
-- explains automatic, Apple Watch or Touch ID, and blocked access at a glance
-- installs the Codex integration without requiring a restart
-- replaces simulated product frames with native macOS window captures
+- adds a menu bar app, while keeping normal Dock and app-switcher behaviour when a window is open
+- rebuilds Access Rules around Ask each time, Allow automatically and Blocked, with clearer bulk changes and AI-assisted review
+- makes Apple Passwords imports safer, clearer and more useful when something fails
+- replaces the JSON-first command line with human commands such as `agent-keyring find example.com` and `agent-keyring copy password example.com`
+- keeps the command and Codex instructions linked to the installed app so they update together
