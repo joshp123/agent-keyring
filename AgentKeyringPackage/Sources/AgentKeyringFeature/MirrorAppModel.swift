@@ -51,6 +51,7 @@ public final class MirrorAppModel {
 
     private let store: EncryptedSnapshotStore
     private let mapper: CredentialExchangeMapper
+    private let credentialImporter: any CredentialImporting
     private let merger: SnapshotMerger
     private let resolver: CredentialResolver
     private let authorizer: any CredentialReleaseAuthorizing
@@ -62,6 +63,7 @@ public final class MirrorAppModel {
 
     public init(
         store: EncryptedSnapshotStore = EncryptedSnapshotStore(),
+        credentialImporter: any CredentialImporting = SystemCredentialImporter(),
         mapper: CredentialExchangeMapper = CredentialExchangeMapper(),
         merger: SnapshotMerger = SnapshotMerger(),
         resolver: CredentialResolver = CredentialResolver(),
@@ -71,6 +73,7 @@ public final class MirrorAppModel {
         approvalWindowPresenter: ApprovalWindowPresenter? = nil
     ) {
         self.store = store
+        self.credentialImporter = credentialImporter
         self.mapper = mapper
         self.merger = merger
         self.resolver = resolver
@@ -205,17 +208,31 @@ public final class MirrorAppModel {
         return nil
     }
 
-    private func importCredentials(token: UUID) async {
+    func importCredentials(token: UUID) async {
         isImporting = true
         notice = nil
         defer { isImporting = false }
 
         credentialExchangeLogger.info("Credential import started")
 
+        let hadExistingMirror = status != nil
+        let exportedData: ASExportedCredentialData
         do {
-            let exportedData = try await ASCredentialImportManager()
-                .importCredentials(token: token)
+            exportedData = try await credentialImporter.importCredentials(token: token)
             credentialExchangeLogger.info("Apple credential import completed")
+        } catch {
+            let failure = CredentialImportFailure(
+                error: error,
+                hadExistingMirror: hadExistingMirror
+            )
+            credentialExchangeLogger.error(
+                "Credential transfer failed [\(failure.diagnostic, privacy: .public)]"
+            )
+            notice = MirrorNotice(kind: .error, text: failure.message)
+            return
+        }
+
+        do {
             let previousGeneration = try await store.loadCurrent()
             let importBatch = mapper.map(exportedData, scope: .full)
             credentialExchangeLogger.info(
@@ -236,14 +253,15 @@ public final class MirrorAppModel {
                 text: "Refresh complete. The new mirror is encrypted and ready."
             )
         } catch {
+            let nsError = error as NSError
             credentialExchangeLogger.error(
-                "Credential import failed: \(String(describing: error), privacy: .private)"
+                "Mirror update failed [\(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public)]"
             )
             notice = MirrorNotice(
                 kind: .error,
-                text: status == nil
-                    ? "Import failed. In Passwords, choose Export All Items and try again."
-                    : "Refresh failed. Your existing encrypted mirror was not changed."
+                text: hadExistingMirror
+                    ? "Passwords transferred the credentials, but the encrypted mirror could not be updated. Your existing mirror was not changed."
+                    : "Passwords transferred the credentials, but Agent Keyring could not create the encrypted mirror."
             )
         }
     }

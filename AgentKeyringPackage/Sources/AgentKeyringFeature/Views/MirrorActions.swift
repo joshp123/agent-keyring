@@ -11,45 +11,44 @@ struct PrimaryActionRow: View {
     let manageAccess: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             if isLoading || isImporting || providerState == .requesting {
-                ProgressView()
-                    .controlSize(.small)
-                Text(progressLabel)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(progressLabel)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
             } else {
-                Button(action: primaryAction) {
-                    Label(primaryLabel, systemImage: primarySymbol)
-                        .frame(minWidth: 140)
-                }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .tint(providerState == .denied && status == nil ? .orange : .teal)
-                .keyboardShortcut(.defaultAction)
-
-                if status != nil {
-                    Button(action: manageAccess) {
-                        Label("Manage access", systemImage: "person.badge.key")
+                HStack(spacing: 10) {
+                    Button(action: primaryAction) {
+                        Label(primaryLabel, systemImage: primarySymbol)
                     }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .tint(providerState == .denied && status == nil ? .orange : .accentColor)
+                    .keyboardShortcut(.defaultAction)
+
+                    if status != nil {
+                        Button(action: manageAccess) {
+                            Label("Credential access…", systemImage: "person.badge.key")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                    }
                 }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(actionHintTitle)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.primary)
+                if status != nil || providerState == .enabled {
+                    PasswordsRefreshInstructions()
+                } else {
                     Text(actionHint)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var progressLabel: String {
@@ -59,7 +58,7 @@ struct PrimaryActionRow: View {
     }
 
     private var primaryLabel: String {
-        if status != nil { return "Refresh mirror" }
+        if status != nil { return "Open Passwords" }
         if providerState == .enabled { return "Open Passwords" }
         if providerState == .denied { return "Retry after profile setup" }
         return "Enable secure import"
@@ -72,24 +71,11 @@ struct PrimaryActionRow: View {
         return "checkmark.shield"
     }
 
-    private var actionHintTitle: String {
-        if status != nil || providerState == .enabled {
-            return "Opens Apple Passwords"
-        }
-        if providerState == .denied {
-            return "Developer profile required"
-        }
-        return "One-time macOS setting"
-    }
-
     private var actionHint: String {
-        if status != nil || providerState == .enabled {
-            return "Use File → Export All Items to App in Apple Passwords."
-        }
         if providerState == .denied {
-            return "Use an eligible Apple Developer Program team."
+            return "Agent Keyring needs an eligible Apple Developer Program profile before macOS can enable credential import."
         }
-        return "No passwords are read when you enable it."
+        return "This enables Agent Keyring as an export destination. It does not read any passwords."
     }
 
     private var primaryAction: () -> Void {
@@ -98,6 +84,22 @@ struct PrimaryActionRow: View {
         } else {
             enableProvider
         }
+    }
+}
+
+@available(macOS 26.0, *)
+private struct PasswordsRefreshInstructions: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("To refresh Agent Keyring:")
+                .font(.callout.weight(.semibold))
+            Text("1. Open Passwords.")
+            Text("2. Choose File → Export All Items to App.")
+            Text("3. Select Agent Keyring and approve the export.")
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

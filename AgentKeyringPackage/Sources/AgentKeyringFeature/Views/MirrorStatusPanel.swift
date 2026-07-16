@@ -85,10 +85,10 @@ struct MirrorStatusPanel: View {
         }
         if let status {
             return MirrorPresentation(
-                eyebrow: "MIRROR READY",
-                title: "Credentials ready for agents",
+                eyebrow: "READY",
+                title: "\(status.credentialItemCount) credentials available",
                 detail:
-                    "Encrypted and updated \(status.importedAt.formatted(.relative(presentation: .named))).",
+                    "Last refreshed from Apple Passwords \(status.importedAt.formatted(.relative(presentation: .named))).",
                 symbol: "checkmark.shield.fill",
                 colour: .green
             )
