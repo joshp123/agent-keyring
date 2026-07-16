@@ -10,10 +10,10 @@ struct AgentKeyringCLI: AsyncParsableCommand {
             "Let local agents use imported Apple Passwords logins without printing secrets.",
         discussion: """
             EXAMPLES
-              agent-keyring find https://example.com
-              agent-keyring copy username https://example.com
-              agent-keyring copy password https://example.com
-              agent-keyring copy code https://example.com
+              agent-keyring find example.com
+              agent-keyring copy username example.com
+              agent-keyring copy password example.com
+              agent-keyring copy code example.com
             """,
         version: installedVersion(),
         subcommands: [Find.self, Copy.self, Status.self, Install.self]
@@ -25,8 +25,8 @@ struct AgentKeyringCLI: AsyncParsableCommand {
         )
         print("")
         print("Try:")
-        print("  agent-keyring find https://example.com")
-        print("  agent-keyring copy password https://example.com")
+        print("  agent-keyring find example.com")
+        print("  agent-keyring copy password example.com")
         print("")
         print("Run 'agent-keyring --help' for all commands.")
     }
@@ -34,21 +34,23 @@ struct AgentKeyringCLI: AsyncParsableCommand {
 
 struct Find: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Show logins that match a web page without requesting a secret."
+        abstract: "Show logins that match a site without requesting a secret."
     )
 
-    @Argument(help: "The full URL of the current web page.")
-    var url: String
+    @Argument(help: "The site or page URL, such as example.com.")
+    var site: String
 
     @Option(help: "Only show this account.")
     var account: String?
 
     func validate() throws {
-        try validateWebURL(url)
+        _ = try normaliseWebTarget(site)
     }
 
     mutating func run() async throws {
-        try await CLIClient.run(.find(targetURL: url, account: account))
+        try await CLIClient.run(
+            .find(targetURL: normaliseWebTarget(site), account: account)
+        )
     }
 }
 
@@ -60,8 +62,8 @@ struct Copy: AsyncParsableCommand {
     @Argument(help: "The field to copy: username, password or code.")
     var field: CopyField
 
-    @Argument(help: "The full URL of the current web page.")
-    var url: String
+    @Argument(help: "The site or page URL, such as example.com.")
+    var site: String
 
     @Option(help: "Choose an account when several logins match.")
     var account: String?
@@ -73,13 +75,13 @@ struct Copy: AsyncParsableCommand {
     var expires = 30
 
     func validate() throws {
-        try validateSecureWebURL(url)
+        _ = try normaliseSecureWebTarget(site)
         guard (5...120).contains(expires) else {
             throw ValidationError("--expires must be between 5 and 120 seconds.")
         }
         if let credential, UUID(uuidString: credential) == nil {
             throw ValidationError(
-                "'\(credential)' is not a valid credential ID. Run 'agent-keyring find \(url)' to see matching logins."
+                "'\(credential)' is not a valid credential ID. Run 'agent-keyring find \(site)' to see matching logins."
             )
         }
     }
@@ -88,7 +90,7 @@ struct Copy: AsyncParsableCommand {
         try await CLIClient.run(
             .copy(
                 field: field.bridgeField,
-                targetURL: url,
+                targetURL: normaliseSecureWebTarget(site),
                 account: account,
                 credentialID: credential.flatMap(UUID.init(uuidString:)),
                 expiration: expires
@@ -508,8 +510,8 @@ struct CLIError: Error {
             )
         case .invalidURL:
             self.init(
-                "'\(targetURL)' is not a complete web page URL.",
-                suggestion: "Use a full URL, such as https://example.com."
+                "'\(targetURL)' is not a valid site or page URL.",
+                suggestion: "Use a site such as example.com."
             )
         case .mirrorUnavailable:
             self.init(
@@ -599,29 +601,33 @@ extension AgentCredentialField {
     }
 }
 
-private func validateWebURL(_ value: String) throws {
-    guard let components = URLComponents(string: value),
+func normaliseWebTarget(_ value: String) throws -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let target = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+    guard let components = URLComponents(string: target),
         let scheme = components.scheme?.lowercased(),
         scheme == "https" || scheme == "http",
         components.host?.isEmpty == false
     else {
         throw ValidationError(
-            "'\(value)' is not a complete web page URL. Use a full URL, such as https://example.com."
+            "'\(value)' is not a valid site or page URL. Use a site such as example.com."
         )
     }
+    return target
 }
 
-func validateSecureWebURL(_ value: String) throws {
-    try validateWebURL(value)
-    guard let components = URLComponents(string: value),
+func normaliseSecureWebTarget(_ value: String) throws -> String {
+    let target = try normaliseWebTarget(value)
+    guard let components = URLComponents(string: target),
         let host = components.host?.lowercased()
-    else { return }
+    else { return target }
     let localhost = host == "localhost" || host == "127.0.0.1" || host == "::1"
     guard components.scheme?.lowercased() == "https" || localhost else {
         throw ValidationError(
             "Agent Keyring will not copy credentials to an insecure page. Use the HTTPS page instead."
         )
     }
+    return target
 }
 
 private func installedVersion() -> String {

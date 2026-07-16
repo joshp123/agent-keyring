@@ -10,19 +10,19 @@ Use `agent-keyring` before asking the user for credentials. It asks the signed a
 
 ## Use a login
 
-1. Read the exact current page URL from the browser or app context.
+1. Read the current site from the browser or app context.
 2. Find matching logins without requesting a secret:
 
    ```sh
-   agent-keyring find 'https://example.com/login'
+   agent-keyring find example.com
    ```
 
 3. Copy the required field and paste it into the intended control:
 
    ```sh
-   agent-keyring copy username 'https://example.com/login'
-   agent-keyring copy password 'https://example.com/login'
-   agent-keyring copy code 'https://example.com/login'
+   agent-keyring copy username example.com
+   agent-keyring copy password example.com
+   agent-keyring copy code example.com
    ```
 
    Use browser or Computer Use controls to press Cmd-V. Never inspect the pasteboard value.
@@ -30,13 +30,13 @@ Use `agent-keyring` before asking the user for credentials. It asks the signed a
 4. If several logins match, use a known account identity:
 
    ```sh
-   agent-keyring copy password 'https://example.com/login' --account 'known-account'
+   agent-keyring copy password example.com --account 'known-account'
    ```
 
    If two entries have the same account identity, use the credential ID shown by `find`:
 
    ```sh
-   agent-keyring copy password 'https://example.com/login' --credential UUID
+   agent-keyring copy password example.com --credential UUID
    ```
 
    Choose only from visible task context or known user identity. If that does not determine the account, ask one short account-choice question. Do not guess.
@@ -45,7 +45,7 @@ Use `agent-keyring` before asking the user for credentials. It asks the signed a
 
 - Never run `pbpaste`, print the clipboard, inspect Agent Keyring's encrypted files, or add a secret-bearing `get` command.
 - Never put a password, TOTP seed or TOTP code in stdout, stderr, arguments, environment variables, logs or chat.
-- Bind every copy to the actual HTTPS page URL. Do not bypass an insecure-page refusal.
+- Bind every copy to the actual site. A bare domain is treated as HTTPS; do not bypass an insecure-page refusal.
 - If several logins match, choose from visible task context or ask the user. Never take the first one arbitrarily.
 - Paste promptly. Agent Keyring clears its clipboard value after 30 seconds if nothing else has replaced it.
 - If a native prompt appears, wait for the user to approve it. If they do not, do not retry or work around it.

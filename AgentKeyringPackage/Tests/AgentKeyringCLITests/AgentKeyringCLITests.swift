@@ -10,7 +10,7 @@ struct AgentKeyringCLITests {
     func topLevelHelp() {
         let help = AgentKeyringCLI.helpMessage(columns: 100)
         #expect(help.contains("use imported Apple Passwords logins without printing secrets"))
-        #expect(help.contains("agent-keyring find https://example.com"))
+        #expect(help.contains("agent-keyring find example.com"))
         #expect(help.contains("SUBCOMMANDS"))
         #expect(!help.contains("JSON"))
     }
@@ -22,8 +22,25 @@ struct AgentKeyringCLITests {
                 "find", "https://example.com/login", "--account", "person@example.com",
             ]) as? Find
         )
-        #expect(command.url == "https://example.com/login")
+        #expect(command.site == "https://example.com/login")
         #expect(command.account == "person@example.com")
+    }
+
+    @Test("Bare domains are treated as HTTPS sites")
+    func bareDomain() throws {
+        #expect(try normaliseWebTarget("example.com") == "https://example.com")
+        #expect(
+            try normaliseSecureWebTarget("example.com/login")
+                == "https://example.com/login"
+        )
+    }
+
+    @Test("Full page URLs remain unchanged")
+    func fullPageURL() throws {
+        #expect(
+            try normaliseSecureWebTarget("https://example.com/login?next=%2Faccount")
+                == "https://example.com/login?next=%2Faccount"
+        )
     }
 
     @Test("Copy uses human field names and conventional options")
@@ -36,7 +53,7 @@ struct AgentKeyringCLITests {
             ]) as? Copy
         )
         #expect(command.field == .code)
-        #expect(command.url == "https://example.com")
+        #expect(command.site == "https://example.com")
         #expect(command.credential == id.uuidString)
         #expect(command.expires == 45)
     }
@@ -44,7 +61,7 @@ struct AgentKeyringCLITests {
     @Test("Every command has focused local help")
     func commandHelp() {
         let help = AgentKeyringCLI.helpMessage(for: Copy.self, columns: 100)
-        #expect(help.contains("copy <field> <url>"))
+        #expect(help.contains("copy <field> <site>"))
         #expect(help.contains("--account"))
         #expect(help.contains("--credential"))
         #expect(help.contains("--expires"))
@@ -61,7 +78,7 @@ struct AgentKeyringCLITests {
     @Test("Copy rejects insecure pages before contacting the app")
     func insecureCopy() {
         #expect(throws: ValidationError.self) {
-            try validateSecureWebURL("http://example.com")
+            try normaliseSecureWebTarget("http://example.com")
         }
     }
 

@@ -132,7 +132,7 @@ private struct AgentInstructionsView: View {
     @State private var didCopy = false
 
     private static let instructions =
-        "Use `agent-keyring` before asking for credentials. Resolve the page URL, copy the needed field and paste with Cmd-V; never read or print the clipboard. Run `agent-keyring --help` for commands."
+        "Use `agent-keyring` to find and copy credentials for the current site. Paste with Cmd-V; never read or print the clipboard. Run `agent-keyring --help` for commands."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
