@@ -3,6 +3,23 @@
     <channel>
         <title>AgentKeyring</title>
         <item>
+            <title>0.2.0</title>
+            <pubDate>Thu, 16 Jul 2026 21:29:55 +0200</pubDate>
+            <link>https://github.com/joshp123/agent-keyring</link>
+            <sparkle:version>202607161927</sparkle:version>
+            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[Agent Keyring now stays out of the way and makes credential access easier to understand.
+
+- adds a menu bar app, while keeping normal Dock and app-switcher behaviour when a window is open
+- rebuilds Access Rules around Ask each time, Allow automatically and Blocked, with clearer bulk changes and AI-assisted review
+- makes Apple Passwords imports safer, clearer and more useful when something fails
+- replaces the JSON-first command line with human commands such as `agent-keyring find example.com` and `agent-keyring copy password example.com`
+- keeps the command and Codex instructions linked to the installed app so they update together
+]]></description>
+            <enclosure url="https://github.com/joshp123/agent-keyring/releases/download/v0.2.0/Agent-Keyring-0.2.0.zip" length="7224565" type="application/octet-stream" sparkle:edSignature="IIRQDlKzD9VHhhjsiwcqzK9d344mCYsDfbBN86rpZg9a4KSwRvwmhDGynZUgdu3VUarLBlfU1tY3lcAsklqGDQ=="/>
+        </item>
+        <item>
             <title>0.1.1</title>
             <pubDate>Fri, 10 Jul 2026 15:18:41 +0200</pubDate>
             <link>https://github.com/joshp123/agent-keyring</link>
