@@ -30,7 +30,6 @@ public struct ContentView: View {
                         openPasswords: model.openPasswords,
                         manageAccess: { openWindow(id: "access") }
                     )
-                    MirrorSecurityFooter()
                 }
             }
             .padding(32)
@@ -68,22 +67,5 @@ public struct ContentView: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-    }
-}
-
-@available(macOS 26.0, *)
-private struct MirrorSecurityFooter: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            Label("Encrypted locally", systemImage: "lock.fill")
-            Divider().frame(height: 12)
-            Label("Apple Passwords stays primary", systemImage: "key.fill")
-            Spacer()
-            Label("Passkeys stay in Passwords", systemImage: "person.badge.key.fill")
-        }
-        .font(.callout)
-        .fontWeight(.medium)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
     }
 }

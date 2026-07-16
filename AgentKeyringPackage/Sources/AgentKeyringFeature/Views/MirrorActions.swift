@@ -2,6 +2,7 @@ import SwiftUI
 
 @available(macOS 26.0, *)
 struct PrimaryActionRow: View {
+    @State private var isShowingUpdateHelp = false
     let status: SafeMirrorStatus?
     let isLoading: Bool
     let isImporting: Bool
@@ -21,27 +22,11 @@ struct PrimaryActionRow: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                HStack(spacing: 10) {
-                    Button(action: primaryAction) {
-                        Label(primaryLabel, systemImage: primarySymbol)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(providerState == .denied && status == nil ? .orange : .accentColor)
-                    .keyboardShortcut(.defaultAction)
+                actions
 
-                    if status != nil {
-                        Button(action: manageAccess) {
-                            Label("When Agents Can Sign In…", systemImage: "person.badge.key")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                    }
-                }
-
-                if status != nil || providerState == .enabled {
+                if status == nil, providerState == .enabled {
                     PasswordsImportInstructions()
-                } else {
+                } else if status == nil {
                     Text(actionHint)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -51,6 +36,42 @@ struct PrimaryActionRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
+    private var actions: some View {
+        if status != nil {
+            HStack(spacing: 10) {
+                Button(action: manageAccess) {
+                    Label("Access Rules…", systemImage: "person.badge.key")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+
+                Button {
+                    isShowingUpdateHelp = true
+                } label: {
+                    Label("Update…", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .popover(isPresented: $isShowingUpdateHelp, arrowEdge: .bottom) {
+                    UpdateHelp(openPasswords: {
+                        isShowingUpdateHelp = false
+                        openPasswords()
+                    })
+                }
+            }
+        } else {
+            Button(action: primaryAction) {
+                Label(primaryLabel, systemImage: primarySymbol)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(providerState == .denied ? .orange : .accentColor)
+            .keyboardShortcut(.defaultAction)
+        }
+    }
+
     private var progressLabel: String {
         if isLoading { return "Checking encrypted credentials…" }
         if isImporting { return "Saving the updated credentials…" }
@@ -58,14 +79,12 @@ struct PrimaryActionRow: View {
     }
 
     private var primaryLabel: String {
-        if status != nil { return "Open Passwords" }
         if providerState == .enabled { return "Open Passwords" }
         if providerState == .denied { return "Retry after profile setup" }
-        return "Allow imports from Passwords"
+        return "Allow Passwords Import"
     }
 
     private var primarySymbol: String {
-        if status != nil { return "arrow.up.forward.app" }
         if providerState == .enabled { return "arrow.up.forward.app" }
         if providerState == .denied { return "arrow.clockwise" }
         return "checkmark.shield"
@@ -76,12 +95,11 @@ struct PrimaryActionRow: View {
             return
                 "Agent Keyring needs an eligible Apple Developer Program profile before macOS can enable credential import."
         }
-        return
-            "This lets Apple Passwords send an export you approve to Agent Keyring. It does not read Passwords in the background."
+        return "Agent Keyring does not read Passwords in the background."
     }
 
     private var primaryAction: () -> Void {
-        if status != nil || providerState == .enabled {
+        if providerState == .enabled {
             openPasswords
         } else {
             enableProvider
@@ -92,19 +110,33 @@ struct PrimaryActionRow: View {
 @available(macOS 26.0, *)
 private struct PasswordsImportInstructions: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("To add new credentials or update changed ones:")
-                .font(.callout.weight(.semibold))
-            Text("1. Open Passwords.")
-            Text("2. Choose File → Export All Items to App.")
-            Text("3. Select Agent Keyring and approve the export.")
+        VStack(alignment: .leading, spacing: 4) {
             Text(
-                "Agent Keyring adds new credentials, updates changed ones and removes credentials no longer in Passwords."
+                "In Passwords, choose File → Export All Items to App → Agent Keyring."
             )
         }
         .font(.callout)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+@available(macOS 26.0, *)
+private struct UpdateHelp: View {
+    let openPasswords: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Update from Passwords")
+                .font(.headline)
+            Text("Choose File → Export All Items to App → Agent Keyring.")
+                .foregroundStyle(.secondary)
+            Button("Open Passwords", action: openPasswords)
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(18)
+        .frame(width: 330, alignment: .leading)
     }
 }
 

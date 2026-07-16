@@ -25,7 +25,7 @@ public enum DocumentationScreen: String, CaseIterable, Sendable {
     public var windowTitle: String {
         switch self {
         case .setup, .ready, .approval: "Agent Keyring"
-        case .access, .assistant, .assistantReview: "When Agents Can Sign In"
+        case .access, .assistant, .assistantReview: "Access Rules"
         }
     }
 }
@@ -89,8 +89,8 @@ public struct DocumentationPreviewView: View {
             importedAt: Date().addingTimeInterval(-120),
             sourceExportedAt: Date().addingTimeInterval(-180),
             scope: .full,
-            credentialItemCount: 8,
-            addedCount: 8,
+            credentialItemCount: 522,
+            addedCount: 522,
             changedCount: 0,
             removedCount: 0,
             skippedCredentialCount: 2,
@@ -118,7 +118,6 @@ private struct DocumentationStatusView: View {
                     openPasswords: {},
                     manageAccess: {}
                 )
-                DocumentationSecurityFooter()
             }
             .padding(32)
         }
@@ -143,23 +142,6 @@ private struct DocumentationApprovalView: View {
             .padding(32)
         }
         .tint(.teal)
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationSecurityFooter: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            Label("Encrypted locally", systemImage: "lock.fill")
-            Divider().frame(height: 12)
-            Label("Apple Passwords stays primary", systemImage: "key.fill")
-            Spacer()
-            Label("Passkeys stay in Passwords", systemImage: "person.badge.key.fill")
-        }
-        .font(.callout)
-        .fontWeight(.medium)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
     }
 }
 

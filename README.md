@@ -26,12 +26,12 @@ The demo uses synthetic accounts. Product screens are real native window capture
 
 You do not need to classify every credential yourself.
 
-1. Open `When Agents Can Sign In`, select `Work Out Your Rules with AI` and copy the prompt.
+1. Open `Access Rules`, select `Set Rules with AI` and copy the prompt.
 2. Read the copied text, then paste it into ChatGPT, Claude or another AI. It helps you describe what you trust local agents to access unattended, what should ask you first and what they should never use.
 3. Copy the AI's entire final response and paste it back into Agent Keyring.
-4. Select `Review Proposal`. Agent Keyring checks every credential ID and shows every proposed change before you can apply it.
+4. Select `Review Changes`. Agent Keyring checks every credential ID and shows every proposed change before you can apply it.
 
-The copied text contains only opaque credential IDs, sites and current rules. It never contains account names, usernames, passwords, verification codes or TOTP seeds.
+The copied text contains only a random ID, site and current rule for each login. It never contains account names, usernames, passwords or verification codes.
 
 ![Agent Keyring's copy-and-paste AI policy assistant](docs/media/assistant.png)
 
@@ -51,7 +51,7 @@ For credentials set to `Ask each time`, Agent Keyring shows the requested websit
    /Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install
    ```
 
-3. From the menu-bar key, choose `Open Agent Keyring`, then select `Allow imports from Passwords`. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
+3. From the menu-bar key, choose `Open Agent Keyring`, then select `Allow Passwords Import`. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
 
 That is it. Ask Codex normally. You do not need to restart Codex.
 

@@ -30,11 +30,9 @@ public struct AccessControlView: View {
             Group {
                 if controller.rows.isEmpty {
                     ContentUnavailableView(
-                        "No credentials yet",
+                        "No logins yet",
                         systemImage: "key.horizontal",
-                        description: Text(
-                            "Add credentials from Apple Passwords before choosing when agents must ask."
-                        )
+                        description: Text("Import logins from Apple Passwords first.")
                     )
                 } else if let selectedPolicy = controller.selectedPolicy {
                     AccessPolicyDetailView(

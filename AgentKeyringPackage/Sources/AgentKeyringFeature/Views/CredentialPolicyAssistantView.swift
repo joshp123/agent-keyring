@@ -5,6 +5,7 @@ import SwiftUI
 struct CredentialPolicyAssistantView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var responseText = ""
+    @State private var promptText = ""
     @State private var review: CredentialPolicyReview?
     @State private var message: AssistantMessage?
     @State private var isApplying = false
@@ -17,6 +18,9 @@ struct CredentialPolicyAssistantView: View {
     ) {
         self.controller = controller
         _responseText = State(initialValue: initialResponse)
+        _promptText = State(
+            initialValue: (try? CredentialPolicyAssistant().prompt(for: controller.rows)) ?? ""
+        )
         let initialReview = try? CredentialPolicyAssistant().review(
             response: initialResponse,
             against: controller.rows
@@ -42,7 +46,7 @@ struct CredentialPolicyAssistantView: View {
                         )
                     } else {
                         CopyPromptStep(
-                            credentialCount: controller.rows.count,
+                            prompt: promptText,
                             didCopy: message == .promptCopied,
                             copyPrompt: copyPrompt
                         )
@@ -78,15 +82,14 @@ struct CredentialPolicyAssistantView: View {
     }
 
     private func copyPrompt() {
-        do {
-            let prompt = try assistant.prompt(for: controller.rows)
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(prompt, forType: .string)
-            message = .promptCopied
-        } catch {
-            message = .error(error.localizedDescription)
+        guard !promptText.isEmpty else {
+            message = .error("The prompt could not be created.")
+            return
         }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(promptText, forType: .string)
+        message = .promptCopied
     }
 
     private func pasteResponse() {
@@ -132,15 +135,9 @@ private struct AssistantHeader: View {
                 .frame(width: 46, height: 46)
                 .background(Color.accentColor.opacity(0.12), in: Circle())
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Work Out Your Rules with AI")
+            VStack(alignment: .leading) {
+                Text("Set Rules with AI")
                     .font(.title2.weight(.semibold))
-                Text(
-                    "Copy a prompt into the AI you already use. It will help you decide what you trust, then propose rules for your credentials. Paste the proposal here; nothing changes until you review and apply it."
-                )
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
         }
@@ -150,25 +147,25 @@ private struct AssistantHeader: View {
 
 @available(macOS 26.0, *)
 private struct CopyPromptStep: View {
-    let credentialCount: Int
+    @State private var isShowingPrompt = false
+    let prompt: String
     let didCopy: Bool
     let copyPrompt: () -> Void
 
     var body: some View {
         AssistantStep(number: 1, title: "Copy the Prompt") {
             VStack(alignment: .leading, spacing: 12) {
-                Text(
-                    "The prompt explains the three rules, then lists \(credentialCount) random IDs, sites and current rules. The IDs do not identify your accounts, and the prompt does not include account names, usernames, passwords or verification codes."
-                )
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-                Label(
-                    "You can and should read the copied text before sharing it with the AI you choose.",
-                    systemImage: "doc.text.magnifyingglass"
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                DisclosureGroup("Preview Prompt", isExpanded: $isShowingPrompt) {
+                    ScrollView {
+                        Text(prompt)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                    }
+                    .frame(height: 160)
+                    .background(.background, in: .rect(cornerRadius: 8))
+                }
 
                 Button(action: copyPrompt) {
                     Label(
@@ -189,14 +186,8 @@ private struct PasteResponseStep: View {
     let checkResponse: () -> Void
 
     var body: some View {
-        AssistantStep(number: 2, title: "Paste the Proposal") {
+        AssistantStep(number: 2, title: "Paste the Result") {
             VStack(alignment: .leading, spacing: 12) {
-                Text(
-                    "After answering the AI’s questions, paste its complete reply below. Agent Keyring checks that every credential has one valid rule, then shows each proposed change."
-                )
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
                 TextEditor(text: $responseText)
                     .font(.system(.callout, design: .monospaced))
                     .frame(minHeight: 150)
@@ -210,7 +201,7 @@ private struct PasteResponseStep: View {
                 HStack {
                     Button("Paste from Clipboard", action: pasteResponse)
                     Spacer()
-                    Button("Review Proposal", action: checkResponse)
+                    Button("Review Changes", action: checkResponse)
                         .disabled(
                             responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -240,8 +231,6 @@ private struct AssistantStep<Content: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(18)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 14))
     }
 }
 
@@ -250,54 +239,29 @@ private struct RecommendationReviewView: View {
     let review: CredentialPolicyReview
     let editResponse: () -> Void
 
-    private var newlyAutomaticCount: Int {
-        review.changes.lazy.filter { $0.proposedPolicy == .allowAutomatically }.count
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Proposal ready to review", systemImage: "doc.text.magnifyingglass")
+            Label(reviewTitle, systemImage: "doc.text.magnifyingglass")
                 .font(.headline)
                 .foregroundStyle(.primary)
 
-            HStack(spacing: 12) {
-                RecommendationCount(policy: .ask, count: review.askCount)
-                RecommendationCount(policy: .allowAutomatically, count: review.automaticCount)
-                RecommendationCount(policy: .block, count: review.blockedCount)
-            }
-
-            Text(
-                "Agent Keyring found one valid rule for every credential. Applying this proposal will change \(review.changedCount) rules."
-            )
-            .font(.callout)
-            .foregroundStyle(.secondary)
-
-            if newlyAutomaticCount > 0 {
-                Label(
-                    newlyAutomaticCount == 1
-                        ? "1 credential will stop asking for confirmation."
-                        : "\(newlyAutomaticCount) credentials will stop asking for confirmation.",
-                    systemImage: "exclamationmark.shield.fill"
-                )
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.orange)
-            }
-
             if review.changes.isEmpty {
-                Text("The proposal keeps every current rule.")
+                Text("No rules will change.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Review every proposed change before applying it.")
-                    .font(.headline)
                 RecommendationChangesTable(changes: review.changes)
             }
 
-            Button("Edit Pasted Response", action: editResponse)
+            Button("Edit Response", action: editResponse)
                 .buttonStyle(.bordered)
         }
         .padding(18)
         .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 14))
+    }
+
+    private var reviewTitle: String {
+        review.changedCount == 1 ? "1 Change" : "\(review.changedCount) Changes"
     }
 }
 
@@ -308,7 +272,7 @@ private struct RecommendationChangesTable: View {
     var body: some View {
         VStack(spacing: 0) {
             RecommendationChangeColumns(
-                credential: { Text("Credential") },
+                credential: { Text("Login") },
                 current: { Text("Current") },
                 proposed: { Text("Proposed") }
             )
@@ -345,6 +309,11 @@ private struct RecommendationChangesTable: View {
                         )
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
+                        .background(
+                            change.proposedPolicy == .allowAutomatically
+                                && change.currentPolicy != .allowAutomatically
+                                ? Color.orange.opacity(0.08) : .clear
+                        )
 
                         Divider()
                     }
@@ -381,25 +350,6 @@ private struct PolicyLabel: View {
         Label(policy.displayName, systemImage: policy.symbol)
             .foregroundStyle(policy.colour)
             .lineLimit(1)
-    }
-}
-
-@available(macOS 26.0, *)
-private struct RecommendationCount: View {
-    let policy: CredentialAccessPolicy
-    let count: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(policy.displayName, systemImage: policy.symbol)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(policy.colour)
-            Text(count, format: .number)
-                .font(.title2.monospacedDigit().weight(.semibold))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(.background.opacity(0.7), in: .rect(cornerRadius: 10))
     }
 }
 
@@ -451,7 +401,7 @@ private enum AssistantMessage: Equatable {
         switch self {
         case .promptCopied:
             "Prompt copied. Read it, then paste it into ChatGPT, Claude or another AI."
-        case .responseReady: "The proposal includes one valid rule for every credential."
+        case .responseReady: "Ready to review."
         case let .error(text): text
         }
     }

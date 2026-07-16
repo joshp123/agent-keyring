@@ -15,7 +15,7 @@ struct CredentialReleaseApprovalView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
                 Image(systemName: "person.badge.key.fill")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.teal)
@@ -25,48 +25,27 @@ struct CredentialReleaseApprovalView: View {
                         Circle().stroke(.teal.opacity(0.20), lineWidth: 1)
                     }
 
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("LOCAL AGENT REQUEST")
-                        .font(.callout.weight(.semibold))
-                        .tracking(1.1)
-                        .foregroundStyle(.teal)
-
-                    Text("Approve credential access")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Approve \(request.field.approvalDisplayName.lowercased())")
                         .font(.system(size: 27, weight: .semibold))
                         .tracking(-0.4)
 
-                    Text(
-                        "Check the destination and account, then approve once on Apple Watch or with Touch ID."
-                    )
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    Text(request.destination)
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             }
 
             VStack(spacing: 0) {
                 ApprovalDetailRow(
-                    label: "Website",
-                    value: request.destination,
-                    symbol: "globe"
-                )
-                Divider().padding(.leading, 48)
-                ApprovalDetailRow(
                     label: "Account",
-                    value: request.account,
-                    symbol: "person.crop.circle"
+                    value: request.account
                 )
-                Divider().padding(.leading, 48)
+                Divider().padding(.leading, 16)
                 ApprovalDetailRow(
-                    label: "Credential",
-                    value: request.credentialTitle,
-                    symbol: "rectangle.and.text.magnifyingglass"
-                )
-                Divider().padding(.leading, 48)
-                ApprovalDetailRow(
-                    label: "Access",
-                    value: request.field.approvalDisplayName,
-                    symbol: request.field.approvalSymbol
+                    label: "Login",
+                    value: request.credentialTitle
                 )
             }
             .background(.primary.opacity(0.045), in: .rect(cornerRadius: 16))
@@ -81,13 +60,10 @@ struct CredentialReleaseApprovalView: View {
                     .foregroundStyle(.teal)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Waiting for your approval")
-                        .font(.headline)
                     Text(
-                        "Approve once with Apple Watch or Touch ID. The clipboard clears after \(request.expirationSeconds) seconds."
+                        "Approve with Apple Watch or Touch ID. Clipboard clears \(request.expirationSeconds) seconds after approval."
                     )
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(.callout.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -114,15 +90,9 @@ struct CredentialReleaseApprovalView: View {
 private struct ApprovalDetailRow: View {
     let label: String
     let value: String
-    let symbol: String
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: symbol)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.teal)
-                .frame(width: 22)
-
             Text(label)
                 .font(.callout.weight(.medium))
                 .foregroundStyle(.secondary)

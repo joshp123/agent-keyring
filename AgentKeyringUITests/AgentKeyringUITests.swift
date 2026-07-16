@@ -42,10 +42,10 @@ final class AgentKeyringUITests: XCTestCase {
         XCTAssertTrue(accessWindow.descendants(matching: .any)["policy-detail-ask"].exists)
         XCTAssertTrue(accessWindow.scrollViews["credential-list"].exists)
         XCTAssertTrue(accessWindow.buttons["select-all-credentials"].exists)
-        XCTAssertTrue(accessWindow.staticTexts["Credential"].exists)
+        XCTAssertTrue(accessWindow.staticTexts["Login"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Account"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Website"].exists)
-        XCTAssertTrue(accessWindow.staticTexts["440 credentials"].exists)
+        XCTAssertTrue(accessWindow.staticTexts["440"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Credential 1"].exists)
 
         accessWindow.buttons["select-all-credentials"].click()
@@ -65,13 +65,13 @@ final class AgentKeyringUITests: XCTestCase {
         XCTAssertTrue(changeRule.waitForExistence(timeout: 2))
         changeRule.click()
         app.menuItems["Blocked"].click()
-        XCTAssertTrue(accessWindow.staticTexts["439 credentials"].waitForExistence(timeout: 2))
+        XCTAssertTrue(accessWindow.staticTexts["439"].waitForExistence(timeout: 2))
 
         accessWindow.buttons["policy-assistant"].click()
         XCTAssertTrue(
-            app.staticTexts["Work Out Your Rules with AI"].waitForExistence(timeout: 3)
+            app.staticTexts["Set Rules with AI"].waitForExistence(timeout: 3)
         )
         XCTAssertTrue(app.buttons["Copy Prompt"].exists)
-        XCTAssertTrue(app.buttons["Review Proposal"].exists)
+        XCTAssertTrue(app.buttons["Review Changes"].exists)
     }
 }

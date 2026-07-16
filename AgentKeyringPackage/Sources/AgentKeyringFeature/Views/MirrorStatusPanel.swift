@@ -16,12 +16,7 @@ struct MirrorStatusPanel: View {
             HStack(alignment: .top, spacing: 18) {
                 StatusMark(symbol: presentation.symbol, colour: presentation.colour)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(presentation.eyebrow)
-                        .font(.callout.weight(.semibold))
-                        .tracking(1.1)
-                        .foregroundStyle(presentation.colour)
-
+                VStack(alignment: .leading, spacing: 6) {
                     Text(presentation.title)
                         .font(.system(size: 32, weight: .semibold))
                         .tracking(-0.5)
@@ -37,7 +32,7 @@ struct MirrorStatusPanel: View {
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("mirror-status")
 
-            if let status, !isImporting {
+            if let status, !isImporting, status.skippedCredentialCount > 0 {
                 Divider()
                 MirrorDeltaStrip(status: status)
             } else if !isLoading, !isImporting {
@@ -66,36 +61,31 @@ struct MirrorStatusPanel: View {
     private var presentation: MirrorPresentation {
         if isLoading {
             return MirrorPresentation(
-                eyebrow: "CHECKING AGENT KEYRING",
-                title: "Checking your credentials",
-                detail: "Opening the encrypted credentials stored on this Mac.",
+                title: "Opening Agent Keyring",
+                detail: "Checking the encrypted logins on this Mac.",
                 symbol: "ellipsis",
                 colour: .secondary
             )
         }
         if isImporting {
             return MirrorPresentation(
-                eyebrow: "UPDATING CREDENTIALS",
-                title: "Adding changes from Apple Passwords",
-                detail:
-                    "Agents keep using the existing encrypted copy until the update is safely saved.",
+                title: "Importing from Passwords",
+                detail: "The existing logins remain available until the update is saved.",
                 symbol: "arrow.triangle.2.circlepath",
                 colour: .teal
             )
         }
         if let status {
             return MirrorPresentation(
-                eyebrow: "READY",
-                title: "\(status.credentialItemCount) credentials ready for agent sign-ins",
+                title: "\(status.credentialItemCount) logins",
                 detail:
-                    "New credentials ask you before sharing a password or code. Last updated from Apple Passwords \(status.importedAt.formatted(.relative(presentation: .named))).",
+                    "Updated \(status.importedAt.formatted(.relative(presentation: .named))).",
                 symbol: "checkmark.shield.fill",
                 colour: .green
             )
         }
         if providerState == .denied {
             return MirrorPresentation(
-                eyebrow: "SETUP BLOCKED",
                 title: "Apple blocked the extension",
                 detail:
                     "The app is built and signed, but credential exchange needs an eligible Developer Program profile.",
@@ -105,19 +95,17 @@ struct MirrorStatusPanel: View {
         }
         if providerState == .enabled {
             return MirrorPresentation(
-                eyebrow: "READY FOR CREDENTIALS",
-                title: "Add credentials from Apple Passwords",
+                title: "Import your logins",
                 detail:
-                    "Export your Passwords items to Agent Keyring. They are encrypted on this Mac and ask you before agents can use passwords or codes.",
+                    "In Passwords, export all items to Agent Keyring. They are encrypted on this Mac.",
                 symbol: "arrow.down.to.line.compact",
                 colour: .teal
             )
         }
         return MirrorPresentation(
-            eyebrow: "LOCAL · ENCRYPTED",
-            title: "Let local AI agents sign in",
+            title: "Set up Agent Keyring",
             detail:
-                "Agent Keyring gives local agents the matching password or verification code from Apple Passwords without putting it in chat. New credentials ask you first.",
+                "Agent Keyring lets local AI agents use logins from Apple Passwords without putting passwords or codes in chat.",
             symbol: "key.horizontal.fill",
             colour: .teal
         )
@@ -126,7 +114,6 @@ struct MirrorStatusPanel: View {
 
 @available(macOS 26.0, *)
 private struct MirrorPresentation {
-    let eyebrow: String
     let title: String
     let detail: String
     let symbol: String

@@ -8,13 +8,13 @@ struct SetupSteps: View {
         HStack(alignment: .top, spacing: 10) {
             SetupStep(
                 number: 1,
-                title: "Allow imports",
+                title: "Allow import",
                 state: firstStepState
             )
             StepConnector(isComplete: providerState == .enabled)
             SetupStep(number: 2, title: "Export all items", state: .pending)
             StepConnector(isComplete: false)
-            SetupStep(number: 3, title: "Approve once", state: .pending)
+            SetupStep(number: 3, title: "Approve export", state: .pending)
         }
         .accessibilityElement(children: .contain)
     }
@@ -116,29 +116,6 @@ struct MirrorDeltaStrip: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 0) {
-                DeltaValue(
-                    count: status.credentialItemCount,
-                    label: "credentials",
-                    colour: .teal
-                )
-                MetricDivider()
-                DeltaValue(count: status.addedCount, label: "added")
-                MetricDivider()
-                DeltaValue(count: status.changedCount, label: "updated")
-                MetricDivider()
-                DeltaValue(count: status.removedCount, label: "removed")
-
-                if status.skippedCredentialCount > 0 {
-                    MetricDivider()
-                    DeltaValue(
-                        count: status.skippedCredentialCount,
-                        label: "skipped",
-                        colour: .secondary
-                    )
-                }
-            }
-
             if status.skippedCredentialCount > 0 {
                 Label(skippedExplanation, systemImage: "info.circle")
                     .font(.callout)
@@ -151,7 +128,7 @@ struct MirrorDeltaStrip: View {
 
     private var skippedExplanation: String {
         guard let summary = status.skippedCredentialSummary else {
-            return "Passkeys and other unsupported credentials stay in Apple Passwords."
+            return "Passkeys and other unsupported items stay in Apple Passwords."
         }
 
         var parts: [String] = []
@@ -162,40 +139,11 @@ struct MirrorDeltaStrip: View {
             parts.append("\(summary.missingPasswordCount) records without a password")
         }
         if summary.otherCount > 0 {
-            parts.append("\(summary.otherCount) other credentials")
+            parts.append("\(summary.otherCount) other items")
         }
 
         return parts.isEmpty
-            ? "Unsupported credentials stay in Apple Passwords."
+            ? "Unsupported items stay in Apple Passwords."
             : "\(parts.joined(separator: ", ")) stayed in Apple Passwords."
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DeltaValue: View {
-    let count: Int
-    let label: LocalizedStringKey
-    var colour: Color = .primary
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(count, format: .number)
-                .font(.title2.weight(.semibold).monospacedDigit())
-                .foregroundStyle(colour)
-            Text(label)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-@available(macOS 26.0, *)
-private struct MetricDivider: View {
-    var body: some View {
-        Divider()
-            .frame(height: 38)
-            .padding(.horizontal, 18)
     }
 }

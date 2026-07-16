@@ -13,19 +13,18 @@ extension CredentialAccessPolicy {
     var detail: LocalizedStringResource {
         switch self {
         case .ask:
-            "The default for new credentials. Agents can use usernames, but passwords and verification codes ask you first."
+            "Agents ask before using a password or verification code. This is the default for new logins."
         case .allowAutomatically:
-            "Agents can use usernames, passwords and verification codes without asking. Choose this for credentials you trust agents to use unattended."
+            "Agents can use these logins without asking."
         case .block:
-            "Agents cannot use usernames, passwords or verification codes from these credentials."
+            "Agents cannot use these logins."
         }
     }
 
-    var sidebarDetail: LocalizedStringResource {
+    var sidebarDetail: LocalizedStringResource? {
         switch self {
-        case .ask: "Default for new credentials"
-        case .allowAutomatically: "Use without asking"
-        case .block: "Agents cannot use"
+        case .ask: "Default"
+        case .allowAutomatically, .block: nil
         }
     }
 

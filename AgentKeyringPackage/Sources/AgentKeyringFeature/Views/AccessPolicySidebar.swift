@@ -10,23 +10,6 @@ struct AccessPolicySidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("When agents can sign in")
-                    .font(.title2.weight(.semibold))
-                Text("New credentials ask you first.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
-            .padding(.bottom, 20)
-
-            Text("RULES")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-
             VStack(spacing: 4) {
                 ForEach(CredentialAccessPolicy.allCases, id: \.self) { policy in
                     Button {
@@ -46,6 +29,7 @@ struct AccessPolicySidebar: View {
                 }
             }
             .padding(.horizontal, 8)
+            .padding(.top, 8)
 
             Spacer(minLength: 12)
             Divider()
@@ -77,10 +61,12 @@ private struct AccessPolicySidebarRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(policy.displayName)
                     .lineLimit(1)
-                Text(policy.sidebarDetail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let detail = policy.sidebarDetail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
@@ -106,10 +92,7 @@ private struct AssistantSidebarAction: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Work Out Your Rules with AI…")
-                    Text("Explain what you trust, then review")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("Set Rules with AI…")
                 }
                 Spacer()
             }
@@ -119,7 +102,7 @@ private struct AssistantSidebarAction: View {
         }
         .buttonStyle(.plain)
         .padding(8)
-        .help("Discuss what you trust with your AI, then review its proposed rules")
+        .help("Use an AI to propose access rules, then review every change")
         .accessibilityIdentifier("policy-assistant")
     }
 }

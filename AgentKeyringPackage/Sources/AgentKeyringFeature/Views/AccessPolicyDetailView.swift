@@ -11,8 +11,6 @@ struct AccessPolicyDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AccessPolicyHeader(policy: policy, count: rows.count)
-            Divider()
             AccessPolicyList(
                 rows: rows,
                 searchText: $searchText,
@@ -36,37 +34,6 @@ struct AccessPolicyDetailView: View {
 }
 
 @available(macOS 26.0, *)
-private struct AccessPolicyHeader: View {
-    let policy: CredentialAccessPolicy
-    let count: Int
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            Image(systemName: policy.symbol)
-                .font(.title2)
-                .foregroundStyle(policy.colour)
-                .frame(width: 44, height: 44)
-                .background(policy.colour.opacity(0.12), in: Circle())
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(policy.displayName)
-                    .font(.title2.weight(.semibold))
-                Text(policy.detail)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("\(count) credentials")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 18)
-    }
-}
-
-@available(macOS 26.0, *)
 private struct AccessPolicyList: View {
     let rows: [AccessCredentialRow]
     @Binding var searchText: String
@@ -85,10 +52,9 @@ private struct AccessPolicyList: View {
             if rows.isEmpty {
                 if searchText.isEmpty {
                     ContentUnavailableView(
-                        "No credentials under this rule",
+                        "No logins under this rule",
                         systemImage: "tray",
-                        description: Text(
-                            "Select credentials under another rule, then change their access rule.")
+                        description: Text("Choose another rule to find logins.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -148,7 +114,7 @@ private struct AccessPolicySearchField: View {
     @Binding var searchText: String
 
     var body: some View {
-        TextField("Search credentials", text: $searchText)
+        TextField("Search logins", text: $searchText)
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: 360)
             .padding(.horizontal, 16)
@@ -173,15 +139,15 @@ private struct AccessCredentialColumnHeadings: View {
                 .buttonStyle(.plain)
                 .help(
                     allRowsSelected
-                        ? "Deselect all shown credentials" : "Select all shown credentials"
+                        ? "Deselect all shown logins" : "Select all shown logins"
                 )
                 .accessibilityLabel(
                     allRowsSelected
-                        ? "Deselect all shown credentials" : "Select all shown credentials"
+                        ? "Deselect all shown logins" : "Select all shown logins"
                 )
                 .accessibilityIdentifier("select-all-credentials")
             },
-            credential: { Text("Credential") },
+            credential: { Text("Login") },
             account: { Text("Account") },
             website: { Text("Website") }
         )
@@ -303,7 +269,7 @@ struct ChangeAccessRuleMenu: View {
                 systemImage: "slider.horizontal.3"
             )
         }
-        .help("Set the access rule for the selected credentials")
+        .help("Set the access rule for the selected logins")
         .accessibilityIdentifier("change-access-rule")
     }
 }
