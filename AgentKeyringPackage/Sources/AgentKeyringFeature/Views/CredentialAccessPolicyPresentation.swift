@@ -13,19 +13,19 @@ extension CredentialAccessPolicy {
     var detail: LocalizedStringResource {
         switch self {
         case .ask:
-            "Passwords and verification codes need Touch ID or Apple Watch. Usernames remain available."
+            "Agents can use usernames. Passwords and verification codes ask you first."
         case .allowAutomatically:
-            "No confirmation is shown. Any local process running as your macOS user can copy these credentials."
+            "Agents can use usernames, passwords and verification codes without asking."
         case .block:
-            "Local agents cannot copy usernames, passwords or verification codes from these credentials."
+            "Agents cannot use usernames, passwords or verification codes from these credentials."
         }
     }
 
     var sidebarDetail: LocalizedStringResource {
         switch self {
-        case .ask: "Confirm secret access"
-        case .allowAutomatically: "No confirmation"
-        case .block: "No agent access"
+        case .ask: "Ask before sharing secrets"
+        case .allowAutomatically: "Use without asking"
+        case .block: "Agents cannot use"
         }
     }
 

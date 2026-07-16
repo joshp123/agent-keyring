@@ -75,7 +75,7 @@ struct MirrorStatusPanel: View {
         }
         if isImporting {
             return MirrorPresentation(
-                eyebrow: "REFRESH IN PROGRESS",
+                eyebrow: "IMPORT IN PROGRESS",
                 title: "Importing from Apple Passwords",
                 detail:
                     "Your existing mirror stays available until the new snapshot is safely committed.",
@@ -86,9 +86,9 @@ struct MirrorStatusPanel: View {
         if let status {
             return MirrorPresentation(
                 eyebrow: "READY",
-                title: "\(status.credentialItemCount) credentials available",
+                title: "\(status.credentialItemCount) credentials available to agents",
                 detail:
-                    "Last refreshed from Apple Passwords \(status.importedAt.formatted(.relative(presentation: .named))).",
+                    "Last imported from Apple Passwords \(status.importedAt.formatted(.relative(presentation: .named))).",
                 symbol: "checkmark.shield.fill",
                 colour: .green
             )
@@ -117,7 +117,7 @@ struct MirrorStatusPanel: View {
             eyebrow: "LOCAL · ENCRYPTED",
             title: "Connect Apple Passwords",
             detail:
-                "Apple Passwords stays in charge. Enable the local import extension once, then approve each full refresh with Touch ID or Apple Watch.",
+                "Apple Passwords stays in charge. Enable local import once, then approve each update with Touch ID or Apple Watch.",
             symbol: "key.horizontal.fill",
             colour: .teal
         )

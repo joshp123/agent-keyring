@@ -250,7 +250,7 @@ public final class MirrorAppModel {
             status = generation.safeStatus
             notice = MirrorNotice(
                 kind: .information,
-                text: "Refresh complete. The new mirror is encrypted and ready."
+                text: "Import complete. Agent Keyring’s encrypted copy now matches this Passwords export."
             )
         } catch {
             let nsError = error as NSError

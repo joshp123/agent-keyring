@@ -32,7 +32,7 @@ public struct AccessControlView: View {
                     ContentUnavailableView(
                         "No mirrored credentials",
                         systemImage: "key.horizontal",
-                        description: Text("Refresh from Apple Passwords before setting access rules.")
+                        description: Text("Import credentials from Apple Passwords before setting agent access rules.")
                     )
                 } else if let selectedPolicy = controller.selectedPolicy {
                     AccessPolicyDetailView(

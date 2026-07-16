@@ -32,7 +32,7 @@ struct PrimaryActionRow: View {
 
                     if status != nil {
                         Button(action: manageAccess) {
-                            Label("Credential access…", systemImage: "person.badge.key")
+                            Label("Agent access rules…", systemImage: "person.badge.key")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.large)
@@ -40,7 +40,7 @@ struct PrimaryActionRow: View {
                 }
 
                 if status != nil || providerState == .enabled {
-                    PasswordsRefreshInstructions()
+                    PasswordsImportInstructions()
                 } else {
                     Text(actionHint)
                         .font(.callout)
@@ -88,14 +88,15 @@ struct PrimaryActionRow: View {
 }
 
 @available(macOS 26.0, *)
-private struct PasswordsRefreshInstructions: View {
+private struct PasswordsImportInstructions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("To refresh Agent Keyring:")
+            Text("Import changes from Apple Passwords:")
                 .font(.callout.weight(.semibold))
             Text("1. Open Passwords.")
             Text("2. Choose File → Export All Items to App.")
             Text("3. Select Agent Keyring and approve the export.")
+            Text("New, changed and removed credentials will update Agent Keyring’s encrypted copy.")
         }
         .font(.callout)
         .foregroundStyle(.secondary)

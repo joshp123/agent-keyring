@@ -188,7 +188,7 @@ struct AgentKeyringApp: App {
             }
         }
 
-        Window("Credential access", id: "access") {
+        Window("Agent access rules", id: "access") {
             AccessControlView(controller: appDelegate.model.accessControl)
         }
         .windowResizability(.contentSize)

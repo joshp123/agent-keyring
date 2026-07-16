@@ -10,13 +10,13 @@ struct AccessPolicySidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Credential access")
+            Text("Agent access rules")
                 .font(.title2.weight(.semibold))
                 .padding(.horizontal, 16)
                 .padding(.top, 18)
                 .padding(.bottom, 20)
 
-            Text("ACCESS RULES")
+            Text("HOW AGENTS USE CREDENTIALS")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
@@ -101,8 +101,8 @@ private struct AssistantSidebarAction: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Set rules with AI…")
-                    Text("Copy instructions, then review changes")
+                    Text("Get suggestions from AI…")
+                    Text("Review every change before applying")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -114,7 +114,7 @@ private struct AssistantSidebarAction: View {
         }
         .buttonStyle(.plain)
         .padding(8)
-        .help("Copy instructions to your AI, then review its proposed access rules")
+        .help("Ask your AI to suggest rules, then review every change")
         .accessibilityIdentifier("policy-assistant")
     }
 }

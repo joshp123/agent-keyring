@@ -25,7 +25,7 @@ public enum DocumentationScreen: String, CaseIterable, Sendable {
     public var windowTitle: String {
         switch self {
         case .setup, .ready, .approval: "Agent Keyring"
-        case .access, .assistant, .assistantReview: "Credential access"
+        case .access, .assistant, .assistantReview: "Agent access rules"
         }
     }
 }
