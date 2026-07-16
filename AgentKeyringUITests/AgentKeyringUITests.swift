@@ -6,9 +6,20 @@ final class AgentKeyringUITests: XCTestCase {
     }
 
     @MainActor
-    func testLaunchesOneReadableStatusWindow() throws {
+    func testLaunchesInTheMenuBarAndOpensTheStatusWindowOnDemand() throws {
         let app = XCUIApplication()
         app.launch()
+
+        XCTAssertFalse(app.windows["main"].waitForExistence(timeout: 1))
+
+        let menuBarItem = app.descendants(matching: .statusItem)["agent-keyring-menu"]
+        XCTAssertTrue(menuBarItem.waitForExistence(timeout: 5))
+        menuBarItem.click()
+
+        let openItem = app.menuItems["Open Agent Keyring"]
+        XCTAssertTrue(openItem.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.menuItems["Quit Agent Keyring"].exists)
+        openItem.click()
 
         let mainWindow = app.windows["main"]
         XCTAssertTrue(mainWindow.waitForExistence(timeout: 5))

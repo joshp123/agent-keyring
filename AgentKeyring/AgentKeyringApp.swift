@@ -31,13 +31,38 @@ private struct CheckForUpdatesView: View {
 
 @MainActor
 final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
-    let model = MirrorAppModel()
+    let presentation: AgentKeyringPresentation
+    let model: MirrorAppModel
+
+    override init() {
+        let presentation = AgentKeyringPresentation()
+        self.presentation = presentation
+        self.model = MirrorAppModel(
+            approvalWindowPresenter: {
+                await presentation.presentApprovalWindow()
+            }
+        )
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.regular)
+
         guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
             let icon = NSImage(contentsOf: iconURL)
         else { return }
         NSApplication.shared.applicationIconImage = icon
+
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        if !flag {
+            presentation.requestMainWindow()
+        }
+        return true
     }
 
     func application(
@@ -76,6 +101,8 @@ struct AgentKeyringApp: App {
             ContentView(model: appDelegate.model)
         }
         .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+        .defaultLaunchBehavior(.suppressed)
         .commands {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updater: updaterController.updater)
@@ -104,6 +131,12 @@ struct AgentKeyringApp: App {
                     height: min(740, display.height)
                 )
             )
+        }
+
+        MenuBarExtra {
+            AgentKeyringMenu(presentation: appDelegate.presentation)
+        } label: {
+            AgentKeyringMenuBarLabel(presentation: appDelegate.presentation)
         }
     }
 }

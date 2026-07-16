@@ -42,7 +42,7 @@ For credentials set to `Ask each time`, Agent Keyring shows the requested websit
 
 ## Set up once
 
-1. Download the ZIP, move `AgentKeyring.app` to Applications and open it.
+1. Download the ZIP, move `AgentKeyring.app` to Applications and open it. It appears as a key in the menu bar.
 2. Ask Codex to run:
 
    ```text
@@ -50,7 +50,7 @@ For credentials set to `Ask each time`, Agent Keyring shows the requested websit
    /Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install
    ```
 
-3. In Agent Keyring, select `Enable secure import`. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
+3. From the menu-bar key, choose `Open Agent Keyring`, then select `Enable secure import`. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
 
 That is it. Ask Codex normally. You do not need to restart Codex.
 

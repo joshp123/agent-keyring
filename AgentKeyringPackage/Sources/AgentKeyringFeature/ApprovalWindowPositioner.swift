@@ -8,6 +8,25 @@ private let approvalWindowLogger = Logger(
     category: "ApprovalWindow"
 )
 
+@MainActor
+public struct ApprovalWindowPresentation {
+    public let window: NSWindow?
+    public let closeWhenFinished: Bool
+    public let miniaturizeWhenFinished: Bool
+
+    public init(
+        window: NSWindow?,
+        closeWhenFinished: Bool,
+        miniaturizeWhenFinished: Bool = false
+    ) {
+        self.window = window
+        self.closeWhenFinished = closeWhenFinished
+        self.miniaturizeWhenFinished = miniaturizeWhenFinished
+    }
+}
+
+public typealias ApprovalWindowPresenter = @MainActor () async -> ApprovalWindowPresentation
+
 struct ApprovalWindowPlacement {
     static func origin(
         windowSize: CGSize,
