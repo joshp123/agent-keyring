@@ -22,16 +22,16 @@ Apple Passwords remains your source of truth. Agent Keyring uses Apple's credent
 
 The demo uses synthetic accounts. Product screens are real native window captures. The macOS Watch prompt is genuine and captured separately; it does not claim to show a completed Watch approval.
 
-## Set access rules with AI
+## Choose agent access rules with AI
 
 You do not need to classify every credential yourself.
 
-1. In `Credential access`, select `Set rules with AI` and copy the instructions.
-2. Paste them into ChatGPT, Claude or another AI. Answer its concrete questions about which services your agents need and which tasks may run unattended.
+1. In `Agent access rules`, select `AI suggestions` and copy the prompt.
+2. Read the copied text, then paste it into ChatGPT, Claude or another AI. Answer its questions about the few credentials whose possession may itself be unusually risky.
 3. Copy the AI's entire final response and paste it back into Agent Keyring.
-4. Select `Review changes`. Agent Keyring checks every credential ID and shows every proposed change before you can apply it.
+4. Select `Review suggestions`. Agent Keyring checks every credential ID and shows every proposed change before you can apply it.
 
-The prompt contains credential names, websites and account labels. It never contains passwords, verification codes or TOTP seeds.
+The copied text contains only opaque credential IDs, sites and current rules. It never contains account names, usernames, passwords, verification codes or TOTP seeds.
 
 ![Agent Keyring's copy-and-paste AI policy assistant](docs/media/assistant.png)
 
@@ -55,7 +55,7 @@ For credentials set to `Ask each time`, Agent Keyring shows the requested websit
 
 That is it. Ask Codex normally. You do not need to restart Codex.
 
-Repeat the Apple Passwords export when you want to refresh the mirror. Apple does not provide silent or incremental password export.
+Repeat the Apple Passwords export to import new, changed and removed credentials into Agent Keyring’s encrypted copy. Apple does not provide silent or incremental password export.
 
 ## Security boundaries
 
@@ -65,7 +65,7 @@ Repeat the Apple Passwords export when you want to refresh the mirror. Apple doe
 - the agent supplies the destination URL because browsers do not give Agent Keyring an attested active-tab origin
 - passkeys are not supported yet
 - Apple may omit shared credentials, Sign in with Apple records and items without passwords
-- a changed password is not visible until you refresh the mirror
+- a changed password is not available to agents until you import from Apple Passwords again
 
 Sparkle checks this repository for signed updates. Automatic installation is off.
 
