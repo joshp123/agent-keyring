@@ -7,7 +7,11 @@ STORY_DIR="$ROOT_DIR/.build/readme-story"
 FFMPEG="${FFMPEG:-$(command -v ffmpeg)}"
 
 mkdir -p "$MEDIA_DIR" "$STORY_DIR"
-rm -f "$STORY_DIR"/*.png
+shopt -s nullglob
+story_frames=("$STORY_DIR"/*.png)
+if ((${#story_frames[@]})); then
+  trash "${story_frames[@]}"
+fi
 
 /usr/bin/xcrun swift run \
   --package-path "$ROOT_DIR/AgentKeyringPackage" \

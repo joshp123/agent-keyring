@@ -6,6 +6,7 @@ public enum DocumentationScreen: String, CaseIterable, Sendable {
     case ready
     case access
     case assistant
+    case assistantReview = "assistant-review"
     case approval
 
     public var logicalSize: CGSize {
@@ -14,7 +15,7 @@ public enum DocumentationScreen: String, CaseIterable, Sendable {
             CGSize(width: 780, height: 496)
         case .access:
             CGSize(width: 960, height: 680)
-        case .assistant:
+        case .assistant, .assistantReview:
             CGSize(width: 780, height: 680)
         case .approval:
             CGSize(width: 560, height: 552)
@@ -24,7 +25,7 @@ public enum DocumentationScreen: String, CaseIterable, Sendable {
     public var windowTitle: String {
         switch self {
         case .setup, .ready, .approval: "Agent Keyring"
-        case .access, .assistant: "Credential access"
+        case .access, .assistant, .assistantReview: "Credential access"
         }
     }
 }
@@ -47,13 +48,10 @@ public struct DocumentationPreviewView: View {
             case .ready:
                 DocumentationStatusView(status: Self.readyStatus, providerState: .enabled)
             case .access:
-                DocumentationAccessView(
-                    rows: controller.visibleRows,
-                    askCount: controller.count(for: .ask),
-                    automaticCount: controller.count(for: .allowAutomatically),
-                    blockedCount: controller.count(for: .block)
-                )
+                AccessControlView(controller: controller)
             case .assistant:
+                CredentialPolicyAssistantView(controller: controller)
+            case .assistantReview:
                 CredentialPolicyAssistantView(
                     controller: controller,
                     initialResponse: Self.assistantResponse(for: controller.rows),
@@ -146,200 +144,6 @@ private struct DocumentationApprovalView: View {
             .padding(32)
         }
         .tint(.teal)
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationAccessView: View {
-    let rows: [AccessCredentialRow]
-    let askCount: Int
-    let automaticCount: Int
-    let blockedCount: Int
-
-    var body: some View {
-        HStack(spacing: 0) {
-            DocumentationAccessSidebar(
-                askCount: askCount,
-                automaticCount: automaticCount,
-                blockedCount: blockedCount
-            )
-            Divider()
-            DocumentationAccessDetail(rows: rows)
-        }
-        .background(.background)
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationAccessSidebar: View {
-    let askCount: Int
-    let automaticCount: Int
-    let blockedCount: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Access groups")
-                .font(.headline)
-                .padding(.horizontal, 14)
-                .padding(.top, 16)
-
-            DocumentationAccessSidebarRow(
-                policy: .ask,
-                count: askCount,
-                isSelected: true
-            )
-            DocumentationAccessSidebarRow(
-                policy: .allowAutomatically,
-                count: automaticCount,
-                isSelected: false
-            )
-            DocumentationAccessSidebarRow(
-                policy: .block,
-                count: blockedCount,
-                isSelected: false
-            )
-
-            Spacer()
-
-            Button(action: {}) {
-                Label("Let your AI choose…", systemImage: "sparkles")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.purple)
-            .padding(14)
-        }
-        .frame(width: 250)
-        .background(.regularMaterial)
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationAccessSidebarRow: View {
-    let policy: CredentialAccessPolicy
-    let count: Int
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: policy.symbol)
-                .foregroundStyle(policy.colour)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(policy.displayName)
-                Text(policy.sidebarDetail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(count, format: .number)
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(
-            isSelected ? policy.colour.opacity(0.12) : .clear,
-            in: .rect(cornerRadius: 8)
-        )
-        .padding(.horizontal, 8)
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationAccessDetail: View {
-    let rows: [AccessCredentialRow]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            DocumentationAccessHeader(count: rows.count)
-            Divider()
-            DocumentationAccessTable(rows: rows)
-        }
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationAccessHeader: View {
-    let count: Int
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: CredentialAccessPolicy.ask.symbol)
-                .font(.title2)
-                .foregroundStyle(CredentialAccessPolicy.ask.colour)
-                .frame(width: 44, height: 44)
-                .background(CredentialAccessPolicy.ask.colour.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 5) {
-                Text(CredentialAccessPolicy.ask.displayName)
-                    .font(.title2.weight(.semibold))
-                Text(CredentialAccessPolicy.ask.detail)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                Text("\(count) credentials")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(CredentialAccessPolicy.ask.colour)
-            }
-            Spacer()
-            Label("Search this group", systemImage: "magnifyingglass")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .frame(height: 32)
-                .background(.quaternary, in: Capsule())
-        }
-        .padding(24)
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationAccessTable: View {
-    let rows: [AccessCredentialRow]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Credential").frame(maxWidth: .infinity, alignment: .leading)
-                Text("Website").frame(width: 240, alignment: .leading)
-            }
-            .font(.callout.weight(.medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 18)
-            .frame(height: 36)
-            .background(.quaternary.opacity(0.45))
-
-            ForEach(rows) { row in
-                DocumentationAccessTableRow(
-                    title: row.title,
-                    account: row.account,
-                    website: row.website
-                )
-                Divider().padding(.leading, 18)
-            }
-            Spacer()
-        }
-    }
-}
-
-@available(macOS 26.0, *)
-private struct DocumentationAccessTableRow: View {
-    let title: String
-    let account: String
-    let website: String
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.body.weight(.medium))
-                Text(account).font(.callout).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Text(website)
-                .frame(width: 240, alignment: .leading)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 18)
-        .frame(height: 54)
     }
 }
 

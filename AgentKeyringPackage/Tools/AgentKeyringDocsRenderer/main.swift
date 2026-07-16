@@ -31,12 +31,13 @@ enum AgentKeyringDocsRenderer {
         )
         let generation = fixtureGeneration()
         await controller.refresh(from: generation)
-        await controller.setPolicies([
-            generation.items[2].id: .allowAutomatically,
-            generation.items[3].id: .allowAutomatically,
-            generation.items[6].id: .block,
-            generation.items[7].id: .block,
-        ])
+        let assignments = Dictionary(uniqueKeysWithValues: generation.items.enumerated().compactMap {
+            index, item -> (UUID, CredentialAccessPolicy)? in
+            if (440..<492).contains(index) { return (item.id, .allowAutomatically) }
+            if index >= 492 { return (item.id, .block) }
+            return nil
+        })
+        await controller.setPolicies(assignments)
         controller.selectedPolicy = .ask
 
         for screen in DocumentationScreen.allCases {
@@ -52,6 +53,29 @@ enum AgentKeyringDocsRenderer {
             print("Rendered \(outputURL.path)")
         }
 
+        controller.selectedPolicy = .ask
+        try await render(
+            AccessControlView(
+                controller: controller,
+                initialSelection: [generation.items[0].id, generation.items[1].id]
+            ),
+            contentSize: CGSize(width: 960, height: 680),
+            title: DocumentationScreen.access.windowTitle,
+            to: outputDirectory.appendingPathComponent("access-selection.png")
+        )
+        try await render(
+            DocumentationPreviewView(screen: .access, controller: controller),
+            contentSize: CGSize(width: 960, height: 680),
+            title: DocumentationScreen.access.windowTitle,
+            to: outputDirectory.appendingPathComponent("access-bottom.png"),
+            scrollToBottom: true
+        )
+        try await render(
+            DocumentationPreviewView(screen: .access, controller: controller),
+            contentSize: CGSize(width: 760, height: 520),
+            title: DocumentationScreen.access.windowTitle,
+            to: outputDirectory.appendingPathComponent("access-constrained.png")
+        )
         let assets = try storyAssets(from: outputDirectory)
         for scene in StoryScene.allCases {
             let outputURL = storyDirectory.appendingPathComponent("\(scene.rawValue).png")
@@ -65,8 +89,9 @@ enum AgentKeyringDocsRenderer {
     }
 
     private static func outputDirectory() throws -> URL {
-        if CommandLine.arguments.count >= 2 {
-            return URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+        let arguments = CommandLine.arguments.dropFirst().filter { $0 != "--" }
+        if let outputPath = arguments.first {
+            return URL(fileURLWithPath: outputPath, isDirectory: true)
         }
         guard let workingDirectory = ProcessInfo.processInfo.environment["PWD"] else {
             throw RendererError.missingWorkingDirectory
@@ -76,8 +101,9 @@ enum AgentKeyringDocsRenderer {
     }
 
     private static func storyOutputDirectory(outputDirectory: URL) -> URL {
-        if CommandLine.arguments.count >= 3 {
-            return URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+        let arguments = CommandLine.arguments.dropFirst().filter { $0 != "--" }
+        if arguments.count >= 2 {
+            return URL(fileURLWithPath: arguments[arguments.index(after: arguments.startIndex)], isDirectory: true)
         }
         return outputDirectory.appendingPathComponent("story", isDirectory: true)
     }
@@ -87,7 +113,8 @@ enum AgentKeyringDocsRenderer {
         _ content: Content,
         contentSize: CGSize,
         title: String,
-        to outputURL: URL
+        to outputURL: URL,
+        scrollToBottom: Bool = false
     ) async throws {
         let hostingView = NSHostingView(rootView: content)
         hostingView.frame = CGRect(origin: .zero, size: contentSize)
@@ -107,7 +134,19 @@ enum AgentKeyringDocsRenderer {
         window.orderBack(nil)
         hostingView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
-        try await Task.sleep(for: .milliseconds(250))
+        // Tables update asynchronously after their policy selection changes. Give the real
+        // view a full render cycle before asking ScreenCaptureKit for documentation proof.
+        try await Task.sleep(for: .milliseconds(700))
+        if scrollToBottom, let scrollView = firstScrollView(in: hostingView) {
+            let maximumY = max(
+                0,
+                (scrollView.documentView?.bounds.height ?? 0) - scrollView.contentView.bounds.height
+            )
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: maximumY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            window.displayIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+        }
 
         let shareableContent = try await SCShareableContent.excludingDesktopWindows(
             false,
@@ -140,6 +179,15 @@ enum AgentKeyringDocsRenderer {
             throw RendererError.renderFailed
         }
         try data.write(to: outputURL, options: .atomic)
+    }
+
+    @MainActor
+    private static func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView { return scrollView }
+        for subview in view.subviews {
+            if let scrollView = firstScrollView(in: subview) { return scrollView }
+        }
+        return nil
     }
 
     @MainActor
@@ -180,7 +228,7 @@ enum AgentKeyringDocsRenderer {
         StoryAssets(
             ready: try image(named: "ready.png", in: directory),
             access: try image(named: "access.png", in: directory),
-            assistant: try image(named: "assistant.png", in: directory),
+            assistant: try image(named: "assistant-review.png", in: directory),
             approval: try image(named: "approval.png", in: directory),
             watchPrompt: try image(named: "native-watch-prompt.png", in: directory)
         )
@@ -195,7 +243,7 @@ enum AgentKeyringDocsRenderer {
     }
 
     private static func fixtureGeneration() -> MirrorGeneration {
-        let credentials = [
+        let namedCredentials = [
             fixtureItem(
                 1, title: "Acme Mail", account: "alex@example.com", host: "mail.example.com"),
             fixtureItem(
@@ -214,6 +262,15 @@ enum AgentKeyringDocsRenderer {
                 8, title: "Recovery account", account: "recovery@example.com",
                 host: "id.example.com"),
         ]
+        let credentials = namedCredentials + (9...522).map { number in
+            let group = (number - 1) / 20 + 1
+            return fixtureItem(
+                number,
+                title: "Service \(number)",
+                account: "account-\(number)",
+                host: "login\(group).example.net"
+            )
+        }
         return MirrorGeneration(
             id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0)),
             previousGenerationID: nil,
@@ -235,9 +292,9 @@ enum AgentKeyringDocsRenderer {
         account: String,
         host: String
     ) -> MirrorItem {
-        let id = UUID(
-            uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, UInt8(number))
-        )
+        let high = UInt8((number >> 8) & 0xFF)
+        let low = UInt8(number & 0xFF)
+        let id = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, high, low))
         return MirrorItem(
             id: id,
             sourceIdentity: MirrorSourceIdentity(
