@@ -1,5 +1,6 @@
 import AgentKeyringFeature
 import ArgumentParser
+import Darwin
 import Foundation
 
 @main
@@ -630,8 +631,8 @@ func normaliseSecureWebTarget(_ value: String) throws -> String {
     return target
 }
 
-private func installedVersion() -> String {
-    let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+func installedVersion(executable: URL? = currentExecutableURL()) -> String {
+    guard let executable else { return "unknown" }
     let infoURL = executable.deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Info.plist")
     guard let data = try? Data(contentsOf: infoURL),
@@ -640,6 +641,18 @@ private func installedVersion() -> String {
         let version = dictionary["CFBundleShortVersionString"] as? String
     else { return "unknown" }
     return version
+}
+
+private func currentExecutableURL() -> URL? {
+    var size: UInt32 = 0
+    _ = _NSGetExecutablePath(nil, &size)
+    var path = [CChar](repeating: 0, count: Int(size))
+    let result = path.withUnsafeMutableBufferPointer { buffer in
+        _NSGetExecutablePath(buffer.baseAddress, &size)
+    }
+    guard result == 0 else { return nil }
+    let bytes = path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+    return URL(fileURLWithPath: String(decoding: bytes, as: UTF8.self)).resolvingSymlinksInPath()
 }
 
 private func displayHost(_ targetURL: String) -> String {

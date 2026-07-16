@@ -307,6 +307,26 @@ struct AgentKeyringCLITests {
         )
     }
 
+    @Test("Version comes from the app containing the resolved executable")
+    func bundledVersion() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let contents = root.appendingPathComponent("AgentKeyring.app/Contents")
+        let executable = contents.appendingPathComponent("Helpers/agent-keyring")
+        try FileManager.default.createDirectory(
+            at: executable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let plist = try PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleShortVersionString": "1.2.3"],
+            format: .xml,
+            options: 0
+        )
+        try plist.write(to: contents.appendingPathComponent("Info.plist"))
+
+        #expect(installedVersion(executable: executable) == "1.2.3")
+    }
+
     private func expectParseFailure(_ arguments: [String]) {
         do {
             _ = try AgentKeyringCLI.parseAsRoot(arguments)
