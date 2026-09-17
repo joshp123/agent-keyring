@@ -9,7 +9,7 @@ struct AgentKeyringCLITests {
     @Test("Top-level help explains the product and leads with examples")
     func topLevelHelp() {
         let help = AgentKeyringCLI.helpMessage(columns: 100)
-        #expect(help.contains("use imported Apple Passwords logins without printing secrets"))
+        #expect(help.contains("Use imported Apple Passwords logins from the command line."))
         #expect(help.contains("agent-keyring find example.com"))
         #expect(help.contains("SUBCOMMANDS"))
         #expect(!help.contains("JSON"))

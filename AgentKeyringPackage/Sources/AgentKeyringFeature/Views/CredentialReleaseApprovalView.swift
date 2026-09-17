@@ -60,12 +60,14 @@ struct CredentialReleaseApprovalView: View {
                     .foregroundStyle(.teal)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(
-                        "Approve with Apple Watch or Touch ID. Clipboard clears \(request.expirationSeconds) seconds after approval."
-                    )
-                    .font(.callout.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
+                    if let expirationSeconds = request.expirationSeconds {
+                        Text("Approve with Apple Watch or Touch ID. Clipboard clears \(expirationSeconds) seconds after approval.")
+                    } else {
+                        Text("Approve with Apple Watch or Touch ID. The agent retains this value until it explicitly clears it.")
+                    }
                 }
+                .font(.callout.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
 
                 Spacer()
                 if showsProgressIndicator {

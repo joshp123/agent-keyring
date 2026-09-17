@@ -20,6 +20,10 @@ let package = Package(
             name: "agent-keyring-docs-renderer",
             targets: ["AgentKeyringDocsRenderer"]
         ),
+        .executable(
+            name: "agent-keyring-fixture",
+            targets: ["AgentKeyringFixture"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.6.2")
@@ -41,6 +45,11 @@ let package = Package(
             name: "AgentKeyringDocsRenderer",
             dependencies: ["AgentKeyringFeature"],
             path: "Tools/AgentKeyringDocsRenderer"
+        ),
+        .executableTarget(
+            name: "AgentKeyringFixture",
+            dependencies: ["AgentKeyringFeature"],
+            path: "Tools/AgentKeyringFixture"
         ),
         .testTarget(
             name: "AgentKeyringFeatureTests",

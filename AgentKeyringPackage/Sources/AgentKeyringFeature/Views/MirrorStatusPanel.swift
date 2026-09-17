@@ -35,7 +35,7 @@ struct MirrorStatusPanel: View {
 
             if status != nil, !isImporting {
                 Text(
-                    "Agents use the `agent-keyring` command to copy a username, password or code. Access Rules decide whether to ask you, allow it or block it."
+                    "Agents use the `agent-keyring` command to retrieve a username, password or code. Access Rules decide whether to ask you, allow it or block it."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -132,7 +132,7 @@ private struct AgentInstructionsView: View {
     @State private var didCopy = false
 
     private static let instructions =
-        "Use `agent-keyring` to find and copy credentials for the current site. Paste with Cmd-V; never read or print the clipboard. Run `agent-keyring --help` for commands."
+        "Use `agent-keyring` and its skill for saved credentials. Acquire once, read into the consumer as needed, then explicitly clear after successful entry or abandonment. Keep values out of tool results and chat. Run `agent-keyring --help` for commands."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

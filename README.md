@@ -4,9 +4,9 @@ written_by: ai
 
 # Agent Keyring
 
-Tell Codex what you want. Agent Keyring handles the login.
+Agent Keyring gives local tools access to saved Apple Passwords credentials under your rules.
 
-When Codex reaches a password in Safari or its built-in browser, Agent Keyring finds the matching Apple Passwords credential and follows your rule:
+The CLI finds the matching Apple Passwords credential and follows your rule:
 
 | Rule | What happens |
 | --- | --- |
@@ -14,7 +14,7 @@ When Codex reaches a password in Safari or its built-in browser, Agent Keyring f
 | Ask each time | Approve the exact website and account on Apple Watch or Touch ID. |
 | Blocked | Agent Keyring refuses the request. |
 
-Apple Passwords remains your source of truth. Agent Keyring uses Apple's credential exchange flow, Keychain and LocalAuthentication. Passwords and codes never appear in chat or command output.
+Apple Passwords remains your source of truth. Agent Keyring uses Apple's credential exchange flow, Keychain and LocalAuthentication. The calling tool owns the login or other operation that uses the credential.
 
 [Download the signed and notarised app](https://github.com/joshp123/agent-keyring/releases/latest) · macOS 26 or later · free and open source
 
@@ -57,11 +57,20 @@ That is it. Ask Codex normally. You do not need to restart Codex.
 
 Repeat the Apple Passwords export to import new, changed and removed credentials into Agent Keyring’s encrypted copy. Apple does not provide silent or incremental password export.
 
+## CLI
+
+`agent-keyring find example.com` lists matching accounts. `acquire FIELD SITE` authorizes once and returns a reference to a private temporary buffer; `FIELD` is `username`, `password` or `code` (TOTP). Select an account with `--account NAME` or a duplicate entry with `--credential UUID`.
+
+`read REF` writes the exact retained value to stdout without an added newline. Pipe it to a consumer or capture it inside that consumer's runtime. Reading does not empty the buffer or request another approval, so failed entry can retry using the same reference. Run `clear REF` after successful entry or when abandoning the operation. Buffers have no automatic expiry; explicit cleanup is required. Errors go to stderr with a nonzero status.
+
+Agents must keep values out of tool results and chat. `status` reports mirror age; `copy` remains available for native clipboard use. Browser control and SMS retrieval belong to the tools that perform those jobs.
+
 ## Security boundaries
 
 - the local mirror is encrypted with AES-GCM; its key is stored in your login Keychain
 - `Allow automatically` trusts every process running as your unlocked macOS user
-- approved secrets use the shared macOS pasteboard; another process in your user session could read them before Agent Keyring clears its value after 30 seconds
+- `acquire` retains the approved value in a request-specific named macOS pasteboard until `clear`; other processes running as the same unlocked user remain inside the trust boundary
+- `copy` uses the shared macOS pasteboard and clears its value after 30 seconds
 - the agent supplies the destination URL because browsers do not give Agent Keyring an attested active-tab origin
 - passkeys are not supported yet
 - Apple may omit shared credentials, Sign in with Apple records and items without passwords

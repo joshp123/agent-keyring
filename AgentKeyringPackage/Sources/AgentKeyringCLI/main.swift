@@ -8,26 +8,26 @@ struct AgentKeyringCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "agent-keyring",
         abstract:
-            "Let local agents use imported Apple Passwords logins without printing secrets.",
+            "Use imported Apple Passwords logins from the command line.",
         discussion: """
             EXAMPLES
               agent-keyring find example.com
-              agent-keyring copy username example.com
-              agent-keyring copy password example.com
-              agent-keyring copy code example.com
+              agent-keyring acquire password example.com
+              agent-keyring read REFERENCE
+              agent-keyring clear REFERENCE
             """,
         version: installedVersion(),
-        subcommands: [Find.self, Copy.self, Status.self, Install.self]
+        subcommands: [Find.self, Acquire.self, Read.self, Clear.self, Copy.self, Status.self, Install.self]
     )
 
     mutating func run() {
         print(
-            "Agent Keyring lets local agents use imported Apple Passwords logins without printing secrets."
+            "Agent Keyring lets local agents use imported Apple Passwords logins."
         )
         print("")
         print("Try:")
         print("  agent-keyring find example.com")
-        print("  agent-keyring copy password example.com")
+        print("  agent-keyring acquire password example.com")
         print("")
         print("Run 'agent-keyring --help' for all commands.")
     }
@@ -61,7 +61,7 @@ struct Copy: AsyncParsableCommand {
     )
 
     @Argument(help: "The field to copy: username, password or code.")
-    var field: CopyField
+    var field: CredentialFieldArgument
 
     @Argument(help: "The site or page URL, such as example.com.")
     var site: String
@@ -110,6 +110,69 @@ struct Status: AsyncParsableCommand {
     }
 }
 
+struct Acquire: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Authorize and retain one credential field; print its reference."
+    )
+
+    @Argument(help: "The field to acquire: username, password or code.") var field: CredentialFieldArgument
+    @Argument(help: "The site or page URL, such as example.com.") var site: String
+    @Option(help: "Choose an account when several logins match.") var account: String?
+    @Option(help: "Choose a credential ID shown by find.") var credential: String?
+
+    func validate() throws {
+        _ = try normaliseSecureWebTarget(site)
+        guard account == nil || credential == nil else {
+            throw ValidationError("Choose either --account or --credential.")
+        }
+        if let credential, UUID(uuidString: credential) == nil {
+            throw ValidationError("A valid credential ID is required.")
+        }
+    }
+
+    mutating func run() async throws {
+        try await CLIClient.run(.acquire(
+            field: field.bridgeField, targetURL: normaliseSecureWebTarget(site),
+            account: account, credentialID: credential.flatMap(UUID.init(uuidString:))
+        ))
+    }
+}
+
+struct Read: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Write a retained value to stdout without consuming it or adding a newline."
+    )
+
+    @Argument(help: "The reference printed by acquire.") var reference: String
+
+    func validate() throws { _ = try credentialReference(reference) }
+
+    mutating func run() async throws {
+        try await CLIClient.read(reference: credentialReference(reference))
+    }
+}
+
+struct Clear: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Clear a retained value. An already cleared reference is harmless."
+    )
+
+    @Argument(help: "The reference printed by acquire.") var reference: String
+
+    func validate() throws { _ = try credentialReference(reference) }
+
+    mutating func run() async throws {
+        await CredentialTransfer.clear(requestID: try credentialReference(reference))
+    }
+}
+
+private func credentialReference(_ value: String) throws -> UUID {
+    guard let reference = UUID(uuidString: value) else {
+        throw ValidationError("Use a valid reference printed by acquire.")
+    }
+    return reference
+}
+
 struct Install: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Install the command and Codex instructions for this user."
@@ -129,7 +192,7 @@ struct Install: ParsableCommand {
     }
 }
 
-enum CopyField: String, CaseIterable, ExpressibleByArgument {
+enum CredentialFieldArgument: String, CaseIterable, ExpressibleByArgument {
     case username
     case password
     case code
@@ -146,6 +209,7 @@ enum CopyField: String, CaseIterable, ExpressibleByArgument {
 enum CLICommand: Equatable {
     case status
     case find(targetURL: String, account: String?)
+    case acquire(field: AgentCredentialField, targetURL: String, account: String?, credentialID: UUID?)
     case copy(
         field: AgentCredentialField,
         targetURL: String,
@@ -164,6 +228,11 @@ enum CLICommand: Equatable {
                 targetURL: targetURL,
                 usernameHint: account
             )
+        case let .acquire(field, targetURL, account, credentialID):
+            AgentBridgeRequest(
+                action: .acquire, targetURL: targetURL, usernameHint: account,
+                candidateID: credentialID, field: field
+            )
         case let .copy(field, targetURL, account, credentialID, expiration):
             AgentBridgeRequest(
                 action: .copy,
@@ -178,21 +247,28 @@ enum CLICommand: Equatable {
 }
 
 enum CLIClient {
-    static func run(_ command: CLICommand) async throws {
+    @MainActor
+    static func run(
+        _ command: CLICommand,
+        output: FileHandle = .standardOutput,
+        diagnostics: FileHandle = .standardError,
+        sendRequest: (AgentBridgeRequest) async throws -> AgentBridgeResponse = send
+    ) async throws {
         do {
             if case let .copy(field, targetURL, _, _, _) = command {
                 write(
                     "Requesting \(field.displayName) for \(displayHost(targetURL))…\n",
-                    to: .standardError
+                    to: diagnostics
                 )
             }
-            let response = try await send(command.request)
+            let request = command.request
+            let response = try await sendRequest(request)
             guard response.ok else {
                 throw CLIError(response: response, command: command)
             }
-            write(try CLIOutput.render(response, for: command), to: .standardOutput)
+            write(try CLIOutput.render(response, for: command), to: output)
         } catch let error as CLIError {
-            try stop(error)
+            try stop(error, diagnostics: diagnostics)
         } catch let error as NSError
             where error.domain == NSCocoaErrorDomain
             && [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code)
@@ -201,10 +277,27 @@ enum CLIClient {
                 CLIError(
                     "This process cannot access Agent Keyring's local data.",
                     suggestion: "Allow access and try again."
-                )
+                ), diagnostics: diagnostics
             )
         } catch {
-            try stop(.unavailable)
+            try stop(.unavailable, diagnostics: diagnostics)
+        }
+    }
+
+    @MainActor
+    static func read(
+        reference: UUID,
+        output: FileHandle = .standardOutput,
+        diagnostics: FileHandle = .standardError
+    ) throws {
+        do {
+            var bytes = try CredentialTransfer.read(requestID: reference)
+            defer { bytes.resetBytes(in: bytes.startIndex..<bytes.endIndex) }
+            try output.write(contentsOf: bytes)
+        } catch CredentialTransferError.unavailable {
+            try stop(CLIError("No retained credential exists for this reference."), diagnostics: diagnostics)
+        } catch {
+            try stop(CLIError("Could not write the credential to standard output."), diagnostics: diagnostics)
         }
     }
 
@@ -265,42 +358,22 @@ enum CLIClient {
         )
     }
 
-    private static func send(_ request: AgentBridgeRequest) async throws -> AgentBridgeResponse {
-        let bridge = AgentBridgeDirectory()
-        bridge.removeResponse(id: request.id)
-        try bridge.write(request)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = [
-            "-g",
-            "-b",
-            AgentBridgeDirectory.applicationBundleIdentifier,
-            "agentkeyring://agent/\(request.id.uuidString)",
-        ]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            bridge.removeRequest(id: request.id)
-            throw CLIError(
-                "Agent Keyring is not installed or could not be opened.",
-                suggestion: "Install AgentKeyring.app in Applications, then try again."
-            )
-        }
-
-        for _ in 0..<1_200 {
-            if bridge.responseExists(id: request.id) {
-                let response = try bridge.readResponse(id: request.id)
-                bridge.removeResponse(id: request.id)
-                return response
+    static func send(_ request: AgentBridgeRequest) async throws -> AgentBridgeResponse {
+        try await AgentBridgeClient().send(request) { requestID in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = [
+                "-g", "-b", AgentBridgeDirectory.applicationBundleIdentifier,
+                "agentkeyring://agent/\(requestID.uuidString)",
+            ]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring could not be opened.")
             }
-            try await Task.sleep(for: .milliseconds(100))
         }
-        bridge.removeRequest(id: request.id)
-        throw CLIError(
-            "Agent Keyring did not respond.",
-            suggestion: "Open the app and try again."
-        )
     }
 }
 
@@ -386,6 +459,7 @@ enum IntegrationInstaller {
         let markers = [
             "agent-keyring — use the local encrypted Agent Keyring",
             "Let local agents use imported Apple Passwords logins without printing secrets.",
+            "Use imported Apple Passwords logins from the command line.",
         ]
         return markers.contains { marker in
             data.range(of: Data(marker.utf8)) != nil
@@ -408,6 +482,7 @@ enum IntegrationInstaller {
 enum CLIOutput {
     static func render(_ response: AgentBridgeResponse, for command: CLICommand) throws -> String {
         switch command {
+        case .acquire: return response.id.uuidString + "\n"
         case .status:
             guard let mirror = response.mirror else { throw CLIError.invalidResponse }
             let noun = mirror.credentialCount == 1 ? "login" : "logins"
@@ -491,10 +566,10 @@ struct CLIError: Error {
             let uniqueAccounts = Set(accounts.map { $0.lowercased() })
             if uniqueAccounts.count < accounts.count {
                 suggestion =
-                    "Run 'agent-keyring find \(targetURL)' to see the credential IDs, then choose one:\nagent-keyring copy \(command.fieldArgument) \(shellQuote(targetURL)) --credential UUID"
+                    "Run 'agent-keyring find \(targetURL)' to see the credential IDs, then choose one:\nagent-keyring \(command.releaseVerb) \(command.fieldArgument) \(shellQuote(targetURL)) --credential UUID"
             } else if let account = accounts.first {
                 suggestion =
-                    "Choose an account:\n\(choices)\nTry: agent-keyring copy \(command.fieldArgument) \(shellQuote(targetURL)) --account \(shellQuote(account))"
+                    "Choose an account:\n\(choices)\nTry: agent-keyring \(command.releaseVerb) \(command.fieldArgument) \(shellQuote(targetURL)) --account \(shellQuote(account))"
             } else {
                 suggestion = "Run 'agent-keyring find \(targetURL)' and choose a credential."
             }
@@ -503,10 +578,10 @@ struct CLIError: Error {
                 suggestion: suggestion
             )
         case .fieldUnavailable:
-            self.init("That login has no \(command.fieldName) to copy.")
+            self.init("That login has no \(command.fieldName) available.")
         case .insecureOrigin:
             self.init(
-                "Agent Keyring will not copy credentials to an insecure page.",
+                "Agent Keyring will not release credentials to an insecure page.",
                 suggestion: "Use the HTTPS page instead."
             )
         case .invalidURL:
@@ -520,14 +595,14 @@ struct CLIError: Error {
                 suggestion: "Open Agent Keyring and import them from Apple Passwords."
             )
         case .authorizationDenied:
-            self.init("The request was not approved. Nothing was copied.")
+            self.init("The request was not approved. Nothing was released.")
         case .authorizationUnavailable:
             self.init(
                 "Agent Keyring could not show the approval window.",
                 suggestion: "Open the app and try again."
             )
         case .policyDenied:
-            self.init("Access to this login is blocked in Agent Keyring. Nothing was copied.")
+            self.init("Access to this login is blocked in Agent Keyring. Nothing was released.")
         case .requestExpired, .timedOut:
             self.init(
                 "The request expired before Agent Keyring completed it.",
@@ -566,21 +641,30 @@ struct CLIInstallResult {
 }
 
 extension CLICommand {
+    fileprivate var releaseVerb: String {
+        if case .acquire = self { return "acquire" }
+        return "copy"
+    }
+
     fileprivate var targetURL: String {
         switch self {
-        case let .find(targetURL, _), let .copy(_, targetURL, _, _, _): targetURL
+        case let .find(targetURL, _), let .copy(_, targetURL, _, _, _), let .acquire(_, targetURL, _, _): targetURL
         case .status: "the requested site"
         }
     }
 
     fileprivate var fieldName: String {
-        guard case let .copy(field, _, _, _, _) = self else { return "requested field" }
-        return field.displayName
+        switch self {
+        case let .copy(field, _, _, _, _), let .acquire(field, _, _, _): field.displayName
+        default: "requested field"
+        }
     }
 
     fileprivate var fieldArgument: String {
-        guard case let .copy(field, _, _, _, _) = self else { return "password" }
-        return field.argumentName
+        switch self {
+        case let .copy(field, _, _, _, _), let .acquire(field, _, _, _): field.argumentName
+        default: "password"
+        }
     }
 }
 
@@ -625,7 +709,7 @@ func normaliseSecureWebTarget(_ value: String) throws -> String {
     let localhost = host == "localhost" || host == "127.0.0.1" || host == "::1"
     guard components.scheme?.lowercased() == "https" || localhost else {
         throw ValidationError(
-            "Agent Keyring will not copy credentials to an insecure page. Use the HTTPS page instead."
+            "Agent Keyring will not release credentials to an insecure page. Use the HTTPS page instead."
         )
     }
     return target
@@ -663,8 +747,8 @@ private func shellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
 }
 
-private func stop(_ error: CLIError) throws -> Never {
-    write(error.rendered, to: .standardError)
+private func stop(_ error: CLIError, diagnostics: FileHandle = .standardError) throws -> Never {
+    write(error.rendered, to: diagnostics)
     throw ExitCode(error.exitCode)
 }
 

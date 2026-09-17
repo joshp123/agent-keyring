@@ -287,10 +287,8 @@ public final class MirrorAppModel {
                     .requestExpired, "The agent request expired before it was handled.")
             }
             guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
-                throw AgentBridgeFailure(
-                    .mirrorUnavailable, "No encrypted mirror is available yet.")
+                throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
             }
-
             response = try await process(request: request, generation: generation)
         } catch let failure as AgentBridgeFailure {
             response = AgentBridgeResponse(
@@ -386,88 +384,18 @@ public final class MirrorAppModel {
                 mirror: mirror,
                 candidates: candidates
             )
-        case .copy:
-            guard let targetURL = request.targetURL, let field = request.field else {
-                throw AgentBridgeFailure(
-                    .invalidRequest, "The copy request needs a target URL and field.")
-            }
-            try resolver.validateSecureTarget(targetURL)
-            let candidates = try resolver.candidates(
-                in: generation,
-                targetURL: targetURL,
-                usernameHint: request.usernameHint
-            )
-            guard !candidates.isEmpty else { throw CredentialResolverError.notFound }
-            if request.candidateID == nil, candidates.count > 1 {
-                return AgentBridgeResponse(
-                    id: request.id,
-                    ok: false,
-                    error: .ambiguous,
-                    message: CredentialResolverError.ambiguous.localizedDescription,
-                    mirror: mirror,
-                    candidates: candidates
-                )
-            }
-
-            let selected: CredentialCandidate
-            if let candidateID = request.candidateID {
-                guard let candidate = candidates.first(where: { $0.id == candidateID }) else {
-                    throw CredentialResolverError.notFound
+        case .copy, .acquire:
+            return try await AgentCredentialReleaseProcessor(
+                bridge: bridge, accessControl: accessControl, resolver: resolver
+            ).release(
+                request: request,
+                generation: generation,
+                authorize: { approval in
+                    try await self.authorizeCredentialRelease(approval, agentRequest: request)
+                },
+                copyNative: { secret, expiration in
+                    self.pasteboard.copy(secret, expiresAfter: expiration)
                 }
-                selected = candidate
-            } else {
-                guard let candidate = candidates.first else {
-                    throw CredentialResolverError.notFound
-                }
-                selected = candidate
-            }
-            guard selected.availableFields.contains(field) else {
-                throw CredentialResolverError.fieldUnavailable
-            }
-
-            let releaseDecision = accessControl.releaseDecision(
-                for: selected.id,
-                field: field
-            )
-            if releaseDecision == .block {
-                throw AgentBridgeFailure(
-                    .policyDenied,
-                    "Agent access to this credential is blocked in Agent Keyring."
-                )
-            }
-
-            if releaseDecision == .requestAuthorization {
-                let approval = CredentialReleaseAuthorizationRequest(
-                    destination: approvalDestination(for: targetURL),
-                    account: selected.username ?? selected.title,
-                    field: field,
-                    credentialTitle: selected.title,
-                    expirationSeconds: min(120, max(5, request.expirationSeconds)),
-                    authorizationDeadline: request.createdAt.addingTimeInterval(120)
-                )
-                try await authorizeCredentialRelease(
-                    approval,
-                    agentRequest: request
-                )
-            }
-
-            try ensureAgentRequestIsLive(request)
-            let secret = try resolver.secret(
-                in: generation,
-                targetURL: targetURL,
-                usernameHint: request.usernameHint,
-                candidateID: request.candidateID,
-                field: field
-            )
-            let expiration = min(120, max(5, request.expirationSeconds))
-            pasteboard.copy(secret, expiresAfter: TimeInterval(expiration))
-            return AgentBridgeResponse(
-                id: request.id,
-                ok: true,
-                mirror: mirror,
-                candidates: [selected],
-                copiedField: field,
-                clipboardExpiresAt: Date().addingTimeInterval(TimeInterval(expiration))
             )
         }
     }
@@ -520,14 +448,6 @@ public final class MirrorAppModel {
             skippedCredentialCount: generation.skippedCredentialCount,
             skippedCredentialSummary: generation.skippedCredentialSummary
         )
-    }
-
-    private func approvalDestination(for targetURL: String) -> String {
-        guard let components = URLComponents(string: targetURL),
-            let host = components.host
-        else { return "the requested site" }
-        guard let port = components.port else { return host }
-        return "\(host):\(port)"
     }
 
     private func authorizeCredentialRelease(
@@ -636,15 +556,6 @@ public final class MirrorAppModel {
         }
     }
 
-    private func ensureAgentRequestIsLive(_ request: AgentBridgeRequest) throws {
-        guard agentRequestIsLive(request) else {
-            throw AgentBridgeFailure(
-                .requestExpired,
-                "The credential request ended before the secret was released."
-            )
-        }
-    }
-
     private func agentRequestIsLive(_ request: AgentBridgeRequest) -> Bool {
         request.createdAt.addingTimeInterval(120) > Date()
             && bridge.requestMatches(request)
@@ -660,16 +571,6 @@ public final class MirrorAppModel {
         case .fieldUnavailable: .fieldUnavailable
         case .invalidTOTP: .invalidTOTP
         }
-    }
-}
-
-private struct AgentBridgeFailure: Error {
-    let code: AgentBridgeErrorCode
-    let message: String
-
-    init(_ code: AgentBridgeErrorCode, _ message: String) {
-        self.code = code
-        self.message = message
     }
 }
 

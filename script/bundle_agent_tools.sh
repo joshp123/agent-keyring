@@ -35,7 +35,9 @@ binary_directory="$(/usr/bin/xcrun swift build "${build_arguments[@]}" --show-bi
 /bin/mkdir -p "$HELPERS_DIR" "$SKILL_DIR"
 /usr/bin/ditto "$binary_directory/agent-keyring" "$HELPERS_DIR/agent-keyring"
 /bin/chmod 755 "$HELPERS_DIR/agent-keyring"
-/bin/rm -rf "$SKILL_DIR/agent-keyring"
+if [[ -e "$SKILL_DIR/agent-keyring" || -L "$SKILL_DIR/agent-keyring" ]]; then
+  /usr/bin/trash "$SKILL_DIR/agent-keyring"
+fi
 /usr/bin/ditto "$SRCROOT/CodexSkill/agent-keyring" "$SKILL_DIR/agent-keyring"
 
 if [[ "${CODE_SIGNING_ALLOWED:-NO}" == "YES" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then

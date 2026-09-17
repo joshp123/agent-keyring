@@ -7,7 +7,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
     public let account: String
     public let field: AgentCredentialField
     public let credentialTitle: String
-    public let expirationSeconds: Int
+    public let expirationSeconds: Int?
     public let authorizationDeadline: Date
 
     public init(
@@ -15,7 +15,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
         account: String,
         field: AgentCredentialField,
         credentialTitle: String? = nil,
-        expirationSeconds: Int = 30,
+        expirationSeconds: Int? = 30,
         authorizationDeadline: Date = Date().addingTimeInterval(120)
     ) {
         self.destination = destination

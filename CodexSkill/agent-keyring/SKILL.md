@@ -1,56 +1,32 @@
 ---
 name: agent-keyring
-description: Use the local Agent Keyring app to resolve and use Apple Passwords usernames, passwords and TOTP codes without exposing secrets in agent output. Use when a task reaches a login, sign-in, verification-code or credential prompt in Safari, Codex's built-in browser, Chrome or another local app; when an existing Apple Passwords credential may let the task continue; or when checking or refreshing the encrypted mirror. Passkeys are not supported yet.
-written_by: ai
+description: Acquire saved Apple Passwords credentials into a temporary private buffer with the agent-keyring CLI. Use when a task needs a username, password or saved TOTP code. Reuse the reference until entry succeeds, then explicitly clear it; never expose the value in chat.
+metadata:
+  written_by: "AI on 2026-09-16 by model gpt-6-astra"
 ---
 
 # Agent Keyring
 
-Use `agent-keyring` before asking the user for credentials. It asks the signed app to copy one field to the macOS pasteboard. Command output contains only safe metadata and receipts. A password or verification-code request normally displays a native Touch ID or Apple Watch prompt naming the account and destination. The user's saved access rule may allow or block the request instead.
+Agent Keyring retrieves one saved field into a private temporary buffer and enforces the user's access rule. You own choosing the account, using the value and completing the task.
 
-## Use a login
+```sh
+agent-keyring find example.com
+agent-keyring status
+ref=$(agent-keyring acquire password example.com)
+# Read into your consumer as needed; reading does not empty the buffer.
+agent-keyring clear "$ref"
+```
 
-1. Read the current site from the browser or app context.
-2. Find matching logins without requesting a secret:
+`acquire FIELD SITE` accepts `username`, `password` or `code` (saved TOTP). It authorizes once and prints a reference, never the value. Use `--account NAME` or `--credential UUID` to choose a match returned by `find`; ask if the task does not determine the account. If needed, the executable is `$HOME/.local/bin/agent-keyring`.
 
-   ```sh
-   agent-keyring find example.com
-   ```
+`read REF` writes the exact retained value to stdout, without an added newline or another approval. It does not consume the buffer. **This stdout is secret data:** pipe it to a consumer or capture it inside the tool runtime. Do not run `read` as a standalone shell tool call, return its output to the model, use `tee`, or interpolate the value into arguments. Do not trim the value. Use `pipefail` in shell pipelines and catch subprocess failures without dumping their captured stdout. Errors go to stderr with a nonzero exit status.
 
-3. Copy the required field and paste it into the intended control:
+Keep the reference until the value has been successfully entered. If entry fails, use `read` on that same reference; do not call `acquire` again. Run `clear REF` when done or abandoning the operation, and discard any copies held in runtime variables. Clear is idempotent; reading a cleared reference fails. Buffers have no automatic expiry: explicit cleanup is required. A retained TOTP code can still expire at the website.
 
-   ```sh
-   agent-keyring copy username example.com
-   agent-keyring copy password example.com
-   agent-keyring copy code example.com
-   ```
+Use whatever browser tools are currently available. For a JavaScript browser runtime, for example, capture `read` stdout in a local variable and pass it to the observed input's fill method. Inspect the target after approval or navigation; avoid displaying a populated code field. The model decides how to fill, submit, verify and recover using the current browser API. Keyring has no browser module, selectors or login-session API.
 
-   Use browser or Computer Use controls to press Cmd-V. Never inspect the pasteboard value.
+**Allow automatically** needs no approval; **Ask each time** requires one native approval per protected field; **Blocked** refuses access. Wait for a request to complete. Do not retry a denial or change an access rule to make a task work. A failed form submission does not justify another credential request by itself.
 
-4. If several logins match, use a known account identity:
+`copy` remains available for native clipboard consumers. Codex's browser has a separate clipboard, so macOS Cmd-V is not a substitute for filling its input through the browser tool.
 
-   ```sh
-   agent-keyring copy password example.com --account 'known-account'
-   ```
-
-   If two entries have the same account identity, use the credential ID shown by `find`:
-
-   ```sh
-   agent-keyring copy password example.com --credential UUID
-   ```
-
-   Choose only from visible task context or known user identity. If that does not determine the account, ask one short account-choice question. Do not guess.
-
-## Guardrails
-
-- Never run `pbpaste`, print the clipboard, inspect Agent Keyring's encrypted files, or add a secret-bearing `get` command.
-- Never put a password, TOTP seed or TOTP code in stdout, stderr, arguments, environment variables, logs or chat.
-- Bind every copy to the actual site. A bare domain is treated as HTTPS; do not bypass an insecure-page refusal.
-- If several logins match, choose from visible task context or ask the user. Never take the first one arbitrarily.
-- Paste promptly. Agent Keyring clears its clipboard value after 30 seconds if nothing else has replaced it.
-- If a native prompt appears, wait for the user to approve it. If they do not, do not retry or work around it.
-- If Agent Keyring says access is blocked, do not ask for the same credential through another route.
-- A failed login may mean Apple Passwords changed after the last mirror refresh. Do not retry repeatedly. Report the mirror age and refresh through Agent Keyring and Apple Passwords.
-- Passkeys remain in Apple Passwords and normally require a human-present Apple flow.
-
-If `agent-keyring` is not on `PATH`, use `$HOME/.local/bin/agent-keyring`.
+Keyring does not retrieve SMS messages, control browsers or support passkeys. Use the relevant tool for those tasks. A changed password requires refreshing the mirror from Apple Passwords; `status` reports its age.

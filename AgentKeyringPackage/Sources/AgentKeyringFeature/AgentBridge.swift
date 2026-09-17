@@ -3,6 +3,7 @@ import Foundation
 
 public enum AgentBridgeAction: String, Codable, Sendable {
     case status
+    case acquire
     case resolve
     case copy
 }
