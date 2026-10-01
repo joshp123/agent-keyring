@@ -1,6 +1,12 @@
 import AppKit
 import Foundation
 import LocalAuthentication
+import OSLog
+
+private let credentialAuthorizationLogger = Logger(
+    subsystem: "com.agentkeyring.app",
+    category: "CredentialAuthorization"
+)
 
 public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
     public let destination: String
@@ -37,11 +43,12 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
     }
 }
 
-public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable {
+public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable, Equatable {
     case unavailable
     case busy
     case denied
     case expired
+    case systemFailure(domain: String, code: Int)
 
     public var errorDescription: String? {
         switch self {
@@ -53,7 +60,26 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
             "Credential access was not approved."
         case .expired:
             "The credential request expired before it was approved."
+        case let .systemFailure(domain, code):
+            "Credential approval failed (\(domain == LAError.errorDomain ? "LocalAuthentication" : domain) \(code)). Nothing was released."
         }
+    }
+
+    static func classifyNativeFailure(
+        _ error: NSError, authorizationDeadline: Date, now: Date = Date()
+    ) -> Self {
+        guard authorizationDeadline > now else { return .expired }
+        if error.domain == LAError.errorDomain, let code = LAError.Code(rawValue: error.code) {
+            switch code {
+            case .userCancel, .authenticationFailed:
+                return .denied
+            case .biometryNotAvailable, .companionNotAvailable, .notInteractive:
+                return .unavailable
+            default:
+                break
+            }
+        }
+        return .systemFailure(domain: error.domain, code: error.code)
     }
 }
 
@@ -85,6 +111,13 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
         var evaluationError: NSError?
 
         guard context.canEvaluatePolicy(policy, error: &evaluationError) else {
+            if let evaluationError {
+                credentialAuthorizationLogger.error(
+                    "Approval preflight failed: domain=\(evaluationError.domain, privacy: .public) code=\(evaluationError.code, privacy: .public)"
+                )
+            } else {
+                credentialAuthorizationLogger.error("Approval preflight failed without an error code")
+            }
             throw CredentialReleaseAuthorizationError.unavailable
         }
 
@@ -113,17 +146,13 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
         } catch let error as CredentialReleaseAuthorizationError {
             throw error
         } catch {
-            if request.authorizationDeadline <= Date() {
-                throw CredentialReleaseAuthorizationError.expired
-            }
             let nsError = error as NSError
-            if nsError.domain == LAError.errorDomain,
-                let code = LAError.Code(rawValue: nsError.code),
-                [.biometryNotAvailable, .companionNotAvailable, .notInteractive].contains(code)
-            {
-                throw CredentialReleaseAuthorizationError.unavailable
-            }
-            throw CredentialReleaseAuthorizationError.denied
+            credentialAuthorizationLogger.error(
+                "Approval evaluation failed: domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)"
+            )
+            throw CredentialReleaseAuthorizationError.classifyNativeFailure(
+                nsError, authorizationDeadline: request.authorizationDeadline
+            )
         }
     }
 

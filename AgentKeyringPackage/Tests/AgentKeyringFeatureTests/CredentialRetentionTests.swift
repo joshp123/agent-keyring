@@ -113,8 +113,8 @@ struct CredentialRetentionTests {
         try CredentialTransfer.publish("first synthetic value", requestID: first)
         try CredentialTransfer.publish("second synthetic value", requestID: second)
         #expect(try read(requestID: first) == Data("first synthetic value".utf8))
-        CredentialTransfer.clear(requestID: first)
-        CredentialTransfer.clear(requestID: first)
+        #expect(CredentialTransfer.clear(requestID: first))
+        #expect(CredentialTransfer.clear(requestID: first))
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: first) }
         #expect(try read(requestID: second) == Data("second synthetic value".utf8))
     }

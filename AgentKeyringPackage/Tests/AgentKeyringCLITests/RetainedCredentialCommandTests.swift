@@ -50,8 +50,8 @@ struct RetainedCredentialCommandTests {
         for _ in 0..<2 {
             #expect(try read(reference, diagnostics: diagnostics.fileHandleForWriting) == Data(value.utf8))
         }
-        CredentialTransfer.clear(requestID: reference)
-        CredentialTransfer.clear(requestID: reference)
+        try CLIClient.clear(reference: reference, diagnostics: diagnostics.fileHandleForWriting)
+        try CLIClient.clear(reference: reference, diagnostics: diagnostics.fileHandleForWriting)
         let afterClear = Pipe()
         do {
             try CLIClient.read(reference: reference, output: afterClear.fileHandleForWriting,
@@ -105,6 +105,36 @@ struct RetainedCredentialCommandTests {
         #expect(requests == 1)
         #expect(output.fileHandleForReading.readDataToEndOfFile().isEmpty)
         #expect(!diagnostics.fileHandleForReading.readDataToEndOfFile().isEmpty)
+    }
+
+    @Test("Native approval failure reaches stderr unchanged without retry", arguments: [
+        "Credential approval failed (LocalAuthentication -4). Nothing was released.",
+        "Another credential request is already awaiting approval.",
+        "Touch ID or Apple Watch approval is not available.",
+        "Agent Keyring could not show its approval window.",
+    ])
+    func approvalFailureMessage(message: String) async throws {
+        let output = Pipe()
+        let diagnostics = Pipe()
+        var requests = 0
+        do {
+            try await CLIClient.run(
+                .acquire(field: .password, targetURL: "https://example.com", account: nil, credentialID: nil),
+                output: output.fileHandleForWriting,
+                diagnostics: diagnostics.fileHandleForWriting,
+                sendRequest: { request in
+                    requests += 1
+                    return AgentBridgeResponse(id: request.id, ok: false,
+                        error: .authorizationUnavailable, message: message)
+                }
+            )
+            Issue.record("Failed approval should exit nonzero")
+        } catch let exit as ExitCode { #expect(exit.rawValue != 0) }
+        try output.fileHandleForWriting.close()
+        try diagnostics.fileHandleForWriting.close()
+        #expect(requests == 1)
+        #expect(output.fileHandleForReading.readDataToEndOfFile().isEmpty)
+        #expect(String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self) == message + "\n")
     }
 
     private func read(_ reference: UUID, diagnostics: FileHandle) throws -> Data {

@@ -162,7 +162,7 @@ struct Clear: AsyncParsableCommand {
     func validate() throws { _ = try credentialReference(reference) }
 
     mutating func run() async throws {
-        await CredentialTransfer.clear(requestID: try credentialReference(reference))
+        try await CLIClient.clear(reference: credentialReference(reference))
     }
 }
 
@@ -298,6 +298,21 @@ enum CLIClient {
             try stop(CLIError("No retained credential exists for this reference."), diagnostics: diagnostics)
         } catch {
             try stop(CLIError("Could not write the credential to standard output."), diagnostics: diagnostics)
+        }
+    }
+
+    @MainActor
+    static func clear(
+        reference: UUID,
+        diagnostics: FileHandle = .standardError
+    ) throws {
+        guard CredentialTransfer.clear(requestID: reference) else {
+            try stop(
+                CLIError(
+                    "Could not confirm the credential buffer was cleared; its value may still be retained.",
+                    suggestion: "Run clear through the shell used to acquire it."
+                ), diagnostics: diagnostics
+            )
         }
     }
 
@@ -598,8 +613,7 @@ struct CLIError: Error {
             self.init("The request was not approved. Nothing was released.")
         case .authorizationUnavailable:
             self.init(
-                "Agent Keyring could not show the approval window.",
-                suggestion: "Open the app and try again."
+                response.message ?? "Credential approval is not available. Nothing was released."
             )
         case .policyDenied:
             self.init("Access to this login is blocked in Agent Keyring. Nothing was released.")

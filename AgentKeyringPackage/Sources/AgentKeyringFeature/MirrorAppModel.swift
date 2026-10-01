@@ -307,7 +307,7 @@ public final class MirrorAppModel {
         } catch let error as CredentialReleaseAuthorizationError {
             let code: AgentBridgeErrorCode =
                 switch error {
-                case .unavailable, .busy: .authorizationUnavailable
+                case .unavailable, .busy, .systemFailure: .authorizationUnavailable
                 case .denied: .authorizationDenied
                 case .expired: .requestExpired
                 }
@@ -460,7 +460,9 @@ public final class MirrorAppModel {
 
         let presentation = await approvalWindowPresenter()
         guard let window = presentation.window else {
-            throw CredentialReleaseAuthorizationError.unavailable
+            throw AgentBridgeFailure(
+                .authorizationUnavailable, "Agent Keyring could not show its approval window."
+            )
         }
         let originalOrigin = window.frame.origin
         let originalLevel = window.level

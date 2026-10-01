@@ -31,10 +31,12 @@ public enum CredentialTransfer {
         return bytes
     }
 
-    public static func clear(requestID: UUID) {
+    @discardableResult
+    public static func clear(requestID: UUID) -> Bool {
         let channel = pasteboard(for: requestID)
-        channel.clearContents()
+        guard channel.clearContents() > 0 else { return false }
         channel.releaseGlobally()
+        return true
     }
 }
 
