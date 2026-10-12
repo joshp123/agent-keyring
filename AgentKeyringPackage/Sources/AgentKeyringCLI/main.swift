@@ -503,7 +503,10 @@ enum CLIOutput {
         switch command {
         case .acquire: return response.id.uuidString + "\n"
         case .status:
-            guard let mirror = response.mirror else { throw CLIError.invalidResponse }
+            guard let mirror = response.mirror else {
+                guard let message = response.message else { throw CLIError.invalidResponse }
+                return message + "\n"
+            }
             let noun = mirror.credentialCount == 1 ? "login" : "logins"
             return
                 "\(mirror.credentialCount) \(noun) available\n" + freshness(mirror)

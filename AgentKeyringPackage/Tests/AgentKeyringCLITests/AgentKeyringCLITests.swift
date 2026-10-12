@@ -99,6 +99,13 @@ struct AgentKeyringCLITests {
         )
     }
 
+    @Test("Status plainly reports that no mirror has been imported")
+    func noImportedMirrorStatus() throws {
+        let response = AgentBridgeResponse(id: UUID(), ok: true,
+            message: "No mirror has been imported yet.")
+        #expect(try CLIOutput.render(response, for: .status) == "No mirror has been imported yet.\n")
+    }
+
     @Test("Find shows safe account metadata without transport JSON")
     func findOutput() throws {
         let candidate = CredentialCandidate(

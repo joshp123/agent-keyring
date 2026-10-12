@@ -13,6 +13,13 @@ struct ExampleCredentialTests {
         await model.loadStatus()
         #expect(model.includeExampleCredential)
         #expect(model.status == nil)
+        let request = AgentBridgeRequest(action: .status)
+        try fixture.bridge.write(request)
+        await model.handleAgentRequest(id: request.id)
+        let response = try fixture.bridge.readResponse(id: request.id)
+        #expect(response.ok)
+        #expect(response.mirror == nil)
+        #expect(response.message == "No mirror has been imported yet.")
         #expect(model.accessControl.rows.map(\.id) == [MirrorItem.exampleCredentialID])
         #expect(model.accessControl.count(for: .ask) == 0)
         await model.setIncludeExampleCredential(false)
@@ -44,9 +51,14 @@ private struct Fixture {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let settingsName = "ExampleCredentialTests-\(UUID().uuidString)"
 
+    var bridge: AgentBridgeDirectory {
+        AgentBridgeDirectory(rootURL: directory.appendingPathComponent("bridge"))
+    }
+
     func model() -> MirrorAppModel {
         MirrorAppModel(store: EncryptedSnapshotStore(directoryURL: directory,
             keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x5A, count: 32))),
+            bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
                 fileURL: directory.appendingPathComponent("policies.json"))),
             settings: UserDefaults(suiteName: settingsName)!)

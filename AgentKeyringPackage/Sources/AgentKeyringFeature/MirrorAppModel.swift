@@ -296,10 +296,15 @@ public final class MirrorAppModel {
                     .requestExpired, "The agent request expired before it was handled.")
             }
             let metadataOnly = request.action == .status || request.action == .resolve
-            guard let generation = generationIncludingExample(try await store.loadCurrent(metadataOnly: metadataOnly)) else {
+            let importedGeneration = try await store.loadCurrent(metadataOnly: metadataOnly)
+            if request.action == .status, importedGeneration == nil {
+                response = AgentBridgeResponse(id: request.id, ok: true,
+                    message: "No mirror has been imported yet.")
+            } else if let generation = generationIncludingExample(importedGeneration) {
+                response = try await process(request: request, generation: generation)
+            } else {
                 throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
             }
-            response = try await process(request: request, generation: generation)
         } catch let failure as AgentBridgeFailure {
             response = AgentBridgeResponse(
                 id: id,
