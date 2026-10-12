@@ -60,7 +60,12 @@ enum AgentBrowserPluginProtocol {
     ) async {
         let response: Response
         do {
-            let envelope = try JSONDecoder().decode(Envelope.self, from: input.readDataToEndOfFile())
+            let envelope: Envelope
+            do {
+                envelope = try JSONDecoder().decode(Envelope.self, from: input.readDataToEndOfFile())
+            } catch {
+                throw Failure(message: "invalid request")
+            }
             guard envelope.protocol == protocolVersion else {
                 throw Failure(message: "unsupported protocol")
             }
@@ -91,7 +96,7 @@ enum AgentBrowserPluginProtocol {
         _ request: Request,
         sendRequest: (AgentBridgeRequest) async throws -> AgentBridgeResponse
     ) async throws -> Response {
-        guard let itemRef = request.itemRef, let url = request.url else {
+        guard let itemRef = request.itemRef else {
             throw Failure(message: "invalid request")
         }
         let parts = itemRef.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
@@ -99,7 +104,7 @@ enum AgentBrowserPluginProtocol {
         let destination: String
         do {
             site = try normaliseSecureWebTarget(String(parts[0]))
-            destination = try normaliseSecureWebTarget(url)
+            destination = try normaliseSecureWebTarget(request.url ?? site)
         } catch {
             throw Failure(message: "invalid request")
         }
@@ -139,7 +144,7 @@ enum AgentBrowserPluginProtocol {
         let clearedPassword = CredentialTransfer.clear(requestID: passwordRequest.id)
         guard clearedUsername && clearedPassword else { throw Failure(message: "approval unavailable") }
         return Response(success: true, credential: Credential(
-            username: usernameValue, password: passwordValue, url: url
+            username: usernameValue, password: passwordValue, url: request.url ?? site
         ))
     }
 

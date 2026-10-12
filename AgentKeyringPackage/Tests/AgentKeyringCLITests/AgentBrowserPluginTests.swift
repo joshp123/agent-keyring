@@ -122,6 +122,24 @@ struct AgentBrowserPluginTests {
         #expect(response["error"] as? String == (count == 0 ? "no matching login" : "ambiguous"))
     }
 
+    @Test("An omitted or null URL uses the item site", arguments: [false, true])
+    func siteURL(includeNull: Bool) async throws {
+        var request: [String: Any] = ["itemRef": "example.com"]
+        if includeNull { request["url"] = NSNull() }
+        let response = try await invoke(bytes: JSONSerialization.data(withJSONObject: [
+            "protocol": "agent-browser.plugin.v1", "type": "credential.resolve", "capability": "credential.read",
+            "request": request,
+        ])) { request in
+            #expect(request.targetURL == "https://example.com")
+            if request.action == .acquire {
+                try CredentialTransfer.publish(request.field == .username ? "synthetic@example.com" : "synthetic-password", requestID: request.id)
+            }
+            return AgentBridgeResponse(id: request.id, ok: true, candidates: [candidate])
+        }
+        #expect(response["success"] as? Bool == true)
+        #expect((response["credential"] as? [String: String])?["url"] == "https://example.com")
+    }
+
     @Test("Invalid requests never contact the app", arguments: [
         "{}", "not json",
         "{\"protocol\":\"wrong\",\"type\":\"plugin.manifest\",\"capability\":\"plugin.manifest\",\"request\":{}}",
