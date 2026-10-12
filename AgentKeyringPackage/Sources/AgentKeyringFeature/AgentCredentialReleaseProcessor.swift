@@ -36,6 +36,21 @@ public struct AgentCredentialReleaseProcessor {
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
         authorize: @escaping @MainActor (CredentialReleaseAuthorizationRequest, @escaping () -> Void) async throws -> Void
     ) async throws -> AgentBridgeResponse {
+        try ensureRequestHasNotExpired(request)
+        return try await approvals.sessionRequests.withTurn(session: requester.session, deadline: request.expiresAt) {
+            try await releaseInSessionTurn(request: request, requester: requester, generation: generation,
+                cancelAuthorization: cancelAuthorization, onProgress: onProgress, authorize: authorize)
+        }
+    }
+
+    private func releaseInSessionTurn(
+        request: AgentBridgeRequest,
+        requester: AgentRequester,
+        generation: MirrorGeneration,
+        cancelAuthorization: @escaping () -> Void,
+        onProgress: @escaping (AgentApprovalProgress) -> Void,
+        authorize: @escaping @MainActor (CredentialReleaseAuthorizationRequest, @escaping () -> Void) async throws -> Void
+    ) async throws -> AgentBridgeResponse {
         guard request.action == .acquire || request.action == .fill else {
             throw AgentBridgeFailure(.invalidRequest, "A credential release action is required.")
         }

@@ -19,6 +19,7 @@ public final class CredentialApprovalCoordinator {
     private var macPromptQueue: [UUID] = []
     private var macPromptWakeups: [UUID: () -> Void] = [:]
 
+    let sessionRequests: HarnessSessionRequestQueue
     private let lockState: any CredentialSessionLockState
     private let phoneChannel: (any IPhoneApprovalChannel)?
     private let pairedDevices: any PairedDevicePublicKeyProviding
@@ -36,6 +37,7 @@ public final class CredentialApprovalCoordinator {
         now: @escaping () -> Date = Date.init,
         sleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
+        self.sessionRequests = HarnessSessionRequestQueue(now: now, sleep: sleep)
         self.lockState = lockState
         self.phoneChannel = phoneChannel
         self.pairedDevices = pairedDevices
