@@ -1,11 +1,5 @@
 import Foundation
 
-public enum AgentCredentialField: String, Codable, CaseIterable, Sendable {
-    case username
-    case password
-    case totp
-}
-
 public struct CredentialCandidate: Codable, Equatable, Sendable {
     public let id: UUID
     public let title: String

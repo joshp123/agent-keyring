@@ -1,3 +1,4 @@
+import AgentKeyringApprovalCore
 import Observation
 import Security
 import SwiftUI
