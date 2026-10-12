@@ -255,6 +255,7 @@ enum CLIClient {
         diagnostics: FileHandle = .standardError,
         sendRequest: (AgentBridgeRequest) async throws -> AgentBridgeResponse = send
     ) async throws {
+        var failedFindMirror: AgentMirrorSummary?
         do {
             if case let .copy(field, targetURL, _, _, _) = command {
                 write(
@@ -265,14 +266,14 @@ enum CLIClient {
             let request = command.request
             let response = try await sendRequest(request)
             guard response.ok else {
-                if case .find = command, let mirror = response.mirror {
-                    write(CLIOutput.freshness(mirror), to: diagnostics)
-                }
+                if case .find = command { failedFindMirror = response.mirror }
                 throw CLIError(response: response, command: command)
             }
             write(try CLIOutput.render(response, for: command), to: output)
         } catch let error as CLIError {
-            try stop(error, diagnostics: diagnostics)
+            write(error.rendered, to: diagnostics)
+            if let mirror = failedFindMirror { write(CLIOutput.mirrorAge(mirror), to: diagnostics) }
+            throw ExitCode(error.exitCode)
         } catch let error as NSError
             where error.domain == NSCocoaErrorDomain
             && [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code)
@@ -556,7 +557,11 @@ enum CLIOutput {
     static func freshness(_ mirror: AgentMirrorSummary) -> String {
         let warning = mirror.ageSeconds > 7 * 86_400
             ? "Warning: the mirror is older than 7 days. Update it from Apple Passwords.\n" : ""
-        return "Updated \(age(mirror.ageSeconds))\n" + warning
+        return mirrorAge(mirror) + warning
+    }
+
+    static func mirrorAge(_ mirror: AgentMirrorSummary) -> String {
+        "Updated \(age(mirror.ageSeconds))\n"
     }
 
     private static func age(_ seconds: Int) -> String {

@@ -157,7 +157,7 @@ struct AgentKeyringCLITests {
     }
 
     @MainActor
-    @Test("Find reports freshness even when no login matches")
+    @Test("Failed find prints its error before the mirror age without another warning")
     func unmatchedFindFreshness() async throws {
         let output = Pipe()
         let diagnostics = Pipe()
@@ -175,8 +175,9 @@ struct AgentKeyringCLITests {
         try diagnostics.fileHandleForWriting.close()
         #expect(output.fileHandleForReading.readDataToEndOfFile().isEmpty)
         let error = String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        #expect(error.hasPrefix("No login matches example.com.\n"))
         #expect(error.contains("Updated 8 days ago"))
-        #expect(error.contains("Warning:"))
+        #expect(!error.contains("Warning:"))
     }
 
     @Test("Copy receipts name the safe account and destination")
