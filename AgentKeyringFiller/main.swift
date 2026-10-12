@@ -3,6 +3,9 @@ import AppKit
 import ApplicationServices
 import Darwin
 import Security
+import OSLog
+
+private let fillerLogger = Logger(subsystem: "com.agentkeyring.app", category: "FillerService")
 
 final class FillerService: NSObject, AgentKeyringFillerProtocol {
     private var previousWindow: AXUIElement?
@@ -11,21 +14,39 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
     private var focusedElementIdentifier: String?
 
     func inspect(withReply reply: @escaping (FillInspection) -> Void) {
-        DispatchQueue.main.async { reply(self.inspectFrontmost()) }
+        DispatchQueue.main.async {
+            let inspection = self.inspectFrontmost()
+            self.logInspectionRefusal(inspection)
+            reply(inspection)
+        }
     }
 
     func type(value: NSMutableData, expected: FillInspection, deadline: Date, withReply reply: @escaping (FillTypingResult) -> Void) {
         DispatchQueue.main.async {
-            reply(FillerTypingOperation.type(value: value, expected: expected, deadline: deadline,
-                inspect: self.inspectFrontmost, post: self.postUnicode))
+            let result = FillerTypingOperation.type(value: value, expected: expected, deadline: deadline,
+                inspect: self.inspectFrontmost, post: self.postUnicode)
+            switch result {
+            case .filled, .failed: break // Posting failures log their specific cause below.
+            case .accessibilityMissing: fillerLogger.error("Typing refused: Accessibility permission missing.")
+            case .screenLocked: fillerLogger.error("Typing refused: screen locked.")
+            case .targetChanged: fillerLogger.error("Typing refused: browser, page or focused field changed.")
+            case .requestExpired: fillerLogger.error("Typing refused: request deadline reached.")
+            }
+            reply(result)
         }
     }
 
     private func postUnicode(_ value: NSMutableData, deadline: Date) -> FillTypingResult {
-        guard value.length > 0, value.length.isMultiple(of: MemoryLayout<UniChar>.size),
-            let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+        guard value.length > 0, value.length.isMultiple(of: MemoryLayout<UniChar>.size) else {
+            fillerLogger.error("Typing failed: empty or invalid Unicode buffer.")
+            return .failed
+        }
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
             let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
-        else { return .failed }
+        else {
+            fillerLogger.error("Typing failed: keyboard events could not be created.")
+            return .failed
+        }
         let units = value.mutableBytes.assumingMemoryBound(to: UniChar.self)
         let count = value.length / MemoryLayout<UniChar>.size
         var offset = 0
@@ -47,6 +68,16 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
             offset += length
         }
         return .filled
+    }
+
+    private func logInspectionRefusal(_ inspection: FillInspection) {
+        if inspection.screenLocked { fillerLogger.error("Inspection refused: screen locked.") }
+        else if !inspection.accessibilityTrusted { fillerLogger.error("Inspection refused: Accessibility permission missing.") }
+        else if inspection.bundleIdentifier == nil { fillerLogger.error("Inspection failed: no frontmost application.") }
+        else if inspection.windowIdentifier == nil { fillerLogger.error("Inspection failed: no focused window.") }
+        else if inspection.focusedElementIdentifier == nil { fillerLogger.error("Inspection refused: no focused element.") }
+        else if inspection.pageAddress == nil { fillerLogger.error("Inspection refused: focused element has no readable web-area address.") }
+        else if inspection.focusedRole == nil { fillerLogger.error("Inspection failed: focused element role unreadable.") }
     }
 
     private func inspectFrontmost() -> FillInspection {
@@ -120,7 +151,10 @@ final class FillerListenerDelegate: NSObject, NSXPCListenerDelegate {
             let hostRequirement,
             SecRequirementCopyString(hostRequirement, [], &requirementText) == errSecSuccess,
             let requirementText
-        else { return false }
+        else {
+            fillerLogger.error("Connection refused: containing app signing requirement unavailable.")
+            return false
+        }
         connection.setCodeSigningRequirement(requirementText as String)
         connection.exportedInterface = fillerInterface()
         connection.exportedObject = FillerService()

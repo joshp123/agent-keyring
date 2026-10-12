@@ -1,6 +1,9 @@
 import AgentKeyringFillerSupport
 import Darwin
 import Foundation
+import OSLog
+
+private let fillerClientLogger = Logger(subsystem: "com.agentkeyring.app", category: "FillerClient")
 
 @MainActor
 public protocol CredentialFiller {
@@ -26,9 +29,18 @@ public final class XPCCredentialFiller: CredentialFiller {
     }
 
     public func type(value: NSMutableData, expected: FillInspection, deadline: Date) async throws -> FillTypingResult {
-        try await call { proxy, completion in
+        let result: FillTypingResult = try await call { proxy, completion in
             proxy.type(value: value, expected: expected, deadline: deadline) { completion(.success($0)) }
         }
+        switch result {
+        case .filled: break
+        case .accessibilityMissing: fillerClientLogger.error("Fill refused: Accessibility permission missing.")
+        case .screenLocked: fillerClientLogger.error("Fill refused: screen locked.")
+        case .targetChanged: fillerClientLogger.error("Fill refused: browser, page or focused field changed.")
+        case .requestExpired: fillerClientLogger.error("Fill refused: request deadline reached.")
+        case .failed: fillerClientLogger.error("Fill failed: helper could not post keyboard events.")
+        }
+        return result
     }
 
     private func call<Result: Sendable>(
@@ -61,6 +73,7 @@ private final class FillerReply<Value: Sendable>: @unchecked Sendable {
         let pending = continuation
         continuation = nil
         lock.unlock()
+        if pending != nil, case .failure = result { fillerClientLogger.error("Fill service request failed: XPC unavailable.") }
         pending?.resume(with: result)
     }
 }
@@ -93,6 +106,18 @@ struct AgentCredentialFillProcessor {
     static let accessibilityMessage = "Grant Agent Keyring Accessibility in System Settings → Privacy & Security → Accessibility."
 
     func validate(_ inspection: FillInspection, candidate: CredentialCandidate, requestedURL: String,
+        field: AgentCredentialField) throws {
+        do { try validateDestination(inspection, candidate: candidate, requestedURL: requestedURL, field: field) }
+        catch let failure as AgentBridgeFailure {
+            fillerClientLogger.error("Fill validation refused: \(failure.code.rawValue, privacy: .public).")
+            throw failure
+        } catch let failure as CredentialResolverError {
+            fillerClientLogger.error("Fill validation refused: \(failure.rawValue, privacy: .public).")
+            throw failure
+        }
+    }
+
+    private func validateDestination(_ inspection: FillInspection, candidate: CredentialCandidate, requestedURL: String,
         field: AgentCredentialField) throws {
         if inspection.screenLocked { throw AgentBridgeFailure(.screenLocked, "The screen is locked.") }
         if !inspection.accessibilityTrusted { throw AgentBridgeFailure(.accessibilityMissing, Self.accessibilityMessage) }
