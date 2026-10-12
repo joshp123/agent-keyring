@@ -100,7 +100,7 @@ fi
 
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 /usr/bin/file "$APP_PATH/Contents/Helpers/agent-keyring" | /usr/bin/grep -q 'universal binary'
-/bin/test -f "$APP_PATH/Contents/Resources/AgentTools/CodexSkill/agent-keyring/SKILL.md"
+/bin/test -f "$APP_PATH/Contents/Resources/AgentTools/AgentSkill/agent-keyring/SKILL.md"
 /usr/bin/xcrun stapler validate "$APP_PATH"
 /usr/sbin/spctl --assess --type execute -vv "$APP_PATH"
 

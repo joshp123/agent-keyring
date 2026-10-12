@@ -4,7 +4,7 @@ set -euo pipefail
 PACKAGE_PATH="$SRCROOT/AgentKeyringPackage"
 SCRATCH_PATH="$DERIVED_FILE_DIR/AgentKeyringCLI"
 HELPERS_DIR="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
-SKILL_DIR="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AgentTools/CodexSkill"
+SKILL_DIR="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AgentTools/AgentSkill"
 
 case "$CONFIGURATION" in
   Release)
@@ -38,7 +38,7 @@ binary_directory="$(/usr/bin/xcrun swift build "${build_arguments[@]}" --show-bi
 if [[ -e "$SKILL_DIR/agent-keyring" || -L "$SKILL_DIR/agent-keyring" ]]; then
   /usr/bin/trash "$SKILL_DIR/agent-keyring"
 fi
-/usr/bin/ditto "$SRCROOT/CodexSkill/agent-keyring" "$SKILL_DIR/agent-keyring"
+/usr/bin/ditto "$SRCROOT/AgentSkill/agent-keyring" "$SKILL_DIR/agent-keyring"
 
 if [[ "${CODE_SIGNING_ALLOWED:-NO}" == "YES" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
   /usr/bin/codesign \

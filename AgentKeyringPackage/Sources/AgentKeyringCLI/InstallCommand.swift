@@ -46,7 +46,7 @@ extension CLIClient {
         }
 
         let skillSource = contentsDirectory
-            .appendingPathComponent("Resources/AgentTools/CodexSkill/agent-keyring/SKILL.md")
+            .appendingPathComponent("Resources/AgentTools/AgentSkill/agent-keyring/SKILL.md")
         guard fileManager.fileExists(atPath: skillSource.path) else {
             throw CLIError(
                 "AgentKeyring.app is missing its agent skill.",
