@@ -119,14 +119,12 @@ enum AgentBrowserPluginProtocol {
         }
         guard candidates.count == 1 else { throw Failure(message: "ambiguous") }
 
-        let usernameRequest = AgentBridgeRequest(
-            callerPID: getpid(), action: .acquire, targetURL: destination,
-            candidateID: candidates[0].id, field: .username
-        )
-        let passwordRequest = AgentBridgeRequest(
-            callerPID: getpid(), action: .acquire, targetURL: destination,
-            candidateID: candidates[0].id, field: .password
-        )
+        let usernameRequest = CLICommand.acquire(
+            field: .username, targetURL: destination, account: nil, credentialID: candidates[0].id
+        ).request
+        let passwordRequest = CLICommand.acquire(
+            field: .password, targetURL: destination, account: nil, credentialID: candidates[0].id
+        ).request
         defer {
             CredentialTransfer.clear(requestID: usernameRequest.id)
             CredentialTransfer.clear(requestID: passwordRequest.id)
