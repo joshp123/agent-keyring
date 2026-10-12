@@ -37,6 +37,11 @@ public enum ApprovalCloudRecords {
         record["action"] = request.action.rawValue as CKRecordValue
         record["oneTimeValue"] = request.oneTimeValue as CKRecordValue
         record["expiresAt"] = NSNumber(value: request.expiresAt)
+        if let context = request.requesterContext {
+            record.encryptedValues["machineName"] = context.machineName as CKRecordValue
+            record.encryptedValues["workingDirectory"] = context.workingDirectory as CKRecordValue?
+            record.encryptedValues["networkAddress"] = context.networkAddress as CKRecordValue?
+        }
         record.encryptedValues["site"] = request.site as CKRecordValue
         record.encryptedValues["account"] = request.account as CKRecordValue
         return record
@@ -57,8 +62,13 @@ public enum ApprovalCloudRecords {
             CFGetTypeID(expiry) != CFBooleanGetTypeID(),
             expiry == NSNumber(value: expiry.int64Value)
         else { return nil }
+        let context = (record.encryptedValues["machineName"] as? String).map {
+            ApprovalRequesterContext(machineName: $0,
+                workingDirectory: record.encryptedValues["workingDirectory"] as? String,
+                networkAddress: record.encryptedValues["networkAddress"] as? String)
+        }
         return ApprovalSignedFields(requestID: id, agentDisplayLabel: agentLabel, site: site,
-            account: account, field: field, action: action, oneTimeValue: nonce, expiresAt: expiry.int64Value)
+            account: account, field: field, action: action, oneTimeValue: nonce, expiresAt: expiry.int64Value, requesterContext: context)
     }
 
     /// Saved by the iPhone, whose notification service extension fetches the record

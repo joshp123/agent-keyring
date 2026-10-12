@@ -30,6 +30,7 @@ public struct AgentCredentialReleaseProcessor {
 
     public func release(
         request: AgentBridgeRequest,
+        requester: AgentRequester,
         generation: MirrorGeneration,
         cancelAuthorization: @escaping () -> Void = {},
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
@@ -113,9 +114,9 @@ public struct AgentCredentialReleaseProcessor {
                 authorizationDeadline: request.expiresAt,
                 isPossiblyStale: possiblyStaleCredentialIDs.contains(selected.id)
             )
-            let phoneRequest = try ApprovalRequest(agentDisplayLabel: request.agentDisplayLabel ?? "an agent",
+            let phoneRequest = try ApprovalRequest(agentDisplayLabel: requester.displayLabel,
                 site: approval.destination, account: approval.account, field: field,
-                action: request.action == .fill ? .fill : .acquire, createdAt: now())
+                action: request.action == .fill ? .fill : .acquire, requesterContext: requester.context, createdAt: now())
             try await approvals.authorize(credentialID: selected.id, action: request.action, authorizationDeadline: request.expiresAt,
                 approvalRequest: phoneRequest, cancelPrompt: cancelAuthorization,
                 onBlockLogin: { accessControl.stagePhoneBlock(for: selected.id) },

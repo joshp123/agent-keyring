@@ -17,6 +17,7 @@ extension MirrorAppModel {
 
     func handleAgentRequest(_ request: AgentBridgeRequest, peer: AgentBridgePeer,
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in }) async -> AgentBridgeResponse {
+        let requester = AgentRequester.from(peer: peer)
         let id = request.id
         let response: AgentBridgeResponse
         do {
@@ -44,7 +45,7 @@ extension MirrorAppModel {
                 guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
                     throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
                 }
-                response = try await processRelease(request: request, generation: generation, onProgress: onProgress)
+                response = try await processRelease(request: request, requester: requester, generation: generation, onProgress: onProgress)
             }
         } catch let failure as AgentBridgeFailure {
             response = AgentBridgeResponse(
@@ -126,6 +127,7 @@ extension MirrorAppModel {
 
     private func processRelease(
         request: AgentBridgeRequest,
+        requester: AgentRequester,
         generation: MirrorGeneration,
         onProgress: @escaping (AgentApprovalProgress) -> Void
     ) async throws -> AgentBridgeResponse {
@@ -134,6 +136,7 @@ extension MirrorAppModel {
             possiblyStaleCredentialIDs: staleLogins.credentialIDs
         ).release(
             request: request,
+            requester: requester,
             generation: generation,
             cancelAuthorization: { self.authorizer.cancelCurrentAuthorization() },
             onProgress: onProgress,

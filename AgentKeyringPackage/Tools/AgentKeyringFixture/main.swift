@@ -113,6 +113,7 @@ struct AgentKeyringFixture {
                 accessControl: accessControl
             ).release(
                 request: request,
+                requester: syntheticVerifiedRequester,
                 generation: generation,
                 onProgress: progress,
                 authorize: { _, _ in
