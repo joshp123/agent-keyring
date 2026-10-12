@@ -56,6 +56,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     public private(set) var hasPairedApprovalDevice = false
+    public private(set) var pairedApprovalDevices: [PairedApprovalDevice] = []
     public private(set) var rows: [AccessCredentialRow] = []
     public private(set) var visibleRows: [AccessCredentialRow] = []
     public private(set) var errorMessage: String?
@@ -80,6 +81,14 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
 
     public func pairedDevicePublicKeys() async throws -> [Data] {
         try await store.pairedDevicePublicKeys()
+    }
+
+    public func confirmPairing(_ session: IPhonePairingSession) async throws {
+        guard !isSavingRules else { throw PairingFailure.invalidRequest }
+        isSavingRules = true
+        defer { isSavingRules = false }
+        try await session.confirm(in: store)
+        try await reloadRules()
     }
 
     public func refresh(from generation: MirrorGeneration?) async {
@@ -218,9 +227,11 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
 
     private func reloadRules() async throws {
         hasPairedApprovalDevice = false
+        pairedApprovalDevices = []
         do {
             policies = try await store.load()
-            hasPairedApprovalDevice = !(try await store.loadPairedDevices()).isEmpty
+            pairedApprovalDevices = try await store.loadPairedDevices()
+            hasPairedApprovalDevice = !pairedApprovalDevices.isEmpty
             needsConfirmation = false
             confirmationResetsUnreadableRules = false
             errorMessage = nil

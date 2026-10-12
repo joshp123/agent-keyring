@@ -33,6 +33,7 @@ public struct ContentView: View {
                     }
                 ))
                 .toggleStyle(.checkbox)
+                IPhoneDevicesView(controller: model.accessControl)
                 if model.accessControl.hasPairedApprovalDevice {
                     HStack {
                         @Bindable var routingSettings = model.approvalRoutingSettings
