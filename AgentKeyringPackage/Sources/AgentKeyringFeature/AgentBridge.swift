@@ -141,14 +141,7 @@ public struct AgentBridgeResponse: Codable, Equatable, Sendable {
 
 public struct AgentBridgeDirectory: Sendable {
     public static var applicationBundleIdentifier: String {
-        if let override = ProcessInfo.processInfo.environment["AGENT_KEYRING_BUNDLE_ID"],
-            !override.isEmpty
-        {
-            return override
-        }
-        let appPath =
-            ProcessInfo.processInfo.environment["AGENT_KEYRING_APP_PATH"]
-            ?? "/Applications/AgentKeyring.app"
+        let appPath = "/Applications/AgentKeyring.app"
         let infoURL = URL(fileURLWithPath: appPath)
             .appendingPathComponent("Contents/Info.plist", isDirectory: false)
         if let data = try? Data(contentsOf: infoURL),
