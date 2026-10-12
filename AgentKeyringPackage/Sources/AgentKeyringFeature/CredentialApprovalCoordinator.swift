@@ -214,6 +214,7 @@ public final class CredentialApprovalCoordinator {
                     continue
                 }
                 _ = try result.get()
+                if phone != nil { recordApproval(scope: scope, provider: .mac) }
                 return
             case let .phone(decision):
                 let choice: ApprovalChoice
@@ -221,8 +222,7 @@ public final class CredentialApprovalCoordinator {
                 catch { continue } // The verifier logs its fixed refusal reason without login data.
                 switch choice {
                 case .approve:
-                    recordProgress(scope: scope, askedAt: pending[scope]?.progress.askedAt,
-                        phase: .awaitingApproval, provider: .iPhone, approvedAt: now())
+                    recordApproval(scope: scope, provider: .iPhone)
                     return
                 case .deny: throw CredentialReleaseAuthorizationError.denied
                 case .blockThisLogin:
@@ -232,6 +232,17 @@ public final class CredentialApprovalCoordinator {
             }
         }
         throw CredentialReleaseAuthorizationError.expired
+    }
+
+    private func recordApproval(scope: CredentialApprovalScope, provider: ApprovalPromptProvider) {
+        guard var approval = pending[scope] else { return }
+        let progress = approval.progress
+        approval.progress = AgentApprovalProgress(waitingSince: progress.waitingSince,
+            askedAt: progress.askedAt, phase: progress.phase, provider: progress.provider,
+            phoneScheduledAt: progress.phoneScheduledAt, macWasLocked: progress.macWasLocked,
+            approvedAt: now(), approvedOn: provider)
+        pending[scope] = approval
+        for observer in approval.observers { observer(approval.progress) }
     }
 
     private func recordProgress(scope: CredentialApprovalScope, askedAt: Date?, phase: AgentApprovalPhase,

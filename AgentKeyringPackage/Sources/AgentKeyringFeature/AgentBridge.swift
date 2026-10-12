@@ -109,10 +109,11 @@ public struct AgentApprovalProgress: Codable, Equatable, Sendable {
     public let phoneScheduledAt: Date?
     public let macWasLocked: Bool?
     public let approvedAt: Date?
+    public let approvedOn: ApprovalPromptProvider?
 
     public init(waitingSince: Date, askedAt: Date? = nil, phase: AgentApprovalPhase,
         provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
-        macWasLocked: Bool? = nil, approvedAt: Date? = nil) {
+        macWasLocked: Bool? = nil, approvedAt: Date? = nil, approvedOn: ApprovalPromptProvider? = nil) {
         self.waitingSince = waitingSince
         self.askedAt = askedAt
         self.phase = phase
@@ -120,6 +121,7 @@ public struct AgentApprovalProgress: Codable, Equatable, Sendable {
         self.phoneScheduledAt = phoneScheduledAt
         self.macWasLocked = macWasLocked
         self.approvedAt = approvedAt
+        self.approvedOn = approvedOn
     }
 }
 
