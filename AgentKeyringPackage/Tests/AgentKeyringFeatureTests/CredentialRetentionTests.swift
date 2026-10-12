@@ -18,7 +18,7 @@ struct CredentialRetentionTests {
         do {
             let response = try await fixture.processor.release(
                 request: request, generation: fixture.generation,
-                authorize: { approval in
+                authorize: { approval, _ in
                     approvals += 1
                     #expect(approval.expirationSeconds == nil)
                 },
@@ -54,7 +54,7 @@ struct CredentialRetentionTests {
             let request = fixture.request(field: field)
             try fixture.bridge.write(request)
             let response = try await fixture.processor.release(request: request, generation: fixture.generation,
-                authorize: { _ in approvals += 1 }, copyNative: { _, _ in })
+                authorize: { _, _ in approvals += 1 }, copyNative: { _, _ in })
             #expect(response.ok)
             CredentialTransfer.clear(requestID: request.id)
         }
@@ -64,7 +64,7 @@ struct CredentialRetentionTests {
         defer { CredentialTransfer.clear(requestID: retry.id) }
         try fixture.bridge.write(retry)
         _ = try await fixture.processor.release(request: retry, generation: fixture.generation,
-            authorize: { _ in approvals += 1 }, copyNative: { _, _ in })
+            authorize: { _, _ in approvals += 1 }, copyNative: { _, _ in })
         #expect(approvals == 2)
     }
 
@@ -77,7 +77,7 @@ struct CredentialRetentionTests {
         try fixture.bridge.write(request)
         do {
             _ = try await fixture.processor.release(request: request, generation: fixture.generation,
-                authorize: { _ in Issue.record("Blocked login prompted") }, copyNative: { _, _ in })
+                authorize: { _, _ in Issue.record("Blocked login prompted") }, copyNative: { _, _ in })
             Issue.record("Blocked login released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .policyDenied) }
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
@@ -97,7 +97,7 @@ struct CredentialRetentionTests {
             CredentialTransfer.clear(requestID: second.id)
         }
         let firstTask = Task { try await fixture.processor.release(request: first, generation: fixture.generation,
-            authorize: { try await authorizer.authorize($0) }, copyNative: { _, _ in }) }
+            authorize: { try await authorizer.authorize($0, onPromptStarted: $1) }, copyNative: { _, _ in }) }
         while authorizer.requests.isEmpty { await Task.yield() }
         let clientWait = Task { try await AgentBridgeClient(bridge: fixture.bridge).send(first) { _ in } }
         for _ in 0..<20 { await Task.yield() }
@@ -105,7 +105,7 @@ struct CredentialRetentionTests {
         await #expect(throws: CancellationError.self) { try await clientWait.value }
         #expect(fixture.bridge.requestMatches(first))
         let secondTask = Task { try await fixture.processor.release(request: second, generation: fixture.generation,
-            authorize: { try await authorizer.authorize($0) }, copyNative: { _, _ in }) }
+            authorize: { try await authorizer.authorize($0, onPromptStarted: $1) }, copyNative: { _, _ in }) }
         for _ in 0..<20 { await Task.yield() }
         #expect(authorizer.requests.count == 1)
         authorizer.complete()
@@ -115,7 +115,7 @@ struct CredentialRetentionTests {
         try fixture.bridge.write(retry)
         defer { CredentialTransfer.clear(requestID: retry.id) }
         #expect(try await fixture.processor.release(request: retry, generation: fixture.generation,
-            authorize: { _ in Issue.record("Retry prompted after approval") }, copyNative: { _, _ in }).ok)
+            authorize: { _, _ in Issue.record("Retry prompted after approval") }, copyNative: { _, _ in }).ok)
     }
 
     @Test("A dead caller and the old two-minute limit do not end a request")
@@ -127,7 +127,7 @@ struct CredentialRetentionTests {
         defer { CredentialTransfer.clear(requestID: request.id) }
         try fixture.bridge.write(request)
         let response = try await fixture.processor.release(request: request, generation: fixture.generation,
-            authorize: { approval in #expect(approval.authorizationDeadline == request.expiresAt) },
+            authorize: { approval, _ in #expect(approval.authorizationDeadline == request.expiresAt) },
             copyNative: { _, _ in Issue.record("Unexpected copy") })
         #expect(response.ok)
     }
@@ -141,7 +141,7 @@ struct CredentialRetentionTests {
         try fixture.bridge.write(request)
         do {
             _ = try await fixture.processor.release(request: request, generation: fixture.generation,
-                authorize: { _ in Issue.record("Expired request prompted") }, copyNative: { _, _ in })
+                authorize: { _, _ in Issue.record("Expired request prompted") }, copyNative: { _, _ in })
             Issue.record("Expired request released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
@@ -157,7 +157,7 @@ struct CredentialRetentionTests {
         do {
             _ = try await fixture.processor.release(
                 request: request, generation: fixture.generation,
-                authorize: { _ in
+                authorize: { _, _ in
                     approvals += 1
                     if replace {
                         try fixture.bridge.write(AgentBridgeRequest(
@@ -191,7 +191,7 @@ struct CredentialRetentionTests {
         do {
             _ = try await fixture.processor.release(
                 request: request, generation: fixture.generation,
-                authorize: { _ in
+                authorize: { _, _ in
                     approvals += 1
                     throw CredentialReleaseAuthorizationError.denied
                 },
@@ -272,7 +272,7 @@ struct CredentialRetentionTests {
         try fixture.bridge.write(request)
         do {
             _ = try await fixture.processor.release(request: request, generation: fixture.generation,
-                authorize: { _ in
+                authorize: { _, _ in
                     await fixture.accessControl.setPolicy(.block, for: [fixture.generation.items[0].id])
                 }, copyNative: { _, _ in Issue.record("Unexpected copy") })
             Issue.record("Blocked login released")
@@ -297,7 +297,7 @@ struct CredentialRetentionTests {
         for request in [first, second] {
             try fixture.bridge.write(request)
             _ = try await fixture.processor.release(request: request, generation: fixture.generation,
-                authorize: { _ in Issue.record("Unexpected approval") }, copyNative: { _, _ in })
+                authorize: { _, _ in Issue.record("Unexpected approval") }, copyNative: { _, _ in })
         }
         try CredentialTransfer.publish("unrelated", requestID: unrelated, credentialID: UUID(), expiresAfter: 300)
         await fixture.accessControl.setPolicy(.block, for: [fixture.generation.items[0].id])
@@ -316,7 +316,7 @@ struct CredentialRetentionTests {
         try fixture.bridge.write(request)
         var approvals = 0
         let response = try await fixture.processor.release(request: request, generation: fixture.generation,
-            authorize: { approval in
+            authorize: { approval, _ in
                 approvals += 1
                 #expect(approval.account == "synthetic@example.com")
             }, copyNative: { _, _ in Issue.record("Unexpected native copy") })
@@ -336,7 +336,7 @@ struct CredentialRetentionTests {
         try fixture.bridge.write(request)
         await #expect(throws: CredentialResolverError.invalidTOTP) {
             try await fixture.processor.release(request: request, generation: fixture.generation,
-                authorize: { _ in }, copyNative: { _, _ in })
+                authorize: { _, _ in }, copyNative: { _, _ in })
         }
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
     }

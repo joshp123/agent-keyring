@@ -180,7 +180,7 @@ public struct AgentBridgeClient: Sendable {
                 return response
             }
             if let lastProgress, now().timeIntervalSince(lastWaitingLineAt) >= 30 {
-                onStatus(.stillWaiting(askedAt: lastProgress.askedAt))
+                onStatus(.stillWaiting(progress: lastProgress))
                 lastWaitingLineAt = now()
             }
             try Task.checkCancellation()
@@ -190,6 +190,6 @@ public struct AgentBridgeClient: Sendable {
             throw AgentBridgeFailure(.requestExpired, "The request expired with no answer.")
         }
         return AgentBridgeResponse(id: request.id, ok: false, error: .approvalPending,
-            approvalProgress: lastProgress ?? AgentApprovalProgress(askedAt: request.createdAt, phase: .awaitingApproval))
+            approvalProgress: lastProgress ?? AgentApprovalProgress(waitingSince: request.createdAt, phase: .awaitingApproval))
     }
 }

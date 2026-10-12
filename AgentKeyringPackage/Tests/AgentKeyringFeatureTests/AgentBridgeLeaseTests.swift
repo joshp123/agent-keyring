@@ -76,7 +76,7 @@ struct AgentBridgeLeaseTests {
             case .stillWaiting: heartbeats.append(clock.now)
             }
         }, launch: { id in
-            try bridge.write(AgentApprovalProgress(askedAt: request.createdAt, phase: .awaitingApproval), id: id)
+            try bridge.write(AgentApprovalProgress(waitingSince: request.createdAt, askedAt: request.createdAt, phase: .awaitingApproval), id: id)
         })
         #expect(response.ok)
         #expect(statuses == 1)

@@ -26,7 +26,7 @@ public struct AgentCredentialReleaseProcessor {
         request: AgentBridgeRequest,
         generation: MirrorGeneration,
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
-        authorize: @escaping (CredentialReleaseAuthorizationRequest) async throws -> Void,
+        authorize: @escaping @MainActor (CredentialReleaseAuthorizationRequest, @escaping () -> Void) async throws -> Void,
         copyNative: (String, TimeInterval) -> Void
     ) async throws -> AgentBridgeResponse {
         guard request.action == .copy || request.action == .acquire else {
@@ -99,8 +99,8 @@ public struct AgentCredentialReleaseProcessor {
                 authorizationDeadline: request.expiresAt
             )
             try await approvals.authorize(credentialID: selected.id, authorizationDeadline: request.expiresAt,
-                onProgress: onProgress) {
-                try await authorize(approval)
+                onProgress: onProgress) { onPromptStarted in
+                try await authorize(approval, onPromptStarted)
             }
         }
 

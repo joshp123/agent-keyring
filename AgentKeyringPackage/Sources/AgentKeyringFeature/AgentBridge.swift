@@ -85,10 +85,12 @@ public enum AgentApprovalPhase: String, Codable, Sendable {
 }
 
 public struct AgentApprovalProgress: Codable, Equatable, Sendable {
-    public let askedAt: Date
+    public let waitingSince: Date
+    public let askedAt: Date?
     public let phase: AgentApprovalPhase
 
-    public init(askedAt: Date, phase: AgentApprovalPhase) {
+    public init(waitingSince: Date, askedAt: Date? = nil, phase: AgentApprovalPhase) {
+        self.waitingSince = waitingSince
         self.askedAt = askedAt
         self.phase = phase
     }
@@ -96,7 +98,7 @@ public struct AgentApprovalProgress: Codable, Equatable, Sendable {
 
 public enum AgentBridgeWaitStatus: Sendable {
     case progress(AgentApprovalProgress)
-    case stillWaiting(askedAt: Date)
+    case stillWaiting(progress: AgentApprovalProgress)
 }
 
 public struct AgentBridgeResponse: Codable, Equatable, Sendable {

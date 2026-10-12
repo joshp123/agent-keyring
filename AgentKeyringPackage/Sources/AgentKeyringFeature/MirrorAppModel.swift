@@ -400,8 +400,8 @@ public final class MirrorAppModel {
                 do { try self.bridge.write(progress, id: request.id) }
                 catch { agentBridgeLogger.error("Could not write approval status") }
             },
-            authorize: { approval in
-                try await self.authorizeCredentialRelease(approval, agentRequest: request)
+            authorize: { approval, onPromptStarted in
+                try await self.authorizeCredentialRelease(approval, agentRequest: request, onPromptStarted: onPromptStarted)
             },
             copyNative: { secret, expiration in
                 self.pasteboard.copy(secret, expiresAfter: expiration)
@@ -471,7 +471,8 @@ public final class MirrorAppModel {
 
     private func authorizeCredentialRelease(
         _ approval: CredentialReleaseAuthorizationRequest,
-        agentRequest: AgentBridgeRequest
+        agentRequest: AgentBridgeRequest,
+        onPromptStarted: @escaping () -> Void
     ) async throws {
         guard pendingCredentialRelease == nil else {
             throw CredentialReleaseAuthorizationError.busy
@@ -507,7 +508,7 @@ public final class MirrorAppModel {
         }
 
         do {
-            try await authorizer.authorize(approval)
+            try await authorizer.authorize(approval, onPromptStarted: onPromptStarted)
         } catch {
             await stopApprovalTasks(positioningTask, leaseMonitorTask)
             let requestIsLive = agentRequestIsLive(agentRequest)

@@ -102,7 +102,7 @@ private final class BrowserApprovalFixture {
                         self.authorizer.requestedAt = progress.askedAt
                         do { try self.bridge.write(progress, id: request.id) }
                         catch { Issue.record(error) }
-                    }, authorize: { try await self.authorizer.authorize($0) }, copyNative: { _, _ in
+                    }, authorize: { try await self.authorizer.authorize($0, onPromptStarted: $1) }, copyNative: { _, _ in
                         Issue.record("Browser attempted native copy")
                     })
                 try bridge.write(response)
@@ -124,8 +124,9 @@ private final class BrowserFakeAuthorizer: CredentialReleaseAuthorizing {
     var calls = 0
     private var continuation: CheckedContinuation<Void, Error>?
 
-    func authorize(_ request: CredentialReleaseAuthorizationRequest) async throws {
+    func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
         calls += 1
+        onPromptStarted()
         try await withCheckedThrowingContinuation { continuation = $0 }
     }
 

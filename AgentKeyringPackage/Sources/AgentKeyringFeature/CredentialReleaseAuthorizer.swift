@@ -90,7 +90,7 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
 
 @MainActor
 public protocol CredentialReleaseAuthorizing {
-    func authorize(_ request: CredentialReleaseAuthorizationRequest) async throws
+    func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws
     func cancelCurrentAuthorization()
 }
 
@@ -104,7 +104,7 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
 
     public init() {}
 
-    public func authorize(_ request: CredentialReleaseAuthorizationRequest) async throws {
+    public func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
         guard request.authorizationDeadline > Date() else {
             throw CredentialReleaseAuthorizationError.expired
         }
@@ -140,6 +140,7 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
 
         NSApplication.shared.activate(ignoringOtherApps: true)
         do {
+            onPromptStarted()
             guard
                 try await context.evaluatePolicy(
                     policy,

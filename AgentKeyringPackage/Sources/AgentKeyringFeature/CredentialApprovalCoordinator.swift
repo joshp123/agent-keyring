@@ -27,7 +27,7 @@ public final class CredentialApprovalCoordinator {
         credentialID: UUID,
         authorizationDeadline: Date,
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
-        prompt: @escaping @MainActor () async throws -> Void
+        prompt: @escaping @MainActor (@escaping () -> Void) async throws -> Void
     ) async throws {
         if let approval = pending[credentialID] {
             pending[credentialID]?.observers.append(onProgress)
@@ -35,7 +35,7 @@ public final class CredentialApprovalCoordinator {
             try await approval.task.value
             return
         }
-        let progress = AgentApprovalProgress(askedAt: now(),
+        let progress = AgentApprovalProgress(waitingSince: now(),
             phase: lockState.isLocked ? .waitingForUnlock : .awaitingApproval)
         let approval = Task { @MainActor in
             while self.lockState.isLocked {
@@ -47,8 +47,7 @@ public final class CredentialApprovalCoordinator {
             guard self.now() < authorizationDeadline else {
                 throw CredentialReleaseAuthorizationError.expired
             }
-            self.updateProgress(credentialID: credentialID, phase: .awaitingApproval)
-            try await prompt()
+            try await prompt { self.recordPromptStarted(credentialID: credentialID) }
         }
         pending[credentialID] = PendingApproval(task: approval, progress: progress, observers: [onProgress])
         onProgress(progress)
@@ -56,9 +55,10 @@ public final class CredentialApprovalCoordinator {
         try await approval.value
     }
 
-    private func updateProgress(credentialID: UUID, phase: AgentApprovalPhase) {
-        guard var approval = pending[credentialID], approval.progress.phase != phase else { return }
-        approval.progress = AgentApprovalProgress(askedAt: approval.progress.askedAt, phase: phase)
+    private func recordPromptStarted(credentialID: UUID) {
+        guard var approval = pending[credentialID] else { return }
+        approval.progress = AgentApprovalProgress(waitingSince: approval.progress.waitingSince,
+            askedAt: now(), phase: .awaitingApproval)
         pending[credentialID] = approval
         for observer in approval.observers { observer(approval.progress) }
     }

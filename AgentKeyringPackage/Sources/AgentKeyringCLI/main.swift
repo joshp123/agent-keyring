@@ -436,16 +436,20 @@ private final class CLIApprovalStatusLines {
         guard let diagnostics else { return }
         switch status {
         case let .progress(progress):
-            if askedAt != progress.askedAt {
-                askedAt = progress.askedAt
-                write("Asked Josh on his Mac at \(approvalTime(progress.askedAt)).\n", to: diagnostics)
+            if let promptStartedAt = progress.askedAt, askedAt != promptStartedAt {
+                askedAt = promptStartedAt
+                write("Asked Josh on his Mac at \(approvalTime(promptStartedAt)).\n", to: diagnostics)
             }
             if phase != progress.phase, progress.phase == .waitingForUnlock {
                 write("Josh's Mac is locked; waiting for him to unlock it.\n", to: diagnostics)
             }
             phase = progress.phase
-        case let .stillWaiting(askedAt):
-            write("Still waiting for Josh (asked at \(approvalTime(askedAt))).\n", to: diagnostics)
+        case let .stillWaiting(progress):
+            if let promptStartedAt = progress.askedAt {
+                write("Still waiting for Josh (asked at \(approvalTime(promptStartedAt))).\n", to: diagnostics)
+            } else {
+                write("Still waiting for Josh (waiting since \(approvalTime(progress.waitingSince))).\n", to: diagnostics)
+            }
         }
     }
 }

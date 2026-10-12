@@ -156,7 +156,9 @@ enum AgentBrowserPluginProtocol {
     private static func check(_ response: AgentBridgeResponse) throws {
         guard response.ok else {
             if response.error == .approvalPending, let progress = response.approvalProgress {
-                throw Failure(message: "Waiting for Josh's approval (asked at \(approvalTime(progress.askedAt))); retry the login after he approves")
+                let waitingTime = progress.askedAt.map { "asked at \(approvalTime($0))" }
+                    ?? "waiting since \(approvalTime(progress.waitingSince))"
+                throw Failure(message: "Waiting for Josh's approval (\(waitingTime)); retry the login after he approves")
             }
             throw Failure(message: errorMessage(for: response.error))
         }

@@ -11,16 +11,16 @@ struct CredentialApprovalCoordinatorTests {
         let authorizer = FakeCredentialAuthorizer()
         let login = UUID()
         let request = CredentialReleaseAuthorizationRequest(destination: "example.com", account: "synthetic", field: .password)
-        let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { try await authorizer.authorize(request) } }
+        let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { try await authorizer.authorize(request, onPromptStarted: $0) } }
         while authorizer.requests.isEmpty { await Task.yield() }
-        let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { try await authorizer.authorize(request) } }
+        let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { try await authorizer.authorize(request, onPromptStarted: $0) } }
         for _ in 0..<20 { await Task.yield() }
         #expect(authorizer.requests.count == 1)
         authorizer.complete(error: .denied)
         await #expect(throws: CredentialReleaseAuthorizationError.denied) { try await first.value }
         await #expect(throws: CredentialReleaseAuthorizationError.denied) { try await second.value }
         var retried = false
-        try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { retried = true }
+        try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { onPromptStarted in onPromptStarted(); retried = true }
         #expect(retried)
     }
     @Test("Joined requests receive the original asked time")
@@ -33,12 +33,12 @@ struct CredentialApprovalCoordinatorTests {
         var secondStatus: [AgentApprovalProgress] = []
         let request = CredentialReleaseAuthorizationRequest(destination: "example.com", account: "synthetic", field: .password)
         let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: now.addingTimeInterval(600),
-            onProgress: { firstStatus.append($0) }) { try await authorizer.authorize(request) } }
+            onProgress: { firstStatus.append($0) }) { try await authorizer.authorize(request, onPromptStarted: $0) } }
         while authorizer.requests.isEmpty { await Task.yield() }
         let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: now.addingTimeInterval(700),
-            onProgress: { secondStatus.append($0) }) { Issue.record("Duplicate prompted") } }
+            onProgress: { secondStatus.append($0) }) { _ in Issue.record("Duplicate prompted") } }
         while secondStatus.isEmpty { await Task.yield() }
-        #expect(firstStatus == secondStatus)
+        #expect(firstStatus.last == secondStatus.first)
         #expect(secondStatus.first?.askedAt == now)
         authorizer.complete()
         try await first.value
@@ -48,24 +48,63 @@ struct CredentialApprovalCoordinatorTests {
     @Test("A locked Mac does not start authentication until unlock")
     func waitsForUnlock() async throws {
         let lock = FakeCredentialSessionLockState(isLocked: true)
-        let now = Date(timeIntervalSince1970: 1_000)
+        var now = Date(timeIntervalSince1970: 1_000)
+        let waitingSince = now
         var prompts = 0
         var waits = 0
         var progress: [AgentApprovalProgress] = []
         let approvals = CredentialApprovalCoordinator(lockState: lock, now: { now }, sleep: { _ in
             #expect(prompts == 0)
             waits += 1
+            now = now.addingTimeInterval(60)
             lock.isLocked = false
         })
         try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600),
-            onProgress: { progress.append($0) }) {
+            onProgress: { progress.append($0) }) { onPromptStarted in
             #expect(!lock.isLocked)
+            #expect(progress.last?.askedAt == nil)
+            now = now.addingTimeInterval(5)
+            onPromptStarted()
             prompts += 1
         }
         #expect(waits == 1)
         #expect(prompts == 1)
         #expect(progress.map(\.phase) == [.waitingForUnlock, .awaitingApproval])
-        #expect(progress.allSatisfy { $0.askedAt == now })
+        #expect(progress.first?.askedAt == nil)
+        #expect(progress.last?.askedAt == now)
+        #expect(progress.allSatisfy { $0.waitingSince == waitingSince })
+    }
+
+    @Test("An unlocked request records when authentication starts, after setup")
+    func promptStartTime() async throws {
+        var now = Date(timeIntervalSince1970: 1_000)
+        let waitingSince = now
+        let approvals = CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState(), now: { now })
+        var progress: [AgentApprovalProgress] = []
+        try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600),
+            onProgress: { progress.append($0) }) { onPromptStarted in
+                #expect(progress.count == 1)
+                #expect(progress.first?.askedAt == nil)
+                now = now.addingTimeInterval(5)
+                onPromptStarted()
+            }
+        #expect(progress.count == 2)
+        #expect(progress.last?.askedAt == now)
+        #expect(progress.last?.waitingSince == waitingSince)
+    }
+
+    @Test("Failed prompt setup never records that Josh was asked")
+    func failedPromptSetup() async throws {
+        let approvals = CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState())
+        var progress: [AgentApprovalProgress] = []
+        await #expect(throws: CredentialReleaseAuthorizationError.unavailable) {
+            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: Date().addingTimeInterval(600),
+                onProgress: { progress.append($0) }) { _ in
+                    throw CredentialReleaseAuthorizationError.unavailable
+                }
+        }
+        #expect(progress.count == 1)
+        #expect(progress.first?.askedAt == nil)
     }
 
     @Test("An unanswered locked request expires without starting authentication")
@@ -77,7 +116,7 @@ struct CredentialApprovalCoordinatorTests {
             now = deadline
         })
         await #expect(throws: CredentialReleaseAuthorizationError.expired) {
-            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: deadline) {
+            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: deadline) { _ in
                 Issue.record("Locked request started authentication")
             }
         }
@@ -98,8 +137,9 @@ final class FakeCredentialAuthorizer: CredentialReleaseAuthorizing {
     var requests: [CredentialReleaseAuthorizationRequest] = []
     private var continuation: CheckedContinuation<Void, Error>?
 
-    func authorize(_ request: CredentialReleaseAuthorizationRequest) async throws {
+    func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
         requests.append(request)
+        onPromptStarted()
         try await withCheckedThrowingContinuation { continuation = $0 }
     }
 

@@ -110,7 +110,7 @@ struct AgentKeyringFixture {
             ).release(
                 request: request,
                 generation: generation,
-                authorize: { _ in
+                authorize: { _, _ in
                     audit(stage: "authorization", request: request)
                     if let delay = configuration.approvalDelayMs, delay > 0 {
                         try await Task.sleep(for: .milliseconds(delay))
