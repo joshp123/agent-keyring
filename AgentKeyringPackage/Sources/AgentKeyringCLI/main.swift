@@ -697,8 +697,6 @@ struct CLIError: Error {
                 "No logins are available yet.",
                 suggestion: "Open Agent Keyring and import them from Apple Passwords."
             )
-        case .approvalPending:
-            self.init("Waiting for Josh's approval; retry the request after he approves.", exitCode: 5)
         case .authorizationDenied:
             self.init("Josh declined the request.", exitCode: 2)
         case .authorizationNotVerified:
@@ -718,7 +716,7 @@ struct CLIError: Error {
                 "Agent Keyring could not create a verification code for this login.",
                 suggestion: "Update Agent Keyring from Apple Passwords, then try again."
             )
-        case .bridgeUnavailable, .internalError, .invalidRequest, .none:
+        case .bridgeUnavailable, .internalError, .invalidRequest, .approvalPending, .none:
             self.init(
                 response.message ?? "Agent Keyring could not complete the request.",
                 suggestion: "Open the app and try again."
