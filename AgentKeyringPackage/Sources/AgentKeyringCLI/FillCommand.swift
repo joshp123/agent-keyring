@@ -3,7 +3,7 @@ import ArgumentParser
 import Foundation
 
 struct Fill: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
+    static var configuration: CommandConfiguration { CommandConfiguration(
         abstract: "Fill the focused browser field without revealing its value.",
         discussion: """
             Focus a username, secure password or code field in Safari, Chrome, Claude's pane or Codex's browser.
@@ -13,11 +13,11 @@ struct Fill: AsyncParsableCommand {
             EXIT CODES
               0  Filled.
               1  Other errors, including blocked access or unavailable approval.
-              2  Josh declined the request.
+              2  \(MacOwner.firstName) declined the request.
               3  The request expired with no answer.
               4  macOS interrupted the approval prompt; retry the request.
               6  Touch ID or Apple Watch did not verify; retry the request.
-              7  Access rules need Josh's confirmation in the app.
+              7  Access rules need \(MacOwner.firstName)'s confirmation in the app.
               8  No field is focused, or it is the wrong kind of field.
               9  The page does not match the saved site.
               10 This browser is not supported, or its page address cannot be read; use agent-browser.
@@ -26,7 +26,7 @@ struct Fill: AsyncParsableCommand {
               13 The browser, page or focused field changed; retry the request.
               64 Invalid command or arguments.
             """
-    )
+    ) }
 
     @Argument(help: "The field to fill: username, password or code.") var field: CredentialFieldArgument
     @Argument(help: "The saved site or page URL, such as example.com.") var site: String

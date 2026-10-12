@@ -15,17 +15,17 @@ final class CLIApprovalStatusLines {
         case let .progress(progress):
             if let promptStartedAt = progress.askedAt, askedAt != promptStartedAt {
                 askedAt = promptStartedAt
-                write("Asked Josh on his Mac at \(approvalTime(promptStartedAt)).\n", to: diagnostics)
+                write("Asked \(MacOwner.firstName) on the Mac at \(approvalTime(promptStartedAt)).\n", to: diagnostics)
             }
             if phase != progress.phase, progress.phase == .waitingForUnlock {
-                write("Josh's Mac is locked; waiting for him to unlock it.\n", to: diagnostics)
+                write("\(MacOwner.firstName)'s Mac is locked; waiting for an unlock.\n", to: diagnostics)
             }
             phase = progress.phase
         case let .stillWaiting(progress):
             if let promptStartedAt = progress.askedAt {
-                write("Still waiting for Josh (asked at \(approvalTime(promptStartedAt))).\n", to: diagnostics)
+                write("Still waiting for \(MacOwner.firstName) (asked at \(approvalTime(promptStartedAt))).\n", to: diagnostics)
             } else {
-                write("Still waiting for Josh (waiting since \(approvalTime(progress.waitingSince))).\n", to: diagnostics)
+                write("Still waiting for \(MacOwner.firstName) (waiting since \(approvalTime(progress.waitingSince))).\n", to: diagnostics)
             }
         }
     }

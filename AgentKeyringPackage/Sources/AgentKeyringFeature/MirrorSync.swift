@@ -59,7 +59,7 @@ public final class SystemMirrorSyncNotifier: NSObject, MirrorSyncNotifying, UNUs
 
     public func post(ageDays: Int) async throws {
         guard try await center.requestAuthorization(options: [.alert, .sound]) else {
-            throw AgentBridgeFailure(.internalError, "Enable Agent Keyring notifications to ask Josh to update the copy.")
+            throw AgentBridgeFailure(.internalError, "Enable Agent Keyring notifications to ask \(MacOwner.firstName) to update the copy.")
         }
         let content = UNMutableNotificationContent()
         content.title = "Agent Keyring's copy of your passwords is \(ageDays) days old."

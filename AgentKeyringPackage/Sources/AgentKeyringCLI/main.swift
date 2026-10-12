@@ -1,8 +1,9 @@
+import AgentKeyringFeature
 import ArgumentParser
 
 @main
 struct AgentKeyringCLI: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
+    static var configuration: CommandConfiguration { CommandConfiguration(
         commandName: "agent-keyring",
         abstract:
             "Use imported Apple Passwords logins from the command line.",
@@ -18,11 +19,11 @@ struct AgentKeyringCLI: AsyncParsableCommand {
             EXIT CODES
               0  Success.
               1  Other errors, including blocked access or unavailable approval.
-              2  Josh declined the request.
+              2  \(MacOwner.firstName) declined the request.
               3  The request expired with no answer.
               4  macOS interrupted the approval prompt; retry the request.
               6  Touch ID or Apple Watch did not verify; retry the request.
-              7  Access rules need Josh's confirmation in the app.
+              7  Access rules need \(MacOwner.firstName)'s confirmation in the app.
               8  No field is focused, or it is the wrong kind of field.
               9  The page does not match the saved site.
               10 This browser is not supported, or its page address cannot be read; use agent-browser.
@@ -33,7 +34,7 @@ struct AgentKeyringCLI: AsyncParsableCommand {
             """,
         version: installedVersion(),
         subcommands: [Find.self, Fill.self, Acquire.self, Read.self, Clear.self, Status.self, Sync.self, Install.self, AgentBrowserPlugin.self]
-    )
+    ) }
 
     mutating func run() {
         print(

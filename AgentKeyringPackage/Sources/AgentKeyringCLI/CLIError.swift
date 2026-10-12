@@ -57,7 +57,7 @@ struct CLIError: Error {
                 suggestion: "Open Agent Keyring and import them from Apple Passwords."
             )
         case .authorizationDenied:
-            self.init("Josh declined the request.", exitCode: 2)
+            self.init("\(MacOwner.firstName) declined the request.", exitCode: 2)
         case .authorizationNotVerified:
             self.init("Touch ID or Apple Watch did not verify; retry the request.", exitCode: 6)
         case .authorizationInterrupted:

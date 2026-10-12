@@ -4,9 +4,9 @@ import Darwin
 import Foundation
 
 struct AgentBrowserPlugin: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
+    static var configuration: CommandConfiguration { CommandConfiguration(
         commandName: "agent-browser-plugin", shouldDisplay: false
-    )
+    ) }
 
     @MainActor
     mutating func run() async throws {
@@ -158,7 +158,7 @@ enum AgentBrowserPluginProtocol {
             if response.error == .approvalPending, let progress = response.approvalProgress {
                 let waitingTime = progress.askedAt.map { "asked at \(approvalTime($0))" }
                     ?? "waiting since \(approvalTime(progress.waitingSince))"
-                throw Failure(message: "Waiting for Josh's approval (\(waitingTime)); retry the login after he approves")
+                throw Failure(message: "Waiting for \(MacOwner.firstName)'s approval (\(waitingTime)); retry the login after \(MacOwner.firstName) approves")
             }
             throw Failure(message: errorMessage(for: response.error))
         }
@@ -166,7 +166,7 @@ enum AgentBrowserPluginProtocol {
 
     private static func errorMessage(for code: AgentBridgeErrorCode?) -> String {
         switch code {
-        case .authorizationDenied: "Josh declined the request."
+        case .authorizationDenied: "\(MacOwner.firstName) declined the request."
         case .authorizationNotVerified: "Touch ID or Apple Watch did not verify; retry the request."
         case .authorizationInterrupted: "macOS interrupted the approval prompt; retry the login."
         case .requestExpired: "The request expired with no answer."

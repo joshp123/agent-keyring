@@ -9,7 +9,7 @@ enum CLIOutput {
             return "Filled.\n"
         case .acquire: return response.id.uuidString + "\n"
         case .sync:
-            return "Josh has been asked to update Agent Keyring’s copy of his passwords.\n"
+            return "\(MacOwner.firstName) has been asked to update Agent Keyring’s copy of Apple Passwords.\n"
         case .status:
             guard let mirror = response.mirror else {
                 guard let message = response.message else { throw CLIError.invalidResponse }

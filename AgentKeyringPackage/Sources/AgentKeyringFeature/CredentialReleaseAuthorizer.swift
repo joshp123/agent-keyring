@@ -64,7 +64,7 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
         case .unavailable:
             "Touch ID or Apple Watch approval is not available."
         case .denied:
-            "Josh declined the request."
+            "\(MacOwner.firstName) declined the request."
         case .interrupted:
             "macOS interrupted the approval prompt; retry the request."
         case .notVerified:

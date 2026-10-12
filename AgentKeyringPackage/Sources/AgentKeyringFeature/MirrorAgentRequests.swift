@@ -114,7 +114,7 @@ extension MirrorAppModel {
     ) async throws -> AgentBridgeResponse {
         await accessControl.refresh(fromMetadata: metadataIncludingExample(metadata))
         let confirmationMessage = accessControl.needsConfirmation
-            ? "Access rules need Josh's confirmation in Agent Keyring; nothing will be released until then." : nil
+            ? "Access rules need \(MacOwner.firstName)'s confirmation in Agent Keyring; nothing will be released until then." : nil
         if request.action == .status, metadata == nil {
             return AgentBridgeResponse(id: request.id, ok: true,
                 message: "No mirror has been imported yet." + (confirmationMessage.map { "\n" + $0 } ?? ""))

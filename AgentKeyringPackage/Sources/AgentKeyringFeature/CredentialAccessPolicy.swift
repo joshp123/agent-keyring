@@ -21,7 +21,7 @@ public enum CredentialReleaseDecision: Equatable, Sendable {
 }
 
 public struct AccessRulesConfirmationRequired: Error, Sendable {
-    public static let message = "Agent Keyring's access rules need Josh's confirmation in the app before anything is released."
+    public static var message: String { "Agent Keyring's access rules need \(MacOwner.firstName)'s confirmation in the app before anything is released." }
 }
 
 public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
