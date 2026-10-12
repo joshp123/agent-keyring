@@ -29,10 +29,9 @@ public struct AgentCredentialReleaseProcessor {
         request: AgentBridgeRequest,
         generation: MirrorGeneration,
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
-        authorize: @escaping @MainActor (CredentialReleaseAuthorizationRequest, @escaping () -> Void) async throws -> Void,
-        copyNative: (String, TimeInterval) -> Void
+        authorize: @escaping @MainActor (CredentialReleaseAuthorizationRequest, @escaping () -> Void) async throws -> Void
     ) async throws -> AgentBridgeResponse {
-        guard request.action == .copy || request.action == .acquire else {
+        guard request.action == .acquire else {
             throw AgentBridgeFailure(.invalidRequest, "A credential release action is required.")
         }
         try ensureRequestHasNotExpired(request)
@@ -99,7 +98,7 @@ public struct AgentCredentialReleaseProcessor {
                 account: selected.username ?? selected.title,
                 field: field,
                 credentialTitle: selected.title,
-                expirationSeconds: request.action == .copy ? min(120, max(5, request.expirationSeconds)) : nil,
+                expirationSeconds: nil,
                 authorizationDeadline: request.expiresAt
             )
             try await approvals.authorize(credentialID: selected.id, authorizationDeadline: request.expiresAt,
@@ -117,7 +116,6 @@ public struct AgentCredentialReleaseProcessor {
             throw AgentBridgeFailure(.policyDenied,
                 "Agent access to this credential is blocked in Agent Keyring.")
         }
-        let expiration = min(120, max(5, request.expirationSeconds))
         let secret = try resolver.secret(
             in: generation,
             targetURL: targetURL,
@@ -125,25 +123,19 @@ public struct AgentCredentialReleaseProcessor {
             candidateID: request.candidateID,
             field: field
         )
-        if request.action == .acquire {
-            let codeRecord = field == .totp
-                ? generation.items.first(where: { $0.id == selected.id })?.credentials.first(where: {
-                    if case .totp = $0 { return true }
-                    return false
-                }) : nil
-            try CredentialTransfer.publish(secret, requestID: request.id,
-                credentialID: selected.id, expiresAfter: 300, codeRecord: codeRecord)
-        } else {
-            copyNative(secret, TimeInterval(expiration))
-        }
+        let codeRecord = field == .totp
+            ? generation.items.first(where: { $0.id == selected.id })?.credentials.first(where: {
+                if case .totp = $0 { return true }
+                return false
+            }) : nil
+        try CredentialTransfer.publish(secret, requestID: request.id,
+            credentialID: selected.id, expiresAfter: 300, codeRecord: codeRecord)
         return AgentBridgeResponse(
             id: request.id,
             ok: true,
             mirror: mirror,
             candidates: [selected],
             copiedField: field,
-            clipboardExpiresAt: request.action == .copy
-                ? Date().addingTimeInterval(TimeInterval(expiration)) : nil,
             approvalProgress: approvalProgress
         )
     }

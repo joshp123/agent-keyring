@@ -63,14 +63,13 @@ Repeat the Apple Passwords export to import new, changed and removed credentials
 
 `read REF` writes the exact retained value to stdout without an added newline. Pipe it to a consumer or capture it inside that consumer's runtime. Reading does not empty the buffer or request another approval, so failed entry can retry using the same reference. Run `clear REF` after successful entry or when abandoning the operation. Buffers have no automatic expiry; explicit cleanup is required. Errors go to stderr with a nonzero status.
 
-Agents must keep values out of tool results and chat. `status` reports mirror age; `copy` remains available for native clipboard use. Browser control and SMS retrieval belong to the tools that perform those jobs.
+Agents must keep values out of tool results and chat. `status` reports mirror age. Browser control and SMS retrieval belong to the tools that perform those jobs.
 
 ## Security boundaries
 
 - the local mirror is encrypted with AES-GCM; its key is stored in your login Keychain
 - `Allow automatically` trusts every process running as your unlocked macOS user
 - `acquire` retains the approved value in a request-specific named macOS pasteboard until `clear`; other processes running as the same unlocked user remain inside the trust boundary
-- `copy` uses the shared macOS pasteboard and clears its value after 30 seconds
 - the agent supplies the destination URL because browsers do not give Agent Keyring an attested active-tab origin
 - passkeys are not supported yet
 - Apple may omit shared credentials, Sign in with Apple records and items without passwords

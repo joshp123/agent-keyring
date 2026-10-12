@@ -26,7 +26,7 @@ struct AgentKeyringCLI: AsyncParsableCommand {
               64 Invalid command or arguments.
             """,
         version: installedVersion(),
-        subcommands: [Find.self, Acquire.self, Read.self, Clear.self, Copy.self, Status.self, Install.self, AgentBrowserPlugin.self]
+        subcommands: [Find.self, Acquire.self, Read.self, Clear.self, Status.self, Install.self, AgentBrowserPlugin.self]
     )
 
     mutating func run() {
@@ -60,51 +60,6 @@ struct Find: AsyncParsableCommand {
     mutating func run() async throws {
         try await CLIClient.run(
             .find(targetURL: normaliseWebTarget(site), account: account)
-        )
-    }
-}
-
-struct Copy: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        abstract: "Copy one credential field without printing it."
-    )
-
-    @Argument(help: "The field to copy: username, password or code.")
-    var field: CredentialFieldArgument
-
-    @Argument(help: "The site or page URL, such as example.com.")
-    var site: String
-
-    @Option(help: "Choose an account when several logins match.")
-    var account: String?
-
-    @Option(help: "Choose between duplicate account entries. Find shows the ID when needed.")
-    var credential: String?
-
-    @Option(help: "Clear the clipboard after this many seconds (5–120).")
-    var expires = 30
-
-    func validate() throws {
-        _ = try normaliseSecureWebTarget(site)
-        guard (5...120).contains(expires) else {
-            throw ValidationError("--expires must be between 5 and 120 seconds.")
-        }
-        if let credential, UUID(uuidString: credential) == nil {
-            throw ValidationError(
-                "'\(credential)' is not a valid credential ID. Run 'agent-keyring find \(site)' to see matching logins."
-            )
-        }
-    }
-
-    mutating func run() async throws {
-        try await CLIClient.run(
-            .copy(
-                field: field.bridgeField,
-                targetURL: normaliseSecureWebTarget(site),
-                account: account,
-                credentialID: credential.flatMap(UUID.init(uuidString:)),
-                expiration: expires
-            )
         )
     }
 }
@@ -220,13 +175,6 @@ enum CLICommand: Equatable {
     case status
     case find(targetURL: String, account: String?)
     case acquire(field: AgentCredentialField, targetURL: String, account: String?, credentialID: UUID?)
-    case copy(
-        field: AgentCredentialField,
-        targetURL: String,
-        account: String?,
-        credentialID: UUID?,
-        expiration: Int
-    )
 
     var request: AgentBridgeRequest {
         switch self {
@@ -243,15 +191,7 @@ enum CLICommand: Equatable {
                 action: .acquire, targetURL: targetURL, usernameHint: account,
                 candidateID: credentialID, field: field
             )
-        case let .copy(field, targetURL, account, credentialID, expiration):
-            AgentBridgeRequest(
-                action: .copy,
-                targetURL: targetURL,
-                usernameHint: account,
-                candidateID: credentialID,
-                field: field,
-                expirationSeconds: expiration
-            )
+
         }
     }
 }
@@ -267,12 +207,6 @@ enum CLIClient {
     ) async throws {
         var failedFindMirror: AgentMirrorSummary?
         do {
-            if case let .copy(field, targetURL, _, _, _) = command {
-                write(
-                    "Requesting \(field.displayName) for \(displayHost(targetURL))…\n",
-                    to: diagnostics
-                )
-            }
             let request = command.request
             let response: AgentBridgeResponse
             if let sendRequest { response = try await sendRequest(request) }
@@ -282,7 +216,7 @@ enum CLIClient {
                 throw CLIError(response: response, command: command)
             }
             write(try CLIOutput.render(response, for: command), to: output)
-            if (request.action == .acquire || request.action == .copy), response.approvalProgress?.askedAt != nil {
+            if request.action == .acquire, response.approvalProgress?.askedAt != nil {
                 write("Approved at \(approvalTime(now())).\n", to: diagnostics)
             }
         } catch let error as CLIError {
@@ -589,14 +523,7 @@ enum CLIOutput {
             guard let candidates = response.candidates else { throw CLIError.invalidResponse }
             guard let mirror = response.mirror else { throw CLIError.invalidResponse }
             return renderCandidates(candidates, targetURL: targetURL) + freshness(mirror)
-        case let .copy(field, targetURL, _, _, expiration):
-            guard response.copiedField == field else { throw CLIError.invalidResponse }
-            let destination =
-                response.candidates?.first?.username.map {
-                    "for \($0) on \(displayHost(targetURL))"
-                } ?? "for \(displayHost(targetURL))"
-            return
-                "Copied the \(field.displayName) \(destination). Paste it within \(expiration) seconds.\n"
+
         }
     }
 
@@ -754,27 +681,26 @@ struct CLIInstallResult {
 
 extension CLICommand {
     fileprivate var releaseVerb: String {
-        if case .acquire = self { return "acquire" }
-        return "copy"
+        return "acquire"
     }
 
     fileprivate var targetURL: String {
         switch self {
-        case let .find(targetURL, _), let .copy(_, targetURL, _, _, _), let .acquire(_, targetURL, _, _): targetURL
+        case let .find(targetURL, _), let .acquire(_, targetURL, _, _): targetURL
         case .status: "the requested site"
         }
     }
 
     fileprivate var fieldName: String {
         switch self {
-        case let .copy(field, _, _, _, _), let .acquire(field, _, _, _): field.displayName
+        case let .acquire(field, _, _, _): field.displayName
         default: "requested field"
         }
     }
 
     fileprivate var fieldArgument: String {
         switch self {
-        case let .copy(field, _, _, _, _), let .acquire(field, _, _, _): field.argumentName
+        case let .acquire(field, _, _, _): field.argumentName
         default: "password"
         }
     }

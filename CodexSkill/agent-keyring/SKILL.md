@@ -28,6 +28,5 @@ Use whatever browser tools are currently available. For a JavaScript browser run
 
 **Allow automatically** needs no approval; **Ask each time** requires one native approval per protected field; **Blocked** refuses access. Wait for a request to complete. Do not retry a denial or change an access rule to make a task work. A failed form submission does not justify another credential request by itself.
 
-`copy` remains available for native clipboard consumers. Codex's browser has a separate clipboard, so macOS Cmd-V is not a substitute for filling its input through the browser tool.
 
 Keyring does not retrieve SMS messages, control browsers or support passkeys. Use the relevant tool for those tasks. A changed password requires refreshing the mirror from Apple Passwords; `status` reports its age.

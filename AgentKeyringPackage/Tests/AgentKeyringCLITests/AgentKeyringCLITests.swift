@@ -56,43 +56,11 @@ struct AgentKeyringCLITests {
         )
     }
 
-    @Test("Copy uses human field names and conventional options")
-    func copyCommand() throws {
-        let id = UUID()
-        let command = try #require(
-            AgentKeyringCLI.parseAsRoot([
-                "copy", "code", "https://example.com", "--credential", id.uuidString,
-                "--expires", "45",
-            ]) as? Copy
-        )
-        #expect(command.field == .code)
-        #expect(command.site == "https://example.com")
-        #expect(command.credential == id.uuidString)
-        #expect(command.expires == 45)
-    }
-
-    @Test("Every command has focused local help")
-    func commandHelp() {
-        let help = AgentKeyringCLI.helpMessage(for: Copy.self, columns: 100)
-        #expect(help.contains("copy <field> <site>"))
-        #expect(help.contains("--account"))
-        #expect(help.contains("--credential"))
-        #expect(help.contains("--expires"))
-    }
-
     @Test("Argument Parser rejects unknown commands and missing values")
     func usageErrors() {
         expectParseFailure(["frobnicate"])
         expectParseFailure(["find"])
         expectParseFailure(["find", "https://example.com", "--wat", "value"])
-        expectParseFailure(["copy", "api-key", "https://example.com"])
-    }
-
-    @Test("Copy rejects insecure pages before contacting the app")
-    func insecureCopy() {
-        #expect(throws: ValidationError.self) {
-            try normaliseSecureWebTarget("http://example.com")
-        }
     }
 
     @Test("Status translates transport data into human meaning")
@@ -193,37 +161,6 @@ struct AgentKeyringCLITests {
         #expect(!error.contains("Warning:"))
     }
 
-    @Test("Copy receipts name the safe account and destination")
-    func copyOutput() throws {
-        let candidate = CredentialCandidate(
-            id: UUID(),
-            title: "example.com",
-            username: "example@example.com",
-            origins: ["https://example.com"],
-            availableFields: [.password]
-        )
-        let response = AgentBridgeResponse(
-            id: UUID(),
-            ok: true,
-            candidates: [candidate],
-            copiedField: .password,
-            clipboardExpiresAt: Date().addingTimeInterval(30)
-        )
-        #expect(
-            try CLIOutput.render(
-                response,
-                for: .copy(
-                    field: .password,
-                    targetURL: "https://example.com/login",
-                    account: nil,
-                    credentialID: nil,
-                    expiration: 30
-                )
-            )
-                == "Copied the password for example@example.com on example.com. Paste it within 30 seconds.\n"
-        )
-    }
-
     @Test("Duplicate account errors lead to credential IDs instead of looping")
     func duplicateAccountError() {
         let candidates = [
@@ -250,12 +187,11 @@ struct AgentKeyringCLITests {
         )
         let error = CLIError(
             response: response,
-            command: .copy(
+            command: .acquire(
                 field: .password,
                 targetURL: "https://example.com",
                 account: nil,
-                credentialID: nil,
-                expiration: 30
+                credentialID: nil
             )
         )
 

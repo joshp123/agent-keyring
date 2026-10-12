@@ -57,7 +57,6 @@ public final class MirrorAppModel {
     private let approvals = CredentialApprovalCoordinator()
     private let authorizer: any CredentialReleaseAuthorizing
     private let bridge: AgentBridgeDirectory
-    private let pasteboard: ExpiringPasteboard
     public private(set) var includeExampleCredential: Bool
     private let settings: UserDefaults
     private var handledTokens = Set<UUID>()
@@ -84,8 +83,6 @@ public final class MirrorAppModel {
         self.accessControl = accessControl
         self.settings = settings
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
-        self.pasteboard = ExpiringPasteboard()
-
     }
 
     public func endAllGrants() {
@@ -290,7 +287,7 @@ public final class MirrorAppModel {
             case .status, .resolve:
                 response = try await processDiscovery(request: request,
                     metadata: store.loadCurrentMetadata())
-            case .copy, .acquire:
+            case .acquire:
                 guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
                     throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
                 }
@@ -393,9 +390,6 @@ public final class MirrorAppModel {
             },
             authorize: { approval, onPromptStarted in
                 try await self.authorizeCredentialRelease(approval, agentRequest: request, onPromptStarted: onPromptStarted)
-            },
-            copyNative: { secret, expiration in
-                self.pasteboard.copy(secret, expiresAfter: expiration)
             }
         )
     }
@@ -516,21 +510,6 @@ public final class MirrorAppModel {
         case .ambiguous: .ambiguous
         case .fieldUnavailable: .fieldUnavailable
         case .invalidTOTP: .invalidTOTP
-        }
-    }
-}
-
-@MainActor
-private final class ExpiringPasteboard {
-    func copy(_ value: String, expiresAfter interval: TimeInterval) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(value, forType: .string)
-        let changeCount = pasteboard.changeCount
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + interval) {
-            guard pasteboard.changeCount == changeCount else { return }
-            pasteboard.clearContents()
         }
     }
 }

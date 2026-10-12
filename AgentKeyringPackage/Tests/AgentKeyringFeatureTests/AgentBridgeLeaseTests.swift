@@ -12,7 +12,7 @@ struct AgentBridgeLeaseTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let bridge = AgentBridgeDirectory(rootURL: root)
         let request = AgentBridgeRequest(
-            action: .copy,
+            action: .acquire,
             targetURL: "https://example.com/login",
             field: .password
         )
@@ -24,7 +24,7 @@ struct AgentBridgeLeaseTests {
             id: request.id,
             createdAt: request.createdAt,
             callerPID: request.callerPID,
-            action: .copy,
+            action: .acquire,
             targetURL: "https://example.net/login",
             field: .password
         )

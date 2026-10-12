@@ -120,10 +120,6 @@ struct AgentKeyringFixture {
                     case "expire": bridge.removeRequest(id: request.id)
                     default: break
                     }
-                },
-                copyNative: { _, _ in
-                    // Credential retrieval must never take the native clipboard branch.
-                    fatalError("Fixture attempted native clipboard copy")
                 }
             )
             audit(stage: "release", request: request)

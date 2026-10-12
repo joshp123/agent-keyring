@@ -118,9 +118,7 @@ private final class BrowserApprovalFixture {
                 self.requests.append(request)
                 try self.bridge.write(request)
                 return try await self.processor.release(request: request, generation: self.generation,
-                    authorize: { _, _ in Issue.record("Unprompted release asked for approval") }, copyNative: { _, _ in
-                        Issue.record("Acquire attempted native copy")
-                    })
+                    authorize: { _, _ in Issue.record("Unprompted release asked for approval") })
             })
     }
 
@@ -133,9 +131,7 @@ private final class BrowserApprovalFixture {
                         self.authorizer.requestedAt = progress.askedAt
                         do { try self.bridge.write(progress, id: request.id) }
                         catch { Issue.record(error) }
-                    }, authorize: { try await self.authorizer.authorize($0, onPromptStarted: $1) }, copyNative: { _, _ in
-                        Issue.record("Browser attempted native copy")
-                    })
+                    }, authorize: { try await self.authorizer.authorize($0, onPromptStarted: $1) })
                 try bridge.write(response)
             } catch let failure as AgentBridgeFailure {
                 try? bridge.write(AgentBridgeResponse(id: request.id, ok: false, error: failure.code))
