@@ -1,4 +1,5 @@
 import AgentKeyringTestSupport
+import CryptoKit
 import Darwin
 import Foundation
 import Testing
@@ -200,6 +201,73 @@ struct CredentialAccessPolicyTests {
         #expect(try Data(contentsOf: fixture.fileURL) == bytes)
         #expect(try Data(contentsOf: signatureURL) == signature)
     }
+    @MainActor
+    @Test("Explicit signed assignments win while other pending phone blocks are saved", arguments: CredentialAccessPolicy.allCases)
+    func explicitChoiceAfterPhoneBlock(choice: CredentialAccessPolicy) async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        try await confirmInitialAccessRules(in: fixture.store)
+        let controller = CredentialAccessController(store: fixture.store)
+        let generation = fixture.generation(count: 2)
+        let chosenID = generation.items[0].id
+        let otherID = generation.items[1].id
+        await controller.refresh(from: generation)
+        controller.stagePhoneBlock(for: chosenID)
+        controller.stagePhoneBlock(for: otherID)
+        await controller.setPolicy(choice, for: [chosenID])
+        #expect(controller.policy(for: chosenID) == choice)
+        #expect(!controller.hasPendingPhoneBlock(for: chosenID))
+        #expect(!controller.hasPendingPhoneBlock(for: otherID))
+        let saved = try await fixture.store.load()
+        #expect(saved[chosenID, default: .ask] == choice)
+        #expect(saved[otherID] == .block)
+    }
+
+    @MainActor
+    @Test("Rule confirmation preserves explicit snapshot choices and saves unassigned phone blocks")
+    func confirmChoiceAfterPhoneBlock() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let generation = fixture.generation(count: 2)
+        let chosenID = generation.items[0].id
+        let otherID = generation.items[1].id
+        try await confirmInitialAccessRules(in: fixture.store, policies: [chosenID: .allowAutomatically])
+        let controller = CredentialAccessController(store: fixture.store)
+        await controller.refresh(from: generation)
+        controller.stagePhoneBlock(for: chosenID)
+        controller.stagePhoneBlock(for: otherID)
+        try Data("bad test signature".utf8).write(to: fixture.fileURL.appendingPathExtension("signature"))
+        await controller.refresh(from: generation)
+        #expect(controller.canConfirmRules)
+        await controller.confirmRules()
+        #expect(!controller.needsConfirmation)
+        #expect(!controller.hasPendingPhoneBlock(for: chosenID))
+        #expect(!controller.hasPendingPhoneBlock(for: otherID))
+        let saved = try await fixture.store.load()
+        #expect(saved[chosenID] == .allowAutomatically)
+        #expect(saved[otherID] == .block)
+    }
+
+    @MainActor
+    @Test("The phone setting is available only while the signed store has a paired device")
+    func pairedSettingVisibility() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        try await confirmInitialAccessRules(in: fixture.store)
+        let controller = CredentialAccessController(store: fixture.store)
+        let generation = fixture.generation()
+        await controller.refresh(from: generation)
+        #expect(!controller.hasPairedApprovalDevice)
+        let device = PairedApprovalDevice(publicKey: P256.Signing.PrivateKey().publicKey, name: "Test iPhone")
+        try await fixture.store.addPairedDevice(device)
+        await controller.refresh(from: generation)
+        #expect(controller.hasPairedApprovalDevice)
+        #expect(try await controller.pairedDevicePublicKeys() == [device.publicKey])
+        try await fixture.store.removePairedDevice(publicKey: device.publicKey)
+        await controller.refresh(from: generation)
+        #expect(!controller.hasPairedApprovalDevice)
+    }
+
 }
 
 private struct Fixture {

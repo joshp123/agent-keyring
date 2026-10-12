@@ -186,6 +186,24 @@ struct CredentialFillTests {
         #expect(prompts == 2)
     }
 
+    @Test("A staged phone block reports a blocked policy rather than a decline")
+    func stagedPhoneBlock() async throws {
+        let fixture = try FillTestFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        await fixture.accessControl.refresh(from: fixture.generation)
+        fixture.accessControl.stagePhoneBlock(for: fixture.generation.items[0].id)
+        let request = try fixture.request()
+        do {
+            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _, _ in Issue.record("Blocked login asked for approval") })
+            Issue.record("Blocked login released")
+        } catch let failure as AgentBridgeFailure {
+            #expect(failure.code == .policyDenied)
+            #expect(failure.message == "Agent access to this credential is blocked in Agent Keyring.")
+        }
+        #expect(fixture.filler.inspectCount == 0)
+    }
+
     @Test("A pending fill approval cannot satisfy a concurrent acquire approval")
     func pendingActionsStaySeparate() async throws {
         let coordinator = CredentialApprovalCoordinator(lockState: FillApprovalTestSession())

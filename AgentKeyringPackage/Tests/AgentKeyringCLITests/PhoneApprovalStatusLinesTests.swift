@@ -6,9 +6,11 @@ import Testing
 @MainActor
 @Suite("Phone approval status lines")
 struct PhoneApprovalStatusLinesTests {
-    @Test("Locked and escalation paths use exact owner-specific lines", arguments: [true, false])
-    func statusLines(locked: Bool) async throws {
+    @Test("Locked and escalation paths use exact owner-specific lines", arguments: ["locked", "asleep", "escalation"])
+    func statusLines(path: String) async throws {
         try await MacOwner.$fullName.withValue("Josh Example") {
+            let locked = path != "escalation"
+            let asleep = path == "asleep"
             let start = try #require(Calendar.current.date(from: DateComponents(
                 year: 2026, month: 10, day: 12, hour: 2, minute: 41)))
             let phoneAt = locked ? start : start.addingTimeInterval(120)
@@ -21,11 +23,11 @@ struct PhoneApprovalStatusLinesTests {
                     phase: .awaitingApproval, provider: .mac, phoneScheduledAt: phoneAt)))
             }
             let asked = AgentApprovalProgress(waitingSince: start, askedAt: phoneAt,
-                phase: .awaitingApproval, provider: .iPhone, macWasLocked: locked)
+                phase: .awaitingApproval, provider: .iPhone, macWasLocked: locked, macWasAsleep: asleep)
             lines.receive(.progress(asked))
             lines.receive(.progress(asked))
             let approved = AgentApprovalProgress(waitingSince: start, askedAt: phoneAt,
-                phase: .awaitingApproval, provider: .iPhone, macWasLocked: locked,
+                phase: .awaitingApproval, provider: .iPhone, macWasLocked: locked, macWasAsleep: asleep,
                 approvedAt: approvedAt, approvedOn: .iPhone)
             lines.receive(.progress(approved))
             try await CLIClient.run(.acquire(field: .password, targetURL: "https://example.com",
@@ -34,7 +36,11 @@ struct PhoneApprovalStatusLinesTests {
                 sendRequest: { request in AgentBridgeResponse(id: request.id, ok: true, approvalProgress: approved) })
             try pipe.fileHandleForWriting.close()
             let actual = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            let expected = locked ? """
+            let expected = asleep ? """
+            Josh's Mac is asleep or locked; asked on the iPhone at 02:41.
+            Approved on the iPhone at 02:44.
+
+            """ : locked ? """
             Josh's Mac is locked; asked on the iPhone at 02:41.
             Approved on the iPhone at 02:44.
 
