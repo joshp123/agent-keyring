@@ -15,6 +15,10 @@ extension MirrorAppModel {
     func generationIncludingExample(_ generation: MirrorGeneration?) -> MirrorGeneration? {
         guard includeExampleCredential else { return generation }
 
+        var origins = ["https://example.com"]
+        #if DEBUG
+        origins += ["http://127.0.0.1:8443", "http://localhost:8443"]
+        #endif
         let item = MirrorItem(
             id: MirrorItem.exampleCredentialID,
             sourceIdentity: MirrorSourceIdentity(
@@ -23,7 +27,7 @@ extension MirrorAppModel {
                 itemID: Data("example.com".utf8)
             ),
             title: "example.com",
-            origins: ["https://example.com"],
+            origins: origins,
             credentials: [
                 .password(userName: "example@example.com", password: "example-password")
             ]

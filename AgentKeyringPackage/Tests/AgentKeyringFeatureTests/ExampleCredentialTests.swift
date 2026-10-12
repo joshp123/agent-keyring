@@ -36,6 +36,20 @@ struct ExampleCredentialTests {
         #expect(reloaded.status == nil)
     }
 
+    @Test("Only Debug builds expose the example login on loopback", arguments: ["http://127.0.0.1:8443", "http://localhost:8443"])
+    func loopbackExample(origin: String) throws {
+        let fixture = Fixture()
+        defer { fixture.cleanUp() }
+        let generation = try #require(fixture.model().generationIncludingExample(nil))
+        let candidates = try CredentialResolver().candidates(in: generation, targetURL: origin)
+        #if DEBUG
+        #expect(candidates.map(\.id) == [MirrorItem.exampleCredentialID])
+        #else
+        #expect(candidates.isEmpty)
+        #endif
+        #expect(generation.safeStatus.credentialItemCount == 0)
+    }
+
     @Test("The example is excluded from mirror and access-rule counts")
     func countsExcludeExample() {
         let item = MirrorItem(id: MirrorItem.exampleCredentialID,

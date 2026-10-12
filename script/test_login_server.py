@@ -40,8 +40,9 @@ def private_json(path, value):
 class LoginServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, port):
+    def __init__(self, port, example_login=False):
         super().__init__(("127.0.0.1", port), LoginHandler)
+        self.example_login = example_login
         self.lock = threading.Lock()
         self.origin = f"http://127.0.0.1:{self.server_port}"
         self.started_at = int(time.time())
@@ -57,6 +58,8 @@ class LoginServer(http.server.ThreadingHTTPServer):
             "policy": "ask",
             "authorization": "allow",
         }
+        if example_login:
+            self.fixture.update(username="example@example.com", password="example-password")
         self.pending_sessions = set()
         self.authenticated_sessions = set()
         self.results = {
@@ -136,7 +139,7 @@ class LoginHandler(http.server.BaseHTTPRequestHandler):
         elif parsed.path in ("/", "/login"):
             self.send_document(200, self.document("Synthetic sign in", f"""
                 <h1>Synthetic sign in</h1>
-                <p>This page uses generated test credentials only.</p>
+                <p>This page uses synthetic test credentials only.</p>
                 <form method="post" action="/password">
                   <label for="unrelated">Unrelated notes</label>
                   <textarea id="unrelated" name="unrelated" autofocus></textarea>
@@ -196,6 +199,11 @@ class LoginHandler(http.server.BaseHTTPRequestHandler):
                 self.server.results["password_accepted" if matched else "password_rejected"] += 1
             if not matched:
                 self.send_document(401, self.document("Sign in failed", "<h1>Sign in failed</h1>"))
+            elif self.server.example_login:
+                session = secrets.token_urlsafe(24)
+                with self.server.lock:
+                    self.server.authenticated_sessions.add(session)
+                self.redirect("/account", f"session={session}; HttpOnly; SameSite=Strict; Path=/")
             else:
                 pending = secrets.token_urlsafe(24)
                 with self.server.lock:
@@ -230,13 +238,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, help="New private fixture directory; defaults to a temporary directory")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--example", action="store_true", help="Use the built-in example login without a verification-code step")
     arguments = parser.parse_args()
     if arguments.directory:
         directory = arguments.directory.resolve()
         directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     else:
         directory = Path(tempfile.mkdtemp(prefix="agent-keyring-login-"))
-    server = LoginServer(arguments.port)
+    server = LoginServer(arguments.port, example_login=arguments.example)
     config_path = directory / "fixture.json"
     private_json(config_path, server.fixture)
     print(json.dumps({"origin": server.origin, "login_url": server.origin + "/login",
