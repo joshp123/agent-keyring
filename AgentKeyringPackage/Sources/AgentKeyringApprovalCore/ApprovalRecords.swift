@@ -69,6 +69,10 @@ public struct ApprovalSignedFields: Codable, Equatable, Sendable {
         self.expiresAt = expiresAt
     }
 
+    public var notificationTitle: String { "\(agentDisplayLabel) wants your \(field.rawValue)" }
+    public var notificationBody: String { "\(site) · \(account)" }
+    public var notificationSubtitle: String { action.rawValue }
+
     /// v1: domain prefix, UUID bytes, length-prefixed UTF-8 agent label/site/account/field/action,
     /// length-prefixed nonce, Int64 Unix expiry seconds, length-prefixed choice.
     /// All lengths are UInt32 and all numbers are big-endian. Strings are used verbatim.

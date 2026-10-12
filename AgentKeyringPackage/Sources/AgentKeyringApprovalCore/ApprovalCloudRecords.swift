@@ -55,14 +55,14 @@ public enum ApprovalCloudRecords {
     }
 
     /// Saved by the iPhone, whose notification service extension fetches the record
-    /// to read encrypted notificationBody and set the time-sensitive interruption level.
+    /// to decode encrypted fields and set the time-sensitive interruption level.
     public static func requestSubscription() -> CKQuerySubscription {
         let subscription = CKQuerySubscription(recordType: "ApprovalRequest", predicate: NSPredicate(value: true),
             subscriptionID: requestSubscriptionIdentifier, options: .firesOnRecordCreation)
         subscription.zoneID = requestZone
         let notification = CKSubscription.NotificationInfo()
         notification.title = "Login approval"
-        notification.alertBody = "An agent is asking to sign in."
+        notification.alertBody = "An agent is asking for a login. Open to review."
         notification.category = notificationCategory
         notification.shouldSendMutableContent = true
         notification.shouldSendContentAvailable = false

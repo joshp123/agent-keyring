@@ -67,7 +67,7 @@ struct CloudKitApprovalChannelTests {
         #expect(saved.querySubscriptionOptions == .firesOnRecordCreation)
         let notification = try #require(saved.notificationInfo)
         #expect(notification.title == "Login approval")
-        #expect(notification.alertBody == "An agent is asking to sign in.")
+        #expect(notification.alertBody == "An agent is asking for a login. Open to review.")
         #expect(notification.category == "AGENT_KEYRING_APPROVAL")
         #expect(notification.shouldSendMutableContent)
         #expect(!notification.shouldSendContentAvailable)
