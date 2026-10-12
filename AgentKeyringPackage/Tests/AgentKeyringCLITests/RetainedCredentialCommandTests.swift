@@ -45,7 +45,7 @@ struct RetainedCredentialCommandTests {
                 requests += 1
                 acquiredReference = request.id
                 #expect(request.action == .acquire)
-                try CredentialTransfer.publish(value, requestID: request.id)
+                try CredentialTransfer.publish(value, requestID: request.id, credentialID: UUID(), expiresAfter: 300)
                 return AgentBridgeResponse(id: request.id, ok: true)
             }
         )
@@ -84,7 +84,7 @@ struct RetainedCredentialCommandTests {
         let cli = try #require(executable)
         let reference = UUID()
         defer { CredentialTransfer.clear(requestID: reference) }
-        try CredentialTransfer.publish(value, requestID: reference)
+        try CredentialTransfer.publish(value, requestID: reference, credentialID: UUID(), expiresAfter: 300)
         func run(_ command: String) throws -> (Int32, Data) {
             let process = Process()
             process.executableURL = cli
@@ -112,7 +112,7 @@ struct RetainedCredentialCommandTests {
     func outputFailureDoesNotConsumeValue() throws {
         let reference = UUID()
         defer { CredentialTransfer.clear(requestID: reference) }
-        try CredentialTransfer.publish("synthetic@example.com", requestID: reference)
+        try CredentialTransfer.publish("synthetic@example.com", requestID: reference, credentialID: UUID(), expiresAfter: 300)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         FileManager.default.createFile(atPath: url.path, contents: Data())
         defer { try? FileManager.default.removeItem(at: url) }

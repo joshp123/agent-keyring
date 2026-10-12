@@ -12,10 +12,10 @@ public enum CredentialTransfer {
 
     private struct BufferLifetime: Codable {
         let expiresAt: Date
-        let credentialID: UUID?
     }
     private struct RetainedLifetime {
         let buffer: BufferLifetime
+        let credentialID: UUID
         let codeRecord: MirrorCredential?
         var periodCounter: UInt64?
     }
@@ -28,8 +28,8 @@ public enum CredentialTransfer {
     }
 
     public static func publish(_ value: String, requestID: UUID,
-        credentialID: UUID? = nil,
-        expiresAfter: TimeInterval = 300, codeRecord: MirrorCredential? = nil) throws {
+        credentialID: UUID,
+        expiresAfter: TimeInterval, codeRecord: MirrorCredential? = nil) throws {
         let publishedAt = Date()
         let publishedValue: String
         if case let .totp(seed, period, digits, _, algorithm, _) = codeRecord {
@@ -72,7 +72,7 @@ public enum CredentialTransfer {
         return true
     }
     static func revoke(credentialID: UUID) {
-        let references = retainedLifetimes.filter { $0.value.buffer.credentialID == credentialID }.map(\.key)
+        let references = retainedLifetimes.filter { $0.value.credentialID == credentialID }.map(\.key)
         for reference in references { clear(requestID: reference) }
     }
 
@@ -107,10 +107,9 @@ public enum CredentialTransfer {
     }
 
     private static func retain(requestID: UUID,
-        credentialID: UUID?, expiresAfter: TimeInterval, codeRecord: MirrorCredential?,
+        credentialID: UUID, expiresAfter: TimeInterval, codeRecord: MirrorCredential?,
         publishedAt: Date) throws {
-        let lifetime = BufferLifetime(expiresAt: publishedAt.addingTimeInterval(expiresAfter),
-            credentialID: credentialID)
+        let lifetime = BufferLifetime(expiresAt: publishedAt.addingTimeInterval(expiresAfter))
         let channel = pasteboard(for: requestID)
         guard channel.setData(try PropertyListEncoder().encode(lifetime), forType: lifetimeType) else {
             clear(requestID: requestID)
@@ -122,7 +121,7 @@ public enum CredentialTransfer {
         } else {
             counter = nil
         }
-        retainedLifetimes[requestID] = RetainedLifetime(buffer: lifetime,
+        retainedLifetimes[requestID] = RetainedLifetime(buffer: lifetime, credentialID: credentialID,
             codeRecord: codeRecord, periodCounter: counter)
         guard cleanupTask == nil else { return }
         cleanupTask = Task { @MainActor in

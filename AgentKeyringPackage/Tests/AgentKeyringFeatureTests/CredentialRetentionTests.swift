@@ -111,8 +111,8 @@ struct CredentialRetentionTests {
             CredentialTransfer.clear(requestID: first)
             CredentialTransfer.clear(requestID: second)
         }
-        try CredentialTransfer.publish("first synthetic value", requestID: first)
-        try CredentialTransfer.publish("second synthetic value", requestID: second)
+        try CredentialTransfer.publish("first synthetic value", requestID: first, credentialID: UUID(), expiresAfter: 300)
+        try CredentialTransfer.publish("second synthetic value", requestID: second, credentialID: UUID(), expiresAfter: 300)
         #expect(try read(requestID: first) == Data("first synthetic value".utf8))
         #expect(CredentialTransfer.clear(requestID: first))
         #expect(CredentialTransfer.clear(requestID: first))
@@ -125,7 +125,7 @@ struct CredentialRetentionTests {
         let reference = UUID()
         defer { CredentialTransfer.clear(requestID: reference) }
         let seed = Data("12345678901234567890".utf8)
-        try CredentialTransfer.publish("initial synthetic code", requestID: reference,
+        try CredentialTransfer.publish("initial synthetic code", requestID: reference, credentialID: UUID(), expiresAfter: 300,
             codeRecord: .totp(secret: seed, period: 30, digits: 8,
                 userName: "code-account", algorithm: .sha1, issuer: nil))
         let channel = NSPasteboard(name: .init("com.agentkeyring.credential.\(reference.uuidString)"))
@@ -138,12 +138,12 @@ struct CredentialRetentionTests {
         #expect(try CredentialTransfer.read(requestID: reference) == Data("37359152".utf8))
     }
 
-    @Test("Retained values expire after five minutes by default")
+    @Test("Retained values expire after five minutes")
     func defaultExpiry() throws {
         let reference = UUID()
         let publishedAt = Date()
         defer { CredentialTransfer.clear(requestID: reference) }
-        try CredentialTransfer.publish("synthetic", requestID: reference)
+        try CredentialTransfer.publish("synthetic", requestID: reference, credentialID: UUID(), expiresAfter: 300)
         #expect(try CredentialTransfer.read(requestID: reference, now: publishedAt.addingTimeInterval(299)) == Data("synthetic".utf8))
         #expect(throws: CredentialTransferError.unavailable) {
             _ = try CredentialTransfer.read(requestID: reference, now: publishedAt.addingTimeInterval(301))
@@ -154,7 +154,7 @@ struct CredentialRetentionTests {
     func unattendedExpiry() async throws {
         let reference = UUID()
         defer { CredentialTransfer.clear(requestID: reference) }
-        try CredentialTransfer.publish("synthetic", requestID: reference, expiresAfter: 0.05)
+        try CredentialTransfer.publish("synthetic", requestID: reference, credentialID: UUID(), expiresAfter: 0.05)
         try await Task.sleep(for: .milliseconds(600))
         // Reading with an earlier clock proves cleanup removed the bytes independently.
         #expect(throws: CredentialTransferError.unavailable) {
@@ -197,7 +197,7 @@ struct CredentialRetentionTests {
             _ = try await fixture.processor.release(request: request, generation: fixture.generation,
                 authorize: { _ in Issue.record("Unexpected approval") }, copyNative: { _, _ in })
         }
-        try CredentialTransfer.publish("unrelated", requestID: unrelated, credentialID: UUID())
+        try CredentialTransfer.publish("unrelated", requestID: unrelated, credentialID: UUID(), expiresAfter: 300)
         await fixture.accessControl.setPolicy(.block, for: [fixture.generation.items[0].id])
         for request in [first, second] {
             #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
