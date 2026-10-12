@@ -111,6 +111,7 @@ struct AgentKeyringCLITests {
         let response = AgentBridgeResponse(
             id: UUID(),
             ok: true,
+            mirror: AgentMirrorSummary(importedAt: Date(), ageSeconds: 60, credentialCount: 1),
             candidates: [candidate]
         )
         let output = try CLIOutput.render(
@@ -118,10 +119,23 @@ struct AgentKeyringCLITests {
             for: .find(targetURL: "https://example.com/login", account: nil)
         )
         #expect(output.contains("1 login found for example.com"))
+        #expect(output.contains("Updated 1 minute ago"))
         #expect(output.contains("Account: example@example.com"))
         #expect(output.contains("Can copy: username, password"))
         #expect(!output.contains(candidate.id.uuidString))
         #expect(!output.contains("{"))
+    }
+
+    @Test("Status and find warn only when the mirror is older than seven days", arguments: [7 * 86_400, 7 * 86_400 + 1, 93 * 86_400])
+    func staleMirrorWarning(ageSeconds: Int) throws {
+        let response = AgentBridgeResponse(id: UUID(), ok: true,
+            mirror: AgentMirrorSummary(importedAt: Date(), ageSeconds: ageSeconds, credentialCount: 0),
+            candidates: [])
+        for command in [CLICommand.status, .find(targetURL: "https://example.com", account: nil)] {
+            let output = try CLIOutput.render(response, for: command)
+            #expect(output.contains("Updated"))
+            #expect(output.contains("Warning:") == (ageSeconds > 7 * 86_400))
+        }
     }
 
     @Test("Find displays the example without counting it as an imported login")
@@ -133,6 +147,29 @@ struct AgentKeyringCLITests {
         let output = try CLIOutput.render(response, for: .find(targetURL: "https://example.com", account: nil))
         #expect(output.contains("Example login for example.com"))
         #expect(!output.contains("1 login found"))
+    }
+
+    @MainActor
+    @Test("Find reports freshness even when no login matches")
+    func unmatchedFindFreshness() async throws {
+        let output = Pipe()
+        let diagnostics = Pipe()
+        do {
+            try await CLIClient.run(.find(targetURL: "https://example.com", account: nil),
+                output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
+                sendRequest: { request in
+                    AgentBridgeResponse(id: request.id, ok: false, error: .notFound,
+                        mirror: AgentMirrorSummary(importedAt: Date(), ageSeconds: 8 * 86_400,
+                            credentialCount: 1), candidates: [])
+                })
+            Issue.record("Unmatched find should fail")
+        } catch let exit as ExitCode { #expect(exit.rawValue != 0) }
+        try output.fileHandleForWriting.close()
+        try diagnostics.fileHandleForWriting.close()
+        #expect(output.fileHandleForReading.readDataToEndOfFile().isEmpty)
+        let error = String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        #expect(error.contains("Updated 8 days ago"))
+        #expect(error.contains("Warning:"))
     }
 
     @Test("Copy receipts name the safe account and destination")

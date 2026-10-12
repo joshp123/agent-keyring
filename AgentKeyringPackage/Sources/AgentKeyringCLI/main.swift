@@ -264,6 +264,9 @@ enum CLIClient {
             let request = command.request
             let response = try await sendRequest(request)
             guard response.ok else {
+                if case .find = command, let mirror = response.mirror {
+                    write(CLIOutput.freshness(mirror), to: diagnostics)
+                }
                 throw CLIError(response: response, command: command)
             }
             write(try CLIOutput.render(response, for: command), to: output)
@@ -502,10 +505,11 @@ enum CLIOutput {
             guard let mirror = response.mirror else { throw CLIError.invalidResponse }
             let noun = mirror.credentialCount == 1 ? "login" : "logins"
             return
-                "\(mirror.credentialCount) \(noun) available\nUpdated \(age(mirror.ageSeconds))\n"
+                "\(mirror.credentialCount) \(noun) available\n" + freshness(mirror)
         case let .find(targetURL, _):
             guard let candidates = response.candidates else { throw CLIError.invalidResponse }
-            return renderCandidates(candidates, targetURL: targetURL)
+            guard let mirror = response.mirror else { throw CLIError.invalidResponse }
+            return renderCandidates(candidates, targetURL: targetURL) + freshness(mirror)
         case let .copy(field, targetURL, _, _, expiration):
             guard response.copiedField == field else { throw CLIError.invalidResponse }
             let destination =
@@ -543,6 +547,12 @@ enum CLIOutput {
             }
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func freshness(_ mirror: AgentMirrorSummary) -> String {
+        let warning = mirror.ageSeconds > 7 * 86_400
+            ? "Warning: the mirror is older than 7 days. Update it from Apple Passwords.\n" : ""
+        return "Updated \(age(mirror.ageSeconds))\n" + warning
     }
 
     private static func age(_ seconds: Int) -> String {

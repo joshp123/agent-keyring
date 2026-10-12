@@ -54,6 +54,12 @@ struct MirrorStatusPanel: View {
                 MirrorNoticeRow(notice: notice)
             }
 
+            if let status, Date().timeIntervalSince(status.importedAt) > 7 * 86_400 {
+                Text("The mirror is older than 7 days. Update it from Apple Passwords.")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
+
             PrimaryActionRow(
                 status: status,
                 isLoading: isLoading,
