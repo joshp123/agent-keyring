@@ -386,7 +386,9 @@ private struct ReleaseFixture {
             "version": 1,
             "records": [["credentialID": credentialID.uuidString, "policy": policy.rawValue]],
         ]
-        try JSONSerialization.data(withJSONObject: contents).write(to: policyURL)
+        let policyBytes = try JSONSerialization.data(withJSONObject: contents)
+        try policyBytes.write(to: policyURL)
+        try FakeAccessRulesSigner().signature(for: policyBytes).write(to: policyURL.appendingPathExtension("signature"))
         accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL, signer: FakeAccessRulesSigner()))
         grants = CredentialApprovalGrants(now: now)
         processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl, grants: grants,

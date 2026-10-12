@@ -11,7 +11,7 @@ struct AgentBrowserApprovalTests {
         let fixture = BrowserApprovalFixture()
         defer { fixture.cleanUp() }
         if useGrant { fixture.grants.approve(fixture.loginID) }
-        else { await fixture.setPolicy(.allowAutomatically) }
+        else { try await fixture.setPolicy(.allowAutomatically) }
         let diagnostics = Pipe()
         try await fixture.acquireWithCLI(diagnostics: diagnostics.fileHandleForWriting)
         try diagnostics.fileHandleForWriting.close()
@@ -71,8 +71,11 @@ private final class BrowserApprovalFixture {
     var deadlines: [Date] = []
     var appTasks: [Task<Void, Never>] = []
     private(set) lazy var bridge = AgentBridgeDirectory(rootURL: root)
+    private var preparedRules = false
+    private lazy var policyStore = CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("policies.json"),
+        signer: FakeAccessRulesSigner())
     private(set) lazy var accessControl = CredentialAccessController(
-        store: CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner()))
+        store: policyStore)
     private lazy var processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl,
         grants: grants, approvals: CredentialApprovalCoordinator(lockState: BrowserUnlockedSession()))
     private lazy var generation = MirrorGeneration(id: UUID(), previousGenerationID: nil,
@@ -84,6 +87,7 @@ private final class BrowserApprovalFixture {
             ])], skippedCredentialCount: 0)
 
     func invoke() async throws -> [String: Any] {
+        try await prepareRules()
         let input = Pipe()
         let output = Pipe()
         try input.fileHandleForWriting.write(contentsOf: Data("""
@@ -106,12 +110,14 @@ private final class BrowserApprovalFixture {
         return try #require(JSONSerialization.jsonObject(with: output.fileHandleForReading.readDataToEndOfFile()) as? [String: Any])
     }
 
-    func setPolicy(_ policy: CredentialAccessPolicy) async {
+    func setPolicy(_ policy: CredentialAccessPolicy) async throws {
+        try await prepareRules()
         await accessControl.refresh(from: generation)
         await accessControl.setPolicy(policy, for: [loginID])
     }
 
     func acquireWithCLI(diagnostics: FileHandle) async throws {
+        try await prepareRules()
         try await CLIClient.run(.acquire(field: .password, targetURL: "https://example.com",
             account: nil, credentialID: loginID), output: FileHandle.nullDevice, diagnostics: diagnostics,
             sendRequest: { request in
@@ -120,6 +126,12 @@ private final class BrowserApprovalFixture {
                 return try await self.processor.release(request: request, generation: self.generation,
                     authorize: { _, _ in Issue.record("Unprompted release asked for approval") })
             })
+    }
+
+    private func prepareRules() async throws {
+        guard !preparedRules else { return }
+        try await policyStore.save([:])
+        preparedRules = true
     }
 
     private func startAppRequest(_ request: AgentBridgeRequest) {

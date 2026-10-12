@@ -7,9 +7,10 @@ import Testing
 struct CredentialAccessPolicyTests {
     @MainActor
     @Test("New credentials ask, automatic access skips approval, and blocked access fails closed")
-    func releaseDecisions() async {
+    func releaseDecisions() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
+        try await fixture.store.save([:])
         let controller = CredentialAccessController(store: fixture.store)
         let generation = fixture.generation()
         let credentialID = generation.items[0].id
@@ -30,11 +31,12 @@ struct CredentialAccessPolicyTests {
 
     @MainActor
     @Test("Rules persist by stable credential ID and survive a refreshed generation")
-    func persistenceAcrossRefresh() async {
+    func persistenceAcrossRefresh() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
         let first = fixture.generation()
         let credentialID = first.items[0].id
+        try await fixture.store.save([:])
         let controller = CredentialAccessController(store: fixture.store)
 
         await controller.refresh(from: first)
@@ -49,9 +51,10 @@ struct CredentialAccessPolicyTests {
 
     @MainActor
     @Test("Search is case-insensitive, diacritic-insensitive and fuzzy")
-    func fuzzySearch() async {
+    func fuzzySearch() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
+        try await fixture.store.save([:])
         let controller = CredentialAccessController(store: fixture.store)
         await controller.refresh(from: fixture.generation(title: "Café Account"))
 
@@ -67,9 +70,10 @@ struct CredentialAccessPolicyTests {
 
     @MainActor
     @Test("Bulk recommendations update groups in one saved policy set")
-    func bulkRecommendations() async {
+    func bulkRecommendations() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
+        try await fixture.store.save([:])
         let controller = CredentialAccessController(store: fixture.store)
         let first = fixture.generation()
         let firstID = first.items[0].id
@@ -105,9 +109,10 @@ struct CredentialAccessPolicyTests {
 
     @MainActor
     @Test("A 522-credential mirror keeps all groups, search results, and stable endpoints")
-    func fullScaleAccessModel() async {
+    func fullScaleAccessModel() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
+        try await fixture.store.save([:])
         let controller = CredentialAccessController(store: fixture.store)
         let generation = fixture.generation(count: 522)
         await controller.refresh(from: generation)
@@ -151,7 +156,9 @@ struct CredentialAccessPolicyTests {
               {"credentialID":"\(credentialID.uuidString)","policy":"allowAutomatically"}
             ]}
             """
-        try Data(json.utf8).write(to: fixture.fileURL)
+        let bytes = Data(json.utf8)
+        try bytes.write(to: fixture.fileURL)
+        try FakeAccessRulesSigner().signature(for: bytes).write(to: fixture.fileURL.appendingPathExtension("signature"))
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o600],
             ofItemAtPath: fixture.fileURL.path

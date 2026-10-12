@@ -9,9 +9,14 @@ public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Se
 }
 
 public enum CredentialReleaseDecision: Equatable, Sendable {
+    case needsConfirmation
     case requestAuthorization
     case release
     case block
+}
+
+public struct AccessRulesConfirmationRequired: Error, Sendable {
+    public static let message = "Agent Keyring's access rules need Josh's confirmation in the app before anything is released."
 }
 
 public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
@@ -71,11 +76,30 @@ public actor CredentialAccessPolicyStore {
     }
 
     public func load() throws -> [UUID: CredentialAccessPolicy] {
+        let bytes: Data
+        do {
+            try validateOwnedRegularFile(fileURL)
+            try validateOwnedRegularFile(signatureURL)
+            bytes = try Data(contentsOf: fileURL)
+            guard try signer.verify(Data(contentsOf: signatureURL), for: bytes) else {
+                throw AccessRulesConfirmationRequired()
+            }
+        } catch {
+            throw AccessRulesConfirmationRequired()
+        }
+        return try decodePolicies(bytes)
+    }
+
+    public func loadForConfirmation() throws -> [UUID: CredentialAccessPolicy] {
         guard fileManager.fileExists(atPath: fileURL.path) else { return [:] }
         try validateOwnedRegularFile(fileURL)
+        return try decodePolicies(Data(contentsOf: fileURL))
+    }
+
+    private func decodePolicies(_ bytes: Data) throws -> [UUID: CredentialAccessPolicy] {
         let contents = try JSONDecoder().decode(
             FileContents.self,
-            from: Data(contentsOf: fileURL)
+            from: bytes
         )
         guard contents.version == 1 else { throw CocoaError(.fileReadCorruptFile) }
         var policies = [UUID: CredentialAccessPolicy]()
@@ -156,11 +180,12 @@ public final class CredentialAccessController {
     public private(set) var rows: [AccessCredentialRow] = []
     public private(set) var visibleRows: [AccessCredentialRow] = []
     public private(set) var errorMessage: String?
+    public private(set) var needsConfirmation = true
+    public private(set) var isSavingRules = false
 
     private let store: CredentialAccessPolicyStore
     private var policies: [UUID: CredentialAccessPolicy] = [:]
     private var currentGenerationID: UUID?
-    private var loadedPolicies = false
 
     public init(store: CredentialAccessPolicyStore = CredentialAccessPolicyStore()) {
         self.store = store
@@ -171,23 +196,20 @@ public final class CredentialAccessController {
     }
 
     public func refresh(fromMetadata metadata: MirrorMetadata?) async {
+        do {
+            try await reloadRules()
+        } catch is AccessRulesConfirmationRequired {
+            errorMessage = AccessRulesConfirmationRequired.message
+        } catch {
+            errorMessage = "Access rules could not be opened. Credentials will ask for approval."
+            policies = [:]
+        }
         guard let metadata else {
             currentGenerationID = nil
             rows = []
             recomputeVisibleRows()
             return
         }
-        if !loadedPolicies {
-            do {
-                policies = try await store.load()
-                loadedPolicies = true
-            } catch {
-                errorMessage =
-                    "Access rules could not be opened. Credentials will ask for approval."
-                policies = [:]
-            }
-        }
-
         guard currentGenerationID != metadata.id
             || Set(rows.map(\.id)) != Set(metadata.candidates.map(\.id)) else { return }
         currentGenerationID = metadata.id
@@ -213,7 +235,8 @@ public final class CredentialAccessController {
         for credentialID: UUID,
         field: AgentCredentialField
     ) -> CredentialReleaseDecision {
-        switch policy(for: credentialID) {
+        guard !needsConfirmation else { return .needsConfirmation }
+        return switch policy(for: credentialID) {
         case .block:
             .block
         case .allowAutomatically:
@@ -229,38 +252,71 @@ public final class CredentialAccessController {
     }
 
     public func setPolicies(_ assignments: [UUID: CredentialAccessPolicy]) async {
-        guard !assignments.isEmpty else { return }
+        guard !assignments.isEmpty, !isSavingRules, !needsConfirmation else { return }
         let knownIDs = Set(rows.map(\.id))
         guard assignments.keys.allSatisfy(knownIDs.contains) else {
             errorMessage = "The access change included an unknown credential. No rule was changed."
             return
         }
-        let previousPolicies = policies
-        let previousRows = rows
+        var proposedPolicies = policies
+        isSavingRules = true
+        defer { isSavingRules = false }
         errorMessage = nil
 
         for (id, policy) in assignments {
             if policy == .block { CredentialTransfer.revoke(credentialID: id) }
             if policy == .ask {
-                policies.removeValue(forKey: id)
+                proposedPolicies.removeValue(forKey: id)
             } else {
-                policies[id] = policy
+                proposedPolicies[id] = policy
             }
         }
-        rows = rows.map { row in
-            guard let policy = assignments[row.id] else { return row }
-            return row.changingPolicy(to: policy)
-        }
-        recomputeVisibleRows()
-
         do {
-            try await store.save(policies)
+            try await store.save(proposedPolicies)
+            try await reloadRules()
         } catch {
-            policies = previousPolicies
-            rows = previousRows
-            recomputeVisibleRows()
             errorMessage = "The access change could not be saved. No rule was changed."
         }
+    }
+
+    public func ensureRulesConfirmed() async throws {
+        do {
+            try await reloadRules()
+        } catch is AccessRulesConfirmationRequired {
+            throw AgentBridgeFailure(.rulesNeedConfirmation, AccessRulesConfirmationRequired.message)
+        }
+    }
+
+    public func confirmRules() async {
+        guard !isSavingRules else { return }
+        isSavingRules = true
+        defer { isSavingRules = false }
+        do {
+            try await store.save(policies)
+            try await reloadRules()
+        } catch {
+            needsConfirmation = true
+            errorMessage = "Access rules could not be confirmed. Nothing will be released."
+        }
+    }
+
+    private func reloadRules() async throws {
+        do {
+            policies = try await store.load()
+            needsConfirmation = false
+            errorMessage = nil
+        } catch {
+            needsConfirmation = true
+            policies = (try? await store.loadForConfirmation()) ?? [:]
+            updateRowPolicies()
+            throw error
+        }
+        updateRowPolicies()
+    }
+
+    private func updateRowPolicies() {
+        rows = rows.map { $0.changingPolicy(to: policies[$0.id, default: .ask]) }
+        recomputeVisibleRows()
     }
 
     public func count(for policy: CredentialAccessPolicy) -> Int {

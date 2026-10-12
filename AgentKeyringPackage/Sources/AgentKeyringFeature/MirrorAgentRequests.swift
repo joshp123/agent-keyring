@@ -40,6 +40,7 @@ extension MirrorAppModel {
                 throw AgentBridgeFailure(
                     .requestExpired, "The agent request expired before it was handled.")
             }
+            try await accessControl.ensureRulesConfirmed()
             switch request.action {
             case .status, .resolve:
                 response = try await processDiscovery(request: request,

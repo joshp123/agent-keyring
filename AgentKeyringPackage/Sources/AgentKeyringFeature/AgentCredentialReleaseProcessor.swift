@@ -39,6 +39,7 @@ public struct AgentCredentialReleaseProcessor {
         }
         try ensureRequestHasNotExpired(request)
         await accessControl.refresh(from: generation)
+        try await accessControl.ensureRulesConfirmed()
         let mirror = AgentMirrorSummary(
             importedAt: generation.createdAt,
             ageSeconds: max(0, Int(Date().timeIntervalSince(generation.createdAt))),
@@ -116,6 +117,7 @@ public struct AgentCredentialReleaseProcessor {
         }
 
         try ensureRequestHasNotExpired(request)
+        try await accessControl.ensureRulesConfirmed()
         guard accessControl.releaseDecision(for: selected.id, field: field) != .block else {
             throw AgentBridgeFailure(.policyDenied,
                 "Agent access to this credential is blocked in Agent Keyring.")
