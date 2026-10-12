@@ -9,6 +9,7 @@ struct AgentKeyringCLI: AsyncParsableCommand {
         discussion: """
             EXAMPLES
               agent-keyring find example.com
+              agent-keyring sync example.com
               agent-keyring acquire password example.com
               agent-keyring read REFERENCE
               agent-keyring clear REFERENCE

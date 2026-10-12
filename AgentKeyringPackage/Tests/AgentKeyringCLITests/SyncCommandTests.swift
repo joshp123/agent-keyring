@@ -33,6 +33,37 @@ struct SyncCommandTests {
         #expect(diagnostics.fileHandleForReading.readDataToEndOfFile().isEmpty)
     }
 
+    @Test("Sync help includes the command, example, and its exit codes")
+    func help() {
+        let root = AgentKeyringCLI.helpMessage(columns: 100)
+        #expect(root.contains("agent-keyring sync example.com"))
+        let help = Sync.helpMessage(columns: 100)
+        #expect(help.contains("sync <site>"))
+        for meaning in [
+            "0  Josh has been asked to update the copy.",
+            "1  No matching login, no mirror, app unavailable, or notification failed.",
+            "3  The request expired with no answer.",
+            "64 Invalid command or arguments.",
+        ] { #expect(help.contains(meaning)) }
+    }
+
+    @MainActor
+    @Test("Sync errors do not claim Josh was asked", arguments: [AgentBridgeErrorCode.notFound, .internalError, .requestExpired])
+    func failedSync(code: AgentBridgeErrorCode) async throws {
+        let output = Pipe()
+        let diagnostics = Pipe()
+        do {
+            try await CLIClient.run(.sync(targetURL: "https://example.com"),
+                output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
+                sendRequest: { request in AgentBridgeResponse(id: request.id, ok: false, error: code) })
+            Issue.record("Sync failure must return an error")
+        } catch let exit as ExitCode { #expect(exit.rawValue == (code == .requestExpired ? 3 : 1)) }
+        try output.fileHandleForWriting.close()
+        try diagnostics.fileHandleForWriting.close()
+        #expect(output.fileHandleForReading.readDataToEndOfFile().isEmpty)
+        #expect(!diagnostics.fileHandleForReading.readDataToEndOfFile().isEmpty)
+    }
+
     @Test("Find flags a possibly stale login")
     func staleFind() throws {
         let candidate = CredentialCandidate(id: UUID(), title: "Example", username: "synthetic",
