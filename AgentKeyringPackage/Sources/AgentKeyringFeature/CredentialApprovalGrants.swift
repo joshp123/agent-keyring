@@ -4,15 +4,7 @@ import Observation
 public struct CredentialApprovalScope: Hashable, Sendable {
     public let credentialID: UUID
     public let action: AgentBridgeAction
-    public let requesterIdentity: VerifiedRequesterIdentity?
-    let unverifiedRequestID: UUID?
 
-    init(credentialID: UUID, action: AgentBridgeAction, requesterIdentity: VerifiedRequesterIdentity?, unverifiedRequestID: UUID? = nil) {
-        self.credentialID = credentialID
-        self.action = action
-        self.requesterIdentity = requesterIdentity
-        self.unverifiedRequestID = unverifiedRequestID
-    }
 }
 
 public struct ActiveCredentialApprovalGrant: Identifiable, Sendable {
@@ -38,8 +30,8 @@ public final class CredentialApprovalGrants {
         }
     }
 
-    public func contains(_ credentialID: UUID, action: AgentBridgeAction, requesterIdentity: VerifiedRequesterIdentity) -> Bool {
-        let scope = CredentialApprovalScope(credentialID: credentialID, action: action, requesterIdentity: requesterIdentity)
+    public func contains(_ credentialID: UUID, action: AgentBridgeAction) -> Bool {
+        let scope = CredentialApprovalScope(credentialID: credentialID, action: action)
         guard let approval = approvals[scope] else { return false }
         guard approval.expiresAt > now() else {
             approvals.removeValue(forKey: scope)
@@ -48,8 +40,8 @@ public final class CredentialApprovalGrants {
         return true
     }
 
-    public func approve(_ credentialID: UUID, action: AgentBridgeAction, requesterIdentity: VerifiedRequesterIdentity, site: String, account: String) {
-        let scope = CredentialApprovalScope(credentialID: credentialID, action: action, requesterIdentity: requesterIdentity)
+    public func approve(_ credentialID: UUID, action: AgentBridgeAction, site: String, account: String) {
+        let scope = CredentialApprovalScope(credentialID: credentialID, action: action)
         approvals[scope] = ActiveCredentialApprovalGrant(id: scope, site: site, account: account,
             expiresAt: now().addingTimeInterval(30 * 60))
     }

@@ -23,11 +23,6 @@ public struct BrowserSigningRequirement: Sendable {
     public let bundleIdentifier: String
     public let teamIdentifier: String?
 
-    public init(bundleIdentifier: String, teamIdentifier: String?) {
-        self.bundleIdentifier = bundleIdentifier
-        self.teamIdentifier = teamIdentifier
-    }
-
     public var requirementText: String {
         let identity = "identifier \"\(bundleIdentifier)\""
         guard let teamIdentifier else { return identity + " and anchor apple" }

@@ -43,7 +43,6 @@ public final class CredentialApprovalCoordinator {
     public func authorize(
         credentialID: UUID,
         action: AgentBridgeAction = .acquire,
-        requesterIdentity: VerifiedRequesterIdentity?,
         authorizationDeadline: Date,
         approvalRequest: ApprovalRequest,
         cancelPrompt: @escaping () -> Void = {},
@@ -51,8 +50,7 @@ public final class CredentialApprovalCoordinator {
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
         prompt: @escaping @MainActor (@escaping () -> Void) async throws -> Void
     ) async throws {
-        let scope = CredentialApprovalScope(credentialID: credentialID, action: action, requesterIdentity: requesterIdentity,
-            unverifiedRequestID: requesterIdentity == nil ? approvalRequest.id : nil)
+        let scope = CredentialApprovalScope(credentialID: credentialID, action: action)
         if let approval = pending[scope] {
             pending[scope]?.observers.append(onProgress)
             onProgress(approval.progress)
@@ -64,7 +62,7 @@ public final class CredentialApprovalCoordinator {
                     throw CredentialReleaseAuthorizationError.expired
                 }
                 removePendingApproval(scope: scope, approvalID: approval.id)
-                try await authorize(credentialID: credentialID, action: action, requesterIdentity: requesterIdentity, authorizationDeadline: authorizationDeadline,
+                try await authorize(credentialID: credentialID, action: action, authorizationDeadline: authorizationDeadline,
                     approvalRequest: approvalRequest, cancelPrompt: cancelPrompt, onBlockLogin: onBlockLogin,
                     onProgress: onProgress, prompt: prompt)
             }

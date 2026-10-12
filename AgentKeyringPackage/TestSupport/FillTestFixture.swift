@@ -92,7 +92,6 @@ public struct FillTestFixture {
 
 private struct UnlockedFillSession: CredentialSessionLockState { var isLocked: Bool { false } }
 
-/// Synthetic identity for isolated policy tests. Never used by the app listener.
-public let syntheticVerifiedRequester = AgentRequester(name: "Fixture agent",
-    verifiedIdentity: VerifiedRequesterIdentity(signingIdentifier: "test.fixture.agent", teamIdentifier: "FIXTURE", signer: "Fixture"),
+/// Synthetic attribution for isolated policy tests. Never used by the app listener.
+public let syntheticRequester = AgentRequester(name: "Fixture agent",
     processIdentifier: 0, context: ApprovalRequesterContext(machineName: "Fixture Mac", workingDirectory: "/tmp", networkAddress: "192.0.2.1"))
