@@ -41,7 +41,7 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
     }
 
     public func signedBytesHash() throws -> Data? {
-        var query = try signedBytesHashQuery()
+        var query = signedBytesHashQuery()
         query[kSecReturnData as String] = true
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -51,7 +51,7 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
     }
 
     private func storeSignedBytesHash(_ hash: Data) throws {
-        let query = try signedBytesHashQuery()
+        let query = signedBytesHashQuery()
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: hash] as CFDictionary)
         if status == errSecItemNotFound {
             var attributes = query
@@ -62,13 +62,12 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
         } else if status != errSecSuccess { throw signingError(status) }
     }
 
-    private func signedBytesHashQuery() throws -> [String: Any] {
+    private func signedBytesHashQuery() -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "AgentKeyring.access-rules.signed-bytes.v1",
             kSecAttrAccount as String: "latest",
             kSecUseDataProtectionKeychain as String: true,
-            kSecAttrAccessGroup as String: try accessGroup(),
         ]
     }
 
@@ -89,7 +88,6 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
             kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
             kSecAttrApplicationTag as String: applicationTag,
-            kSecAttrAccessGroup as String: try accessGroup(),
             kSecUseDataProtectionKeychain as String: true,
             kSecReturnRef as String: true,
             kSecUseAuthenticationContext as String: lookupContext,
@@ -116,7 +114,6 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
             kSecPrivateKeyAttrs as String: [
                 kSecAttrIsPermanent as String: true,
                 kSecAttrApplicationTag as String: applicationTag,
-                kSecAttrAccessGroup as String: try accessGroup(),
                 kSecAttrAccessControl as String: accessControl,
             ],
         ]
@@ -124,14 +121,6 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
             throw error?.takeRetainedValue() as Error? ?? signingError(errSecInternalComponent)
         }
         return key
-    }
-
-    private func accessGroup() throws -> String {
-        guard let group = Bundle.main.object(forInfoDictionaryKey: "AccessRulesSigningAccessGroup") as? String,
-            !group.isEmpty, !group.contains("$(") else {
-            throw signingError(errSecMissingEntitlement)
-        }
-        return group
     }
 
     private func signingError(_ status: OSStatus) -> NSError {
