@@ -6,7 +6,11 @@ Written by AI on 2026.10.12 by model GPT-6 (Codex).
 
 Use a signed installation on the paired iPhone, with the extension's profile
 allowing the same CloudKit container and environment as the app and Mac.
-Open the phone app once so it saves the current mutable-content subscription.
+On a fresh schema, first follow the [initial setup order](iphone-approval-core.md#signed-device-checks-remaining):
+with the phone app closed, send a Mac request and wait for its CloudKit save.
+Then open or relaunch the phone app so it saves the mutable-content subscription.
+Both apps and the extension must use the same environment; pin `Production`
+once the schema is deployed.
 Enable notification previews and Time Sensitive Notifications for this check.
 
 1. With the phone locked and the Mac locked or sleeping, request a login from

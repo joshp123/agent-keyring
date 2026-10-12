@@ -8,7 +8,9 @@ Written by AI on 2026.10.12 by model GPT-6 (Codex).
    and **AgentKeyringPhone** from `AgentKeyringPhone.xcodeproj` on the physical
    iPhone, using the existing development team and provisioning. These unsigned
    proof builds are not installable device builds. Use the same iCloud account
-   and CloudKit environment on both devices.
+   and CloudKit environment on both devices and the notification extension.
+   Once the schema is deployed, pin `Production` in all three targets.
+   For a fresh schema, keep the phone app closed until the Mac is ready to pair.
 2. Open the Mac app's main window. If **Add iPhone** is disabled because the
    access rules need confirmation, open **Access Rules…** and confirm those
    rules through the existing authentication prompt first.
@@ -26,7 +28,13 @@ Written by AI on 2026.10.12 by model GPT-6 (Codex).
 6. Before the code expires, click **Add iPhone with Touch ID** on the Mac and
    complete the existing signed-store authentication. The sheet says
    **iPhone added.** and the main window lists the phone. Click **Done**.
-7. To revoke it, click **Remove iPhone** beside its name in the same Mac window
+7. For the first notification run, close the phone app, lock the Mac, and send
+   an agent login request. Wait until the Mac saves `ApprovalRequest` to
+   CloudKit, then relaunch the phone so its subscription can be saved against
+   the existing record type. Send a new request to test notification delivery.
+   A subscription attempt before the type exists may fail; pairing itself
+   does not need that subscription.
+8. To revoke it, click **Remove iPhone** beside its name in the same Mac window
    and complete the signed-store authentication. The phone disappears from the
    list and its key is no longer trusted for approval decisions.
 

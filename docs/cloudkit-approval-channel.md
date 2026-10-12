@@ -63,6 +63,10 @@ credential-provider extension does not. The notification service extension has o
 CloudKit service entitlements. Unsigned compilation does not prove CloudKit access. Configure the container and signed profiles, deploy the
 encrypted schema to production, and validate delivery on Josh's devices later.
 Encrypted fields must be encrypted from their first creation in the schema.
+The Mac, phone app and notification extension must all use the same CloudKit
+environment. After deploying the schema, pin their iCloud container environment
+to `Production` with matching signed profiles. For a fresh schema, save a Mac
+request before the phone saves its subscription so `ApprovalRequest` exists.
 
 Every completion attempts deletion of both records, and routing waits for
 those attempts before returning. A CloudKit outage can prevent deletion;
