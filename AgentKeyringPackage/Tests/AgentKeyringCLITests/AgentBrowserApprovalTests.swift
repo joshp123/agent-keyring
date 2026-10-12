@@ -72,7 +72,7 @@ private final class BrowserApprovalFixture {
     var appTasks: [Task<Void, Never>] = []
     private(set) lazy var bridge = AgentBridgeDirectory(rootURL: root)
     private(set) lazy var accessControl = CredentialAccessController(
-        store: CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("policies.json")))
+        store: CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner()))
     private lazy var processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl,
         grants: grants, approvals: CredentialApprovalCoordinator(lockState: BrowserUnlockedSession()))
     private lazy var generation = MirrorGeneration(id: UUID(), previousGenerationID: nil,

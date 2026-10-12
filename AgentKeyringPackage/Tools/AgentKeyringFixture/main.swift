@@ -100,7 +100,8 @@ struct AgentKeyringFixture {
         do {
             let configuration = try FixtureConfiguration.load()
             let policyStore = CredentialAccessPolicyStore(
-                fileURL: bridge.rootURL.appendingPathComponent("fixture-policies.json")
+                fileURL: bridge.rootURL.appendingPathComponent("fixture-policies.json"),
+                signer: FakeAccessRulesSigner()
             )
             let generation = try configuration.generation()
             try await policyStore.save([FixtureConfiguration.credentialID: configuration.policy ?? .ask])

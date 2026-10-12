@@ -44,7 +44,7 @@ struct MirrorDiscoveryTests {
         settings.set(false, forKey: "includeExampleCredential")
         let model = MirrorAppModel(store: store, bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
-                fileURL: directory.appendingPathComponent("policies.json"))),
+                fileURL: directory.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner())),
             settings: settings)
         await model.loadStatus()
         #expect(model.status == generation.safeStatus)

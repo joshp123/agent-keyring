@@ -42,14 +42,18 @@ public actor CredentialAccessPolicyStore {
     }
 
     public let fileURL: URL
+    public var signatureURL: URL { fileURL.appendingPathExtension("signature") }
     private let fileManager: FileManager
+    private let signer: any AccessRulesSigning
 
     public init(
         fileURL: URL = CredentialAccessPolicyStore.defaultFileURL(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        signer: any AccessRulesSigning = SecureEnclaveAccessRulesSigner()
     ) {
         self.fileURL = fileURL
         self.fileManager = fileManager
+        self.signer = signer
     }
 
     public static func defaultFileURL(fileManager: FileManager = .default) -> URL {
@@ -83,7 +87,7 @@ public actor CredentialAccessPolicyStore {
         return policies
     }
 
-    public func save(_ policies: [UUID: CredentialAccessPolicy]) throws {
+    public func save(_ policies: [UUID: CredentialAccessPolicy]) async throws {
         let directoryURL = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
             at: directoryURL,
@@ -106,10 +110,20 @@ public actor CredentialAccessPolicyStore {
         if fileManager.fileExists(atPath: fileURL.path) {
             try validateOwnedRegularFile(fileURL)
         }
-        try encoder.encode(contents).write(to: fileURL, options: [.atomic])
+        let bytes = try encoder.encode(contents)
+        let signature = try await signer.sign(bytes)
+        if fileManager.fileExists(atPath: signatureURL.path) {
+            try validateOwnedRegularFile(signatureURL)
+        }
+        try bytes.write(to: fileURL, options: [.atomic])
         try fileManager.setAttributes(
             [.posixPermissions: 0o600],
             ofItemAtPath: fileURL.path
+        )
+        try signature.write(to: signatureURL, options: [.atomic])
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: signatureURL.path
         )
     }
 

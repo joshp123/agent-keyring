@@ -60,7 +60,7 @@ private struct Fixture {
             keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x5A, count: 32))),
             bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
-                fileURL: directory.appendingPathComponent("policies.json"))),
+                fileURL: directory.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner())),
             settings: UserDefaults(suiteName: settingsName)!)
     }
 

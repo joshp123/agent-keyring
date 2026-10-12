@@ -161,6 +161,36 @@ struct CredentialAccessPolicyTests {
             try await fixture.store.load()
         }
     }
+
+    @Test("Every save signs the exact stored bytes and keeps the signature owner-only")
+    func signedSave() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        let store = fixture.store
+        for policy in [CredentialAccessPolicy.block, .allowAutomatically, .ask] {
+            try await store.save([UUID(): policy])
+            let bytes = try Data(contentsOf: fixture.fileURL)
+            let signatureURL = await store.signatureURL
+            #expect(try FakeAccessRulesSigner().verify(Data(contentsOf: signatureURL), for: bytes))
+            let attributes = try FileManager.default.attributesOfItem(atPath: signatureURL.path)
+            #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        }
+    }
+
+    @Test("Cancelled signing leaves the previously saved rules and signature intact")
+    func cancelledSave() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        try await fixture.store.save([UUID(): .block])
+        let bytes = try Data(contentsOf: fixture.fileURL)
+        let signatureURL = await fixture.store.signatureURL
+        let signature = try Data(contentsOf: signatureURL)
+        let store = CredentialAccessPolicyStore(fileURL: fixture.fileURL,
+            signer: FakeAccessRulesSigner(refusesSigning: true))
+        await #expect(throws: CocoaError.self) { try await store.save([UUID(): .allowAutomatically]) }
+        #expect(try Data(contentsOf: fixture.fileURL) == bytes)
+        #expect(try Data(contentsOf: signatureURL) == signature)
+    }
 }
 
 private struct Fixture {
@@ -172,7 +202,7 @@ private struct Fixture {
     }
 
     var store: CredentialAccessPolicyStore {
-        CredentialAccessPolicyStore(fileURL: fileURL)
+        CredentialAccessPolicyStore(fileURL: fileURL, signer: FakeAccessRulesSigner())
     }
 
     func remove() {

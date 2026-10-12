@@ -387,7 +387,7 @@ private struct ReleaseFixture {
             "records": [["credentialID": credentialID.uuidString, "policy": policy.rawValue]],
         ]
         try JSONSerialization.data(withJSONObject: contents).write(to: policyURL)
-        accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL))
+        accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL, signer: FakeAccessRulesSigner()))
         grants = CredentialApprovalGrants(now: now)
         processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl, grants: grants,
             approvals: CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState()), now: now)
