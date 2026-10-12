@@ -4,165 +4,267 @@ import Foundation
 import Testing
 @testable import AgentKeyringFeature
 
-@Suite("Requester signatures")
-struct AgentRequesterSignatureTests {
-    @Test("Apple-signed code verifies its designated requirement, but cannot impersonate Claude")
-    func signedBinary() throws {
-        let binary = URL(fileURLWithPath: "/usr/bin/true")
-        let identity = try #require(RequesterCodeSignature.verify(executableURL: binary))
-        #expect(identity.signer == "Apple")
-        #expect(identity.teamIdentifier == nil)
-        #expect(RequesterCodeSignature.verify(executableURL: binary, name: "Claude Code") == nil)
-    }
-
-    @Test("A live Apple-signed process verifies through SecCode")
-    func signedProcess() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
-        process.arguments = ["30"]
-        try process.run()
-        defer { process.terminate(); process.waitUntilExit() }
-        #expect(RequesterCodeSignature.verify(processIdentifier: process.processIdentifier, name: "sleep")?.signer == "Apple")
-    }
-
-    @Test("Ad hoc binaries and unsigned scripts stay unverified")
-    func unsignedFixtures() throws {
-        let root = URL(fileURLWithPath: "/tmp/ak-signatures-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("agent.c")
-        let binary = root.appendingPathComponent("claude")
-        let script = root.appendingPathComponent("pi")
-        try Data("int main(void) { return 0; }\n".utf8).write(to: source)
-        try run("/usr/bin/clang", [source.path, "-o", binary.path])
-        try run("/usr/bin/codesign", ["--force", "--sign", "-", binary.path])
-        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: script)
-        #expect(RequesterCodeSignature.verify(executableURL: binary, name: "Claude Code") == nil)
-        #expect(RequesterCodeSignature.verify(executableURL: script, name: "pi") == nil)
-    }
-
-    @Test("Verification stops at a script runtime below a signed agent")
-    func interpreterBoundary() throws {
+@Suite("Harness attribution")
+struct AgentRequesterAttributionTests {
+    @Test("The socket peer's ancestry supplies the harness, session and folder", arguments: ["claude", "codex"])
+    func harnessAncestor(executable: String) throws {
         let tree: [pid_t: (executablePath: String, parentPID: pid_t)] = [
-            100: ("/bin/zsh", 101), 101: ("/usr/bin/python3", 102), 102: ("/opt/bin/codex", 1),
+            100: ("/opt/bin/agent-keyring", 101), 101: ("/bin/zsh", 102),
+            102: ("/usr/bin/python3", 103), 103: ("/opt/bin/\(executable)", 1),
         ]
-        let ancestor = try #require(AgentDisplayLabel.firstAgentAncestor(startingPID: 100,
-            skipInterpreters: false, processInfo: { tree[$0] }))
-        #expect(ancestor.processIdentifier == 101)
+        let start = HarnessProcessStartTime(seconds: 1_000, microseconds: 123)
+        let requester = AgentRequester.attribution(peerProcessIdentifier: 100, processInfo: { tree[$0] },
+            startTime: { pid in #expect(pid == 103); return start },
+            folder: { pid in #expect(pid == 103); return "/fixture/project" })
+        #expect(requester.name == (executable == "claude" ? "Claude Code" : "Codex"))
+        #expect(requester.displayLabel == requester.name)
+        #expect(requester.session == HarnessSession(processIdentifier: 103, processStartTime: start))
+        #expect(requester.workingDirectory == "/fixture/project")
     }
 
-    private func run(_ executable: String, _ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        #expect(process.terminationStatus == 0)
+    @Test("A process that changes during attribution cannot receive a reusable session grant")
+    func unstableProcess() {
+        var reads = 0
+        let requester = AgentRequester.attribution(peerProcessIdentifier: 100,
+            processInfo: { _ in ("/opt/bin/claude", 1) }, startTime: { _ in
+                reads += 1
+                return HarnessProcessStartTime(seconds: UInt64(reads), microseconds: 0)
+            }, folder: { _ in "/fixture" })
+        #expect(requester.session == nil)
+    }
+
+    @Test("Phone records contain signed harness attribution, with host details only in activity", arguments: ["pid", "seconds", "microseconds", "folder"])
+    func signedAttribution(changedField: String) throws {
+        let request = try ApprovalRequest(agentDisplayLabel: syntheticRequester.displayLabel, site: "example.com",
+            account: "fixture", field: .password, action: .fill, requesterContext: syntheticRequester.approvalContext)
+        let record = ApprovalCloudRecords.request(request)
+        let fields = try #require(ApprovalCloudRecords.signedFields(from: record))
+        #expect(fields == request.signedFields)
+        #expect(fields.notificationTitle.contains("Fixture agent"))
+        #expect(fields.notificationBody.contains("/tmp"))
+        #expect(!fields.notificationBody.contains(syntheticRequester.machineName))
+        #expect(!fields.notificationBody.contains(syntheticRequester.networkAddress!))
+        #expect(record.encryptedValues["machineName"] == nil && record.encryptedValues["networkAddress"] == nil)
+        let session = try #require(syntheticRequester.session)
+        let changedSession = HarnessSession(processIdentifier: session.processIdentifier + (changedField == "pid" ? 1 : 0),
+            processStartTime: HarnessProcessStartTime(seconds: session.processStartTime.seconds + (changedField == "seconds" ? 1 : 0),
+                microseconds: session.processStartTime.microseconds + (changedField == "microseconds" ? 1 : 0)))
+        let changed = ApprovalSignedFields(requestID: fields.requestID, agentDisplayLabel: fields.agentDisplayLabel,
+            site: fields.site, account: fields.account, field: fields.field, action: fields.action,
+            oneTimeValue: fields.oneTimeValue, expiresAt: fields.expiresAt,
+            requesterContext: ApprovalRequesterContext(session: changedSession,
+                workingDirectory: changedField == "folder" ? "/elsewhere" : "/tmp"))
+        #expect(fields.canonicalBytes(for: .approve) != changed.canonicalBytes(for: .approve))
+        let activity = AgentRequestActivity(requestID: request.id, action: .fill, requester: syntheticRequester,
+            completedAt: Date(), succeeded: true, error: nil)
+        #expect(activity.requester.machineName == "Fixture Mac")
+        #expect(activity.requester.networkAddress == "192.0.2.1")
     }
 }
 
 @MainActor
-@Suite("Requester approval boundaries")
+@Suite("Harness session approval boundaries")
 struct AgentRequesterPolicyTests {
-    private let unverified = AgentRequester(name: "Claude Code", verifiedIdentity: nil, processIdentifier: 0,
-        context: ApprovalRequesterContext(machineName: "Fixture Mac", workingDirectory: "/tmp", networkAddress: nil))
-
-    @Test("Automatic release needs explicit approval on every unverified request", arguments: [AgentCredentialField.password, .username],
-        [CredentialAccessPolicy.allowAutomatically, .ask])
-    func unverifiedAlwaysAsks(field: AgentCredentialField, policy: CredentialAccessPolicy) async throws {
-        let fixture = try FillTestFixture(policy: policy,
+    @Test("Allow automatically releases without a prompt, including unavailable session attribution", arguments: [AgentCredentialField.password, .username], [true, false])
+    func automaticRelease(field: AgentCredentialField, knownSession: Bool) async throws {
+        let fixture = try FillTestFixture(policy: .allowAutomatically,
             filler: FakeCredentialFiller(inspection: fillInspection(focusedSubrole: field == .password ? "AXSecureTextField" : nil)))
         defer { fixture.cleanUp() }
-        fixture.grants.approve(fixture.generation.items[0].id, action: .fill,
-            requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!, site: "example.com", account: "fixture")
-        var approvals = 0
-        for _ in 0..<2 {
-            let response = try await fixture.processor.release(request: fixture.request(field: field), requester: unverified,
-                generation: fixture.generation, authorize: { _, started in approvals += 1; started() })
-            #expect(response.ok)
-        }
-        #expect(approvals == 2)
-        #expect(fixture.grants.active.count == 1) // Only the pre-existing verified grant.
-        #expect(fixture.filler.typedValues.count == 2)
-        #expect(unverified.displayLabel == "Claude Code, unverified")
-    }
-
-    @Test("Declining an unverified automatic request releases nothing")
-    func unverifiedDenied() async throws {
-        let fixture = try FillTestFixture(policy: .allowAutomatically)
-        defer { fixture.cleanUp() }
-        await #expect(throws: CredentialReleaseAuthorizationError.denied) {
-            try await fixture.processor.release(request: fixture.request(), requester: unverified, generation: fixture.generation,
-                authorize: { _, _ in throw CredentialReleaseAuthorizationError.denied })
-        }
-        #expect(fixture.filler.typedValues.isEmpty)
+        let requester = knownSession ? syntheticRequester : requesterWithoutStartTime()
+        let response = try await fixture.processor.release(request: fixture.request(field: field), requester: requester,
+            generation: fixture.generation, authorize: { _, _ in Issue.record("Automatic release prompted") })
+        #expect(response.ok && fixture.filler.typedValues.count == 1)
         #expect(fixture.grants.active.isEmpty)
     }
 
-    @Test("One verified agent's approval never covers another's grant")
-    func grantsStayWithRequester() async throws {
+    @Test("The same harness name does not share grants between sessions or reused PIDs", arguments: ["pid", "seconds", "microseconds"])
+    func grantsStayWithSession(changedField: String) async throws {
         let fixture = try FillTestFixture(policy: .ask)
         defer { fixture.cleanUp() }
-        let other = AgentRequester(name: "Another agent", verifiedIdentity: VerifiedRequesterIdentity(
-            signingIdentifier: "test.fixture.other", teamIdentifier: "FIXTURE", signer: "Fixture"), processIdentifier: 0,
-            context: syntheticVerifiedRequester.context)
+        let other = anotherSession(changedField: changedField)
         var prompts = 0
-        for requester in [syntheticVerifiedRequester, other, syntheticVerifiedRequester, other] {
-            _ = try await fixture.processor.release(request: fixture.request(), requester: requester, generation: fixture.generation,
-                authorize: { _, started in prompts += 1; started() })
+        for requester in [syntheticRequester, other, syntheticRequester, other] {
+            let response = try await fixture.processor.release(request: fixture.request(), requester: requester,
+                generation: fixture.generation, authorize: { _, started in prompts += 1; started() })
+            #expect(response.ok)
         }
-        #expect(prompts == 2)
-        #expect(fixture.grants.active.count == 2)
+        #expect(prompts == 2 && fixture.grants.active.count == 2)
+        #expect(fixture.filler.typedValues.count == 4)
     }
 
-    @Test("Concurrent identities have separate prompts", arguments: [true, false])
-    func pendingIdentitiesStaySeparate(verified: Bool) async throws {
+    @Test("Ask without a process start time requires approval for each request")
+    func unknownSessionAsks() async throws {
+        let fixture = try FillTestFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        var prompts = 0
+        for _ in 0..<2 {
+            _ = try await fixture.processor.release(request: fixture.request(), requester: requesterWithoutStartTime(),
+                generation: fixture.generation, authorize: { _, started in prompts += 1; started() })
+        }
+        #expect(prompts == 2 && fixture.grants.active.isEmpty)
+    }
+
+    @Test("Different sessions join a pending approval for the same login")
+    func differentSessionsJoin() async throws {
+        let fixture = try FillTestFixture(policy: .ask)
+        defer { fixture.cleanUp() }
         let coordinator = CredentialApprovalCoordinator(lockState: RequesterUnlockedSession())
-        let login = UUID()
-        let firstIdentity = verified ? syntheticVerifiedRequester.verifiedIdentity : nil
-        let secondIdentity = verified ? VerifiedRequesterIdentity(signingIdentifier: "other", teamIdentifier: "FIXTURE", signer: "Fixture") : nil
-        var firstPrompt: CheckedContinuation<Void, Never>?
+        let processor = processor(fixture, coordinator: coordinator)
+        var finish: CheckedContinuation<Void, Never>?
         var prompts = 0
         let first = Task {
-            try await coordinator.authorize(credentialID: login, requesterIdentity: firstIdentity,
-                authorizationDeadline: Date().addingTimeInterval(60), approvalRequest: approvalRequest()) { started in
+            try await processor.release(request: fixture.request(), requester: syntheticRequester, generation: fixture.generation,
+                authorize: { _, started in
                     prompts += 1; started()
-                    await withCheckedContinuation { firstPrompt = $0 }
-                }
+                    await withCheckedContinuation { finish = $0 }
+                })
         }
-        while firstPrompt == nil { await Task.yield() }
+        try await requesterEventually { finish != nil }
+        var joined = false
         let second = Task {
-            try await coordinator.authorize(credentialID: login, requesterIdentity: secondIdentity,
-                authorizationDeadline: Date().addingTimeInterval(60), approvalRequest: approvalRequest()) { started in
-                    prompts += 1; started()
-                }
+            try await processor.release(request: fixture.request(), requester: anotherSession(changedField: "pid"),
+                generation: fixture.generation, onProgress: { _ in joined = true },
+                authorize: { _, _ in Issue.record("Joined session prompted separately") })
         }
-        for _ in 0..<20 { await Task.yield() }
-        firstPrompt?.resume()
-        try await first.value
-        try await second.value
-        #expect(prompts == 2)
+        try await requesterEventually { joined }
+        #expect(prompts == 1 && fixture.filler.typedValues.isEmpty)
+        finish?.resume()
+        #expect(try await first.value.ok)
+        #expect(try await second.value.ok)
+        #expect(fixture.grants.active.count == 2 && fixture.filler.typedValues.count == 2)
     }
 
-    @Test("Machine context survives CloudKit and is covered by the phone signature")
-    func signedMachineContext() throws {
-        let request = try ApprovalRequest(agentDisplayLabel: syntheticVerifiedRequester.displayLabel, site: "example.com",
-            account: "fixture", field: .password, action: .fill, requesterContext: syntheticVerifiedRequester.context)
-        let fields = try #require(ApprovalCloudRecords.signedFields(from: ApprovalCloudRecords.request(request)))
-        #expect(fields == request.signedFields)
-        #expect(fields.notificationBody.contains("Fixture Mac"))
-        let changed = ApprovalSignedFields(requestID: fields.requestID, agentDisplayLabel: fields.agentDisplayLabel,
-            site: fields.site, account: fields.account, field: fields.field, action: fields.action,
-            oneTimeValue: fields.oneTimeValue, expiresAt: fields.expiresAt,
-            requesterContext: ApprovalRequesterContext(machineName: "Another Mac", workingDirectory: "/tmp", networkAddress: "192.0.2.1"))
-        #expect(fields.canonicalBytes(for: .approve) != changed.canonicalBytes(for: .approve))
+    @Test("A session queues in order and reuses the grant when each request's turn begins")
+    func sessionQueue() async throws {
+        let fixture = try FillTestFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        let coordinator = CredentialApprovalCoordinator(lockState: RequesterUnlockedSession())
+        let processor = processor(fixture, coordinator: coordinator)
+        let session = try #require(syntheticRequester.session)
+        var finish: CheckedContinuation<Void, Never>?
+        var prompts = 0
+        var completionOrder: [Int] = []
+        let first = Task {
+            let response = try await processor.release(request: fixture.request(), requester: syntheticRequester,
+                generation: fixture.generation, authorize: { _, started in
+                    prompts += 1; started()
+                    await withCheckedContinuation { finish = $0 }
+                })
+            completionOrder.append(1)
+            return response
+        }
+        try await requesterEventually { finish != nil }
+        let second = Task {
+            let response = try await processor.release(request: fixture.request(), requester: syntheticRequester,
+                generation: fixture.generation, authorize: { _, _ in Issue.record("Queued request missed the new grant") })
+            completionOrder.append(2)
+            return response
+        }
+        try await requesterEventually { coordinator.sessionRequests.waitingCount(for: session) == 1 }
+        let third = Task {
+            let response = try await processor.release(request: fixture.request(), requester: syntheticRequester,
+                generation: fixture.generation, authorize: { _, _ in Issue.record("Queued request missed the new grant") })
+            completionOrder.append(3)
+            return response
+        }
+        try await requesterEventually { coordinator.sessionRequests.waitingCount(for: session) == 2 }
+        #expect(fixture.filler.inspectCount == 1 && fixture.filler.typedValues.isEmpty)
+        finish?.resume()
+        #expect(try await first.value.ok)
+        #expect(try await second.value.ok)
+        #expect(try await third.value.ok)
+        #expect(completionOrder == [1, 2, 3])
+        #expect(prompts == 1)
+        #expect(fixture.filler.typedValues.count == 3)
     }
 
-    private func approvalRequest() throws -> ApprovalRequest {
-        try ApprovalRequest(agentDisplayLabel: "Fixture", site: "example.com", account: "fixture", field: .password, action: .fill)
+    @Test("A denied request frees the session for its next approval")
+    func denialUnblocksQueue() async throws {
+        let fixture = try FillTestFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        let coordinator = CredentialApprovalCoordinator(lockState: RequesterUnlockedSession())
+        let processor = processor(fixture, coordinator: coordinator)
+        var finish: CheckedContinuation<Void, Never>?
+        let first = Task {
+            try await processor.release(request: fixture.request(), requester: syntheticRequester, generation: fixture.generation,
+                authorize: { _, started in
+                    started()
+                    await withCheckedContinuation { finish = $0 }
+                    throw CredentialReleaseAuthorizationError.denied
+                })
+        }
+        try await requesterEventually { finish != nil }
+        var prompted = false
+        let second = Task {
+            try await processor.release(request: fixture.request(), requester: syntheticRequester, generation: fixture.generation,
+                authorize: { _, started in prompted = true; started() })
+        }
+        try await requesterEventually { coordinator.sessionRequests.waitingCount(for: syntheticRequester.session!) == 1 }
+        #expect(!prompted)
+        finish?.resume()
+        await #expect(throws: CredentialReleaseAuthorizationError.denied) { try await first.value }
+        #expect(try await second.value.ok)
+        #expect(prompted && fixture.filler.typedValues.count == 1)
     }
+
+    @Test("Cancelled and expired queued requests never prompt or release", arguments: [true, false])
+    func abandonQueuedRequest(cancel: Bool) async throws {
+        let fixture = try FillTestFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        let coordinator = CredentialApprovalCoordinator(lockState: RequesterUnlockedSession())
+        let processor = processor(fixture, coordinator: coordinator)
+        var finish: CheckedContinuation<Void, Never>?
+        let first = Task {
+            try await processor.release(request: fixture.request(), requester: syntheticRequester, generation: fixture.generation,
+                authorize: { _, started in started(); await withCheckedContinuation { finish = $0 } })
+        }
+        try await requesterEventually { finish != nil }
+        let request = AgentBridgeRequest(createdAt: Date().addingTimeInterval(cancel ? 0 : -599.7),
+            action: .fill, targetURL: "https://example.com", field: .password)
+        let second = Task {
+            try await processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
+                authorize: { _, _ in Issue.record("Abandoned queued request prompted") })
+        }
+        try await requesterEventually { coordinator.sessionRequests.waitingCount(for: syntheticRequester.session!) == 1 }
+        if cancel {
+            second.cancel()
+            await #expect(throws: CancellationError.self) { try await second.value }
+        } else {
+            await #expect(throws: CredentialReleaseAuthorizationError.expired) { try await second.value }
+        }
+        #expect(coordinator.sessionRequests.waitingCount(for: syntheticRequester.session!) == 0)
+        #expect(fixture.filler.inspectCount == 1 && fixture.filler.typedValues.isEmpty)
+        finish?.resume()
+        #expect(try await first.value.ok)
+        #expect(fixture.filler.typedValues.count == 1)
+    }
+
+    private func processor(_ fixture: FillTestFixture, coordinator: CredentialApprovalCoordinator) -> AgentCredentialReleaseProcessor {
+        AgentCredentialReleaseProcessor(accessControl: fixture.accessControl, grants: fixture.grants,
+            approvals: coordinator, filler: fixture.filler)
+    }
+
+    private func anotherSession(changedField: String) -> AgentRequester {
+        let start = syntheticRequester.processStartTime!
+        return AgentRequester(name: syntheticRequester.name,
+            processIdentifier: syntheticRequester.processIdentifier + (changedField == "pid" ? 1 : 0),
+            processStartTime: HarnessProcessStartTime(seconds: start.seconds + (changedField == "seconds" ? 1 : 0),
+                microseconds: start.microseconds + (changedField == "microseconds" ? 1 : 0)),
+            workingDirectory: syntheticRequester.workingDirectory, machineName: syntheticRequester.machineName,
+            networkAddress: syntheticRequester.networkAddress)
+    }
+
+    private func requesterWithoutStartTime() -> AgentRequester {
+        AgentRequester(name: "Claude Code", processIdentifier: 100, processStartTime: nil,
+            workingDirectory: "/tmp", machineName: "Fixture Mac", networkAddress: nil)
+    }
+}
+
+@MainActor
+private func requesterEventually(_ condition: () -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(1)) }
+    try #require(condition())
 }
 
 private struct RequesterUnlockedSession: CredentialSessionLockState { var isLocked: Bool { false } }

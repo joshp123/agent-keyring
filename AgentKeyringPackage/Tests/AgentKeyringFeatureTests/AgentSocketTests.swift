@@ -16,7 +16,7 @@ struct AgentSocketTests {
     func roundTrip() async throws {
         let bridge = temporaryBridge()
         defer { try? FileManager.default.removeItem(at: bridge.rootURL) }
-        let request = AgentBridgeRequest(callerPID: 1, agentDisplayLabel: "Claude Code, verified (Anthropic)", action: .status)
+        let request = AgentBridgeRequest(callerPID: 1, agentDisplayLabel: "Forged harness", action: .status)
         let progress = AgentApprovalProgress(waitingSince: request.createdAt, askedAt: request.createdAt, phase: .awaitingApproval)
         var receivedRequester: AgentRequester?
         let server = try AgentBridgeServer(bridge: bridge) { received, peer, publish in
@@ -27,10 +27,10 @@ struct AgentSocketTests {
             let requester = AgentRequester.from(peer: peer)
             receivedRequester = requester
             #expect(requester.processIdentifier == peer.processIdentifier)
-            #expect(requester.verifiedIdentity == nil)
+            #expect(requester.processStartTime == AgentRequester.processStartTime(peer.processIdentifier))
             #expect(requester.displayLabel != received.agentDisplayLabel)
-            #expect(!requester.context.machineName.isEmpty)
-            #expect(requester.context.workingDirectory == FileManager.default.currentDirectoryPath)
+            #expect(!requester.machineName.isEmpty)
+            #expect(requester.workingDirectory == FileManager.default.currentDirectoryPath)
             publish(progress)
             return AgentBridgeResponse(id: received.id, ok: true, message: "Socket receipt", approvalProgress: progress)
         }

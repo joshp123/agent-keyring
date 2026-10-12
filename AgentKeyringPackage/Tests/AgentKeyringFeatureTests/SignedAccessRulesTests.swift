@@ -193,10 +193,10 @@ struct SignedAccessRulesTests {
         let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
 
         let grants = CredentialApprovalGrants()
-        grants.approve(fixture.loginID, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!, site: "example.com", account: "synthetic@example.com")
+        grants.approve(fixture.loginID, action: .acquire, session: syntheticRequester.session!, site: "example.com", account: "synthetic@example.com")
         let processor = AgentCredentialReleaseProcessor(accessControl: activeController, grants: grants)
         do {
-            _ = try await processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            _ = try await processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Untrusted rules started an approval") })
             Issue.record("Untrusted rules released a credential")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .rulesNeedConfirmation) }
@@ -243,7 +243,7 @@ struct SignedAccessRulesTests {
         let processor = AgentCredentialReleaseProcessor(accessControl: controller,
             approvals: CredentialApprovalCoordinator(lockState: SignedRulesUnlockedSession()))
         do {
-            _ = try await processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation, authorize: { _, _ in
+            _ = try await processor.release(request: request, requester: syntheticRequester, generation: fixture.generation, authorize: { _, _ in
                 var bytes = try Data(contentsOf: fixture.fileURL)
                 bytes.append(0x20)
                 try bytes.write(to: fixture.fileURL)

@@ -16,7 +16,7 @@ struct CredentialRetentionTests {
         let request = fixture.request()
 
         do {
-            let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            let response = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { approval, _ in
                     approvals += 1
                     #expect(approval.expirationSeconds == nil)
@@ -50,7 +50,7 @@ struct CredentialRetentionTests {
         for field in [AgentCredentialField.password, .username, .totp, .password] {
             let request = fixture.request(field: field)
 
-            let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            let response = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, _ in approvals += 1 })
             #expect(response.ok)
             CredentialTransfer.clear(requestID: request.id)
@@ -60,7 +60,7 @@ struct CredentialRetentionTests {
         let retry = fixture.request()
         defer { CredentialTransfer.clear(requestID: retry.id) }
 
-        _ = try await fixture.processor.release(request: retry, requester: syntheticVerifiedRequester, generation: fixture.generation,
+        _ = try await fixture.processor.release(request: retry, requester: syntheticRequester, generation: fixture.generation,
             authorize: { _, _ in approvals += 1 })
         #expect(approvals == 2)
     }
@@ -69,11 +69,11 @@ struct CredentialRetentionTests {
     func blockedGrant() async throws {
         let fixture = try ReleaseFixture(policy: .block)
         defer { fixture.cleanUp() }
-        fixture.grants.approve(fixture.generation.items[0].id, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!, site: "example.com", account: "synthetic@example.com")
+        fixture.grants.approve(fixture.generation.items[0].id, action: .acquire, session: syntheticRequester.session!, site: "example.com", account: "synthetic@example.com")
         let request = fixture.request()
 
         do {
-            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Blocked login prompted") })
             Issue.record("Blocked login released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .policyDenied) }
@@ -93,10 +93,10 @@ struct CredentialRetentionTests {
             CredentialTransfer.clear(requestID: first.id)
             CredentialTransfer.clear(requestID: second.id)
         }
-        let firstTask = Task { try await fixture.processor.release(request: first, requester: syntheticVerifiedRequester, generation: fixture.generation,
+        let firstTask = Task { try await fixture.processor.release(request: first, requester: syntheticRequester, generation: fixture.generation,
             authorize: { try await authorizer.authorize($0, onPromptStarted: $1) }) }
         while authorizer.requests.isEmpty { await Task.yield() }
-        let secondTask = Task { try await fixture.processor.release(request: second, requester: syntheticVerifiedRequester, generation: fixture.generation,
+        let secondTask = Task { try await fixture.processor.release(request: second, requester: syntheticRequester, generation: fixture.generation,
             authorize: { try await authorizer.authorize($0, onPromptStarted: $1) }) }
         for _ in 0..<20 { await Task.yield() }
         #expect(authorizer.requests.count == 1)
@@ -106,7 +106,7 @@ struct CredentialRetentionTests {
         let retry = fixture.request()
 
         defer { CredentialTransfer.clear(requestID: retry.id) }
-        #expect(try await fixture.processor.release(request: retry, requester: syntheticVerifiedRequester, generation: fixture.generation,
+        #expect(try await fixture.processor.release(request: retry, requester: syntheticRequester, generation: fixture.generation,
             authorize: { _, _ in Issue.record("Retry prompted after approval") }).ok)
     }
 
@@ -118,7 +118,7 @@ struct CredentialRetentionTests {
             callerPID: -1, action: .acquire, targetURL: "https://example.com", field: .password)
         defer { CredentialTransfer.clear(requestID: request.id) }
 
-        let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+        let response = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
             authorize: { approval, _ in #expect(approval.authorizationDeadline == request.expiresAt) })
         #expect(response.ok)
     }
@@ -131,7 +131,7 @@ struct CredentialRetentionTests {
             action: .acquire, targetURL: "https://example.com", field: .password)
 
         do {
-            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Expired request prompted") })
             Issue.record("Expired request released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
@@ -146,20 +146,20 @@ struct CredentialRetentionTests {
         let request = fixture.request()
 
         do {
-            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, onPromptStarted in
                     onPromptStarted()
                     now = request.expiresAt
                 })
             Issue.record("Expired request released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
-        #expect(fixture.grants.contains(fixture.generation.items[0].id, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!))
+        #expect(fixture.grants.contains(fixture.generation.items[0].id, action: .acquire, session: syntheticRequester.session!))
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
         let retry = AgentBridgeRequest(createdAt: now, action: .acquire,
             targetURL: "https://example.com", field: .password)
 
         defer { CredentialTransfer.clear(requestID: retry.id) }
-        let response = try await fixture.processor.release(request: retry, requester: syntheticVerifiedRequester, generation: fixture.generation,
+        let response = try await fixture.processor.release(request: retry, requester: syntheticRequester, generation: fixture.generation,
             authorize: { _, _ in Issue.record("Boundary approval was lost") })
         #expect(response.ok)
     }
@@ -171,7 +171,7 @@ struct CredentialRetentionTests {
         defer { fixture.cleanUp() }
         let request = fixture.request()
         do {
-            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester,
+            _ = try await fixture.processor.release(request: request, requester: syntheticRequester,
                 generation: fixture.generation, authorize: { _, _ in now = request.expiresAt })
             Issue.record("Expired request was released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
@@ -186,7 +186,7 @@ struct CredentialRetentionTests {
 
         var approvals = 0
         do {
-            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, _ in
                     approvals += 1
                     throw CredentialReleaseAuthorizationError.denied
@@ -266,7 +266,7 @@ struct CredentialRetentionTests {
         let request = fixture.request()
 
         do {
-            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, _ in
                     await fixture.accessControl.setPolicy(.block, for: [fixture.generation.items[0].id])
                 })
@@ -291,7 +291,7 @@ struct CredentialRetentionTests {
         }
         for request in [first, second] {
 
-            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Unexpected approval") })
         }
         try CredentialTransfer.publish("unrelated", requestID: unrelated, credentialID: UUID(), expiresAfter: 300)
@@ -310,7 +310,7 @@ struct CredentialRetentionTests {
         defer { CredentialTransfer.clear(requestID: request.id) }
 
         var approvals = 0
-        let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+        let response = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
             authorize: { approval, _ in
                 approvals += 1
                 #expect(approval.account == "synthetic@example.com")
@@ -330,7 +330,7 @@ struct CredentialRetentionTests {
         let request = fixture.request(field: .totp)
 
         await #expect(throws: CredentialResolverError.invalidTOTP) {
-            try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+            try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                 authorize: { _, _ in })
         }
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }

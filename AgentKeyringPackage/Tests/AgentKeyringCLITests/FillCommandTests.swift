@@ -132,7 +132,7 @@ struct FillCommandTests {
         try await CLIClient.run(command, output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
             sendRequest: { request in
 
-                let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
+                let response = try await fixture.processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
                     authorize: { _, onPromptStarted in onPromptStarted() })
                 let serializedResponse = try JSONEncoder().encode(response)
                 #expect(!String(decoding: serializedResponse, as: UTF8.self).contains(filler.typedValues[0]))

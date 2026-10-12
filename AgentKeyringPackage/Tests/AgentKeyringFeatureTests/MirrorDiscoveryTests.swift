@@ -63,6 +63,11 @@ struct MirrorDiscoveryTests {
 
             let response = try await sendTestAgentRequest(request, model: model, bridge: bridge)
             #expect(response.ok)
+            let activity = try #require(model.lastAgentActivity)
+            #expect(activity.requestID == request.id && activity.action == action && activity.succeeded)
+            #expect(!activity.requester.machineName.isEmpty)
+            #expect(activity.requester.processStartTime == AgentRequester.processStartTime(activity.requester.processIdentifier))
+            #expect(activity.requester.workingDirectory == FileManager.default.currentDirectoryPath)
             #expect(response.mirror?.credentialCount == 1)
             #expect(response.mirror?.ageSeconds ?? 0 >= 8 * 86_400)
             if action == .resolve {

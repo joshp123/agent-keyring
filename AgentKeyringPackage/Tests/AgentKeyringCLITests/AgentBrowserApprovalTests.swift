@@ -11,7 +11,7 @@ struct AgentBrowserApprovalTests {
     func silentRelease(useGrant: Bool) async throws {
         let fixture = BrowserApprovalFixture()
         defer { fixture.cleanUp() }
-        if useGrant { fixture.grants.approve(fixture.loginID, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!, site: "example.com", account: "synthetic@example.com") }
+        if useGrant { fixture.grants.approve(fixture.loginID, action: .acquire, session: syntheticRequester.session!, site: "example.com", account: "synthetic@example.com") }
         else { try await fixture.setPolicy(.allowAutomatically) }
         let diagnostics = Pipe()
         try await fixture.acquireWithCLI(diagnostics: diagnostics.fileHandleForWriting)
@@ -48,7 +48,7 @@ struct AgentBrowserApprovalTests {
 
             fixture.authorizer.approve()
             while fixture.responses[passwordRequest.id] == nil { await Task.yield() }
-            #expect(fixture.grants.contains(fixture.loginID, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!))
+            #expect(fixture.grants.contains(fixture.loginID, action: .acquire, session: syntheticRequester.session!))
             for request in [usernameRequest, passwordRequest] {
                 #expect(throws: CredentialTransferError.unavailable) {
                     _ = try CredentialTransfer.read(requestID: request.id)
@@ -137,7 +137,7 @@ private final class BrowserApprovalFixture {
             account: nil, credentialID: loginID), output: FileHandle.nullDevice, diagnostics: diagnostics,
             sendRequest: { request in
                 self.requests.append(request)
-                return try await self.processor.release(request: request, requester: syntheticVerifiedRequester, generation: self.generation,
+                return try await self.processor.release(request: request, requester: syntheticRequester, generation: self.generation,
                     authorize: { _, _ in Issue.record("Unprompted release asked for approval") })
             })
     }
@@ -155,7 +155,7 @@ private final class BrowserApprovalFixture {
             defer { self.activeRequests.remove(request.id) }
             let response: AgentBridgeResponse
             do {
-                response = try await self.processor.release(request: request, requester: syntheticVerifiedRequester, generation: self.generation,
+                response = try await self.processor.release(request: request, requester: syntheticRequester, generation: self.generation,
                     onProgress: {
                         self.authorizer.requestedAt = $0.askedAt
                         progress($0)

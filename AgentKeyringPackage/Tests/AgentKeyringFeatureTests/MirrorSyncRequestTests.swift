@@ -57,7 +57,7 @@ struct MirrorSyncRequestTests {
                 targetURL: "https://example.com", field: .password)
 
             do {
-                _ = try await processor.release(request: releaseRequest, requester: syntheticVerifiedRequester, generation: generation,
+                _ = try await processor.release(request: releaseRequest, requester: syntheticRequester, generation: generation,
                     authorize: authorizer.authorize)
                 Issue.record("The recording authorizer declines")
             } catch let error as CredentialReleaseAuthorizationError { #expect(error == .denied) }
