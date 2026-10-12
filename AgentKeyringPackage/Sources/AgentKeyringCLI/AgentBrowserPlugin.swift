@@ -78,7 +78,7 @@ enum AgentBrowserPluginProtocol {
             case ("plugin.manifest", "plugin.manifest"):
                 response = Response(success: true, manifest: Manifest())
             case ("credential.resolve", "credential.read"):
-                response = try await resolve(envelope.request, sendRequest: {
+                response = try await resolve(envelope.request, bufferPublicationDeadline: approvalWaitDeadline, sendRequest: {
                     try await sendRequest($0, approvalWaitDeadline)
                 })
             default:
@@ -101,6 +101,7 @@ enum AgentBrowserPluginProtocol {
     @MainActor
     private static func resolve(
         _ request: Request,
+        bufferPublicationDeadline: Date,
         sendRequest: (AgentBridgeRequest) async throws -> AgentBridgeResponse
     ) async throws -> Response {
         guard let itemRef = request.itemRef else {
@@ -126,12 +127,12 @@ enum AgentBrowserPluginProtocol {
         }
         guard candidates.count == 1 else { throw Failure(message: "ambiguous") }
 
-        let usernameRequest = CLICommand.acquire(
-            field: .username, targetURL: destination, account: nil, credentialID: candidates[0].id
-        ).request
-        let passwordRequest = CLICommand.acquire(
-            field: .password, targetURL: destination, account: nil, credentialID: candidates[0].id
-        ).request
+        let usernameRequest = AgentBridgeRequest(action: .acquire,
+            targetURL: destination, candidateID: candidates[0].id, field: .username,
+            bufferPublicationDeadline: bufferPublicationDeadline)
+        let passwordRequest = AgentBridgeRequest(action: .acquire,
+            targetURL: destination, candidateID: candidates[0].id, field: .password,
+            bufferPublicationDeadline: bufferPublicationDeadline)
         defer {
             CredentialTransfer.clear(requestID: usernameRequest.id)
             CredentialTransfer.clear(requestID: passwordRequest.id)

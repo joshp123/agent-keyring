@@ -147,6 +147,10 @@ public struct AgentCredentialReleaseProcessor {
             return AgentBridgeResponse(id: request.id, ok: true, mirror: mirror,
                 filledField: field, approvalProgress: approvalProgress)
         }
+        if let deadline = request.bufferPublicationDeadline, now() >= deadline {
+            return AgentBridgeResponse(id: request.id, ok: false, error: .approvalPending,
+                mirror: mirror, approvalProgress: approvalProgress)
+        }
         let secret = try resolver.secret(
             in: generation,
             targetURL: targetURL,

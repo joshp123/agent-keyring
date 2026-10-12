@@ -51,6 +51,7 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
     public let candidateID: UUID?
     public let field: AgentCredentialField?
     public let expirationSeconds: Int
+    public let bufferPublicationDeadline: Date?
 
     public var expiresAt: Date { createdAt.addingTimeInterval(Self.lifetimeSeconds) }
 
@@ -65,7 +66,8 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
         usernameHint: String? = nil,
         candidateID: UUID? = nil,
         field: AgentCredentialField? = nil,
-        expirationSeconds: Int = 30
+        expirationSeconds: Int = 30,
+        bufferPublicationDeadline: Date? = nil
     ) {
         self.version = version
         self.id = id
@@ -78,6 +80,7 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
         self.candidateID = candidateID
         self.field = field
         self.expirationSeconds = expirationSeconds
+        self.bufferPublicationDeadline = bufferPublicationDeadline
     }
 }
 
@@ -294,6 +297,8 @@ public struct AgentBridgeDirectory: Sendable {
             && current.candidateID == request.candidateID
             && current.field == request.field
             && current.expirationSeconds == request.expirationSeconds
+            && current.bufferPublicationDeadline.map { Int($0.timeIntervalSince1970) }
+                == request.bufferPublicationDeadline.map { Int($0.timeIntervalSince1970) }
     }
 
     private var encoder: JSONEncoder {
