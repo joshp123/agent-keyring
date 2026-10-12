@@ -6,7 +6,7 @@ enum CLIOutput {
         switch command {
         case .acquire: return response.id.uuidString + "\n"
         case .sync:
-            return "Josh has been asked to update Agent Keyring’s copy of your passwords.\n"
+            return "Josh has been asked to update Agent Keyring’s copy of his passwords.\n"
         case .status:
             guard let mirror = response.mirror else {
                 guard let message = response.message else { throw CLIError.invalidResponse }

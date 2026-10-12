@@ -29,7 +29,7 @@ struct SyncCommandTests {
         try output.fileHandleForWriting.close()
         try diagnostics.fileHandleForWriting.close()
         #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            == "Josh has been asked to update Agent Keyring’s copy of your passwords.\n")
+            == "Josh has been asked to update Agent Keyring’s copy of his passwords.\n")
         #expect(diagnostics.fileHandleForReading.readDataToEndOfFile().isEmpty)
     }
 
