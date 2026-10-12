@@ -46,7 +46,6 @@ struct ApprovalResultTests {
         #expect(String(decoding: stderr, as: UTF8.self) == expectedLine)
         #expect(actualExit == expectedExit)
         if code != nil { #expect(output.fileHandleForReading.readDataToEndOfFile().isEmpty) }
-        try stderr.write(to: URL(fileURLWithPath: "/tmp/agent-keyring-cli-\(path).stderr"))
     }
 
     @Test("The real CLI wait distinguishes waiting for unlock from starting the prompt", arguments: [
@@ -127,8 +126,6 @@ struct ApprovalResultTests {
         #expect(String(decoding: stderr, as: UTF8.self) == expectedStatus + finalLine + "\n")
         #expect(actualExit == expectedExit)
         if code != nil { #expect(output.fileHandleForReading.readDataToEndOfFile().isEmpty) }
-        let lockPath = initiallyLocked ? "locked" : "unlocked"
-        try stderr.write(to: URL(fileURLWithPath: "/tmp/agent-keyring-cli-\(path)-\(lockPath).stderr"))
     }
 
     @Test("Expiry while locked never claims Josh was asked")
