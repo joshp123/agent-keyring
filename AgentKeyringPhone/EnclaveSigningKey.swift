@@ -1,4 +1,4 @@
-import CryptoKit
+import AgentKeyringApprovalCore
 import Foundation
 import Security
 
@@ -8,7 +8,7 @@ struct EnclaveSigningKey {
     let publicKey: Data
 
     var fingerprint: String {
-        SHA256.hash(data: publicKey).map { String(format: "%02X", $0) }.joined(separator: ":")
+        PairingRequest.fingerprint(publicKey: publicKey)
     }
 
     static func loadOrCreate() throws -> Self {

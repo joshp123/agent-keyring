@@ -42,6 +42,8 @@ final class PhoneApprovalModel {
     private(set) var keyStatus = "Preparing…"
     private(set) var decisions: [PhoneDecisionHistoryEntry] = []
     private(set) var lastFailure: String?
+    private(set) var pairingStatus: String?
+    private var pairing = false
 
     private let container = CKContainer(identifier: ApprovalCloudRecords.containerIdentifier)
     private var database: CKDatabase { container.privateCloudDatabase }
@@ -146,6 +148,28 @@ final class PhoneApprovalModel {
             default: lastFailure = "The decision could not be sent."
             }
             appendDecision(choice, sent: false)
+        }
+    }
+
+    func pair(qrPayload: String) async {
+        guard !pairing else { return }
+        pairing = true
+        defer { pairing = false }
+        pairingStatus = "Sending pairing request…"
+        do {
+            let code = try PairingCode(qrPayload: qrPayload)
+            let key = try EnclaveSigningKey.loadOrCreate()
+            keyFingerprint = PairingRequest.fingerprint(publicKey: key.publicKey)
+            let request = PairingRequest(code: code, publicKey: key.publicKey, deviceName: UIDevice.current.name)
+            _ = try await database.save(CKRecordZone(zoneID: PairingCloudRecords.zone))
+            guard Date() < code.expiresAt else { throw PairingFailure.expired }
+            _ = try await database.save(PairingCloudRecords.record(request))
+            pairingStatus = "Request sent. Finish pairing on your Mac."
+        } catch {
+            logPhoneFailure(error, operation: "Pair with Mac")
+            pairingStatus = error as? PairingFailure == .expired
+                ? "This code expired. Choose Add iPhone on your Mac and scan the new code."
+                : "Pairing request could not be sent. Choose Add iPhone on your Mac and try again."
         }
     }
 

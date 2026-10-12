@@ -3,15 +3,21 @@ import SwiftUI
 
 struct PhoneApprovalView: View {
     let model: PhoneApprovalModel
+    @State private var showingPairing = false
 
     var body: some View {
         NavigationStack {
             List {
                 PhoneStatusSection(iCloudStatus: model.iCloudStatus, notificationStatus: model.notificationStatus)
                 PhoneKeySection(fingerprint: model.keyFingerprint, status: model.keyStatus)
+                Section {
+                    Button("Pair with Mac") { showingPairing = true }
+                    if let status = model.pairingStatus { Text(status).foregroundStyle(.secondary) }
+                }
                 PhoneDecisionsSection(decisions: model.decisions, failure: model.lastFailure)
             }
             .navigationTitle("Agent Keyring")
+            .sheet(isPresented: $showingPairing) { PhonePairingView(model: model) }
         }
     }
 }
