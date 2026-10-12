@@ -66,30 +66,32 @@ struct AgentBrowserPluginTests {
         .mirrorUnavailable, .internalError, .invalidRequest, .invalidURL, .insecureOrigin, .invalidTOTP,
     ])
     func failure(code: AgentBridgeErrorCode) async throws {
-        var references: [UUID] = []
-        let response = try await invoke { request in
-            if request.action == .resolve { return AgentBridgeResponse(id: request.id, ok: true, candidates: [candidate]) }
-            references.append(request.id)
-            try CredentialTransfer.publish("failure-secret-canary", requestID: request.id, credentialID: UUID(), expiresAfter: 300)
-            return AgentBridgeResponse(id: request.id, ok: request.field == .username,
-                error: code, message: "failure-secret-canary")
-        }
-        let expected: String = switch code {
-        case .authorizationDenied: "Josh declined the request."
-        case .authorizationNotVerified: "Touch ID or Apple Watch did not verify; retry the request."
-        case .authorizationInterrupted: "macOS interrupted the approval prompt; retry the login."
-        case .requestExpired: "The request expired with no answer."
-        case .policyDenied: "Access to this login is blocked in Agent Keyring."
-        case .notFound, .fieldUnavailable, .mirrorUnavailable: "no matching login"
-        case .ambiguous: "ambiguous"
-        default: "approval unavailable"
-        }
-        #expect(response["success"] as? Bool == false)
-        #expect(response["error"] as? String == expected)
-        #expect(response["credential"] == nil)
-        #expect(!String(describing: response).contains("failure-secret-canary"))
-        for reference in references {
-            #expect(throws: CredentialTransferError.unavailable) { _ = try CredentialTransfer.read(requestID: reference) }
+        try await MacOwner.$fullName.withValue("Alex Example") {
+            var references: [UUID] = []
+            let response = try await invoke { request in
+                if request.action == .resolve { return AgentBridgeResponse(id: request.id, ok: true, candidates: [candidate]) }
+                references.append(request.id)
+                try CredentialTransfer.publish("failure-secret-canary", requestID: request.id, credentialID: UUID(), expiresAfter: 300)
+                return AgentBridgeResponse(id: request.id, ok: request.field == .username,
+                    error: code, message: "failure-secret-canary")
+            }
+            let expected: String = switch code {
+            case .authorizationDenied: "Alex declined the request."
+            case .authorizationNotVerified: "Touch ID or Apple Watch did not verify; retry the request."
+            case .authorizationInterrupted: "macOS interrupted the approval prompt; retry the login."
+            case .requestExpired: "The request expired with no answer."
+            case .policyDenied: "Access to this login is blocked in Agent Keyring."
+            case .notFound, .fieldUnavailable, .mirrorUnavailable: "no matching login"
+            case .ambiguous: "ambiguous"
+            default: "approval unavailable"
+            }
+            #expect(response["success"] as? Bool == false)
+            #expect(response["error"] as? String == expected)
+            #expect(response["credential"] == nil)
+            #expect(!String(describing: response).contains("failure-secret-canary"))
+            for reference in references {
+                #expect(throws: CredentialTransferError.unavailable) { _ = try CredentialTransfer.read(requestID: reference) }
+            }
         }
     }
 

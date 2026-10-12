@@ -8,24 +8,26 @@ import Testing
 struct AgentKeyringCLITests {
     @Test("Top-level help explains the product and leads with examples")
     func topLevelHelp() {
-        let help = AgentKeyringCLI.helpMessage(columns: 100)
-        #expect(help.contains("Use imported Apple Passwords logins from the command line."))
-        #expect(help.contains("agent-keyring find example.com"))
-        #expect(help.contains("SUBCOMMANDS"))
-        #expect(help.contains("EXIT CODES"))
-        for meaning in [
-            "0  Success.",
-            "1  Other errors, including blocked access or unavailable approval.",
-            "2  Josh declined the request.",
-            "3  The request expired with no answer.",
-            "4  macOS interrupted the approval prompt; retry the request.",
-            "6  Touch ID or Apple Watch did not verify; retry the request.",
-            "64 Invalid command or arguments.",
-        ] {
-            #expect(help.contains(meaning))
+        MacOwner.$fullName.withValue("Alex Example") {
+            let help = AgentKeyringCLI.helpMessage(columns: 100)
+            #expect(help.contains("Use imported Apple Passwords logins from the command line."))
+            #expect(help.contains("agent-keyring find example.com"))
+            #expect(help.contains("SUBCOMMANDS"))
+            #expect(help.contains("EXIT CODES"))
+            for meaning in [
+                "0  Success.",
+                "1  Other errors, including blocked access or unavailable approval.",
+                "2  Alex declined the request.",
+                "3  The request expired with no answer.",
+                "4  macOS interrupted the approval prompt; retry the request.",
+                "6  Touch ID or Apple Watch did not verify; retry the request.",
+                "64 Invalid command or arguments.",
+            ] {
+                #expect(help.contains(meaning))
+            }
+            #expect(ExitCode.validationFailure.rawValue == 64)
+            #expect(!help.contains("JSON"))
         }
-        #expect(ExitCode.validationFailure.rawValue == 64)
-        #expect(!help.contains("JSON"))
     }
 
     @Test("Find takes the page URL as its main argument")

@@ -17,38 +17,42 @@ struct SyncCommandTests {
     @MainActor
     @Test("Successful sync prints one plain line")
     func output() async throws {
-        let output = Pipe()
-        let diagnostics = Pipe()
-        try await CLIClient.run(.sync(targetURL: "https://example.com"),
-            output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
-            sendRequest: { request in
-                #expect(request.action == .sync)
-                #expect(request.targetURL == "https://example.com")
-                return AgentBridgeResponse(id: request.id, ok: true)
-            })
-        try output.fileHandleForWriting.close()
-        try diagnostics.fileHandleForWriting.close()
-        #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            == "Josh has been asked to update Agent Keyring’s copy of his passwords.\n")
-        #expect(diagnostics.fileHandleForReading.readDataToEndOfFile().isEmpty)
+        try await MacOwner.$fullName.withValue("Alex Example") {
+            let output = Pipe()
+            let diagnostics = Pipe()
+            try await CLIClient.run(.sync(targetURL: "https://example.com"),
+                output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
+                sendRequest: { request in
+                    #expect(request.action == .sync)
+                    #expect(request.targetURL == "https://example.com")
+                    return AgentBridgeResponse(id: request.id, ok: true)
+                })
+            try output.fileHandleForWriting.close()
+            try diagnostics.fileHandleForWriting.close()
+            #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                == "Alex has been asked to update Agent Keyring’s copy of Apple Passwords.\n")
+            #expect(diagnostics.fileHandleForReading.readDataToEndOfFile().isEmpty)
+        }
     }
 
     @Test("Sync help includes the command, example, and its exit codes")
     func help() {
-        let root = AgentKeyringCLI.helpMessage(columns: 100)
-        #expect(root.contains("agent-keyring sync example.com"))
-        let help = Sync.helpMessage(columns: 100)
-        #expect(help.contains("sync <site>"))
-        for meaning in [
-            "0  Josh has been asked to update the copy.",
-            "1  No matching login, no mirror, app unavailable, or notification failed.",
-            "3  The request expired with no answer.",
-            "64 Invalid command or arguments.",
-        ] { #expect(help.contains(meaning)) }
+        MacOwner.$fullName.withValue("Alex Example") {
+            let root = AgentKeyringCLI.helpMessage(columns: 100)
+            #expect(root.contains("agent-keyring sync example.com"))
+            let help = Sync.helpMessage(columns: 100)
+            #expect(help.contains("sync <site>"))
+            for meaning in [
+                "0  Alex has been asked to update the copy.",
+                "1  No matching login, no mirror, app unavailable, or notification failed.",
+                "3  The request expired with no answer.",
+                "64 Invalid command or arguments.",
+            ] { #expect(help.contains(meaning)) }
+        }
     }
 
     @MainActor
-    @Test("Sync errors do not claim Josh was asked", arguments: [AgentBridgeErrorCode.notFound, .internalError, .requestExpired])
+    @Test("Sync errors do not claim the owner was asked", arguments: [AgentBridgeErrorCode.notFound, .internalError, .requestExpired])
     func failedSync(code: AgentBridgeErrorCode) async throws {
         let output = Pipe()
         let diagnostics = Pipe()

@@ -177,7 +177,7 @@ struct CredentialApprovalCoordinatorTests {
         #expect(progress.last?.waitingSince == waitingSince)
     }
 
-    @Test("Failed prompt setup never records that Josh was asked")
+    @Test("Failed prompt setup never records that the owner was asked")
     func failedPromptSetup() async throws {
         let approvals = CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState())
         var progress: [AgentApprovalProgress] = []

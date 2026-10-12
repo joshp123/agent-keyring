@@ -22,43 +22,45 @@ struct AgentBrowserApprovalTests {
 
     @Test("The plugin answers within twelve seconds; approval and retry then fill from the grant")
     func pendingThenRetry() async throws {
-        let fixture = BrowserApprovalFixture()
-        defer { fixture.cleanUp() }
-        let start = ContinuousClock.now
-        let pending = try await fixture.invoke()
-        let elapsed = start.duration(to: .now)
-        #expect(elapsed < .seconds(12))
-        #expect(elapsed >= .seconds(10))
-        #expect(pending["success"] as? Bool == false)
-        #expect(pending["credential"] == nil)
-        let askedAt = try #require(fixture.authorizer.requestedAt)
-        #expect(pending["error"] as? String ==
-            "Waiting for Josh's approval (asked at \(approvalTime(askedAt))); retry the login after he approves")
-        #expect(fixture.deadlines.count == 3)
-        #expect(Set(fixture.deadlines).count == 1)
-        #expect(fixture.authorizer.calls == 1)
-        let passwordRequest = try #require(fixture.requests.last)
-        #expect(fixture.bridge.requestMatches(passwordRequest))
-        let usernameRequest = try #require(fixture.requests.first(where: { $0.field == .username }))
-        #expect(throws: CredentialTransferError.unavailable) {
-            _ = try CredentialTransfer.read(requestID: usernameRequest.id)
+        try await MacOwner.$fullName.withValue("Alex Example") {
+            let fixture = BrowserApprovalFixture()
+            defer { fixture.cleanUp() }
+            let start = ContinuousClock.now
+            let pending = try await fixture.invoke()
+            let elapsed = start.duration(to: .now)
+            #expect(elapsed < .seconds(12))
+            #expect(elapsed >= .seconds(10))
+            #expect(pending["success"] as? Bool == false)
+            #expect(pending["credential"] == nil)
+            let askedAt = try #require(fixture.authorizer.requestedAt)
+            #expect(pending["error"] as? String ==
+                "Waiting for Alex's approval (asked at \(approvalTime(askedAt))); retry the login after Alex approves")
+            #expect(fixture.deadlines.count == 3)
+            #expect(Set(fixture.deadlines).count == 1)
+            #expect(fixture.authorizer.calls == 1)
+            let passwordRequest = try #require(fixture.requests.last)
+            #expect(fixture.bridge.requestMatches(passwordRequest))
+            let usernameRequest = try #require(fixture.requests.first(where: { $0.field == .username }))
+            #expect(throws: CredentialTransferError.unavailable) {
+                _ = try CredentialTransfer.read(requestID: usernameRequest.id)
+            }
+
+            fixture.authorizer.approve()
+            for task in fixture.appTasks { await task.value }
+            #expect(fixture.grants.contains(fixture.loginID, action: .acquire))
+            let retry = try await fixture.invoke()
+            #expect(retry["success"] as? Bool == true)
+            #expect((retry["credential"] as? [String: String])?["username"] == "synthetic@example.com")
+            #expect((retry["credential"] as? [String: String])?["password"] == "synthetic-browser-password")
+            #expect(fixture.authorizer.calls == 1)
+
+            await fixture.accessControl.setPolicy(.block, for: [fixture.loginID])
+            let blocked = try await fixture.invoke()
+            #expect(blocked["success"] as? Bool == false)
+            #expect(blocked["credential"] == nil)
+            #expect(blocked["error"] as? String == "Access to this login is blocked in Agent Keyring.")
+            #expect(fixture.authorizer.calls == 1)
         }
-
-        fixture.authorizer.approve()
-        for task in fixture.appTasks { await task.value }
-        #expect(fixture.grants.contains(fixture.loginID, action: .acquire))
-        let retry = try await fixture.invoke()
-        #expect(retry["success"] as? Bool == true)
-        #expect((retry["credential"] as? [String: String])?["username"] == "synthetic@example.com")
-        #expect((retry["credential"] as? [String: String])?["password"] == "synthetic-browser-password")
-        #expect(fixture.authorizer.calls == 1)
-
-        await fixture.accessControl.setPolicy(.block, for: [fixture.loginID])
-        let blocked = try await fixture.invoke()
-        #expect(blocked["success"] as? Bool == false)
-        #expect(blocked["credential"] == nil)
-        #expect(blocked["error"] as? String == "Access to this login is blocked in Agent Keyring.")
-        #expect(fixture.authorizer.calls == 1)
     }
 }
 

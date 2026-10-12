@@ -9,64 +9,66 @@ import Testing
 struct MirrorSyncRequestTests {
     @Test("Sync at night marks matching logins, find and approval show it, and import clears it")
     func rejectedLoginFlow() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let settingsName = UUID().uuidString
-        let settings = UserDefaults(suiteName: settingsName)!
-        defer { settings.removePersistentDomain(forName: settingsName) }
-        settings.set(false, forKey: "includeExampleCredential")
-        let importedData = SyncFixtureImporter.data()
-        let generation = try SnapshotMerger().merge(previous: nil,
-            importBatch: CredentialExchangeMapper().map(importedData, scope: .full))
-        let store = EncryptedSnapshotStore(directoryURL: directory.appendingPathComponent("vault"),
-            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32)))
-        try await store.save(generation)
-        let bridge = AgentBridgeDirectory(rootURL: directory.appendingPathComponent("bridge"))
-        let authorizer = StaleApprovalRecorder()
-        let model = MirrorAppModel(store: store, credentialImporter: SyncFixtureImporter(),
-            authorizer: authorizer, bridge: bridge,
-            accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
-                fileURL: directory.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner())), settings: settings)
-        let notifier = FakeSyncNotifier()
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let midnight = calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 0))!
-        model.syncReminders = MirrorSyncReminders(settings: settings, notifier: notifier,
-            now: { midnight }, calendar: calendar)
-        // A recent mirror still needs sync if a login was rejected.
-        let response = try await send(.sync, model: model, bridge: bridge)
-        #expect(response.ok)
-        #expect(model.accessControl.needsConfirmation)
-        #expect(notifier.ages.count == 1)
-        #expect(model.staleLogins.credentialIDs == Set(generation.items.map(\.id)))
-        #expect(PossiblyStaleLogins(settings: settings).credentialIDs == model.staleLogins.credentialIDs)
-        let find = try await send(.resolve, model: model, bridge: bridge)
-        #expect(find.ok)
-        #expect(find.candidates?.first?.isPossiblyStale == true)
-        #expect(model.accessControl.needsConfirmation)
-        let status = try await send(.status, model: model, bridge: bridge)
-        #expect(status.ok)
-        #expect(status.message == "Access rules need Josh's confirmation in Agent Keyring; nothing will be released until then.")
-        await model.accessControl.confirmRules()
-        #expect(!model.accessControl.needsConfirmation)
-        let processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: model.accessControl,
-            approvals: CredentialApprovalCoordinator(lockState: UnlockedSyncTestSession()),
-            possiblyStaleCredentialIDs: model.staleLogins.credentialIDs)
-        let releaseRequest = AgentBridgeRequest(action: .acquire,
-            targetURL: "https://example.com", field: .password)
-        try bridge.write(releaseRequest)
-        do {
-            _ = try await processor.release(request: releaseRequest, generation: generation,
-                authorize: authorizer.authorize)
-            Issue.record("The recording authorizer declines")
-        } catch let error as CredentialReleaseAuthorizationError { #expect(error == .denied) }
-        #expect(authorizer.approval?.isPossiblyStale == true)
-        #expect(authorizer.approval?.localizedReason.contains("may be stale") == true)
-        await model.importCredentials(token: UUID())
-        #expect(model.notice?.kind == .information)
-        #expect(model.staleLogins.credentialIDs.isEmpty)
-        let afterImport = try await send(.resolve, model: model, bridge: bridge)
-        #expect(afterImport.candidates?.first?.isPossiblyStale == false)
+        try await MacOwner.$fullName.withValue("Alex Example") {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let settingsName = UUID().uuidString
+            let settings = UserDefaults(suiteName: settingsName)!
+            defer { settings.removePersistentDomain(forName: settingsName) }
+            settings.set(false, forKey: "includeExampleCredential")
+            let importedData = SyncFixtureImporter.data()
+            let generation = try SnapshotMerger().merge(previous: nil,
+                importBatch: CredentialExchangeMapper().map(importedData, scope: .full))
+            let store = EncryptedSnapshotStore(directoryURL: directory.appendingPathComponent("vault"),
+                keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32)))
+            try await store.save(generation)
+            let bridge = AgentBridgeDirectory(rootURL: directory.appendingPathComponent("bridge"))
+            let authorizer = StaleApprovalRecorder()
+            let model = MirrorAppModel(store: store, credentialImporter: SyncFixtureImporter(),
+                authorizer: authorizer, bridge: bridge,
+                accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
+                    fileURL: directory.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner())), settings: settings)
+            let notifier = FakeSyncNotifier()
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            let midnight = calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 0))!
+            model.syncReminders = MirrorSyncReminders(settings: settings, notifier: notifier,
+                now: { midnight }, calendar: calendar)
+            // A recent mirror still needs sync if a login was rejected.
+            let response = try await send(.sync, model: model, bridge: bridge)
+            #expect(response.ok)
+            #expect(model.accessControl.needsConfirmation)
+            #expect(notifier.ages.count == 1)
+            #expect(model.staleLogins.credentialIDs == Set(generation.items.map(\.id)))
+            #expect(PossiblyStaleLogins(settings: settings).credentialIDs == model.staleLogins.credentialIDs)
+            let find = try await send(.resolve, model: model, bridge: bridge)
+            #expect(find.ok)
+            #expect(find.candidates?.first?.isPossiblyStale == true)
+            #expect(model.accessControl.needsConfirmation)
+            let status = try await send(.status, model: model, bridge: bridge)
+            #expect(status.ok)
+            #expect(status.message == "Access rules need Alex's confirmation in Agent Keyring; nothing will be released until then.")
+            await model.accessControl.confirmRules()
+            #expect(!model.accessControl.needsConfirmation)
+            let processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: model.accessControl,
+                approvals: CredentialApprovalCoordinator(lockState: UnlockedSyncTestSession()),
+                possiblyStaleCredentialIDs: model.staleLogins.credentialIDs)
+            let releaseRequest = AgentBridgeRequest(action: .acquire,
+                targetURL: "https://example.com", field: .password)
+            try bridge.write(releaseRequest)
+            do {
+                _ = try await processor.release(request: releaseRequest, generation: generation,
+                    authorize: authorizer.authorize)
+                Issue.record("The recording authorizer declines")
+            } catch let error as CredentialReleaseAuthorizationError { #expect(error == .denied) }
+            #expect(authorizer.approval?.isPossiblyStale == true)
+            #expect(authorizer.approval?.localizedReason.contains("may be stale") == true)
+            await model.importCredentials(token: UUID())
+            #expect(model.notice?.kind == .information)
+            #expect(model.staleLogins.credentialIDs.isEmpty)
+            let afterImport = try await send(.resolve, model: model, bridge: bridge)
+            #expect(afterImport.candidates?.first?.isPossiblyStale == false)
+        }
     }
 
     @Test("Sync with no matching login neither marks nor notifies")
