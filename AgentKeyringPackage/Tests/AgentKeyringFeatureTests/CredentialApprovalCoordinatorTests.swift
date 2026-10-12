@@ -45,6 +45,46 @@ struct CredentialApprovalCoordinatorTests {
         try await second.value
     }
 
+    @Test("Joiners keep their own deadline after the shared approval expires", arguments: [false, true])
+    func joinedApprovalExpiry(joinerAlsoExpired: Bool) async throws {
+        var now = Date(timeIntervalSince1970: 1_000)
+        let firstDeadline = now.addingTimeInterval(60)
+        let joinerDeadline = now.addingTimeInterval(120)
+        let approvals = CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState(), now: { now })
+        let authorizer = FakeCredentialAuthorizer()
+        let login = UUID()
+        var joinerStatus: [AgentApprovalProgress] = []
+        let first = Task {
+            try await approvals.authorize(credentialID: login, authorizationDeadline: firstDeadline) {
+                try await authorizer.authorize(CredentialReleaseAuthorizationRequest(destination: "example.com",
+                    account: "synthetic", field: .password, authorizationDeadline: firstDeadline), onPromptStarted: $0)
+            }
+        }
+        while authorizer.requests.isEmpty { await Task.yield() }
+        let joiner = Task {
+            try await approvals.authorize(credentialID: login, authorizationDeadline: joinerDeadline,
+                onProgress: { joinerStatus.append($0) }) {
+                    try await authorizer.authorize(CredentialReleaseAuthorizationRequest(destination: "example.com",
+                        account: "synthetic", field: .password, authorizationDeadline: joinerDeadline), onPromptStarted: $0)
+                }
+        }
+        while joinerStatus.isEmpty { await Task.yield() }
+        #expect(authorizer.requests.count == 1)
+        now = joinerAlsoExpired ? joinerDeadline : firstDeadline
+        authorizer.complete(error: .expired)
+        await #expect(throws: CredentialReleaseAuthorizationError.expired) { try await first.value }
+        if joinerAlsoExpired {
+            await #expect(throws: CredentialReleaseAuthorizationError.expired) { try await joiner.value }
+            #expect(authorizer.requests.count == 1)
+        } else {
+            while authorizer.requests.count < 2 { await Task.yield() }
+            #expect(authorizer.requests.last?.authorizationDeadline == joinerDeadline)
+            #expect(joinerStatus.last?.askedAt == firstDeadline)
+            authorizer.complete()
+            try await joiner.value
+        }
+    }
+
     @Test("Different logins woken by the same unlock serialize window setup and authentication")
     func serialApprovalsAfterUnlock() async throws {
         let lock = FakeCredentialSessionLockState(isLocked: true)

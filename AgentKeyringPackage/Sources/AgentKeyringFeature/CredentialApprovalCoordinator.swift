@@ -3,6 +3,8 @@ import Foundation
 @MainActor
 public final class CredentialApprovalCoordinator {
     private struct PendingApproval {
+        let id: UUID
+        let authorizationDeadline: Date
         let task: Task<Void, Error>
         var progress: AgentApprovalProgress
         var observers: [(AgentApprovalProgress) -> Void]
@@ -33,11 +35,22 @@ public final class CredentialApprovalCoordinator {
         if let approval = pending[credentialID] {
             pending[credentialID]?.observers.append(onProgress)
             onProgress(approval.progress)
-            try await approval.task.value
+            do {
+                try await approval.task.value
+            } catch CredentialReleaseAuthorizationError.expired {
+                guard now() < authorizationDeadline,
+                    approval.authorizationDeadline < authorizationDeadline else {
+                    throw CredentialReleaseAuthorizationError.expired
+                }
+                removePendingApproval(credentialID: credentialID, approvalID: approval.id)
+                try await authorize(credentialID: credentialID, authorizationDeadline: authorizationDeadline,
+                    onProgress: onProgress, prompt: prompt)
+            }
             return
         }
         let progress = AgentApprovalProgress(waitingSince: now(),
             phase: lockState.isLocked ? .waitingForUnlock : .awaitingApproval)
+        let approvalID = UUID()
         let precedingApproval = lastApprovalTask
         let approval = Task { @MainActor in
             if let precedingApproval { _ = await precedingApproval.result }
@@ -53,10 +66,16 @@ public final class CredentialApprovalCoordinator {
             try await prompt { self.recordPromptStarted(credentialID: credentialID) }
         }
         lastApprovalTask = approval
-        pending[credentialID] = PendingApproval(task: approval, progress: progress, observers: [onProgress])
+        pending[credentialID] = PendingApproval(id: approvalID, authorizationDeadline: authorizationDeadline,
+            task: approval, progress: progress, observers: [onProgress])
         onProgress(progress)
-        defer { pending.removeValue(forKey: credentialID) }
+        defer { removePendingApproval(credentialID: credentialID, approvalID: approvalID) }
         try await approval.value
+    }
+
+    private func removePendingApproval(credentialID: UUID, approvalID: UUID) {
+        guard pending[credentialID]?.id == approvalID else { return }
+        pending.removeValue(forKey: credentialID)
     }
 
     private func recordPromptStarted(credentialID: UUID) {

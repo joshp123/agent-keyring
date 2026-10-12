@@ -515,10 +515,7 @@ public final class MirrorAppModel {
                 level: originalLevel
             )
             if !requestIsLive {
-                throw AgentBridgeFailure(
-                    .requestExpired,
-                    "The credential request ended before approval completed."
-                )
+                throw CredentialReleaseAuthorizationError.expired
             }
             throw error
         }
