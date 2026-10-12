@@ -2,45 +2,74 @@ import Darwin
 import Foundation
 import SystemConfiguration
 
-/// Process attribution supplied by the app, never by the request payload.
+/// Attribution only. The harness name does not establish authority to release credentials.
 public struct AgentRequester: Sendable {
     public let name: String
     public let processIdentifier: pid_t
-    public let context: ApprovalRequesterContext
+    public let processStartTime: HarnessProcessStartTime?
+    public let workingDirectory: String?
+    public let machineName: String
+    public let networkAddress: String?
 
-    public init(name: String, processIdentifier: pid_t, context: ApprovalRequesterContext) {
+    public init(name: String, processIdentifier: pid_t, processStartTime: HarnessProcessStartTime?,
+        workingDirectory: String?, machineName: String, networkAddress: String?) {
         self.name = name
         self.processIdentifier = processIdentifier
-        self.context = context
+        self.processStartTime = processStartTime
+        self.workingDirectory = workingDirectory
+        self.machineName = machineName
+        self.networkAddress = networkAddress
+    }
+
+    public var session: HarnessSession? {
+        processStartTime.map { HarnessSession(processIdentifier: processIdentifier, processStartTime: $0) }
+    }
+
+    public var approvalContext: ApprovalRequesterContext {
+        ApprovalRequesterContext(session: session, workingDirectory: workingDirectory)
     }
 
     public var displayLabel: String { name }
 
     public static func from(peer: AgentBridgePeer) -> AgentRequester {
-        guard let peerInformation = AgentDisplayLabel.processInformation(peer.processIdentifier) else {
-            return AgentRequester(name: "an agent", processIdentifier: peer.processIdentifier,
-                context: machineContext(processIdentifier: peer.processIdentifier))
-        }
-        let peerName = URL(fileURLWithPath: peerInformation.executablePath).lastPathComponent
-        let startingPID = peerName == "agent-keyring" ? peerInformation.parentPID : peer.processIdentifier
-        let ancestor = AgentDisplayLabel.firstAgentAncestor(startingPID: startingPID)
-        let pid = ancestor?.processIdentifier ?? peer.processIdentifier
-        return AgentRequester(name: ancestor.map { AgentDisplayLabel.executableLabel(path: $0.executablePath) } ?? "an agent",
-            processIdentifier: pid, context: machineContext(processIdentifier: pid))
+        attribution(peerProcessIdentifier: peer.processIdentifier)
     }
 
-    private static func machineContext(processIdentifier: pid_t) -> ApprovalRequesterContext {
+    static func attribution(peerProcessIdentifier: pid_t,
+        processInfo: (pid_t) -> (executablePath: String, parentPID: pid_t)? = AgentDisplayLabel.processInformation,
+        startTime: (pid_t) -> HarnessProcessStartTime? = processStartTime,
+        folder: (pid_t) -> String? = workingDirectory
+    ) -> AgentRequester {
+        let peerInformation = processInfo(peerProcessIdentifier)
+        let peerName = peerInformation.map { URL(fileURLWithPath: $0.executablePath).lastPathComponent }
+        let startingPID = peerName == "agent-keyring" ? peerInformation!.parentPID : peerProcessIdentifier
+        let ancestor = AgentDisplayLabel.firstAgentAncestor(startingPID: startingPID, processInfo: processInfo)
+        let pid = ancestor?.processIdentifier ?? peerProcessIdentifier
+        let startedAt = startTime(pid)
+        let currentFolder = folder(pid)
+        // Attribute a stable process incarnation, never a PID that changed during the read.
+        let unchanged = startedAt != nil && startedAt == startTime(pid)
+        return AgentRequester(name: ancestor.map { AgentDisplayLabel.executableLabel(path: $0.executablePath) } ?? "an agent",
+            processIdentifier: pid, processStartTime: unchanged ? startedAt : nil, workingDirectory: currentFolder,
+            machineName: SCDynamicStoreCopyComputerName(nil, nil) as String? ?? ProcessInfo.processInfo.hostName,
+            networkAddress: primaryIPv4Address())
+    }
+
+    static func processStartTime(_ pid: pid_t) -> HarnessProcessStartTime? {
+        var information = proc_bsdinfo()
+        let size = MemoryLayout<proc_bsdinfo>.size
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &information, Int32(size)) == size else { return nil }
+        return HarnessProcessStartTime(seconds: information.pbi_start_tvsec, microseconds: information.pbi_start_tvusec)
+    }
+
+    private static func workingDirectory(_ pid: pid_t) -> String? {
         var information = proc_vnodepathinfo()
         let size = MemoryLayout<proc_vnodepathinfo>.size
-        var folder: String?
-        if proc_pidinfo(processIdentifier, PROC_PIDVNODEPATHINFO, 0, &information, Int32(size)) == size {
-            folder = withUnsafeBytes(of: &information.pvi_cdir.vip_path) {
-                String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
-            }
-            if folder?.isEmpty == true { folder = nil }
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &information, Int32(size)) == size else { return nil }
+        let path = withUnsafeBytes(of: &information.pvi_cdir.vip_path) {
+            String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
         }
-        return ApprovalRequesterContext(machineName: SCDynamicStoreCopyComputerName(nil, nil) as String? ?? ProcessInfo.processInfo.hostName,
-            workingDirectory: folder, networkAddress: primaryIPv4Address())
+        return path.isEmpty ? nil : path
     }
 
     private static func primaryIPv4Address() -> String? {

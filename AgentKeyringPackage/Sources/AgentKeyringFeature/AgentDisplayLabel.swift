@@ -40,7 +40,7 @@ public enum AgentDisplayLabel {
         return knownAgentNames[name.lowercased()] ?? (name.isEmpty ? "an agent" : name)
     }
 
-    static func firstAgentAncestor(startingPID: pid_t, skipInterpreters: Bool = true,
+    static func firstAgentAncestor(startingPID: pid_t,
         processInfo: (pid_t) -> (executablePath: String, parentPID: pid_t)? = processInformation
     ) -> (processIdentifier: pid_t, executablePath: String)? {
         let wrapperNames: Set<String> = [
@@ -58,9 +58,7 @@ public enum AgentDisplayLabel {
             let normalizedName = name.lowercased()
             let isVersionedPython = normalizedName.hasPrefix("python")
                 && normalizedName.dropFirst("python".count).allSatisfy { $0.isNumber || $0 == "." }
-            let interpreterNames: Set<String> = ["node", "nodejs", "python", "python2", "python3", "ruby", "perl", "bun", "deno"]
-            let isInterpreter = interpreterNames.contains(normalizedName) || isVersionedPython
-            if (!skipInterpreters && isInterpreter) || (!wrapperNames.contains(normalizedName) && !isVersionedPython) {
+            if !wrapperNames.contains(normalizedName) && !isVersionedPython {
                 return (ancestorPID, ancestor.executablePath)
             }
             ancestorPID = ancestor.parentPID

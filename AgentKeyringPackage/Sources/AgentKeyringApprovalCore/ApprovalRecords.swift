@@ -12,15 +12,33 @@ public enum ApprovalChoice: String, Codable, CaseIterable, Sendable {
     case blockThisLogin
 }
 
-public struct ApprovalRequesterContext: Codable, Equatable, Sendable {
-    public let machineName: String
-    public let workingDirectory: String?
-    public let networkAddress: String?
+public struct HarnessProcessStartTime: Codable, Equatable, Hashable, Sendable {
+    public let seconds: UInt64
+    public let microseconds: UInt64
 
-    public init(machineName: String, workingDirectory: String?, networkAddress: String?) {
-        self.machineName = machineName
+    public init(seconds: UInt64, microseconds: UInt64) {
+        self.seconds = seconds
+        self.microseconds = microseconds
+    }
+}
+
+public struct HarnessSession: Codable, Equatable, Hashable, Sendable {
+    public let processIdentifier: Int32
+    public let processStartTime: HarnessProcessStartTime
+
+    public init(processIdentifier: Int32, processStartTime: HarnessProcessStartTime) {
+        self.processIdentifier = processIdentifier
+        self.processStartTime = processStartTime
+    }
+}
+
+public struct ApprovalRequesterContext: Codable, Equatable, Sendable {
+    public let session: HarnessSession?
+    public let workingDirectory: String?
+
+    public init(session: HarnessSession?, workingDirectory: String?) {
+        self.session = session
         self.workingDirectory = workingDirectory
-        self.networkAddress = networkAddress
     }
 }
 
@@ -89,17 +107,17 @@ public struct ApprovalSignedFields: Codable, Equatable, Sendable {
     public var notificationBody: String {
         let login = "\(site) · \(account)"
         guard let requesterContext else { return login }
-        return ([login, requesterContext.machineName] + [requesterContext.workingDirectory, requesterContext.networkAddress].compactMap { $0 }).joined(separator: "\n")
+        return [login, requesterContext.workingDirectory].compactMap { $0 }.joined(separator: "\n")
     }
     public var notificationSubtitle: String { action.rawValue }
 
     /// v1: domain prefix, UUID bytes, length-prefixed UTF-8 agent label/site/account/field/action,
     /// length-prefixed nonce, Int64 Unix expiry seconds, length-prefixed choice.
-    /// v2 adds machine name, working directory and network address before the nonce.
+    /// v3 adds the harness session and working directory before the nonce.
     /// All lengths are UInt32 and all numbers are big-endian. Strings are used verbatim.
     /// ApprovalRecordsTests.canonicalEncoding fixes the complete wire format with a byte vector.
     public func canonicalBytes(for choice: ApprovalChoice) -> Data {
-        var bytes = Data((requesterContext == nil ? "AgentKeyring.approval.v1\0" : "AgentKeyring.approval.v2\0").utf8)
+        var bytes = Data((requesterContext == nil ? "AgentKeyring.approval.v1\0" : "AgentKeyring.approval.v3\0").utf8)
         var requestUUID = requestID.uuid
         withUnsafeBytes(of: &requestUUID) { bytes.append(contentsOf: $0) }
         func appendLengthPrefixed(_ value: Data) {
@@ -111,9 +129,16 @@ public struct ApprovalSignedFields: Codable, Equatable, Sendable {
             appendLengthPrefixed(Data(text.utf8))
         }
         if let requesterContext {
-            for text in [requesterContext.machineName, requesterContext.workingDirectory ?? "", requesterContext.networkAddress ?? ""] {
-                appendLengthPrefixed(Data(text.utf8))
+            bytes.append(requesterContext.session == nil ? 0 : 1)
+            if let session = requesterContext.session {
+                var pid = session.processIdentifier.bigEndian
+                var seconds = session.processStartTime.seconds.bigEndian
+                var microseconds = session.processStartTime.microseconds.bigEndian
+                withUnsafeBytes(of: &pid) { bytes.append(contentsOf: $0) }
+                withUnsafeBytes(of: &seconds) { bytes.append(contentsOf: $0) }
+                withUnsafeBytes(of: &microseconds) { bytes.append(contentsOf: $0) }
             }
+            appendLengthPrefixed(Data((requesterContext.workingDirectory ?? "").utf8))
         }
         appendLengthPrefixed(oneTimeValue)
         var expiry = expiresAt.bigEndian

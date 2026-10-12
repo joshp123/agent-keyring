@@ -38,9 +38,13 @@ public enum ApprovalCloudRecords {
         record["oneTimeValue"] = request.oneTimeValue as CKRecordValue
         record["expiresAt"] = NSNumber(value: request.expiresAt)
         if let context = request.requesterContext {
-            record.encryptedValues["machineName"] = context.machineName as CKRecordValue
+            record["hasRequesterContext"] = NSNumber(value: true)
+            if let session = context.session {
+                record.encryptedValues["harnessPID"] = NSNumber(value: session.processIdentifier)
+                record.encryptedValues["harnessStartSeconds"] = NSNumber(value: session.processStartTime.seconds)
+                record.encryptedValues["harnessStartMicroseconds"] = NSNumber(value: session.processStartTime.microseconds)
+            }
             record.encryptedValues["workingDirectory"] = context.workingDirectory as CKRecordValue?
-            record.encryptedValues["networkAddress"] = context.networkAddress as CKRecordValue?
         }
         record.encryptedValues["site"] = request.site as CKRecordValue
         record.encryptedValues["account"] = request.account as CKRecordValue
@@ -62,11 +66,26 @@ public enum ApprovalCloudRecords {
             CFGetTypeID(expiry) != CFBooleanGetTypeID(),
             expiry == NSNumber(value: expiry.int64Value)
         else { return nil }
-        let context = (record.encryptedValues["machineName"] as? String).map {
-            ApprovalRequesterContext(machineName: $0,
-                workingDirectory: record.encryptedValues["workingDirectory"] as? String,
-                networkAddress: record.encryptedValues["networkAddress"] as? String)
-        }
+        let context: ApprovalRequesterContext?
+        if (record["hasRequesterContext"] as? NSNumber)?.boolValue == true {
+            let session: HarnessSession?
+            if let pid = record.encryptedValues["harnessPID"] as? NSNumber,
+                let seconds = record.encryptedValues["harnessStartSeconds"] as? NSNumber,
+                let microseconds = record.encryptedValues["harnessStartMicroseconds"] as? NSNumber {
+                guard pid.int32Value > 0, pid == NSNumber(value: pid.int32Value),
+                    seconds == NSNumber(value: seconds.uint64Value),
+                    microseconds.uint64Value < 1_000_000 else { return nil }
+                session = HarnessSession(processIdentifier: pid.int32Value,
+                    processStartTime: HarnessProcessStartTime(seconds: seconds.uint64Value, microseconds: microseconds.uint64Value))
+            } else {
+                guard record.encryptedValues["harnessPID"] == nil,
+                    record.encryptedValues["harnessStartSeconds"] == nil,
+                    record.encryptedValues["harnessStartMicroseconds"] == nil else { return nil }
+                session = nil
+            }
+            context = ApprovalRequesterContext(session: session,
+                workingDirectory: record.encryptedValues["workingDirectory"] as? String)
+        } else { context = nil }
         return ApprovalSignedFields(requestID: id, agentDisplayLabel: agentLabel, site: site,
             account: account, field: field, action: action, oneTimeValue: nonce, expiresAt: expiry.int64Value, requesterContext: context)
     }

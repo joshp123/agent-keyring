@@ -92,7 +92,10 @@ extension MirrorAppModel {
             )
         }
 
-        agentBridgeLogger.info("Completed agent request; success: \(response.ok, privacy: .public)")
+        let activity = AgentRequestActivity(requestID: request.id, action: request.action,
+            requester: requester, completedAt: Date(), succeeded: response.ok, error: response.error)
+        lastAgentActivity = activity
+        activity.log(to: agentBridgeLogger)
         return response
     }
 

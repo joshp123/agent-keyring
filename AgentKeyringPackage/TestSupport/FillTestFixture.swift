@@ -93,5 +93,6 @@ public struct FillTestFixture {
 private struct UnlockedFillSession: CredentialSessionLockState { var isLocked: Bool { false } }
 
 /// Synthetic attribution for isolated policy tests. Never used by the app listener.
-public let syntheticRequester = AgentRequester(name: "Fixture agent",
-    processIdentifier: 0, context: ApprovalRequesterContext(machineName: "Fixture Mac", workingDirectory: "/tmp", networkAddress: "192.0.2.1"))
+public let syntheticRequester = AgentRequester(name: "Fixture agent", processIdentifier: 100,
+    processStartTime: HarnessProcessStartTime(seconds: 1_000, microseconds: 123),
+    workingDirectory: "/tmp", machineName: "Fixture Mac", networkAddress: "192.0.2.1")
