@@ -510,8 +510,34 @@
 			};
 			name = Release;
 		};
-		4D40000F0000000000000001 = {isa = XCBuildConfiguration; baseConfigurationReferenceAnchor = 8B90D1BC2DEE373300FBD189; baseConfigurationReferenceRelativePath = Identity.xcconfig; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CODE_SIGN_IDENTITY = "Developer ID Application"; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = "$(AGENT_KEYRING_TEAM_ID)"; ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = AgentKeyringFiller/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.Filler"; PRODUCT_NAME = "$(TARGET_NAME)"; MACOSX_DEPLOYMENT_TARGET = 26.0; MARKETING_VERSION = 0.2.0; CURRENT_PROJECT_VERSION = 3; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; }; name = Debug; };
-		4D4000100000000000000001 = {isa = XCBuildConfiguration; baseConfigurationReferenceAnchor = 8B90D1BC2DEE373300FBD189; baseConfigurationReferenceRelativePath = Identity.xcconfig; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CODE_SIGN_IDENTITY = "Developer ID Application"; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = "$(AGENT_KEYRING_TEAM_ID)"; ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = AgentKeyringFiller/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.Filler"; PRODUCT_NAME = "$(TARGET_NAME)"; MACOSX_DEPLOYMENT_TARGET = 26.0; MARKETING_VERSION = 0.2.0; CURRENT_PROJECT_VERSION = 3; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; }; name = Release; };
+		4D40000F0000000000000001 = {
+            isa = XCBuildConfiguration;
+            baseConfigurationReferenceAnchor = 8B90D1BC2DEE373300FBD189;
+            baseConfigurationReferenceRelativePath = Debug.xcconfig;
+            buildSettings = {
+                CODE_SIGN_ENTITLEMENTS = "";
+                ENABLE_APP_SANDBOX = NO;
+                INFOPLIST_FILE = AgentKeyringFiller/Info.plist;
+                PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.Filler";
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SKIP_INSTALL = YES;
+            };
+            name = Debug;
+        };
+		4D4000100000000000000001 = {
+            isa = XCBuildConfiguration;
+            baseConfigurationReferenceAnchor = 8B90D1BC2DEE373300FBD189;
+            baseConfigurationReferenceRelativePath = Release.xcconfig;
+            buildSettings = {
+                CODE_SIGN_ENTITLEMENTS = "";
+                ENABLE_APP_SANDBOX = NO;
+                INFOPLIST_FILE = AgentKeyringFiller/Info.plist;
+                PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.Filler";
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SKIP_INSTALL = YES;
+            };
+            name = Release;
+        };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */

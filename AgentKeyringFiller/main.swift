@@ -7,13 +7,22 @@ import OSLog
 
 private let fillerLogger = Logger(subsystem: "com.agentkeyring.app", category: "FillerService")
 
+// XPC transfers ownership of this decoded buffer to the main queue for typing.
+private final class ReceivedFillValue: @unchecked Sendable {
+    let bytes: NSMutableData
+    init(_ bytes: NSMutableData) { self.bytes = bytes }
+}
+
+@MainActor
 final class FillerService: NSObject, AgentKeyringFillerProtocol {
     private var previousWindow: AXUIElement?
     private var previousFocusedElement: AXUIElement?
     private var windowIdentifier: String?
     private var focusedElementIdentifier: String?
 
-    func inspect(withReply reply: @escaping (FillInspection) -> Void) {
+    nonisolated override init() { super.init() }
+
+    nonisolated func inspect(withReply reply: @escaping @Sendable (FillInspection) -> Void) {
         DispatchQueue.main.async {
             let inspection = self.inspectFrontmost()
             self.logInspectionRefusal(inspection)
@@ -21,9 +30,10 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
         }
     }
 
-    func type(value: NSMutableData, expected: FillInspection, deadline: Date, withReply reply: @escaping (FillTypingResult) -> Void) {
+    nonisolated func type(value: NSMutableData, expected: FillInspection, deadline: Date, withReply reply: @escaping @Sendable (FillTypingResult) -> Void) {
+        let receivedValue = ReceivedFillValue(value)
         DispatchQueue.main.async {
-            let result = FillerTypingOperation.type(value: value, expected: expected, deadline: deadline,
+            let result = FillerTypingOperation.type(value: receivedValue.bytes, expected: expected, deadline: deadline,
                 inspect: self.inspectFrontmost, post: self.postUnicode)
             switch result {
             case .filled, .failed: break // Posting failures log their specific cause below.

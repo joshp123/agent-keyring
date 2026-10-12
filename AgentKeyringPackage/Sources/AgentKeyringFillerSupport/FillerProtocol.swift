@@ -79,8 +79,8 @@ public final class FillInspection: NSObject, NSSecureCoding, @unchecked Sendable
 }
 
 @objc public protocol AgentKeyringFillerProtocol {
-    func inspect(withReply reply: @escaping (FillInspection) -> Void)
-    func type(value: NSMutableData, expected: FillInspection, deadline: Date, withReply reply: @escaping (FillTypingResult) -> Void)
+    func inspect(withReply reply: @escaping @Sendable (FillInspection) -> Void)
+    func type(value: NSMutableData, expected: FillInspection, deadline: Date, withReply reply: @escaping @Sendable (FillTypingResult) -> Void)
 }
 
 public func fillerInterface() -> NSXPCInterface {
