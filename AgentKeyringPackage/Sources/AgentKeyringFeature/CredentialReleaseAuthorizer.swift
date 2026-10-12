@@ -15,6 +15,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
     public let credentialTitle: String
     public let expirationSeconds: Int?
     public let authorizationDeadline: Date
+    public let isPossiblyStale: Bool
 
     public init(
         destination: String,
@@ -22,7 +23,8 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
         field: AgentCredentialField,
         credentialTitle: String? = nil,
         expirationSeconds: Int? = 30,
-        authorizationDeadline: Date = Date().addingTimeInterval(AgentBridgeRequest.lifetimeSeconds)
+        authorizationDeadline: Date = Date().addingTimeInterval(AgentBridgeRequest.lifetimeSeconds),
+        isPossiblyStale: Bool = false
     ) {
         self.destination = destination
         self.account = account
@@ -30,6 +32,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
         self.credentialTitle = credentialTitle ?? account
         self.expirationSeconds = expirationSeconds
         self.authorizationDeadline = authorizationDeadline
+        self.isPossiblyStale = isPossiblyStale
     }
 
     public var localizedReason: String {
@@ -40,6 +43,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
             case .totp: "verification code"
             }
         return "release the \(value) for \(account) to a local agent for \(destination)"
+            + (isPossiblyStale ? ". This login may be stale; update the copy from Apple Passwords." : "")
     }
 }
 

@@ -12,19 +12,23 @@ public struct CredentialCandidate: Codable, Equatable, Sendable {
     public let username: String?
     public let origins: [String]
     public let availableFields: [AgentCredentialField]
+    public let possiblyStale: Bool?
+    public var isPossiblyStale: Bool { possiblyStale == true }
 
     public init(
         id: UUID,
         title: String,
         username: String?,
         origins: [String],
-        availableFields: [AgentCredentialField]
+        availableFields: [AgentCredentialField],
+        possiblyStale: Bool? = nil
     ) {
         self.id = id
         self.title = title
         self.username = username
         self.origins = origins
         self.availableFields = availableFields
+        self.possiblyStale = possiblyStale
     }
 }
 

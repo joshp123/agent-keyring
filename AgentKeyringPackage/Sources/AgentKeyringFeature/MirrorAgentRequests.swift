@@ -44,6 +44,11 @@ extension MirrorAppModel {
             case .status, .resolve:
                 response = try await processDiscovery(request: request,
                     metadata: store.loadCurrentMetadata())
+            case .sync:
+                guard let metadata = try await store.loadCurrentMetadata() else {
+                    throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
+                }
+                response = try await processSync(request: request, metadata: metadata)
             case .acquire:
                 guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
                     throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
@@ -123,7 +128,7 @@ extension MirrorAppModel {
             throw AgentBridgeFailure(.invalidRequest, "The resolve request needs a target URL.")
         }
         let candidates = try resolver.candidates(in: metadata, targetURL: targetURL,
-            usernameHint: request.usernameHint)
+            usernameHint: request.usernameHint).map { staleLogins.annotate($0) }
         guard !candidates.isEmpty else {
             return AgentBridgeResponse(id: request.id, ok: false, error: .notFound,
                 message: CredentialResolverError.notFound.localizedDescription,
@@ -137,7 +142,8 @@ extension MirrorAppModel {
         generation: MirrorGeneration
     ) async throws -> AgentBridgeResponse {
         try await AgentCredentialReleaseProcessor(
-            bridge: bridge, accessControl: accessControl, resolver: resolver, grants: grants, approvals: approvals
+            bridge: bridge, accessControl: accessControl, resolver: resolver, grants: grants, approvals: approvals,
+            possiblyStaleCredentialIDs: staleLogins.credentialIDs
         ).release(
             request: request,
             generation: generation,

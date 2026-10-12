@@ -3,11 +3,14 @@ import Foundation
 
 enum CLICommand: Equatable {
     case status
+    case sync(targetURL: String)
     case find(targetURL: String, account: String?)
     case acquire(field: AgentCredentialField, targetURL: String, account: String?, credentialID: UUID?)
 
     var request: AgentBridgeRequest {
         switch self {
+        case let .sync(targetURL):
+            AgentBridgeRequest(action: .sync, targetURL: targetURL)
         case .status:
             AgentBridgeRequest(action: .status)
         case let .find(targetURL, account):
@@ -33,7 +36,7 @@ extension CLICommand {
 
     var targetURL: String {
         switch self {
-        case let .find(targetURL, _), let .acquire(_, targetURL, _, _): targetURL
+        case let .sync(targetURL), let .find(targetURL, _), let .acquire(_, targetURL, _, _): targetURL
         case .status: "the requested site"
         }
     }

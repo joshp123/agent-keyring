@@ -132,6 +132,7 @@ extension MirrorAppModel {
                 importBatch: importBatch
             )
             try await store.save(generation)
+            staleLogins.clear()
             let visibleGeneration = generationIncludingExample(generation) ?? generation
             await accessControl.refresh(from: visibleGeneration)
             credentialExchangeLogger.info(

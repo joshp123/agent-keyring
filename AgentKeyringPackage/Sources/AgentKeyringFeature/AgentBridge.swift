@@ -5,6 +5,7 @@ public enum AgentBridgeAction: String, Codable, Sendable {
     case status
     case acquire
     case resolve
+    case sync
 }
 
 public enum AgentBridgeErrorCode: String, Codable, Sendable {

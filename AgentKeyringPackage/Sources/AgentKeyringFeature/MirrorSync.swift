@@ -32,10 +32,10 @@ public final class MirrorSyncReminders {
         try await notify(importedAt: importedAt)
     }
 
-    func notify(importedAt: Date) async throws {
+    func notify(importedAt: Date, immediately: Bool = false) async throws {
         let date = now()
         guard !isPosting else { return }
-        if let last = settings.object(forKey: "mirrorSyncLastNotification") as? Date,
+        if !immediately, let last = settings.object(forKey: "mirrorSyncLastNotification") as? Date,
            calendar.isDate(last, inSameDayAs: date) { return }
         isPosting = true
         defer { isPosting = false }

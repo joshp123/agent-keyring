@@ -23,7 +23,7 @@ struct AgentKeyringCLI: AsyncParsableCommand {
               64 Invalid command or arguments.
             """,
         version: installedVersion(),
-        subcommands: [Find.self, Acquire.self, Read.self, Clear.self, Status.self, Install.self, AgentBrowserPlugin.self]
+        subcommands: [Find.self, Acquire.self, Read.self, Clear.self, Status.self, Sync.self, Install.self, AgentBrowserPlugin.self]
     )
 
     mutating func run() {

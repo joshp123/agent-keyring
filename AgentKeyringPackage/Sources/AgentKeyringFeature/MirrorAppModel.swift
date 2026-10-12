@@ -38,6 +38,7 @@ public final class MirrorAppModel {
     public internal(set) var notice: MirrorNotice?
     public let accessControl: CredentialAccessController
 
+    let staleLogins: PossiblyStaleLogins
     public var syncReminders: MirrorSyncReminders?
 
     let store: EncryptedSnapshotStore
@@ -74,6 +75,7 @@ public final class MirrorAppModel {
         self.bridge = bridge
         self.accessControl = accessControl
         self.settings = settings
+        self.staleLogins = PossiblyStaleLogins(settings: settings)
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
     }
 

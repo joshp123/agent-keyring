@@ -5,6 +5,8 @@ enum CLIOutput {
     static func render(_ response: AgentBridgeResponse, for command: CLICommand) throws -> String {
         switch command {
         case .acquire: return response.id.uuidString + "\n"
+        case .sync:
+            return "Josh has been asked to update Agent Keyring’s copy of your passwords.\n"
         case .status:
             guard let mirror = response.mirror else {
                 guard let message = response.message else { throw CLIError.invalidResponse }
@@ -42,6 +44,9 @@ enum CLIOutput {
                 "  Account: \(candidate.username ?? "No username")",
                 "  Can copy: \(candidate.availableFields.map(\.displayName).joined(separator: ", "))",
             ]
+            if candidate.isPossiblyStale {
+                lines.append("  Possibly stale: this login was rejected; update from Apple Passwords.")
+            }
             if accountCounts[candidate.username?.lowercased() ?? "", default: 0] > 1 {
                 lines.append("  Credential ID: \(candidate.id.uuidString)")
             }

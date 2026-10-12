@@ -8,6 +8,7 @@ public struct AgentCredentialReleaseProcessor {
     private let grants: CredentialApprovalGrants
     private let now: () -> Date
     private let resolver: CredentialResolver
+    private let possiblyStaleCredentialIDs: Set<UUID>
 
     public init(
         bridge: AgentBridgeDirectory,
@@ -15,6 +16,7 @@ public struct AgentCredentialReleaseProcessor {
         resolver: CredentialResolver = CredentialResolver(),
         grants: CredentialApprovalGrants = CredentialApprovalGrants(),
         approvals: CredentialApprovalCoordinator = CredentialApprovalCoordinator(),
+        possiblyStaleCredentialIDs: Set<UUID> = [],
         now: @escaping () -> Date = Date.init
     ) {
         self.bridge = bridge
@@ -23,6 +25,7 @@ public struct AgentCredentialReleaseProcessor {
         self.grants = grants
         self.approvals = approvals
         self.now = now
+        self.possiblyStaleCredentialIDs = possiblyStaleCredentialIDs
     }
 
     public func release(
@@ -99,7 +102,8 @@ public struct AgentCredentialReleaseProcessor {
                 field: field,
                 credentialTitle: selected.title,
                 expirationSeconds: nil,
-                authorizationDeadline: request.expiresAt
+                authorizationDeadline: request.expiresAt,
+                isPossiblyStale: possiblyStaleCredentialIDs.contains(selected.id)
             )
             try await approvals.authorize(credentialID: selected.id, authorizationDeadline: request.expiresAt,
                 onProgress: { progress in

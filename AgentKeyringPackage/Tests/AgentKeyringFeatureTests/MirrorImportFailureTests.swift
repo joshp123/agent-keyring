@@ -28,9 +28,11 @@ struct MirrorImportFailureTests {
             settings: settings
         )
 
+        model.staleLogins.mark(original.metadata.candidates)
         await model.loadStatus()
         await model.importCredentials(token: UUID())
 
+        #expect(model.staleLogins.credentialIDs == Set(original.items.map(\.id)))
         #expect(try await store.loadCurrent() == original)
         #expect(model.status == original.safeStatus)
         #expect(model.notice?.kind == .error)
