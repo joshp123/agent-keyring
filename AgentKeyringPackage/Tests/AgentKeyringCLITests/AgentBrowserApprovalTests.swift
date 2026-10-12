@@ -81,7 +81,7 @@ private final class BrowserApprovalFixture {
             sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
             title: "Synthetic browser login", origins: ["https://example.com"], credentials: [
                 .password(userName: "synthetic@example.com", password: "synthetic-browser-password")
-            ])], delta: MirrorDelta(), skippedCredentialCount: 0)
+            ])], skippedCredentialCount: 0)
 
     func invoke() async throws -> [String: Any] {
         let input = Pipe()

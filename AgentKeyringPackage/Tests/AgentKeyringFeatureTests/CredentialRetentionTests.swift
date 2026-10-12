@@ -404,7 +404,7 @@ private struct ReleaseFixture {
         generation = MirrorGeneration(
             id: UUID(), previousGenerationID: nil, createdAt: Date(), sourceExportedAt: Date(),
             scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture",
-            items: [item], delta: MirrorDelta(), skippedCredentialCount: 0
+            items: [item], skippedCredentialCount: 0
         )
     }
 

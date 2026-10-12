@@ -21,7 +21,7 @@ struct MirrorDiscoveryTests {
         let generation = MirrorGeneration(id: UUID(), previousGenerationID: nil,
             createdAt: Date().addingTimeInterval(-8 * 86_400), sourceExportedAt: Date(),
             scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture",
-            items: [item], delta: MirrorDelta(), skippedCredentialCount: 0)
+            items: [item], skippedCredentialCount: 0)
         let payload = await store.generationFileURL(for: generation.id)
         let metadataURL = payload.deletingPathExtension().appendingPathExtension("metadata")
         if missingIndex {

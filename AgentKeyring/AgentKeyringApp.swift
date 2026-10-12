@@ -137,7 +137,6 @@ private enum AccessControlUITestFixture {
             exporterIdentifier: "com.apple.Passwords",
             exporterDisplayName: "Passwords",
             items: items,
-            delta: MirrorDelta(addedItemIDs: items.map(\.id)),
             skippedCredentialCount: 0
         )
     }

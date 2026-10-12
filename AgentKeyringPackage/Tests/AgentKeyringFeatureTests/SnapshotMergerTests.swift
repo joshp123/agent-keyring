@@ -6,7 +6,7 @@ import Testing
 struct SnapshotMergerTests {
     private let fixedNow = Date(timeIntervalSince1970: 2_000)
 
-    @Test("Initial full import reports every item as added")
+    @Test("Initial full import contains every exported item")
     func initialFullImport() throws {
         let generation = try merger().merge(
             previous: nil,
@@ -14,9 +14,6 @@ struct SnapshotMergerTests {
         )
 
         #expect(generation.items.count == 2)
-        #expect(generation.delta.addedItemIDs.count == 2)
-        #expect(generation.delta.changedItems.isEmpty)
-        #expect(generation.delta.removedItemIDs.isEmpty)
     }
 
     @Test("An item absent from the next full import is removed")
@@ -31,10 +28,9 @@ struct SnapshotMergerTests {
         )
 
         #expect(second.items.count == 1)
-        #expect(second.delta.removedItemIDs.count == 1)
     }
 
-    @Test("A changed password is detected even when its timestamp is unchanged")
+    @Test("A changed password replaces the previous value even when its timestamp is unchanged")
     func passwordChangeWithUnchangedTimestamp() throws {
         let first = try merger().merge(
             previous: nil,
@@ -45,47 +41,7 @@ struct SnapshotMergerTests {
             importBatch: batch(items: [item(index: 1, password: "after")])
         )
 
-        #expect(second.delta.changedItems.count == 1)
-        #expect(second.delta.changedItems.first?.credentialsChanged == true)
-    }
-
-    @Test("A newer source timestamp alone does not report a credential change")
-    func timestampOnlyChange() throws {
-        let first = try merger().merge(
-            previous: nil,
-            importBatch: batch(items: [
-                item(index: 1, lastModifiedAt: Date(timeIntervalSince1970: 100))
-            ])
-        )
-        let second = try merger().merge(
-            previous: first,
-            importBatch: batch(items: [
-                item(index: 1, lastModifiedAt: Date(timeIntervalSince1970: 200))
-            ])
-        )
-
-        #expect(second.delta.changedItems.isEmpty)
-    }
-
-    @Test("A selected import preserves items outside the selection")
-    func selectedImportIsIsolated() throws {
-        let first = try merger().merge(
-            previous: nil,
-            importBatch: batch(items: [item(index: 1), item(index: 2)])
-        )
-        let selected = MirrorImportBatch(
-            scope: .selected,
-            exportedAt: fixedNow,
-            exporterIdentifier: "com.apple.Passwords",
-            exporterDisplayName: "Passwords",
-            items: [item(index: 1, password: "updated")],
-            skippedCredentialCount: 0
-        )
-        let second = try merger().merge(previous: first, importBatch: selected)
-
-        #expect(second.items.count == 2)
-        #expect(second.delta.changedItems.count == 1)
-        #expect(second.delta.removedItemIDs.isEmpty)
+        #expect(second.items.first?.credentials == [.password(userName: "agent@example.com", password: "after")])
     }
 
     @Test("A unique natural key preserves identity when a source ID changes")
@@ -101,8 +57,6 @@ struct SnapshotMergerTests {
         )
 
         #expect(second.items.first?.id == first.items.first?.id)
-        #expect(second.delta.addedItemIDs.isEmpty)
-        #expect(second.delta.removedItemIDs.isEmpty)
     }
 
     @Test("Duplicate accounts keep distinct source identities without rejecting the import")

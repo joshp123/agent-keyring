@@ -28,8 +28,6 @@ public struct SnapshotMerger: Sendable {
         let incomingByNaturalKey = Dictionary(grouping: importBatch.items, by: naturalKey)
 
         var matchedPreviousIDs = Set<UUID>()
-        var addedItemIDs: [UUID] = []
-        var changedItems: [MirrorItemChange] = []
         var mergedItems: [MirrorItem] = []
 
         for importedItem in importBatch.items {
@@ -44,42 +42,13 @@ public struct SnapshotMerger: Sendable {
             guard let previousItem else {
                 let newItem = importedItem.replacingID(idFactory())
                 mergedItems.append(newItem)
-                addedItemIDs.append(newItem.id)
                 continue
             }
 
             matchedPreviousIDs.insert(previousItem.id)
             let updatedItem = importedItem.replacingID(previousItem.id)
-            let credentialsChanged = previousItem.credentials != updatedItem.credentials
-            let metadataChanged = metadataChanged(from: previousItem, to: updatedItem)
-            if credentialsChanged || metadataChanged {
-                changedItems.append(
-                    MirrorItemChange(
-                        itemID: previousItem.id,
-                        credentialsChanged: credentialsChanged,
-                        metadataChanged: metadataChanged
-                    )
-                )
-            }
             mergedItems.append(updatedItem)
         }
-
-        let unmatchedPrevious = previousItems.filter { !matchedPreviousIDs.contains($0.id) }
-        let removedItemIDs: [UUID]
-        switch importBatch.scope {
-        case .full:
-            removedItemIDs = unmatchedPrevious.map(\.id)
-        case .selected:
-            removedItemIDs = []
-            mergedItems.append(contentsOf: unmatchedPrevious)
-        }
-
-        let byUUID: (UUID, UUID) -> Bool = { $0.uuidString < $1.uuidString }
-        let delta = MirrorDelta(
-            addedItemIDs: addedItemIDs.sorted(by: byUUID),
-            changedItems: changedItems.sorted { $0.itemID.uuidString < $1.itemID.uuidString },
-            removedItemIDs: removedItemIDs.sorted(by: byUUID)
-        )
 
         return MirrorGeneration(
             id: idFactory(),
@@ -90,7 +59,6 @@ public struct SnapshotMerger: Sendable {
             exporterIdentifier: importBatch.exporterIdentifier,
             exporterDisplayName: importBatch.exporterDisplayName,
             items: mergedItems.sorted { $0.id.uuidString < $1.id.uuidString },
-            delta: delta,
             skippedCredentialCount: importBatch.skippedCredentialCount,
             skippedCredentialSummary: importBatch.skippedCredentialSummary
         )
@@ -162,10 +130,4 @@ public struct SnapshotMerger: Sendable {
         return "\(origin)|\(userName)"
     }
 
-    private func metadataChanged(from old: MirrorItem, to new: MirrorItem) -> Bool {
-        old.title != new.title
-            || old.subtitle != new.subtitle
-            || old.isFavorite != new.isFavorite
-            || old.origins != new.origins
-    }
 }

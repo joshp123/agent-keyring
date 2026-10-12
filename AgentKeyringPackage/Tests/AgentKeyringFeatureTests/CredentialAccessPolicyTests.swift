@@ -207,7 +207,6 @@ private struct Fixture {
                     ]
                 )
             ],
-            delta: MirrorDelta(addedItemIDs: [credentialID]),
             skippedCredentialCount: 0
         )
     }
@@ -238,7 +237,6 @@ private struct Fixture {
             exporterIdentifier: "com.apple.Passwords",
             exporterDisplayName: "Passwords",
             items: items,
-            delta: MirrorDelta(addedItemIDs: items.map(\.id)),
             skippedCredentialCount: 0
         )
     }

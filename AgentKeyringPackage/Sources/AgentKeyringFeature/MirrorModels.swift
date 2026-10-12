@@ -2,7 +2,6 @@ import Foundation
 
 public enum MirrorImportScope: String, Codable, Equatable, Sendable {
     case full
-    case selected
 }
 
 public struct MirrorSourceIdentity: Codable, Equatable, Hashable, Sendable {
@@ -148,34 +147,6 @@ public struct MirrorSkippedCredentialSummary: Codable, Equatable, Sendable {
     }
 }
 
-public struct MirrorItemChange: Codable, Equatable, Sendable {
-    public let itemID: UUID
-    public let credentialsChanged: Bool
-    public let metadataChanged: Bool
-
-    public init(itemID: UUID, credentialsChanged: Bool, metadataChanged: Bool) {
-        self.itemID = itemID
-        self.credentialsChanged = credentialsChanged
-        self.metadataChanged = metadataChanged
-    }
-}
-
-public struct MirrorDelta: Codable, Equatable, Sendable {
-    public let addedItemIDs: [UUID]
-    public let changedItems: [MirrorItemChange]
-    public let removedItemIDs: [UUID]
-
-    public init(
-        addedItemIDs: [UUID] = [],
-        changedItems: [MirrorItemChange] = [],
-        removedItemIDs: [UUID] = []
-    ) {
-        self.addedItemIDs = addedItemIDs
-        self.changedItems = changedItems
-        self.removedItemIDs = removedItemIDs
-    }
-}
-
 public struct MirrorGeneration: Codable, Equatable, Sendable {
     public let id: UUID
     public let previousGenerationID: UUID?
@@ -185,7 +156,6 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
     public let exporterIdentifier: String
     public let exporterDisplayName: String
     public let items: [MirrorItem]
-    public let delta: MirrorDelta
     public let skippedCredentialCount: Int
     public let skippedCredentialSummary: MirrorSkippedCredentialSummary?
 
@@ -198,7 +168,6 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
         exporterIdentifier: String,
         exporterDisplayName: String,
         items: [MirrorItem],
-        delta: MirrorDelta,
         skippedCredentialCount: Int,
         skippedCredentialSummary: MirrorSkippedCredentialSummary? = nil
     ) {
@@ -210,7 +179,6 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
         self.exporterIdentifier = exporterIdentifier
         self.exporterDisplayName = exporterDisplayName
         self.items = items
-        self.delta = delta
         self.skippedCredentialCount = skippedCredentialCount
         self.skippedCredentialSummary = skippedCredentialSummary
     }
@@ -228,9 +196,6 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
             sourceExportedAt: sourceExportedAt,
             scope: scope,
             credentialItemCount: items.filter { !$0.isExample }.count,
-            addedCount: delta.addedItemIDs.count,
-            changedCount: delta.changedItems.count,
-            removedCount: delta.removedItemIDs.count,
             skippedCredentialCount: skippedCredentialCount,
             skippedCredentialSummary: skippedCredentialSummary
         )
@@ -256,9 +221,6 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
     public let sourceExportedAt: Date
     public let scope: MirrorImportScope
     public let credentialItemCount: Int
-    public let addedCount: Int
-    public let changedCount: Int
-    public let removedCount: Int
     public let skippedCredentialCount: Int
     public let skippedCredentialSummary: MirrorSkippedCredentialSummary?
 
@@ -268,9 +230,6 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
         sourceExportedAt: Date,
         scope: MirrorImportScope,
         credentialItemCount: Int,
-        addedCount: Int,
-        changedCount: Int,
-        removedCount: Int,
         skippedCredentialCount: Int,
         skippedCredentialSummary: MirrorSkippedCredentialSummary? = nil
     ) {
@@ -279,9 +238,6 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
         self.sourceExportedAt = sourceExportedAt
         self.scope = scope
         self.credentialItemCount = credentialItemCount
-        self.addedCount = addedCount
-        self.changedCount = changedCount
-        self.removedCount = removedCount
         self.skippedCredentialCount = skippedCredentialCount
         self.skippedCredentialSummary = skippedCredentialSummary
     }

@@ -116,7 +116,6 @@ struct EncryptedSnapshotStoreTests {
                     ]
                 )
             ],
-            delta: MirrorDelta(addedItemIDs: [itemID]),
             skippedCredentialCount: 0
         )
     }

@@ -431,7 +431,6 @@ public final class MirrorAppModel {
                 exporterIdentifier: "com.agentkeyring.example",
                 exporterDisplayName: "Agent Keyring",
                 items: [item],
-                delta: MirrorDelta(addedItemIDs: [item.id]),
                 skippedCredentialCount: 0
             )
         }
@@ -448,7 +447,6 @@ public final class MirrorAppModel {
             exporterIdentifier: generation.exporterIdentifier,
             exporterDisplayName: generation.exporterDisplayName,
             items: generation.items + [item],
-            delta: generation.delta,
             skippedCredentialCount: generation.skippedCredentialCount,
             skippedCredentialSummary: generation.skippedCredentialSummary
         )

@@ -224,7 +224,7 @@ private struct FixtureConfiguration: Decodable {
         return MirrorGeneration(
             id: UUID(), previousGenerationID: nil, createdAt: Date(), sourceExportedAt: Date(),
             scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Synthetic fixture",
-            items: [item], delta: MirrorDelta(), skippedCredentialCount: 0
+            items: [item], skippedCredentialCount: 0
         )
     }
 }

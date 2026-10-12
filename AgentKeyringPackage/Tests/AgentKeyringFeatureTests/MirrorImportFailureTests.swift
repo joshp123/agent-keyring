@@ -77,7 +77,6 @@ struct MirrorImportFailureTests {
                     credentials: [.password(userName: "account", password: "OLD-SECRET")]
                 )
             ],
-            delta: MirrorDelta(addedItemIDs: [itemID]),
             skippedCredentialCount: 0
         )
     }

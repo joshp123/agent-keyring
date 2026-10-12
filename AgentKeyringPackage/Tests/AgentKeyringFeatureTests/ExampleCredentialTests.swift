@@ -41,7 +41,7 @@ struct ExampleCredentialTests {
             credentials: [.password(userName: "example@example.com", password: "example-password")])
         let generation = MirrorGeneration(id: UUID(), previousGenerationID: nil, createdAt: Date(),
             sourceExportedAt: Date(), scope: .full, exporterIdentifier: "fixture",
-            exporterDisplayName: "Fixture", items: [item], delta: MirrorDelta(), skippedCredentialCount: 0)
+            exporterDisplayName: "Fixture", items: [item], skippedCredentialCount: 0)
         #expect(generation.safeStatus.credentialItemCount == 0)
     }
 }

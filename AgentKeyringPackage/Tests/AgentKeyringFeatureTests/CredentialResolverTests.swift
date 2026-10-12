@@ -177,7 +177,6 @@ struct CredentialResolverTests {
             exporterIdentifier: "com.apple.Passwords",
             exporterDisplayName: "Passwords",
             items: items,
-            delta: MirrorDelta(),
             skippedCredentialCount: 0
         )
     }
