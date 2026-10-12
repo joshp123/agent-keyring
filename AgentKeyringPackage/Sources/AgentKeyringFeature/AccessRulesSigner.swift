@@ -18,12 +18,8 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
     public func sign(_ bytes: Data, reason: String) async throws -> Data {
         let context = LAContext()
         context.touchIDAuthenticationAllowableReuseDuration = 0
-        context.localizedFallbackTitle = ""
+        context.localizedReason = reason
         defer { context.invalidate() }
-        guard try await context.evaluatePolicy(
-            .deviceOwnerAuthenticationWithBiometricsOrCompanion,
-            localizedReason: reason
-        ) else { throw signingError(errSecAuthFailed) }
 
         let key: SecKey
         do {
