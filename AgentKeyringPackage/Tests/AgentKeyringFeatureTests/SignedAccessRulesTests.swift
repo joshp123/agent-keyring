@@ -10,7 +10,7 @@ struct SignedAccessRulesTests {
     func signedColdStart() async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let settingsName = "SignedRulesColdStart-\(UUID().uuidString)"
         let settings = try #require(UserDefaults(suiteName: settingsName))
         defer { settings.removePersistentDomain(forName: settingsName) }
@@ -30,7 +30,7 @@ struct SignedAccessRulesTests {
     func stableConfirmationSnapshot() async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([fixture.loginID: .block])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .block])
         try FileManager.default.moveItem(at: fixture.signatureURL, to: fixture.signatureURL.appendingPathExtension("held"))
         let snapshotBytes = try Data(contentsOf: fixture.fileURL)
         let controller = CredentialAccessController(store: fixture.store)
@@ -55,13 +55,13 @@ struct SignedAccessRulesTests {
         await controller.confirmRules()
         #expect(try Data(contentsOf: fixture.fileURL) == snapshotBytes)
         #expect(try await fixture.store.load()[fixture.loginID] == .block)
-        #expect(fixture.signer.signingReason == "confirm your Agent Keyring access rules: 0 allowed automatically, 1 blocked, 0 ask each time")
+        #expect(fixture.signer.signingReason == "confirm your Agent Keyring access rules: 0 allowed automatically, 1 blocked, 0 ask each time. Your iPhone must be paired again.")
     }
     @Test("Restoring an older valid signed pair fails closed")
     func signedRollback() async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([fixture.loginID: .allowAutomatically])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .allowAutomatically])
         let oldBytes = try Data(contentsOf: fixture.fileURL)
         let oldSignature = try Data(contentsOf: fixture.signatureURL)
         try await fixture.store.save([fixture.loginID: .block])
@@ -78,7 +78,7 @@ struct SignedAccessRulesTests {
     func corruptRules(corruption: String, signed: Bool) async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([fixture.loginID: .allowAutomatically])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .allowAutomatically])
         let text: String = switch corruption {
         case "duplicate-record": """
             {"version":1,"records":[
@@ -114,7 +114,7 @@ struct SignedAccessRulesTests {
     func unsignedUpgrade(policy: CredentialAccessPolicy) async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([fixture.loginID: policy])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: policy])
         try FileManager.default.moveItem(at: fixture.signatureURL,
             to: fixture.signatureURL.appendingPathExtension("held"))
         let controller = CredentialAccessController(store: fixture.store)
@@ -152,7 +152,7 @@ struct SignedAccessRulesTests {
     func validSignature() async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([fixture.loginID: .allowAutomatically])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .allowAutomatically])
         #expect(try await fixture.store.load() == [fixture.loginID: .allowAutomatically])
     }
 
@@ -162,7 +162,7 @@ struct SignedAccessRulesTests {
     func failClosed(change: String) async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        if change != "no-file" { try await fixture.store.save([fixture.loginID: .allowAutomatically]) }
+        if change != "no-file" { try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .allowAutomatically]) }
         let controller = CredentialAccessController(store: fixture.store)
         await controller.refresh(from: fixture.generation)
         if change == "edited" {
@@ -208,11 +208,11 @@ struct SignedAccessRulesTests {
     func publicKeyOnDiskIsIgnored() async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([fixture.loginID: .block])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .block])
         let attacker = FakeAccessRulesSigner(key: Data("attacker key".utf8))
         try attacker.key.write(to: fixture.fileURL.appendingPathExtension("public-key"))
-        try await CredentialAccessPolicyStore(fileURL: fixture.fileURL, signer: attacker)
-            .save([fixture.loginID: .allowAutomatically])
+        let attackerStore = CredentialAccessPolicyStore(fileURL: fixture.fileURL, signer: attacker)
+        try await confirmInitialAccessRules(in: attackerStore, policies: [fixture.loginID: .allowAutomatically])
         await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.load() }
     }
 
@@ -220,7 +220,7 @@ struct SignedAccessRulesTests {
     func confirmationResigns() async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([fixture.loginID: .block])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .block])
         let changed = String(decoding: try Data(contentsOf: fixture.fileURL), as: UTF8.self)
             .replacingOccurrences(of: "block", with: "allowAutomatically")
         try Data(changed.utf8).write(to: fixture.fileURL)
@@ -237,7 +237,7 @@ struct SignedAccessRulesTests {
     func editedDuringApproval() async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let controller = CredentialAccessController(store: fixture.store)
         let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
         try fixture.bridge.write(request)

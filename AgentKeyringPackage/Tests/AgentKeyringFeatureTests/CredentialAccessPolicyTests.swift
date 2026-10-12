@@ -11,7 +11,7 @@ struct CredentialAccessPolicyTests {
     func releaseDecisions() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let controller = CredentialAccessController(store: fixture.store)
         let generation = fixture.generation()
         let credentialID = generation.items[0].id
@@ -37,7 +37,7 @@ struct CredentialAccessPolicyTests {
         defer { fixture.remove() }
         let first = fixture.generation()
         let credentialID = first.items[0].id
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let controller = CredentialAccessController(store: fixture.store)
 
         await controller.refresh(from: first)
@@ -55,7 +55,7 @@ struct CredentialAccessPolicyTests {
     func fuzzySearch() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let controller = CredentialAccessController(store: fixture.store)
         await controller.refresh(from: fixture.generation(title: "Café Account"))
 
@@ -74,7 +74,7 @@ struct CredentialAccessPolicyTests {
     func bulkRecommendations() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let controller = CredentialAccessController(store: fixture.store)
         let first = fixture.generation()
         let firstID = first.items[0].id
@@ -96,7 +96,7 @@ struct CredentialAccessPolicyTests {
         defer { fixture.remove() }
         let credentialID = UUID()
 
-        try await fixture.store.save([credentialID: .block])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [credentialID: .block])
 
         let data = try Data(contentsOf: fixture.fileURL)
         let text = String(decoding: data, as: UTF8.self)
@@ -113,7 +113,7 @@ struct CredentialAccessPolicyTests {
     func fullScaleAccessModel() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let controller = CredentialAccessController(store: fixture.store)
         let generation = fixture.generation(count: 522)
         await controller.refresh(from: generation)
@@ -175,6 +175,7 @@ struct CredentialAccessPolicyTests {
         let fixture = Fixture()
         defer { fixture.remove() }
         let store = fixture.store
+        try await confirmInitialAccessRules(in: store)
         for policy in [CredentialAccessPolicy.block, .allowAutomatically, .ask] {
             try await store.save([UUID(): policy])
             let bytes = try Data(contentsOf: fixture.fileURL)
@@ -189,12 +190,12 @@ struct CredentialAccessPolicyTests {
     func cancelledSave() async throws {
         let fixture = Fixture()
         defer { fixture.remove() }
-        try await fixture.store.save([UUID(): .block])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [UUID(): .block])
         let bytes = try Data(contentsOf: fixture.fileURL)
         let signatureURL = await fixture.store.signatureURL
         let signature = try Data(contentsOf: signatureURL)
         let store = CredentialAccessPolicyStore(fileURL: fixture.fileURL,
-            signer: FakeAccessRulesSigner(refusesSigning: true))
+            signer: FakeAccessRulesSigner(refusesSigning: true, signedBytes: bytes))
         await #expect(throws: CocoaError.self) { try await store.save([UUID(): .allowAutomatically]) }
         #expect(try Data(contentsOf: fixture.fileURL) == bytes)
         #expect(try Data(contentsOf: signatureURL) == signature)

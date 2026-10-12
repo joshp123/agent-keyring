@@ -46,7 +46,7 @@ struct RulesConfirmationTests {
             let store = CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("rules.json"),
                 signer: FakeAccessRulesSigner())
             let loginID = UUID()
-            try await store.save([loginID: .allowAutomatically])
+            try await confirmInitialAccessRules(in: store, policies: [loginID: .allowAutomatically])
             let signatureURL = await store.signatureURL
             try FileManager.default.moveItem(at: signatureURL, to: signatureURL.appendingPathExtension("held"))
             let settingsName = "RulesConfirmationCLITests-\(UUID().uuidString)"

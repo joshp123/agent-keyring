@@ -10,8 +10,8 @@ struct ExampleCredentialTests {
     func defaultExample() async throws {
         let fixture = Fixture()
         defer { fixture.cleanUp() }
-        try await CredentialAccessPolicyStore(fileURL: fixture.directory.appendingPathComponent("policies.json"),
-            signer: fixture.signer).save([:])
+        try await confirmInitialAccessRules(in: CredentialAccessPolicyStore(
+            fileURL: fixture.directory.appendingPathComponent("policies.json"), signer: fixture.signer))
         let model = fixture.model()
         await model.loadStatus()
         #expect(model.includeExampleCredential)

@@ -1,4 +1,5 @@
 import CryptoKit
+import AgentKeyringTestSupport
 import Foundation
 import Synchronization
 import Testing
@@ -149,7 +150,7 @@ struct ApprovalDecisionVerifierTests {
     func unpairedDevice() async throws {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let request = fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
@@ -180,7 +181,7 @@ struct PhoneApprovalFixture {
     }
 
     func pair() async throws {
-        try await store.save([:])
+        try await confirmInitialAccessRules(in: store)
         try await store.addPairedDevice(device)
     }
 

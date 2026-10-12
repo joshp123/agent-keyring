@@ -44,8 +44,8 @@ struct MirrorDiscoveryTests {
         defer { settings.removePersistentDomain(forName: settingsName) }
         settings.set(false, forKey: "includeExampleCredential")
         let rulesSigner = FakeAccessRulesSigner()
-        try await CredentialAccessPolicyStore(fileURL: directory.appendingPathComponent("policies.json"),
-            signer: rulesSigner).save([:])
+        try await confirmInitialAccessRules(in: CredentialAccessPolicyStore(
+            fileURL: directory.appendingPathComponent("policies.json"), signer: rulesSigner))
         let model = MirrorAppModel(store: store, bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
                 fileURL: directory.appendingPathComponent("policies.json"), signer: rulesSigner)),

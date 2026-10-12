@@ -105,7 +105,8 @@ struct AgentKeyringFixture {
                 signer: FakeAccessRulesSigner()
             )
             let generation = try configuration.generation()
-            try await policyStore.save([FixtureConfiguration.credentialID: configuration.policy ?? .ask])
+            try await confirmInitialAccessRules(in: policyStore,
+                policies: [FixtureConfiguration.credentialID: configuration.policy ?? .ask])
             let accessControl = CredentialAccessController(store: policyStore)
             response = try await AgentCredentialReleaseProcessor(
                 bridge: bridge, accessControl: accessControl

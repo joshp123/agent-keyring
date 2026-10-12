@@ -41,7 +41,6 @@ public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
 }
 
 public struct AccessRulesConfirmationSnapshot: Sendable {
-    let bytes: Data
     let policies: [UUID: CredentialAccessPolicy]
     let resetsUnreadableRules: Bool
 }
@@ -69,6 +68,11 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     private let fileManager: FileManager
     private let signer: any AccessRulesSigning
     private var isSigning = false
+
+    private enum PairedDeviceChange {
+        case add(PairedApprovalDevice)
+        case remove(Data)
+    }
 
     public init(
         fileURL: URL = CredentialAccessPolicyStore.defaultFileURL(),
@@ -153,38 +157,25 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     }
 
     public func snapshotForConfirmation() throws -> AccessRulesConfirmationSnapshot {
-        // A missing file after rules were once signed is a reset, not a first run.
-        guard fileManager.fileExists(atPath: fileURL.path) else {
-            return try Self.snapshot([:], resetsUnreadableRules: (try? signer.signedBytesHash()) != nil)
-        }
+        let resetsUnreadableRules = (try? loadVerifiedContents()) == nil
+        let policies: [UUID: CredentialAccessPolicy]
         do {
             try validateOwnedRegularFile(fileURL)
-            let bytes = try Data(contentsOf: fileURL)
-            let contents = try decodeContents(bytes)
-            if contents.devices.isEmpty {
-                return AccessRulesConfirmationSnapshot(bytes: bytes, policies: contents.policies, resetsUnreadableRules: false)
-            }
-            // The rules UI reviews policies, not device keys. It must never bless an injected
-            // or rolled-back pairing as a side effect of confirming those policies.
-            if (try? loadVerifiedContents()) == contents {
-                return AccessRulesConfirmationSnapshot(bytes: bytes, policies: contents.policies, resetsUnreadableRules: false)
-            }
-            return try Self.snapshot(contents.policies)
+            policies = try decodeContents(Data(contentsOf: fileURL)).policies
         } catch {
-            return try Self.snapshot([:], resetsUnreadableRules: true)
+            policies = [:]
         }
+        return AccessRulesConfirmationSnapshot(policies: policies, resetsUnreadableRules: resetsUnreadableRules)
     }
 
-    private static func snapshot(_ policies: [UUID: CredentialAccessPolicy], devices: [PairedApprovalDevice] = [],
-        resetsUnreadableRules: Bool = false) throws -> AccessRulesConfirmationSnapshot {
+    private static func encodedContents(_ policies: [UUID: CredentialAccessPolicy], devices: [PairedApprovalDevice]) throws -> Data {
         let records = policies.filter { $0.value != .ask }
             .map { Record(credentialID: $0.key, policy: $0.value) }
             .sorted { $0.credentialID.uuidString < $1.credentialID.uuidString }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let sortedDevices = devices.sorted { $0.publicKey.lexicographicallyPrecedes($1.publicKey) }
-        return AccessRulesConfirmationSnapshot(bytes: try encoder.encode(FileContents(version: 2, records: records, pairedDevices: sortedDevices)),
-            policies: policies, resetsUnreadableRules: resetsUnreadableRules)
+        return try encoder.encode(FileContents(version: 2, records: records, pairedDevices: sortedDevices))
     }
 
     private func decodeContents(_ bytes: Data) throws -> FileContents {
@@ -212,49 +203,52 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     }
 
     public func save(_ policies: [UUID: CredentialAccessPolicy]) async throws {
-        var devices: [PairedApprovalDevice] = []
-        if fileManager.fileExists(atPath: fileURL.path) {
-            try validateOwnedRegularFile(fileURL)
-            let contents = try decodeContents(Data(contentsOf: fileURL))
-            if !contents.devices.isEmpty { devices = try loadPairedDevices() }
-        }
-        try await save(try Self.snapshot(policies, devices: devices), reason: "confirm your Agent Keyring access rules")
+        try await persist(policies: policies, reason: "confirm your Agent Keyring access rules")
     }
 
     public func addPairedDevice(_ device: PairedApprovalDevice) async throws {
-        let contents = try loadVerifiedContents()
-        guard !contents.devices.contains(where: { $0.publicKey == device.publicKey }) else {
-            throw PairedDeviceStoreError.alreadyPaired
-        }
-        _ = try P256.Signing.PublicKey(x963Representation: device.publicKey)
-        try await persist(try Self.snapshot(contents.policies, devices: contents.devices + [device]),
-            reason: "pair your iPhone with Agent Keyring")
+        try await persist(deviceChange: .add(device), reason: "pair your iPhone with Agent Keyring")
     }
 
     public func removePairedDevice(publicKey: Data) async throws {
-        let contents = try loadVerifiedContents()
-        guard contents.devices.contains(where: { $0.publicKey == publicKey }) else {
-            throw PairedDeviceStoreError.notPaired
-        }
-        try await persist(try Self.snapshot(contents.policies, devices: contents.devices.filter { $0.publicKey != publicKey }),
-            reason: "remove your paired iPhone from Agent Keyring")
+        try await persist(deviceChange: .remove(publicKey), reason: "remove your paired iPhone from Agent Keyring")
     }
 
     public func save(_ snapshot: AccessRulesConfirmationSnapshot, reason: String) async throws {
-        let devices = try decodeContents(snapshot.bytes).devices
-        let currentDevices = (try? loadVerifiedContents().devices) ?? []
-        // A rules confirmation cannot restore a revoked key or add a key that was never paired.
-        guard devices.isEmpty || devices == currentDevices else { throw AccessRulesConfirmationRequired() }
-        let preservedSnapshot = devices.isEmpty && !currentDevices.isEmpty
-            ? try Self.snapshot(snapshot.policies, devices: currentDevices) : snapshot
-        try await persist(preservedSnapshot, reason: reason)
+        try await persist(policies: snapshot.policies, confirming: true, reason: reason)
     }
 
-    private func persist(_ snapshot: AccessRulesConfirmationSnapshot, reason: String) async throws {
+    private func persist(policies: [UUID: CredentialAccessPolicy]? = nil, confirming: Bool = false,
+        deviceChange: PairedDeviceChange? = nil, reason: String) async throws {
         // Touch ID suspends the actor. A second writer must not sign a stale pairing list.
         guard !isSigning else { throw PairedDeviceStoreError.changeInProgress }
         isSigning = true
         defer { isSigning = false }
+        let contents: FileContents?
+        do { contents = try loadVerifiedContents() }
+        catch {
+            guard confirming else { throw error }
+            contents = nil
+        }
+        // Snapshots contain only policies. Device keys always come from the store verified
+        // here, so a stale confirmation cannot restore a removed key or bless an injected one.
+        var devices = contents?.devices ?? []
+        switch deviceChange {
+        case .add(let device):
+            guard !devices.contains(where: { $0.publicKey == device.publicKey }) else {
+                throw PairedDeviceStoreError.alreadyPaired
+            }
+            _ = try P256.Signing.PublicKey(x963Representation: device.publicKey)
+            devices.append(device)
+        case .remove(let publicKey):
+            guard devices.contains(where: { $0.publicKey == publicKey }) else {
+                throw PairedDeviceStoreError.notPaired
+            }
+            devices.removeAll { $0.publicKey == publicKey }
+        case nil: break
+        }
+        let bytes = try Self.encodedContents(policies ?? contents?.policies ?? [:], devices: devices)
+        let signingReason = contents == nil ? reason + ". Your iPhone must be paired again." : reason
         let directoryURL = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
             at: directoryURL,
@@ -269,8 +263,7 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
         if fileManager.fileExists(atPath: fileURL.path) {
             try validateOwnedRegularFile(fileURL)
         }
-        let bytes = snapshot.bytes
-        let signature = try await signer.sign(bytes, reason: reason)
+        let signature = try await signer.sign(bytes, reason: signingReason)
         if fileManager.fileExists(atPath: signatureURL.path) {
             try validateOwnedRegularFile(signatureURL)
         }

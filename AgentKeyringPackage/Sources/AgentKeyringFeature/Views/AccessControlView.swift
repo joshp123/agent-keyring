@@ -25,7 +25,7 @@ public struct AccessControlView: View {
                             .font(.headline)
                         Text(controller.confirmationSummary)
                         if controller.confirmationResetsUnreadableRules {
-                            Text("The rules file could not be read. Confirming resets every login to Ask each time. Nothing will be released until then.")
+                            Text("The rules store could not be verified. Confirming saves the rules shown below. Your iPhone must be paired again. Nothing will be released until then.")
                                 .foregroundStyle(.secondary)
                         } else {
                             Text("Review the rules below. Nothing will be released until you confirm with Touch ID or Apple Watch.")

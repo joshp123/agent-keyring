@@ -1,4 +1,5 @@
 import CryptoKit
+import AgentKeyringTestSupport
 import Foundation
 import Testing
 @testable import AgentKeyringFeature
@@ -10,7 +11,7 @@ struct PairedApprovalDeviceTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         let loginID = UUID()
-        try await fixture.store.save([loginID: .block])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [loginID: .block])
         let oldHash = try fixture.signer.signedBytesHash()
         try await fixture.store.addPairedDevice(fixture.device)
         #expect(fixture.signer.signingReason == "pair your iPhone with Agent Keyring")
@@ -60,7 +61,7 @@ struct PairedApprovalDeviceTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         let loginID = UUID()
-        try await fixture.store.save([loginID: .block])
+        try await confirmInitialAccessRules(in: fixture.store, policies: [loginID: .block])
         let request = fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
@@ -75,7 +76,12 @@ struct PairedApprovalDeviceTests {
         }
         // The existing rule-confirmation path cannot quietly pair the attacker's key.
         let snapshot = try await fixture.store.snapshotForConfirmation()
+        #expect(snapshot.resetsUnreadableRules)
+        await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.save([loginID: .allowAutomatically]) }
+        await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.addPairedDevice(fixture.device) }
+        await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey) }
         try await fixture.store.save(snapshot, reason: "confirm test rules")
+        #expect(fixture.signer.signingReason == "confirm test rules. Your iPhone must be paired again.")
         #expect(try await fixture.store.load() == [loginID: .block])
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
         await #expect(throws: ApprovalDecisionRefusal.unpairedDevice) {
@@ -103,6 +109,22 @@ struct PairedApprovalDeviceTests {
         }
     }
 
+    @Test("Clearing the device list by hand cannot bypass verification during ordinary saves")
+    func editedEmptyDeviceList() async throws {
+        let fixture = PhoneApprovalFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.pair()
+        var contents = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixture.fileURL)) as? [String: Any])
+        contents["pairedDevices"] = []
+        try JSONSerialization.data(withJSONObject: contents, options: [.sortedKeys]).write(to: fixture.fileURL)
+        await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.save([:]) }
+        let snapshot = try await fixture.store.snapshotForConfirmation()
+        #expect(snapshot.resetsUnreadableRules)
+        try await fixture.store.save(snapshot, reason: "confirm test rules")
+        #expect(try await fixture.store.loadPairedDevices().isEmpty)
+        #expect(fixture.signer.signingReason == "confirm test rules. Your iPhone must be paired again.")
+    }
+
     @Test("A stale rule snapshot cannot restore a removed device")
     func staleConfirmation() async throws {
         let fixture = PhoneApprovalFixture()
@@ -110,9 +132,8 @@ struct PairedApprovalDeviceTests {
         try await fixture.pair()
         let snapshot = try await fixture.store.snapshotForConfirmation()
         try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey)
-        await #expect(throws: AccessRulesConfirmationRequired.self) {
-            try await fixture.store.save(snapshot, reason: "confirm test rules")
-        }
+        #expect(!snapshot.resetsUnreadableRules)
+        try await fixture.store.save(snapshot, reason: "confirm test rules")
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
     }
 
@@ -120,7 +141,7 @@ struct PairedApprovalDeviceTests {
     func preserveNewPairing() async throws {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let snapshot = try await fixture.store.snapshotForConfirmation()
         try await fixture.store.addPairedDevice(fixture.device)
         try await fixture.store.save(snapshot, reason: "confirm test rules")
@@ -131,7 +152,7 @@ struct PairedApprovalDeviceTests {
     func existingRules() async throws {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
-        try await fixture.store.save([:])
+        try await confirmInitialAccessRules(in: fixture.store)
         let loginID = UUID()
         let legacyBytes = Data("{\"version\":1,\"records\":[{\"credentialID\":\"\(loginID)\",\"policy\":\"block\"}]}".utf8)
         let signature = try await fixture.signer.sign(legacyBytes, reason: "legacy fixture")

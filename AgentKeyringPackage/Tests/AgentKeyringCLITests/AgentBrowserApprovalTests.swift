@@ -133,7 +133,7 @@ private final class BrowserApprovalFixture {
 
     private func prepareRules() async throws {
         guard !preparedRules else { return }
-        try await policyStore.save([:])
+        try await confirmInitialAccessRules(in: policyStore)
         preparedRules = true
     }
 
