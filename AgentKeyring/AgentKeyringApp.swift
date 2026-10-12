@@ -36,21 +36,24 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     private var syncNotifier: SystemMirrorSyncNotifier?
     private var syncTask: Task<Void, Never>?
     private let accessControlFixture: MirrorGeneration?
+    private let fixturePolicyStore: CredentialAccessPolicyStore?
 
     override init() {
         let presentation = AgentKeyringPresentation()
         self.presentation = presentation
+        #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-testing-access-control") {
             let fixtureDirectory = FileManager.default.temporaryDirectory
                 .appendingPathComponent(
                     "AgentKeyringUITest-\(ProcessInfo.processInfo.processIdentifier)",
                     isDirectory: true
                 )
-            let accessControl = CredentialAccessController(
-                store: CredentialAccessPolicyStore(
-                    fileURL: fixtureDirectory.appendingPathComponent("access-policies.json")
-                )
+            let policyStore = CredentialAccessPolicyStore(
+                fileURL: fixtureDirectory.appendingPathComponent("access-policies.json"),
+                signer: FakeAccessRulesSigner()
             )
+            self.fixturePolicyStore = policyStore
+            let accessControl = CredentialAccessController(store: policyStore)
             let settings = UserDefaults(suiteName: "AgentKeyringUITest")!
             settings.set(false, forKey: "includeExampleCredential")
             self.accessControlFixture = AccessControlUITestFixture.generation()
@@ -64,8 +67,14 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
             )
         } else {
             self.accessControlFixture = nil
+            self.fixturePolicyStore = nil
             self.model = MirrorAppModel()
         }
+        #else
+        self.accessControlFixture = nil
+        self.fixturePolicyStore = nil
+        self.model = MirrorAppModel()
+        #endif
         super.init()
     }
 
@@ -91,9 +100,8 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         else { return }
         NSApplication.shared.applicationIconImage = icon
 
-        if let accessControlFixture {
+        if let accessControlFixture, let fixturePolicyStore {
             Task { @MainActor in
-                await model.accessControl.refresh(from: accessControlFixture)
                 let assignments = Dictionary(
                     uniqueKeysWithValues: accessControlFixture.items.enumerated().compactMap {
                         index, item -> (UUID, CredentialAccessPolicy)? in
@@ -104,8 +112,13 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                         return nil
                     }
                 )
-                await model.accessControl.setPolicies(assignments)
-                presentation.requestAccessWindow()
+                do {
+                    try await fixturePolicyStore.save(assignments)
+                    await model.accessControl.refresh(from: accessControlFixture)
+                    presentation.requestAccessWindow()
+                } catch {
+                    assertionFailure("Could not prepare signed UI-test rules: \(error)")
+                }
             }
         }
 

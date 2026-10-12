@@ -44,6 +44,8 @@ final class AgentKeyringUITests: XCTestCase {
         XCTAssertTrue(accessWindow.descendants(matching: .any)["policy-detail-ask"].exists)
         XCTAssertTrue(accessWindow.scrollViews["credential-list"].exists)
         XCTAssertTrue(accessWindow.buttons["select-all-credentials"].exists)
+        XCTAssertTrue(accessWindow.buttons["select-all-credentials"].isEnabled)
+        XCTAssertFalse(accessWindow.buttons["Confirm your access rules"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Login"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Account"].exists)
         XCTAssertTrue(accessWindow.staticTexts["Website"].exists)
