@@ -23,11 +23,11 @@ struct PhonePairingView: View {
                     }
                 } else if scanned {
                     Text(model.pairingStatus ?? "Sending pairing request…")
-                    if let fingerprint = model.keyFingerprint {
-                        Text(fingerprint)
-                            .font(.system(.body, design: .monospaced))
+                    if let code = model.pairingConfirmationCode {
+                        Text(code)
+                            .font(.system(.largeTitle, design: .monospaced))
                             .textSelection(.enabled)
-                        Text("Compare this fingerprint on your Mac, then confirm there with Touch ID.")
+                        Text("Type this code on your Mac, then confirm there with Touch ID.")
                     }
                 } else {
                     Text(message)

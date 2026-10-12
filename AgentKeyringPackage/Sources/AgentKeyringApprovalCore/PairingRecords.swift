@@ -7,6 +7,7 @@ public enum PairingFailure: Error, Equatable, Sendable {
     case invalidCode
     case expired
     case invalidRequest
+    case confirmationCodeMismatch
     case authenticationFailed
     case alreadyUsed
 }
@@ -104,6 +105,12 @@ public struct PairingRequest: Sendable {
             !deviceName.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
             (try? P256.Signing.PublicKey(x963Representation: publicKey)) != nil
         else { throw PairingFailure.invalidRequest }
+    }
+
+    public static func confirmationCode(publicKey: Data) -> String {
+        let prefix = SHA256.hash(data: publicKey).prefix(4)
+        let value = prefix.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        return String(format: "%06u", value % 1_000_000)
     }
 
     public static func fingerprint(publicKey: Data) -> String {

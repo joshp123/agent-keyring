@@ -43,6 +43,7 @@ final class PhoneApprovalModel {
     private(set) var decisions: [PhoneDecisionHistoryEntry] = []
     private(set) var lastFailure: String?
     private(set) var pairingStatus: String?
+    private(set) var pairingConfirmationCode: String?
     private var pairing = false
 
     private let container = CKContainer(identifier: ApprovalCloudRecords.containerIdentifier)
@@ -156,6 +157,7 @@ final class PhoneApprovalModel {
         guard !pairing else { return }
         pairing = true
         defer { pairing = false }
+        pairingConfirmationCode = nil
         pairingStatus = "Sending pairing request…"
         do {
             let code = try PairingCode(qrPayload: qrPayload)
@@ -165,6 +167,7 @@ final class PhoneApprovalModel {
             _ = try await database.save(CKRecordZone(zoneID: PairingCloudRecords.zone))
             guard Date() < code.expiresAt else { throw PairingFailure.expired }
             _ = try await database.save(PairingCloudRecords.record(request))
+            pairingConfirmationCode = PairingRequest.confirmationCode(publicKey: key.publicKey)
             pairingStatus = "Request sent. Finish pairing on your Mac."
         } catch {
             logPhoneFailure(error, operation: "Pair with Mac")

@@ -14,6 +14,10 @@ final class IPhonePairingModel {
     private(set) var candidate: PairingRequest?
     private(set) var expiresAt: Date?
     private(set) var message = "Preparing pairing code…"
+    var confirmationCode = ""
+    var canConfirm: Bool {
+        candidate.map { confirmationCode == PairingRequest.confirmationCode(publicKey: $0.publicKey) } == true && !isSaving
+    }
     private(set) var isSaving = false
     private var session: IPhonePairingSession?
     private var finished = false
@@ -43,7 +47,7 @@ final class IPhonePairingModel {
                         try Task.checkCancellation()
                         candidate = request
                         qrImage = nil
-                        message = "Compare this fingerprint with your iPhone before adding it."
+                        message = "Type the six-digit code shown on your iPhone."
                     }
                 }
                 try await Task.sleep(for: .seconds(2))
@@ -67,11 +71,11 @@ final class IPhonePairingModel {
     }
 
     func confirm() async {
-        guard let session, candidate != nil, !isSaving else { return }
+        guard let session, canConfirm else { return }
         isSaving = true
         defer { isSaving = false }
         do {
-            try await controller.confirmPairing(session)
+            try await controller.confirmPairing(session, confirmationCode: confirmationCode)
             message = "iPhone added."
         } catch {
             recordFailure(error)
@@ -97,6 +101,8 @@ struct IPhonePairingView: View {
     }
 
     var body: some View {
+        @Bindable var model = model
+
         VStack(spacing: 16) {
             Text("Add iPhone").font(.title2)
             if let image = model.qrImage {
@@ -111,12 +117,12 @@ struct IPhonePairingView: View {
             }
             if let candidate = model.candidate {
                 Text(candidate.deviceName).font(.headline)
-                Text(PairingRequest.fingerprint(publicKey: candidate.publicKey))
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
+                TextField("Six-digit code from your iPhone", text: $model.confirmationCode)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Six-digit code from your iPhone")
                 Button("Add iPhone with Touch ID") { Task { await model.confirm() } }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.isSaving)
+                    .disabled(!model.canConfirm)
             }
             Text(model.message)
             if let expiry = model.expiresAt, model.qrImage != nil || model.candidate != nil {

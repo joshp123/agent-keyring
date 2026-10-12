@@ -31,7 +31,7 @@ struct IPhonePairingTests {
         #expect(PairingRequest.fingerprint(publicKey: received.publicKey) == PairingRequest.fingerprint(publicKey: fixture.device.publicKey))
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
         #expect(database.records.isEmpty)
-        try await controller.confirmPairing(session)
+        try await controller.confirmPairing(session, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey))
         #expect(controller.hasPairedApprovalDevice)
         #expect(controller.pairedApprovalDevices.map(\.publicKey) == [fixture.device.publicKey])
         #expect(try await fixture.store.loadPairedDevices().map(\.publicKey) == [fixture.device.publicKey])
@@ -64,7 +64,7 @@ struct IPhonePairingTests {
         if attack == "malformed" { record["deviceName"] = nil }
         try await database.save(record)
         await #expect(throws: PairingFailure.self) { try await session.poll() }
-        await #expect(throws: PairingFailure.alreadyUsed) { try await session.confirm(in: fixture.store) }
+        await #expect(throws: PairingFailure.alreadyUsed) { try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey)) }
         #expect(session.code == nil)
         #expect(database.records.isEmpty)
         #expect(database.deletedRecordIDs == [record.recordID])
@@ -84,7 +84,7 @@ struct IPhonePairingTests {
             await #expect(throws: PairingFailure.expired) { try await session.poll(now: code.expiresAt) }
         } else {
             _ = try await session.poll()
-            await #expect(throws: PairingFailure.expired) { try await session.confirm(in: fixture.store, now: code.expiresAt) }
+            await #expect(throws: PairingFailure.expired) { try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey), now: code.expiresAt) }
         }
         #expect(database.records.isEmpty)
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
@@ -101,8 +101,8 @@ struct IPhonePairingTests {
         let record = PairingCloudRecords.record(PairingRequest(code: code, publicKey: fixture.device.publicKey, deviceName: "Test iPhone"))
         try await database.save(record)
         _ = try await session.poll()
-        try await session.confirm(in: fixture.store)
-        await #expect(throws: PairingFailure.alreadyUsed) { try await session.confirm(in: fixture.store) }
+        try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey))
+        await #expect(throws: PairingFailure.alreadyUsed) { try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey)) }
         try await database.save(record)
         await #expect(throws: PairingFailure.alreadyUsed) { try await session.poll() }
         let newSession = try IPhonePairingSession(database: database)
@@ -123,13 +123,39 @@ struct IPhonePairingTests {
         _ = try await session.poll()
         if beforeTouchID {
             try await session.cancel()
-            await #expect(throws: PairingFailure.alreadyUsed) { try await session.confirm(in: fixture.store) }
+            await #expect(throws: PairingFailure.alreadyUsed) { try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey)) }
         } else {
             fixture.signer.refuseSigning()
-            await #expect(throws: CocoaError.self) { try await session.confirm(in: fixture.store) }
+            await #expect(throws: CocoaError.self) { try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey)) }
         }
         #expect(database.records.isEmpty)
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
+    }
+
+    @Test("The phone code must match the received key before Touch ID can pair it")
+    func confirmationCodeMatchAndMismatch() async throws {
+        let fixture = PhoneApprovalFixture()
+        defer { fixture.cleanUp() }
+        try await confirmInitialAccessRules(in: fixture.store)
+        let database = InMemoryApprovalCloudDatabase()
+        let session = try IPhonePairingSession(database: database)
+        let code = try #require(session.code)
+        try await database.save(PairingCloudRecords.record(PairingRequest(code: code,
+            publicKey: fixture.device.publicKey, deviceName: "Test iPhone")))
+        _ = try await session.poll()
+        let expected = PairingRequest.confirmationCode(publicKey: fixture.device.publicKey)
+        #expect(expected.count == 6)
+        #expect(expected.allSatisfy { $0.isNumber })
+        let wrong = expected == "000000" ? "000001" : "000000"
+        let controller = CredentialAccessController(store: fixture.store)
+        await #expect(throws: PairingFailure.confirmationCodeMismatch) {
+            try await controller.confirmPairing(session, confirmationCode: wrong)
+        }
+        #expect(try await fixture.store.loadPairedDevices().isEmpty)
+        try await controller.confirmPairing(session, confirmationCode: expected)
+        #expect(fixture.signer.signingReason == "pair Test iPhone with Agent Keyring, code \(expected)")
+        #expect(try await fixture.store.loadPairedDevices().count == 1)
+        #expect(PairingRequest.confirmationCode(publicKey: Data()) == "012610")
     }
 
     @Test("Canonical bytes are unambiguous and match the v1 wire vector")

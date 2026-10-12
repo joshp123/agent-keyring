@@ -48,12 +48,15 @@ public final class IPhonePairingSession {
         return request
     }
 
-    public func confirm(in store: CredentialAccessPolicyStore, now: Date = Date()) async throws {
+    public func confirm(in store: CredentialAccessPolicyStore, confirmationCode: String, now: Date = Date()) async throws {
         guard let request = requestForConfirmation else { throw PairingFailure.alreadyUsed }
+        guard confirmationCode == PairingRequest.confirmationCode(publicKey: request.publicKey) else {
+            throw PairingFailure.confirmationCodeMismatch
+        }
         requestForConfirmation = nil
         guard now < expiresAt else { throw PairingFailure.expired }
         let key = try P256.Signing.PublicKey(x963Representation: request.publicKey)
-        try await store.addPairedDevice(PairedApprovalDevice(publicKey: key, name: request.deviceName, pairedAt: now))
+        try await store.addPairedDevice(PairedApprovalDevice(publicKey: key, name: request.deviceName, pairedAt: now), confirmationCode: confirmationCode)
     }
 
     public func cancel() async throws {

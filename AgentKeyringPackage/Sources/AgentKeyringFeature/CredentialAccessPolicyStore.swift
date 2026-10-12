@@ -166,8 +166,9 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
         try await persist(policies: policies, reason: "confirm your Agent Keyring access rules")
     }
 
-    public func addPairedDevice(_ device: PairedApprovalDevice) async throws {
-        try await persist(deviceChange: .add(device), reason: "pair your iPhone with Agent Keyring")
+    public func addPairedDevice(_ device: PairedApprovalDevice, confirmationCode: String? = nil) async throws {
+        try await persist(deviceChange: .add(device), reason: confirmationCode.map { "pair \(device.name) with Agent Keyring, code \($0)" }
+            ?? "pair your iPhone with Agent Keyring")
     }
 
     public func removePairedDevice(publicKey: Data) async throws {

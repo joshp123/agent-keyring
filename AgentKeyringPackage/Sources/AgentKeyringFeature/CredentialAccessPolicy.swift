@@ -83,11 +83,11 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         try await store.pairedDevicePublicKeys()
     }
 
-    public func confirmPairing(_ session: IPhonePairingSession) async throws {
+    public func confirmPairing(_ session: IPhonePairingSession, confirmationCode: String) async throws {
         guard !isSavingRules else { throw PairingFailure.invalidRequest }
         isSavingRules = true
         defer { isSavingRules = false }
-        try await session.confirm(in: store)
+        try await session.confirm(in: store, confirmationCode: confirmationCode)
         try await reloadRules()
     }
 
