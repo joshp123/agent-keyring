@@ -133,7 +133,10 @@ public actor CredentialAccessPolicyStore {
     }
 
     public func snapshotForConfirmation() throws -> AccessRulesConfirmationSnapshot {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return try Self.snapshot([:]) }
+        // A missing file after rules were once signed is a reset, not a first run.
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return try Self.snapshot([:], resetsUnreadableRules: (try? signer.signedBytesHash()) != nil)
+        }
         do {
             try validateOwnedRegularFile(fileURL)
             let bytes = try Data(contentsOf: fileURL)
