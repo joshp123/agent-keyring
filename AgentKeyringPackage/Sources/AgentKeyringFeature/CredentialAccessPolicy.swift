@@ -70,6 +70,9 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     private var pendingPhoneBlocks: Set<UUID> = []
+    public var pendingPhoneBlockCount: Int { pendingPhoneBlocks.count }
+    private let pendingBlocksFile: PendingIPhoneBlocks
+    private var pendingBlocksReadError: (any Error)?
     private let store: CredentialAccessPolicyStore
     private var policies: [UUID: CredentialAccessPolicy] = [:]
     private var confirmationSnapshot: AccessRulesConfirmationSnapshot?
@@ -77,6 +80,13 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
 
     public init(store: CredentialAccessPolicyStore = CredentialAccessPolicyStore()) {
         self.store = store
+        pendingBlocksFile = PendingIPhoneBlocks(rulesFileURL: store.fileURL)
+        do { pendingPhoneBlocks = try pendingBlocksFile.load() }
+        catch {
+            pendingBlocksReadError = error
+            errorMessage = "The iPhone blocks could not be read. Confirm your access rules before releasing logins."
+            accessRulesLogger.error("Pending iPhone blocks load failed")
+        }
     }
 
     public func pairedDevicePublicKeys() async throws -> [Data] {
@@ -152,6 +162,11 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
 
     public func stagePhoneBlock(for credentialID: UUID) {
         pendingPhoneBlocks.insert(credentialID)
+        do { try pendingBlocksFile.save(pendingPhoneBlocks) }
+        catch {
+            errorMessage = "The login is blocked, but its iPhone block could not be saved for restart."
+            accessRulesLogger.error("Pending iPhone block save failed")
+        }
         CredentialTransfer.revoke(credentialID: credentialID)
         updateRowPolicies()
     }
@@ -193,8 +208,6 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         for id in pendingPhoneBlocks where assignments[id] == nil { proposedPolicies[id] = .block }
         do {
             try await store.save(proposedPolicies)
-            pendingPhoneBlocks.subtract(assignments.keys)
-            pendingPhoneBlocks.subtract(proposedPolicies.filter { $0.value == .block }.keys)
             try await reloadRules()
         } catch {
             errorMessage = "The access change could not be saved. No rule was changed."
@@ -223,8 +236,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         defer { isSavingRules = false }
         do {
             try await store.save(confirmedSnapshot, reason: reason)
-            pendingPhoneBlocks.subtract(snapshot.policies.keys)
-            pendingPhoneBlocks.subtract(confirmedPolicies.filter { $0.value == .block }.keys)
+            pendingBlocksReadError = nil
             confirmationSnapshot = nil
             try await reloadRules()
         } catch {
@@ -237,6 +249,8 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         hasPairedApprovalDevice = false
         pairedApprovalDevices = []
         do {
+            if let pendingBlocksReadError { throw pendingBlocksReadError }
+            pendingPhoneBlocks = try pendingBlocksFile.load()
             policies = try await store.load()
             pairedApprovalDevices = try await store.loadPairedDevices()
             hasPairedApprovalDevice = !pairedApprovalDevices.isEmpty

@@ -41,6 +41,11 @@ public struct AccessControlView: View {
                 .padding()
                 Divider()
             }
+            if controller.pendingPhoneBlockCount > 0 {
+                Text("\(controller.pendingPhoneBlockCount) logins blocked from your iPhone")
+                    .padding()
+                Divider()
+            }
             HSplitView {
                 AccessPolicySidebar(
                     selectedPolicy: $controller.selectedPolicy,

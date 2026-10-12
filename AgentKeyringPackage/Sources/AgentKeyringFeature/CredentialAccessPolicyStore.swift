@@ -204,7 +204,13 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
             devices.removeAll { $0.publicKey == publicKey }
         case nil: break
         }
-        let bytes = try Self.encodedContents(policies ?? contents?.policies ?? [:], devices: devices)
+        let pendingBlocksFile = PendingIPhoneBlocks(rulesFileURL: fileURL)
+        let pendingBlocks = try pendingBlocksFile.load()
+        var savedPolicies = policies ?? contents?.policies ?? [:]
+        if policies == nil {
+            for id in pendingBlocks { savedPolicies[id] = .block }
+        }
+        let bytes = try Self.encodedContents(savedPolicies, devices: devices)
         let signingReason = contents == nil ? reason + ". Your iPhone must be paired again." : reason
         let directoryURL = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
@@ -234,6 +240,8 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
             [.posixPermissions: 0o600],
             ofItemAtPath: signatureURL.path
         )
+        // Retain blocks that arrived while Touch ID was waiting.
+        try pendingBlocksFile.save(try pendingBlocksFile.load().subtracting(pendingBlocks))
     }
 
     private func validateOwnedRegularFile(_ url: URL) throws {

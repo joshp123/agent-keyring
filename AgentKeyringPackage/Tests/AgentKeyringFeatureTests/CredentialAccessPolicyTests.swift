@@ -249,6 +249,34 @@ struct CredentialAccessPolicyTests {
     }
 
     @MainActor
+    @Test("iPhone blocks survive a new store and controller until a signed save folds them in")
+    func phoneBlocksSurviveRestart() async throws {
+        let fixture = Fixture()
+        defer { fixture.remove() }
+        try await confirmInitialAccessRules(in: fixture.store)
+        let generation = fixture.generation(count: 2)
+        let blockedID = generation.items[0].id
+        let otherID = generation.items[1].id
+        let original = CredentialAccessController(store: fixture.store)
+        await original.refresh(from: generation)
+        original.stagePhoneBlock(for: blockedID)
+        #expect(original.pendingPhoneBlockCount == 1)
+        let restartedStore = fixture.store
+        let restarted = CredentialAccessController(store: restartedStore)
+        #expect(restarted.hasPendingPhoneBlock(for: blockedID))
+        await restarted.refresh(from: generation)
+        #expect(restarted.releaseDecision(for: blockedID, field: .password) == .block)
+        #expect(try await restartedStore.load()[blockedID] == nil)
+        await restarted.setPolicy(.ask, for: [otherID])
+        #expect(restarted.pendingPhoneBlockCount == 0)
+        #expect(try await restartedStore.load()[blockedID] == .block)
+        let relaunched = CredentialAccessController(store: fixture.store)
+        await relaunched.refresh(from: generation)
+        #expect(relaunched.pendingPhoneBlockCount == 0)
+        #expect(relaunched.policy(for: blockedID) == .block)
+    }
+
+    @MainActor
     @Test("The phone setting is available only while the signed store has a paired device")
     func pairedSettingVisibility() async throws {
         let fixture = Fixture()
