@@ -246,6 +246,16 @@ transcript to show the secret never appeared.
 | D | Import fix, with Josh | A new Apple Passwords login appears after one export |
 | D | Scheduled check, `sync`, install, deletions, release | Sparkle update installs; the iPhone app runs from Josh's phone |
 
+Follow-ups found in review, for later slices:
+
+- If the screen locks during a prompt, return to waiting for unlock within the
+  same 10-minute request, instead of reporting "interrupted".
+- Treat a sleeping display as locked when routing to the iPhone.
+- Show active grants, not only "End all grants".
+- Split `main.swift` and `MirrorAppModel.swift`; both are over 500 lines.
+- Clear a plugin request's buffers when it returns "pending", so no value waits
+  unread for 5 minutes.
+
 Lanes A, B and C have separate write-sets and run in parallel. Lane B
 integrates after lane A's approval slice. Lane D needs Josh at the Mac for the
 import fix.
