@@ -3,12 +3,13 @@ import CloudKit
 
 @MainActor
 public final class InMemoryApprovalCloudDatabase: ApprovalCloudDatabase {
-    public enum Operation: Hashable { case saveRecord, fetchRecord, deleteRecord, saveSubscription }
+    public enum Operation: Hashable, Sendable { case saveRecord, fetchRecord, deleteRecord, saveSubscription }
     public private(set) var records: [CKRecord.ID: CKRecord] = [:]
     public private(set) var subscriptions: [String: CKSubscription] = [:]
     public private(set) var fetchedRecordIDs: [CKRecord.ID] = []
     public private(set) var deletedRecordIDs: [CKRecord.ID] = []
     public var failures: [Operation: [any Error]] = [:]
+    public var beforeSave: ((CKRecord) async -> Void)?
 
     public init() {}
 
@@ -21,6 +22,7 @@ public final class InMemoryApprovalCloudDatabase: ApprovalCloudDatabase {
 
     public func save(_ record: CKRecord) async throws {
         try failIfRequested(.saveRecord)
+        await beforeSave?(record)
         records[record.recordID] = record.copy() as? CKRecord
     }
 

@@ -1,6 +1,6 @@
 # CloudKit approval channel
 
-Written by AI on 2026.10.12 by model GPT-6 Astra.
+Written by AI on 2026.10.12 by model GPT-6 (Codex).
 
 Container: `iCloud.com.joshpalmer.AgentKeyring`, private database only.
 The database implementation creates the two custom zones before first use.
@@ -63,3 +63,27 @@ those attempts before returning. A CloudKit outage can prevent deletion;
 cleanup logs a fixed diagnostic without login data. The iPhone must enforce
 `expiresAt` even if a record remains after an outage. Expiry is an application
 rule, not a CloudKit automatic deletion mechanism.
+
+## Slice validation (2026.10.12)
+
+After rebasing onto reviewed main, the requested full Swift test command
+passed: 171 feature tests in 26 suites and 56 CLI tests in 11 suites,
+227 tests total. The new coverage includes 44
+CloudKit test cases and five exact fallback-line cases. Tests run against the
+in-memory database with real CKRecord encryptedValues and an injected clock.
+
+Mac and phone routing use main's direct tasks. Decisions remain bound to the
+route's request ID before verification. The clamped delay, CLI parent-process
+agent label, sleep/lock handling and on-demand routing timers are retained.
+
+The Mac app build passed with the app-only iCloud entitlements:
+
+```sh
+xcodebuild -workspace AgentKeyring.xcworkspace -scheme AgentKeyring \
+  -configuration Debug -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath "$PWD/.build/DerivedData" CODE_SIGNING_ALLOWED=NO build
+```
+
+No signed device run or live CloudKit request was performed. Notification
+service extension behavior and one-tap approval remain for the iPhone slice.
+No model reviews were commissioned, and this branch was not pushed or merged.

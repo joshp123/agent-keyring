@@ -55,6 +55,26 @@ struct PhoneApprovalStatusLinesTests {
         }
     }
 
+    @Test("CloudKit fallback reasons produce the exact line once", arguments: IPhoneApprovalFailure.allCases)
+    func fallbackLine(failure: IPhoneApprovalFailure) throws {
+        let reasons: [IPhoneApprovalFailure: String] = [
+            .notSignedInToICloud: "not signed in to iCloud", .networkUnavailable: "network unavailable",
+            .quotaExceeded: "iCloud quota exceeded", .rateLimited: "iCloud rate-limited", .unavailable: "iCloud unavailable"]
+        let pipe = Pipe()
+        let lines = CLIApprovalStatusLines(diagnostics: pipe.fileHandleForWriting)
+        let progress = AgentApprovalProgress(waitingSince: Date(), phase: .awaitingApproval,
+            provider: .mac, iPhoneFailure: failure)
+        // The reason survives the bridge's existing Codable transport.
+        let decoded = try PropertyListDecoder().decode(AgentApprovalProgress.self,
+            from: PropertyListEncoder().encode(progress))
+        lines.receive(.progress(decoded))
+        lines.receive(.progress(decoded))
+        try pipe.fileHandleForWriting.close()
+        let actual = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        #expect(actual == "The iPhone could not be reached (\(try #require(reasons[failure]))); asking on the Mac only.\n")
+        print(actual, terminator: "")
+    }
+
     @Test("A Mac win after phone escalation is reported as a Mac approval")
     func macWinsAfterEscalation() async throws {
         let pipe = Pipe()
