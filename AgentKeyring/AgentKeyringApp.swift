@@ -121,6 +121,11 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    func loadAccessRules() async {
+        if let accessControlFixture { await model.accessControl.refresh(from: accessControlFixture) }
+        else { await model.loadStatus() }
+    }
+
     func application(
         _ application: NSApplication,
         continue userActivity: NSUserActivity,
@@ -201,6 +206,7 @@ struct AgentKeyringApp: App {
 
         Window("Access Rules", id: "access") {
             AccessControlView(controller: appDelegate.model.accessControl)
+                .task { await appDelegate.loadAccessRules() }
         }
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)

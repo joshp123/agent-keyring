@@ -5,6 +5,57 @@ import Testing
 @MainActor
 @Suite("Tamper-evident access rules")
 struct SignedAccessRulesTests {
+    @Test("A cold app request loads signed rules without opening a window")
+    func signedColdStart() async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.store.save([:])
+        let settingsName = "SignedRulesColdStart-\(UUID().uuidString)"
+        let settings = try #require(UserDefaults(suiteName: settingsName))
+        defer { settings.removePersistentDomain(forName: settingsName) }
+        let controller = CredentialAccessController(store: fixture.store)
+        let model = MirrorAppModel(store: EncryptedSnapshotStore(directoryURL: fixture.root.appendingPathComponent("vault"),
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32))),
+            bridge: fixture.bridge, accessControl: controller, settings: settings)
+        #expect(!controller.hasLoadedLoginList)
+        let request = AgentBridgeRequest(action: .status)
+        try fixture.bridge.write(request)
+        await model.handleAgentRequest(id: request.id)
+        #expect(try fixture.bridge.readResponse(id: request.id).ok)
+        #expect(!controller.needsConfirmation)
+    }
+
+    @Test("Agent requests and later file edits cannot replace the confirmation snapshot")
+    func stableConfirmationSnapshot() async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.store.save([fixture.loginID: .block])
+        try FileManager.default.moveItem(at: fixture.signatureURL, to: fixture.signatureURL.appendingPathExtension("held"))
+        let snapshotBytes = try Data(contentsOf: fixture.fileURL)
+        let controller = CredentialAccessController(store: fixture.store)
+        #expect(!controller.canConfirmRules)
+        await controller.refresh(fromMetadata: nil)
+        #expect(!controller.canConfirmRules)
+        await controller.confirmRules()
+        #expect(try Data(contentsOf: fixture.fileURL) == snapshotBytes)
+        await controller.refresh(from: fixture.generation)
+        #expect(controller.canConfirmRules)
+        #expect(controller.confirmationSummary == "0 allowed automatically, 1 blocked, 0 ask each time")
+        let rows = controller.rows
+        let attackerBytes = String(decoding: snapshotBytes, as: UTF8.self).replacingOccurrences(of: "block", with: "allowAutomatically")
+        try Data(attackerBytes.utf8).write(to: fixture.fileURL)
+        for _ in 0..<2 {
+            do { try await controller.ensureRulesConfirmed(); Issue.record("Unconfirmed rules accepted") }
+            catch let failure as AgentBridgeFailure { #expect(failure.code == .rulesNeedConfirmation) }
+            await controller.refresh(from: fixture.generation)
+            #expect(controller.rows == rows)
+            #expect(controller.policy(for: fixture.loginID) == .block)
+        }
+        await controller.confirmRules()
+        #expect(try Data(contentsOf: fixture.fileURL) == snapshotBytes)
+        #expect(try await fixture.store.load()[fixture.loginID] == .block)
+        #expect(fixture.signer.signingReason == "confirm your Agent Keyring access rules: 0 allowed automatically, 1 blocked, 0 ask each time")
+    }
     @Test("Restoring an older valid signed pair fails closed")
     func signedRollback() async throws {
         let fixture = SignedRulesFixture()
@@ -136,6 +187,7 @@ struct SignedAccessRulesTests {
             #expect(failure.code == .rulesNeedConfirmation)
             #expect(failure.message == AccessRulesConfirmationRequired.message)
         }
+        await activeController.refresh(from: fixture.generation)
         #expect(activeController.needsConfirmation)
         for field in [AgentCredentialField.username, .password, .totp] {
             #expect(activeController.releaseDecision(for: fixture.loginID, field: field) == .needsConfirmation)

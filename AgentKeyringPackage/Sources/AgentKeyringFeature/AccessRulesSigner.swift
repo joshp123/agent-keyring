@@ -4,7 +4,7 @@ import LocalAuthentication
 import Security
 
 public protocol AccessRulesSigning: Sendable {
-    func sign(_ bytes: Data) async throws -> Data
+    func sign(_ bytes: Data, reason: String) async throws -> Data
     func verify(_ signature: Data, for bytes: Data) throws -> Bool
     func signedBytesHash() throws -> Data?
 }
@@ -15,14 +15,14 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
 
     public init() {}
 
-    public func sign(_ bytes: Data) async throws -> Data {
+    public func sign(_ bytes: Data, reason: String) async throws -> Data {
         let context = LAContext()
         context.touchIDAuthenticationAllowableReuseDuration = 0
         context.localizedFallbackTitle = ""
         defer { context.invalidate() }
         guard try await context.evaluatePolicy(
             .deviceOwnerAuthenticationWithBiometricsOrCompanion,
-            localizedReason: "confirm your Agent Keyring access rules"
+            localizedReason: reason
         ) else { throw signingError(errSecAuthFailed) }
 
         let key: SecKey

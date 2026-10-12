@@ -36,6 +36,12 @@ public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct AccessRulesConfirmationSnapshot: Sendable {
+    let bytes: Data
+    let policies: [UUID: CredentialAccessPolicy]
+    let resetsUnreadableRules: Bool
+}
+
 public actor CredentialAccessPolicyStore {
     private struct Record: Codable, Equatable {
         let credentialID: UUID
@@ -94,10 +100,25 @@ public actor CredentialAccessPolicyStore {
         }
     }
 
-    public func loadForConfirmation() throws -> [UUID: CredentialAccessPolicy] {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return [:] }
-        try validateOwnedRegularFile(fileURL)
-        return try decodePolicies(Data(contentsOf: fileURL))
+    public func snapshotForConfirmation() throws -> AccessRulesConfirmationSnapshot {
+        guard fileManager.fileExists(atPath: fileURL.path) else { return try Self.snapshot([:]) }
+        do {
+            try validateOwnedRegularFile(fileURL)
+            let bytes = try Data(contentsOf: fileURL)
+            return AccessRulesConfirmationSnapshot(bytes: bytes, policies: try decodePolicies(bytes), resetsUnreadableRules: false)
+        } catch {
+            return try Self.snapshot([:], resetsUnreadableRules: true)
+        }
+    }
+
+    private static func snapshot(_ policies: [UUID: CredentialAccessPolicy], resetsUnreadableRules: Bool = false) throws -> AccessRulesConfirmationSnapshot {
+        let records = policies.filter { $0.value != .ask }
+            .map { Record(credentialID: $0.key, policy: $0.value) }
+            .sorted { $0.credentialID.uuidString < $1.credentialID.uuidString }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return AccessRulesConfirmationSnapshot(bytes: try encoder.encode(FileContents(version: 1, records: records)),
+            policies: policies, resetsUnreadableRules: resetsUnreadableRules)
     }
 
     private func decodePolicies(_ bytes: Data) throws -> [UUID: CredentialAccessPolicy] {
@@ -116,6 +137,10 @@ public actor CredentialAccessPolicyStore {
     }
 
     public func save(_ policies: [UUID: CredentialAccessPolicy]) async throws {
+        try await save(try Self.snapshot(policies), reason: "confirm your Agent Keyring access rules")
+    }
+
+    public func save(_ snapshot: AccessRulesConfirmationSnapshot, reason: String) async throws {
         let directoryURL = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
             at: directoryURL,
@@ -127,19 +152,11 @@ public actor CredentialAccessPolicyStore {
             ofItemAtPath: directoryURL.path
         )
 
-        let records =
-            policies
-            .filter { $0.value != .ask }
-            .map { Record(credentialID: $0.key, policy: $0.value) }
-            .sorted { $0.credentialID.uuidString < $1.credentialID.uuidString }
-        let contents = FileContents(version: 1, records: records)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         if fileManager.fileExists(atPath: fileURL.path) {
             try validateOwnedRegularFile(fileURL)
         }
-        let bytes = try encoder.encode(contents)
-        let signature = try await signer.sign(bytes)
+        let bytes = snapshot.bytes
+        let signature = try await signer.sign(bytes, reason: reason)
         if fileManager.fileExists(atPath: signatureURL.path) {
             try validateOwnedRegularFile(signatureURL)
         }
@@ -187,9 +204,15 @@ public final class CredentialAccessController {
     public private(set) var needsConfirmation = true
     public private(set) var isSavingRules = false
     public private(set) var confirmationResetsUnreadableRules = false
+    public private(set) var hasLoadedLoginList = false
+    public var canConfirmRules: Bool { needsConfirmation && hasLoadedLoginList && !isSavingRules }
+    public var confirmationSummary: String {
+        "\(count(for: .allowAutomatically)) allowed automatically, \(count(for: .block)) blocked, \(count(for: .ask)) ask each time"
+    }
 
     private let store: CredentialAccessPolicyStore
     private var policies: [UUID: CredentialAccessPolicy] = [:]
+    private var confirmationSnapshot: AccessRulesConfirmationSnapshot?
     private var currentGenerationID: UUID?
 
     public init(store: CredentialAccessPolicyStore = CredentialAccessPolicyStore()) {
@@ -201,10 +224,10 @@ public final class CredentialAccessController {
     }
 
     public func refresh(fromMetadata metadata: MirrorMetadata?) async {
-        do {
-            try await reloadRules()
-        } catch {
-            errorMessage = AccessRulesConfirmationRequired.message
+        if confirmationSnapshot != nil, hasLoadedLoginList { return }
+        if confirmationSnapshot == nil {
+            do { try await reloadRules() }
+            catch { errorMessage = AccessRulesConfirmationRequired.message }
         }
         guard let metadata else {
             currentGenerationID = nil
@@ -215,8 +238,7 @@ public final class CredentialAccessController {
         guard currentGenerationID != metadata.id
             || Set(rows.map(\.id)) != Set(metadata.candidates.map(\.id)) else { return }
         currentGenerationID = metadata.id
-        let currentIDs = Set(metadata.candidates.map(\.id))
-        policies = policies.filter { currentIDs.contains($0.key) }
+        hasLoadedLoginList = true
         rows = metadata.candidates.map { item in
             AccessCredentialRow(
                 id: item.id,
@@ -282,19 +304,24 @@ public final class CredentialAccessController {
     }
 
     public func ensureRulesConfirmed() async throws {
+        guard !needsConfirmation else {
+            throw AgentBridgeFailure(.rulesNeedConfirmation, AccessRulesConfirmationRequired.message)
+        }
         do {
-            try await reloadRules()
-        } catch is AccessRulesConfirmationRequired {
+            guard try await store.load() == policies else { throw AccessRulesConfirmationRequired() }
+        } catch {
             throw AgentBridgeFailure(.rulesNeedConfirmation, AccessRulesConfirmationRequired.message)
         }
     }
 
     public func confirmRules() async {
-        guard !isSavingRules else { return }
+        guard canConfirmRules, let snapshot = confirmationSnapshot else { return }
+        let reason = "confirm your Agent Keyring access rules: \(confirmationSummary)"
         isSavingRules = true
         defer { isSavingRules = false }
         do {
-            try await store.save(policies)
+            try await store.save(snapshot, reason: reason)
+            confirmationSnapshot = nil
             try await reloadRules()
         } catch {
             needsConfirmation = true
@@ -310,12 +337,11 @@ public final class CredentialAccessController {
             errorMessage = nil
         } catch {
             needsConfirmation = true
-            do {
-                policies = try await store.loadForConfirmation()
-                confirmationResetsUnreadableRules = false
-            } catch {
-                policies = [:]
-                confirmationResetsUnreadableRules = true
+            if confirmationSnapshot == nil {
+                let snapshot = try await store.snapshotForConfirmation()
+                confirmationSnapshot = snapshot
+                policies = snapshot.policies
+                confirmationResetsUnreadableRules = snapshot.resetsUnreadableRules
             }
             updateRowPolicies()
             throw error

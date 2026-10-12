@@ -23,6 +23,7 @@ public struct AccessControlView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Confirm your access rules")
                             .font(.headline)
+                        Text(controller.confirmationSummary)
                         if controller.confirmationResetsUnreadableRules {
                             Text("The rules file could not be read. Confirming resets every login to Ask each time. Nothing will be released until then.")
                                 .foregroundStyle(.secondary)
@@ -35,7 +36,7 @@ public struct AccessControlView: View {
                     Button("Confirm your access rules") {
                         Task { await controller.confirmRules() }
                     }
-                    .disabled(controller.isSavingRules)
+                    .disabled(!controller.canConfirmRules)
                 }
                 .padding()
                 Divider()
