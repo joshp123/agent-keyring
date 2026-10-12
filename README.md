@@ -10,7 +10,9 @@ With Agent Keyring it carries on. It asks Agent Keyring for the login. Your rule
 
 Your logins stay in Apple Passwords. Agent Keyring keeps an encrypted copy on your Mac.
 
-[Download the signed app](https://github.com/joshp123/agent-keyring/releases/latest) · macOS 26 or later · iPhone app for approvals · free and open source
+macOS 26 or later · free and open source · [releases](https://github.com/joshp123/agent-keyring/releases)
+
+**Status:** fill, iPhone approval and signed rules are on `main` and are being proved on real devices before the next release. The latest published release predates them.
 
 ## How it works
 
@@ -20,7 +22,7 @@ Your logins stay in Apple Passwords. Agent Keyring keeps an encrypted copy on yo
 | Ask each time | You approve with Touch ID or Apple Watch, or on your iPhone if you are away. One approval covers that login for 30 minutes. |
 | Blocked | It refuses. |
 
-- **Every browser the agent can drive.** Safari, Chrome, Claude's browser and Codex's browser: the agent focuses the field and Agent Keyring types the value after checking the page is the real site. Headless browsers sign in through the [agent-browser](https://github.com/vercel-labs/agent-browser) plugin.
+- **The browsers agents drive.** Safari, Chrome, Claude's browser pane and Codex's browser: the agent focuses the field and Agent Keyring types the value after checking the page is the real site. Headless browsers sign in through the [agent-browser](https://github.com/vercel-labs/agent-browser) plugin.
 - **Agents know what is happening.** While you are being asked, the agent sees lines like "Asked Josh on the Mac at 02:41; will ask on the iPhone at 02:43", so it can tell you what it is waiting for.
 - **Agents cannot change your rules.** The rules are signed with a key that needs your Touch ID. Edit them behind its back and nothing is released until you confirm them.
 
@@ -35,7 +37,7 @@ You do not have to sort hundreds of logins yourself. In `Access Rules`, choose `
 1. Install `AgentKeyring.app` and open it. It lives in the menu bar.
 2. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`.
 3. Run `/Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install`. It teaches Claude Code and Codex how to use it and registers the agent-browser plugin.
-4. To approve from your iPhone, install the iPhone app, choose `Add iPhone` on the Mac and scan the code.
+4. To approve from your iPhone, build the iPhone app from this repository (there is no App Store version yet), choose `Add iPhone` on the Mac and scan the code.
 
 Apple has no silent export, so Agent Keyring reminds you when its copy is more than a week old. Repeat step 2 to update it.
 

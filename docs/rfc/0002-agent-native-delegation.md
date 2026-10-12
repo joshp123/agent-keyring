@@ -59,8 +59,9 @@ approve from the iPhone when Josh is away, keep standing per-login rules
     Claude's built-in pane, Codex's browser), then runs `fill`.
   - The Agent Keyring app checks, in order:
     1. the screen is unlocked
-    2. the frontmost window is a browser whose page address matches the saved
-       site
+    2. the frontmost app is a supported browser, verified by its code signature
+       rather than its bundle ID, and the page address of the focused field's
+       own document matches the saved site
     3. the focused element is a text field, and for passwords a secure text
        field.
   - It then types the value. It never presses Return; the agent clicks the
@@ -157,8 +158,9 @@ approve from the iPhone when Josh is away, keep standing per-login rules
   - two extension registrations share one ID
   - the macOS 27 hand-off.
 - **Scheduled check:** when the mirror is older than 7 days, Agent Keyring
-  sends a daytime notification. Its action opens the Passwords export with
-  Agent Keyring chosen, and one Touch ID completes it.
+  sends a daytime notification. Its action opens Apple Passwords and states the menu choice
+  (File → Export All Items to App → Agent Keyring); macOS offers no way to
+  open that export directly.
 - **Sync on failure:** when a site rejects a filled login, the agent runs
   `agent-keyring sync <site>`. That marks the login stale and sends the same
   prompt.
@@ -259,7 +261,6 @@ Follow-ups found in review, for later slices:
 - If the screen locks during a prompt, return to waiting for unlock within the
   same 10-minute request, instead of reporting "interrupted".
 - Treat a sleeping display as locked when routing to the iPhone.
-- Show active grants, not only "End all grants".
 - Split `main.swift` and `MirrorAppModel.swift`; both are over 500 lines.
 - Clear a plugin request's buffers when it returns "pending", so no value waits
   unread for 5 minutes.
