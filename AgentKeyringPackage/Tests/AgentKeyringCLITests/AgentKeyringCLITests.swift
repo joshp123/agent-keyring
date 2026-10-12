@@ -111,7 +111,7 @@ struct AgentKeyringCLITests {
         #expect(output.contains("1 login found for example.com"))
         #expect(output.contains("Updated 1 minute ago"))
         #expect(output.contains("Account: example@example.com"))
-        #expect(output.contains("Can copy: username, password"))
+        #expect(output.contains("Can fill: username, password"))
         #expect(!output.contains(candidate.id.uuidString))
         #expect(!output.contains("{"))
     }

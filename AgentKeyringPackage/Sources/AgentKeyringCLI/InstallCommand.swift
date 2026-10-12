@@ -83,7 +83,7 @@ extension CLIClient {
         try config.write(to: configURL, options: .atomic)
         lines.append("Plugin: \(configURL.path)")
         lines.append("AGENTS.md:")
-        lines.append("Use agent-keyring for logins and secrets. See `agent-keyring --help`.")
+        lines.append(AgentInstructions.snippet)
         return CLIInstallResult(rendered: lines.joined(separator: "\n") + "\n")
     }
 }

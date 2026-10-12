@@ -46,7 +46,7 @@ enum CLIOutput {
                 "",
                 candidate.title,
                 "  Account: \(candidate.username ?? "No username")",
-                "  Can copy: \(candidate.availableFields.map(\.displayName).joined(separator: ", "))",
+                "  Can fill: \(candidate.availableFields.map(\.displayName).joined(separator: ", "))",
             ]
             if candidate.isPossiblyStale {
                 lines.append("  Possibly stale: this login was rejected; update from Apple Passwords.")
