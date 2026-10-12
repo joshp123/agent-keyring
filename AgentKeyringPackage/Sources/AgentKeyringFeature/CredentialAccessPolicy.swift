@@ -55,6 +55,7 @@ public final class CredentialAccessController {
         didSet { recomputeVisibleRows() }
     }
 
+    public private(set) var hasPairedApprovalDevice = false
     public private(set) var rows: [AccessCredentialRow] = []
     public private(set) var visibleRows: [AccessCredentialRow] = []
     public private(set) var errorMessage: String?
@@ -213,8 +214,10 @@ public final class CredentialAccessController {
     }
 
     private func reloadRules() async throws {
+        hasPairedApprovalDevice = false
         do {
             policies = try await store.load()
+            hasPairedApprovalDevice = !(try await store.loadPairedDevices()).isEmpty
             needsConfirmation = false
             confirmationResetsUnreadableRules = false
             errorMessage = nil

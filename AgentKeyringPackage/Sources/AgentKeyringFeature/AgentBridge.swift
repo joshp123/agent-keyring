@@ -44,6 +44,7 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
     public let id: UUID
     public let createdAt: Date
     public let callerPID: Int32
+    public let agentDisplayLabel: String?
     public let action: AgentBridgeAction
     public let targetURL: String?
     public let usernameHint: String?
@@ -58,6 +59,7 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
         id: UUID = UUID(),
         createdAt: Date = Date(),
         callerPID: Int32 = getpid(),
+        agentDisplayLabel: String = AgentDisplayLabel.parentExecutableName(),
         action: AgentBridgeAction,
         targetURL: String? = nil,
         usernameHint: String? = nil,
@@ -69,6 +71,7 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
         self.id = id
         self.createdAt = createdAt
         self.callerPID = callerPID
+        self.agentDisplayLabel = agentDisplayLabel
         self.action = action
         self.targetURL = targetURL
         self.usernameHint = usernameHint
@@ -108,18 +111,20 @@ public struct AgentApprovalProgress: Codable, Equatable, Sendable {
     public let provider: ApprovalPromptProvider?
     public let phoneScheduledAt: Date?
     public let macWasLocked: Bool?
+    public let macWasAsleep: Bool?
     public let approvedAt: Date?
     public let approvedOn: ApprovalPromptProvider?
 
     public init(waitingSince: Date, askedAt: Date? = nil, phase: AgentApprovalPhase,
         provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
-        macWasLocked: Bool? = nil, approvedAt: Date? = nil, approvedOn: ApprovalPromptProvider? = nil) {
+        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil, approvedAt: Date? = nil, approvedOn: ApprovalPromptProvider? = nil) {
         self.waitingSince = waitingSince
         self.askedAt = askedAt
         self.phase = phase
         self.provider = provider
         self.phoneScheduledAt = phoneScheduledAt
         self.macWasLocked = macWasLocked
+        self.macWasAsleep = macWasAsleep
         self.approvedAt = approvedAt
         self.approvedOn = approvedOn
     }

@@ -61,6 +61,6 @@ struct PhoneApprovalStatusLinesTests {
             output: FileHandle.nullDevice, diagnostics: pipe.fileHandleForWriting, now: { now },
             sendRequest: { request in AgentBridgeResponse(id: request.id, ok: true, approvalProgress: progress) })
         try pipe.fileHandleForWriting.close()
-        #expect(String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self) == "Approved at 02:44.\n")
+        #expect(String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self) == "Approved on the Mac at 02:44.\n")
     }
 }

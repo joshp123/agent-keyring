@@ -116,7 +116,7 @@ public struct AgentCredentialReleaseProcessor {
                 authorizationDeadline: request.expiresAt,
                 isPossiblyStale: possiblyStaleCredentialIDs.contains(selected.id)
             )
-            let phoneRequest = try ApprovalRequest(agentDisplayLabel: "Local agent",
+            let phoneRequest = try ApprovalRequest(agentDisplayLabel: request.agentDisplayLabel ?? "an agent",
                 site: approval.destination, account: approval.account, field: field,
                 action: request.action == .fill ? .fill : .acquire, createdAt: now())
             try await approvals.authorize(credentialID: selected.id, action: request.action, authorizationDeadline: request.expiresAt,

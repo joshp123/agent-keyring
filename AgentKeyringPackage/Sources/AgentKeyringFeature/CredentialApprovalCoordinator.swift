@@ -12,6 +12,7 @@ public final class CredentialApprovalCoordinator {
     private var pending: [CredentialApprovalScope: PendingApproval] = [:]
     private var macPromptOwner: UUID?
     private var macPromptQueue: [UUID] = []
+    private var macPromptWakeups: [UUID: () -> Void] = [:]
 
     private let lockState: any CredentialSessionLockState
     private let phoneChannel: (any IPhoneApprovalChannel)?
@@ -118,20 +119,41 @@ public final class CredentialApprovalCoordinator {
         var phoneTask: Task<Void, Never>?
         var phoneAsked = false
         var phoneScheduledAt: Date?
-        let ticker = Task { @MainActor in
-            do {
-                while !Task.isCancelled {
-                    try await self.sleep(.milliseconds(250))
-                    guard !Task.isCancelled else { return }
-                    continuation.yield(.tick)
-                    await Task.yield()
-                }
-            } catch { continuation.finish() }
+        var ticker: Task<Void, Never>?
+        func refreshTicker() {
+            let needed = self.lockState.isLocked || (!phoneAsked && phoneScheduledAt != nil)
+            if !needed { ticker?.cancel(); ticker = nil; return }
+            guard ticker == nil else { return }
+            ticker = Task { @MainActor in
+                do {
+                    while !Task.isCancelled {
+                        try await self.sleep(.milliseconds(250))
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.tick)
+                        await Task.yield()
+                    }
+                } catch { }
+            }
         }
+        let deadlineTask = Task { @MainActor in
+            do {
+                try await self.sleep(.seconds(max(0, authorizationDeadline.timeIntervalSince(self.now()))))
+                guard !Task.isCancelled else { return }
+                continuation.yield(.tick)
+            } catch { }
+        }
+        let lockChanges = lockState.changes
+        let lockMonitor = Task { @MainActor in
+            for await _ in lockChanges { continuation.yield(.tick) }
+        }
+        macPromptWakeups[request.id] = { continuation.yield(.tick) }
         defer {
             macPromptQueue.removeAll { $0 == request.id }
-            if macPromptOwner == request.id { macPromptOwner = nil }
-            ticker.cancel()
+            macPromptWakeups.removeValue(forKey: request.id)
+            releaseMacPrompt(requestID: request.id)
+            ticker?.cancel()
+            deadlineTask.cancel()
+            lockMonitor.cancel()
             macTask?.cancel()
             phoneTask?.cancel()
             if macAttempt != nil { mac.cancel(requestID: request.id) }
@@ -141,6 +163,7 @@ public final class CredentialApprovalCoordinator {
         }
 
         func startMac() {
+            if !macPromptQueue.contains(request.id) { macPromptQueue.append(request.id) }
             guard macPromptOwner == nil, macPromptQueue.first == request.id else { return }
             macPromptOwner = request.id
             let attempt = UUID()
@@ -148,9 +171,10 @@ public final class CredentialApprovalCoordinator {
             let responses = mac.responses(to: request) {
                 guard macAttempt == attempt else { return }
                 let askedAt = self.now()
-                phoneScheduledAt = phone == nil ? nil : askedAt.addingTimeInterval(self.phoneDelay())
+                phoneScheduledAt = phone == nil || phoneAsked ? nil : askedAt.addingTimeInterval(self.phoneDelay())
                 self.recordProgress(scope: scope, askedAt: askedAt, phase: .awaitingApproval,
                     provider: phone == nil ? nil : .mac, phoneScheduledAt: phoneScheduledAt)
+                refreshTicker()
             }
             macTask = Task { @MainActor in
                 do {
@@ -167,8 +191,10 @@ public final class CredentialApprovalCoordinator {
             phoneAsked = true
             let responses = phone.responses(to: request) {
                 self.recordProgress(scope: scope, askedAt: self.now(), phase: .awaitingApproval,
-                    provider: .iPhone, macWasLocked: self.lockState.isLocked)
+                    provider: .iPhone, macWasLocked: self.lockState.isLocked,
+                    macWasAsleep: self.lockState.isDisplayAsleep)
             }
+            refreshTicker()
             phoneTask = Task { @MainActor in
                 do {
                     for try await response in responses {
@@ -181,6 +207,7 @@ public final class CredentialApprovalCoordinator {
         guard now() < authorizationDeadline else { throw CredentialReleaseAuthorizationError.expired }
         if lockState.isLocked { try await startPhone() }
         else { startMac() }
+        refreshTicker()
         for await event in events {
             guard now() < authorizationDeadline else { throw CredentialReleaseAuthorizationError.expired }
             switch event {
@@ -189,14 +216,14 @@ public final class CredentialApprovalCoordinator {
                     macAttempt = nil
                     macTask?.cancel()
                     mac.cancel(requestID: request.id)
-                    if macPromptOwner == request.id { macPromptOwner = nil }
+                    releaseMacPrompt(requestID: request.id)
                     if phone != nil { macPromptQueue.removeAll { $0 == request.id } }
                     phoneScheduledAt = nil
                     if !phoneAsked, phone == nil {
                         recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock)
                     }
                 }
-                if macAttempt == nil, !lockState.isLocked, !phoneAsked { startMac() }
+                if macAttempt == nil, !lockState.isLocked { startMac() }
                 if lockState.isLocked || (phoneScheduledAt.map { now() >= $0 } ?? false) {
                     try await startPhone()
                 }
@@ -206,7 +233,7 @@ public final class CredentialApprovalCoordinator {
                     macAttempt = nil
                     macTask?.cancel()
                     mac.cancel(requestID: request.id)
-                    if macPromptOwner == request.id { macPromptOwner = nil }
+                    releaseMacPrompt(requestID: request.id)
                     if phone != nil { macPromptQueue.removeAll { $0 == request.id } }
                     phoneScheduledAt = nil
                     if !phoneAsked, phone == nil { recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock) }
@@ -231,8 +258,15 @@ public final class CredentialApprovalCoordinator {
                     throw CredentialReleaseAuthorizationError.denied
                 }
             }
+            refreshTicker()
         }
         throw CredentialReleaseAuthorizationError.expired
+    }
+
+    private func releaseMacPrompt(requestID: UUID) {
+        guard macPromptOwner == requestID else { return }
+        macPromptOwner = nil
+        if let next = macPromptQueue.first { macPromptWakeups[next]?() }
     }
 
     private func recordApproval(scope: CredentialApprovalScope, provider: ApprovalPromptProvider) {
@@ -240,7 +274,7 @@ public final class CredentialApprovalCoordinator {
         let progress = approval.progress
         approval.progress = AgentApprovalProgress(waitingSince: progress.waitingSince,
             askedAt: progress.askedAt, phase: progress.phase, provider: progress.provider,
-            phoneScheduledAt: progress.phoneScheduledAt, macWasLocked: progress.macWasLocked,
+            phoneScheduledAt: progress.phoneScheduledAt, macWasLocked: progress.macWasLocked, macWasAsleep: progress.macWasAsleep,
             approvedAt: now(), approvedOn: provider)
         pending[scope] = approval
         for observer in approval.observers { observer(approval.progress) }
@@ -248,11 +282,11 @@ public final class CredentialApprovalCoordinator {
 
     private func recordProgress(scope: CredentialApprovalScope, askedAt: Date?, phase: AgentApprovalPhase,
         provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
-        macWasLocked: Bool? = nil, approvedAt: Date? = nil) {
+        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil, approvedAt: Date? = nil) {
         guard var approval = pending[scope] else { return }
         approval.progress = AgentApprovalProgress(waitingSince: approval.progress.waitingSince,
             askedAt: askedAt, phase: phase, provider: provider, phoneScheduledAt: phoneScheduledAt,
-            macWasLocked: macWasLocked, approvedAt: approvedAt)
+            macWasLocked: macWasLocked, macWasAsleep: macWasAsleep, approvedAt: approvedAt)
         pending[scope] = approval
         for observer in approval.observers { observer(approval.progress) }
     }

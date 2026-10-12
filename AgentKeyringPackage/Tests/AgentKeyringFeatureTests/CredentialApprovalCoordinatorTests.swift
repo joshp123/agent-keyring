@@ -88,7 +88,8 @@ struct CredentialApprovalCoordinatorTests {
     @Test("Different logins woken by the same unlock serialize window setup and authentication")
     func serialApprovalsAfterUnlock() async throws {
         let lock = FakeCredentialSessionLockState(isLocked: true)
-        let approvals = CredentialApprovalCoordinator(lockState: lock, sleep: { _ in
+        let approvals = CredentialApprovalCoordinator(lockState: lock, sleep: { duration in
+            if duration > .milliseconds(250) { try await Task.sleep(for: duration); return }
             while lock.isLocked { await Task.yield() }
         })
         let authorizer = FakeCredentialAuthorizer()
@@ -137,7 +138,8 @@ struct CredentialApprovalCoordinatorTests {
         var prompts = 0
         var waits = 0
         var progress: [AgentApprovalProgress] = []
-        let approvals = CredentialApprovalCoordinator(lockState: lock, now: { now }, sleep: { _ in
+        let approvals = CredentialApprovalCoordinator(lockState: lock, now: { now }, sleep: { duration in
+            if duration > .milliseconds(250) { try await Task.sleep(for: duration); return }
             if !lock.isLocked { try await Task.sleep(for: .seconds(600)); return }
             #expect(prompts == 0)
             waits += 1
@@ -244,7 +246,9 @@ final class FakeCredentialAuthorizer: CredentialReleaseAuthorizing {
 
 @MainActor
 final class FakeCredentialSessionLockState: CredentialSessionLockState {
-    var isLocked: Bool
+    private let stateChanges = AsyncStream<Void>.makeStream()
+    var changes: AsyncStream<Void> { stateChanges.stream }
+    var isLocked: Bool { didSet { stateChanges.continuation.yield(()) } }
 
     init(isLocked: Bool = false) { self.isLocked = isLocked }
 }

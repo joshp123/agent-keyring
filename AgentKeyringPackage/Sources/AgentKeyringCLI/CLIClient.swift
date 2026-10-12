@@ -25,6 +25,8 @@ enum CLIClient {
             if (request.action == .acquire || request.action == .fill), response.approvalProgress?.askedAt != nil {
                 if response.approvalProgress?.approvedOn == .iPhone {
                     write("Approved on the iPhone at \(approvalTime(response.approvalProgress?.approvedAt ?? now())).\n", to: diagnostics)
+                } else if response.approvalProgress?.approvedOn == .mac {
+                    write("Approved on the Mac at \(approvalTime(response.approvalProgress?.approvedAt ?? now())).\n", to: diagnostics)
                 } else {
                     write("Approved at \(approvalTime(now())).\n", to: diagnostics)
                 }

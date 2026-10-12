@@ -20,7 +20,9 @@ final class CLIApprovalStatusLines {
                 provider = progress.provider
                 let line: String
                 if progress.provider == .iPhone {
-                    line = progress.macWasLocked == true
+                    line = progress.macWasAsleep == true
+                        ? "\(MacOwner.firstName)'s Mac is asleep or locked; asked on the iPhone at \(approvalTime(promptStartedAt))."
+                        : progress.macWasLocked == true
                         ? "\(MacOwner.firstName)'s Mac is locked; asked on the iPhone at \(approvalTime(promptStartedAt))."
                         : "Asked \(MacOwner.firstName) on the iPhone at \(approvalTime(promptStartedAt))."
                 } else if let phoneAt = progress.phoneScheduledAt {

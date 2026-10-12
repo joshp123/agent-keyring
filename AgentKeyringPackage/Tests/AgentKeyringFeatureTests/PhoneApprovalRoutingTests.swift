@@ -24,7 +24,7 @@ struct PhoneApprovalRoutingTests {
     func escalation(delay: Int) async throws {
         let fixture = try PhoneRoutingFixture(delay: delay)
         let task = fixture.start()
-        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.sleepCount > 0 }
+        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.tickSleepCount > 0 }
         #expect(fixture.phone.requests.isEmpty)
         #expect(fixture.progress.last?.phoneScheduledAt == fixture.clock.now.addingTimeInterval(Double(delay)))
         let sleeps = fixture.clock.sleepCount
@@ -43,7 +43,7 @@ struct PhoneApprovalRoutingTests {
     func firstAnswer(winner: String) async throws {
         let fixture = try PhoneRoutingFixture()
         let task = fixture.start()
-        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.sleepCount > 0 }
+        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.tickSleepCount > 0 }
         fixture.clock.advance(seconds: 120)
         try await routingEventually { fixture.phone.requests.count == 1 }
         if winner == "mac" {
@@ -85,7 +85,7 @@ struct PhoneApprovalRoutingTests {
     func forgedDecision() async throws {
         let fixture = try PhoneRoutingFixture()
         let task = fixture.start()
-        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.sleepCount > 0 }
+        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.tickSleepCount > 0 }
         fixture.clock.advance(seconds: 120)
         try await routingEventually { fixture.phone.requests.count == 1 }
         fixture.phone.answer(ApprovalDecision(requestID: fixture.request.id, choice: .approve,
@@ -102,7 +102,7 @@ struct PhoneApprovalRoutingTests {
     func lockDuringPrompt() async throws {
         let fixture = try PhoneRoutingFixture()
         let task = fixture.start()
-        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.sleepCount > 0 }
+        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.tickSleepCount > 0 }
         fixture.lock.screenLocked = true
         fixture.clock.advance(seconds: 0.25)
         try await routingEventually { fixture.phone.requests.count == 1 }
@@ -117,7 +117,7 @@ struct PhoneApprovalRoutingTests {
     func lockWithoutPhone() async throws {
         let fixture = try PhoneRoutingFixture(paired: false)
         let task = fixture.start()
-        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.sleepCount > 0 }
+        try await routingEventually { fixture.mac.requests.count == 1 }
         fixture.lock.screenLocked = true
         fixture.mac.complete(error: .interrupted)
         try await routingEventually { fixture.progress.last?.phase == .waitingForUnlock }
@@ -134,7 +134,7 @@ struct PhoneApprovalRoutingTests {
     func noPairedDevice() async throws {
         let fixture = try PhoneRoutingFixture(paired: false)
         let task = fixture.start()
-        try await routingEventually { fixture.mac.requests.count == 1 && fixture.clock.sleepCount > 0 }
+        try await routingEventually { fixture.mac.requests.count == 1 }
         fixture.clock.advance(seconds: 180)
         for _ in 0..<100 { await Task.yield() }
         #expect(fixture.phone.requests.isEmpty)
@@ -170,7 +170,7 @@ struct PhoneApprovalRoutingTests {
     func phoneExpiry() async throws {
         let fixture = try PhoneRoutingFixture(screenLocked: true)
         let task = fixture.start()
-        try await routingEventually { fixture.phone.requests.count == 1 && fixture.clock.sleepCount > 0 }
+        try await routingEventually { fixture.phone.requests.count == 1 && fixture.clock.tickSleepCount > 0 }
         fixture.clock.advance(seconds: 600)
         await #expect(throws: CredentialReleaseAuthorizationError.expired) { try await task.value }
         #expect(fixture.phone.cancelledRequestIDs == [fixture.request.id])
@@ -245,8 +245,11 @@ private struct RoutingPairedKeys: PairedDevicePublicKeyProviding {
 
 @MainActor
 private final class RoutingLockState: CredentialSessionLockState {
-    var screenLocked: Bool
-    var displayAsleep: Bool
+    private let stateChanges = AsyncStream<Void>.makeStream()
+    var changes: AsyncStream<Void> { stateChanges.stream }
+    var screenLocked: Bool { didSet { stateChanges.continuation.yield(()) } }
+    var displayAsleep: Bool { didSet { stateChanges.continuation.yield(()) } }
+    var isDisplayAsleep: Bool { displayAsleep }
     var isLocked: Bool { screenLocked || displayAsleep }
     init(screenLocked: Bool, displayAsleep: Bool) {
         self.screenLocked = screenLocked
@@ -258,6 +261,7 @@ private final class RoutingLockState: CredentialSessionLockState {
 private final class RoutingClock {
     var now: Date
     var sleepCount = 0
+    var tickSleepCount = 0
     private var sleepers: [UUID: (Date, CheckedContinuation<Void, Error>)] = [:]
     init(now: Date) { self.now = now }
 
@@ -269,6 +273,7 @@ private final class RoutingClock {
             try await withCheckedThrowingContinuation { continuation in
                 sleepers[id] = (now.addingTimeInterval(seconds), continuation)
                 sleepCount += 1
+                if duration == .milliseconds(250) { tickSleepCount += 1 }
             }
         } onCancel: {
             Task { @MainActor in self.sleepers.removeValue(forKey: id)?.1.resume(throwing: CancellationError()) }
