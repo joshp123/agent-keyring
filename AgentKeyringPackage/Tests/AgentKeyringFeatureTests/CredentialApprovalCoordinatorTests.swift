@@ -11,16 +11,19 @@ struct CredentialApprovalCoordinatorTests {
         let authorizer = FakeCredentialAuthorizer()
         let login = UUID()
         let request = CredentialReleaseAuthorizationRequest(destination: "example.com", account: "synthetic", field: .password)
-        let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { try await authorizer.authorize(request, onPromptStarted: $0) } }
+        let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline, approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire)) { try await authorizer.authorize(request, onPromptStarted: $0) } }
         while authorizer.requests.isEmpty { await Task.yield() }
-        let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { try await authorizer.authorize(request, onPromptStarted: $0) } }
+        let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline, approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire)) { try await authorizer.authorize(request, onPromptStarted: $0) } }
         for _ in 0..<20 { await Task.yield() }
         #expect(authorizer.requests.count == 1)
         authorizer.complete(error: .denied)
         await #expect(throws: CredentialReleaseAuthorizationError.denied) { try await first.value }
         await #expect(throws: CredentialReleaseAuthorizationError.denied) { try await second.value }
         var retried = false
-        try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { onPromptStarted in onPromptStarted(); retried = true }
+        try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline, approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire)) { onPromptStarted in onPromptStarted(); retried = true }
         #expect(retried)
     }
     @Test("Joined requests receive the original asked time")
@@ -32,10 +35,12 @@ struct CredentialApprovalCoordinatorTests {
         var firstStatus: [AgentApprovalProgress] = []
         var secondStatus: [AgentApprovalProgress] = []
         let request = CredentialReleaseAuthorizationRequest(destination: "example.com", account: "synthetic", field: .password)
-        let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: now.addingTimeInterval(600),
+        let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: now.addingTimeInterval(600), approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire),
             onProgress: { firstStatus.append($0) }) { try await authorizer.authorize(request, onPromptStarted: $0) } }
         while authorizer.requests.isEmpty { await Task.yield() }
-        let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: now.addingTimeInterval(700),
+        let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: now.addingTimeInterval(700), approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire),
             onProgress: { secondStatus.append($0) }) { _ in Issue.record("Duplicate prompted") } }
         while secondStatus.isEmpty { await Task.yield() }
         #expect(firstStatus.last == secondStatus.first)
@@ -55,14 +60,16 @@ struct CredentialApprovalCoordinatorTests {
         let login = UUID()
         var joinerStatus: [AgentApprovalProgress] = []
         let first = Task {
-            try await approvals.authorize(credentialID: login, authorizationDeadline: firstDeadline) {
+            try await approvals.authorize(credentialID: login, authorizationDeadline: firstDeadline, approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire)) {
                 try await authorizer.authorize(CredentialReleaseAuthorizationRequest(destination: "example.com",
                     account: "synthetic", field: .password, authorizationDeadline: firstDeadline), onPromptStarted: $0)
             }
         }
         while authorizer.requests.isEmpty { await Task.yield() }
         let joiner = Task {
-            try await approvals.authorize(credentialID: login, authorizationDeadline: joinerDeadline,
+            try await approvals.authorize(credentialID: login, authorizationDeadline: joinerDeadline, approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire),
                 onProgress: { joinerStatus.append($0) }) {
                     try await authorizer.authorize(CredentialReleaseAuthorizationRequest(destination: "example.com",
                         account: "synthetic", field: .password, authorizationDeadline: joinerDeadline), onPromptStarted: $0)
@@ -98,7 +105,8 @@ struct CredentialApprovalCoordinatorTests {
         var finishFirstWindowSetup: CheckedContinuation<Void, Never>?
         func start(_ account: String) -> Task<Void, Error> {
             Task {
-                try await approvals.authorize(credentialID: UUID(), authorizationDeadline: Date().addingTimeInterval(600),
+                try await approvals.authorize(credentialID: UUID(), authorizationDeadline: Date().addingTimeInterval(600), approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire),
                     onProgress: { _ in queued += 1 }) { onPromptStarted in
                         presented.append(account)
                         if account == "first" {
@@ -146,7 +154,8 @@ struct CredentialApprovalCoordinatorTests {
             now = now.addingTimeInterval(60)
             lock.isLocked = false
         })
-        try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600),
+        try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600), approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire),
             onProgress: { progress.append($0) }) { onPromptStarted in
             #expect(!lock.isLocked)
             #expect(progress.last?.askedAt == nil)
@@ -168,7 +177,8 @@ struct CredentialApprovalCoordinatorTests {
         let waitingSince = now
         let approvals = CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState(), now: { now })
         var progress: [AgentApprovalProgress] = []
-        try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600),
+        try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600), approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire),
             onProgress: { progress.append($0) }) { onPromptStarted in
                 #expect(progress.count == 1)
                 #expect(progress.first?.askedAt == nil)
@@ -185,7 +195,8 @@ struct CredentialApprovalCoordinatorTests {
         let approvals = CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState())
         var progress: [AgentApprovalProgress] = []
         await #expect(throws: CredentialReleaseAuthorizationError.unavailable) {
-            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: Date().addingTimeInterval(600),
+            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: Date().addingTimeInterval(600), approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire),
                 onProgress: { progress.append($0) }) { _ in
                     throw CredentialReleaseAuthorizationError.unavailable
                 }
@@ -203,7 +214,8 @@ struct CredentialApprovalCoordinatorTests {
             now = deadline
         })
         await #expect(throws: CredentialReleaseAuthorizationError.expired) {
-            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: deadline) { _ in
+            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: deadline, approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                account: "synthetic", field: .password, action: .acquire)) { _ in
                 Issue.record("Locked request started authentication")
             }
         }

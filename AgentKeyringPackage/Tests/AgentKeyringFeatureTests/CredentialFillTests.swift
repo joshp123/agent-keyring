@@ -194,7 +194,9 @@ struct CredentialFillTests {
         var prompts = 0
         let fill = Task { @MainActor in
             try await coordinator.authorize(credentialID: loginID, action: .fill,
-                authorizationDeadline: Date().addingTimeInterval(60)) { started in
+                authorizationDeadline: Date().addingTimeInterval(60),
+                approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                    account: "synthetic", field: .password, action: .fill)) { started in
                 prompts += 1; started()
                 await withCheckedContinuation { firstPrompt = $0 }
             }
@@ -202,7 +204,9 @@ struct CredentialFillTests {
         while firstPrompt == nil { await Task.yield() }
         let acquire = Task { @MainActor in
             try await coordinator.authorize(credentialID: loginID, action: .acquire,
-                authorizationDeadline: Date().addingTimeInterval(60)) { started in prompts += 1; started() }
+                authorizationDeadline: Date().addingTimeInterval(60),
+                approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
+                    account: "synthetic", field: .password, action: .acquire)) { started in prompts += 1; started() }
         }
         for _ in 0..<10 { await Task.yield() }
         firstPrompt?.resume()

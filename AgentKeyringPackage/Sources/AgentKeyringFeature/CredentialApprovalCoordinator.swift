@@ -44,7 +44,7 @@ public final class CredentialApprovalCoordinator {
         credentialID: UUID,
         action: AgentBridgeAction = .acquire,
         authorizationDeadline: Date,
-        approvalRequest: ApprovalRequest? = nil,
+        approvalRequest: ApprovalRequest,
         cancelPrompt: @escaping () -> Void = {},
         onBlockLogin: @escaping () -> Void = {},
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
@@ -90,29 +90,19 @@ public final class CredentialApprovalCoordinator {
 
     private enum RoutingEvent {
         case tick
-        case mac(Result<ApprovalProviderResponse, Error>, UUID)
+        case mac(Result<Void, Error>, UUID)
         case phone(ApprovalDecision)
     }
 
     private func route(scope: CredentialApprovalScope, authorizationDeadline: Date,
-        approvalRequest: ApprovalRequest?, cancelPrompt: @escaping () -> Void,
+        approvalRequest request: ApprovalRequest, cancelPrompt: @escaping () -> Void,
         onBlockLogin: @escaping () -> Void,
         prompt: @escaping @MainActor (@escaping () -> Void) async throws -> Void) async throws {
-        let request = try approvalRequest ?? ApprovalRequest(agentDisplayLabel: "Local agent",
-            site: "", account: "", field: .password,
-            action: scope.action == .fill ? .fill : .acquire, createdAt: now())
-        let phone: (any ApprovalProviding)?
-        if let phoneChannel, approvalRequest != nil {
-            phone = try await IPhoneApprovalProvider.paired(channel: phoneChannel, devices: pairedDevices)
+        let phone: (any IPhoneApprovalChannel)?
+        if let phoneChannel, !(try await pairedDevices.pairedDevicePublicKeys()).isEmpty {
+            phone = phoneChannel
         } else { phone = nil }
-        if phone == nil, phoneChannel != nil, lockState.isLocked {
-            recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock)
-        }
         if phone == nil || !lockState.isLocked { macPromptQueue.append(request.id) }
-        let mac: any ApprovalProviding = MacApprovalProvider(prompt: { onPromptStarted in
-            guard !self.lockState.isLocked else { throw CredentialReleaseAuthorizationError.interrupted }
-            try await prompt(onPromptStarted)
-        }, cancelPrompt: cancelPrompt)
         let (events, continuation) = AsyncStream<RoutingEvent>.makeStream()
         var macAttempt: UUID?
         var macTask: Task<Void, Never>?
@@ -120,6 +110,7 @@ public final class CredentialApprovalCoordinator {
         var phoneAsked = false
         var phoneScheduledAt: Date?
         var ticker: Task<Void, Never>?
+
         func refreshTicker() {
             let needed = self.lockState.isLocked || (!phoneAsked && phoneScheduledAt != nil)
             if !needed { ticker?.cancel(); ticker = nil; return }
@@ -135,6 +126,18 @@ public final class CredentialApprovalCoordinator {
                 } catch { }
             }
         }
+
+        func stopMac() {
+            guard macAttempt != nil else { return }
+            macAttempt = nil
+            macTask?.cancel()
+            macTask = nil
+            cancelPrompt()
+            phoneScheduledAt = nil
+            if phone != nil { self.macPromptQueue.removeAll { $0 == request.id } }
+            self.releaseMacPrompt(requestID: request.id)
+        }
+
         let deadlineTask = Task { @MainActor in
             do {
                 try await self.sleep(.seconds(max(0, authorizationDeadline.timeIntervalSince(self.now()))))
@@ -150,16 +153,16 @@ public final class CredentialApprovalCoordinator {
         defer {
             macPromptQueue.removeAll { $0 == request.id }
             macPromptWakeups.removeValue(forKey: request.id)
-            releaseMacPrompt(requestID: request.id)
+            stopMac()
             ticker?.cancel()
             deadlineTask.cancel()
             lockMonitor.cancel()
-            macTask?.cancel()
             phoneTask?.cancel()
-            if macAttempt != nil { mac.cancel(requestID: request.id) }
-            if phoneAsked { phone?.cancel(requestID: request.id) }
+            if phoneAsked {
+                phone?.cancel(requestID: request.id)
+                Task { await self.verifier.discard(requestID: request.id) }
+            }
             continuation.finish()
-            if phoneAsked { Task { await self.verifier.discard(requestID: request.id) } }
         }
 
         func startMac() {
@@ -168,20 +171,24 @@ public final class CredentialApprovalCoordinator {
             macPromptOwner = request.id
             let attempt = UUID()
             macAttempt = attempt
-            let responses = mac.responses(to: request) {
-                guard macAttempt == attempt else { return }
-                let askedAt = self.now()
-                phoneScheduledAt = phone == nil || phoneAsked ? nil : askedAt.addingTimeInterval(self.phoneDelay())
-                self.recordProgress(scope: scope, askedAt: askedAt, phase: .awaitingApproval,
-                    provider: phone == nil ? nil : .mac, phoneScheduledAt: phoneScheduledAt)
-                refreshTicker()
-            }
             macTask = Task { @MainActor in
                 do {
-                    for try await response in responses {
-                        continuation.yield(.mac(.success(response), attempt))
+                    try Task.checkCancellation()
+                    guard !self.lockState.isLocked else { throw CredentialReleaseAuthorizationError.interrupted }
+                    try await prompt {
+                        guard macAttempt == attempt, !Task.isCancelled else { return }
+                        let askedAt = self.now()
+                        phoneScheduledAt = phone == nil || phoneAsked ? nil : askedAt.addingTimeInterval(self.phoneDelay())
+                        self.recordProgress(scope: scope, askedAt: askedAt, phase: .awaitingApproval,
+                            provider: phone == nil ? nil : .mac, phoneScheduledAt: phoneScheduledAt)
+                        refreshTicker()
                     }
-                } catch { continuation.yield(.mac(.failure(error), attempt)) }
+                    guard !Task.isCancelled else { return }
+                    continuation.yield(.mac(.success(()), attempt))
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    continuation.yield(.mac(.failure(error), attempt))
+                }
             }
         }
 
@@ -189,58 +196,41 @@ public final class CredentialApprovalCoordinator {
             guard let phone, !phoneAsked else { return }
             try await verifier.register(request)
             phoneAsked = true
-            let responses = phone.responses(to: request) {
-                self.recordProgress(scope: scope, askedAt: self.now(), phase: .awaitingApproval,
-                    provider: .iPhone, macWasLocked: self.lockState.isLocked,
-                    macWasAsleep: self.lockState.isDisplayAsleep)
-            }
-            refreshTicker()
+            let decisions = phone.publish(request)
+            recordProgress(scope: scope, askedAt: now(), phase: .awaitingApproval,
+                provider: .iPhone, macWasLocked: lockState.isLocked, macWasAsleep: lockState.isDisplayAsleep)
             phoneTask = Task { @MainActor in
-                do {
-                    for try await response in responses {
-                        if case let .iPhoneDecision(decision) = response { continuation.yield(.phone(decision)) }
-                    }
-                } catch { /* Channel failure leaves the request waiting until its deadline. */ }
+                for await decision in decisions {
+                    guard !Task.isCancelled else { return }
+                    continuation.yield(.phone(decision))
+                }
             }
         }
 
+        func updateRouting() async throws {
+            if self.lockState.isLocked {
+                stopMac()
+                if phone == nil, self.pending[scope]?.progress.phase != .waitingForUnlock {
+                    self.recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock)
+                }
+                try await startPhone()
+            } else {
+                if macAttempt == nil { startMac() }
+                if phoneScheduledAt.map({ self.now() >= $0 }) == true { try await startPhone() }
+            }
+            refreshTicker()
+        }
+
         guard now() < authorizationDeadline else { throw CredentialReleaseAuthorizationError.expired }
-        if lockState.isLocked { try await startPhone() }
-        else { startMac() }
-        refreshTicker()
+        try await updateRouting()
         for await event in events {
             guard now() < authorizationDeadline else { throw CredentialReleaseAuthorizationError.expired }
+            try await updateRouting()
             switch event {
-            case .tick:
-                if lockState.isLocked, macAttempt != nil {
-                    macAttempt = nil
-                    macTask?.cancel()
-                    mac.cancel(requestID: request.id)
-                    releaseMacPrompt(requestID: request.id)
-                    if phone != nil { macPromptQueue.removeAll { $0 == request.id } }
-                    phoneScheduledAt = nil
-                    if !phoneAsked, phone == nil {
-                        recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock)
-                    }
-                }
-                if macAttempt == nil, !lockState.isLocked { startMac() }
-                if lockState.isLocked || (phoneScheduledAt.map { now() >= $0 } ?? false) {
-                    try await startPhone()
-                }
+            case .tick: break
             case let .mac(result, attempt):
                 guard macAttempt == attempt else { continue }
-                if lockState.isLocked {
-                    macAttempt = nil
-                    macTask?.cancel()
-                    mac.cancel(requestID: request.id)
-                    releaseMacPrompt(requestID: request.id)
-                    if phone != nil { macPromptQueue.removeAll { $0 == request.id } }
-                    phoneScheduledAt = nil
-                    if !phoneAsked, phone == nil { recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock) }
-                    try await startPhone()
-                    continue
-                }
-                _ = try result.get()
+                try result.get()
                 if phone != nil { recordApproval(scope: scope, provider: .mac) }
                 return
             case let .phone(decision):
@@ -258,7 +248,6 @@ public final class CredentialApprovalCoordinator {
                     throw CredentialReleaseAuthorizationError.denied
                 }
             }
-            refreshTicker()
         }
         throw CredentialReleaseAuthorizationError.expired
     }
@@ -282,11 +271,11 @@ public final class CredentialApprovalCoordinator {
 
     private func recordProgress(scope: CredentialApprovalScope, askedAt: Date?, phase: AgentApprovalPhase,
         provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
-        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil, approvedAt: Date? = nil) {
+        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil) {
         guard var approval = pending[scope] else { return }
         approval.progress = AgentApprovalProgress(waitingSince: approval.progress.waitingSince,
             askedAt: askedAt, phase: phase, provider: provider, phoneScheduledAt: phoneScheduledAt,
-            macWasLocked: macWasLocked, macWasAsleep: macWasAsleep, approvedAt: approvedAt)
+            macWasLocked: macWasLocked, macWasAsleep: macWasAsleep)
         pending[scope] = approval
         for observer in approval.observers { observer(approval.progress) }
     }

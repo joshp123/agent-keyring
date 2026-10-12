@@ -80,7 +80,7 @@ public final class MirrorAppModel {
         let routingSettings = ApprovalRoutingSettings(defaults: settings)
         self.approvalRoutingSettings = routingSettings
         self.approvals = CredentialApprovalCoordinator(phoneChannel: phoneChannel,
-            pairedDevices: accessControl.approvalDeviceStore,
+            pairedDevices: accessControl,
             phoneDelay: { TimeInterval(routingSettings.phoneDelaySeconds) })
         self.staleLogins = PossiblyStaleLogins(settings: settings)
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true

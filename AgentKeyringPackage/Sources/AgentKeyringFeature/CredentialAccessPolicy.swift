@@ -44,7 +44,7 @@ public struct AccessRulesConfirmationSnapshot: Sendable {
 
 @MainActor
 @Observable
-public final class CredentialAccessController {
+public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     public var searchText = "" {
         didSet { recomputeVisibleRows() }
     }
@@ -68,7 +68,6 @@ public final class CredentialAccessController {
         "\(count(for: .allowAutomatically)) allowed automatically, \(count(for: .block)) blocked, \(count(for: .ask)) ask each time"
     }
 
-    var approvalDeviceStore: CredentialAccessPolicyStore { store }
     private var pendingPhoneBlocks: Set<UUID> = []
     private let store: CredentialAccessPolicyStore
     private var policies: [UUID: CredentialAccessPolicy] = [:]
@@ -77,6 +76,10 @@ public final class CredentialAccessController {
 
     public init(store: CredentialAccessPolicyStore = CredentialAccessPolicyStore()) {
         self.store = store
+    }
+
+    public func pairedDevicePublicKeys() async throws -> [Data] {
+        try await store.pairedDevicePublicKeys()
     }
 
     public func refresh(from generation: MirrorGeneration?) async {
