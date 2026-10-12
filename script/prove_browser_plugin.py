@@ -3,7 +3,6 @@ import http.server
 import json
 import os
 from pathlib import Path
-import plistlib
 import ssl
 import subprocess
 import sys
@@ -13,18 +12,6 @@ import urllib.parse
 import uuid
 
 browser, cli = sys.argv[1], str(Path(sys.argv[2]).resolve())
-app = Path(os.environ.get("AGENT_KEYRING_APP_PATH", "/Applications/AgentKeyring.app"))
-try:
-    with (app / "Contents/Info.plist").open("rb") as stream:
-        executable = plistlib.load(stream)["CFBundleExecutable"]
-    supports_retained_buffers = b"com.agentkeyring.lifetime" in (app / "Contents/MacOS" / executable).read_bytes()
-except (OSError, KeyError, plistlib.InvalidFileException):
-    supports_retained_buffers = False
-if not supports_retained_buffers:
-    print("The installed app needs this checkout's retained-buffer support. Before the proof, run:", file=sys.stderr)
-    print("  script/build_and_run.sh --install", file=sys.stderr)
-    print("Then open Agent Keyring and enable its example.com login.", file=sys.stderr)
-    sys.exit(1)
 
 class SignInPage(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
