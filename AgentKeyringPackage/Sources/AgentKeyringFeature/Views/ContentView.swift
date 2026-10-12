@@ -60,9 +60,6 @@ public struct ContentView: View {
         .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
             model.receive(activity)
         }
-        .onOpenURL { url in
-            model.receiveAgentRequest(url)
-        }
     }
 
     private var windowGradient: LinearGradient {

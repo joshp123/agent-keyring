@@ -71,8 +71,8 @@ struct AgentKeyringFixture {
 
     private static func send(_ request: AgentBridgeRequest) async throws -> AgentBridgeResponse {
         let fixtureRoot = ProcessInfo.processInfo.environment["AGENT_KEYRING_FIXTURE_BRIDGE_ROOT"]
-            .map { URL(fileURLWithPath: $0) } ?? FileManager.default.temporaryDirectory
-        let root = fixtureRoot.appendingPathComponent("agent-keyring-fixture-\(UUID().uuidString)")
+            .map { URL(fileURLWithPath: $0) } ?? URL(fileURLWithPath: "/tmp")
+        let root = fixtureRoot.appendingPathComponent("ak-\(UUID().uuidString)")
         let bridge = AgentBridgeDirectory(rootURL: root)
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = ProcessInfo.processInfo.environment["AGENT_KEYRING_FIXTURE_HOST"]
@@ -84,8 +84,6 @@ struct AgentKeyringFixture {
             host.standardOutput = FileHandle.nullDevice
             host.standardError = FileHandle.nullDevice
             try host.run()
-            // The host publishes the response asynchronously. The production client
-            // owns the request lease and consumes the same private transfer buffer.
         }
     }
 
@@ -95,7 +93,10 @@ struct AgentKeyringFixture {
             throw AgentBridgeFailure(.invalidRequest, "Invalid fixture host invocation.")
         }
         let bridge = AgentBridgeDirectory(rootURL: URL(fileURLWithPath: arguments[2]))
-        let request = try bridge.readRequest(id: requestID)
+        let (completed, completion) = AsyncStream<Void>.makeStream()
+        let server = try AgentBridgeServer(bridge: bridge) { request, _, progress in
+        guard request.id == requestID else { throw AgentBridgeFailure(.invalidRequest, "Wrong fixture request.") }
+        defer { completion.yield(()); completion.finish() }
         audit(stage: "request", request: request)
         let response: AgentBridgeResponse
         do {
@@ -109,10 +110,11 @@ struct AgentKeyringFixture {
                 policies: [FixtureConfiguration.credentialID: configuration.policy ?? .ask])
             let accessControl = CredentialAccessController(store: policyStore)
             response = try await AgentCredentialReleaseProcessor(
-                bridge: bridge, accessControl: accessControl
+                accessControl: accessControl
             ).release(
                 request: request,
                 generation: generation,
+                onProgress: progress,
                 authorize: { _, _ in
                     audit(stage: "authorization", request: request)
                     if let delay = configuration.approvalDelayMs, delay > 0 {
@@ -120,7 +122,7 @@ struct AgentKeyringFixture {
                     }
                     switch configuration.authorization ?? "allow" {
                     case "deny": throw CredentialReleaseAuthorizationError.denied
-                    case "expire": bridge.removeRequest(id: request.id)
+                    case "expire": throw CredentialReleaseAuthorizationError.expired
                     default: break
                     }
                 }
@@ -130,7 +132,10 @@ struct AgentKeyringFixture {
             response = AgentBridgeResponse(id: request.id, ok: false, error: errorCode(error))
             audit(stage: "failure", request: request, code: errorCode(error).rawValue)
         }
-        try bridge.write(response)
+        return response
+        }
+        for await _ in completed { break }
+        withExtendedLifetime(server) { }
     }
 
     private static func field(_ argument: String) -> AgentCredentialField? {

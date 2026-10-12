@@ -69,7 +69,7 @@ public struct FillTestFixture {
         try signer.signature(for: bytes).write(to: policyURL.appendingPathExtension("signature"))
         accessControl = CredentialAccessController(store: store)
         grants = CredentialApprovalGrants(now: now)
-        processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl,
+        processor = AgentCredentialReleaseProcessor(accessControl: accessControl,
             grants: grants, approvals: CredentialApprovalCoordinator(lockState: UnlockedFillSession(), now: now),
             filler: filler, now: now)
         let item = MirrorItem(id: id,
@@ -84,7 +84,6 @@ public struct FillTestFixture {
 
     public func request(field: AgentCredentialField = .password, targetURL: String = "https://example.com") throws -> AgentBridgeRequest {
         let request = AgentBridgeRequest(createdAt: now(), action: .fill, targetURL: targetURL, field: field)
-        try bridge.write(request)
         return request
     }
 

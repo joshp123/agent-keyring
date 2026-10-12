@@ -2,7 +2,6 @@ import Foundation
 
 @MainActor
 public struct AgentCredentialReleaseProcessor {
-    private let bridge: AgentBridgeDirectory
     private let accessControl: CredentialAccessController
     private let approvals: CredentialApprovalCoordinator
     private let grants: CredentialApprovalGrants
@@ -12,7 +11,6 @@ public struct AgentCredentialReleaseProcessor {
     private let possiblyStaleCredentialIDs: Set<UUID>
 
     public init(
-        bridge: AgentBridgeDirectory,
         accessControl: CredentialAccessController,
         resolver: CredentialResolver = CredentialResolver(),
         grants: CredentialApprovalGrants = CredentialApprovalGrants(),
@@ -21,7 +19,6 @@ public struct AgentCredentialReleaseProcessor {
         filler: (any CredentialFiller)? = nil,
         now: @escaping () -> Date = Date.init
     ) {
-        self.bridge = bridge
         self.accessControl = accessControl
         self.resolver = resolver
         self.grants = grants
@@ -190,8 +187,7 @@ public struct AgentCredentialReleaseProcessor {
     private func ensureRequestHasNotExpired(_ request: AgentBridgeRequest) throws {
         guard request.version == 1,
             request.createdAt.timeIntervalSince(now()) <= 5,
-            request.expiresAt > now(),
-            bridge.requestMatches(request)
+            request.expiresAt > now()
         else {
             throw AgentBridgeFailure(.requestExpired, "The credential request is no longer active.")
         }

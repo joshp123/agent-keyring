@@ -8,30 +8,18 @@ private let agentBridgeLogger = Logger(
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
-    public func receiveAgentRequest(_ url: URL) {
-        guard url.scheme == "agentkeyring",
-            url.host == "agent",
-            let idText = url.pathComponents.last,
-            let id = UUID(uuidString: idText)
-        else {
-            agentBridgeLogger.error("Ignored malformed agent request URL")
-            return
+    public func startAgentListener() throws {
+        agentListener = try AgentBridgeServer(bridge: bridge) { [weak self] request, peer, progress in
+            guard let self else { throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring is unavailable.") }
+            return await self.handleAgentRequest(request, peer: peer, onProgress: progress)
         }
-
-        guard handledAgentRequests.insert(id).inserted else {
-            agentBridgeLogger.notice("Ignored duplicate agent request")
-            return
-        }
-
-        agentBridgeLogger.info("Received agent request")
-        Task { await handleAgentRequest(id: id) }
     }
 
-    func handleAgentRequest(id: UUID) async {
-        defer { bridge.removeRequest(id: id) }
+    func handleAgentRequest(_ request: AgentBridgeRequest, peer: AgentBridgePeer,
+        onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in }) async -> AgentBridgeResponse {
+        let id = request.id
         let response: AgentBridgeResponse
         do {
-            let request = try bridge.readRequest(id: id)
             guard request.version == 1, request.id == id else {
                 throw AgentBridgeFailure(.invalidRequest, "The agent request is invalid.")
             }
@@ -56,7 +44,7 @@ extension MirrorAppModel {
                 guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
                     throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
                 }
-                response = try await processRelease(request: request, generation: generation)
+                response = try await processRelease(request: request, generation: generation, onProgress: onProgress)
             }
         } catch let failure as AgentBridgeFailure {
             response = AgentBridgeResponse(
@@ -99,14 +87,8 @@ extension MirrorAppModel {
             )
         }
 
-        do {
-            try bridge.write(response)
-            agentBridgeLogger.info(
-                "Completed agent request; success: \(response.ok, privacy: .public)")
-        } catch {
-            CredentialTransfer.clear(requestID: id)
-            agentBridgeLogger.error("Could not write the safe agent response")
-        }
+        agentBridgeLogger.info("Completed agent request; success: \(response.ok, privacy: .public)")
+        return response
     }
 
     private func processDiscovery(
@@ -144,19 +126,17 @@ extension MirrorAppModel {
 
     private func processRelease(
         request: AgentBridgeRequest,
-        generation: MirrorGeneration
+        generation: MirrorGeneration,
+        onProgress: @escaping (AgentApprovalProgress) -> Void
     ) async throws -> AgentBridgeResponse {
         try await AgentCredentialReleaseProcessor(
-            bridge: bridge, accessControl: accessControl, resolver: resolver, grants: grants, approvals: approvals,
+            accessControl: accessControl, resolver: resolver, grants: grants, approvals: approvals,
             possiblyStaleCredentialIDs: staleLogins.credentialIDs
         ).release(
             request: request,
             generation: generation,
             cancelAuthorization: { self.authorizer.cancelCurrentAuthorization() },
-            onProgress: { progress in
-                do { try self.bridge.write(progress, id: request.id) }
-                catch { agentBridgeLogger.error("Could not write approval status") }
-            },
+            onProgress: onProgress,
             authorize: { approval, onPromptStarted in
                 try await self.authorizeCredentialRelease(approval, agentRequest: request, onPromptStarted: onPromptStarted)
             }

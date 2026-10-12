@@ -55,7 +55,7 @@ public final class MirrorAppModel {
     public private(set) var includeExampleCredential: Bool
     private let settings: UserDefaults
     var handledTokens = Set<UUID>()
-    var handledAgentRequests = Set<UUID>()
+    var agentListener: AgentBridgeServer?
 
     public init(
         store: EncryptedSnapshotStore = EncryptedSnapshotStore(),

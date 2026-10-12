@@ -203,24 +203,13 @@ public struct AgentBridgeDirectory: Sendable {
     }
 
     public static func defaultRootURL(fileManager: FileManager = .default) -> URL {
-        if let bundleIdentifier = Bundle.main.bundleIdentifier,
-            bundleIdentifier.hasSuffix(".AgentKeyring"),
-            let applicationSupport = fileManager.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first
-        {
-            return
-                applicationSupport
-                .appendingPathComponent("AgentKeyring", isDirectory: true)
-                .appendingPathComponent("agent-bridge", isDirectory: true)
+        if Bundle.main.bundleIdentifier?.hasSuffix(".AgentKeyring") == true {
+            return fileManager.homeDirectoryForCurrentUser
         }
-
         return fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Containers", isDirectory: true)
             .appendingPathComponent(applicationBundleIdentifier, isDirectory: true)
-            .appendingPathComponent(
-                "Data/Library/Application Support/AgentKeyring/agent-bridge", isDirectory: true)
+            .appendingPathComponent("Data", isDirectory: true)
     }
 
     public func prepare() throws {
@@ -229,120 +218,7 @@ public struct AgentBridgeDirectory: Sendable {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: rootURL.path
-        )
     }
 
-    public func write(_ request: AgentBridgeRequest) throws {
-        try prepare()
-        try secureWrite(try encoder.encode(request), to: requestURL(for: request.id))
-    }
-
-    public func readRequest(id: UUID) throws -> AgentBridgeRequest {
-        let url = requestURL(for: id)
-        try validateOwnedRegularFile(url)
-        return try decoder.decode(AgentBridgeRequest.self, from: Data(contentsOf: url))
-    }
-
-    public func removeRequest(id: UUID) {
-        try? FileManager.default.removeItem(at: requestURL(for: id))
-    }
-
-    public func write(_ response: AgentBridgeResponse) throws {
-        try prepare()
-        try secureWrite(try encoder.encode(response), to: responseURL(for: response.id))
-    }
-
-    public func readResponse(id: UUID) throws -> AgentBridgeResponse {
-        let url = responseURL(for: id)
-        try validateOwnedRegularFile(url)
-        return try decoder.decode(AgentBridgeResponse.self, from: Data(contentsOf: url))
-    }
-
-    public func write(_ progress: AgentApprovalProgress, id: UUID) throws {
-        try prepare()
-        try secureWrite(try encoder.encode(progress), to: progressURL(for: id))
-    }
-
-    public func readProgress(id: UUID) throws -> AgentApprovalProgress {
-        let url = progressURL(for: id)
-        try validateOwnedRegularFile(url)
-        return try decoder.decode(AgentApprovalProgress.self, from: Data(contentsOf: url))
-    }
-
-    public func removeProgress(id: UUID) {
-        try? FileManager.default.removeItem(at: progressURL(for: id))
-    }
-
-    public func removeResponse(id: UUID) {
-        try? FileManager.default.removeItem(at: responseURL(for: id))
-    }
-
-    public func responseExists(id: UUID) -> Bool {
-        FileManager.default.fileExists(atPath: responseURL(for: id).path)
-    }
-
-    public func requestMatches(_ request: AgentBridgeRequest) -> Bool {
-        guard let current = try? readRequest(id: request.id) else { return false }
-        return current.version == request.version
-            && current.id == request.id
-            && Int(current.createdAt.timeIntervalSince1970)
-                == Int(request.createdAt.timeIntervalSince1970)
-            && current.callerPID == request.callerPID
-            && current.action == request.action
-            && current.targetURL == request.targetURL
-            && current.usernameHint == request.usernameHint
-            && current.candidateID == request.candidateID
-            && current.field == request.field
-            && current.expirationSeconds == request.expirationSeconds
-            && current.bufferPublicationDeadline.map { Int($0.timeIntervalSince1970) }
-                == request.bufferPublicationDeadline.map { Int($0.timeIntervalSince1970) }
-    }
-
-    private var encoder: JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        return encoder
-    }
-
-    private var decoder: JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }
-
-    private func requestURL(for id: UUID) -> URL {
-        rootURL.appendingPathComponent("\(id.uuidString).request.json", isDirectory: false)
-    }
-
-    private func progressURL(for id: UUID) -> URL {
-        rootURL.appendingPathComponent("\(id.uuidString).progress.json", isDirectory: false)
-    }
-
-    private func responseURL(for id: UUID) -> URL {
-        rootURL.appendingPathComponent("\(id.uuidString).response.json", isDirectory: false)
-    }
-
-    private func secureWrite(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: [.atomic])
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: url.path
-        )
-    }
-
-    private func validateOwnedRegularFile(_ url: URL) throws {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        guard values.isRegularFile == true,
-            values.isSymbolicLink != true,
-            let owner = attributes[.ownerAccountID] as? NSNumber,
-            owner.uint32Value == getuid()
-        else {
-            throw CocoaError(.fileReadNoPermission)
-        }
-    }
+    public var socketURL: URL { rootURL.appendingPathComponent("agent.sock") }
 }

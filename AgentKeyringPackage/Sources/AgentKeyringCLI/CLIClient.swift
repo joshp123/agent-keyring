@@ -1,5 +1,6 @@
 import AgentKeyringFeature
 import ArgumentParser
+import AppKit
 import Foundation
 
 enum CLIClient {
@@ -101,24 +102,11 @@ enum CLIClient {
     }
 
     private static func launchApp(_ requestID: UUID, deadline: Date) async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = [
-            "-g", "-b", AgentBridgeDirectory.applicationBundleIdentifier,
-            "agentkeyring://agent/\(requestID.uuidString)",
-        ]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        while process.isRunning {
-            guard Date() < deadline else {
-                process.terminate()
-                throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring could not be opened.")
-            }
-            try await Task.sleep(for: .milliseconds(20))
+        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: AgentBridgeDirectory.applicationBundleIdentifier) else {
+            throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring is not installed.")
         }
-        guard process.terminationStatus == 0 else {
-            throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring could not be opened.")
-        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        _ = try await NSWorkspace.shared.openApplication(at: appURL, configuration: configuration)
     }
 }

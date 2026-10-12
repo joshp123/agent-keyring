@@ -82,6 +82,8 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        do { try model.startAgentListener() }
+        catch { NSLog("Agent Keyring could not start the agent socket: %@", String(describing: error)) }
         model.fillAccessibility.showInstructions = { [presentation] in presentation.requestMainWindow() }
         Task {
             await model.fillAccessibility.refresh()
@@ -160,11 +162,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls {
-            model.receiveAgentRequest(url)
-        }
-    }
+
 }
 
 private enum AccessControlUITestFixture {
