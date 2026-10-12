@@ -16,36 +16,27 @@ public struct ContentView: View {
             windowGradient
 
             VStack(spacing: 18) {
-                if let request = model.pendingCredentialRelease {
-                    CredentialReleaseApprovalView(request: request)
-                        .transition(.blurReplace)
-                } else {
-                    MirrorStatusPanel(
-                        status: model.status,
-                        isLoading: model.isLoading,
-                        isImporting: model.isImporting,
-                        providerState: model.providerState,
-                        notice: model.notice,
-                        enableProvider: model.requestProviderEnablement,
-                        openPasswords: model.openPasswords,
-                        manageAccess: { openWindow(id: "access") }
-                    )
-                    Toggle("Show example.com login", isOn: Binding(
-                        get: { model.includeExampleCredential },
-                        set: { enabled in
-                            Task { await model.setIncludeExampleCredential(enabled) }
-                        }
-                    ))
-                    .toggleStyle(.checkbox)
-                }
+                MirrorStatusPanel(
+                    status: model.status,
+                    isLoading: model.isLoading,
+                    isImporting: model.isImporting,
+                    providerState: model.providerState,
+                    notice: model.notice,
+                    enableProvider: model.requestProviderEnablement,
+                    openPasswords: model.openPasswords,
+                    manageAccess: { openWindow(id: "access") }
+                )
+                Toggle("Show example.com login", isOn: Binding(
+                    get: { model.includeExampleCredential },
+                    set: { enabled in
+                        Task { await model.setIncludeExampleCredential(enabled) }
+                    }
+                ))
+                .toggleStyle(.checkbox)
             }
             .padding(24)
-            .animation(.snappy, value: model.pendingCredentialRelease)
         }
-        .frame(
-            width: model.pendingCredentialRelease == nil ? 720 : 520,
-            height: model.pendingCredentialRelease == nil ? 440 : 420
-        )
+        .frame(width: 720, height: 440)
         .tint(.teal)
         .containerBackground(windowGradient, for: .window)
         .task { await model.loadStatus() }

@@ -46,7 +46,6 @@ public final class MirrorAppModel {
     public private(set) var isImporting = false
     public private(set) var providerState = ProviderEnablementState.unknown
     public private(set) var notice: MirrorNotice?
-    public private(set) var pendingCredentialRelease: CredentialReleaseAuthorizationRequest?
     public let accessControl: CredentialAccessController
 
     private let store: EncryptedSnapshotStore
@@ -59,7 +58,6 @@ public final class MirrorAppModel {
     private let authorizer: any CredentialReleaseAuthorizing
     private let bridge: AgentBridgeDirectory
     private let pasteboard: ExpiringPasteboard
-    private let approvalWindowPresenter: ApprovalWindowPresenter
     public private(set) var includeExampleCredential: Bool
     private let settings: UserDefaults
     private var handledTokens = Set<UUID>()
@@ -74,8 +72,7 @@ public final class MirrorAppModel {
         authorizer: any CredentialReleaseAuthorizing = LocalCredentialReleaseAuthorizer(),
         bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
         accessControl: CredentialAccessController = CredentialAccessController(),
-        settings: UserDefaults = .standard,
-        approvalWindowPresenter: ApprovalWindowPresenter? = nil
+        settings: UserDefaults = .standard
     ) {
         self.store = store
         self.credentialImporter = credentialImporter
@@ -88,14 +85,7 @@ public final class MirrorAppModel {
         self.settings = settings
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
         self.pasteboard = ExpiringPasteboard()
-        self.approvalWindowPresenter =
-            approvalWindowPresenter
-            ?? {
-                ApprovalWindowPresentation(
-                    window: ApprovalWindowPositioner.agentKeyringWindow(),
-                    closeWhenFinished: false
-                )
-            }
+
     }
 
     public func endAllGrants() {
@@ -475,29 +465,6 @@ public final class MirrorAppModel {
         agentRequest: AgentBridgeRequest,
         onPromptStarted: @escaping () -> Void
     ) async throws {
-        let presentation = await approvalWindowPresenter()
-        guard let window = presentation.window else {
-            throw AgentBridgeFailure(
-                .authorizationUnavailable, "Agent Keyring could not show its approval window."
-            )
-        }
-        let originalOrigin = window.frame.origin
-        let originalLevel = window.level
-        window.level = .floating
-        pendingCredentialRelease = approval
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        await Task.yield()
-        try? await Task.sleep(for: .milliseconds(250))
-        ApprovalWindowPositioner.centre(window)
-        let existingSystemPromptIDs =
-            ApprovalWindowPositioner
-            .visibleSystemPromptWindowIDs()
-        let positioningTask = Task { @MainActor in
-            await ApprovalWindowPositioner.alignWhenSystemPromptAppears(
-                window,
-                excluding: existingSystemPromptIDs
-            )
-        }
         let leaseMonitorTask = Task { @MainActor [weak self] in
             if let self {
                 await self.monitorAgentRequestLease(agentRequest)
@@ -507,50 +474,20 @@ public final class MirrorAppModel {
         do {
             try await authorizer.authorize(approval, onPromptStarted: onPromptStarted)
         } catch {
-            await stopApprovalTasks(positioningTask, leaseMonitorTask)
+            await stopApprovalTasks(leaseMonitorTask)
             let requestIsLive = agentRequestIsLive(agentRequest)
-            restoreStatusWindow(
-                presentation,
-                origin: originalOrigin,
-                level: originalLevel
-            )
             if !requestIsLive {
                 throw CredentialReleaseAuthorizationError.expired
             }
             throw error
         }
-        await stopApprovalTasks(positioningTask, leaseMonitorTask)
-        restoreStatusWindow(
-            presentation,
-            origin: originalOrigin,
-            level: originalLevel
-        )
-    }
-
-    private func restoreStatusWindow(
-        _ presentation: ApprovalWindowPresentation,
-        origin: CGPoint?,
-        level: NSWindow.Level?
-    ) {
-        pendingCredentialRelease = nil
-        if let window = presentation.window {
-            if let level { window.level = level }
-            if let origin { window.setFrameOrigin(origin) }
-            if presentation.miniaturizeWhenFinished {
-                window.miniaturize(nil)
-            } else if presentation.closeWhenFinished {
-                window.close()
-            }
-        }
+        await stopApprovalTasks(leaseMonitorTask)
     }
 
     private func stopApprovalTasks(
-        _ positioningTask: Task<Void, Never>,
         _ leaseMonitorTask: Task<Void, Never>
     ) async {
-        positioningTask.cancel()
         leaseMonitorTask.cancel()
-        await positioningTask.value
         await leaseMonitorTask.value
     }
 

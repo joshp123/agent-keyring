@@ -58,18 +58,11 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                     keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x45, count: 32))
                 ),
                 accessControl: accessControl,
-                settings: settings,
-                approvalWindowPresenter: {
-                    await presentation.presentApprovalWindow()
-                }
+                settings: settings
             )
         } else {
             self.accessControlFixture = nil
-            self.model = MirrorAppModel(
-                approvalWindowPresenter: {
-                    await presentation.presentApprovalWindow()
-                }
-            )
+            self.model = MirrorAppModel()
         }
         super.init()
     }

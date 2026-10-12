@@ -17,40 +17,7 @@ final class AgentKeyringPresentation {
         accessWindowRequest &+= 1
     }
 
-    func presentApprovalWindow() async -> ApprovalWindowPresentation {
-        let existingWindow = mainWindow
-        let wasVisible = existingWindow?.isVisible == true
-        let wasMiniaturized = existingWindow?.isMiniaturized == true
 
-        requestMainWindow()
-
-        for _ in 0..<50 {
-            if let window = mainWindow, window.isVisible {
-                window.deminiaturize(nil)
-                window.makeKeyAndOrderFront(nil)
-                NSApplication.shared.activate(ignoringOtherApps: true)
-                return ApprovalWindowPresentation(
-                    window: window,
-                    closeWhenFinished: !wasVisible,
-                    miniaturizeWhenFinished: wasMiniaturized
-                )
-            }
-            await Task.yield()
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-
-        return ApprovalWindowPresentation(
-            window: nil,
-            closeWhenFinished: !wasVisible,
-            miniaturizeWhenFinished: wasMiniaturized
-        )
-    }
-
-    private var mainWindow: NSWindow? {
-        NSApplication.shared.windows.first(where: {
-            $0.title == "Agent Keyring" && $0.isVisible
-        }) ?? NSApplication.shared.windows.first(where: { $0.title == "Agent Keyring" })
-    }
 }
 
 struct AgentKeyringMenu: View {
