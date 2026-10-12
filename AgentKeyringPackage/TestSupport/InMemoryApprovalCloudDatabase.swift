@@ -33,6 +33,7 @@ public final class InMemoryApprovalCloudDatabase: ApprovalCloudDatabase {
     }
 
     public func delete(_ recordID: CKRecord.ID) async throws {
+        try Task.checkCancellation()
         deletedRecordIDs.append(recordID)
         try failIfRequested(.deleteRecord)
         records.removeValue(forKey: recordID)

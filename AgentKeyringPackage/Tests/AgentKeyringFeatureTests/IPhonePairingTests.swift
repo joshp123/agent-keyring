@@ -132,6 +132,24 @@ struct IPhonePairingTests {
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
     }
 
+    @Test("Closing pairing deletes the phone record even from an already cancelled task")
+    func cancelledTaskCleanup() async throws {
+        let database = InMemoryApprovalCloudDatabase()
+        let session = try IPhonePairingSession(database: database)
+        let code = try #require(session.code)
+        let key = P256.Signing.PrivateKey().publicKey.x963Representation
+        try await database.save(PairingCloudRecords.record(PairingRequest(code: code,
+            publicKey: key, deviceName: "Test iPhone")))
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            try await session.cancel()
+        }
+        try await task.value
+        #expect(session.code == nil)
+        #expect(database.records.isEmpty)
+        #expect(database.deletedRecordIDs == [PairingCloudRecords.recordID(code.id)])
+    }
+
     @Test("The phone code must match the received key before Touch ID can pair it")
     func confirmationCodeMatchAndMismatch() async throws {
         let fixture = PhoneApprovalFixture()

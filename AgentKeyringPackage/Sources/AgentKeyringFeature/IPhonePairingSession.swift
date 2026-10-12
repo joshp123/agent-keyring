@@ -63,6 +63,8 @@ public final class IPhonePairingSession {
         isCancelled = true
         code = nil
         requestForConfirmation = nil
-        try await database.delete(PairingCloudRecords.recordID(pairingID))
+        try await Task { @MainActor in
+            try await database.delete(PairingCloudRecords.recordID(pairingID))
+        }.value
     }
 }
