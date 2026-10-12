@@ -20,6 +20,7 @@ public enum AgentBridgeErrorCode: String, Codable, Sendable {
     case ambiguous = "ambiguous"
     case fieldUnavailable = "field_unavailable"
     case invalidTOTP = "invalid_totp"
+    case approvalPending = "approval_pending"
     case authorizationDenied = "authorization_denied"
     case authorizationInterrupted = "authorization_interrupted"
     case authorizationUnavailable = "authorization_unavailable"
@@ -108,6 +109,7 @@ public struct AgentBridgeResponse: Codable, Equatable, Sendable {
     public let candidates: [CredentialCandidate]?
     public let copiedField: AgentCredentialField?
     public let clipboardExpiresAt: Date?
+    public let approvalProgress: AgentApprovalProgress?
 
     public init(
         version: Int = 1,
@@ -118,7 +120,8 @@ public struct AgentBridgeResponse: Codable, Equatable, Sendable {
         mirror: AgentMirrorSummary? = nil,
         candidates: [CredentialCandidate]? = nil,
         copiedField: AgentCredentialField? = nil,
-        clipboardExpiresAt: Date? = nil
+        clipboardExpiresAt: Date? = nil,
+        approvalProgress: AgentApprovalProgress? = nil
     ) {
         self.version = version
         self.id = id
@@ -129,6 +132,7 @@ public struct AgentBridgeResponse: Codable, Equatable, Sendable {
         self.candidates = candidates
         self.copiedField = copiedField
         self.clipboardExpiresAt = clipboardExpiresAt
+        self.approvalProgress = approvalProgress
     }
 }
 

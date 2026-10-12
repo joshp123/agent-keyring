@@ -56,8 +56,13 @@ enum AgentBrowserPluginProtocol {
     static func run(
         input: FileHandle = .standardInput,
         output: FileHandle = .standardOutput,
-        sendRequest: (AgentBridgeRequest) async throws -> AgentBridgeResponse = { try await CLIClient.send($0) }
+        sendRequest: (AgentBridgeRequest, Date) async throws -> AgentBridgeResponse = {
+            try await CLIClient.send($0, waitUntil: $1)
+        },
+        now: () -> Date = Date.init
     ) async {
+        // Leave one second for clearing partial transfers and writing the plugin response.
+        let approvalWaitDeadline = now().addingTimeInterval(11)
         let response: Response
         do {
             let envelope: Envelope
@@ -73,7 +78,9 @@ enum AgentBrowserPluginProtocol {
             case ("plugin.manifest", "plugin.manifest"):
                 response = Response(success: true, manifest: Manifest())
             case ("credential.resolve", "credential.read"):
-                response = try await resolve(envelope.request, sendRequest: sendRequest)
+                response = try await resolve(envelope.request, sendRequest: {
+                    try await sendRequest($0, approvalWaitDeadline)
+                })
             default:
                 throw Failure(message: "unsupported request")
             }
@@ -147,12 +154,20 @@ enum AgentBrowserPluginProtocol {
     }
 
     private static func check(_ response: AgentBridgeResponse) throws {
-        guard response.ok else { throw Failure(message: errorMessage(for: response.error)) }
+        guard response.ok else {
+            if response.error == .approvalPending, let progress = response.approvalProgress {
+                throw Failure(message: "Waiting for Josh's approval (asked at \(approvalTime(progress.askedAt))); retry the login after he approves")
+            }
+            throw Failure(message: errorMessage(for: response.error))
+        }
     }
 
     private static func errorMessage(for code: AgentBridgeErrorCode?) -> String {
         switch code {
-        case .authorizationDenied, .policyDenied: "declined"
+        case .authorizationDenied: "Josh declined the request."
+        case .authorizationInterrupted: "macOS interrupted the approval prompt; retry the login."
+        case .requestExpired: "The request expired with no answer."
+        case .policyDenied: "Access to this login is blocked in Agent Keyring."
         case .notFound, .fieldUnavailable, .mirrorUnavailable: "no matching login"
         case .ambiguous: "ambiguous"
         default: "approval unavailable"

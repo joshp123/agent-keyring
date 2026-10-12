@@ -99,6 +99,11 @@ struct CredentialRetentionTests {
         let firstTask = Task { try await fixture.processor.release(request: first, generation: fixture.generation,
             authorize: { try await authorizer.authorize($0) }, copyNative: { _, _ in }) }
         while authorizer.requests.isEmpty { await Task.yield() }
+        let clientWait = Task { try await AgentBridgeClient(bridge: fixture.bridge).send(first) { _ in } }
+        for _ in 0..<20 { await Task.yield() }
+        clientWait.cancel()
+        await #expect(throws: CancellationError.self) { try await clientWait.value }
+        #expect(fixture.bridge.requestMatches(first))
         let secondTask = Task { try await fixture.processor.release(request: second, generation: fixture.generation,
             authorize: { try await authorizer.authorize($0) }, copyNative: { _, _ in }) }
         for _ in 0..<20 { await Task.yield() }

@@ -390,14 +390,18 @@ enum CLIClient {
     static func send(
         _ request: AgentBridgeRequest,
         diagnostics: FileHandle? = nil,
+        waitUntil: Date? = nil,
         client: AgentBridgeClient = AgentBridgeClient(),
-        launch: @Sendable (UUID) throws -> Void = launchApp
+        launch: (@Sendable (UUID) async throws -> Void)? = nil
     ) async throws -> AgentBridgeResponse {
         let statusLines = CLIApprovalStatusLines(diagnostics: diagnostics)
-        return try await client.send(request, onStatus: statusLines.receive, launch: launch)
+        return try await client.send(request, waitUntil: waitUntil, onStatus: statusLines.receive) { id in
+            if let launch { try await launch(id) }
+            else { try await launchApp(id, deadline: waitUntil ?? request.expiresAt) }
+        }
     }
 
-    private static func launchApp(_ requestID: UUID) throws {
+    private static func launchApp(_ requestID: UUID, deadline: Date) async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = [
@@ -407,7 +411,13 @@ enum CLIClient {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
-        process.waitUntilExit()
+        while process.isRunning {
+            guard Date() < deadline else {
+                process.terminate()
+                throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring could not be opened.")
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
         guard process.terminationStatus == 0 else {
             throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring could not be opened.")
         }
@@ -682,6 +692,8 @@ struct CLIError: Error {
                 "No logins are available yet.",
                 suggestion: "Open Agent Keyring and import them from Apple Passwords."
             )
+        case .approvalPending:
+            self.init("Waiting for Josh's approval; retry the request after he approves.", exitCode: 5)
         case .authorizationDenied:
             self.init("Josh declined the request.", exitCode: 2)
         case .authorizationInterrupted:

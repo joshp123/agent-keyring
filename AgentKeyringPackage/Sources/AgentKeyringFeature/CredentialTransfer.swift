@@ -154,14 +154,15 @@ public struct AgentBridgeClient: Sendable {
     @MainActor
     public func send(
         _ request: AgentBridgeRequest,
+        waitUntil: Date? = nil,
         onStatus: (AgentBridgeWaitStatus) -> Void = { _ in },
-        launch: @Sendable (UUID) throws -> Void
+        launch: @Sendable (UUID) async throws -> Void
     ) async throws -> AgentBridgeResponse {
         bridge.removeResponse(id: request.id)
         bridge.removeProgress(id: request.id)
         try bridge.write(request)
-        try launch(request.id)
-        let deadline = request.expiresAt
+        try await launch(request.id)
+        let deadline = min(request.expiresAt, waitUntil ?? request.expiresAt)
         var lastProgress: AgentApprovalProgress?
         var lastWaitingLineAt = now()
         while now() < deadline {
@@ -183,8 +184,12 @@ public struct AgentBridgeClient: Sendable {
                 lastWaitingLineAt = now()
             }
             try Task.checkCancellation()
-            try await sleep(.milliseconds(50))
+            try await sleep(.seconds(min(0.05, max(0, deadline.timeIntervalSince(now())))))
         }
-        throw AgentBridgeFailure(.requestExpired, "The request expired with no answer.")
+        if now() >= request.expiresAt {
+            throw AgentBridgeFailure(.requestExpired, "The request expired with no answer.")
+        }
+        return AgentBridgeResponse(id: request.id, ok: false, error: .approvalPending,
+            approvalProgress: lastProgress ?? AgentApprovalProgress(askedAt: request.createdAt, phase: .awaitingApproval))
     }
 }

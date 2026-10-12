@@ -61,7 +61,7 @@ struct AgentBrowserPluginTests {
     }
 
     @Test("Bridge failures return only a short error and clear partial releases", arguments: [
-        AgentBridgeErrorCode.authorizationDenied, .policyDenied, .notFound, .fieldUnavailable,
+        AgentBridgeErrorCode.authorizationDenied, .authorizationInterrupted, .policyDenied, .notFound, .fieldUnavailable,
         .ambiguous, .authorizationUnavailable, .bridgeUnavailable, .timedOut, .requestExpired,
         .mirrorUnavailable, .internalError, .invalidRequest, .invalidURL, .insecureOrigin, .invalidTOTP,
     ])
@@ -75,7 +75,10 @@ struct AgentBrowserPluginTests {
                 error: code, message: "failure-secret-canary")
         }
         let expected: String = switch code {
-        case .authorizationDenied, .policyDenied: "declined"
+        case .authorizationDenied: "Josh declined the request."
+        case .authorizationInterrupted: "macOS interrupted the approval prompt; retry the login."
+        case .requestExpired: "The request expired with no answer."
+        case .policyDenied: "Access to this login is blocked in Agent Keyring."
         case .notFound, .fieldUnavailable, .mirrorUnavailable: "no matching login"
         case .ambiguous: "ambiguous"
         default: "approval unavailable"
@@ -179,7 +182,7 @@ struct AgentBrowserPluginTests {
         }
         var metadata = Data()
         var references: [UUID] = []
-        await AgentBrowserPluginProtocol.run(input: input.fileHandleForReading) { request in
+        await AgentBrowserPluginProtocol.run(input: input.fileHandleForReading) { request, _ in
             metadata.append(try JSONEncoder().encode(request))
             if request.action == .acquire {
                 references.append(request.id)
@@ -220,7 +223,7 @@ struct AgentBrowserPluginTests {
         try input.fileHandleForWriting.write(contentsOf: bytes)
         try input.fileHandleForWriting.close()
         await AgentBrowserPluginProtocol.run(input: input.fileHandleForReading,
-            output: output.fileHandleForWriting, sendRequest: sendRequest)
+            output: output.fileHandleForWriting, sendRequest: { request, _ in try await sendRequest(request) })
         try output.fileHandleForWriting.close()
         return try #require(JSONSerialization.jsonObject(with: output.fileHandleForReading.readDataToEndOfFile()) as? [String: Any])
     }
