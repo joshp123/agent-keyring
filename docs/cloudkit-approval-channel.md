@@ -42,8 +42,8 @@ CloudKit notification configuration has no time-sensitive interruption-level
 property. The out-of-scope iPhone notification service extension must fetch
 the record from its push ID, reject expired requests, read `notificationBody`
 through `encryptedValues`, and set `UNMutableNotificationContent.interruptionLevel`
-to `.timeSensitive`. It registers category `AGENT_KEYRING_APPROVAL` with
-`APPROVE` and `DENY` actions requiring device authentication. This gives the
+to `.timeSensitive`. The phone app registers category `AGENT_KEYRING_APPROVAL` with
+`APPROVE`, `DENY` and `BLOCK_THIS_LOGIN` actions requiring device authentication. This gives the
 full agent/site/account alert without copying private fields into plaintext
 push fields. Without that extension, the visible generic alert remains.
 

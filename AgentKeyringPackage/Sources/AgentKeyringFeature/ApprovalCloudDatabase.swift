@@ -11,7 +11,7 @@ public protocol ApprovalCloudDatabase {
 
 @MainActor
 public final class PrivateApprovalCloudDatabase: ApprovalCloudDatabase {
-    public static let containerIdentifier = "iCloud.com.joshpalmer.AgentKeyring"
+    public static let containerIdentifier = ApprovalCloudRecords.containerIdentifier
     private lazy var database = CKContainer(identifier: Self.containerIdentifier).privateCloudDatabase
     private var preparedZones: Set<CKRecordZone.ID> = []
 

@@ -1,81 +1,57 @@
-# iPhone notification signing spike
+# iPhone approval core
 
-Written by AI on 2026-10-12 by model GPT-6 (Codex).
+Written by AI on 2026.10.12 by model GPT-6 (Codex).
 
-This standalone project tests RFC 0002 section 4 on a physical iPhone. It does
-not depend on or change the Mac app or Swift package.
+The phone uses `AgentKeyringApprovalCore` from the local Swift package. The Mac
+uses the same records, canonical byte encoding and CloudKit record mapping.
 
-The persistent P-256 key is created in the Secure Enclave with
-`kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and `.privateKeyUsage` only.
-Approve has `.authenticationRequired`, without `.foreground`. It signs the
-fixed UTF-8 payload `AgentKeyringPhone signing spike fixed payload v1` using
-ECDSA with SHA-256. Deny records the action without signing.
+On launch the app creates or loads its persistent Secure Enclave P-256 key.
+The access-control flags are `.privateKeyUsage` only, with
+`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`. The screen shows SHA-256 of the
+X9.63 public key bytes as a full hexadecimal fingerprint. There is no software
+key fallback; Secure Enclave behavior requires a physical phone.
 
-## Current evidence
+The app registers visible remote notifications for category
+`AGENT_KEYRING_APPROVAL` and saves the creation-only query subscription in
+`ApprovalRequests`, in the private database of
+`iCloud.com.joshpalmer.AgentKeyring`. Approve, Deny and Block this login all
+require device authentication, without opening the app. Unlock is required
+because all three choices must be signed with the protected key.
 
-The unsigned physical-iOS build succeeded with Xcode 27. This verifies
-compilation only; it cannot be installed and does not prove device behavior.
+The response handler validates the CloudKit notification source, fetches the
+full request (including encrypted site and account), decodes it with the
+shared mapping, and checks expiry. It signs the shared canonical bytes using
+P-256 ECDSA with SHA-256 and writes a DER signature with X9.63 public key bytes
+to `ApprovalDecisions`, using the request UUID as the record name.
+The Mac still verifies against its own retained request and paired-device store.
 
-The signed build stopped at provisioning: Xcode reports **No Accounts** and
-**No profiles for 'com.joshpalmer.AgentKeyring.Phone' were found**. Josh must
-add the Apple developer account for team `7M8BR7R488` in Xcode → Settings →
-Accounts. No installation or launch was attempted. No physical signing result,
-biometric-prompt observation, or latency measurement exists yet.
+The screen shows iCloud and notification status, the fingerprint, and the last
+20 decisions with time, choice and upload result. “Sent” means CloudKit accepted
+the decision; it does not claim that the Mac released a credential. The local
+property-list history contains no request IDs or login fields. Failures are
+logged with a fixed operation and reason or platform error domain/code, never
+error descriptions, records, keys, signatures, nonces or login fields.
 
-`Config/Local.xcconfig` is absent in this worktree. The separate iOS project
-uses the bundle ID and team supplied for this slice, with automatic signing.
+Pairing and the notification service extension are out of scope. Until the
+extension exists, alerts have the generic visible title and body from the
+shared subscription. Pairing must later establish trust before the Mac accepts
+this phone's decisions.
 
-## Build, install, launch
+## Unsigned builds
 
-Run from this worktree after the account is available:
-
-```sh
-xcodebuild -project AgentKeyringPhone.xcodeproj \
-  -scheme AgentKeyringPhone -configuration Debug \
-  -destination 'id=00008150-00054D9E3E08401C' \
-  -allowProvisioningUpdates -derivedDataPath .build/iphone-signing build
-
-xcrun devicectl device install app \
-  --device D64C0D7C-1ED8-5C6D-8B04-2952ECFD2454 \
-  .build/iphone-signing/Build/Products/Debug-iphoneos/AgentKeyringPhone.app
-
-xcrun devicectl device process launch \
-  --device D64C0D7C-1ED8-5C6D-8B04-2952ECFD2454 \
-  com.joshpalmer.AgentKeyring.Phone
-```
-
-Stop if provisioning or the phone requires Josh's intervention.
-
-## Physical test
-
-1. Allow notifications on first launch. Confirm `KEY_READY … success` appears.
-2. Tap **Send test request**, then lock the phone within 15 seconds.
-3. Expand the lock-screen notification and tap **Approve**. Let Face ID unlock
-   the device. Observe whether another biometric prompt appears and whether
-   the app opens. These observations must come from Josh; the log cannot prove
-   the number of prompts.
-4. Open the app to read the log, or copy it using the command below. Repeat to
-   collect first and subsequent signing times. Optionally test Deny separately.
-
-Each action line includes UTC ISO time, action, application state, success or
-failure with error domain/code, and milliseconds. Duration starts at entry to
-the notification response handler and ends after key lookup and signing,
-before disk logging. It includes dispatch to the main actor but excludes the
-system's preceding unlock and Face ID duration. A successful Approve line also
-records signature length. Setup and scheduling events are logged separately.
-The log can be written after the phone has first been unlocked, including for
-Deny while locked. The key itself still requires an unlocked device.
-
-## Copy the log
+From the worktree root:
 
 ```sh
-xcrun devicectl device copy from \
-  --device D64C0D7C-1ED8-5C6D-8B04-2952ECFD2454 \
-  --domain-type appDataContainer \
-  --domain-identifier com.joshpalmer.AgentKeyring.Phone \
-  --source Documents/signing-spike.log \
-  --destination /Users/josh/code/agent-keyring-worktrees/spike-iphone-signing/.build/iphone-signing/signing-spike.log
+xcodebuild -project AgentKeyringPhone.xcodeproj -scheme AgentKeyringPhone \
+  -configuration Debug -destination 'generic/platform=iOS' \
+  -derivedDataPath "$PWD/.build/DerivedData-iOS" CODE_SIGNING_ALLOWED=NO build
+
+xcodebuild -project AgentKeyringPhone.xcodeproj -scheme AgentKeyringPhone \
+  -configuration Debug -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath "$PWD/.build/DerivedData-Simulator" CODE_SIGNING_ALLOWED=NO build
 ```
 
-The copy syntax was checked against local `devicectl` help. It has not been
-executed because the app is not installed.
+Unsigned builds prove compilation only. After Xcode sign-in and provisioning,
+verify on Josh's iPhone: key persistence, CloudKit encrypted-field fetches and
+visible pushes, all three lock-screen actions, one unlock without a second
+biometric prompt, and a trusted decision accepted by the Mac while locked.

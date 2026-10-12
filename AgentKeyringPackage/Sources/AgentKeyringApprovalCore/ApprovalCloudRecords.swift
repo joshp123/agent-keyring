@@ -2,9 +2,12 @@ import CloudKit
 import Foundation
 
 public enum ApprovalCloudRecords {
+    public static let containerIdentifier = "iCloud.com.joshpalmer.AgentKeyring"
+    public static let requestSubscriptionIdentifier = "agent-keyring-approval-requests-v1"
     public static let notificationCategory = "AGENT_KEYRING_APPROVAL"
     public static let approveActionIdentifier = "APPROVE"
     public static let denyActionIdentifier = "DENY"
+    public static let blockActionIdentifier = "BLOCK_THIS_LOGIN"
     public static let requestZone = CKRecordZone.ID(zoneName: "ApprovalRequests", ownerName: CKCurrentUserDefaultName)
     public static let decisionZone = CKRecordZone.ID(zoneName: "ApprovalDecisions", ownerName: CKCurrentUserDefaultName)
 
@@ -33,11 +36,29 @@ public enum ApprovalCloudRecords {
         return record
     }
 
+    /// Decodes the full fetched record, including encrypted fields. Push fields alone
+    /// are not sufficient to sign an approval.
+    public static func signedFields(from record: CKRecord) -> ApprovalSignedFields? {
+        guard record.recordType == "ApprovalRequest",
+            let id = UUID(uuidString: record.recordID.recordName), record.recordID == requestID(id),
+            let agentLabel = record["agentDisplayLabel"] as? String,
+            let site = record.encryptedValues["site"] as? String,
+            let account = record.encryptedValues["account"] as? String,
+            let fieldText = record["field"] as? String, let field = AgentCredentialField(rawValue: fieldText),
+            let actionText = record["action"] as? String, let action = ApprovalAction(rawValue: actionText),
+            let nonce = record["oneTimeValue"] as? Data, nonce.count == 32,
+            let expiry = record["expiresAt"] as? NSNumber,
+            CFGetTypeID(expiry) != CFBooleanGetTypeID(), let expiresAt = Int64(expiry.stringValue)
+        else { return nil }
+        return ApprovalSignedFields(requestID: id, agentDisplayLabel: agentLabel, site: site,
+            account: account, field: field, action: action, oneTimeValue: nonce, expiresAt: expiresAt)
+    }
+
     /// Saved by the iPhone, whose notification service extension fetches the record
     /// to read encrypted notificationBody and set the time-sensitive interruption level.
     public static func requestSubscription() -> CKQuerySubscription {
         let subscription = CKQuerySubscription(recordType: "ApprovalRequest", predicate: NSPredicate(value: true),
-            subscriptionID: "agent-keyring-approval-requests-v1", options: .firesOnRecordCreation)
+            subscriptionID: requestSubscriptionIdentifier, options: .firesOnRecordCreation)
         subscription.zoneID = requestZone
         let notification = CKSubscription.NotificationInfo()
         notification.title = "Login approval"
