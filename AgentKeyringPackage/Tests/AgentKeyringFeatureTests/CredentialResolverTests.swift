@@ -6,7 +6,7 @@ import Testing
 struct CredentialResolverTests {
     private let resolver = CredentialResolver()
 
-    @Test("Exact, www and one-label subdomain matches are supported")
+    @Test("Exact hosts and subdomains at any depth are supported")
     func hostMatching() throws {
         let snapshot = generation(items: [
             item(title: "Example", origin: "https://example.com", username: "agent@example.com")
@@ -20,6 +20,9 @@ struct CredentialResolverTests {
                 == 1)
         #expect(
             try resolver.candidates(in: snapshot, targetURL: "https://accounts.example.com/login")
+                .count == 1)
+        #expect(
+            try resolver.candidates(in: snapshot, targetURL: "https://sign-in.accounts.example.com/login")
                 .count == 1)
         #expect(
             try resolver.candidates(in: snapshot, targetURL: "https://example.com.evil.test/login")
@@ -39,7 +42,7 @@ struct CredentialResolverTests {
                 == 1)
     }
 
-    @Test("An exact origin outranks a parent-domain match")
+    @Test("An exact saved host outranks a saved ancestor host")
     func exactOriginWins() throws {
         let exact = item(title: "Exact", origin: "https://accounts.example.com", username: "exact")
         let parent = item(title: "Parent", origin: "https://example.com", username: "parent")
@@ -131,21 +134,23 @@ struct CredentialResolverTests {
         #expect(try resolver.candidates(in: snapshot, targetURL: "https://example.com:8443").isEmpty)
     }
 
-    @Test("Child hosts cannot cross public suffixes", arguments: ["github.io", "vercel.app", "co.uk", "foo.ck", "公司.cn"])
-    func publicSuffixBoundary(suffix: String) throws {
-        let snapshot = generation(items: [item(title: "Shared host", origin: "https://\(suffix)", username: "A")])
-        #expect(try resolver.candidates(in: snapshot, targetURL: "https://tenant.\(suffix)").isEmpty)
-        #expect(try resolver.candidates(in: snapshot, targetURL: "https://www.\(suffix)").isEmpty)
+    @Test("A saved host never matches a parent, sibling or lookalike page", arguments: [
+        "example.com", "www.example.com", "other.example.com", "login-example.com",
+        "login.example.com.evil.test",
+    ])
+    func parentAndSiblingRejected(host: String) throws {
+        let snapshot = generation(items: [
+            item(title: "Login", origin: "https://login.example.com", username: "A")
+        ])
+        #expect(try resolver.candidates(in: snapshot, targetURL: "https://\(host)/login").isEmpty)
     }
 
-    @Test("PSL exceptions and tenant child domains remain usable")
-    func suffixExceptions() throws {
-        for host in ["www.ck", "tenant.github.io", "tenant.vercel.app"] {
-            let snapshot = generation(items: [item(title: "Tenant", origin: "https://\(host)", username: "A")])
-            #expect(try resolver.candidates(in: snapshot, targetURL: "https://login.\(host)").count == 1)
-        }
-        let snapshot = generation(items: [item(title: "Child", origin: "https://login.example.com", username: "A")])
-        #expect(try resolver.candidates(in: snapshot, targetURL: "https://example.com").count == 1)
+    @Test("A saved www host does not match its parent")
+    func wwwParentRejected() throws {
+        let snapshot = generation(items: [
+            item(title: "Login", origin: "https://www.example.com", username: "A")
+        ])
+        #expect(try resolver.candidates(in: snapshot, targetURL: "https://example.com/login").isEmpty)
     }
 
     @Test("Code-only logins expose and resolve their account name")

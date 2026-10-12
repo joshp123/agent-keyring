@@ -249,24 +249,8 @@ public struct CredentialResolver: Sendable {
 
     private func hostScore(stored: String, target: String) -> Int? {
         if stored == target { return 300 }
-        if target.hasSuffix(".\(stored)"), PublicSuffixList.shared.isPublicSuffix(stored) {
-            return nil
-        }
-        if strippingWWW(stored) == strippingWWW(target) { return 250 }
-
-        let storedLabels = stored.split(separator: ".")
-        let targetLabels = target.split(separator: ".")
-        guard min(storedLabels.count, targetLabels.count) >= 2,
-            abs(storedLabels.count - targetLabels.count) == 1,
-            stored.hasSuffix(".\(target)") || target.hasSuffix(".\(stored)")
-        else {
-            return nil
-        }
-        return 200
-    }
-
-    private func strippingWWW(_ host: String) -> String {
-        host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        if target.hasSuffix(".\(stored)") { return 200 }
+        return nil
     }
 
     private func normalisedUsername(_ value: String?) -> String? {
