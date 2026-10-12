@@ -87,12 +87,7 @@ public struct AgentCredentialReleaseProcessor {
             for: selected.id,
             field: field
         )
-        if releaseDecision == .block {
-            throw AgentBridgeFailure(
-                .policyDenied,
-                "Agent access to this credential is blocked in Agent Keyring."
-            )
-        }
+        try ensureDecisionPermitsRelease(releaseDecision)
 
         var approvalProgress: AgentApprovalProgress?
         let needsApproval = releaseDecision == .requestAuthorization && !grants.contains(selected.id)
@@ -118,10 +113,7 @@ public struct AgentCredentialReleaseProcessor {
 
         try ensureRequestHasNotExpired(request)
         try await accessControl.ensureRulesConfirmed()
-        guard accessControl.releaseDecision(for: selected.id, field: field) != .block else {
-            throw AgentBridgeFailure(.policyDenied,
-                "Agent access to this credential is blocked in Agent Keyring.")
-        }
+        try ensureDecisionPermitsRelease(accessControl.releaseDecision(for: selected.id, field: field))
         let secret = try resolver.secret(
             in: generation,
             targetURL: targetURL,
@@ -144,6 +136,18 @@ public struct AgentCredentialReleaseProcessor {
             copiedField: field,
             approvalProgress: approvalProgress
         )
+    }
+
+    private func ensureDecisionPermitsRelease(_ decision: CredentialReleaseDecision) throws {
+        switch decision {
+        case .release, .requestAuthorization:
+            return
+        case .needsConfirmation:
+            throw AgentBridgeFailure(.rulesNeedConfirmation, AccessRulesConfirmationRequired.message)
+        case .block:
+            throw AgentBridgeFailure(.policyDenied,
+                "Agent access to this credential is blocked in Agent Keyring.")
+        }
     }
 
     private func ensureRequestHasNotExpired(_ request: AgentBridgeRequest) throws {
