@@ -12,6 +12,19 @@ import urllib.parse
 import uuid
 
 browser, cli = sys.argv[1], str(Path(sys.argv[2]).resolve())
+example_password = b"example-password"
+
+
+def assert_no_password(contents, location):
+    if example_password in contents:
+        raise AssertionError("Example password found in " + location)
+
+
+def check_session_state(directory):
+    files = [path for path in directory.rglob("*") if path.is_file()]
+    for path in files:
+        assert_no_password(path.read_bytes(), "session state directory")
+    return len(files)
 
 class SignInPage(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -58,14 +71,29 @@ with tempfile.TemporaryDirectory(prefix="agent-keyring-browser-proof-") as direc
                  "AGENT_BROWSER_PROFILE", "AGENT_BROWSER_STATE", "AGENT_BROWSER_RESTORE",
                  "AGENT_BROWSER_SESSION_NAME", "AGENT_BROWSER_AUTO_CONNECT"):
         environment.pop(name, None)
-    command = [browser, "--config", str(config), "--session", "keyring-proof-" + uuid.uuid4().hex,
+    session = "keyring-proof-" + uuid.uuid4().hex[:8]
+    session_state = Path.home() / ".agent-browser/namespaces" / session / "state"
+    (session_state / "sessions").mkdir(parents=True)
+    command = [browser, "--config", str(config), "--session", session, "--namespace", session,
                "--headed", "false", "--ignore-https-errors", "--proxy-bypass", "example.com",
                "--args", f"--host-resolver-rules=MAP example.com 127.0.0.1:{server.server_port}"]
 
-    def run(*arguments):
-        result = subprocess.run(command + list(arguments), env=environment, capture_output=True, timeout=60)
+    captured_stdout = bytearray()
+    captured_stderr = bytearray()
+
+    def run(*arguments, timeout=60):
+        try:
+            result = subprocess.run(command + list(arguments), env=environment, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired as failure:
+            captured_stdout.extend(failure.stdout or b"")
+            captured_stderr.extend(failure.stderr or b"")
+            raise
+        captured_stdout.extend(result.stdout)
+        captured_stderr.extend(result.stderr)
+        assert_no_password(captured_stdout, "captured stdout")
+        assert_no_password(captured_stderr, "captured stderr")
         if result.returncode:
-            raise RuntimeError("agent-browser " + arguments[0] + " failed; no credential output was printed")
+            raise RuntimeError("agent-browser " + arguments[0] + " failed")
         return result.stdout.decode().strip()
 
     try:
@@ -77,13 +105,29 @@ with tempfile.TemporaryDirectory(prefix="agent-keyring-browser-proof-") as direc
             "--item", "example.com example@example.com", "--url", "https://example.com/login", "--no-navigate")
         run("wait", "#result")
         succeeded = run("get", "text", "#result") == "Signed in successfully"
+        run("state", "save", str(session_state / "sessions/proof.json"))
+        check_session_state(session_state)
         print("PASS: page reports a successful sign-in." if succeeded else "FAIL: page did not report a successful sign-in.")
         if not succeeded:
             sys.exit(1)
-    except (RuntimeError, subprocess.TimeoutExpired):
-        print("FAIL: sign-in did not complete. Keep Agent Keyring running with its example login enabled and approve promptly.", file=sys.stderr)
+    except (RuntimeError, subprocess.TimeoutExpired, AssertionError) as failure:
+        print("FAIL: " + str(failure), file=sys.stderr)
         sys.exit(1)
     finally:
-        subprocess.run(command + ["close"], env=environment, capture_output=True, timeout=15)
-        server.shutdown()
-        server.server_close()
+        try:
+            run("close", timeout=15)
+        except (RuntimeError, subprocess.TimeoutExpired, AssertionError) as failure:
+            print("FAIL: " + str(failure), file=sys.stderr)
+            sys.exit(1)
+        finally:
+            server.shutdown()
+            server.server_close()
+            try:
+                assert_no_password(captured_stdout, "captured stdout")
+                assert_no_password(captured_stderr, "captured stderr")
+                checked_files = check_session_state(session_state)
+                print(f"PASS: example password absent from captured stdout, stderr and session state ({checked_files} files checked).")
+                print("Session state directory: " + str(session_state))
+            except (AssertionError, OSError) as failure:
+                print("FAIL: " + str(failure), file=sys.stderr)
+                sys.exit(1)
