@@ -49,6 +49,7 @@ let package = Package(
             dependencies: ["AgentKeyringFeature", "AgentKeyringTestSupport"],
             path: "Tools/AgentKeyringFixture"
         ),
+        .testTarget(name: "AgentKeyringApprovalCoreTests", dependencies: ["AgentKeyringApprovalCore"]),
         .testTarget(
             name: "AgentKeyringFeatureTests",
             dependencies: [

@@ -64,19 +64,9 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         default:
             return
         }
-        let requestID: CKRecord.ID?
-        if response.notification.request.content.categoryIdentifier == ApprovalCloudRecords.notificationCategory,
-            let notification = CKNotification(fromRemoteNotificationDictionary:
-                response.notification.request.content.userInfo) as? CKQueryNotification,
-            notification.containerIdentifier == ApprovalCloudRecords.containerIdentifier,
-            notification.subscriptionID == ApprovalCloudRecords.requestSubscriptionIdentifier,
-            notification.databaseScope == .private,
-            notification.queryNotificationReason == .recordCreated,
-            let recordID = notification.recordID, recordID.zoneID == ApprovalCloudRecords.requestZone {
-            requestID = recordID
-        } else {
-            requestID = nil
-        }
+        let content = response.notification.request.content
+        let requestID = content.categoryIdentifier == ApprovalCloudRecords.notificationCategory
+            ? ApprovalCloudRecords.requestID(fromRemoteNotification: content.userInfo) : nil
         await PhoneApprovalModel.shared.respond(to: requestID, choice: choice)
     }
 

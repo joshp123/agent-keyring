@@ -19,6 +19,17 @@ public enum ApprovalCloudRecords {
         CKRecord.ID(recordName: id.uuidString, zoneID: decisionZone)
     }
 
+    /// Both the service extension and action handler resolve the same CloudKit ID.
+    public static func requestID(fromRemoteNotification userInfo: [AnyHashable: Any]) -> CKRecord.ID? {
+        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
+            notification.containerIdentifier == containerIdentifier,
+            notification.subscriptionID == requestSubscriptionIdentifier,
+            notification.databaseScope == .private,
+            notification.queryNotificationReason == .recordCreated,
+            let recordID = notification.recordID, recordID.zoneID == requestZone else { return nil }
+        return recordID
+    }
+
     public static func request(_ request: ApprovalRequest) -> CKRecord {
         let record = CKRecord(recordType: "ApprovalRequest", recordID: requestID(request.id))
         record["agentDisplayLabel"] = request.agentDisplayLabel as CKRecordValue

@@ -118,6 +118,7 @@ final class PhoneApprovalModel {
         do {
             guard let recordID else { throw PhoneApprovalFailure.invalidNotification }
             operation = "Fetch approval request"
+            // Re-fetch the same record used by the service extension. Never sign notification text.
             // A full fetch is required: site and account live in encryptedValues.
             let record = try await database.record(for: recordID)
             operation = "Decode approval request"

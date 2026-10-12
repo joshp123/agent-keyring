@@ -28,12 +28,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         fallbackContent = content
         completionLock.unlock()
 
-        guard let notification = CKNotification(fromRemoteNotificationDictionary: content.userInfo) as? CKQueryNotification,
-            notification.containerIdentifier == ApprovalCloudRecords.containerIdentifier,
-            notification.subscriptionID == ApprovalCloudRecords.requestSubscriptionIdentifier,
-            notification.databaseScope == .private,
-            notification.queryNotificationReason == .recordCreated,
-            let recordID = notification.recordID, recordID.zoneID == ApprovalCloudRecords.requestZone else {
+        guard let recordID = ApprovalCloudRecords.requestID(fromRemoteNotification: content.userInfo) else {
             finish()
             return
         }
