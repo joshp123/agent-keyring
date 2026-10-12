@@ -128,10 +128,8 @@ struct SignedAccessRulesTests {
         #expect(try await fixture.store.load()[fixture.loginID, default: .ask] == policy)
     }
 
-    @Test("All app bridge requests get the confirmation result before accessing the mirror", arguments: [
-        AgentBridgeAction.status, .resolve, .acquire,
-    ])
-    func unsignedAppRequests(action: AgentBridgeAction) async throws {
+    @Test("Acquire needs confirmation before accessing the mirror")
+    func unsignedAppRequests() async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
         let settingsName = "SignedRulesTests-\(UUID().uuidString)"
@@ -140,7 +138,7 @@ struct SignedAccessRulesTests {
         let model = MirrorAppModel(store: EncryptedSnapshotStore(directoryURL: fixture.root.appendingPathComponent("vault"),
             keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32))),
             bridge: fixture.bridge, accessControl: CredentialAccessController(store: fixture.store), settings: settings)
-        let request = AgentBridgeRequest(action: action, targetURL: "https://example.com", field: .password)
+        let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
         try fixture.bridge.write(request)
         await model.handleAgentRequest(id: request.id)
         let response = try fixture.bridge.readResponse(id: request.id)

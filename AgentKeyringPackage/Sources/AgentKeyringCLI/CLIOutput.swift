@@ -15,6 +15,7 @@ enum CLIOutput {
             let noun = mirror.credentialCount == 1 ? "login" : "logins"
             return
                 "\(mirror.credentialCount) \(noun) available\n" + freshness(mirror)
+                + (response.message.map { $0 + "\n" } ?? "")
         case let .find(targetURL, _):
             guard let candidates = response.candidates else { throw CLIError.invalidResponse }
             guard let mirror = response.mirror else { throw CLIError.invalidResponse }

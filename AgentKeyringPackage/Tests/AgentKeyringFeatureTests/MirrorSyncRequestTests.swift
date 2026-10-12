@@ -1,3 +1,4 @@
+import AgentKeyringTestSupport
 import AuthenticationServices
 import Foundation
 import Testing
@@ -25,7 +26,7 @@ struct MirrorSyncRequestTests {
         let model = MirrorAppModel(store: store, credentialImporter: SyncFixtureImporter(),
             authorizer: authorizer, bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
-                fileURL: directory.appendingPathComponent("policies.json"))), settings: settings)
+                fileURL: directory.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner())), settings: settings)
         let notifier = FakeSyncNotifier()
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -35,11 +36,19 @@ struct MirrorSyncRequestTests {
         // A recent mirror still needs sync if a login was rejected.
         let response = try await send(.sync, model: model, bridge: bridge)
         #expect(response.ok)
+        #expect(model.accessControl.needsConfirmation)
         #expect(notifier.ages.count == 1)
         #expect(model.staleLogins.credentialIDs == Set(generation.items.map(\.id)))
         #expect(PossiblyStaleLogins(settings: settings).credentialIDs == model.staleLogins.credentialIDs)
         let find = try await send(.resolve, model: model, bridge: bridge)
+        #expect(find.ok)
         #expect(find.candidates?.first?.isPossiblyStale == true)
+        #expect(model.accessControl.needsConfirmation)
+        let status = try await send(.status, model: model, bridge: bridge)
+        #expect(status.ok)
+        #expect(status.message == "Access rules need Josh's confirmation in Agent Keyring; nothing will be released until then.")
+        await model.accessControl.confirmRules()
+        #expect(!model.accessControl.needsConfirmation)
         let processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: model.accessControl,
             approvals: CredentialApprovalCoordinator(lockState: UnlockedSyncTestSession()),
             possiblyStaleCredentialIDs: model.staleLogins.credentialIDs)

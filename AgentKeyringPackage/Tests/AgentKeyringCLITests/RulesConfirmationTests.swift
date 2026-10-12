@@ -8,8 +8,34 @@ import Testing
 @MainActor
 @Suite("CLI rules confirmation")
 struct RulesConfirmationTests {
-    @Test("Every request reports exactly one sentence, empty stdout and exit 7", arguments: [
-        "status", "find", "username", "password", "code",
+    @Test("Status reports pending confirmation with and without a mirror", arguments: [false, true])
+    func pendingStatus(hasMirror: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settingsName = "PendingRulesStatus-\(UUID().uuidString)"
+        let settings = try #require(UserDefaults(suiteName: settingsName))
+        defer { settings.removePersistentDomain(forName: settingsName) }
+        settings.set(false, forKey: "includeExampleCredential")
+        let bridge = AgentBridgeDirectory(rootURL: root.appendingPathComponent("bridge"))
+        let vault = EncryptedSnapshotStore(directoryURL: root.appendingPathComponent("vault"),
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32)))
+        if hasMirror { try await vault.save(MirrorGeneration(id: UUID(), previousGenerationID: nil, createdAt: Date(), sourceExportedAt: Date(),
+            scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture", items: [], skippedCredentialCount: 0)) }
+        let model = MirrorAppModel(store: vault,
+            bridge: bridge, accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
+                fileURL: root.appendingPathComponent("rules.json"), signer: FakeAccessRulesSigner())), settings: settings)
+        let request = AgentBridgeRequest(action: .status)
+        try bridge.write(request)
+        await model.handleAgentRequest(id: request.id)
+        let response = try bridge.readResponse(id: request.id)
+        #expect(response.ok)
+        let output = try CLIOutput.render(response, for: .status)
+        #expect(output.hasSuffix("Access rules need Josh's confirmation in Agent Keyring; nothing will be released until then.\n"))
+        #expect(model.accessControl.needsConfirmation)
+    }
+
+    @Test("Every acquire reports exactly one sentence, empty stdout and exit 7", arguments: [
+        "username", "password", "code",
     ])
     func confirmationOutput(commandName: String) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

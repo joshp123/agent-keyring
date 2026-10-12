@@ -41,7 +41,6 @@ extension MirrorAppModel {
                     .requestExpired, "The agent request expired before it was handled.")
             }
             if !accessControl.hasLoadedLoginList { await loadStatus() }
-            try await accessControl.ensureRulesConfirmed()
             switch request.action {
             case .status, .resolve:
                 response = try await processDiscovery(request: request,
@@ -52,6 +51,7 @@ extension MirrorAppModel {
                 }
                 response = try await processSync(request: request, metadata: metadata)
             case .acquire:
+                try await accessControl.ensureRulesConfirmed()
                 guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
                     throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
                 }
@@ -112,19 +112,21 @@ extension MirrorAppModel {
         request: AgentBridgeRequest,
         metadata: MirrorMetadata?
     ) async throws -> AgentBridgeResponse {
+        await accessControl.refresh(fromMetadata: metadataIncludingExample(metadata))
+        let confirmationMessage = accessControl.needsConfirmation
+            ? "Access rules need Josh's confirmation in Agent Keyring; nothing will be released until then." : nil
         if request.action == .status, metadata == nil {
             return AgentBridgeResponse(id: request.id, ok: true,
-                message: "No mirror has been imported yet.")
+                message: "No mirror has been imported yet." + (confirmationMessage.map { "\n" + $0 } ?? ""))
         }
         guard let metadata = metadataIncludingExample(metadata) else {
             throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
         }
-        await accessControl.refresh(fromMetadata: metadata)
         let mirror = AgentMirrorSummary(importedAt: metadata.createdAt,
             ageSeconds: max(0, Int(Date().timeIntervalSince(metadata.createdAt))),
             credentialCount: metadata.safeStatus.credentialItemCount)
         if request.action == .status {
-            return AgentBridgeResponse(id: request.id, ok: true, mirror: mirror)
+            return AgentBridgeResponse(id: request.id, ok: true, message: confirmationMessage, mirror: mirror)
         }
         guard let targetURL = request.targetURL else {
             throw AgentBridgeFailure(.invalidRequest, "The resolve request needs a target URL.")
