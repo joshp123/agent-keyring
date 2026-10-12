@@ -26,7 +26,7 @@ public actor ApprovalDecisionVerifier {
     private let pairedDevices: any PairedDevicePublicKeyProviding
     private let now: @Sendable () -> Date
     private var pendingRequests: [UUID: ApprovalRequest] = [:]
-    private var usedRequestExpiries: [UUID: Date] = [:]
+    private var usedRequestExpiries: [UUID: Int64] = [:]
 
     public init(pairedDevices: any PairedDevicePublicKeyProviding, now: @escaping @Sendable () -> Date = Date.init) {
         self.pairedDevices = pairedDevices
@@ -35,12 +35,12 @@ public actor ApprovalDecisionVerifier {
 
     /// Register only a request created on the Mac, before sending it to the paired device.
     public func register(_ request: ApprovalRequest) throws {
-        let now = now()
-        usedRequestExpiries = usedRequestExpiries.filter { $0.value > now }
+        let now = now().timeIntervalSince1970
+        usedRequestExpiries = usedRequestExpiries.filter { TimeInterval($0.value) > now }
         if usedRequestExpiries[request.id] != nil { throw refusal(.replayed) }
         if pendingRequests[request.id] != nil { throw refusal(.requestAlreadyRegistered) }
-        guard request.expiresAt > now else { throw refusal(.expired) }
-        pendingRequests = pendingRequests.filter { $0.value.expiresAt > now }
+        guard TimeInterval(request.expiresAt) > now else { throw refusal(.expired) }
+        pendingRequests = pendingRequests.filter { TimeInterval($0.value.expiresAt) > now }
         pendingRequests[request.id] = request
     }
 
@@ -54,7 +54,7 @@ public actor ApprovalDecisionVerifier {
         if usedRequestExpiries[decision.requestID] != nil { throw refusal(.replayed) }
         guard let request = pendingRequests[decision.requestID] else { throw refusal(.unknownRequest) }
         guard decision.signedFields == request.signedFields else { throw refusal(.mismatchedRequest) }
-        guard request.expiresAt > now() else { throw refusal(.expired) }
+        guard TimeInterval(request.expiresAt) > now().timeIntervalSince1970 else { throw refusal(.expired) }
         guard publicKeys.contains(decision.devicePublicKey) else { throw refusal(.unpairedDevice) }
         guard let publicKey = try? P256.Signing.PublicKey(x963Representation: decision.devicePublicKey),
             let signature = try? P256.Signing.ECDSASignature(derRepresentation: decision.signature),

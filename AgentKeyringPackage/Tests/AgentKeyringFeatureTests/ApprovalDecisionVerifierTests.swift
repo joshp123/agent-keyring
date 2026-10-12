@@ -37,7 +37,7 @@ struct ApprovalDecisionVerifierTests {
             field: field == "field" ? .username : original.field,
             action: field == "action" ? .acquire : original.action,
             oneTimeValue: field == "one-time-value" ? Data(repeating: 0, count: 32) : original.oneTimeValue,
-            expiresAt: field == "expiry" ? original.expiresAt.addingTimeInterval(1) : original.expiresAt)
+            expiresAt: field == "expiry" ? original.expiresAt + 1 : original.expiresAt)
         await #expect(throws: ApprovalDecisionRefusal.mismatchedRequest) {
             try await verifier.verify(fixture.decision(changed))
         }
@@ -81,7 +81,8 @@ struct ApprovalDecisionVerifierTests {
         try await fixture.pair()
         let request = fixture.request()
         let clock = TestApprovalClock(PhoneApprovalFixture.now)
-        let provider = ExpiringPairedDeviceProvider(store: fixture.store, clock: clock, deadline: request.expiresAt)
+        let provider = ExpiringPairedDeviceProvider(store: fixture.store, clock: clock,
+            deadline: Date(timeIntervalSince1970: TimeInterval(request.expiresAt)))
         let verifier = ApprovalDecisionVerifier(pairedDevices: provider, now: { clock.now })
         try await verifier.register(request)
         await #expect(throws: ApprovalDecisionRefusal.expired) {
@@ -137,7 +138,7 @@ struct ApprovalDecisionVerifierTests {
         let decision = try fixture.decision(request.signedFields)
         try await verifier.register(request)
         #expect(try await verifier.verify(decision) == .approve)
-        clock.set(request.expiresAt.addingTimeInterval(-1))
+        clock.set(Date(timeIntervalSince1970: TimeInterval(request.expiresAt - 1)))
         try await verifier.register(fixture.request())
         await #expect(throws: ApprovalDecisionRefusal.replayed) { try await verifier.verify(decision) }
         await #expect(throws: ApprovalDecisionRefusal.unknownRequest) { try await fixture.verifier().verify(decision) }
@@ -184,7 +185,7 @@ struct PhoneApprovalFixture {
 
     func request(action: ApprovalAction = .fill) -> ApprovalRequest {
         ApprovalRequest(agentDisplayLabel: "Test agent", site: "https://example.com", account: "synthetic",
-            field: .password, action: action, createdAt: Self.now, expiresAt: Self.now.addingTimeInterval(600))
+            field: .password, action: action, createdAt: Self.now)
     }
 
     func verifier() -> ApprovalDecisionVerifier {
