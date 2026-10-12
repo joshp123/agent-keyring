@@ -28,14 +28,8 @@ struct CloudKitApprovalChannelTests {
         #expect(record["notificationBody"] == nil)
         #expect(record.encryptedValues["site"] as? String == request.site)
         #expect(record.encryptedValues["account"] as? String == request.account)
-        #expect(record.encryptedValues["notificationBody"] as? String ==
-            "Test agent wants to fill \(field.rawValue) for synthetic on example.com.")
-        #expect(record["notificationTitle"] as? String == "Login approval")
-        #expect(record["notificationCategory"] as? String == "AGENT_KEYRING_APPROVAL")
-        #expect(record["notificationInterruptionLevel"] as? String == "timeSensitive")
-        #expect(Set(record.allKeys()) == ["agentDisplayLabel", "field", "action", "oneTimeValue", "expiresAt",
-            "notificationTitle", "notificationCategory", "notificationInterruptionLevel", "site", "account", "notificationBody"])
-        #expect(Set(record.encryptedValues.allKeys()) == ["site", "account", "notificationBody"])
+        #expect(Set(record.allKeys()) == ["agentDisplayLabel", "field", "action", "oneTimeValue", "expiresAt", "site", "account"])
+        #expect(Set(record.encryptedValues.allKeys()) == ["site", "account"])
     }
 
     @Test("Decisions use the same request name in their own zone and preserve signed bytes", arguments: ApprovalChoice.allCases)
@@ -71,13 +65,13 @@ struct CloudKitApprovalChannelTests {
         #expect(notification.category == "AGENT_KEYRING_APPROVAL")
         #expect(notification.shouldSendMutableContent)
         #expect(!notification.shouldSendContentAvailable)
-        #expect(notification.desiredKeys == ["agentDisplayLabel", "expiresAt", "notificationCategory"])
+        #expect(notification.desiredKeys?.isEmpty == true)
         #expect(ApprovalCloudRecords.approveActionIdentifier == "APPROVE")
         #expect(ApprovalCloudRecords.denyActionIdentifier == "DENY")
     }
 
-    @Test("Polling waits two seconds between fetches and a push only wakes a fetch")
-    func cadenceAndWakeup() async throws {
+    @Test("Polling waits two seconds between fetches")
+    func cadence() async throws {
         let fixture = try CloudApprovalFixture()
         var answers: [ApprovalDecision] = []
         let stream = fixture.channel.publish(fixture.request)
@@ -91,17 +85,10 @@ struct CloudKitApprovalChannelTests {
         fixture.clock.advance(seconds: 1)
         try await cloudEventually { fixture.clock.sleepDurations.count == 2 }
         #expect(fixture.database.fetchedRecordIDs == [ApprovalCloudRecords.decisionID(fixture.request.id)])
-        fixture.channel.wakeUp(requestID: UUID())
-        for _ in 0..<100 { await Task.yield() }
-        #expect(fixture.database.fetchedRecordIDs.count == 1)
-        fixture.channel.wakeUp(requestID: fixture.request.id)
-        try await cloudEventually { fixture.clock.sleepDurations.count == 3 }
-        #expect(fixture.database.fetchedRecordIDs.count == 2)
-        #expect(answers.isEmpty)
         let answer = try fixture.decision(.approve)
         try await fixture.database.save(ApprovalCloudRecords.decision(answer))
         fixture.clock.advance(seconds: 2)
-        try await cloudEventually { answers == [answer] && fixture.clock.sleepDurations.count == 4 }
+        try await cloudEventually { answers == [answer] && fixture.clock.sleepDurations.count == 3 }
         #expect(fixture.clock.sleepDurations.allSatisfy { $0 == .seconds(2) })
         fixture.channel.cancel(requestID: fixture.request.id)
         await fixture.channel.waitForCleanup(requestID: fixture.request.id)

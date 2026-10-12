@@ -74,20 +74,23 @@ struct IPhonePairingTests {
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
     }
 
-    @Test("Expiry refuses the record and deletes it, including expiry while comparing fingerprints", arguments: [true, false])
+    @Test("Expiry refuses the record and deletes it, including expiry while entering the phone code", arguments: [true, false])
     func expiry(beforePoll: Bool) async throws {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await confirmInitialAccessRules(in: fixture.store)
         let database = InMemoryApprovalCloudDatabase()
-        let session = try IPhonePairingSession(database: database)
+        var now = Date(timeIntervalSince1970: 1_000)
+        let session = try IPhonePairingSession(database: database, now: { now })
         let code = try #require(session.code)
         try await database.save(PairingCloudRecords.record(PairingRequest(code: code, publicKey: fixture.device.publicKey, deviceName: "Test iPhone")))
         if beforePoll {
-            await #expect(throws: PairingFailure.expired) { try await session.poll(now: code.expiresAt) }
+            now = code.expiresAt
+            await #expect(throws: PairingFailure.expired) { try await session.poll() }
         } else {
             _ = try await session.poll()
-            await #expect(throws: PairingFailure.expired) { try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey), now: code.expiresAt) }
+            now = code.expiresAt
+            await #expect(throws: PairingFailure.expired) { try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey)) }
         }
         #expect(database.records.isEmpty)
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
@@ -114,7 +117,7 @@ struct IPhonePairingTests {
         #expect(database.records.isEmpty)
     }
 
-    @Test("Cancelling the fingerprint confirmation and cancelling Touch ID both leave trust unchanged", arguments: [true, false])
+    @Test("Cancelling the code confirmation and cancelling Touch ID both leave trust unchanged", arguments: [true, false])
     func cancellation(beforeTouchID: Bool) async throws {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }

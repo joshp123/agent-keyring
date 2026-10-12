@@ -77,6 +77,9 @@ final class IPhonePairingModel {
         do {
             try await controller.confirmPairing(session, confirmationCode: confirmationCode)
             message = "iPhone added."
+        } catch let error as AccessRulesSaveInProgress {
+            message = error.localizedDescription
+            return
         } catch {
             recordFailure(error)
             message = "The iPhone was not added. Close this window and choose Add iPhone again."

@@ -39,11 +39,6 @@ public enum ApprovalCloudRecords {
         record["expiresAt"] = NSNumber(value: request.expiresAt)
         record.encryptedValues["site"] = request.site as CKRecordValue
         record.encryptedValues["account"] = request.account as CKRecordValue
-        record["notificationTitle"] = "Login approval" as CKRecordValue
-        record.encryptedValues["notificationBody"] =
-            "\(request.agentDisplayLabel) wants to \(request.action.rawValue) \(request.field.rawValue) for \(request.account) on \(request.site)." as CKRecordValue
-        record["notificationCategory"] = notificationCategory as CKRecordValue
-        record["notificationInterruptionLevel"] = "timeSensitive" as CKRecordValue
         return record
     }
 
@@ -59,10 +54,11 @@ public enum ApprovalCloudRecords {
             let actionText = record["action"] as? String, let action = ApprovalAction(rawValue: actionText),
             let nonce = record["oneTimeValue"] as? Data, nonce.count == 32,
             let expiry = record["expiresAt"] as? NSNumber,
-            CFGetTypeID(expiry) != CFBooleanGetTypeID(), let expiresAt = Int64(expiry.stringValue)
+            CFGetTypeID(expiry) != CFBooleanGetTypeID(),
+            expiry == NSNumber(value: expiry.int64Value)
         else { return nil }
         return ApprovalSignedFields(requestID: id, agentDisplayLabel: agentLabel, site: site,
-            account: account, field: field, action: action, oneTimeValue: nonce, expiresAt: expiresAt)
+            account: account, field: field, action: action, oneTimeValue: nonce, expiresAt: expiry.int64Value)
     }
 
     /// Saved by the iPhone, whose notification service extension fetches the record
@@ -77,7 +73,7 @@ public enum ApprovalCloudRecords {
         notification.category = notificationCategory
         notification.shouldSendMutableContent = true
         notification.shouldSendContentAvailable = false
-        notification.desiredKeys = ["agentDisplayLabel", "expiresAt", "notificationCategory"]
+        notification.desiredKeys = []
         subscription.notificationInfo = notification
         return subscription
     }

@@ -17,6 +17,11 @@ public enum CredentialReleaseDecision: Equatable, Sendable {
     case block
 }
 
+public struct AccessRulesSaveInProgress: Error, LocalizedError, Sendable {
+    public init() {}
+    public var errorDescription: String? { "Access rules are already being saved. Wait for that save to finish." }
+}
+
 public struct AccessRulesConfirmationRequired: Error, Sendable {
     public static var message: String { "Agent Keyring's access rules need \(MacOwner.firstName)'s confirmation in the app before anything is released." }
 }
@@ -94,7 +99,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     public func confirmPairing(_ session: IPhonePairingSession, confirmationCode: String) async throws {
-        guard !isSavingRules else { throw PairingFailure.invalidRequest }
+        guard !isSavingRules else { throw AccessRulesSaveInProgress() }
         isSavingRules = true
         defer { isSavingRules = false }
         try await session.confirm(in: store, confirmationCode: confirmationCode)
@@ -102,7 +107,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     public func removePairedApprovalDevice(publicKey: Data) async throws {
-        guard !isSavingRules else { throw PairedDeviceStoreError.notPaired }
+        guard !isSavingRules else { throw AccessRulesSaveInProgress() }
         isSavingRules = true
         defer { isSavingRules = false }
         try await store.removePairedDevice(publicKey: publicKey)

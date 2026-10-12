@@ -2,51 +2,6 @@
 
 Written by AI on 2026.10.12 by model GPT-6 (Codex).
 
-## Verified in this worktree
-
-- iOS generic device Debug build: passed, signing disabled.
-- iOS generic simulator Debug build: passed, signing disabled.
-- macOS arm64 Debug build: passed, signing disabled; macOS sources and project unchanged.
-- Both iOS app bundles contain the notification service extension, with the
-  correct notification service entry point and bundle identifier.
-- The extension declares only the same iCloud container and CloudKit service
-  entitlements as the phone app. It has no push, keychain or app-group entitlement.
-- `swift test --package-path AgentKeyringPackage`: 241 tests passed across
-  40 suites (183 feature, 56 CLI, 2 shared-core tests).
-- The new shared-core tests cover six field/action combinations against fixed
-  canonical byte vectors, ignore stale notification templates, and reject a
-  missing encrypted site even when plaintext site exists.
-- The focused notification, phone/Mac signature parity and CloudKit channel
-  suites passed before the full test run.
-
-Xcode emitted App Intents metadata notices because these targets do not use
-App Intents. The Mac build also retained already signed Sparkle vendor binaries
-without stripping them. No compilation errors occurred.
-
-## Commands
-
-Run from the worktree root:
-
-```sh
-xcodebuild -project AgentKeyringPhone.xcodeproj -scheme AgentKeyringPhone \
-  -configuration Debug -destination 'generic/platform=iOS' \
-  -derivedDataPath "$PWD/.build/DerivedData-iOS" CODE_SIGNING_ALLOWED=NO build
-
-xcodebuild -project AgentKeyringPhone.xcodeproj -scheme AgentKeyringPhone \
-  -configuration Debug -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath "$PWD/.build/DerivedData-Simulator" CODE_SIGNING_ALLOWED=NO build
-
-xcodebuild -workspace AgentKeyring.xcworkspace -scheme AgentKeyring \
-  -configuration Debug -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath "$PWD/.build/DerivedData-macOS" CODE_SIGNING_ALLOWED=NO build
-
-swift test --package-path AgentKeyringPackage
-```
-
-The build CLI was unavailable; Xcode and Swift needed access beyond the sandbox
-to use their normal caches. All derived data and package build output stayed
-in the worktree.
-
 ## Josh's device checks
 
 Use a signed installation on the paired iPhone, with the extension's profile
@@ -75,4 +30,6 @@ Enable notification previews and Time Sensitive Notifications for this check.
 Physical push delivery, encrypted CloudKit access from the signed extension,
 time-sensitive presentation, fallback at the system deadline, and one-tap
 Secure Enclave approval remain unverified until these checks run on the phone.
-No device installation, model review, push or merge was performed in this slice.
+
+See the [schema](../cloudkit-approval-channel.md) and
+[shared build commands](iphone-approval-core.md#unsigned-builds).

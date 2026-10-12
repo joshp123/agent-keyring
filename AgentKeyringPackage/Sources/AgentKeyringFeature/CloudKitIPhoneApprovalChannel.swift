@@ -6,15 +6,10 @@ private let cloudApprovalLogger = Logger(subsystem: "com.agentkeyring.app", cate
 
 @MainActor
 public final class CloudKitIPhoneApprovalChannel: IPhoneApprovalChannel {
-    private final class PendingPublication {
-        var task: Task<Void, Never>?
-        var sleepTask: Task<Void, Error>?
-    }
-
     private let database: any ApprovalCloudDatabase
     private let now: () -> Date
     private let sleep: (Duration) async throws -> Void
-    private var publications: [UUID: PendingPublication] = [:]
+    private var publications: [UUID: Task<Void, Never>] = [:]
 
     public init(database: any ApprovalCloudDatabase = PrivateApprovalCloudDatabase(),
         now: @escaping () -> Date = Date.init,
@@ -26,9 +21,7 @@ public final class CloudKitIPhoneApprovalChannel: IPhoneApprovalChannel {
 
     public func publish(_ request: ApprovalRequest) -> AsyncThrowingStream<ApprovalDecision, Error> {
         let (stream, continuation) = AsyncThrowingStream<ApprovalDecision, Error>.makeStream()
-        let publication = PendingPublication()
-        publications[request.id] = publication
-        publication.task = Task { @MainActor in
+        publications[request.id] = Task { @MainActor in
             var failure: (any Error)?
             do {
                 try Task.checkCancellation()
@@ -36,17 +29,7 @@ public final class CloudKitIPhoneApprovalChannel: IPhoneApprovalChannel {
                     try await self.database.save(ApprovalCloudRecords.request(request))
                     while self.now().timeIntervalSince1970 < Double(request.expiresAt) {
                         try Task.checkCancellation()
-                        let sleeper = Task { try await self.sleep(.seconds(2)) }
-                        publication.sleepTask = sleeper
-                        do {
-                            try await withTaskCancellationHandler {
-                                try await sleeper.value
-                            } onCancel: { sleeper.cancel() }
-                        } catch is CancellationError {
-                            // A push cancels only this sleep; cancellation of the request ends polling.
-                            try Task.checkCancellation()
-                        }
-                        publication.sleepTask = nil
+                        try await self.sleep(.seconds(2))
                         try Task.checkCancellation()
                         guard self.now().timeIntervalSince1970 < Double(request.expiresAt) else { break }
                         do {
@@ -85,18 +68,13 @@ public final class CloudKitIPhoneApprovalChannel: IPhoneApprovalChannel {
         return stream
     }
 
-    /// Push contains no trusted decision. It only brings the next fetch forward.
-    public func wakeUp(requestID: UUID) {
-        publications[requestID]?.sleepTask?.cancel()
-    }
-
     public func cancel(requestID: UUID) {
-        publications[requestID]?.task?.cancel()
+        publications[requestID]?.cancel()
     }
 
     public func waitForCleanup(requestID: UUID) async {
-        guard let publication = publications[requestID] else { return }
-        await publication.task?.value
+        guard let task = publications[requestID] else { return }
+        await task.value
         publications.removeValue(forKey: requestID)
     }
 }
