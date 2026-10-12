@@ -101,6 +101,16 @@ struct FillCommandTests {
         #expect(stderr == (error == nil ? "" : expectedSentence + "\n"))
     }
 
+    @Test("Exit 11 directs the user to the app's permission button")
+    func accessibilityGuidance() {
+        let response = AgentBridgeResponse(id: UUID(), ok: false, error: .accessibilityMissing,
+            message: "Untrusted helper detail")
+        let error = CLIError(response: response, command: .fill(field: .password,
+            targetURL: "https://example.com", account: nil))
+        #expect(error.exitCode == 11)
+        #expect(error.rendered == "Open Agent Keyring and click ‘Allow Agent Keyring to fill sign-in forms’.\n")
+    }
+
     @Test("Both help screens document fill and every fill exit")
     func help() {
         for help in [AgentKeyringCLI.helpMessage(columns: 160), Fill.helpMessage(columns: 160)] {

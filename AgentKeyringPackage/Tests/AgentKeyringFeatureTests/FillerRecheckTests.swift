@@ -6,11 +6,12 @@ import Testing
 @Suite("Helper re-inspection before typing")
 struct FillerRecheckTests {
     @Test("Changed or unavailable targets never post events and always zero the value", arguments: [
-        "unchanged", "locked", "permission", "app", "process", "page", "window", "field", "role", "subrole", "unreadable", "unfocused",
+        "unchanged", "locked", "permission", "app", "process", "page", "window", "field", "role", "subrole", "unreadable", "unfocused", "signature",
     ])
     func recheck(path: String) throws {
         let expected = fillInspection()
         let current = switch path {
+        case "signature": fillInspection(browserSignatureTrusted: false)
         case "locked": fillInspection(screenLocked: true)
         case "permission": fillInspection(accessibilityTrusted: false)
         case "app": fillInspection(bundleIdentifier: "com.google.Chrome")
@@ -38,6 +39,7 @@ struct FillerRecheckTests {
         })
         let expectedResult: FillTypingResult = switch path {
         case "unchanged": .filled
+        case "signature": .unsupportedBrowser
         case "locked": .screenLocked
         case "permission": .accessibilityMissing
         default: .targetChanged

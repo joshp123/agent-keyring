@@ -70,9 +70,8 @@ struct CredentialFillTests {
         #expect(throws: CredentialTransferError.unavailable) { _ = try CredentialTransfer.read(requestID: request.id) }
     }
 
-    @Test("All supported apps fill an exact host or subdomain", arguments: [
-        "com.apple.Safari", "com.google.Chrome", "com.anthropic.claudefordesktop", "com.openai.codex",
-    ], ["https://example.com/login", "https://accounts.example.com/login"])
+    @Test("All supported apps fill an exact host or subdomain", arguments: TrustedBrowsers.requirements.map(\.bundleIdentifier),
+        ["https://example.com/login", "https://accounts.example.com/login"])
     func supportedApps(bundleIdentifier: String, address: String) async throws {
         let filler = FakeCredentialFiller(inspection: fillInspection(bundleIdentifier: bundleIdentifier, pageAddress: address))
         let fixture = try FillTestFixture(filler: filler)
@@ -312,12 +311,13 @@ struct CredentialFillTests {
         #expect(filler.typedValues.isEmpty)
     }
 
-    @Test("Helper refusals stay refusals", arguments: [FillTypingResult.accessibilityMissing, .screenLocked, .targetChanged, .failed, .requestExpired])
+    @Test("Helper refusals stay refusals", arguments: [FillTypingResult.accessibilityMissing, .screenLocked, .targetChanged, .failed, .requestExpired, .unsupportedBrowser])
     func helperRefusal(result: FillTypingResult) async throws {
         let fixture = try FillTestFixture()
         defer { fixture.cleanUp() }
         fixture.filler.result = result
         let expected: AgentBridgeErrorCode = switch result {
+        case .unsupportedBrowser: .unsupportedBrowser
         case .accessibilityMissing: .accessibilityMissing
         case .screenLocked: .screenLocked
         case .targetChanged: .fillTargetChanged
