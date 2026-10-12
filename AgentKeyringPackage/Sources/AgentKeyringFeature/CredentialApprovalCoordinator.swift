@@ -72,15 +72,23 @@ public final class CredentialApprovalCoordinator {
             phase: lockState.isLocked && phoneChannel == nil ? .waitingForUnlock : .awaitingApproval)
         let approvalID = UUID()
         let approval = Task { @MainActor in
-            try await self.route(scope: scope, authorizationDeadline: authorizationDeadline,
-                approvalRequest: approvalRequest, cancelPrompt: cancelPrompt,
-                onBlockLogin: onBlockLogin, prompt: prompt)
+            do {
+                try await self.route(scope: scope, authorizationDeadline: authorizationDeadline,
+                    approvalRequest: approvalRequest, cancelPrompt: cancelPrompt,
+                    onBlockLogin: onBlockLogin, prompt: prompt)
+            } catch {
+                await self.phoneChannel?.waitForCleanup(requestID: approvalRequest.id)
+                throw error
+            }
+            await self.phoneChannel?.waitForCleanup(requestID: approvalRequest.id)
         }
         pending[scope] = PendingApproval(id: approvalID, authorizationDeadline: authorizationDeadline,
             task: approval, progress: progress, observers: [onProgress])
         onProgress(progress)
         defer { removePendingApproval(scope: scope, approvalID: approvalID) }
-        try await approval.value
+        try await withTaskCancellationHandler {
+            try await approval.value
+        } onCancel: { approval.cancel() }
     }
 
     private func removePendingApproval(scope: CredentialApprovalScope, approvalID: UUID) {
@@ -200,10 +208,12 @@ public final class CredentialApprovalCoordinator {
             recordProgress(scope: scope, askedAt: now(), phase: .awaitingApproval,
                 provider: .iPhone, macWasLocked: lockState.isLocked, macWasAsleep: lockState.isDisplayAsleep)
             phoneTask = Task { @MainActor in
-                for await decision in decisions {
-                    guard !Task.isCancelled else { return }
-                    continuation.yield(.phone(decision))
-                }
+                do {
+                    for try await decision in decisions {
+                        guard !Task.isCancelled else { return }
+                        continuation.yield(.phone(decision))
+                    }
+                } catch { }
             }
         }
 
@@ -224,6 +234,7 @@ public final class CredentialApprovalCoordinator {
         guard now() < authorizationDeadline else { throw CredentialReleaseAuthorizationError.expired }
         try await updateRouting()
         for await event in events {
+            try Task.checkCancellation()
             guard now() < authorizationDeadline else { throw CredentialReleaseAuthorizationError.expired }
             try await updateRouting()
             switch event {
@@ -249,6 +260,7 @@ public final class CredentialApprovalCoordinator {
                 }
             }
         }
+        try Task.checkCancellation()
         throw CredentialReleaseAuthorizationError.expired
     }
 

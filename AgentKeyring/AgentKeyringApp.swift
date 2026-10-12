@@ -71,12 +71,12 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         } else {
             self.accessControlFixture = nil
             self.fixturePolicyStore = nil
-            self.model = MirrorAppModel()
+            self.model = MirrorAppModel(phoneChannel: CloudKitIPhoneApprovalChannel())
         }
         #else
         self.accessControlFixture = nil
         self.fixturePolicyStore = nil
-        self.model = MirrorAppModel()
+        self.model = MirrorAppModel(phoneChannel: CloudKitIPhoneApprovalChannel())
         #endif
         super.init()
     }

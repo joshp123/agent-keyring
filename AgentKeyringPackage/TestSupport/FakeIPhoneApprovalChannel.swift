@@ -5,13 +5,13 @@ import Foundation
 public final class FakeIPhoneApprovalChannel: IPhoneApprovalChannel {
     public private(set) var requests: [ApprovalRequest] = []
     public private(set) var cancelledRequestIDs: [UUID] = []
-    private var continuations: [UUID: AsyncStream<ApprovalDecision>.Continuation] = [:]
+    private var continuations: [UUID: AsyncThrowingStream<ApprovalDecision, Error>.Continuation] = [:]
 
     public init() {}
 
-    public func publish(_ request: ApprovalRequest) -> AsyncStream<ApprovalDecision> {
+    public func publish(_ request: ApprovalRequest) -> AsyncThrowingStream<ApprovalDecision, Error> {
         requests.append(request)
-        let (stream, continuation) = AsyncStream<ApprovalDecision>.makeStream()
+        let (stream, continuation) = AsyncThrowingStream<ApprovalDecision, Error>.makeStream()
         continuations[request.id] = continuation
         return stream
     }
