@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 public protocol CredentialFiller {
     func inspect() async throws -> FillInspection
-    func type(value: NSMutableData, expected: FillInspection) async throws -> FillTypingResult
+    func type(value: NSMutableData, expected: FillInspection, deadline: Date) async throws -> FillTypingResult
 }
 
 @MainActor
@@ -25,9 +25,9 @@ public final class XPCCredentialFiller: CredentialFiller {
         try await call { proxy, completion in proxy.inspect { completion(.success($0)) } }
     }
 
-    public func type(value: NSMutableData, expected: FillInspection) async throws -> FillTypingResult {
+    public func type(value: NSMutableData, expected: FillInspection, deadline: Date) async throws -> FillTypingResult {
         try await call { proxy, completion in
-            proxy.type(value: value, expected: expected) { completion(.success($0)) }
+            proxy.type(value: value, expected: expected, deadline: deadline) { completion(.success($0)) }
         }
     }
 
@@ -41,7 +41,6 @@ public final class XPCCredentialFiller: CredentialFiller {
                 reply.finish(.failure(Self.unavailable))
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { reply.finish(.failure(Self.unavailable)) }
             invoke(proxy, reply.finish)
         }
     }
@@ -71,7 +70,7 @@ struct AgentCredentialFillProcessor {
     let filler: any CredentialFiller
     let resolver: CredentialResolver
 
-    func fill(candidate: CredentialCandidate, requestedURL: String, field: AgentCredentialField,
+    func fill(candidate: CredentialCandidate, requestedURL: String, field: AgentCredentialField, deadline: Date,
         value: () async throws -> String) async throws {
         let inspection = try await filler.inspect()
         try validate(inspection, candidate: candidate, requestedURL: requestedURL, field: field)
@@ -80,12 +79,13 @@ struct AgentCredentialFillProcessor {
         defer { _ = memset_s(bytes.mutableBytes, bytes.length, 0, bytes.length) }
         let units = bytes.mutableBytes.assumingMemoryBound(to: UniChar.self)
         for (index, unit) in secret.utf16.enumerated() { units[index] = unit }
-        switch try await filler.type(value: bytes, expected: inspection) {
+        switch try await filler.type(value: bytes, expected: inspection, deadline: deadline) {
         case .filled: return
         case .accessibilityMissing: throw AgentBridgeFailure(.accessibilityMissing, Self.accessibilityMessage)
         case .screenLocked: throw AgentBridgeFailure(.screenLocked, "The screen is locked.")
         case .targetChanged:
             throw AgentBridgeFailure(.fillTargetChanged, "The browser, page or focused field changed; focus the field and retry.")
+        case .requestExpired: throw AgentBridgeFailure(.requestExpired, "The fill request expired before typing completed.")
         case .failed: throw AgentBridgeFailure(.internalError, "Agent Keyring could not type into the focused field.")
         }
     }

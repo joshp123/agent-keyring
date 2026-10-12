@@ -14,18 +14,18 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
         DispatchQueue.main.async { reply(self.inspectFrontmost()) }
     }
 
-    func type(value: NSMutableData, expected: FillInspection, withReply reply: @escaping (FillTypingResult) -> Void) {
+    func type(value: NSMutableData, expected: FillInspection, deadline: Date, withReply reply: @escaping (FillTypingResult) -> Void) {
         DispatchQueue.main.async {
-            reply(FillerTypingOperation.type(value: value, expected: expected,
+            reply(FillerTypingOperation.type(value: value, expected: expected, deadline: deadline,
                 inspect: self.inspectFrontmost, post: self.postUnicode))
         }
     }
 
-    private func postUnicode(_ value: NSMutableData) -> Bool {
+    private func postUnicode(_ value: NSMutableData, deadline: Date) -> FillTypingResult {
         guard value.length > 0, value.length.isMultiple(of: MemoryLayout<UniChar>.size),
             let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
             let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
-        else { return false }
+        else { return .failed }
         let units = value.mutableBytes.assumingMemoryBound(to: UniChar.self)
         let count = value.length / MemoryLayout<UniChar>.size
         var offset = 0
@@ -35,14 +35,18 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
                 && (0xDC00...0xDFFF).contains(units[offset + 1])
             let length = pairedSurrogate ? 2 : 1
             for event in [down, up] {
+                event.flags = []
                 event.keyboardSetUnicodeString(stringLength: length, unicodeString: units + offset)
+                defer {
+                    var empty: UniChar = 0
+                    event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &empty)
+                }
+                guard Date() < deadline else { return .requestExpired }
                 event.post(tap: .cghidEventTap)
-                var empty: UniChar = 0
-                event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &empty)
             }
             offset += length
         }
-        return true
+        return .filled
     }
 
     private func inspectFrontmost() -> FillInspection {

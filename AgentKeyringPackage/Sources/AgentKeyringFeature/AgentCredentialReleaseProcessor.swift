@@ -126,7 +126,7 @@ public struct AgentCredentialReleaseProcessor {
         try ensureDecisionPermitsRelease(accessControl.releaseDecision(for: selected.id, field: field))
         if let activeFiller {
             try await AgentCredentialFillProcessor(filler: activeFiller, resolver: resolver).fill(
-                candidate: selected, requestedURL: targetURL, field: field,
+                candidate: selected, requestedURL: targetURL, field: field, deadline: request.expiresAt,
                 value: {
                     try ensureRequestHasNotExpired(request)
                     try await accessControl.ensureRulesConfirmed()

@@ -27,14 +27,14 @@ struct FillerRecheckTests {
         let value = NSMutableData(data: Data("synthetic-typing-canary".utf8))
         var inspections = 0
         var posts = 0
-        let result = FillerTypingOperation.type(value: value, expected: expected, inspect: {
+        let result = FillerTypingOperation.type(value: value, expected: expected, deadline: Date().addingTimeInterval(60), inspect: {
             inspections += 1
             return current
-        }, post: { bytes in
+        }, post: { bytes, _ in
             #expect(inspections == 1)
             #expect(String(decoding: bytes as Data, as: UTF8.self) == "synthetic-typing-canary")
             posts += 1
-            return true
+            return .filled
         })
         let expectedResult: FillTypingResult = switch path {
         case "unchanged": .filled
@@ -50,9 +50,53 @@ struct FillerRecheckTests {
     @Test("Failed posting zeroes the value")
     func failedPosting() {
         let value = NSMutableData(data: Data("synthetic".utf8))
-        #expect(FillerTypingOperation.type(value: value, expected: fillInspection(),
-            inspect: { fillInspection() }, post: { _ in false }) == .failed)
+        #expect(FillerTypingOperation.type(value: value, expected: fillInspection(), deadline: Date().addingTimeInterval(60),
+            inspect: { fillInspection() }, post: { _, _ in .failed }) == .failed)
         #expect((value as Data).allSatisfy { $0 == 0 })
+    }
+
+    @Test("Focus changes during posting are reported after typing", arguments: ["app", "page", "field"])
+    func changesDuringPosting(path: String) {
+        let expected = fillInspection()
+        var current = expected
+        let value = NSMutableData(data: Data("synthetic".utf8))
+        var inspections = 0
+        let result = FillerTypingOperation.type(value: value, expected: expected,
+            deadline: Date().addingTimeInterval(60), inspect: { inspections += 1; return current }, post: { _, _ in
+                current = switch path {
+                case "app": fillInspection(bundleIdentifier: "com.google.Chrome")
+                case "page": fillInspection(pageAddress: "https://other.invalid")
+                default: fillInspection(focusedElementIdentifier: "other-field")
+                }
+                return .filled
+            })
+        #expect(result == .targetChanged && inspections == 2)
+        #expect((value as Data).allSatisfy { $0 == 0 })
+    }
+
+    @Test("Expired fills never start posting", arguments: ["before-inspection", "during-inspection"])
+    func deadlineBeforePosting(path: String) {
+        let deadline = Date(timeIntervalSince1970: 100)
+        var now = path == "before-inspection" ? deadline : deadline.addingTimeInterval(-1)
+        let value = NSMutableData(data: Data("synthetic".utf8))
+        let result = FillerTypingOperation.type(value: value, expected: fillInspection(), deadline: deadline,
+            now: { now }, inspect: { now = deadline; return fillInspection() }, post: { _, _ in
+                Issue.record("Expired fill posted")
+                return .filled
+            })
+        #expect(result == .requestExpired)
+        #expect((value as Data).allSatisfy { $0 == 0 })
+    }
+
+    @Test("The helper's posting deadline is preserved in its result")
+    func deadlineDuringPosting() {
+        let deadline = Date().addingTimeInterval(60)
+        let result = FillerTypingOperation.type(value: NSMutableData(data: Data("synthetic".utf8)),
+            expected: fillInspection(), deadline: deadline, inspect: { fillInspection() }, post: { _, receivedDeadline in
+                #expect(receivedDeadline == deadline)
+                return .requestExpired
+            })
+        #expect(result == .requestExpired)
     }
 
     @Test("The typed XPC inspection survives secure coding")

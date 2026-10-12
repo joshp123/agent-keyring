@@ -9,6 +9,7 @@ public final class FakeCredentialFiller: CredentialFiller {
     public var onInspect: (() async -> Void)?
     public private(set) var inspectCount = 0
     public private(set) var typedValues: [String] = []
+    public private(set) var typingDeadline: Date?
     public private(set) var expectedInspection: FillInspection?
     public private(set) var receivedBytes: NSMutableData?
 
@@ -20,7 +21,8 @@ public final class FakeCredentialFiller: CredentialFiller {
         return inspection
     }
 
-    public func type(value: NSMutableData, expected: FillInspection) async throws -> FillTypingResult {
+    public func type(value: NSMutableData, expected: FillInspection, deadline: Date) async throws -> FillTypingResult {
+        typingDeadline = deadline
         receivedBytes = value
         expectedInspection = expected
         typedValues.append(String(utf16CodeUnits: value.bytes.assumingMemoryBound(to: UInt16.self), count: value.length / 2))

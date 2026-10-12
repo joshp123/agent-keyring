@@ -71,6 +71,7 @@ struct CredentialFillTests {
         #expect(response.copiedField == nil && response.candidates == nil)
         #expect(filler.typedValues == [FillTestFixture.password])
         #expect(filler.expectedInspection === filler.inspection)
+        #expect(filler.typingDeadline == request.expiresAt)
         #expect((filler.receivedBytes! as Data).allSatisfy { $0 == 0 })
         #expect(throws: CredentialTransferError.unavailable) { _ = try CredentialTransfer.read(requestID: request.id) }
     }
@@ -229,7 +230,7 @@ struct CredentialFillTests {
         #expect(filler.typedValues.isEmpty)
     }
 
-    @Test("Helper refusals stay refusals", arguments: [FillTypingResult.accessibilityMissing, .screenLocked, .targetChanged, .failed])
+    @Test("Helper refusals stay refusals", arguments: [FillTypingResult.accessibilityMissing, .screenLocked, .targetChanged, .failed, .requestExpired])
     func helperRefusal(result: FillTypingResult) async throws {
         let fixture = try FillTestFixture()
         defer { fixture.cleanUp() }
@@ -238,6 +239,7 @@ struct CredentialFillTests {
         case .accessibilityMissing: .accessibilityMissing
         case .screenLocked: .screenLocked
         case .targetChanged: .fillTargetChanged
+        case .requestExpired: .requestExpired
         default: .internalError
         }
         do {
