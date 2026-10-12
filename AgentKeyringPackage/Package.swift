@@ -17,10 +17,6 @@ let package = Package(
             targets: ["AgentKeyringCLI"]
         ),
         .executable(
-            name: "agent-keyring-docs-renderer",
-            targets: ["AgentKeyringDocsRenderer"]
-        ),
-        .executable(
             name: "agent-keyring-fixture",
             targets: ["AgentKeyringFixture"]
         ),
@@ -40,11 +36,6 @@ let package = Package(
                 "AgentKeyringFeature",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
-        ),
-        .executableTarget(
-            name: "AgentKeyringDocsRenderer",
-            dependencies: ["AgentKeyringFeature"],
-            path: "Tools/AgentKeyringDocsRenderer"
         ),
         .executableTarget(
             name: "AgentKeyringFixture",
