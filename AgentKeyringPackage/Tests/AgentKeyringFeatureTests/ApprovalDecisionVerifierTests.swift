@@ -22,7 +22,7 @@ struct ApprovalDecisionVerifierTests {
     }
 
     @Test("Signing any tampered request field fails against the Mac's retained request",
-        arguments: ["site", "account", "field", "action", "one-time-value", "expiry"])
+        arguments: ["agent-label", "site", "account", "field", "action", "one-time-value", "expiry"])
     func tamperedField(field: String) async throws {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
@@ -32,6 +32,7 @@ struct ApprovalDecisionVerifierTests {
         try await verifier.register(request)
         let original = request.signedFields
         let changed = ApprovalSignedFields(requestID: original.requestID,
+            agentDisplayLabel: field == "agent-label" ? "Other agent" : original.agentDisplayLabel,
             site: field == "site" ? "https://other.example" : original.site,
             account: field == "account" ? "other" : original.account,
             field: field == "field" ? .username : original.field,

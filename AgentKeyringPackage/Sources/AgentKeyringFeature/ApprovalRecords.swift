@@ -38,7 +38,7 @@ public struct ApprovalRequest: Codable, Equatable, Sendable {
     }
 
     public var signedFields: ApprovalSignedFields {
-        ApprovalSignedFields(requestID: id, site: site, account: account, field: field,
+        ApprovalSignedFields(requestID: id, agentDisplayLabel: agentDisplayLabel, site: site, account: account, field: field,
             action: action, oneTimeValue: oneTimeValue, expiresAt: expiresAt)
     }
 }
@@ -46,6 +46,7 @@ public struct ApprovalRequest: Codable, Equatable, Sendable {
 /// Fields sent for approval. The Mac signs and verifies only its retained copy.
 public struct ApprovalSignedFields: Codable, Equatable, Sendable {
     public let requestID: UUID
+    public let agentDisplayLabel: String
     public let site: String
     public let account: String
     public let field: AgentCredentialField
@@ -53,9 +54,10 @@ public struct ApprovalSignedFields: Codable, Equatable, Sendable {
     public let oneTimeValue: Data
     public let expiresAt: Int64
 
-    public init(requestID: UUID, site: String, account: String, field: AgentCredentialField,
+    public init(requestID: UUID, agentDisplayLabel: String, site: String, account: String, field: AgentCredentialField,
         action: ApprovalAction, oneTimeValue: Data, expiresAt: Int64) {
         self.requestID = requestID
+        self.agentDisplayLabel = agentDisplayLabel
         self.site = site
         self.account = account
         self.field = field
@@ -64,7 +66,7 @@ public struct ApprovalSignedFields: Codable, Equatable, Sendable {
         self.expiresAt = expiresAt
     }
 
-    /// v1: domain prefix, UUID bytes, length-prefixed UTF-8 site/account/field/action,
+    /// v1: domain prefix, UUID bytes, length-prefixed UTF-8 agent label/site/account/field/action,
     /// length-prefixed nonce, Int64 Unix expiry seconds, length-prefixed choice.
     /// All lengths are UInt32 and all numbers are big-endian. Strings are used verbatim.
     /// ApprovalRecordsTests.canonicalEncoding fixes the complete wire format with a byte vector.
@@ -77,7 +79,7 @@ public struct ApprovalSignedFields: Codable, Equatable, Sendable {
             withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }
             bytes.append(value)
         }
-        for text in [site, account, field.rawValue, action.rawValue] {
+        for text in [agentDisplayLabel, site, account, field.rawValue, action.rawValue] {
             appendLengthPrefixed(Data(text.utf8))
         }
         appendLengthPrefixed(oneTimeValue)

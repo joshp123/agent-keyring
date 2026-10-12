@@ -8,12 +8,13 @@ struct ApprovalRecordsTests {
     func canonicalEncoding() throws {
         let fields = ApprovalSignedFields(
             requestID: try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001")),
-            site: "https://example.com", account: "josh", field: .password, action: .fill,
+            agentDisplayLabel: "Test agent", site: "https://example.com", account: "josh", field: .password, action: .fill,
             oneTimeValue: Data([0x00, 0xff]), expiresAt: 600)
         // Each line is one component, in wire order. No JSON, locale, delimiter or key-order dependency.
         let expectedHex = [
             "4167656e744b657972696e672e617070726f76616c2e763100", // AgentKeyring.approval.v1 + NUL
             "00000000000000000000000000000001", // UUID, 16 bytes
+            "0000000a54657374206167656e74", // Test agent, 10 bytes
             "0000001368747470733a2f2f6578616d706c652e636f6d", // UTF-8 site, 19 bytes
             "000000046a6f7368", // UTF-8 account, 4 bytes
             "0000000870617373776f7264", // password, 8 bytes
