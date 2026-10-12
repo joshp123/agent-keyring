@@ -103,9 +103,16 @@ public struct AgentCredentialReleaseProcessor {
         )
         let expiration = min(120, max(5, request.expirationSeconds))
         if request.action == .acquire {
-            try CredentialTransfer.publish(
-                secret, requestID: request.id
-            )
+            if field == .totp,
+                let item = generation.items.first(where: { $0.id == selected.id }),
+                let record = item.credentials.first(where: {
+                    if case .totp = $0 { return true }
+                    return false
+                }) {
+                try CredentialTransfer.publishCode(record, requestID: request.id)
+            } else {
+                try CredentialTransfer.publish(secret, requestID: request.id)
+            }
         } else {
             copyNative(secret, TimeInterval(expiration))
         }

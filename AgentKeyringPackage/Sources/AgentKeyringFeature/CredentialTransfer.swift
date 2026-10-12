@@ -10,6 +10,17 @@ public enum CredentialTransferError: Error, Sendable {
 public enum CredentialTransfer {
     private static let credentialType = NSPasteboard.PasteboardType("com.agentkeyring.credential")
 
+    private static let codeType = NSPasteboard.PasteboardType("com.agentkeyring.totp")
+
+    static func publishCode(_ record: MirrorCredential, requestID: UUID) throws {
+        let channel = pasteboard(for: requestID)
+        channel.clearContents()
+        guard channel.setData(try PropertyListEncoder().encode(record), forType: codeType) else {
+            channel.releaseGlobally()
+            throw CredentialTransferError.unavailable
+        }
+    }
+
     private static func pasteboard(for requestID: UUID) -> NSPasteboard {
         NSPasteboard(name: .init("com.agentkeyring.credential.\(requestID.uuidString)"))
     }
@@ -23,8 +34,16 @@ public enum CredentialTransfer {
         }
     }
 
-    public static func read(requestID: UUID) throws -> Data {
+    public static func read(requestID: UUID, now: Date = Date()) throws -> Data {
         let channel = pasteboard(for: requestID)
+        if let data = channel.data(forType: codeType) {
+            guard case let .totp(secret, period, digits, _, algorithm, _) =
+                try PropertyListDecoder().decode(MirrorCredential.self, from: data) else {
+                throw CredentialTransferError.unavailable
+            }
+            return Data(try TOTPGenerator().code(secret: secret, period: period,
+                digits: digits, algorithm: algorithm, at: now).utf8)
+        }
         guard let bytes = channel.data(forType: credentialType) else {
             throw CredentialTransferError.unavailable
         }

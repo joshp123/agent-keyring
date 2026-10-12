@@ -119,6 +119,17 @@ struct CredentialRetentionTests {
         #expect(try read(requestID: second) == Data("second synthetic value".utf8))
     }
 
+    @Test("Code retries generate a fresh code across the period boundary")
+    func freshCodeOnRead() throws {
+        let reference = UUID()
+        defer { CredentialTransfer.clear(requestID: reference) }
+        let seed = Data("12345678901234567890".utf8)
+        try CredentialTransfer.publishCode(.totp(secret: seed, period: 30, digits: 8,
+            userName: "code-account", algorithm: .sha1, issuer: nil), requestID: reference)
+        #expect(try CredentialTransfer.read(requestID: reference, now: Date(timeIntervalSince1970: 59)) == Data("94287082".utf8))
+        #expect(try CredentialTransfer.read(requestID: reference, now: Date(timeIntervalSince1970: 60)) == Data("37359152".utf8))
+    }
+
     private func read(requestID: UUID) throws -> Data {
         try CredentialTransfer.read(requestID: requestID)
     }
