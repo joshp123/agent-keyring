@@ -4,15 +4,13 @@ import Foundation
 
 struct Install: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Install the command and Codex instructions for this user."
+        abstract: "Install the command, Claude Code and Codex skills, and agent-browser plugin."
     )
 
     mutating func run() throws {
         do {
             let result = try CLIClient.install()
-            print("Installed Agent Keyring for Codex.")
-            print("Command: \(result.commandPath)")
-            print("Instructions: \(result.skillPath)")
+            print(result.rendered, terminator: "")
         } catch let error as CLIError {
             try stop(error)
         } catch {
@@ -22,10 +20,14 @@ struct Install: ParsableCommand {
 }
 
 extension CLIClient {
-    static func install() throws -> CLIInstallResult {
+    static func install(
+        home: URL = ProcessInfo.processInfo.environment["HOME"].map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        } ?? FileManager.default.homeDirectoryForCurrentUser,
+        executable: URL = URL(fileURLWithPath: CommandLine.arguments[0])
+    ) throws -> CLIInstallResult {
         let fileManager = FileManager.default
-        let executable = URL(fileURLWithPath: CommandLine.arguments[0])
-            .standardizedFileURL
+        let executable = executable.standardizedFileURL
             .resolvingSymlinksInPath()
         let helpersDirectory = executable.deletingLastPathComponent()
         let contentsDirectory = helpersDirectory.deletingLastPathComponent()
@@ -43,38 +45,46 @@ extension CLIClient {
             )
         }
 
-        let home = fileManager.homeDirectoryForCurrentUser
-        let commandDestination = home.appendingPathComponent(".local/bin/agent-keyring")
-        let codexHome =
-            ProcessInfo.processInfo.environment["CODEX_HOME"].map {
-                URL(fileURLWithPath: $0, isDirectory: true)
-            } ?? home.appendingPathComponent(".codex", isDirectory: true)
-        let skillSource =
-            contentsDirectory
-            .appendingPathComponent("Resources/AgentTools/CodexSkill/agent-keyring")
-        let skillDestination = codexHome.appendingPathComponent("skills/agent-keyring")
+        let skillSource = contentsDirectory
+            .appendingPathComponent("Resources/AgentTools/CodexSkill/agent-keyring/SKILL.md")
         guard fileManager.fileExists(atPath: skillSource.path) else {
             throw CLIError(
-                "AgentKeyring.app is missing its Codex instructions.",
+                "AgentKeyring.app is missing its agent skill.",
                 suggestion: "Reinstall Agent Keyring, then try again."
             )
         }
-
-        let integrations = [
-            IntegrationLink(
-                destination: commandDestination,
-                source: executable
-            ),
-            IntegrationLink(
-                destination: skillDestination,
-                source: skillSource
-            ),
-        ]
-        try IntegrationInstaller.install(integrations)
-        return CLIInstallResult(
-            commandPath: commandDestination.path,
-            skillPath: skillDestination.path
-        )
+        let skill = try Data(contentsOf: skillSource)
+        let commandDestination = home.appendingPathComponent(".local/bin/agent-keyring")
+        let configURL = home.appendingPathComponent(".agent-browser/config.json")
+        let config = try AgentBrowserRegistration.mergedConfig(at: configURL, command: commandDestination.path)
+        try IntegrationInstaller.install([
+            IntegrationLink(destination: commandDestination, source: executable)
+        ])
+        var lines = ["Command: \(commandDestination.path)"]
+        for harness in ["codex", "claude"] {
+            let destination = home.appendingPathComponent(".\(harness)/skills/agent-keyring/SKILL.md")
+            do {
+                let directory = destination.deletingLastPathComponent()
+                // Earlier releases linked the entire skill directory to the app bundle.
+                if (try? fileManager.destinationOfSymbolicLink(atPath: directory.path)) != nil {
+                    try fileManager.trashItem(at: directory, resultingItemURL: nil)
+                }
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+                if (try? fileManager.destinationOfSymbolicLink(atPath: destination.path)) != nil {
+                    try fileManager.trashItem(at: destination, resultingItemURL: nil)
+                }
+                try skill.write(to: destination, options: .atomic)
+                lines.append("Skill: \(destination.path)")
+            } catch {
+                lines.append("Skipped \(destination.path); add the bundled skill: \(skillSource.path)")
+            }
+        }
+        try fileManager.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try config.write(to: configURL, options: .atomic)
+        lines.append("Plugin: \(configURL.path)")
+        lines.append("AGENTS.md:")
+        lines.append("Use agent-keyring for logins and secrets. See `agent-keyring --help`.")
+        return CLIInstallResult(rendered: lines.joined(separator: "\n") + "\n")
     }
 }
 
@@ -139,7 +149,36 @@ enum IntegrationInstaller {
     }
 }
 
+enum AgentBrowserRegistration {
+    static func mergedConfig(at url: URL, command: String) throws -> Data {
+        var config: [String: Any] = [:]
+        if FileManager.default.fileExists(atPath: url.path) {
+            guard let existing = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any] else {
+                throw CLIError("Cannot register the plugin: \(url.path) must contain a JSON object.")
+            }
+            config = existing
+        }
+        var plugins: [[String: Any]] = []
+        if let existing = config["plugins"] {
+            guard let entries = existing as? [[String: Any]] else {
+                throw CLIError("Cannot register the plugin: plugins in \(url.path) must be an array of objects.")
+            }
+            plugins = entries
+        }
+        let registration: [String: Any] = [
+            "name": "agent-keyring", "command": command,
+            "args": ["agent-browser-plugin"], "capabilities": ["credential.read"],
+        ]
+        if let index = plugins.firstIndex(where: { $0["name"] as? String == "agent-keyring" }) {
+            plugins[index].merge(registration) { _, installed in installed }
+        } else {
+            plugins.append(registration)
+        }
+        config["plugins"] = plugins
+        return try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+    }
+}
+
 struct CLIInstallResult {
-    let commandPath: String
-    let skillPath: String
+    let rendered: String
 }
