@@ -33,6 +33,8 @@ private struct CheckForUpdatesView: View {
 final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     let presentation: AgentKeyringPresentation
     let model: MirrorAppModel
+    private var syncNotifier: SystemMirrorSyncNotifier?
+    private var syncTask: Task<Void, Never>?
     private let accessControlFixture: MirrorGeneration?
 
     override init() {
@@ -68,6 +70,20 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if accessControlFixture == nil {
+            let notifier = SystemMirrorSyncNotifier { [weak self] in
+                self?.model.openPasswordsExport()
+            }
+            syncNotifier = notifier
+            model.syncReminders = MirrorSyncReminders(notifier: notifier)
+            syncTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    await self?.model.checkMirrorFreshness()
+                    do { try await Task.sleep(for: .seconds(60)) }
+                    catch { return }
+                }
+            }
+        }
         NSApplication.shared.setActivationPolicy(.regular)
 
         guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),

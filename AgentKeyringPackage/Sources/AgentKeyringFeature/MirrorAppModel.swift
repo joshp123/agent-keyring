@@ -38,6 +38,8 @@ public final class MirrorAppModel {
     public internal(set) var notice: MirrorNotice?
     public let accessControl: CredentialAccessController
 
+    public var syncReminders: MirrorSyncReminders?
+
     let store: EncryptedSnapshotStore
     let mapper: CredentialExchangeMapper
     let credentialImporter: any CredentialImporting

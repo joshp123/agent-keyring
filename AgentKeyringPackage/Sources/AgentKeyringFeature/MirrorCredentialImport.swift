@@ -60,6 +60,11 @@ extension MirrorAppModel {
         }
     }
 
+    public func openPasswordsExport() {
+        notice = MirrorNotice(kind: .information, text: MirrorSyncReminders.exportInstruction)
+        openPasswords()
+    }
+
     public func openPasswords() {
         guard
             let url = NSWorkspace.shared.urlForApplication(
