@@ -42,6 +42,7 @@ public final class XPCCredentialFiller: CredentialFiller {
         }
         switch result {
         case .filled: break
+        case .unsupportedBrowser: fillerClientLogger.error("Fill refused: browser code signature is not trusted.")
         case .accessibilityMissing: fillerClientLogger.error("Fill refused: Accessibility permission missing.")
         case .screenLocked: fillerClientLogger.error("Fill refused: screen locked.")
         case .targetChanged: fillerClientLogger.error("Fill refused: browser, page or focused field changed.")
@@ -102,6 +103,7 @@ struct AgentCredentialFillProcessor {
         for (index, unit) in secret.utf16.enumerated() { units[index] = unit }
         switch try await filler.type(value: bytes, expected: inspection, deadline: deadline) {
         case .filled: return
+        case .unsupportedBrowser: throw AgentBridgeFailure(.unsupportedBrowser, "This browser is not supported; use agent-browser.")
         case .accessibilityMissing: throw AgentBridgeFailure(.accessibilityMissing, Self.accessibilityMessage)
         case .screenLocked: throw AgentBridgeFailure(.screenLocked, "The screen is locked.")
         case .targetChanged:
@@ -129,7 +131,7 @@ struct AgentCredentialFillProcessor {
         field: AgentCredentialField) throws {
         if inspection.screenLocked { throw AgentBridgeFailure(.screenLocked, "The screen is locked.") }
         if !inspection.accessibilityTrusted { throw AgentBridgeFailure(.accessibilityMissing, Self.accessibilityMessage) }
-        guard Self.supportedBundleIdentifiers.contains(inspection.bundleIdentifier ?? "") else {
+        guard inspection.browserSignatureTrusted, TrustedBrowsers.requirement(for: inspection.bundleIdentifier) != nil else {
             throw AgentBridgeFailure(.unsupportedBrowser, "This browser is not supported; use agent-browser.")
         }
         guard let pageAddress = inspection.pageAddress,
@@ -151,7 +153,4 @@ struct AgentCredentialFillProcessor {
         }
     }
 
-    private static let supportedBundleIdentifiers: Set<String> = [
-        "com.apple.Safari", "com.google.Chrome", "com.anthropic.claudefordesktop", "com.openai.codex",
-    ]
 }

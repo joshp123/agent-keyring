@@ -37,6 +37,7 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
                 inspect: self.inspectFrontmost, post: self.postUnicode)
             switch result {
             case .filled, .failed: break // Posting failures log their specific cause below.
+            case .unsupportedBrowser: fillerLogger.error("Typing refused: browser code signature is not trusted.")
             case .accessibilityMissing: fillerLogger.error("Typing refused: Accessibility permission missing.")
             case .screenLocked: fillerLogger.error("Typing refused: screen locked.")
             case .targetChanged: fillerLogger.error("Typing refused: browser, page or focused field changed.")
@@ -84,6 +85,7 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
         if inspection.screenLocked { fillerLogger.error("Inspection refused: screen locked.") }
         else if !inspection.accessibilityTrusted { fillerLogger.error("Inspection refused: Accessibility permission missing.") }
         else if inspection.bundleIdentifier == nil { fillerLogger.error("Inspection failed: no frontmost application.") }
+        else if !inspection.browserSignatureTrusted { fillerLogger.error("Inspection refused: browser code signature is not trusted.") }
         else if inspection.windowIdentifier == nil { fillerLogger.error("Inspection failed: no focused window.") }
         else if inspection.focusedElementIdentifier == nil { fillerLogger.error("Inspection refused: no focused element.") }
         else if inspection.pageAddress == nil { fillerLogger.error("Inspection refused: focused element has no readable web-area address.") }
@@ -95,7 +97,10 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         let locked = session == nil || (session?["CGSSessionScreenIsLocked"] as? Bool ?? false)
         let trusted = AXIsProcessTrusted()
-        let appElement = application.map { AXUIElementCreateApplication($0.processIdentifier) }
+        let signatureTrusted = TrustedBrowsers.verify(processIdentifier: application?.processIdentifier ?? 0,
+            bundleIdentifier: application?.bundleIdentifier)
+        if !signatureTrusted { fillerLogger.error("Browser refused: unsupported or invalid code signature.") }
+        let appElement = signatureTrusted ? application.map { AXUIElementCreateApplication($0.processIdentifier) } : nil
         let window = trusted ? appElement.flatMap { element($0, kAXFocusedWindowAttribute) } : nil
         let focused = trusted ? appElement.flatMap { element($0, kAXFocusedUIElementAttribute) } : nil
         if !sameElement(window, previousWindow) { windowIdentifier = window.map { _ in UUID().uuidString } }
@@ -107,7 +112,8 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
             accessibilityTrusted: trusted, pageAddress: window.flatMap { pageAddress(window: $0, focused: focused) },
             focusedRole: focused.flatMap { string($0, kAXRoleAttribute) },
             focusedSubrole: focused.flatMap { string($0, kAXSubroleAttribute) },
-            windowIdentifier: windowIdentifier, focusedElementIdentifier: focusedElementIdentifier)
+            windowIdentifier: windowIdentifier, focusedElementIdentifier: focusedElementIdentifier,
+            browserSignatureTrusted: signatureTrusted)
     }
 
     private func sameElement(_ first: AXUIElement?, _ second: AXUIElement?) -> Bool {

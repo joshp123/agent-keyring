@@ -33,11 +33,11 @@ public final class FakeCredentialFiller: CredentialFiller {
 public func fillInspection(bundleIdentifier: String? = "com.apple.Safari", processIdentifier: Int32 = 123,
     screenLocked: Bool = false, accessibilityTrusted: Bool = true, pageAddress: String? = "https://example.com/login",
     focusedRole: String? = "AXTextField", focusedSubrole: String? = "AXSecureTextField",
-    windowIdentifier: String? = "window-1", focusedElementIdentifier: String? = "field-1") -> FillInspection {
+    windowIdentifier: String? = "window-1", focusedElementIdentifier: String? = "field-1", browserSignatureTrusted: Bool = true) -> FillInspection {
     FillInspection(bundleIdentifier: bundleIdentifier, processIdentifier: processIdentifier,
         screenLocked: screenLocked, accessibilityTrusted: accessibilityTrusted, pageAddress: pageAddress,
         focusedRole: focusedRole, focusedSubrole: focusedSubrole,
-        windowIdentifier: windowIdentifier, focusedElementIdentifier: focusedElementIdentifier)
+        windowIdentifier: windowIdentifier, focusedElementIdentifier: focusedElementIdentifier, browserSignatureTrusted: browserSignatureTrusted)
 }
 
 @MainActor

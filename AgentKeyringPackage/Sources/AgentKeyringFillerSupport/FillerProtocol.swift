@@ -7,11 +7,13 @@ import Foundation
     case targetChanged
     case failed
     case requestExpired
+    case unsupportedBrowser
 }
 
 @objc(AgentKeyringFillInspection)
 public final class FillInspection: NSObject, NSSecureCoding, @unchecked Sendable {
     public static var supportsSecureCoding: Bool { true }
+    public let browserSignatureTrusted: Bool
     public let bundleIdentifier: String?
     public let processIdentifier: Int32
     public let screenLocked: Bool
@@ -24,7 +26,8 @@ public final class FillInspection: NSObject, NSSecureCoding, @unchecked Sendable
 
     public init(bundleIdentifier: String?, processIdentifier: Int32, screenLocked: Bool,
         accessibilityTrusted: Bool, pageAddress: String?, focusedRole: String?, focusedSubrole: String?,
-        windowIdentifier: String?, focusedElementIdentifier: String?) {
+        windowIdentifier: String?, focusedElementIdentifier: String?, browserSignatureTrusted: Bool = false) {
+        self.browserSignatureTrusted = browserSignatureTrusted
         self.bundleIdentifier = bundleIdentifier
         self.processIdentifier = processIdentifier
         self.screenLocked = screenLocked
@@ -37,6 +40,7 @@ public final class FillInspection: NSObject, NSSecureCoding, @unchecked Sendable
     }
 
     public required init?(coder: NSCoder) {
+        browserSignatureTrusted = coder.decodeBool(forKey: "browserSignatureTrusted")
         bundleIdentifier = coder.decodeObject(of: NSString.self, forKey: "bundleIdentifier") as String?
         processIdentifier = coder.decodeInt32(forKey: "processIdentifier")
         screenLocked = coder.decodeBool(forKey: "screenLocked")
@@ -49,6 +53,7 @@ public final class FillInspection: NSObject, NSSecureCoding, @unchecked Sendable
     }
 
     public func encode(with coder: NSCoder) {
+        coder.encode(browserSignatureTrusted, forKey: "browserSignatureTrusted")
         coder.encode(bundleIdentifier, forKey: "bundleIdentifier")
         coder.encode(processIdentifier, forKey: "processIdentifier")
         coder.encode(screenLocked, forKey: "screenLocked")
@@ -63,6 +68,7 @@ public final class FillInspection: NSObject, NSSecureCoding, @unchecked Sendable
     public func typingRefusal(comparedTo expected: FillInspection) -> FillTypingResult? {
         if screenLocked { return .screenLocked }
         if !accessibilityTrusted { return .accessibilityMissing }
+        if !browserSignatureTrusted || !expected.browserSignatureTrusted { return .unsupportedBrowser }
         guard bundleIdentifier != nil, pageAddress != nil,
             windowIdentifier != nil, focusedElementIdentifier != nil,
             processIdentifier == expected.processIdentifier,
