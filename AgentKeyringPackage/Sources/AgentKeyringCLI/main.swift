@@ -253,6 +253,7 @@ enum CLIClient {
         _ command: CLICommand,
         output: FileHandle = .standardOutput,
         diagnostics: FileHandle = .standardError,
+        now: () -> Date = Date.init,
         sendRequest: ((AgentBridgeRequest) async throws -> AgentBridgeResponse)? = nil
     ) async throws {
         var failedFindMirror: AgentMirrorSummary?
@@ -272,8 +273,8 @@ enum CLIClient {
                 throw CLIError(response: response, command: command)
             }
             write(try CLIOutput.render(response, for: command), to: output)
-            if request.action == .acquire || request.action == .copy {
-                write("Approved.\n", to: diagnostics)
+            if (request.action == .acquire || request.action == .copy), response.approvalProgress?.askedAt != nil {
+                write("Approved at \(approvalTime(now())).\n", to: diagnostics)
             }
         } catch let error as CLIError {
             write(error.rendered, to: diagnostics)

@@ -7,7 +7,7 @@ import Testing
 @MainActor
 @Suite("Honest approval results")
 struct ApprovalResultTests {
-    @Test("Each approval result has a plain sentence and its own exit code", arguments: [
+    @Test("Failures have plain sentences and distinct exits; unprompted release is silent", arguments: [
         "approved", "declined", "expired", "interrupted", "not-verified",
     ])
     func result(path: String) async throws {
@@ -30,7 +30,7 @@ struct ApprovalResultTests {
         case "expired": "The request expired with no answer.\n"
         case "not-verified": "Touch ID or Apple Watch did not verify; retry the request.\n"
         case "interrupted": "macOS interrupted the approval prompt; retry the request.\n"
-        default: "Approved.\n"
+        default: ""
         }
         let output = Pipe()
         let diagnostics = Pipe()
@@ -72,7 +72,7 @@ struct ApprovalResultTests {
         case "expired": "The request expired with no answer."
         case "not-verified": "Touch ID or Apple Watch did not verify; retry the request."
         case "interrupted": "macOS interrupted the approval prompt; retry the request."
-        default: "Approved."
+        default: "Approved at 02:43."
         }
         let bridge = AgentBridgeDirectory(rootURL: FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString))
@@ -80,13 +80,14 @@ struct ApprovalResultTests {
         let waitingSince = try #require(Calendar.current.date(from: DateComponents(
             year: 2026, month: 10, day: 12, hour: 2, minute: 41)))
         let askedAt = initiallyLocked ? waitingSince.addingTimeInterval(60) : waitingSince
+        let approvedAt = waitingSince.addingTimeInterval(120)
         let diagnostics = Pipe()
         let output = Pipe()
         var actualExit: Int32 = 0
         do {
             try await CLIClient.run(.acquire(field: .password, targetURL: "https://example.com", account: nil, credentialID: nil),
                 output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
-                sendRequest: { request in
+                now: { approvedAt }, sendRequest: { request in
                     let clock = CLIWaitClock(now: request.createdAt)
                     let client = AgentBridgeClient(bridge: bridge, now: { clock.now }, sleep: { _ in
                         clock.sleeps += 1
@@ -97,7 +98,8 @@ struct ApprovalResultTests {
                         } else if clock.sleeps == (initiallyLocked ? 3 : 2), code == .requestExpired {
                             clock.now = request.expiresAt
                         } else if clock.sleeps == (initiallyLocked ? 3 : 2) {
-                            try bridge.write(AgentBridgeResponse(id: request.id, ok: code == nil, error: code))
+                            try bridge.write(AgentBridgeResponse(id: request.id, ok: code == nil, error: code,
+                                approvalProgress: try bridge.readProgress(id: request.id)))
                         }
                     })
                     return try await CLIClient.send(request, diagnostics: diagnostics.fileHandleForWriting, client: client,

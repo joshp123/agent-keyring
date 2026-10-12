@@ -6,6 +6,19 @@ import Testing
 @MainActor
 @Suite("Browser approval survives plugin timeout")
 struct AgentBrowserApprovalTests {
+    @Test("Grant fills and automatic logins produce no CLI approval line", arguments: [false, true])
+    func silentRelease(useGrant: Bool) async throws {
+        let fixture = BrowserApprovalFixture()
+        defer { fixture.cleanUp() }
+        if useGrant { fixture.grants.approve(fixture.loginID) }
+        else { await fixture.setPolicy(.allowAutomatically) }
+        let diagnostics = Pipe()
+        try await fixture.acquireWithCLI(diagnostics: diagnostics.fileHandleForWriting)
+        try diagnostics.fileHandleForWriting.close()
+        #expect(diagnostics.fileHandleForReading.readDataToEndOfFile().isEmpty)
+        #expect(fixture.authorizer.calls == 0)
+    }
+
     @Test("The plugin answers within twelve seconds; approval and retry then fill from the grant")
     func pendingThenRetry() async throws {
         let fixture = BrowserApprovalFixture()
@@ -91,6 +104,24 @@ private final class BrowserApprovalFixture {
             })
         try output.fileHandleForWriting.close()
         return try #require(JSONSerialization.jsonObject(with: output.fileHandleForReading.readDataToEndOfFile()) as? [String: Any])
+    }
+
+    func setPolicy(_ policy: CredentialAccessPolicy) async {
+        await accessControl.refresh(from: generation)
+        await accessControl.setPolicy(policy, for: [loginID])
+    }
+
+    func acquireWithCLI(diagnostics: FileHandle) async throws {
+        try await CLIClient.run(.acquire(field: .password, targetURL: "https://example.com",
+            account: nil, credentialID: loginID), output: FileHandle.nullDevice, diagnostics: diagnostics,
+            sendRequest: { request in
+                self.requests.append(request)
+                try self.bridge.write(request)
+                return try await self.processor.release(request: request, generation: self.generation,
+                    authorize: { _, _ in Issue.record("Unprompted release asked for approval") }, copyNative: { _, _ in
+                        Issue.record("Acquire attempted native copy")
+                    })
+            })
     }
 
     private func startAppRequest(_ request: AgentBridgeRequest) {
