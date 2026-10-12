@@ -4,6 +4,7 @@ import Foundation
 public enum AgentBridgeAction: String, Codable, Sendable {
     case status
     case acquire
+    case fill
     case resolve
     case sync
 }
@@ -27,6 +28,13 @@ public enum AgentBridgeErrorCode: String, Codable, Sendable {
     case authorizationUnavailable = "authorization_unavailable"
     case policyDenied = "policy_denied"
     case rulesNeedConfirmation = "rules_need_confirmation"
+    case wrongFocusedField = "wrong_focused_field"
+    case pageMismatch = "page_mismatch"
+    case unsupportedBrowser = "unsupported_browser"
+    case unreadablePageAddress = "unreadable_page_address"
+    case accessibilityMissing = "accessibility_missing"
+    case screenLocked = "screen_locked"
+    case fillTargetChanged = "fill_target_changed"
     case internalError = "internal_error"
 }
 
@@ -112,6 +120,7 @@ public struct AgentBridgeResponse: Codable, Equatable, Sendable {
     public let message: String?
     public let mirror: AgentMirrorSummary?
     public let candidates: [CredentialCandidate]?
+    public let filledField: AgentCredentialField?
     public let copiedField: AgentCredentialField?
     public let clipboardExpiresAt: Date?
     public let approvalProgress: AgentApprovalProgress?
@@ -124,6 +133,7 @@ public struct AgentBridgeResponse: Codable, Equatable, Sendable {
         message: String? = nil,
         mirror: AgentMirrorSummary? = nil,
         candidates: [CredentialCandidate]? = nil,
+        filledField: AgentCredentialField? = nil,
         copiedField: AgentCredentialField? = nil,
         clipboardExpiresAt: Date? = nil,
         approvalProgress: AgentApprovalProgress? = nil
@@ -135,6 +145,7 @@ public struct AgentBridgeResponse: Codable, Equatable, Sendable {
         self.message = message
         self.mirror = mirror
         self.candidates = candidates
+        self.filledField = filledField
         self.copiedField = copiedField
         self.clipboardExpiresAt = clipboardExpiresAt
         self.approvalProgress = approvalProgress

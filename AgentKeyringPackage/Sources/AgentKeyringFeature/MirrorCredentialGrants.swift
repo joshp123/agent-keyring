@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @available(macOS 26.0, *)
@@ -17,6 +18,7 @@ extension MirrorAppModel {
             }
         }
 
+        let fillDestination = agentRequest.action == .fill ? NSWorkspace.shared.frontmostApplication : nil
         do {
             try await authorizer.authorize(approval, onPromptStarted: onPromptStarted)
         } catch {
@@ -28,6 +30,15 @@ extension MirrorAppModel {
             throw error
         }
         await stopApprovalTasks(leaseMonitorTask)
+        if let fillDestination,
+            NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            fillDestination.activate(options: [])
+            let deadline = Date().addingTimeInterval(1)
+            while NSWorkspace.shared.frontmostApplication?.processIdentifier != fillDestination.processIdentifier,
+                Date() < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+        }
     }
 
     private func stopApprovalTasks(

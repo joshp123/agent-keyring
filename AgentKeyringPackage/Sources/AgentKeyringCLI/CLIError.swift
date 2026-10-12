@@ -77,7 +77,9 @@ struct CLIError: Error {
                 "Agent Keyring could not create a verification code for this login.",
                 suggestion: "Update Agent Keyring from Apple Passwords, then try again."
             )
-        case .bridgeUnavailable, .internalError, .invalidRequest, .approvalPending, .none:
+        case .wrongFocusedField, .pageMismatch, .unsupportedBrowser, .unreadablePageAddress,
+            .accessibilityMissing, .screenLocked, .fillTargetChanged,
+            .bridgeUnavailable, .internalError, .invalidRequest, .approvalPending, .none:
             self.init(
                 response.message ?? "Agent Keyring could not complete the request.",
                 suggestion: "Open the app and try again."

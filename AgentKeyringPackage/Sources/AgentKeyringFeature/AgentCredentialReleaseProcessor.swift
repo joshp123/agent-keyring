@@ -6,6 +6,7 @@ public struct AgentCredentialReleaseProcessor {
     private let accessControl: CredentialAccessController
     private let approvals: CredentialApprovalCoordinator
     private let grants: CredentialApprovalGrants
+    private let filler: (any CredentialFiller)?
     private let now: () -> Date
     private let resolver: CredentialResolver
     private let possiblyStaleCredentialIDs: Set<UUID>
@@ -17,6 +18,7 @@ public struct AgentCredentialReleaseProcessor {
         grants: CredentialApprovalGrants = CredentialApprovalGrants(),
         approvals: CredentialApprovalCoordinator = CredentialApprovalCoordinator(),
         possiblyStaleCredentialIDs: Set<UUID> = [],
+        filler: (any CredentialFiller)? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.bridge = bridge
@@ -24,6 +26,7 @@ public struct AgentCredentialReleaseProcessor {
         self.resolver = resolver
         self.grants = grants
         self.approvals = approvals
+        self.filler = filler
         self.now = now
         self.possiblyStaleCredentialIDs = possiblyStaleCredentialIDs
     }
@@ -34,7 +37,7 @@ public struct AgentCredentialReleaseProcessor {
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
         authorize: @escaping @MainActor (CredentialReleaseAuthorizationRequest, @escaping () -> Void) async throws -> Void
     ) async throws -> AgentBridgeResponse {
-        guard request.action == .acquire else {
+        guard request.action == .acquire || request.action == .fill else {
             throw AgentBridgeFailure(.invalidRequest, "A credential release action is required.")
         }
         try ensureRequestHasNotExpired(request)
@@ -89,6 +92,12 @@ public struct AgentCredentialReleaseProcessor {
         )
         try ensureDecisionPermitsRelease(releaseDecision)
 
+        let activeFiller = request.action == .fill ? (filler ?? XPCCredentialFiller()) : nil
+        // Fill must report a locked screen rather than waiting for unlock to prompt.
+        if let activeFiller, try await activeFiller.inspect().screenLocked {
+            throw AgentBridgeFailure(.screenLocked, "The screen is locked.")
+        }
+
         var approvalProgress: AgentApprovalProgress?
         let needsApproval = releaseDecision == .requestAuthorization && !grants.contains(selected.id)
         if needsApproval {
@@ -98,6 +107,7 @@ public struct AgentCredentialReleaseProcessor {
                 field: field,
                 credentialTitle: selected.title,
                 expirationSeconds: nil,
+                fillsFocusedField: request.action == .fill,
                 authorizationDeadline: request.expiresAt,
                 isPossiblyStale: possiblyStaleCredentialIDs.contains(selected.id)
             )
@@ -114,6 +124,19 @@ public struct AgentCredentialReleaseProcessor {
         try ensureRequestHasNotExpired(request)
         try await accessControl.ensureRulesConfirmed()
         try ensureDecisionPermitsRelease(accessControl.releaseDecision(for: selected.id, field: field))
+        if let activeFiller {
+            try await AgentCredentialFillProcessor(filler: activeFiller, resolver: resolver).fill(
+                candidate: selected, requestedURL: targetURL, field: field,
+                value: {
+                    try ensureRequestHasNotExpired(request)
+                    try await accessControl.ensureRulesConfirmed()
+                    try ensureDecisionPermitsRelease(accessControl.releaseDecision(for: selected.id, field: field))
+                    return try resolver.secret(in: generation, targetURL: targetURL,
+                        usernameHint: request.usernameHint, candidateID: selected.id, field: field, now: now())
+                })
+            return AgentBridgeResponse(id: request.id, ok: true, mirror: mirror,
+                filledField: field, approvalProgress: approvalProgress)
+        }
         let secret = try resolver.secret(
             in: generation,
             targetURL: targetURL,

@@ -50,7 +50,7 @@ extension MirrorAppModel {
                     throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
                 }
                 response = try await processSync(request: request, metadata: metadata)
-            case .acquire:
+            case .acquire, .fill:
                 try await accessControl.ensureRulesConfirmed()
                 guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
                     throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")

@@ -259,6 +259,18 @@ public struct CredentialResolver: Sendable {
         }.max()
     }
 
+    func savedOrigin(for candidate: CredentialCandidate, requestedURL: String) throws -> String {
+        let target = try parsedTarget(requestedURL)
+        guard let origin = candidate.origins.filter({ bestScore(for: [$0], target: target) != nil })
+            .max(by: { bestScore(for: [$0], target: target)! < bestScore(for: [$1], target: target)! })
+        else { throw CredentialResolverError.notFound }
+        return origin
+    }
+
+    func host(of address: String) -> String? { try? parsedTarget(address).host }
+
+    func hostMatches(stored: String, target: String) -> Bool { hostScore(stored: stored, target: target) != nil }
+
     private func hostScore(stored: String, target: String) -> Int? {
         if stored == target { return 300 }
         if target.hasSuffix(".\(stored)") { return 200 }
