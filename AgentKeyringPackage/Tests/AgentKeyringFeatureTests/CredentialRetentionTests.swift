@@ -363,7 +363,8 @@ private struct ReleaseFixture {
         ]
         try JSONSerialization.data(withJSONObject: contents).write(to: policyURL)
         accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL))
-        processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl, grants: grants)
+        processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl, grants: grants,
+            approvals: CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState()))
         let item = MirrorItem(
             id: credentialID,
             sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),

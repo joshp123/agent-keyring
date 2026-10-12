@@ -97,7 +97,7 @@ public struct AgentCredentialReleaseProcessor {
                 expirationSeconds: request.action == .copy ? min(120, max(5, request.expirationSeconds)) : nil,
                 authorizationDeadline: request.expiresAt
             )
-            try await approvals.authorize(credentialID: selected.id) {
+            try await approvals.authorize(credentialID: selected.id, authorizationDeadline: request.expiresAt) {
                 try await authorize(approval)
             }
         }

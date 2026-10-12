@@ -7,22 +7,64 @@ import Testing
 struct CredentialApprovalCoordinatorTests {
     @Test("A decline reaches both waiters, then a retry can ask again")
     func sharedDecline() async throws {
-        let approvals = CredentialApprovalCoordinator()
+        let approvals = CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState())
         let authorizer = FakeCredentialAuthorizer()
         let login = UUID()
         let request = CredentialReleaseAuthorizationRequest(destination: "example.com", account: "synthetic", field: .password)
-        let first = Task { try await approvals.authorize(credentialID: login) { try await authorizer.authorize(request) } }
+        let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { try await authorizer.authorize(request) } }
         while authorizer.requests.isEmpty { await Task.yield() }
-        let second = Task { try await approvals.authorize(credentialID: login) { try await authorizer.authorize(request) } }
+        let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { try await authorizer.authorize(request) } }
         for _ in 0..<20 { await Task.yield() }
         #expect(authorizer.requests.count == 1)
         authorizer.complete(error: .denied)
         await #expect(throws: CredentialReleaseAuthorizationError.denied) { try await first.value }
         await #expect(throws: CredentialReleaseAuthorizationError.denied) { try await second.value }
         var retried = false
-        try await approvals.authorize(credentialID: login) { retried = true }
+        try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { retried = true }
         #expect(retried)
     }
+    @Test("A locked Mac does not start authentication until unlock")
+    func waitsForUnlock() async throws {
+        let lock = FakeCredentialSessionLockState(isLocked: true)
+        let now = Date(timeIntervalSince1970: 1_000)
+        var prompts = 0
+        var waits = 0
+        let approvals = CredentialApprovalCoordinator(lockState: lock, now: { now }, sleep: { _ in
+            #expect(prompts == 0)
+            waits += 1
+            lock.isLocked = false
+        })
+        try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600)) {
+            #expect(!lock.isLocked)
+            prompts += 1
+        }
+        #expect(waits == 1)
+        #expect(prompts == 1)
+    }
+
+    @Test("An unanswered locked request expires without starting authentication")
+    func expiresWhileLocked() async throws {
+        let lock = FakeCredentialSessionLockState(isLocked: true)
+        var now = Date(timeIntervalSince1970: 1_000)
+        let deadline = now.addingTimeInterval(600)
+        let approvals = CredentialApprovalCoordinator(lockState: lock, now: { now }, sleep: { _ in
+            now = deadline
+        })
+        await #expect(throws: CredentialReleaseAuthorizationError.expired) {
+            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: deadline) {
+                Issue.record("Locked request started authentication")
+            }
+        }
+    }
+
+    @Test("Lock state comes from the session dictionary")
+    func sessionDictionary() {
+        #expect(SystemCredentialSessionLockState.isLocked(session: ["CGSSessionScreenIsLocked": true]))
+        #expect(!SystemCredentialSessionLockState.isLocked(session: ["CGSSessionScreenIsLocked": false]))
+        #expect(!SystemCredentialSessionLockState.isLocked(session: [:]))
+        #expect(SystemCredentialSessionLockState.isLocked(session: nil))
+    }
+
 }
 
 @MainActor
@@ -45,4 +87,11 @@ final class FakeCredentialAuthorizer: CredentialReleaseAuthorizing {
     func cancelCurrentAuthorization() {
         complete(error: .expired)
     }
+}
+
+@MainActor
+final class FakeCredentialSessionLockState: CredentialSessionLockState {
+    var isLocked: Bool
+
+    init(isLocked: Bool = false) { self.isLocked = isLocked }
 }
