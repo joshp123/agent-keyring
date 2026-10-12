@@ -212,7 +212,8 @@ struct PhoneApprovalRoutingTests {
         #expect(try await store.load()[loginID] == nil)
         await control.setPolicy(.ask, for: [loginID])
         #expect(!control.hasPendingPhoneBlock(for: loginID))
-        #expect(try await store.load()[loginID] == .block)
+        #expect(try await store.load()[loginID] == nil)
+        #expect(control.policy(for: loginID) == .ask)
         #expect(signer.signingReason == "confirm your Agent Keyring access rules")
         try FileManager.default.trashItem(at: root, resultingItemURL: nil)
     }

@@ -169,9 +169,10 @@ public final class CredentialAccessController {
                 proposedPolicies[id] = policy
             }
         }
-        for id in pendingPhoneBlocks { proposedPolicies[id] = .block }
+        for id in pendingPhoneBlocks where assignments[id] == nil { proposedPolicies[id] = .block }
         do {
             try await store.save(proposedPolicies)
+            pendingPhoneBlocks.subtract(assignments.keys)
             pendingPhoneBlocks.subtract(proposedPolicies.filter { $0.value == .block }.keys)
             try await reloadRules()
         } catch {
@@ -193,7 +194,7 @@ public final class CredentialAccessController {
     public func confirmRules() async {
         guard canConfirmRules, let snapshot = confirmationSnapshot else { return }
         var confirmedPolicies = snapshot.policies
-        for id in pendingPhoneBlocks { confirmedPolicies[id] = .block }
+        for id in pendingPhoneBlocks where snapshot.policies[id] == nil { confirmedPolicies[id] = .block }
         let confirmedSnapshot = AccessRulesConfirmationSnapshot(policies: confirmedPolicies,
             resetsUnreadableRules: snapshot.resetsUnreadableRules)
         let reason = "confirm your Agent Keyring access rules: \(confirmationSummary)"
@@ -201,6 +202,7 @@ public final class CredentialAccessController {
         defer { isSavingRules = false }
         do {
             try await store.save(confirmedSnapshot, reason: reason)
+            pendingPhoneBlocks.subtract(snapshot.policies.keys)
             pendingPhoneBlocks.subtract(confirmedPolicies.filter { $0.value == .block }.keys)
             confirmationSnapshot = nil
             try await reloadRules()
