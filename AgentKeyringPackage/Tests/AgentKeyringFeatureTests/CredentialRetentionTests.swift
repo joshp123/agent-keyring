@@ -45,6 +45,35 @@ struct CredentialRetentionTests {
         #expect(nativeCopies == 0)
     }
 
+    @Test("A dead caller and the old two-minute limit do not end a request")
+    func appOwnsRequest() async throws {
+        let fixture = try ReleaseFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        let request = AgentBridgeRequest(createdAt: Date().addingTimeInterval(-121),
+            callerPID: -1, action: .acquire, targetURL: "https://example.com", field: .password)
+        defer { CredentialTransfer.clear(requestID: request.id) }
+        try fixture.bridge.write(request)
+        let response = try await fixture.processor.release(request: request, generation: fixture.generation,
+            authorize: { approval in #expect(approval.authorizationDeadline == request.expiresAt) },
+            copyNative: { _, _ in Issue.record("Unexpected copy") })
+        #expect(response.ok)
+    }
+
+    @Test("An unanswered request expires after ten minutes without prompting")
+    func expiredRequest() async throws {
+        let fixture = try ReleaseFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        let request = AgentBridgeRequest(createdAt: Date().addingTimeInterval(-601),
+            action: .acquire, targetURL: "https://example.com", field: .password)
+        try fixture.bridge.write(request)
+        do {
+            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _ in Issue.record("Expired request prompted") }, copyNative: { _, _ in })
+            Issue.record("Expired request released")
+        } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
+        #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
+    }
+
     @Test("An expired or changed request after approval releases nothing", arguments: [false, true])
     func leaseEndsDuringApproval(replace: Bool) async throws {
         let fixture = try ReleaseFixture(policy: .ask)

@@ -280,15 +280,13 @@ public final class MirrorAppModel {
     func handleAgentRequest(id: UUID) async {
         defer { bridge.removeRequest(id: id) }
         let response: AgentBridgeResponse
-        var caller: AgentBridgeRequest?
         do {
             let request = try bridge.readRequest(id: id)
-            caller = request
             guard request.version == 1, request.id == id else {
                 throw AgentBridgeFailure(.invalidRequest, "The agent request is invalid.")
             }
             let age = Date().timeIntervalSince(request.createdAt)
-            guard age >= -5, age <= 120 else {
+            guard age >= -5, age < 10 * 60 else {
                 throw AgentBridgeFailure(
                     .requestExpired, "The agent request expired before it was handled.")
             }
@@ -339,13 +337,6 @@ public final class MirrorAppModel {
                 error: .internalError,
                 message: "Agent Keyring could not handle the agent request."
             )
-        }
-
-        if let caller,
-            (!bridge.requestMatches(caller) || !bridge.callerIsAlive(pid: caller.callerPID))
-        {
-            agentBridgeLogger.notice("Skipped a response because the requesting process ended")
-            return
         }
 
         do {
@@ -576,9 +567,9 @@ public final class MirrorAppModel {
     }
 
     private func agentRequestIsLive(_ request: AgentBridgeRequest) -> Bool {
-        request.createdAt.addingTimeInterval(120) > Date()
+        request.expiresAt > Date()
             && bridge.requestMatches(request)
-            && bridge.callerIsAlive(pid: request.callerPID)
+
     }
 
     private func bridgeCode(for error: CredentialResolverError) -> AgentBridgeErrorCode {

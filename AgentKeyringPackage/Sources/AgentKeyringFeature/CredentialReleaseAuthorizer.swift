@@ -22,7 +22,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
         field: AgentCredentialField,
         credentialTitle: String? = nil,
         expirationSeconds: Int? = 30,
-        authorizationDeadline: Date = Date().addingTimeInterval(120)
+        authorizationDeadline: Date = Date().addingTimeInterval(10 * 60)
     ) {
         self.destination = destination
         self.account = account

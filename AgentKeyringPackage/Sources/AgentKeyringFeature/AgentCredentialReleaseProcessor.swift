@@ -25,7 +25,7 @@ public struct AgentCredentialReleaseProcessor {
         guard request.action == .copy || request.action == .acquire else {
             throw AgentBridgeFailure(.invalidRequest, "A credential release action is required.")
         }
-        try ensureRequestIsLive(request)
+        try ensureRequestHasNotExpired(request)
         await accessControl.refresh(from: generation)
         let mirror = AgentMirrorSummary(
             importedAt: generation.createdAt,
@@ -88,12 +88,12 @@ public struct AgentCredentialReleaseProcessor {
                 field: field,
                 credentialTitle: selected.title,
                 expirationSeconds: request.action == .copy ? min(120, max(5, request.expirationSeconds)) : nil,
-                authorizationDeadline: request.createdAt.addingTimeInterval(120)
+                authorizationDeadline: request.expiresAt
             )
             try await authorize(approval)
         }
 
-        try ensureRequestIsLive(request)
+        try ensureRequestHasNotExpired(request)
         guard accessControl.releaseDecision(for: selected.id, field: field) != .block else {
             throw AgentBridgeFailure(.policyDenied,
                 "Agent access to this credential is blocked in Agent Keyring.")
@@ -128,12 +128,11 @@ public struct AgentCredentialReleaseProcessor {
         )
     }
 
-    private func ensureRequestIsLive(_ request: AgentBridgeRequest) throws {
+    private func ensureRequestHasNotExpired(_ request: AgentBridgeRequest) throws {
         guard request.version == 1,
             request.createdAt.timeIntervalSinceNow <= 5,
-            request.createdAt.addingTimeInterval(120) > Date(),
-            bridge.requestMatches(request),
-            bridge.callerIsAlive(pid: request.callerPID)
+            request.expiresAt > Date(),
+            bridge.requestMatches(request)
         else {
             throw AgentBridgeFailure(.requestExpired, "The credential request is no longer active.")
         }

@@ -148,23 +148,20 @@ public struct AgentBridgeClient: Sendable {
     ) async throws -> AgentBridgeResponse {
         bridge.removeResponse(id: request.id)
         try bridge.write(request)
-        defer {
-            bridge.removeRequest(id: request.id)
-            bridge.removeResponse(id: request.id)
-        }
         try launch(request.id)
-        let deadline = request.createdAt.addingTimeInterval(120)
+        let deadline = request.expiresAt
         while Date() < deadline {
             if bridge.responseExists(id: request.id) {
                 let response = try bridge.readResponse(id: request.id)
                 guard response.id == request.id, response.version == request.version else {
                     throw AgentBridgeFailure(.invalidRequest, "The app returned an invalid receipt.")
                 }
+                bridge.removeResponse(id: request.id)
                 return response
             }
             try Task.checkCancellation()
             try await Task.sleep(for: .milliseconds(50))
         }
-        throw AgentBridgeFailure(.timedOut, "The app did not respond before the request expired.")
+        throw AgentBridgeFailure(.requestExpired, "The request expired with no answer.")
     }
 }

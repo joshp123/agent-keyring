@@ -38,6 +38,8 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
     public let field: AgentCredentialField?
     public let expirationSeconds: Int
 
+    public var expiresAt: Date { createdAt.addingTimeInterval(10 * 60) }
+
     public init(
         version: Int = 1,
         id: UUID = UUID(),
@@ -217,11 +219,6 @@ public struct AgentBridgeDirectory: Sendable {
             && current.candidateID == request.candidateID
             && current.field == request.field
             && current.expirationSeconds == request.expirationSeconds
-    }
-
-    public func callerIsAlive(pid: Int32) -> Bool {
-        guard pid > 0 else { return false }
-        return kill(pid, 0) == 0 || errno == EPERM
     }
 
     private var encoder: JSONEncoder {

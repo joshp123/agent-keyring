@@ -35,11 +35,23 @@ struct AgentBridgeLeaseTests {
         #expect(!bridge.requestMatches(request))
     }
 
-    @Test("The bridge can detect whether the requesting process still exists")
-    func callerLiveness() {
-        let bridge = AgentBridgeDirectory()
+    @Test("Requests expire ten minutes after creation")
+    func requestExpiry() {
+        let createdAt = Date(timeIntervalSince1970: 1_000)
+        let request = AgentBridgeRequest(createdAt: createdAt, action: .acquire)
+        #expect(request.expiresAt == createdAt.addingTimeInterval(600))
+    }
 
-        #expect(bridge.callerIsAlive(pid: getpid()))
-        #expect(!bridge.callerIsAlive(pid: -1))
+    @Test("Cancelling the CLI wait leaves the app's request intact")
+    func cancelledClient() async throws {
+        let bridge = AgentBridgeDirectory(rootURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString))
+        defer { try? FileManager.default.removeItem(at: bridge.rootURL) }
+        let request = AgentBridgeRequest(action: .acquire)
+        let task = Task { try await AgentBridgeClient(bridge: bridge).send(request) { _ in } }
+        while !bridge.requestMatches(request) { await Task.yield() }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(bridge.requestMatches(request))
     }
 }
