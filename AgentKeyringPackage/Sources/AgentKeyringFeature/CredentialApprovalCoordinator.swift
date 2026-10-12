@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 public final class CredentialApprovalCoordinator {
+    private struct PendingCredentialAction: Hashable {
+        let credentialID: UUID
+        let action: AgentBridgeAction
+    }
+
     private struct PendingApproval {
         let id: UUID
         let authorizationDeadline: Date
@@ -9,7 +14,7 @@ public final class CredentialApprovalCoordinator {
         var progress: AgentApprovalProgress
         var observers: [(AgentApprovalProgress) -> Void]
     }
-    private var pending: [CredentialApprovalScope: PendingApproval] = [:]
+    private var pending: [PendingCredentialAction: PendingApproval] = [:]
     private var macPromptOwner: UUID?
     private var macPromptQueue: [UUID] = []
     private var macPromptWakeups: [UUID: () -> Void] = [:]
@@ -50,7 +55,7 @@ public final class CredentialApprovalCoordinator {
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
         prompt: @escaping @MainActor (@escaping () -> Void) async throws -> Void
     ) async throws {
-        let scope = CredentialApprovalScope(credentialID: credentialID, action: action)
+        let scope = PendingCredentialAction(credentialID: credentialID, action: action)
         if let approval = pending[scope] {
             pending[scope]?.observers.append(onProgress)
             onProgress(approval.progress)
@@ -91,7 +96,7 @@ public final class CredentialApprovalCoordinator {
         } onCancel: { approval.cancel() }
     }
 
-    private func removePendingApproval(scope: CredentialApprovalScope, approvalID: UUID) {
+    private func removePendingApproval(scope: PendingCredentialAction, approvalID: UUID) {
         guard pending[scope]?.id == approvalID else { return }
         pending.removeValue(forKey: scope)
     }
@@ -103,7 +108,7 @@ public final class CredentialApprovalCoordinator {
         case phoneFailed(IPhoneApprovalFailure)
     }
 
-    private func route(scope: CredentialApprovalScope, authorizationDeadline: Date,
+    private func route(scope: PendingCredentialAction, authorizationDeadline: Date,
         approvalRequest request: ApprovalRequest, cancelPrompt: @escaping () -> Void,
         onBlockLogin: @escaping () -> Void,
         prompt: @escaping @MainActor (@escaping () -> Void) async throws -> Void) async throws {
@@ -294,7 +299,7 @@ public final class CredentialApprovalCoordinator {
         if let next = macPromptQueue.first { macPromptWakeups[next]?() }
     }
 
-    private func recordApproval(scope: CredentialApprovalScope, provider: ApprovalPromptProvider) {
+    private func recordApproval(scope: PendingCredentialAction, provider: ApprovalPromptProvider) {
         guard var approval = pending[scope] else { return }
         let progress = approval.progress
         approval.progress = AgentApprovalProgress(waitingSince: progress.waitingSince,
@@ -305,7 +310,7 @@ public final class CredentialApprovalCoordinator {
         for observer in approval.observers { observer(approval.progress) }
     }
 
-    private func recordProgress(scope: CredentialApprovalScope, askedAt: Date?, phase: AgentApprovalPhase,
+    private func recordProgress(scope: PendingCredentialAction, askedAt: Date?, phase: AgentApprovalPhase,
         provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
         macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil, iPhoneFailure: IPhoneApprovalFailure? = nil) {
         guard var approval = pending[scope] else { return }

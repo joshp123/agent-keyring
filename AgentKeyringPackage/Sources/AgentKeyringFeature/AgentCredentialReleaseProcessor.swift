@@ -102,7 +102,10 @@ public struct AgentCredentialReleaseProcessor {
         }
 
         var approvalProgress: AgentApprovalProgress?
-        let needsApproval = releaseDecision == .requestAuthorization && !grants.contains(selected.id, action: request.action)
+        let hasSessionGrant = requester.session.map {
+            grants.contains(selected.id, action: request.action, session: $0)
+        } ?? false
+        let needsApproval = releaseDecision == .requestAuthorization && !hasSessionGrant
         if needsApproval {
             let approval = CredentialReleaseAuthorizationRequest(
                 destination: approvalDestination(for: targetURL),
@@ -126,7 +129,10 @@ public struct AgentCredentialReleaseProcessor {
                 }) { onPromptStarted in
                 try await authorize(approval, onPromptStarted)
             }
-            grants.approve(selected.id, action: request.action, site: approval.destination, account: approval.account)
+            if let session = requester.session {
+                grants.approve(selected.id, action: request.action, session: session,
+                    site: approval.destination, account: approval.account)
+            }
         }
 
         try ensureRequestHasNotExpired(request)

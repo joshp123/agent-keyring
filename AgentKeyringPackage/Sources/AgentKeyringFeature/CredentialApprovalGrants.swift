@@ -4,7 +4,7 @@ import Observation
 public struct CredentialApprovalScope: Hashable, Sendable {
     public let credentialID: UUID
     public let action: AgentBridgeAction
-
+    public let session: HarnessSession
 }
 
 public struct ActiveCredentialApprovalGrant: Identifiable, Sendable {
@@ -30,8 +30,8 @@ public final class CredentialApprovalGrants {
         }
     }
 
-    public func contains(_ credentialID: UUID, action: AgentBridgeAction) -> Bool {
-        let scope = CredentialApprovalScope(credentialID: credentialID, action: action)
+    public func contains(_ credentialID: UUID, action: AgentBridgeAction, session: HarnessSession) -> Bool {
+        let scope = CredentialApprovalScope(credentialID: credentialID, action: action, session: session)
         guard let approval = approvals[scope] else { return false }
         guard approval.expiresAt > now() else {
             approvals.removeValue(forKey: scope)
@@ -40,8 +40,8 @@ public final class CredentialApprovalGrants {
         return true
     }
 
-    public func approve(_ credentialID: UUID, action: AgentBridgeAction, site: String, account: String) {
-        let scope = CredentialApprovalScope(credentialID: credentialID, action: action)
+    public func approve(_ credentialID: UUID, action: AgentBridgeAction, session: HarnessSession, site: String, account: String) {
+        let scope = CredentialApprovalScope(credentialID: credentialID, action: action, session: session)
         approvals[scope] = ActiveCredentialApprovalGrant(id: scope, site: site, account: account,
             expiresAt: now().addingTimeInterval(30 * 60))
     }
