@@ -112,7 +112,8 @@ struct Status: AsyncParsableCommand {
 
 struct Acquire: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Authorize and retain one credential field; print its reference."
+        abstract: "Retain one credential field for 5 minutes; print its reference.",
+        discussion: "Clear the reference when entry succeeds or you abandon the task. Values expire after 5 minutes."
     )
 
     @Argument(help: "The field to acquire: username, password or code.") var field: CredentialFieldArgument
@@ -230,7 +231,7 @@ enum CLICommand: Equatable {
             )
         case let .acquire(field, targetURL, account, credentialID):
             AgentBridgeRequest(
-                callerPID: getppid(), action: .acquire, targetURL: targetURL, usernameHint: account,
+                action: .acquire, targetURL: targetURL, usernameHint: account,
                 candidateID: credentialID, field: field
             )
         case let .copy(field, targetURL, account, credentialID, expiration):

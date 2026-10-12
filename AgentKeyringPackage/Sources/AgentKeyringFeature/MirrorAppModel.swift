@@ -343,7 +343,6 @@ public final class MirrorAppModel {
             (!bridge.requestMatches(caller) || !bridge.callerIsAlive(pid: caller.callerPID))
         {
             agentBridgeLogger.notice("Skipped a response because the requesting process ended")
-            CredentialTransfer.clear(requestID: id)
             return
         }
 

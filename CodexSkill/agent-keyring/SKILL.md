@@ -3,6 +3,7 @@ name: agent-keyring
 description: Acquire saved Apple Passwords credentials into a temporary private buffer with the agent-keyring CLI. Use when a task needs a username, password or saved TOTP code. Reuse the reference until entry succeeds, then explicitly clear it; never expose the value in chat.
 metadata:
   written_by: "AI on 2026-09-16 by model gpt-6-astra"
+  updated_by: "AI on 2026-10-12 by model GPT-6 (Codex)"
 ---
 
 # Agent Keyring
@@ -21,7 +22,7 @@ agent-keyring clear "$ref"
 
 `read REF` writes the exact retained value to stdout, without an added newline or another approval. It does not consume the buffer. **This stdout is secret data:** pipe it to a consumer or capture it inside the tool runtime. Do not run `read` as a standalone shell tool call, return its output to the model, use `tee`, or interpolate the value into arguments. Do not trim the value. Use `pipefail` in shell pipelines and catch subprocess failures without dumping their captured stdout. Errors go to stderr with a nonzero exit status.
 
-Keep the reference until the value has been successfully entered. If entry fails, use `read` on that same reference; do not call `acquire` again. Run `clear REF` when done or abandoning the operation, and discard any copies held in runtime variables. Clear is idempotent; reading a cleared reference fails. Buffers have no automatic expiry: explicit cleanup is required. A retained TOTP code can still expire at the website.
+Keep the reference until the value has been successfully entered. If entry fails, use `read` on that same reference; do not call `acquire` again. Run `clear REF` when done or abandoning the operation, and discard any copies held in runtime variables. Clear is idempotent; reading a cleared reference fails. Values expire after 5 minutes, but must still be explicitly cleared when done. The app refreshes retained TOTP codes as their periods change; use the same reference for retries within the buffer lifetime.
 
 Use whatever browser tools are currently available. For a JavaScript browser runtime, for example, capture `read` stdout in a local variable and pass it to the observed input's fill method. Inspect the target after approval or navigation; avoid displaying a populated code field. The model decides how to fill, submit, verify and recover using the current browser API. Keyring has no browser module, selectors or login-session API.
 

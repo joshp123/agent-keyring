@@ -162,23 +162,6 @@ struct CredentialRetentionTests {
         }
     }
 
-    @Test("The app clears a buffer when its requester exits")
-    func requesterExit() async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
-        process.arguments = ["0.2"]
-        try process.run()
-        let reference = UUID()
-        defer { CredentialTransfer.clear(requestID: reference) }
-        try CredentialTransfer.publish("synthetic", requestID: reference, requesterPID: process.processIdentifier)
-        #expect(try read(requestID: reference) == Data("synthetic".utf8))
-        process.waitUntilExit()
-        try await Task.sleep(for: .milliseconds(600))
-        let channel = NSPasteboard(name: .init("com.agentkeyring.credential.\(reference.uuidString)"))
-        #expect(channel.data(forType: .init("com.agentkeyring.credential")) == nil)
-        #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: reference) }
-    }
-
     @Test("Blocking during approval prevents release")
     func blockedDuringApproval() async throws {
         let fixture = try ReleaseFixture(policy: .ask)

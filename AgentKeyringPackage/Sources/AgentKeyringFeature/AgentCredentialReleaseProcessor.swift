@@ -113,7 +113,7 @@ public struct AgentCredentialReleaseProcessor {
                     return false
                 }) : nil
             try CredentialTransfer.publish(secret, requestID: request.id,
-                requesterPID: request.callerPID, credentialID: selected.id, codeRecord: codeRecord)
+                credentialID: selected.id, codeRecord: codeRecord)
         } else {
             copyNative(secret, TimeInterval(expiration))
         }

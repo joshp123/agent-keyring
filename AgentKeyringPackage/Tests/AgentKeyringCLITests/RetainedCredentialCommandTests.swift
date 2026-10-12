@@ -15,8 +15,11 @@ struct RetainedCredentialCommandTests {
         ]) as? Acquire)
         #expect(command.field == .password)
         #expect(command.account == "synthetic@example.com")
+        let help = Acquire.helpMessage()
+        #expect(help.contains("5 minutes"))
+        #expect(help.contains("Clear the reference"))
         #expect(CLICommand.acquire(field: .password, targetURL: "https://example.com", account: nil,
-            credentialID: nil).request.callerPID == getppid())
+            credentialID: nil).request.callerPID == getpid())
         let reference = UUID().uuidString
         #expect(try AgentKeyringCLI.parseAsRoot(["read", reference]) is Read)
         #expect(try AgentKeyringCLI.parseAsRoot(["clear", reference]) is Clear)
@@ -66,7 +69,7 @@ struct RetainedCredentialCommandTests {
         #expect(requests == 1)
     }
 
-    @Test("The built CLI reads exact bytes across processes and clears the reference", arguments: ["synthetic-pässword", "value ending with a newline\n", ""])
+    @Test("Fresh CLI processes read retained bytes until explicit clear", arguments: ["synthetic-pässword", "value ending with a newline\n", ""])
     func executableReadAndClear(value: String) throws {
         var directory = Bundle(for: CLIExecutableTestBundle.self).bundleURL.deletingLastPathComponent()
         var executable: URL?

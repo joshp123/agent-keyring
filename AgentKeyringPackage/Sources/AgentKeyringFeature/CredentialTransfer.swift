@@ -1,5 +1,4 @@
 import AppKit
-import Darwin
 import Foundation
 
 public enum CredentialTransferError: Error, Sendable {
@@ -13,7 +12,6 @@ public enum CredentialTransfer {
 
     private struct BufferLifetime: Codable {
         let expiresAt: Date
-        let requesterPID: Int32
         let credentialID: UUID?
     }
     private struct RetainedLifetime {
@@ -30,7 +28,7 @@ public enum CredentialTransfer {
     }
 
     public static func publish(_ value: String, requestID: UUID,
-        requesterPID: Int32 = getpid(), credentialID: UUID? = nil,
+        credentialID: UUID? = nil,
         expiresAfter: TimeInterval = 300, codeRecord: MirrorCredential? = nil) throws {
         let publishedAt = Date()
         let publishedValue: String
@@ -46,7 +44,7 @@ public enum CredentialTransfer {
             channel.releaseGlobally()
             throw CredentialTransferError.unavailable
         }
-        try retain(requestID: requestID, requesterPID: requesterPID,
+        try retain(requestID: requestID,
             credentialID: credentialID, expiresAfter: expiresAfter, codeRecord: codeRecord,
             publishedAt: publishedAt)
     }
@@ -105,15 +103,14 @@ public enum CredentialTransfer {
     }
 
     private static func isLive(_ lifetime: BufferLifetime, now: Date) -> Bool {
-        lifetime.expiresAt > now && lifetime.requesterPID > 0
-            && (kill(lifetime.requesterPID, 0) == 0 || errno == EPERM)
+        lifetime.expiresAt > now
     }
 
-    private static func retain(requestID: UUID, requesterPID: Int32,
+    private static func retain(requestID: UUID,
         credentialID: UUID?, expiresAfter: TimeInterval, codeRecord: MirrorCredential?,
         publishedAt: Date) throws {
         let lifetime = BufferLifetime(expiresAt: publishedAt.addingTimeInterval(expiresAfter),
-            requesterPID: requesterPID, credentialID: credentialID)
+            credentialID: credentialID)
         let channel = pasteboard(for: requestID)
         guard channel.setData(try PropertyListEncoder().encode(lifetime), forType: lifetimeType) else {
             clear(requestID: requestID)
