@@ -7,6 +7,18 @@ import Testing
 @MainActor
 @Suite("Fill without revealing")
 struct CredentialFillTests {
+    @Test("The filler requires an app bundle identifier", arguments: [nil, ""] as [String?])
+    func missingBundleIdentifier(identifier: String?) throws {
+        do {
+            _ = try XPCCredentialFiller.serviceName(for: identifier)
+            Issue.record("Missing app identity accepted")
+        } catch let failure as AgentBridgeFailure {
+            #expect(failure.code == .bridgeUnavailable)
+            #expect(failure.message == "Agent Keyring cannot fill because the app's bundle identifier is missing.")
+        }
+        #expect(try XPCCredentialFiller.serviceName(for: "com.product.AgentKeyring") == "com.product.AgentKeyring.Filler")
+    }
+
     @Test("Each invalid destination refuses without sending a value", arguments: [
         "locked", "permission", "unsupported", "unreadable", "invalid-address", "mismatch", "lookalike",
         "no-field", "plain-password", "secure-username", "secure-code", "insecure-page", "no-window",

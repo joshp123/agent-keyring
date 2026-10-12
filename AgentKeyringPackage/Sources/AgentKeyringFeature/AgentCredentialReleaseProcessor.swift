@@ -92,7 +92,7 @@ public struct AgentCredentialReleaseProcessor {
         )
         try ensureDecisionPermitsRelease(releaseDecision)
 
-        let activeFiller = request.action == .fill ? (filler ?? XPCCredentialFiller()) : nil
+        let activeFiller = request.action == .fill ? try (filler ?? XPCCredentialFiller()) : nil
         if let activeFiller {
             let inspection = try await activeFiller.inspect()
             try AgentCredentialFillProcessor(filler: activeFiller, resolver: resolver).validate(

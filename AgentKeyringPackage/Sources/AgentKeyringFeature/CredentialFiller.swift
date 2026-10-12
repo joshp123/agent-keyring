@@ -15,11 +15,19 @@ public protocol CredentialFiller {
 public final class XPCCredentialFiller: CredentialFiller {
     private let connection: NSXPCConnection
 
-    public init() {
-        let hostIdentifier = Bundle.main.bundleIdentifier ?? "com.example.AgentKeyring"
-        connection = NSXPCConnection(serviceName: hostIdentifier + ".Filler")
+    public init() throws {
+        connection = NSXPCConnection(serviceName: try Self.serviceName(for: Bundle.main.bundleIdentifier))
         connection.remoteObjectInterface = fillerInterface()
         connection.resume()
+    }
+
+    static func serviceName(for bundleIdentifier: String?) throws -> String {
+        guard let bundleIdentifier, !bundleIdentifier.isEmpty else {
+            fillerClientLogger.error("Fill service unavailable: app bundle identifier missing.")
+            throw AgentBridgeFailure(.bridgeUnavailable,
+                "Agent Keyring cannot fill because the app's bundle identifier is missing.")
+        }
+        return bundleIdentifier + ".Filler"
     }
 
     isolated deinit { connection.invalidate() }
