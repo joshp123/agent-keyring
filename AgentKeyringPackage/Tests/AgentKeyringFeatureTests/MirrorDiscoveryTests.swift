@@ -42,11 +42,12 @@ struct MirrorDiscoveryTests {
         let settings = try #require(UserDefaults(suiteName: settingsName))
         defer { settings.removePersistentDomain(forName: settingsName) }
         settings.set(false, forKey: "includeExampleCredential")
+        let rulesSigner = FakeAccessRulesSigner()
         try await CredentialAccessPolicyStore(fileURL: directory.appendingPathComponent("policies.json"),
-            signer: FakeAccessRulesSigner()).save([:])
+            signer: rulesSigner).save([:])
         let model = MirrorAppModel(store: store, bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
-                fileURL: directory.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner())),
+                fileURL: directory.appendingPathComponent("policies.json"), signer: rulesSigner)),
             settings: settings)
         await model.loadStatus()
         #expect(model.status == generation.safeStatus)

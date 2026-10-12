@@ -1,4 +1,5 @@
 import Darwin
+import CryptoKit
 import Foundation
 import Observation
 
@@ -82,6 +83,9 @@ public actor CredentialAccessPolicyStore {
             try validateOwnedRegularFile(signatureURL)
             bytes = try Data(contentsOf: fileURL)
             guard try signer.verify(Data(contentsOf: signatureURL), for: bytes) else {
+                throw AccessRulesConfirmationRequired()
+            }
+            guard try signer.signedBytesHash() == Data(SHA256.hash(data: bytes)) else {
                 throw AccessRulesConfirmationRequired()
             }
             return try decodePolicies(bytes)

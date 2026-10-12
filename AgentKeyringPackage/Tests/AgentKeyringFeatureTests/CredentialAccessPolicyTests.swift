@@ -201,6 +201,7 @@ struct CredentialAccessPolicyTests {
 }
 
 private struct Fixture {
+    let signer = FakeAccessRulesSigner()
     let directoryURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("AgentKeyringPolicyTests-\(UUID().uuidString)", isDirectory: true)
 
@@ -209,7 +210,7 @@ private struct Fixture {
     }
 
     var store: CredentialAccessPolicyStore {
-        CredentialAccessPolicyStore(fileURL: fileURL, signer: FakeAccessRulesSigner())
+        CredentialAccessPolicyStore(fileURL: fileURL, signer: signer)
     }
 
     func remove() {

@@ -1,10 +1,12 @@
 import Foundation
+import CryptoKit
 import LocalAuthentication
 import Security
 
 public protocol AccessRulesSigning: Sendable {
     func sign(_ bytes: Data) async throws -> Data
     func verify(_ signature: Data, for bytes: Data) throws -> Bool
+    func signedBytesHash() throws -> Data?
 }
 
 public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
@@ -34,7 +36,40 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
         guard let signature = SecKeyCreateSignature(key, algorithm, bytes as CFData, &error) else {
             throw error?.takeRetainedValue() as Error? ?? signingError(errSecInternalComponent)
         }
+        try storeSignedBytesHash(Data(SHA256.hash(data: bytes)))
         return signature as Data
+    }
+
+    public func signedBytesHash() throws -> Data? {
+        var query = try signedBytesHashQuery()
+        query[kSecReturnData as String] = true
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw signingError(status) }
+        return result as? Data
+    }
+
+    private func storeSignedBytesHash(_ hash: Data) throws {
+        let query = try signedBytesHashQuery()
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: hash] as CFDictionary)
+        if status == errSecItemNotFound {
+            var attributes = query
+            attributes[kSecValueData as String] = hash
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw signingError(addStatus) }
+        } else if status != errSecSuccess { throw signingError(status) }
+    }
+
+    private func signedBytesHashQuery() throws -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "AgentKeyring.access-rules.signed-bytes.v1",
+            kSecAttrAccount as String: "latest",
+            kSecUseDataProtectionKeychain as String: true,
+            kSecAttrAccessGroup as String: try accessGroup(),
+        ]
     }
 
     public func verify(_ signature: Data, for bytes: Data) throws -> Bool {

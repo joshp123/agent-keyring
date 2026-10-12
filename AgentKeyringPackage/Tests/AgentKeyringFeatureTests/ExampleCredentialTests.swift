@@ -10,7 +10,7 @@ struct ExampleCredentialTests {
         let fixture = Fixture()
         defer { fixture.cleanUp() }
         try await CredentialAccessPolicyStore(fileURL: fixture.directory.appendingPathComponent("policies.json"),
-            signer: FakeAccessRulesSigner()).save([:])
+            signer: fixture.signer).save([:])
         let model = fixture.model()
         await model.loadStatus()
         #expect(model.includeExampleCredential)
@@ -50,6 +50,7 @@ struct ExampleCredentialTests {
 
 @MainActor
 private struct Fixture {
+    let signer = FakeAccessRulesSigner()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let settingsName = "ExampleCredentialTests-\(UUID().uuidString)"
 
@@ -62,7 +63,7 @@ private struct Fixture {
             keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x5A, count: 32))),
             bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
-                fileURL: directory.appendingPathComponent("policies.json"), signer: FakeAccessRulesSigner())),
+                fileURL: directory.appendingPathComponent("policies.json"), signer: signer)),
             settings: UserDefaults(suiteName: settingsName)!)
     }
 

@@ -5,6 +5,21 @@ import Testing
 @MainActor
 @Suite("Tamper-evident access rules")
 struct SignedAccessRulesTests {
+    @Test("Restoring an older valid signed pair fails closed")
+    func signedRollback() async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.store.save([fixture.loginID: .allowAutomatically])
+        let oldBytes = try Data(contentsOf: fixture.fileURL)
+        let oldSignature = try Data(contentsOf: fixture.signatureURL)
+        try await fixture.store.save([fixture.loginID: .block])
+        #expect(try await fixture.store.load()[fixture.loginID] == .block)
+        try oldBytes.write(to: fixture.fileURL)
+        try oldSignature.write(to: fixture.signatureURL)
+        #expect(try fixture.signer.verify(oldSignature, for: oldBytes))
+        await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.load() }
+    }
+
     @Test("Corrupt rules fail closed until an explicit reset is confirmed", arguments: [
         "invalid-json", "duplicate-record", "unknown-version",
     ], [true, false])
@@ -194,11 +209,12 @@ private struct SignedRulesUnlockedSession: CredentialSessionLockState {
 }
 
 struct SignedRulesFixture {
+    let signer = FakeAccessRulesSigner()
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let loginID = UUID()
     var fileURL: URL { root.appendingPathComponent("policies.json") }
     var signatureURL: URL { fileURL.appendingPathExtension("signature") }
-    var store: CredentialAccessPolicyStore { CredentialAccessPolicyStore(fileURL: fileURL, signer: FakeAccessRulesSigner()) }
+    var store: CredentialAccessPolicyStore { CredentialAccessPolicyStore(fileURL: fileURL, signer: signer) }
     var bridge: AgentBridgeDirectory { AgentBridgeDirectory(rootURL: root.appendingPathComponent("bridge")) }
     var generation: MirrorGeneration {
         MirrorGeneration(id: UUID(), previousGenerationID: nil, createdAt: Date(), sourceExportedAt: Date(),
