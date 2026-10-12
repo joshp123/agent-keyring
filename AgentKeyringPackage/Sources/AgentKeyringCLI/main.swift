@@ -314,13 +314,11 @@ enum CLIClient {
         let integrations = [
             IntegrationLink(
                 destination: commandDestination,
-                source: executable,
-                legacyKind: .command
+                source: executable
             ),
             IntegrationLink(
                 destination: skillDestination,
-                source: skillSource,
-                legacyKind: .codexSkill
+                source: skillSource
             ),
         ]
         try IntegrationInstaller.install(integrations)
@@ -406,14 +404,8 @@ func approvalTime(_ date: Date) -> String {
 }
 
 struct IntegrationLink {
-    enum LegacyKind {
-        case command
-        case codexSkill
-    }
-
     let destination: URL
     let source: URL
-    let legacyKind: LegacyKind
 }
 
 enum IntegrationInstaller {
@@ -460,50 +452,15 @@ enum IntegrationInstaller {
             return target == link.source.standardizedFileURL ? .current : .replace
         }
 
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: link.destination.path, isDirectory: &isDirectory)
+        guard fileManager.fileExists(atPath: link.destination.path)
         else {
             return .missing
         }
 
-        let isLegacyCopy: Bool
-        switch link.legacyKind {
-        case .command:
-            isLegacyCopy = !isDirectory.boolValue && isAgentKeyringCommand(at: link.destination)
-        case .codexSkill:
-            isLegacyCopy = isDirectory.boolValue && isAgentKeyringSkill(at: link.destination)
-        }
-        guard isLegacyCopy else {
-            throw CLIError(
-                "Cannot install because \(link.destination.path) already exists.",
-                suggestion: "Move it, then run the install command again."
-            )
-        }
-        return .replace
-    }
-
-    private static func isAgentKeyringCommand(at url: URL) -> Bool {
-        guard let data = try? Data(contentsOf: url) else { return false }
-        let markers = [
-            "agent-keyring — use the local encrypted Agent Keyring",
-            "Let local agents use imported Apple Passwords logins without printing secrets.",
-            "Use imported Apple Passwords logins from the command line.",
-        ]
-        return markers.contains { marker in
-            data.range(of: Data(marker.utf8)) != nil
-        }
-    }
-
-    private static func isAgentKeyringSkill(at url: URL) -> Bool {
-        let skillFile = url.appendingPathComponent("SKILL.md")
-        guard let contents = try? String(contentsOf: skillFile, encoding: .utf8) else {
-            return false
-        }
-        return
-            contents
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .prefix(12)
-            .contains { $0.trimmingCharacters(in: .whitespaces) == "name: agent-keyring" }
+        throw CLIError(
+            "Cannot install because \(link.destination.path) already exists.",
+            suggestion: "Move it, then run the install command again."
+        )
     }
 }
 

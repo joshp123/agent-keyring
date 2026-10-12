@@ -199,54 +199,6 @@ struct AgentKeyringCLITests {
         #expect(!error.rendered.contains("--account 'same@example.com'"))
     }
 
-    @Test("Install replaces recognised legacy copies with links to the app")
-    func installMigratesLegacyCopies() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let commandSource = root.appendingPathComponent("app/agent-keyring")
-        let skillSource = root.appendingPathComponent("app/agent-keyring-skill")
-        let commandDestination = root.appendingPathComponent("bin/agent-keyring")
-        let skillDestination = root.appendingPathComponent("skills/agent-keyring")
-        try FileManager.default.createDirectory(
-            at: commandDestination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data(
-            "agent-keyring — use the local encrypted Agent Keyring".utf8
-        ).write(to: commandDestination)
-        try FileManager.default.createDirectory(
-            at: skillDestination,
-            withIntermediateDirectories: true
-        )
-        try "---\nname: agent-keyring\n---\n".write(
-            to: skillDestination.appendingPathComponent("SKILL.md"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        try IntegrationInstaller.install([
-            IntegrationLink(
-                destination: commandDestination,
-                source: commandSource,
-                legacyKind: .command
-            ),
-            IntegrationLink(
-                destination: skillDestination,
-                source: skillSource,
-                legacyKind: .codexSkill
-            ),
-        ])
-
-        #expect(
-            try FileManager.default.destinationOfSymbolicLink(atPath: commandDestination.path)
-                == commandSource.path
-        )
-        #expect(
-            try FileManager.default.destinationOfSymbolicLink(atPath: skillDestination.path)
-                == skillSource.path
-        )
-    }
-
     @Test("Install checks every destination before making changes")
     func installPreflightsAllDestinations() throws {
         let root = try temporaryDirectory()
@@ -267,13 +219,11 @@ struct AgentKeyringCLITests {
             try IntegrationInstaller.install([
                 IntegrationLink(
                     destination: commandDestination,
-                    source: root.appendingPathComponent("app/agent-keyring"),
-                    legacyKind: .command
+                    source: root.appendingPathComponent("app/agent-keyring")
                 ),
                 IntegrationLink(
                     destination: skillDestination,
-                    source: root.appendingPathComponent("app/skill"),
-                    legacyKind: .codexSkill
+                    source: root.appendingPathComponent("app/skill")
                 ),
             ])
         }
@@ -301,8 +251,7 @@ struct AgentKeyringCLITests {
         try IntegrationInstaller.install([
             IntegrationLink(
                 destination: destination,
-                source: source,
-                legacyKind: .command
+                source: source
             )
         ])
 
