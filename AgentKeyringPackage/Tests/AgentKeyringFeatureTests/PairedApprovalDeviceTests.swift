@@ -62,7 +62,7 @@ struct PairedApprovalDeviceTests {
         defer { fixture.cleanUp() }
         let loginID = UUID()
         try await confirmInitialAccessRules(in: fixture.store, policies: [loginID: .block])
-        let request = fixture.request()
+        let request = try fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
         var contents = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixture.fileURL)) as? [String: Any])
@@ -101,7 +101,7 @@ struct PairedApprovalDeviceTests {
         try pairedSignature.write(to: fixture.signatureURL)
         #expect(try fixture.signer.verify(pairedSignature, for: pairedBytes))
         await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.loadPairedDevices() }
-        let request = fixture.request()
+        let request = try fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
         await #expect(throws: ApprovalDecisionRefusal.untrustedPairedDevices) {

@@ -28,22 +28,22 @@ struct ApprovalRecordsTests {
         #expect(fields.canonicalBytes(for: .deny) != fields.canonicalBytes(for: .blockThisLogin))
     }
 
-    @Test("New requests have independent 256-bit one-time values and round-trip unchanged")
+    @Test("New requests have independent 256-bit one-time values")
     func requestValues() throws {
-        let first = ApprovalRequest(agentDisplayLabel: "Test agent", site: "https://example.com",
+        let first = try ApprovalRequest(agentDisplayLabel: "Test agent", site: "https://example.com",
             account: "synthetic", field: .password, action: .acquire)
-        let second = ApprovalRequest(agentDisplayLabel: first.agentDisplayLabel, site: first.site,
+        let second = try ApprovalRequest(agentDisplayLabel: first.agentDisplayLabel, site: first.site,
             account: first.account, field: first.field, action: first.action, createdAt: first.createdAt)
         #expect(first.oneTimeValue.count == 32)
         #expect(first.oneTimeValue != second.oneTimeValue)
         #expect(first.id != second.id)
-        #expect(try JSONDecoder().decode(ApprovalRequest.self, from: JSONEncoder().encode(first)) == first)
+        #expect(first.signedFields.oneTimeValue == first.oneTimeValue)
     }
 
     @Test("Expiry is derived from creation plus ten minutes and floored to Unix seconds")
-    func derivedExpiry() {
+    func derivedExpiry() throws {
         for creationSeconds in [0.125, 0.9999, -0.25] {
-            let request = ApprovalRequest(agentDisplayLabel: "Test agent", site: "https://example.com",
+            let request = try ApprovalRequest(agentDisplayLabel: "Test agent", site: "https://example.com",
                 account: "synthetic", field: .password, action: .fill,
                 createdAt: Date(timeIntervalSince1970: creationSeconds))
             #expect(request.expiresAt == Int64(floor(creationSeconds + 600)))

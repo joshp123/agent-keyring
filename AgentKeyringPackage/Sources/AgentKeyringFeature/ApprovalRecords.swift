@@ -1,5 +1,5 @@
-import CryptoKit
 import Foundation
+import Security
 
 public enum ApprovalAction: String, Codable, Sendable {
     case fill
@@ -12,7 +12,7 @@ public enum ApprovalChoice: String, Codable, CaseIterable, Sendable {
     case blockThisLogin
 }
 
-public struct ApprovalRequest: Codable, Equatable, Sendable {
+public struct ApprovalRequest: Equatable, Sendable {
     public static let lifetimeSeconds: TimeInterval = 10 * 60
     public let id: UUID
     public let agentDisplayLabel: String
@@ -25,14 +25,17 @@ public struct ApprovalRequest: Codable, Equatable, Sendable {
     public let expiresAt: Int64
 
     public init(id: UUID = UUID(), agentDisplayLabel: String, site: String, account: String,
-        field: AgentCredentialField, action: ApprovalAction, createdAt: Date = Date()) {
+        field: AgentCredentialField, action: ApprovalAction, createdAt: Date = Date()) throws {
+        var randomBytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+        guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
         self.id = id
         self.agentDisplayLabel = agentDisplayLabel
         self.site = site
         self.account = account
         self.field = field
         self.action = action
-        self.oneTimeValue = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        self.oneTimeValue = Data(randomBytes)
         self.createdAt = createdAt
         self.expiresAt = Int64(floor(createdAt.timeIntervalSince1970 + Self.lifetimeSeconds))
     }

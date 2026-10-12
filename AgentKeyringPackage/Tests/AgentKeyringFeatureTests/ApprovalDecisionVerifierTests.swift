@@ -13,7 +13,7 @@ struct ApprovalDecisionVerifierTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await fixture.pair()
-        let request = fixture.request(action: action)
+        let request = try fixture.request(action: action)
         let verifier = fixture.verifier()
         try await verifier.register(request)
         let decision = try fixture.decision(request.signedFields, choice: choice)
@@ -28,7 +28,7 @@ struct ApprovalDecisionVerifierTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await fixture.pair()
-        let request = fixture.request()
+        let request = try fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
         let original = request.signedFields
@@ -52,7 +52,7 @@ struct ApprovalDecisionVerifierTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await fixture.pair()
-        let request = fixture.request()
+        let request = try fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
         let attacker = P256.Signing.PrivateKey()
@@ -67,7 +67,7 @@ struct ApprovalDecisionVerifierTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await fixture.pair()
-        let request = fixture.request()
+        let request = try fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
         let original = try fixture.decision(request.signedFields)
@@ -81,7 +81,7 @@ struct ApprovalDecisionVerifierTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await fixture.pair()
-        let request = fixture.request()
+        let request = try fixture.request()
         let clock = TestApprovalClock(PhoneApprovalFixture.now)
         let provider = ExpiringPairedDeviceProvider(store: fixture.store, clock: clock,
             deadline: Date(timeIntervalSince1970: TimeInterval(request.expiresAt)))
@@ -97,7 +97,7 @@ struct ApprovalDecisionVerifierTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await fixture.pair()
-        let request = fixture.request()
+        let request = try fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
         await #expect(throws: ApprovalDecisionRefusal.unknownRequest) {
@@ -111,7 +111,7 @@ struct ApprovalDecisionVerifierTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await fixture.pair()
-        let request = fixture.request()
+        let request = try fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
         let decision = try fixture.decision(request.signedFields)
@@ -136,7 +136,7 @@ struct ApprovalDecisionVerifierTests {
         try await fixture.pair()
         let clock = TestApprovalClock(PhoneApprovalFixture.now)
         let verifier = ApprovalDecisionVerifier(pairedDevices: fixture.store, now: { clock.now })
-        let request = fixture.request()
+        let request = try fixture.request()
         let decision = try fixture.decision(request.signedFields)
         try await verifier.register(request)
         #expect(try await verifier.verify(decision) == .approve)
@@ -151,7 +151,7 @@ struct ApprovalDecisionVerifierTests {
         let fixture = PhoneApprovalFixture()
         defer { fixture.cleanUp() }
         try await confirmInitialAccessRules(in: fixture.store)
-        let request = fixture.request()
+        let request = try fixture.request()
         let verifier = fixture.verifier()
         try await verifier.register(request)
         let decision = try fixture.decision(request.signedFields)
@@ -159,6 +159,19 @@ struct ApprovalDecisionVerifierTests {
         try await fixture.store.addPairedDevice(fixture.device)
         try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey)
         await #expect(throws: ApprovalDecisionRefusal.unpairedDevice) { try await verifier.verify(decision) }
+    }
+
+    @Test("Expired pending requests are purged before checking duplicate registration")
+    func expiredRegistration() async throws {
+        let fixture = PhoneApprovalFixture()
+        defer { fixture.cleanUp() }
+        let request = try fixture.request()
+        let clock = TestApprovalClock(PhoneApprovalFixture.now)
+        let verifier = ApprovalDecisionVerifier(pairedDevices: fixture.store, now: { clock.now })
+        try await verifier.register(request)
+        await #expect(throws: ApprovalDecisionRefusal.requestAlreadyRegistered) { try await verifier.register(request) }
+        clock.set(Date(timeIntervalSince1970: TimeInterval(request.expiresAt)))
+        await #expect(throws: ApprovalDecisionRefusal.expired) { try await verifier.register(request) }
     }
 }
 
@@ -185,8 +198,8 @@ struct PhoneApprovalFixture {
         try await store.addPairedDevice(device)
     }
 
-    func request(action: ApprovalAction = .fill) -> ApprovalRequest {
-        ApprovalRequest(agentDisplayLabel: "Test agent", site: "https://example.com", account: "synthetic",
+    func request(action: ApprovalAction = .fill) throws -> ApprovalRequest {
+        try ApprovalRequest(agentDisplayLabel: "Test agent", site: "https://example.com", account: "synthetic",
             field: .password, action: action, createdAt: Self.now)
     }
 

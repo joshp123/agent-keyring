@@ -36,10 +36,10 @@ public actor ApprovalDecisionVerifier {
     public func register(_ request: ApprovalRequest) throws {
         let now = now().timeIntervalSince1970
         usedRequestExpiries = usedRequestExpiries.filter { TimeInterval($0.value) > now }
+        pendingRequests = pendingRequests.filter { TimeInterval($0.value.expiresAt) > now }
         if usedRequestExpiries[request.id] != nil { throw refusal(.replayed) }
         if pendingRequests[request.id] != nil { throw refusal(.requestAlreadyRegistered) }
         guard TimeInterval(request.expiresAt) > now else { throw refusal(.expired) }
-        pendingRequests = pendingRequests.filter { TimeInterval($0.value.expiresAt) > now }
         pendingRequests[request.id] = request
     }
 
