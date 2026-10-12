@@ -50,6 +50,14 @@ public enum TrustedBrowsers {
         BrowserSigningRequirement(bundleIdentifier: "com.anthropic.claudefordesktop", teamIdentifier: "Q6L2SF6YDW"),
         // codesign -dv --verbose=4 /Applications/ChatGPT.app, 2026-10-12; installed Codex uses this app name.
         BrowserSigningRequirement(bundleIdentifier: "com.openai.codex", teamIdentifier: "2DC432GLL2"),
+        // Not installed; Apple's browser signing registry, checked 2026-10-12:
+        // https://github.com/apple/password-manager-resources/blob/main/quirks/web-browser-extension-distribution-information.json
+        BrowserSigningRequirement(bundleIdentifier: "company.thebrowser.Browser", teamIdentifier: "S6N382Y83G"),
+        // Not installed; vendor's signing identity, checked 2026-10-12: https://brave.com/signing-keys/
+        BrowserSigningRequirement(bundleIdentifier: "com.brave.Browser", teamIdentifier: "KL8N8XSYF4"),
+        // Not installed; Apple's browser signing registry, checked 2026-10-12:
+        // https://github.com/apple/password-manager-resources/blob/main/quirks/web-browser-extension-distribution-information.json
+        BrowserSigningRequirement(bundleIdentifier: "com.microsoft.edgemac", teamIdentifier: "UBF8T346G9"),
     ]
 
     public static func requirement(for bundleIdentifier: String?) -> BrowserSigningRequirement? {
