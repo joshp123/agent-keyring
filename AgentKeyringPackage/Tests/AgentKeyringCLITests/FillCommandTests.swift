@@ -131,14 +131,13 @@ struct FillCommandTests {
         let command = CLICommand.fill(field: field, targetURL: "https://example.com", account: nil)
         try await CLIClient.run(command, output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
             sendRequest: { request in
-                try fixture.bridge.write(request)
-                let response = try await fixture.processor.release(request: request, generation: fixture.generation,
+
+                let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                     authorize: { _, onPromptStarted in onPromptStarted() })
-                try fixture.bridge.write(response)
-                let serializedResponse = try Data(contentsOf: fixture.bridge.rootURL.appendingPathComponent("\(request.id.uuidString).response.json"))
+                let serializedResponse = try JSONEncoder().encode(response)
                 #expect(!String(decoding: serializedResponse, as: UTF8.self).contains(filler.typedValues[0]))
                 #expect(throws: CredentialTransferError.unavailable) { _ = try CredentialTransfer.read(requestID: request.id) }
-                return try fixture.bridge.readResponse(id: request.id)
+                return response
             })
         try output.fileHandleForWriting.close()
         try diagnostics.fileHandleForWriting.close()

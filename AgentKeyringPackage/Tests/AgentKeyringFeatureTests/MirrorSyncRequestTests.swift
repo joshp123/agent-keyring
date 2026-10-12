@@ -10,7 +10,7 @@ struct MirrorSyncRequestTests {
     @Test("Sync at night marks matching logins, find and approval show it, and import clears it")
     func rejectedLoginFlow() async throws {
         try await MacOwner.$fullName.withValue("Alex Example") {
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let directory = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: directory) }
             let settingsName = UUID().uuidString
             let settings = UserDefaults(suiteName: settingsName)!
@@ -50,14 +50,14 @@ struct MirrorSyncRequestTests {
             #expect(status.message == "Access rules need Alex's confirmation in Agent Keyring; nothing will be released until then.")
             await model.accessControl.confirmRules()
             #expect(!model.accessControl.needsConfirmation)
-            let processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: model.accessControl,
+            let processor = AgentCredentialReleaseProcessor(accessControl: model.accessControl,
                 approvals: CredentialApprovalCoordinator(lockState: UnlockedSyncTestSession()),
                 possiblyStaleCredentialIDs: model.staleLogins.credentialIDs)
             let releaseRequest = AgentBridgeRequest(action: .acquire,
                 targetURL: "https://example.com", field: .password)
-            try bridge.write(releaseRequest)
+
             do {
-                _ = try await processor.release(request: releaseRequest, generation: generation,
+                _ = try await processor.release(request: releaseRequest, requester: syntheticVerifiedRequester, generation: generation,
                     authorize: authorizer.authorize)
                 Issue.record("The recording authorizer declines")
             } catch let error as CredentialReleaseAuthorizationError { #expect(error == .denied) }
@@ -93,9 +93,9 @@ struct MirrorSyncRequestTests {
     private func send(_ action: AgentBridgeAction, model: MirrorAppModel,
                       bridge: AgentBridgeDirectory) async throws -> AgentBridgeResponse {
         let request = AgentBridgeRequest(action: action, targetURL: "https://example.com", field: .password)
-        try bridge.write(request)
-        await model.handleAgentRequest(id: request.id)
-        return try bridge.readResponse(id: request.id)
+
+        let socketResponse = try await sendTestAgentRequest(request, model: model, bridge: bridge)
+        return socketResponse
     }
 }
 

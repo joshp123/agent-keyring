@@ -11,7 +11,7 @@ struct RulesConfirmationTests {
     @Test("Status reports pending confirmation with and without a mirror", arguments: [false, true])
     func pendingStatus(hasMirror: Bool) async throws {
         try await MacOwner.$fullName.withValue("Alex Example") {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let root = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: root) }
             let settingsName = "PendingRulesStatus-\(UUID().uuidString)"
             let settings = try #require(UserDefaults(suiteName: settingsName))
@@ -26,9 +26,8 @@ struct RulesConfirmationTests {
                 bridge: bridge, accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
                     fileURL: root.appendingPathComponent("rules.json"), signer: FakeAccessRulesSigner())), settings: settings)
             let request = AgentBridgeRequest(action: .status)
-            try bridge.write(request)
-            await model.handleAgentRequest(id: request.id)
-            let response = try bridge.readResponse(id: request.id)
+
+            let response = try await sendTestAgentRequest(request, model: model, bridge: bridge)
             #expect(response.ok)
             let output = try CLIOutput.render(response, for: .status)
             #expect(output.hasSuffix("Access rules need Alex's confirmation in Agent Keyring; nothing will be released until then.\n"))
@@ -41,7 +40,7 @@ struct RulesConfirmationTests {
     ])
     func confirmationOutput(commandName: String) async throws {
         try await MacOwner.$fullName.withValue("Alex Example") {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let root = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: root) }
             let store = CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("rules.json"),
                 signer: FakeAccessRulesSigner())
@@ -68,9 +67,8 @@ struct RulesConfirmationTests {
             do {
                 try await CLIClient.run(command, output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
                     sendRequest: { request in
-                        try bridge.write(request)
-                        await model.handleAgentRequest(id: request.id)
-                        return try bridge.readResponse(id: request.id)
+
+                        return try await sendTestAgentRequest(request, model: model, bridge: bridge)
                     })
             } catch let exit as ExitCode { exitCode = exit.rawValue }
             try output.fileHandleForWriting.close()

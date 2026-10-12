@@ -50,7 +50,7 @@ struct ApprovalResultTests {
         }
     }
 
-    @Test("The real CLI wait distinguishes waiting for unlock from starting the prompt", arguments: [
+    @Test("CLI socket events distinguish waiting for unlock from starting the prompt", arguments: [
         "approved", "declined", "expired", "interrupted", "not-verified",
     ], [true, false])
     func waitingResult(path: String, initiallyLocked: Bool) async throws {
@@ -90,26 +90,16 @@ struct ApprovalResultTests {
                 try await CLIClient.run(.acquire(field: .password, targetURL: "https://example.com", account: nil, credentialID: nil),
                     output: output.fileHandleForWriting, diagnostics: diagnostics.fileHandleForWriting,
                     now: { approvedAt }, sendRequest: { request in
-                        let clock = CLIWaitClock(now: request.createdAt)
-                        let client = AgentBridgeClient(bridge: bridge, now: { clock.now }, sleep: { _ in
-                            clock.sleeps += 1
-                            clock.now = clock.now.addingTimeInterval(30)
-                            if initiallyLocked, clock.sleeps == 2 {
-                                try bridge.write(AgentApprovalProgress(waitingSince: waitingSince,
-                                    askedAt: askedAt, phase: .awaitingApproval), id: request.id)
-                            } else if clock.sleeps == (initiallyLocked ? 3 : 2), code == .requestExpired {
-                                clock.now = request.expiresAt
-                            } else if clock.sleeps == (initiallyLocked ? 3 : 2) {
-                                try bridge.write(AgentBridgeResponse(id: request.id, ok: code == nil, error: code,
-                                    approvalProgress: try bridge.readProgress(id: request.id)))
-                            }
-                        })
-                        return try await CLIClient.send(request, diagnostics: diagnostics.fileHandleForWriting, client: client,
-                            launch: { id in
-                                try bridge.write(AgentApprovalProgress(waitingSince: waitingSince,
-                                    askedAt: initiallyLocked ? nil : askedAt,
-                                    phase: initiallyLocked ? .waitingForUnlock : .awaitingApproval), id: id)
-                            })
+                        let lines = CLIApprovalStatusLines(diagnostics: diagnostics.fileHandleForWriting)
+                        if initiallyLocked {
+                            let locked = AgentApprovalProgress(waitingSince: waitingSince, phase: .waitingForUnlock)
+                            lines.receive(.progress(locked))
+                            lines.receive(.stillWaiting(progress: locked))
+                        }
+                        let prompted = AgentApprovalProgress(waitingSince: waitingSince, askedAt: askedAt, phase: .awaitingApproval)
+                        lines.receive(.progress(prompted))
+                        lines.receive(.stillWaiting(progress: prompted))
+                        return AgentBridgeResponse(id: request.id, ok: code == nil, error: code, approvalProgress: prompted)
                     })
             } catch let exit as ExitCode { actualExit = exit.rawValue }
             try diagnostics.fileHandleForWriting.close()
@@ -145,15 +135,11 @@ struct ApprovalResultTests {
                 try await CLIClient.run(.acquire(field: .password, targetURL: "https://example.com", account: nil, credentialID: nil),
                     output: FileHandle.nullDevice, diagnostics: diagnostics.fileHandleForWriting,
                     sendRequest: { request in
-                        let clock = CLIWaitClock(now: request.createdAt)
-                        let client = AgentBridgeClient(bridge: bridge, now: { clock.now }, sleep: { _ in
-                            clock.sleeps += 1
-                            clock.now = clock.sleeps == 1 ? clock.now.addingTimeInterval(30) : request.expiresAt
-                        })
-                        return try await CLIClient.send(request, diagnostics: diagnostics.fileHandleForWriting, client: client,
-                            launch: { id in
-                                try bridge.write(AgentApprovalProgress(waitingSince: waitingSince, phase: .waitingForUnlock), id: id)
-                            })
+                        let lines = CLIApprovalStatusLines(diagnostics: diagnostics.fileHandleForWriting)
+                        let locked = AgentApprovalProgress(waitingSince: waitingSince, phase: .waitingForUnlock)
+                        lines.receive(.progress(locked))
+                        lines.receive(.stillWaiting(progress: locked))
+                        throw AgentBridgeFailure(.requestExpired, "The request expired with no answer.")
                     })
                 Issue.record("Expired request returned success")
             } catch let exit as ExitCode { #expect(exit.rawValue == 3) }
@@ -180,11 +166,4 @@ struct ApprovalResultTests {
         #expect(String(decoding: diagnostics.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             == "The request expired with no answer.\n")
     }
-}
-
-@MainActor
-private final class CLIWaitClock {
-    var now: Date
-    var sleeps = 0
-    init(now: Date) { self.now = now }
 }

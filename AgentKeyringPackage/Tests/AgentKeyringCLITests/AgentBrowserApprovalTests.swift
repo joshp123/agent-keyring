@@ -11,7 +11,7 @@ struct AgentBrowserApprovalTests {
     func silentRelease(useGrant: Bool) async throws {
         let fixture = BrowserApprovalFixture()
         defer { fixture.cleanUp() }
-        if useGrant { fixture.grants.approve(fixture.loginID, action: .acquire, site: "example.com", account: "synthetic@example.com") }
+        if useGrant { fixture.grants.approve(fixture.loginID, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!, site: "example.com", account: "synthetic@example.com") }
         else { try await fixture.setPolicy(.allowAutomatically) }
         let diagnostics = Pipe()
         try await fixture.acquireWithCLI(diagnostics: diagnostics.fileHandleForWriting)
@@ -39,7 +39,7 @@ struct AgentBrowserApprovalTests {
             #expect(Set(fixture.deadlines).count == 1)
             #expect(fixture.authorizer.calls == 1)
             let passwordRequest = try #require(fixture.requests.last)
-            #expect(fixture.bridge.requestMatches(passwordRequest))
+            #expect(fixture.activeRequests.contains(passwordRequest.id))
             #expect(passwordRequest.bufferPublicationDeadline == fixture.deadlines.last)
             let usernameRequest = try #require(fixture.requests.first(where: { $0.field == .username }))
             #expect(throws: CredentialTransferError.unavailable) {
@@ -47,14 +47,14 @@ struct AgentBrowserApprovalTests {
             }
 
             fixture.authorizer.approve()
-            for task in fixture.appTasks { await task.value }
-            #expect(fixture.grants.contains(fixture.loginID, action: .acquire))
+            while fixture.responses[passwordRequest.id] == nil { await Task.yield() }
+            #expect(fixture.grants.contains(fixture.loginID, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!))
             for request in [usernameRequest, passwordRequest] {
                 #expect(throws: CredentialTransferError.unavailable) {
                     _ = try CredentialTransfer.read(requestID: request.id)
                 }
             }
-            let receipt = try fixture.bridge.readResponse(id: passwordRequest.id)
+            let receipt = try #require(fixture.responses[passwordRequest.id])
             #expect(!receipt.ok)
             #expect(receipt.copiedField == nil)
             let retry = try await fixture.invoke()
@@ -76,19 +76,21 @@ struct AgentBrowserApprovalTests {
 @MainActor
 private final class BrowserApprovalFixture {
     let loginID = UUID()
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let root = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)
     let authorizer = BrowserFakeAuthorizer()
     let grants = CredentialApprovalGrants()
     var requests: [AgentBridgeRequest] = []
     var deadlines: [Date] = []
-    var appTasks: [Task<Void, Never>] = []
+    var listener: AgentBridgeServer?
+    var activeRequests: Set<UUID> = []
+    var responses: [UUID: AgentBridgeResponse] = [:]
     private(set) lazy var bridge = AgentBridgeDirectory(rootURL: root)
     private var preparedRules = false
     private lazy var policyStore = CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("policies.json"),
         signer: FakeAccessRulesSigner())
     private(set) lazy var accessControl = CredentialAccessController(
         store: policyStore)
-    private lazy var processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl,
+    private lazy var processor = AgentCredentialReleaseProcessor(accessControl: accessControl,
         grants: grants, approvals: CredentialApprovalCoordinator(lockState: BrowserUnlockedSession()))
     private lazy var generation = MirrorGeneration(id: UUID(), previousGenerationID: nil,
         createdAt: Date(), sourceExportedAt: Date(), scope: .full, exporterIdentifier: "fixture",
@@ -114,8 +116,9 @@ private final class BrowserApprovalFixture {
                     return AgentBridgeResponse(id: request.id, ok: true,
                         candidates: try CredentialResolver().candidates(in: self.generation, targetURL: "https://example.com"))
                 }
+                try self.startListener()
                 return try await AgentBridgeClient(bridge: self.bridge).send(request, waitUntil: deadline) { _ in
-                    await self.startAppRequest(request)
+                    Issue.record("The listener is already running")
                 }
             })
         try output.fileHandleForWriting.close()
@@ -134,8 +137,7 @@ private final class BrowserApprovalFixture {
             account: nil, credentialID: loginID), output: FileHandle.nullDevice, diagnostics: diagnostics,
             sendRequest: { request in
                 self.requests.append(request)
-                try self.bridge.write(request)
-                return try await self.processor.release(request: request, generation: self.generation,
+                return try await self.processor.release(request: request, requester: syntheticVerifiedRequester, generation: self.generation,
                     authorize: { _, _ in Issue.record("Unprompted release asked for approval") })
             })
     }
@@ -146,24 +148,28 @@ private final class BrowserApprovalFixture {
         preparedRules = true
     }
 
-    private func startAppRequest(_ request: AgentBridgeRequest) {
-        appTasks.append(Task { @MainActor in
-            defer { bridge.removeRequest(id: request.id) }
+    private func startListener() throws {
+        guard listener == nil else { return }
+        listener = try AgentBridgeServer(bridge: bridge) { request, _, progress in
+            self.activeRequests.insert(request.id)
+            defer { self.activeRequests.remove(request.id) }
+            let response: AgentBridgeResponse
             do {
-                let response = try await processor.release(request: request, generation: generation,
-                    onProgress: { progress in
-                        self.authorizer.requestedAt = progress.askedAt
-                        do { try self.bridge.write(progress, id: request.id) }
-                        catch { Issue.record(error) }
+                response = try await self.processor.release(request: request, requester: syntheticVerifiedRequester, generation: self.generation,
+                    onProgress: {
+                        self.authorizer.requestedAt = $0.askedAt
+                        progress($0)
                     }, authorize: { try await self.authorizer.authorize($0, onPromptStarted: $1) })
-                try bridge.write(response)
             } catch let failure as AgentBridgeFailure {
-                try? bridge.write(AgentBridgeResponse(id: request.id, ok: false, error: failure.code))
-            } catch { Issue.record(error) }
-        })
+                response = AgentBridgeResponse(id: request.id, ok: false, error: failure.code)
+            }
+            self.responses[request.id] = response
+            return response
+        }
     }
 
     func cleanUp() {
+        listener = nil
         for request in requests { CredentialTransfer.clear(requestID: request.id) }
         try? FileManager.default.removeItem(at: root)
     }

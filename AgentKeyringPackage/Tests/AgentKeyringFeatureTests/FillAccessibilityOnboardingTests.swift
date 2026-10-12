@@ -79,7 +79,7 @@ struct FillAccessibilityOnboardingTests {
 
     @Test("The app's first fill checks Accessibility before opening the vault or approving")
     func firstFillRequest() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let bridge = AgentBridgeDirectory(rootURL: directory.appendingPathComponent("bridge"))
         var checks = 0
@@ -94,9 +94,8 @@ struct FillAccessibilityOnboardingTests {
             keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32))),
             bridge: bridge, fillAccessibility: onboarding)
         let request = AgentBridgeRequest(action: .fill, targetURL: "https://example.com", field: .password)
-        try bridge.write(request)
-        await model.handleAgentRequest(id: request.id)
-        let response = try #require(try bridge.readResponse(id: request.id))
+
+        let response = try await sendTestAgentRequest(request, model: model, bridge: bridge)
         #expect(!response.ok && response.error == .accessibilityMissing)
         #expect(checks == 1 && instructionsShown && onboarding.state == .permissionRequired)
     }

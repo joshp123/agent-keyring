@@ -95,6 +95,7 @@ public struct ApprovalSignedFields: Codable, Equatable, Sendable {
 
     /// v1: domain prefix, UUID bytes, length-prefixed UTF-8 agent label/site/account/field/action,
     /// length-prefixed nonce, Int64 Unix expiry seconds, length-prefixed choice.
+    /// v2 adds machine name, working directory and network address before the nonce.
     /// All lengths are UInt32 and all numbers are big-endian. Strings are used verbatim.
     /// ApprovalRecordsTests.canonicalEncoding fixes the complete wire format with a byte vector.
     public func canonicalBytes(for choice: ApprovalChoice) -> Data {

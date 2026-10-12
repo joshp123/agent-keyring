@@ -9,9 +9,13 @@ private let agentBridgeLogger = Logger(
 @available(macOS 26.0, *)
 extension MirrorAppModel {
     public func startAgentListener() throws {
+        guard agentListener == nil else { return }
+        let ownerName = MacOwner.fullName
         agentListener = try AgentBridgeServer(bridge: bridge) { [weak self] request, peer, progress in
             guard let self else { throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring is unavailable.") }
-            return await self.handleAgentRequest(request, peer: peer, onProgress: progress)
+            return await MacOwner.$fullName.withValue(ownerName) {
+                await self.handleAgentRequest(request, peer: peer, onProgress: progress)
+            }
         }
     }
 
@@ -21,7 +25,7 @@ extension MirrorAppModel {
         let id = request.id
         let response: AgentBridgeResponse
         do {
-            guard request.version == 1, request.id == id else {
+            guard request.version == 1 else {
                 throw AgentBridgeFailure(.invalidRequest, "The agent request is invalid.")
             }
             let receivedAt = Date()

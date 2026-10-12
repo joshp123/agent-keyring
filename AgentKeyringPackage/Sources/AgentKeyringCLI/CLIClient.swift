@@ -97,11 +97,11 @@ enum CLIClient {
         let statusLines = CLIApprovalStatusLines(diagnostics: diagnostics)
         return try await client.send(request, waitUntil: waitUntil, onStatus: statusLines.receive) { id in
             if let launch { try await launch(id) }
-            else { try await launchApp(id, deadline: waitUntil ?? request.expiresAt) }
+            else { try await launchApp() }
         }
     }
 
-    private static func launchApp(_ requestID: UUID, deadline: Date) async throws {
+    private static func launchApp() async throws {
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: AgentBridgeDirectory.applicationBundleIdentifier) else {
             throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring is not installed.")
         }

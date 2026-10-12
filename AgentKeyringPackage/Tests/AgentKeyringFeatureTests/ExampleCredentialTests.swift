@@ -17,9 +17,8 @@ struct ExampleCredentialTests {
         #expect(model.includeExampleCredential)
         #expect(model.status == nil)
         let request = AgentBridgeRequest(action: .status)
-        try fixture.bridge.write(request)
-        await model.handleAgentRequest(id: request.id)
-        let response = try fixture.bridge.readResponse(id: request.id)
+
+        let response = try await sendTestAgentRequest(request, model: model, bridge: fixture.bridge)
         #expect(response.ok)
         #expect(response.mirror == nil)
         #expect(response.message == "No mirror has been imported yet.")
@@ -66,7 +65,7 @@ struct ExampleCredentialTests {
 @MainActor
 private struct Fixture {
     let signer = FakeAccessRulesSigner()
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let directory = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)
     let settingsName = "ExampleCredentialTests-\(UUID().uuidString)"
 
     var bridge: AgentBridgeDirectory {

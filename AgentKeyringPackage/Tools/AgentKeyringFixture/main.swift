@@ -9,6 +9,12 @@ struct AgentKeyringFixture {
     static func main() async {
         do {
             let arguments = Array(CommandLine.arguments.dropFirst())
+            if arguments.first == "--requester-identity", arguments.count == 3 {
+                let identity = RequesterCodeSignature.verify(executableURL: URL(fileURLWithPath: arguments[2]), name: arguments[1])
+                let label = identity.map { "\(arguments[1]), verified (\($0.signer))" } ?? "\(arguments[1]), unverified"
+                FileHandle.standardOutput.write(Data((label + "\n").utf8))
+                return
+            }
             if arguments.first == "--sandbox-probe", arguments.count == 2 {
                 let outsideReadAllowed = (try? Data(contentsOf: URL(fileURLWithPath: arguments[1]))) != nil
                 let result: [String: Any] = [

@@ -20,9 +20,9 @@ struct SignedAccessRulesTests {
             bridge: fixture.bridge, accessControl: controller, settings: settings)
         #expect(!controller.hasLoadedLoginList)
         let request = AgentBridgeRequest(action: .status)
-        try fixture.bridge.write(request)
-        await model.handleAgentRequest(id: request.id)
-        #expect(try fixture.bridge.readResponse(id: request.id).ok)
+
+        let socketResponse = try await sendTestAgentRequest(request, model: model, bridge: fixture.bridge)
+        #expect(socketResponse.ok)
         #expect(!controller.needsConfirmation)
     }
 
@@ -139,9 +139,8 @@ struct SignedAccessRulesTests {
             keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32))),
             bridge: fixture.bridge, accessControl: CredentialAccessController(store: fixture.store), settings: settings)
         let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
-        try fixture.bridge.write(request)
-        await model.handleAgentRequest(id: request.id)
-        let response = try fixture.bridge.readResponse(id: request.id)
+
+        let response = try await sendTestAgentRequest(request, model: model, bridge: fixture.bridge)
         #expect(!response.ok)
         #expect(response.error == .rulesNeedConfirmation)
         #expect(response.message == AccessRulesConfirmationRequired.message)
@@ -192,12 +191,12 @@ struct SignedAccessRulesTests {
             #expect(activeController.releaseDecision(for: fixture.loginID, field: field) == .needsConfirmation)
         }
         let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
-        try fixture.bridge.write(request)
+
         let grants = CredentialApprovalGrants()
-        grants.approve(fixture.loginID, action: .acquire, site: "example.com", account: "synthetic@example.com")
-        let processor = AgentCredentialReleaseProcessor(bridge: fixture.bridge, accessControl: activeController, grants: grants)
+        grants.approve(fixture.loginID, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!, site: "example.com", account: "synthetic@example.com")
+        let processor = AgentCredentialReleaseProcessor(accessControl: activeController, grants: grants)
         do {
-            _ = try await processor.release(request: request, generation: fixture.generation,
+            _ = try await processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Untrusted rules started an approval") })
             Issue.record("Untrusted rules released a credential")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .rulesNeedConfirmation) }
@@ -240,11 +239,11 @@ struct SignedAccessRulesTests {
         try await confirmInitialAccessRules(in: fixture.store)
         let controller = CredentialAccessController(store: fixture.store)
         let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
-        try fixture.bridge.write(request)
-        let processor = AgentCredentialReleaseProcessor(bridge: fixture.bridge, accessControl: controller,
+
+        let processor = AgentCredentialReleaseProcessor(accessControl: controller,
             approvals: CredentialApprovalCoordinator(lockState: SignedRulesUnlockedSession()))
         do {
-            _ = try await processor.release(request: request, generation: fixture.generation, authorize: { _, _ in
+            _ = try await processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation, authorize: { _, _ in
                 var bytes = try Data(contentsOf: fixture.fileURL)
                 bytes.append(0x20)
                 try bytes.write(to: fixture.fileURL)
@@ -261,7 +260,7 @@ private struct SignedRulesUnlockedSession: CredentialSessionLockState {
 
 struct SignedRulesFixture {
     let signer = FakeAccessRulesSigner()
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let root = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)
     let loginID = UUID()
     var fileURL: URL { root.appendingPathComponent("policies.json") }
     var signatureURL: URL { fileURL.appendingPathExtension("signature") }

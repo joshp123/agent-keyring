@@ -14,10 +14,9 @@ struct CredentialRetentionTests {
         defer { fixture.cleanUp() }
         var approvals = 0
         let request = fixture.request()
-        try fixture.bridge.write(request)
+
         do {
-            let response = try await fixture.processor.release(
-                request: request, generation: fixture.generation,
+            let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { approval, _ in
                     approvals += 1
                     #expect(approval.expirationSeconds == nil)
@@ -50,8 +49,8 @@ struct CredentialRetentionTests {
         var approvals = 0
         for field in [AgentCredentialField.password, .username, .totp, .password] {
             let request = fixture.request(field: field)
-            try fixture.bridge.write(request)
-            let response = try await fixture.processor.release(request: request, generation: fixture.generation,
+
+            let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in approvals += 1 })
             #expect(response.ok)
             CredentialTransfer.clear(requestID: request.id)
@@ -60,8 +59,8 @@ struct CredentialRetentionTests {
         fixture.grants.endAll()
         let retry = fixture.request()
         defer { CredentialTransfer.clear(requestID: retry.id) }
-        try fixture.bridge.write(retry)
-        _ = try await fixture.processor.release(request: retry, generation: fixture.generation,
+
+        _ = try await fixture.processor.release(request: retry, requester: syntheticVerifiedRequester, generation: fixture.generation,
             authorize: { _, _ in approvals += 1 })
         #expect(approvals == 2)
     }
@@ -70,11 +69,11 @@ struct CredentialRetentionTests {
     func blockedGrant() async throws {
         let fixture = try ReleaseFixture(policy: .block)
         defer { fixture.cleanUp() }
-        fixture.grants.approve(fixture.generation.items[0].id, action: .acquire, site: "example.com", account: "synthetic@example.com")
+        fixture.grants.approve(fixture.generation.items[0].id, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!, site: "example.com", account: "synthetic@example.com")
         let request = fixture.request()
-        try fixture.bridge.write(request)
+
         do {
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Blocked login prompted") })
             Issue.record("Blocked login released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .policyDenied) }
@@ -88,21 +87,16 @@ struct CredentialRetentionTests {
         let authorizer = FakeCredentialAuthorizer()
         let first = fixture.request()
         let second = fixture.request(field: .totp)
-        try fixture.bridge.write(first)
-        try fixture.bridge.write(second)
+
+
         defer {
             CredentialTransfer.clear(requestID: first.id)
             CredentialTransfer.clear(requestID: second.id)
         }
-        let firstTask = Task { try await fixture.processor.release(request: first, generation: fixture.generation,
+        let firstTask = Task { try await fixture.processor.release(request: first, requester: syntheticVerifiedRequester, generation: fixture.generation,
             authorize: { try await authorizer.authorize($0, onPromptStarted: $1) }) }
         while authorizer.requests.isEmpty { await Task.yield() }
-        let clientWait = Task { try await AgentBridgeClient(bridge: fixture.bridge).send(first) { _ in } }
-        for _ in 0..<20 { await Task.yield() }
-        clientWait.cancel()
-        await #expect(throws: CancellationError.self) { try await clientWait.value }
-        #expect(fixture.bridge.requestMatches(first))
-        let secondTask = Task { try await fixture.processor.release(request: second, generation: fixture.generation,
+        let secondTask = Task { try await fixture.processor.release(request: second, requester: syntheticVerifiedRequester, generation: fixture.generation,
             authorize: { try await authorizer.authorize($0, onPromptStarted: $1) }) }
         for _ in 0..<20 { await Task.yield() }
         #expect(authorizer.requests.count == 1)
@@ -110,9 +104,9 @@ struct CredentialRetentionTests {
         #expect(try await firstTask.value.ok)
         #expect(try await secondTask.value.ok)
         let retry = fixture.request()
-        try fixture.bridge.write(retry)
+
         defer { CredentialTransfer.clear(requestID: retry.id) }
-        #expect(try await fixture.processor.release(request: retry, generation: fixture.generation,
+        #expect(try await fixture.processor.release(request: retry, requester: syntheticVerifiedRequester, generation: fixture.generation,
             authorize: { _, _ in Issue.record("Retry prompted after approval") }).ok)
     }
 
@@ -123,8 +117,8 @@ struct CredentialRetentionTests {
         let request = AgentBridgeRequest(createdAt: Date().addingTimeInterval(-121),
             callerPID: -1, action: .acquire, targetURL: "https://example.com", field: .password)
         defer { CredentialTransfer.clear(requestID: request.id) }
-        try fixture.bridge.write(request)
-        let response = try await fixture.processor.release(request: request, generation: fixture.generation,
+
+        let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
             authorize: { approval, _ in #expect(approval.authorizationDeadline == request.expiresAt) })
         #expect(response.ok)
     }
@@ -135,9 +129,9 @@ struct CredentialRetentionTests {
         defer { fixture.cleanUp() }
         let request = AgentBridgeRequest(createdAt: Date().addingTimeInterval(-601),
             action: .acquire, targetURL: "https://example.com", field: .password)
-        try fixture.bridge.write(request)
+
         do {
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Expired request prompted") })
             Issue.record("Expired request released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
@@ -150,57 +144,38 @@ struct CredentialRetentionTests {
         let fixture = try ReleaseFixture(policy: .ask, now: { now })
         defer { fixture.cleanUp() }
         let request = fixture.request()
-        try fixture.bridge.write(request)
+
         do {
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, onPromptStarted in
                     onPromptStarted()
                     now = request.expiresAt
                 })
             Issue.record("Expired request released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
-        #expect(fixture.grants.contains(fixture.generation.items[0].id, action: .acquire))
+        #expect(fixture.grants.contains(fixture.generation.items[0].id, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!))
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
         let retry = AgentBridgeRequest(createdAt: now, action: .acquire,
             targetURL: "https://example.com", field: .password)
-        try fixture.bridge.write(retry)
+
         defer { CredentialTransfer.clear(requestID: retry.id) }
-        let response = try await fixture.processor.release(request: retry, generation: fixture.generation,
+        let response = try await fixture.processor.release(request: retry, requester: syntheticVerifiedRequester, generation: fixture.generation,
             authorize: { _, _ in Issue.record("Boundary approval was lost") })
         #expect(response.ok)
     }
 
-    @Test("An expired or changed request after approval releases nothing", arguments: [false, true])
-    func leaseEndsDuringApproval(replace: Bool) async throws {
-        let fixture = try ReleaseFixture(policy: .ask)
+    @Test("Expiry during approval releases nothing")
+    func expiresDuringApproval() async throws {
+        var now = Date()
+        let fixture = try ReleaseFixture(policy: .ask, now: { now })
         defer { fixture.cleanUp() }
         let request = fixture.request()
-        try fixture.bridge.write(request)
-        var approvals = 0
         do {
-            _ = try await fixture.processor.release(
-                request: request, generation: fixture.generation,
-                authorize: { _, _ in
-                    approvals += 1
-                    if replace {
-                        try fixture.bridge.write(AgentBridgeRequest(
-                            id: request.id, createdAt: request.createdAt,
-                            action: .acquire, targetURL: "https://other.example",
-                            field: .password
-                        ))
-                    } else {
-                        fixture.bridge.removeRequest(id: request.id)
-                    }
-                }
-            )
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester,
+                generation: fixture.generation, authorize: { _, _ in now = request.expiresAt })
             Issue.record("Expired request was released")
-        } catch let failure as AgentBridgeFailure {
-            #expect(failure.code == .requestExpired)
-        }
-        #expect(approvals == 1)
-        #expect(throws: CredentialTransferError.unavailable) {
-            _ = try read(requestID: request.id)
-        }
+        } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
+        #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
     }
 
     @Test("Refused approval does not release or retry")
@@ -208,11 +183,10 @@ struct CredentialRetentionTests {
         let fixture = try ReleaseFixture(policy: .ask)
         defer { fixture.cleanUp() }
         let request = fixture.request()
-        try fixture.bridge.write(request)
+
         var approvals = 0
         do {
-            _ = try await fixture.processor.release(
-                request: request, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in
                     approvals += 1
                     throw CredentialReleaseAuthorizationError.denied
@@ -290,9 +264,9 @@ struct CredentialRetentionTests {
         let fixture = try ReleaseFixture(policy: .ask)
         defer { fixture.cleanUp() }
         let request = fixture.request()
-        try fixture.bridge.write(request)
+
         do {
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in
                     await fixture.accessControl.setPolicy(.block, for: [fixture.generation.items[0].id])
                 })
@@ -316,8 +290,8 @@ struct CredentialRetentionTests {
             CredentialTransfer.clear(requestID: unrelated)
         }
         for request in [first, second] {
-            try fixture.bridge.write(request)
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Unexpected approval") })
         }
         try CredentialTransfer.publish("unrelated", requestID: unrelated, credentialID: UUID(), expiresAfter: 300)
@@ -334,9 +308,9 @@ struct CredentialRetentionTests {
         defer { fixture.cleanUp() }
         let request = fixture.request(field: .totp)
         defer { CredentialTransfer.clear(requestID: request.id) }
-        try fixture.bridge.write(request)
+
         var approvals = 0
-        let response = try await fixture.processor.release(request: request, generation: fixture.generation,
+        let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
             authorize: { approval, _ in
                 approvals += 1
                 #expect(approval.account == "synthetic@example.com")
@@ -354,9 +328,9 @@ struct CredentialRetentionTests {
         let fixture = try ReleaseFixture(policy: .allowAutomatically, codeOnly: true, codeSeed: Data())
         defer { fixture.cleanUp() }
         let request = fixture.request(field: .totp)
-        try fixture.bridge.write(request)
+
         await #expect(throws: CredentialResolverError.invalidTOTP) {
-            try await fixture.processor.release(request: request, generation: fixture.generation,
+            try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in })
         }
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
@@ -392,7 +366,7 @@ private struct ReleaseFixture {
         try FakeAccessRulesSigner().signature(for: policyBytes).write(to: policyURL.appendingPathExtension("signature"))
         accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL, signer: FakeAccessRulesSigner(signedBytes: policyBytes)))
         grants = CredentialApprovalGrants(now: now)
-        processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl, grants: grants,
+        processor = AgentCredentialReleaseProcessor(accessControl: accessControl, grants: grants,
             approvals: CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState()), now: now)
         let item = MirrorItem(
             id: credentialID,

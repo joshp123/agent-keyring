@@ -53,7 +53,7 @@ struct CredentialFillTests {
         defer { fixture.cleanUp() }
         let request = try fixture.request(field: field)
         do {
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation, authorize: { _, _ in
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation, authorize: { _, _ in
                 Issue.record("Refused fill prompted")
             })
             Issue.record("Refused destination filled")
@@ -77,7 +77,7 @@ struct CredentialFillTests {
         let fixture = try FillTestFixture(filler: filler)
         defer { fixture.cleanUp() }
         let request = try fixture.request()
-        let response = try await fixture.processor.release(request: request, generation: fixture.generation, authorize: { _, _ in })
+        let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation, authorize: { _, _ in })
         #expect(response.ok && response.filledField == .password)
         #expect(response.copiedField == nil && response.candidates == nil)
         #expect(filler.typedValues == [FillTestFixture.password])
@@ -93,8 +93,7 @@ struct CredentialFillTests {
             focusedRole: field == .password ? "AXSecureTextField" : "AXTextField", focusedSubrole: nil))
         let fixture = try FillTestFixture(filler: filler)
         defer { fixture.cleanUp() }
-        let response = try await fixture.processor.release(request: fixture.request(field: field),
-            generation: fixture.generation, authorize: { _, _ in })
+        let response = try await fixture.processor.release(request: fixture.request(field: field), requester: syntheticVerifiedRequester, generation: fixture.generation, authorize: { _, _ in })
         #expect(response.ok)
         #expect(filler.typedValues == [field == .password ? FillTestFixture.password : FillTestFixture.username])
     }
@@ -106,7 +105,7 @@ struct CredentialFillTests {
         filler.onInspect = { if filler.inspectCount == 2 { now = Date(timeIntervalSince1970: 60) } }
         let fixture = try FillTestFixture(policy: .ask, filler: filler, now: { now })
         defer { fixture.cleanUp() }
-        _ = try await fixture.processor.release(request: fixture.request(field: .totp), generation: fixture.generation,
+        _ = try await fixture.processor.release(request: fixture.request(field: .totp), requester: syntheticVerifiedRequester, generation: fixture.generation,
             authorize: { approval, onPromptStarted in
                 #expect(approval.fillsFocusedField)
                 #expect(approval.localizedReason.contains("fill the verification code"))
@@ -122,7 +121,7 @@ struct CredentialFillTests {
         var approvals = 0
         do {
             for _ in 0..<2 {
-                _ = try await fixture.processor.release(request: fixture.request(), generation: fixture.generation,
+                _ = try await fixture.processor.release(request: fixture.request(), requester: syntheticVerifiedRequester, generation: fixture.generation,
                     authorize: { _, onPromptStarted in approvals += 1; onPromptStarted() })
             }
             #expect(policy != .block)
@@ -141,7 +140,7 @@ struct CredentialFillTests {
         defer { fixture.cleanUp() }
         var prompts = 0
         do {
-            _ = try await fixture.processor.release(request: fixture.request(), generation: fixture.generation,
+            _ = try await fixture.processor.release(request: fixture.request(), requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, started in
                     prompts += 1; started()
                     filler.inspection = switch path {
@@ -173,13 +172,13 @@ struct CredentialFillTests {
         var prompts = 0
         for action in [firstAction, otherAction, firstAction] {
             let request = AgentBridgeRequest(action: action, targetURL: "https://example.com", field: .password)
-            try fixture.bridge.write(request)
+
             defer { CredentialTransfer.clear(requestID: request.id) }
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, started in prompts += 1; started() })
             if prompts == 1 {
-                #expect(fixture.grants.contains(loginID, action: firstAction))
-                #expect(!fixture.grants.contains(loginID, action: otherAction))
+                #expect(fixture.grants.contains(loginID, action: firstAction, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!))
+                #expect(!fixture.grants.contains(loginID, action: otherAction, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity!))
             }
         }
         #expect(prompts == 2)
@@ -193,7 +192,7 @@ struct CredentialFillTests {
         fixture.accessControl.stagePhoneBlock(for: fixture.generation.items[0].id)
         let request = try fixture.request()
         do {
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Blocked login asked for approval") })
             Issue.record("Blocked login released")
         } catch let failure as AgentBridgeFailure {
@@ -210,7 +209,7 @@ struct CredentialFillTests {
         var firstPrompt: CheckedContinuation<Void, Never>?
         var prompts = 0
         let fill = Task { @MainActor in
-            try await coordinator.authorize(credentialID: loginID, action: .fill,
+            try await coordinator.authorize(credentialID: loginID, action: .fill, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity,
                 authorizationDeadline: Date().addingTimeInterval(60),
                 approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
                     account: "synthetic", field: .password, action: .fill)) { started in
@@ -220,7 +219,7 @@ struct CredentialFillTests {
         }
         while firstPrompt == nil { await Task.yield() }
         let acquire = Task { @MainActor in
-            try await coordinator.authorize(credentialID: loginID, action: .acquire,
+            try await coordinator.authorize(credentialID: loginID, action: .acquire, requesterIdentity: syntheticVerifiedRequester.verifiedIdentity,
                 authorizationDeadline: Date().addingTimeInterval(60),
                 approvalRequest: try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com",
                     account: "synthetic", field: .password, action: .acquire)) { started in prompts += 1; started() }
@@ -244,8 +243,8 @@ struct CredentialFillTests {
             scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture",
             items: fixture.generation.items + [second], skippedCredentialCount: 0)
         let request = AgentBridgeRequest(action: .fill, targetURL: "https://example.com", candidateID: second.id, field: .password)
-        try fixture.bridge.write(request)
-        let response = try await fixture.processor.release(request: request, generation: generation,
+
+        let response = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: generation,
             authorize: { approval, started in #expect(approval.credentialTitle == second.title); started() })
         #expect(response.ok && fixture.filler.typedValues == ["second-synthetic-password"])
     }
@@ -256,7 +255,7 @@ struct CredentialFillTests {
         defer { fixture.cleanUp() }
         try Data("altered signature".utf8).write(to: fixture.bridge.rootURL.appendingPathComponent("policies.json.signature"))
         do {
-            _ = try await fixture.processor.release(request: fixture.request(), generation: fixture.generation, authorize: { _, _ in })
+            _ = try await fixture.processor.release(request: fixture.request(), requester: syntheticVerifiedRequester, generation: fixture.generation, authorize: { _, _ in })
             Issue.record("Unconfirmed rules filled")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .rulesNeedConfirmation) }
         #expect(fixture.filler.inspectCount == 0 && fixture.filler.typedValues.isEmpty)
@@ -267,7 +266,7 @@ struct CredentialFillTests {
         let fixture = try FillTestFixture(policy: .ask)
         defer { fixture.cleanUp() }
         do {
-            _ = try await fixture.processor.release(request: fixture.request(), generation: fixture.generation,
+            _ = try await fixture.processor.release(request: fixture.request(), requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in await fixture.accessControl.setPolicy(.block, for: [fixture.generation.items[0].id]) })
             Issue.record("Blocked login filled")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .policyDenied) }
@@ -279,7 +278,7 @@ struct CredentialFillTests {
         let fixture = try FillTestFixture(policy: .ask, filler: FakeCredentialFiller(inspection: fillInspection(screenLocked: true)))
         defer { fixture.cleanUp() }
         do {
-            _ = try await fixture.processor.release(request: fixture.request(), generation: fixture.generation,
+            _ = try await fixture.processor.release(request: fixture.request(), requester: syntheticVerifiedRequester, generation: fixture.generation,
                 authorize: { _, _ in Issue.record("Locked fill prompted") })
             Issue.record("Locked fill succeeded")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .screenLocked) }
@@ -302,7 +301,7 @@ struct CredentialFillTests {
             }
         }
         do {
-            _ = try await fixture.processor.release(request: request, generation: fixture.generation, authorize: { _, _ in })
+            _ = try await fixture.processor.release(request: request, requester: syntheticVerifiedRequester, generation: fixture.generation, authorize: { _, _ in })
             Issue.record("Stale authorization filled")
         } catch let failure as AgentBridgeFailure {
             let expected: AgentBridgeErrorCode = path == "expired" ? .requestExpired : path == "blocked" ? .policyDenied : .rulesNeedConfirmation
@@ -325,7 +324,7 @@ struct CredentialFillTests {
         default: .internalError
         }
         do {
-            _ = try await fixture.processor.release(request: fixture.request(), generation: fixture.generation, authorize: { _, _ in })
+            _ = try await fixture.processor.release(request: fixture.request(), requester: syntheticVerifiedRequester, generation: fixture.generation, authorize: { _, _ in })
             Issue.record("Helper refusal reported success")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == expected) }
     }

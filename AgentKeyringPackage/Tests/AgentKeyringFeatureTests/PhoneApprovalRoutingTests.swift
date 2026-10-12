@@ -220,7 +220,7 @@ struct PhoneApprovalRoutingTests {
         let first = fixture.start()
         try await routingEventually { fixture.phone.requests.count == 1 }
         let second = Task { @MainActor in
-            try await fixture.approvals.authorize(credentialID: UUID(),
+            try await fixture.approvals.authorize(credentialID: UUID(), requesterIdentity: syntheticVerifiedRequester.verifiedIdentity,
                 authorizationDeadline: secondRequest.createdAt.addingTimeInterval(600),
                 approvalRequest: secondRequest) { _ in Issue.record("Locked request started a Mac prompt") }
         }
@@ -395,7 +395,7 @@ private final class PhoneRoutingFixture {
 
     func start(onBlock: @escaping () -> Void = {}) -> Task<Void, Error> {
         Task { @MainActor in
-            try await approvals.authorize(credentialID: UUID(), authorizationDeadline: request.createdAt.addingTimeInterval(600),
+            try await approvals.authorize(credentialID: UUID(), requesterIdentity: syntheticVerifiedRequester.verifiedIdentity, authorizationDeadline: request.createdAt.addingTimeInterval(600),
                 approvalRequest: request, cancelPrompt: { self.mac.cancelCurrentAuthorization() },
                 onBlockLogin: onBlock, onProgress: { self.progress.append($0) }) {
                     try await self.mac.authorize(CredentialReleaseAuthorizationRequest(destination: "example.com",

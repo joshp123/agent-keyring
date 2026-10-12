@@ -349,7 +349,7 @@ private final class CloudApprovalFixture {
 
     func start() -> Task<Void, Error> {
         Task { @MainActor in
-            try await coordinator.authorize(credentialID: UUID(), authorizationDeadline: Date(timeIntervalSince1970: Double(request.expiresAt)),
+            try await coordinator.authorize(credentialID: UUID(), requesterIdentity: syntheticVerifiedRequester.verifiedIdentity, authorizationDeadline: Date(timeIntervalSince1970: Double(request.expiresAt)),
                 approvalRequest: request, cancelPrompt: { self.mac.cancelCurrentAuthorization() },
                 onBlockLogin: { self.blocked = true }, onProgress: { self.progress.append($0) }) {
                     try await self.mac.authorize(CredentialReleaseAuthorizationRequest(destination: "example.com", account: "synthetic", field: .password),

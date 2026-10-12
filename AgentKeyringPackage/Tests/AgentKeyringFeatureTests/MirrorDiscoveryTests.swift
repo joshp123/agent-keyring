@@ -9,7 +9,7 @@ import Testing
 struct MirrorDiscoveryTests {
     @Test("App status and find reuse metadata, repairing an older snapshot once", arguments: [false, true])
     func discoveryUsesOnlyMetadata(missingIndex: Bool) async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = EncryptedSnapshotStore(directoryURL: directory.appendingPathComponent("vault"),
             keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32)))
@@ -60,9 +60,8 @@ struct MirrorDiscoveryTests {
         }
         for action in [AgentBridgeAction.status, .resolve] {
             let request = AgentBridgeRequest(action: action, targetURL: "https://example.com")
-            try bridge.write(request)
-            await model.handleAgentRequest(id: request.id)
-            let response = try bridge.readResponse(id: request.id)
+
+            let response = try await sendTestAgentRequest(request, model: model, bridge: bridge)
             #expect(response.ok)
             #expect(response.mirror?.credentialCount == 1)
             #expect(response.mirror?.ageSeconds ?? 0 >= 8 * 86_400)

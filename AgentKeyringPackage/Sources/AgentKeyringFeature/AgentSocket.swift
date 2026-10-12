@@ -1,5 +1,8 @@
 import Darwin
 import Foundation
+import OSLog
+
+private let socketLogger = Logger(subsystem: "com.agentkeyring.app", category: "AgentSocket")
 
 /// Kernel-supplied identity of the process that connected, independent of request contents.
 public struct AgentBridgePeer: Sendable {
@@ -48,11 +51,13 @@ private enum AgentSocketEvent: Codable, Sendable {
 /// A blocking reader runs on a Dispatch worker; the app's main actor never waits on socket I/O.
 private final class AgentSocketConnection: @unchecked Sendable {
     let descriptor: Int32
-    private let writeLock = NSLock()
+    private let writer = DispatchQueue(label: "com.agentkeyring.socket-writer")
     init(_ descriptor: Int32) {
         self.descriptor = descriptor
         var enabled: Int32 = 1
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size))
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
     }
     deinit { Darwin.close(descriptor) }
     func disconnect() { shutdown(descriptor, SHUT_RDWR) }
@@ -62,9 +67,18 @@ private final class AgentSocketConnection: @unchecked Sendable {
         guard data.count <= 1_048_576 else { throw AgentBridgeFailure(.invalidRequest, "The socket message is too large.") }
         var length = UInt32(data.count).bigEndian
         let header = withUnsafeBytes(of: &length) { Data($0) }
-        writeLock.lock()
-        defer { writeLock.unlock() }
         try write(header + data)
+    }
+
+    func publish(_ event: AgentSocketEvent, final: Bool = false) {
+        writer.async {
+            defer { if final { self.disconnect() } }
+            do { try self.send(event) }
+            catch {
+                socketLogger.debug("Agent socket reply unavailable: \(String(describing: error), privacy: .private)")
+                self.disconnect()
+            }
+        }
     }
 
     func receive<Value: Decodable>(_ type: Value.Type) throws -> Value {
@@ -142,6 +156,8 @@ public final class AgentBridgeServer: @unchecked Sendable {
             while true {
                 let accepted = accept(descriptor, nil, nil)
                 guard accepted >= 0 else { return }
+                // Darwin inherits O_NONBLOCK from the listening socket.
+                guard fcntl(accepted, F_SETFL, 0) == 0 else { Darwin.close(accepted); continue }
                 DispatchQueue.global(qos: .userInitiated).async {
                     let connection = AgentSocketConnection(accepted)
                     do {
@@ -153,13 +169,18 @@ public final class AgentBridgeServer: @unchecked Sendable {
                         Task { @MainActor in
                             do {
                                 let response = try await handler(request, peer) { progress in
-                                    try? connection.send(AgentSocketEvent.progress(progress))
+                                    connection.publish(.progress(progress))
                                 }
-                                try connection.send(AgentSocketEvent.response(response))
-                            } catch { /* A CLI may stop waiting while the app finishes approval. */ }
-                            connection.disconnect()
+                                connection.publish(.response(response), final: true)
+                            } catch {
+                                socketLogger.error("Agent socket handler failed: \(String(describing: error), privacy: .private)")
+                                connection.disconnect()
+                            }
                         }
-                    } catch { connection.disconnect() }
+                    } catch {
+                        socketLogger.debug("Agent socket request unreadable: \(String(describing: error), privacy: .private)")
+                        connection.disconnect()
+                    }
                 }
             }
         }
@@ -194,7 +215,7 @@ public struct AgentBridgeClient: Sendable {
         guard let connection else { throw socketFailure() }
         defer { connection.disconnect() }
         try connection.send(request)
-        enum Event: Sendable { case message(AgentSocketEvent), failed, tick, deadline }
+        enum Event: Sendable { case message(AgentSocketEvent), failed(AgentBridgeFailure), tick, deadline }
         let (events, continuation) = AsyncStream<Event>.makeStream()
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -203,7 +224,8 @@ public struct AgentBridgeClient: Sendable {
                     continuation.yield(.message(message))
                     if case .response = message { break }
                 }
-            } catch { continuation.yield(.failed) }
+            } catch let error as AgentBridgeFailure { continuation.yield(.failed(error)) }
+            catch { continuation.yield(.failed(AgentBridgeFailure(.invalidRequest, "The app returned an invalid socket message."))) }
         }
         let ticker = Task {
             do {
@@ -233,7 +255,7 @@ public struct AgentBridgeClient: Sendable {
                 return response
             case .tick:
                 if let lastProgress { onStatus(.stillWaiting(progress: lastProgress)) }
-            case .failed: throw socketFailure()
+            case let .failed(error): throw error
             case .deadline:
                 if Date() >= request.expiresAt { throw AgentBridgeFailure(.requestExpired, "The request expired with no answer.") }
                 return AgentBridgeResponse(id: request.id, ok: false, error: .approvalPending,

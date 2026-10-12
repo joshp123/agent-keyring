@@ -12,15 +12,15 @@ public enum AgentDisplayLabel {
     }
 
     public static func processInformation(_ pid: pid_t) -> (executablePath: String, parentPID: pid_t)? {
-            var process = kinfo_proc()
-            var processSize = MemoryLayout<kinfo_proc>.size
-            var query = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-            guard sysctl(&query, UInt32(query.count), &process, &processSize, nil, 0) == 0,
-                  processSize > 0 else { return nil }
-            var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-            guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
-            let executablePath = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            return (executablePath, process.kp_eproc.e_ppid)
+        var process = kinfo_proc()
+        var processSize = MemoryLayout<kinfo_proc>.size
+        var query = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&query, UInt32(query.count), &process, &processSize, nil, 0) == 0,
+              processSize > 0 else { return nil }
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+        let executablePath = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return (executablePath, process.kp_eproc.e_ppid)
     }
 
     static func executableLabel(path: String) -> String {
