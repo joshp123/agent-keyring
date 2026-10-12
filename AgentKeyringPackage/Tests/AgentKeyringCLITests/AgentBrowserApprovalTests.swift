@@ -11,7 +11,7 @@ struct AgentBrowserApprovalTests {
     func silentRelease(useGrant: Bool) async throws {
         let fixture = BrowserApprovalFixture()
         defer { fixture.cleanUp() }
-        if useGrant { fixture.grants.approve(fixture.loginID, action: .acquire) }
+        if useGrant { fixture.grants.approve(fixture.loginID, action: .acquire, site: "example.com", account: "synthetic@example.com") }
         else { try await fixture.setPolicy(.allowAutomatically) }
         let diagnostics = Pipe()
         try await fixture.acquireWithCLI(diagnostics: diagnostics.fileHandleForWriting)

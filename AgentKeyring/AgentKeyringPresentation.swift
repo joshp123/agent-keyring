@@ -22,7 +22,14 @@ final class AgentKeyringPresentation {
 
 struct AgentKeyringMenu: View {
     let presentation: AgentKeyringPresentation
-    let endAllGrants: () -> Void
+    let grants: CredentialApprovalGrants
+
+    private static let expirationTimeFormat: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
 
     var body: some View {
         Button("Open Agent Keyring") {
@@ -32,7 +39,15 @@ struct AgentKeyringMenu: View {
 
         Divider()
 
-        Button("End all grants", action: endAllGrants)
+        TimelineView(.periodic(from: .now, by: 60)) { _ in
+            ForEach(grants.active) { grant in
+                Menu("\(grant.site) · \(grant.account) · \(grant.id.action.rawValue) · until \(Self.expirationTimeFormat.string(from: grant.expiresAt))") {
+                    Button("End") { grants.end(grant.id) }
+                }
+            }
+        }
+
+        Button("End all grants", action: grants.endAll)
             .accessibilityIdentifier("end-all-grants")
 
         Divider()

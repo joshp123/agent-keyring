@@ -128,7 +128,7 @@ public struct AgentCredentialReleaseProcessor {
                 }) { onPromptStarted in
                 try await authorize(approval, onPromptStarted)
             }
-            grants.approve(selected.id, action: request.action)
+            grants.approve(selected.id, action: request.action, site: approval.destination, account: approval.account)
         }
 
         try ensureRequestHasNotExpired(request)

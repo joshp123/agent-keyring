@@ -70,7 +70,7 @@ struct CredentialRetentionTests {
     func blockedGrant() async throws {
         let fixture = try ReleaseFixture(policy: .block)
         defer { fixture.cleanUp() }
-        fixture.grants.approve(fixture.generation.items[0].id, action: .acquire)
+        fixture.grants.approve(fixture.generation.items[0].id, action: .acquire, site: "example.com", account: "synthetic@example.com")
         let request = fixture.request()
         try fixture.bridge.write(request)
         do {

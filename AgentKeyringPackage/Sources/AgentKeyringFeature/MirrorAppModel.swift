@@ -46,7 +46,7 @@ public final class MirrorAppModel {
     let credentialImporter: any CredentialImporting
     let merger: SnapshotMerger
     let resolver: CredentialResolver
-    let grants = CredentialApprovalGrants()
+    public let grants = CredentialApprovalGrants()
     let approvals: CredentialApprovalCoordinator
     public let approvalRoutingSettings: ApprovalRoutingSettings
     let authorizer: any CredentialReleaseAuthorizing
