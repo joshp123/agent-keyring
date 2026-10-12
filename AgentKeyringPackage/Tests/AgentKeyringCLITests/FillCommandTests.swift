@@ -79,7 +79,7 @@ struct FillCommandTests {
         case "mismatch": "The page host example.com.evil.invalid does not match the saved site example.com."
         case "browser": "This browser is not supported; use agent-browser."
         case "address": "This browser's page address cannot be read; use agent-browser."
-        case "permission": "Grant Agent Keyring Accessibility in System Settings → Privacy & Security → Accessibility."
+        case "permission": "Open Agent Keyring and click ‘Allow Agent Keyring to fill sign-in forms’."
         case "locked": "The screen is locked."
         case "changed": "The browser, page or focused field changed; focus the field and retry."
         default: "Filled."

@@ -85,6 +85,7 @@ public final class FillInspection: NSObject, NSSecureCoding, @unchecked Sendable
 }
 
 @objc public protocol AgentKeyringFillerProtocol {
+    func checkAccessibility(prompt: Bool, withReply reply: @escaping @Sendable (Bool) -> Void)
     func inspect(withReply reply: @escaping @Sendable (FillInspection) -> Void)
     func type(value: NSMutableData, expected: FillInspection, deadline: Date, withReply reply: @escaping @Sendable (FillTypingResult) -> Void)
 }

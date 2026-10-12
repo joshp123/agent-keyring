@@ -88,7 +88,7 @@ struct CLIError: Error {
         case .unreadablePageAddress:
             self.init("This browser's page address cannot be read; use agent-browser.", exitCode: 10)
         case .accessibilityMissing:
-            self.init("Grant Agent Keyring Accessibility in System Settings → Privacy & Security → Accessibility.", exitCode: 11)
+            self.init("Open Agent Keyring and click ‘Allow Agent Keyring to fill sign-in forms’.", exitCode: 11)
         case .screenLocked:
             self.init("The screen is locked.", exitCode: 12)
         case .fillTargetChanged:

@@ -82,6 +82,11 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        model.fillAccessibility.showInstructions = { [presentation] in presentation.requestMainWindow() }
+        Task {
+            await model.fillAccessibility.refresh()
+            if model.fillAccessibility.state == .permissionRequired { presentation.requestMainWindow() }
+        }
         if accessControlFixture == nil {
             let notifier = SystemMirrorSyncNotifier { [weak self] in
                 self?.model.openPasswordsExport()

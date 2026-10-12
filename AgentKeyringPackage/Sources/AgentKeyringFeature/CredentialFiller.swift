@@ -32,6 +32,12 @@ public final class XPCCredentialFiller: CredentialFiller {
 
     isolated deinit { connection.invalidate() }
 
+    public func checkAccessibility(prompt: Bool) async throws -> Bool {
+        try await call { proxy, completion in
+            proxy.checkAccessibility(prompt: prompt) { completion(.success($0)) }
+        }
+    }
+
     public func inspect() async throws -> FillInspection {
         try await call { proxy, completion in proxy.inspect { completion(.success($0)) } }
     }
@@ -113,7 +119,7 @@ struct AgentCredentialFillProcessor {
         }
     }
 
-    static let accessibilityMessage = "Grant Agent Keyring Accessibility in System Settings → Privacy & Security → Accessibility."
+    static let accessibilityMessage = "Open Agent Keyring and click ‘Allow Agent Keyring to fill sign-in forms’."
 
     func validate(_ inspection: FillInspection, candidate: CredentialCandidate, requestedURL: String,
         field: AgentCredentialField) throws {

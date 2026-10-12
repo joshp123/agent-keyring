@@ -40,6 +40,7 @@ extension MirrorAppModel {
                 throw AgentBridgeFailure(
                     .requestExpired, "The agent request expired before it was handled.")
             }
+            if request.action == .fill { try await fillAccessibility.ensureReadyForFill() }
             if !accessControl.hasLoadedLoginList { await loadStatus() }
             switch request.action {
             case .status, .resolve:

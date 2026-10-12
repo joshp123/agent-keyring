@@ -1,6 +1,6 @@
 import AgentKeyringFillerSupport
 import AppKit
-import ApplicationServices
+@preconcurrency import ApplicationServices
 import Darwin
 import Security
 import OSLog
@@ -21,6 +21,15 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
     private var focusedElementIdentifier: String?
 
     nonisolated override init() { super.init() }
+
+    nonisolated func checkAccessibility(prompt: Bool, withReply reply: @escaping @Sendable (Bool) -> Void) {
+        DispatchQueue.main.async {
+            // TCC attributes this embedded helper to Agent Keyring, its responsible app.
+            // See docs/spikes/fill-sandbox-decision.md on spike-fill-sandbox.
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
+            reply(AXIsProcessTrustedWithOptions(options))
+        }
+    }
 
     nonisolated func inspect(withReply reply: @escaping @Sendable (FillInspection) -> Void) {
         DispatchQueue.main.async {
