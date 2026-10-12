@@ -6,6 +6,7 @@ public struct AgentCredentialReleaseProcessor {
     private let accessControl: CredentialAccessController
     private let approvals: CredentialApprovalCoordinator
     private let grants: CredentialApprovalGrants
+    private let now: () -> Date
     private let resolver: CredentialResolver
 
     public init(
@@ -13,13 +14,15 @@ public struct AgentCredentialReleaseProcessor {
         accessControl: CredentialAccessController,
         resolver: CredentialResolver = CredentialResolver(),
         grants: CredentialApprovalGrants = CredentialApprovalGrants(),
-        approvals: CredentialApprovalCoordinator = CredentialApprovalCoordinator()
+        approvals: CredentialApprovalCoordinator = CredentialApprovalCoordinator(),
+        now: @escaping () -> Date = Date.init
     ) {
         self.bridge = bridge
         self.accessControl = accessControl
         self.resolver = resolver
         self.grants = grants
         self.approvals = approvals
+        self.now = now
     }
 
     public func release(
@@ -102,6 +105,7 @@ public struct AgentCredentialReleaseProcessor {
                 onProgress: onProgress) { onPromptStarted in
                 try await authorize(approval, onPromptStarted)
             }
+            grants.approve(selected.id)
         }
 
         try ensureRequestHasNotExpired(request)
@@ -109,7 +113,6 @@ public struct AgentCredentialReleaseProcessor {
             throw AgentBridgeFailure(.policyDenied,
                 "Agent access to this credential is blocked in Agent Keyring.")
         }
-        if needsApproval { grants.approve(selected.id) }
         let expiration = min(120, max(5, request.expirationSeconds))
         let secret = try resolver.secret(
             in: generation,
@@ -142,8 +145,8 @@ public struct AgentCredentialReleaseProcessor {
 
     private func ensureRequestHasNotExpired(_ request: AgentBridgeRequest) throws {
         guard request.version == 1,
-            request.createdAt.timeIntervalSinceNow <= 5,
-            request.expiresAt > Date(),
+            request.createdAt.timeIntervalSince(now()) <= 5,
+            request.expiresAt > now(),
             bridge.requestMatches(request)
         else {
             throw AgentBridgeFailure(.requestExpired, "The credential request is no longer active.")

@@ -523,18 +523,11 @@ public final class MirrorAppModel {
             throw error
         }
         await stopApprovalTasks(positioningTask, leaseMonitorTask)
-        let requestIsLive = agentRequestIsLive(agentRequest)
         restoreStatusWindow(
             presentation,
             origin: originalOrigin,
             level: originalLevel
         )
-        guard requestIsLive else {
-            throw AgentBridgeFailure(
-                .requestExpired,
-                "The credential request ended before approval completed."
-            )
-        }
     }
 
     private func restoreStatusWindow(

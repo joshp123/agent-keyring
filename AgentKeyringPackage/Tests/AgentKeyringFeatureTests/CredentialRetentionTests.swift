@@ -147,6 +147,32 @@ struct CredentialRetentionTests {
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
     }
 
+    @Test("Approval at the expiry boundary keeps its grant but does not release the expired request")
+    func grantSurvivesRequestExpiry() async throws {
+        var now = Date()
+        let fixture = try ReleaseFixture(policy: .ask, now: { now })
+        defer { fixture.cleanUp() }
+        let request = fixture.request()
+        try fixture.bridge.write(request)
+        do {
+            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _, onPromptStarted in
+                    onPromptStarted()
+                    now = request.expiresAt
+                }, copyNative: { _, _ in Issue.record("Expired request copied") })
+            Issue.record("Expired request released")
+        } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
+        #expect(fixture.grants.contains(fixture.generation.items[0].id))
+        #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
+        let retry = AgentBridgeRequest(createdAt: now, action: .acquire,
+            targetURL: "https://example.com", field: .password)
+        try fixture.bridge.write(retry)
+        defer { CredentialTransfer.clear(requestID: retry.id) }
+        let response = try await fixture.processor.release(request: retry, generation: fixture.generation,
+            authorize: { _, _ in Issue.record("Boundary approval was lost") }, copyNative: { _, _ in })
+        #expect(response.ok)
+    }
+
     @Test("An expired or changed request after approval releases nothing", arguments: [false, true])
     func leaseEndsDuringApproval(replace: Bool) async throws {
         let fixture = try ReleaseFixture(policy: .ask)
@@ -353,9 +379,9 @@ private struct ReleaseFixture {
     let generation: MirrorGeneration
     let processor: AgentCredentialReleaseProcessor
     let accessControl: CredentialAccessController
-    let grants = CredentialApprovalGrants()
+    let grants: CredentialApprovalGrants
 
-    init(policy: CredentialAccessPolicy, codeOnly: Bool = false, includeCode: Bool = false, codeSeed: Data = Data("12345678901234567890".utf8)) throws {
+    init(policy: CredentialAccessPolicy, codeOnly: Bool = false, includeCode: Bool = false, codeSeed: Data = Data("12345678901234567890".utf8), now: @escaping () -> Date = Date.init) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("credential-retrieval-test-\(UUID().uuidString)")
         bridge = AgentBridgeDirectory(rootURL: root)
@@ -368,8 +394,9 @@ private struct ReleaseFixture {
         ]
         try JSONSerialization.data(withJSONObject: contents).write(to: policyURL)
         accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL))
+        grants = CredentialApprovalGrants(now: now)
         processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl, grants: grants,
-            approvals: CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState()))
+            approvals: CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState()), now: now)
         let item = MirrorItem(
             id: credentialID,
             sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
