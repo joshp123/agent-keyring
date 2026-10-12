@@ -125,10 +125,17 @@ struct CredentialRetentionTests {
         let reference = UUID()
         defer { CredentialTransfer.clear(requestID: reference) }
         let seed = Data("12345678901234567890".utf8)
-        try CredentialTransfer.publishCode(.totp(secret: seed, period: 30, digits: 8,
-            userName: "code-account", algorithm: .sha1, issuer: nil), requestID: reference)
-        #expect(try CredentialTransfer.read(requestID: reference, now: Date(timeIntervalSince1970: 59)) == Data("94287082".utf8))
-        #expect(try CredentialTransfer.read(requestID: reference, now: Date(timeIntervalSince1970: 60)) == Data("37359152".utf8))
+        try CredentialTransfer.publish("initial synthetic code", requestID: reference,
+            codeRecord: .totp(secret: seed, period: 30, digits: 8,
+                userName: "code-account", algorithm: .sha1, issuer: nil))
+        let channel = NSPasteboard(name: .init("com.agentkeyring.credential.\(reference.uuidString)"))
+        for type in channel.types ?? [] {
+            #expect(channel.data(forType: type)?.range(of: seed) == nil)
+        }
+        CredentialTransfer.refreshRetainedValues(now: Date(timeIntervalSince1970: 59))
+        #expect(try CredentialTransfer.read(requestID: reference) == Data("94287082".utf8))
+        CredentialTransfer.refreshRetainedValues(now: Date(timeIntervalSince1970: 60))
+        #expect(try CredentialTransfer.read(requestID: reference) == Data("37359152".utf8))
     }
 
     @Test("Retained values expire after five minutes by default")
@@ -230,8 +237,23 @@ struct CredentialRetentionTests {
             }, copyNative: { _, _ in Issue.record("Unexpected native copy") })
         #expect(response.ok)
         #expect(approvals == 1)
-        #expect(try CredentialTransfer.read(requestID: request.id, now: Date(timeIntervalSince1970: 59)) == Data("94287082".utf8))
-        #expect(try CredentialTransfer.read(requestID: request.id, now: Date(timeIntervalSince1970: 60)) == Data("37359152".utf8))
+        CredentialTransfer.refreshRetainedValues(now: Date(timeIntervalSince1970: 59))
+        #expect(try CredentialTransfer.read(requestID: request.id) == Data("94287082".utf8))
+        CredentialTransfer.refreshRetainedValues(now: Date(timeIntervalSince1970: 60))
+        #expect(try CredentialTransfer.read(requestID: request.id) == Data("37359152".utf8))
+    }
+
+    @Test("An invalid code record fails at acquisition without publishing a buffer")
+    func invalidCodeAtAcquisition() async throws {
+        let fixture = try ReleaseFixture(policy: .allowAutomatically, codeOnly: true, codeSeed: Data())
+        defer { fixture.cleanUp() }
+        let request = fixture.request(field: .totp)
+        try fixture.bridge.write(request)
+        await #expect(throws: CredentialResolverError.invalidTOTP) {
+            try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _ in }, copyNative: { _, _ in })
+        }
+        #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
     }
 
     private func read(requestID: UUID) throws -> Data {
@@ -247,7 +269,7 @@ private struct ReleaseFixture {
     let processor: AgentCredentialReleaseProcessor
     let accessControl: CredentialAccessController
 
-    init(policy: CredentialAccessPolicy, codeOnly: Bool = false) throws {
+    init(policy: CredentialAccessPolicy, codeOnly: Bool = false, codeSeed: Data = Data("12345678901234567890".utf8)) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("credential-retrieval-test-\(UUID().uuidString)")
         bridge = AgentBridgeDirectory(rootURL: root)
@@ -265,7 +287,7 @@ private struct ReleaseFixture {
             id: credentialID,
             sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
             title: "Synthetic login", origins: ["https://example.com"],
-            credentials: codeOnly ? [.totp(secret: Data("12345678901234567890".utf8),
+            credentials: codeOnly ? [.totp(secret: codeSeed,
                 period: 30, digits: 8, userName: "synthetic@example.com", algorithm: .sha1, issuer: nil)]
                 : [.password(userName: "synthetic@example.com", password: Self.password)]
         )
