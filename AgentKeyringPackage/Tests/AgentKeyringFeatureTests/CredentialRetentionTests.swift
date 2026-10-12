@@ -45,6 +45,44 @@ struct CredentialRetentionTests {
         #expect(nativeCopies == 0)
     }
 
+    @Test("One login approval covers later fields and End all grants asks again")
+    func loginGrant() async throws {
+        let fixture = try ReleaseFixture(policy: .ask, includeCode: true)
+        defer { fixture.cleanUp() }
+        var approvals = 0
+        for field in [AgentCredentialField.password, .username, .totp, .password] {
+            let request = fixture.request(field: field)
+            try fixture.bridge.write(request)
+            let response = try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _ in approvals += 1 }, copyNative: { _, _ in })
+            #expect(response.ok)
+            CredentialTransfer.clear(requestID: request.id)
+        }
+        #expect(approvals == 1)
+        fixture.grants.endAll()
+        let retry = fixture.request()
+        defer { CredentialTransfer.clear(requestID: retry.id) }
+        try fixture.bridge.write(retry)
+        _ = try await fixture.processor.release(request: retry, generation: fixture.generation,
+            authorize: { _ in approvals += 1 }, copyNative: { _, _ in })
+        #expect(approvals == 2)
+    }
+
+    @Test("Blocked policy releases nothing even with an active grant")
+    func blockedGrant() async throws {
+        let fixture = try ReleaseFixture(policy: .block)
+        defer { fixture.cleanUp() }
+        fixture.grants.approve(fixture.generation.items[0].id)
+        let request = fixture.request()
+        try fixture.bridge.write(request)
+        do {
+            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _ in Issue.record("Blocked login prompted") }, copyNative: { _, _ in })
+            Issue.record("Blocked login released")
+        } catch let failure as AgentBridgeFailure { #expect(failure.code == .policyDenied) }
+        #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
+    }
+
     @Test("A dead caller and the old two-minute limit do not end a request")
     func appOwnsRequest() async throws {
         let fixture = try ReleaseFixture(policy: .ask)
@@ -280,8 +318,9 @@ private struct ReleaseFixture {
     let generation: MirrorGeneration
     let processor: AgentCredentialReleaseProcessor
     let accessControl: CredentialAccessController
+    let grants = CredentialApprovalGrants()
 
-    init(policy: CredentialAccessPolicy, codeOnly: Bool = false, codeSeed: Data = Data("12345678901234567890".utf8)) throws {
+    init(policy: CredentialAccessPolicy, codeOnly: Bool = false, includeCode: Bool = false, codeSeed: Data = Data("12345678901234567890".utf8)) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("credential-retrieval-test-\(UUID().uuidString)")
         bridge = AgentBridgeDirectory(rootURL: root)
@@ -294,7 +333,7 @@ private struct ReleaseFixture {
         ]
         try JSONSerialization.data(withJSONObject: contents).write(to: policyURL)
         accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL))
-        processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl)
+        processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl, grants: grants)
         let item = MirrorItem(
             id: credentialID,
             sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
@@ -302,6 +341,8 @@ private struct ReleaseFixture {
             credentials: codeOnly ? [.totp(secret: codeSeed,
                 period: 30, digits: 8, userName: "synthetic@example.com", algorithm: .sha1, issuer: nil)]
                 : [.password(userName: "synthetic@example.com", password: Self.password)]
+                    + (includeCode ? [.totp(secret: codeSeed, period: 30, digits: 8,
+                        userName: "synthetic@example.com", algorithm: .sha1, issuer: nil)] : [])
         )
         generation = MirrorGeneration(
             id: UUID(), previousGenerationID: nil, createdAt: Date(), sourceExportedAt: Date(),

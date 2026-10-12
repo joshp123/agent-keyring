@@ -55,12 +55,18 @@ final class AgentKeyringPresentation {
 
 struct AgentKeyringMenu: View {
     let presentation: AgentKeyringPresentation
+    let endAllGrants: () -> Void
 
     var body: some View {
         Button("Open Agent Keyring") {
             presentation.requestMainWindow()
         }
         .accessibilityIdentifier("open-agent-keyring")
+
+        Divider()
+
+        Button("End all grants", action: endAllGrants)
+            .accessibilityIdentifier("end-all-grants")
 
         Divider()
 

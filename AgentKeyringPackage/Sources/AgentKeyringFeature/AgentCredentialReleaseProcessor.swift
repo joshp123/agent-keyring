@@ -4,16 +4,19 @@ import Foundation
 public struct AgentCredentialReleaseProcessor {
     private let bridge: AgentBridgeDirectory
     private let accessControl: CredentialAccessController
+    private let grants: CredentialApprovalGrants
     private let resolver: CredentialResolver
 
     public init(
         bridge: AgentBridgeDirectory,
         accessControl: CredentialAccessController,
-        resolver: CredentialResolver = CredentialResolver()
+        resolver: CredentialResolver = CredentialResolver(),
+        grants: CredentialApprovalGrants = CredentialApprovalGrants()
     ) {
         self.bridge = bridge
         self.accessControl = accessControl
         self.resolver = resolver
+        self.grants = grants
     }
 
     public func release(
@@ -81,7 +84,8 @@ public struct AgentCredentialReleaseProcessor {
             )
         }
 
-        if releaseDecision == .requestAuthorization {
+        let needsApproval = releaseDecision == .requestAuthorization && !grants.contains(selected.id)
+        if needsApproval {
             let approval = CredentialReleaseAuthorizationRequest(
                 destination: approvalDestination(for: targetURL),
                 account: selected.username ?? selected.title,
@@ -98,6 +102,7 @@ public struct AgentCredentialReleaseProcessor {
             throw AgentBridgeFailure(.policyDenied,
                 "Agent access to this credential is blocked in Agent Keyring.")
         }
+        if needsApproval { grants.approve(selected.id) }
         let expiration = min(120, max(5, request.expirationSeconds))
         let secret = try resolver.secret(
             in: generation,

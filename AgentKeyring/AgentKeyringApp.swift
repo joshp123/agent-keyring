@@ -216,7 +216,7 @@ struct AgentKeyringApp: App {
         }
 
         MenuBarExtra {
-            AgentKeyringMenu(presentation: appDelegate.presentation)
+            AgentKeyringMenu(presentation: appDelegate.presentation, endAllGrants: appDelegate.model.endAllGrants)
         } label: {
             AgentKeyringMenuBarLabel(presentation: appDelegate.presentation)
         }
