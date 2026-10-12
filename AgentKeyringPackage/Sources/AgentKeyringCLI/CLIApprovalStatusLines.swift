@@ -7,6 +7,7 @@ final class CLIApprovalStatusLines {
     private var askedAt: Date?
     private var provider: ApprovalPromptProvider?
     private var phase: AgentApprovalPhase?
+    private var iPhoneFailure: IPhoneApprovalFailure?
 
     init(diagnostics: FileHandle?) { self.diagnostics = diagnostics }
 
@@ -14,6 +15,10 @@ final class CLIApprovalStatusLines {
         guard let diagnostics else { return }
         switch status {
         case let .progress(progress):
+            if let failure = progress.iPhoneFailure, failure != iPhoneFailure {
+                iPhoneFailure = failure
+                write(failure.fallbackLine + "\n", to: diagnostics)
+            }
             if let promptStartedAt = progress.askedAt,
                 askedAt != promptStartedAt || provider != progress.provider {
                 askedAt = promptStartedAt

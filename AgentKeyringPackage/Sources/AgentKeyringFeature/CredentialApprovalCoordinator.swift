@@ -100,13 +100,14 @@ public final class CredentialApprovalCoordinator {
         case tick
         case mac(Result<Void, Error>, UUID)
         case phone(ApprovalDecision)
+        case phoneFailed(IPhoneApprovalFailure)
     }
 
     private func route(scope: CredentialApprovalScope, authorizationDeadline: Date,
         approvalRequest request: ApprovalRequest, cancelPrompt: @escaping () -> Void,
         onBlockLogin: @escaping () -> Void,
         prompt: @escaping @MainActor (@escaping () -> Void) async throws -> Void) async throws {
-        let phone: (any IPhoneApprovalChannel)?
+        var phone: (any IPhoneApprovalChannel)?
         if let phoneChannel, !(try await pairedDevices.pairedDevicePublicKeys()).isEmpty {
             phone = phoneChannel
         } else { phone = nil }
@@ -117,6 +118,7 @@ public final class CredentialApprovalCoordinator {
         var phoneTask: Task<Void, Never>?
         var phoneAsked = false
         var phoneScheduledAt: Date?
+        var macAskedAt: Date?
         var ticker: Task<Void, Never>?
 
         func refreshTicker() {
@@ -186,6 +188,7 @@ public final class CredentialApprovalCoordinator {
                     try await prompt {
                         guard macAttempt == attempt, !Task.isCancelled else { return }
                         let askedAt = self.now()
+                        macAskedAt = askedAt
                         phoneScheduledAt = phone == nil || phoneAsked ? nil : askedAt.addingTimeInterval(self.phoneDelay())
                         self.recordProgress(scope: scope, askedAt: askedAt, phase: .awaitingApproval,
                             provider: phone == nil ? nil : .mac, phoneScheduledAt: phoneScheduledAt)
@@ -213,7 +216,10 @@ public final class CredentialApprovalCoordinator {
                         guard !Task.isCancelled else { return }
                         continuation.yield(.phone(decision))
                     }
-                } catch { }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    continuation.yield(.phoneFailed((error as? IPhoneApprovalFailure) ?? IPhoneApprovalFailure(cloudError: error)))
+                }
             }
         }
 
@@ -242,8 +248,17 @@ public final class CredentialApprovalCoordinator {
             case let .mac(result, attempt):
                 guard macAttempt == attempt else { continue }
                 try result.get()
-                if phone != nil { recordApproval(scope: scope, provider: .mac) }
+                if phone != nil || phoneAsked { recordApproval(scope: scope, provider: .mac) }
                 return
+            case let .phoneFailed(failure):
+                phone?.cancel(requestID: request.id)
+                phone = nil
+                phoneScheduledAt = nil
+                await verifier.discard(requestID: request.id)
+                recordProgress(scope: scope, askedAt: macAttempt == nil ? nil : macAskedAt,
+                    phase: lockState.isLocked ? .waitingForUnlock : .awaitingApproval,
+                    provider: macAttempt == nil ? nil : .mac, iPhoneFailure: failure)
+                try await updateRouting()
             case let .phone(decision):
                 guard decision.requestID == request.id else { continue }
                 let choice: ApprovalChoice
@@ -276,18 +291,19 @@ public final class CredentialApprovalCoordinator {
         approval.progress = AgentApprovalProgress(waitingSince: progress.waitingSince,
             askedAt: progress.askedAt, phase: progress.phase, provider: progress.provider,
             phoneScheduledAt: progress.phoneScheduledAt, macWasLocked: progress.macWasLocked, macWasAsleep: progress.macWasAsleep,
-            approvedAt: now(), approvedOn: provider)
+            approvedAt: now(), approvedOn: provider, iPhoneFailure: progress.iPhoneFailure)
         pending[scope] = approval
         for observer in approval.observers { observer(approval.progress) }
     }
 
     private func recordProgress(scope: CredentialApprovalScope, askedAt: Date?, phase: AgentApprovalPhase,
         provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
-        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil) {
+        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil, iPhoneFailure: IPhoneApprovalFailure? = nil) {
         guard var approval = pending[scope] else { return }
         approval.progress = AgentApprovalProgress(waitingSince: approval.progress.waitingSince,
             askedAt: askedAt, phase: phase, provider: provider, phoneScheduledAt: phoneScheduledAt,
-            macWasLocked: macWasLocked, macWasAsleep: macWasAsleep)
+            macWasLocked: macWasLocked, macWasAsleep: macWasAsleep,
+            iPhoneFailure: iPhoneFailure ?? approval.progress.iPhoneFailure)
         pending[scope] = approval
         for observer in approval.observers { observer(approval.progress) }
     }

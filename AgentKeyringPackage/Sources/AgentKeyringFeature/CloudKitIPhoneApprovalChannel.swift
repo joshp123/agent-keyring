@@ -57,7 +57,7 @@ public final class CloudKitIPhoneApprovalChannel: IPhoneApprovalChannel {
                     }
                 }
             } catch is CancellationError { /* Normal request cancellation. */ }
-            catch { failure = error }
+            catch { failure = IPhoneApprovalFailure(cloudError: error) }
 
             // A fresh task allows deletion even when the polling task was cancelled.
             await Task { @MainActor in

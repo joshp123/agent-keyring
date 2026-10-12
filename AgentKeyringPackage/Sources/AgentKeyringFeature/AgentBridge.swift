@@ -114,10 +114,12 @@ public struct AgentApprovalProgress: Codable, Equatable, Sendable {
     public let macWasAsleep: Bool?
     public let approvedAt: Date?
     public let approvedOn: ApprovalPromptProvider?
+    public let iPhoneFailure: IPhoneApprovalFailure?
 
     public init(waitingSince: Date, askedAt: Date? = nil, phase: AgentApprovalPhase,
         provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
-        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil, approvedAt: Date? = nil, approvedOn: ApprovalPromptProvider? = nil) {
+        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil, approvedAt: Date? = nil, approvedOn: ApprovalPromptProvider? = nil,
+        iPhoneFailure: IPhoneApprovalFailure? = nil) {
         self.waitingSince = waitingSince
         self.askedAt = askedAt
         self.phase = phase
@@ -127,6 +129,7 @@ public struct AgentApprovalProgress: Codable, Equatable, Sendable {
         self.macWasAsleep = macWasAsleep
         self.approvedAt = approvedAt
         self.approvedOn = approvedOn
+        self.iPhoneFailure = iPhoneFailure
     }
 }
 
