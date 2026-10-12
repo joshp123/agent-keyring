@@ -128,14 +128,14 @@ public enum PairingCloudRecords {
     public static func record(_ request: PairingRequest) -> CKRecord {
         let record = CKRecord(recordType: "PairingRequest", recordID: recordID(request.pairingID))
         record["publicKey"] = request.publicKey as CKRecordValue
-        record["deviceName"] = request.deviceName as CKRecordValue
+        record.encryptedValues["deviceName"] = request.deviceName as CKRecordValue
         record["authenticationCode"] = request.authenticationCode as CKRecordValue
         return record
     }
 
     public static func request(from record: CKRecord, pairingID: UUID) throws -> PairingRequest {
         guard record.recordType == "PairingRequest", record.recordID == recordID(pairingID),
-            let key = record["publicKey"] as? Data, let name = record["deviceName"] as? String,
+            let key = record["publicKey"] as? Data, let name = record.encryptedValues["deviceName"] as? String,
             let authenticationCode = record["authenticationCode"] as? Data
         else { throw PairingFailure.invalidRequest }
         return PairingRequest(pairingID: pairingID, publicKey: key, deviceName: name, authenticationCode: authenticationCode)

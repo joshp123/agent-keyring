@@ -24,6 +24,9 @@ struct IPhonePairingTests {
         let request = PairingRequest(code: scanned, publicKey: fixture.device.publicKey, deviceName: fixture.device.name)
         let record = PairingCloudRecords.record(request)
         #expect(record.allKeys().sorted() == ["authenticationCode", "deviceName", "publicKey"])
+        #expect(record["deviceName"] == nil)
+        #expect(record.encryptedValues["deviceName"] as? String == fixture.device.name)
+        #expect(Set(record.encryptedValues.allKeys()) == ["deviceName"])
         #expect(database.records.isEmpty) // The Mac never publishes the secret or a challenge record.
         try await database.save(record)
         let received = try #require(try await session.poll())
@@ -61,7 +64,7 @@ struct IPhonePairingTests {
             deviceName: attack == "name" ? "Attacker iPhone" : original.deviceName,
             authenticationCode: attack == "no-qr" ? Data() : attack == "wrong-secret" ? other.authenticationCode : original.authenticationCode)
         let record = PairingCloudRecords.record(request)
-        if attack == "malformed" { record["deviceName"] = nil }
+        if attack == "malformed" { record.encryptedValues["deviceName"] = nil }
         try await database.save(record)
         await #expect(throws: PairingFailure.self) { try await session.poll() }
         await #expect(throws: PairingFailure.alreadyUsed) { try await session.confirm(in: fixture.store, confirmationCode: PairingRequest.confirmationCode(publicKey: fixture.device.publicKey)) }
