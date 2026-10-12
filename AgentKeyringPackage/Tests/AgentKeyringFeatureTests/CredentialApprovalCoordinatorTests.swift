@@ -138,6 +138,7 @@ struct CredentialApprovalCoordinatorTests {
         var waits = 0
         var progress: [AgentApprovalProgress] = []
         let approvals = CredentialApprovalCoordinator(lockState: lock, now: { now }, sleep: { _ in
+            if !lock.isLocked { try await Task.sleep(for: .seconds(600)); return }
             #expect(prompts == 0)
             waits += 1
             now = now.addingTimeInterval(60)
@@ -219,6 +220,7 @@ struct CredentialApprovalCoordinatorTests {
 @MainActor
 final class FakeCredentialAuthorizer: CredentialReleaseAuthorizing {
     var requests: [CredentialReleaseAuthorizationRequest] = []
+    var cancellations = 0
     private var continuation: CheckedContinuation<Void, Error>?
 
     func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
@@ -235,7 +237,8 @@ final class FakeCredentialAuthorizer: CredentialReleaseAuthorizing {
     }
 
     func cancelCurrentAuthorization() {
-        complete(error: .expired)
+        cancellations += 1
+        complete(error: .interrupted)
     }
 }
 
