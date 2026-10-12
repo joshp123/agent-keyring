@@ -194,7 +194,7 @@ struct SignedAccessRulesTests {
         let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
         try fixture.bridge.write(request)
         let grants = CredentialApprovalGrants()
-        grants.approve(fixture.loginID)
+        grants.approve(fixture.loginID, action: .acquire)
         let processor = AgentCredentialReleaseProcessor(bridge: fixture.bridge, accessControl: activeController, grants: grants)
         do {
             _ = try await processor.release(request: request, generation: fixture.generation,

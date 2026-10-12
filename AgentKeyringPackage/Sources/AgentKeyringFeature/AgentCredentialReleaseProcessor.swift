@@ -99,7 +99,7 @@ public struct AgentCredentialReleaseProcessor {
         }
 
         var approvalProgress: AgentApprovalProgress?
-        let needsApproval = releaseDecision == .requestAuthorization && !grants.contains(selected.id)
+        let needsApproval = releaseDecision == .requestAuthorization && !grants.contains(selected.id, action: request.action)
         if needsApproval {
             let approval = CredentialReleaseAuthorizationRequest(
                 destination: approvalDestination(for: targetURL),
@@ -111,14 +111,14 @@ public struct AgentCredentialReleaseProcessor {
                 authorizationDeadline: request.expiresAt,
                 isPossiblyStale: possiblyStaleCredentialIDs.contains(selected.id)
             )
-            try await approvals.authorize(credentialID: selected.id, authorizationDeadline: request.expiresAt,
+            try await approvals.authorize(credentialID: selected.id, action: request.action, authorizationDeadline: request.expiresAt,
                 onProgress: { progress in
                     approvalProgress = progress
                     onProgress(progress)
                 }) { onPromptStarted in
                 try await authorize(approval, onPromptStarted)
             }
-            grants.approve(selected.id)
+            grants.approve(selected.id, action: request.action)
         }
 
         try ensureRequestHasNotExpired(request)

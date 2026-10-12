@@ -122,6 +122,52 @@ struct CredentialFillTests {
         }
     }
 
+    @Test("A fill approval never grants acquire, and an acquire approval never grants fill", arguments: [AgentBridgeAction.fill, .acquire])
+    func approvalActionsStaySeparate(firstAction: AgentBridgeAction) async throws {
+        let fixture = try FillTestFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        let otherAction: AgentBridgeAction = firstAction == .fill ? .acquire : .fill
+        let loginID = fixture.generation.items[0].id
+        var prompts = 0
+        for action in [firstAction, otherAction, firstAction] {
+            let request = AgentBridgeRequest(action: action, targetURL: "https://example.com", field: .password)
+            try fixture.bridge.write(request)
+            defer { CredentialTransfer.clear(requestID: request.id) }
+            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _, started in prompts += 1; started() })
+            if prompts == 1 {
+                #expect(fixture.grants.contains(loginID, action: firstAction))
+                #expect(!fixture.grants.contains(loginID, action: otherAction))
+            }
+        }
+        #expect(prompts == 2)
+    }
+
+    @Test("A pending fill approval cannot satisfy a concurrent acquire approval")
+    func pendingActionsStaySeparate() async throws {
+        let coordinator = CredentialApprovalCoordinator(lockState: FillApprovalTestSession())
+        let loginID = UUID()
+        var firstPrompt: CheckedContinuation<Void, Never>?
+        var prompts = 0
+        let fill = Task { @MainActor in
+            try await coordinator.authorize(credentialID: loginID, action: .fill,
+                authorizationDeadline: Date().addingTimeInterval(60)) { started in
+                prompts += 1; started()
+                await withCheckedContinuation { firstPrompt = $0 }
+            }
+        }
+        while firstPrompt == nil { await Task.yield() }
+        let acquire = Task { @MainActor in
+            try await coordinator.authorize(credentialID: loginID, action: .acquire,
+                authorizationDeadline: Date().addingTimeInterval(60)) { started in prompts += 1; started() }
+        }
+        for _ in 0..<10 { await Task.yield() }
+        firstPrompt?.resume()
+        try await fill.value
+        try await acquire.value
+        #expect(prompts == 2)
+    }
+
     @Test("Missing rule signatures refuse before inspection or typing")
     func rulesNeedConfirmation() async throws {
         let fixture = try FillTestFixture()
@@ -200,3 +246,5 @@ struct CredentialFillTests {
         } catch let failure as AgentBridgeFailure { #expect(failure.code == expected) }
     }
 }
+
+private struct FillApprovalTestSession: CredentialSessionLockState { var isLocked: Bool { false } }

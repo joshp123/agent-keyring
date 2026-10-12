@@ -9,7 +9,7 @@ public final class CredentialApprovalCoordinator {
         var progress: AgentApprovalProgress
         var observers: [(AgentApprovalProgress) -> Void]
     }
-    private var pending: [UUID: PendingApproval] = [:]
+    private var pending: [CredentialApprovalScope: PendingApproval] = [:]
     private var lastApprovalTask: Task<Void, Error>?
 
     private let lockState: any CredentialSessionLockState
@@ -28,12 +28,14 @@ public final class CredentialApprovalCoordinator {
 
     public func authorize(
         credentialID: UUID,
+        action: AgentBridgeAction = .acquire,
         authorizationDeadline: Date,
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
         prompt: @escaping @MainActor (@escaping () -> Void) async throws -> Void
     ) async throws {
-        if let approval = pending[credentialID] {
-            pending[credentialID]?.observers.append(onProgress)
+        let scope = CredentialApprovalScope(credentialID: credentialID, action: action)
+        if let approval = pending[scope] {
+            pending[scope]?.observers.append(onProgress)
             onProgress(approval.progress)
             do {
                 try await approval.task.value
@@ -42,8 +44,8 @@ public final class CredentialApprovalCoordinator {
                     approval.authorizationDeadline < authorizationDeadline else {
                     throw CredentialReleaseAuthorizationError.expired
                 }
-                removePendingApproval(credentialID: credentialID, approvalID: approval.id)
-                try await authorize(credentialID: credentialID, authorizationDeadline: authorizationDeadline,
+                removePendingApproval(scope: scope, approvalID: approval.id)
+                try await authorize(credentialID: credentialID, action: action, authorizationDeadline: authorizationDeadline,
                     onProgress: onProgress, prompt: prompt)
             }
             return
@@ -63,26 +65,26 @@ public final class CredentialApprovalCoordinator {
             guard self.now() < authorizationDeadline else {
                 throw CredentialReleaseAuthorizationError.expired
             }
-            try await prompt { self.recordPromptStarted(credentialID: credentialID) }
+            try await prompt { self.recordPromptStarted(scope: scope) }
         }
         lastApprovalTask = approval
-        pending[credentialID] = PendingApproval(id: approvalID, authorizationDeadline: authorizationDeadline,
+        pending[scope] = PendingApproval(id: approvalID, authorizationDeadline: authorizationDeadline,
             task: approval, progress: progress, observers: [onProgress])
         onProgress(progress)
-        defer { removePendingApproval(credentialID: credentialID, approvalID: approvalID) }
+        defer { removePendingApproval(scope: scope, approvalID: approvalID) }
         try await approval.value
     }
 
-    private func removePendingApproval(credentialID: UUID, approvalID: UUID) {
-        guard pending[credentialID]?.id == approvalID else { return }
-        pending.removeValue(forKey: credentialID)
+    private func removePendingApproval(scope: CredentialApprovalScope, approvalID: UUID) {
+        guard pending[scope]?.id == approvalID else { return }
+        pending.removeValue(forKey: scope)
     }
 
-    private func recordPromptStarted(credentialID: UUID) {
-        guard var approval = pending[credentialID] else { return }
+    private func recordPromptStarted(scope: CredentialApprovalScope) {
+        guard var approval = pending[scope] else { return }
         approval.progress = AgentApprovalProgress(waitingSince: approval.progress.waitingSince,
             askedAt: now(), phase: .awaitingApproval)
-        pending[credentialID] = approval
+        pending[scope] = approval
         for observer in approval.observers { observer(approval.progress) }
     }
 }

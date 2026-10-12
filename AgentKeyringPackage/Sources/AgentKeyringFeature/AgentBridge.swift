@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-public enum AgentBridgeAction: String, Codable, Sendable {
+public enum AgentBridgeAction: String, Codable, Hashable, Sendable {
     case status
     case acquire
     case fill

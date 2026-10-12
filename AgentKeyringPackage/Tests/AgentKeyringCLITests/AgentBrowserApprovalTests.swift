@@ -11,7 +11,7 @@ struct AgentBrowserApprovalTests {
     func silentRelease(useGrant: Bool) async throws {
         let fixture = BrowserApprovalFixture()
         defer { fixture.cleanUp() }
-        if useGrant { fixture.grants.approve(fixture.loginID) }
+        if useGrant { fixture.grants.approve(fixture.loginID, action: .acquire) }
         else { try await fixture.setPolicy(.allowAutomatically) }
         let diagnostics = Pipe()
         try await fixture.acquireWithCLI(diagnostics: diagnostics.fileHandleForWriting)
@@ -46,7 +46,7 @@ struct AgentBrowserApprovalTests {
 
         fixture.authorizer.approve()
         for task in fixture.appTasks { await task.value }
-        #expect(fixture.grants.contains(fixture.loginID))
+        #expect(fixture.grants.contains(fixture.loginID, action: .acquire))
         let retry = try await fixture.invoke()
         #expect(retry["success"] as? Bool == true)
         #expect((retry["credential"] as? [String: String])?["username"] == "synthetic@example.com")

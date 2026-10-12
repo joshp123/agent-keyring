@@ -70,7 +70,7 @@ struct CredentialRetentionTests {
     func blockedGrant() async throws {
         let fixture = try ReleaseFixture(policy: .block)
         defer { fixture.cleanUp() }
-        fixture.grants.approve(fixture.generation.items[0].id)
+        fixture.grants.approve(fixture.generation.items[0].id, action: .acquire)
         let request = fixture.request()
         try fixture.bridge.write(request)
         do {
@@ -159,7 +159,7 @@ struct CredentialRetentionTests {
                 })
             Issue.record("Expired request released")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .requestExpired) }
-        #expect(fixture.grants.contains(fixture.generation.items[0].id))
+        #expect(fixture.grants.contains(fixture.generation.items[0].id, action: .acquire))
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
         let retry = AgentBridgeRequest(createdAt: now, action: .acquire,
             targetURL: "https://example.com", field: .password)
