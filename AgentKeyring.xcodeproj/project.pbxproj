@@ -11,6 +11,8 @@
 		4D2000020000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 4D2000010000000000000001 /* Sparkle */; };
 		8B90D1482DEDD44A00FBD189 /* AgentKeyringFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B90D1472DEDD44A00FBD189 /* AgentKeyringFeature */; };
 		4D3000020000000000000001 /* AgentKeyringTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 4D3000010000000000000001 /* AgentKeyringTestSupport */; };
+		4D4000010000000000000001 = {isa = PBXBuildFile; fileRef = 4D4000020000000000000001; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		4D4000030000000000000001 = {isa = PBXBuildFile; productRef = 4D4000040000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,6 +30,7 @@
 			remoteGlobalIDString = 8BC2655B2DEDD3F400F279A4;
 			remoteInfo = AgentKeyring;
 		};
+		4D4000050000000000000001 = {isa = PBXContainerItemProxy; containerPortal = 8BC265542DEDD3F400F279A4; proxyType = 1; remoteGlobalIDString = 4D4000060000000000000001; remoteInfo = AgentKeyringFiller; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -42,12 +45,14 @@
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4D4000070000000000000001 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices"; dstSubfolderSpec = 16; files = (4D4000010000000000000001, ); name = "Embed XPC Services"; runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		4D1000010000000000000001 /* AgentKeyringCredentialProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentKeyringCredentialProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		8BC2655C2DEDD3F400F279A4 /* AgentKeyring.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentKeyring.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8BC265742DEDD3F500F279A4 /* AgentKeyring.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentKeyring.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D4000020000000000000001 = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; path = AgentKeyringFiller.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -81,6 +86,7 @@
 			);
 			target = 8BC2655B2DEDD3F400F279A4 /* AgentKeyring */;
 		};
+		4D4000080000000000000001 = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (Info.plist, ); target = 4D4000060000000000000001; };
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -113,6 +119,7 @@
 			path = AgentKeyringUITests;
 			sourceTree = "<group>";
 		};
+		4D4000090000000000000001 = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (4D4000080000000000000001, ); path = AgentKeyringFiller; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -140,6 +147,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4D40000A0000000000000001 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (4D4000030000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -155,6 +163,7 @@
 			children = (
 				8B90D1BC2DEE373300FBD189 /* Config */,
 				8BC2655E2DEDD3F400F279A4 /* AgentKeyring */,
+				4D4000090000000000000001 /* AgentKeyringFiller */,
 				4D1000030000000000000001 /* AgentKeyringCredentialProvider */,
 				8BC265772DEDD3F500F279A4 /* AgentKeyringUITests */,
 				8B90D1462DEDD44A00FBD189 /* Frameworks */,
@@ -166,6 +175,7 @@
 			isa = PBXGroup;
 			children = (
 				8BC2655C2DEDD3F400F279A4 /* AgentKeyring.app */,
+				4D4000020000000000000001 /* AgentKeyringFiller.xpc */,
 				4D1000010000000000000001 /* AgentKeyringCredentialProvider.appex */,
 				8BC265742DEDD3F500F279A4 /* AgentKeyring.xctest */,
 			);
@@ -205,12 +215,14 @@
 				8BC265592DEDD3F400F279A4 /* Frameworks */,
 				8BC2655A2DEDD3F400F279A4 /* Resources */,
 				4D10000A0000000000000001 /* Embed App Extensions */,
+				4D4000070000000000000001 /* Embed XPC Services */,
 				4D3000000000000000000001 /* Bundle Agent Tools */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				4D10000C0000000000000001 /* PBXTargetDependency */,
+				4D40000E0000000000000001 /* Filler dependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				8B90D1BC2DEE373300FBD189 /* Config */,
@@ -249,6 +261,7 @@
 			productReference = 8BC265742DEDD3F500F279A4 /* AgentKeyring.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		4D4000060000000000000001 = {isa = PBXNativeTarget; buildConfigurationList = 4D40000D0000000000000001; buildPhases = (4D40000B0000000000000001, 4D40000A0000000000000001, 4D40000C0000000000000001, ); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (4D4000090000000000000001, ); name = AgentKeyringFiller; packageProductDependencies = (4D4000040000000000000001, ); productName = AgentKeyringFiller; productReference = 4D4000020000000000000001; productType = "com.apple.product-type.xpc-service"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -291,6 +304,7 @@
 			projectRoot = "";
 			targets = (
 				8BC2655B2DEDD3F400F279A4 /* AgentKeyring */,
+				4D4000060000000000000001 /* AgentKeyringFiller */,
 				4D1000020000000000000001 /* AgentKeyringCredentialProvider */,
 				8BC265732DEDD3F500F279A4 /* AgentKeyringUITests */,
 			);
@@ -319,6 +333,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4D40000C0000000000000001 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -365,6 +380,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4D40000B0000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -378,6 +394,7 @@
 			target = 8BC2655B2DEDD3F400F279A4 /* AgentKeyring */;
 			targetProxy = 8BC265752DEDD3F500F279A4 /* PBXContainerItemProxy */;
 		};
+		4D40000E0000000000000001 = {isa = PBXTargetDependency; target = 4D4000060000000000000001; targetProxy = 4D4000050000000000000001; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -493,6 +510,8 @@
 			};
 			name = Release;
 		};
+		4D40000F0000000000000001 = {isa = XCBuildConfiguration; baseConfigurationReferenceAnchor = 8B90D1BC2DEE373300FBD189; baseConfigurationReferenceRelativePath = Identity.xcconfig; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CODE_SIGN_IDENTITY = "Developer ID Application"; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = "$(AGENT_KEYRING_TEAM_ID)"; ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = AgentKeyringFiller/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.Filler"; PRODUCT_NAME = "$(TARGET_NAME)"; MACOSX_DEPLOYMENT_TARGET = 26.0; MARKETING_VERSION = 0.2.0; CURRENT_PROJECT_VERSION = 3; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; }; name = Debug; };
+		4D4000100000000000000001 = {isa = XCBuildConfiguration; baseConfigurationReferenceAnchor = 8B90D1BC2DEE373300FBD189; baseConfigurationReferenceRelativePath = Identity.xcconfig; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CODE_SIGN_IDENTITY = "Developer ID Application"; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = "$(AGENT_KEYRING_TEAM_ID)"; ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = AgentKeyringFiller/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.Filler"; PRODUCT_NAME = "$(TARGET_NAME)"; MACOSX_DEPLOYMENT_TARGET = 26.0; MARKETING_VERSION = 0.2.0; CURRENT_PROJECT_VERSION = 3; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -532,6 +551,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		4D40000D0000000000000001 = {isa = XCConfigurationList; buildConfigurations = (4D40000F0000000000000001, 4D4000100000000000000001, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -550,6 +570,7 @@
 			package = 8B90D1492DEDD44A00FBD189 /* XCLocalSwiftPackageReference "AgentKeyringPackage" */;
 			productName = AgentKeyringTestSupport;
 		};
+		4D4000040000000000000001 = {isa = XCSwiftPackageProductDependency; package = 8B90D1492DEDD44A00FBD189; productName = AgentKeyringFillerSupport; };
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin XCLocalSwiftPackageReference section */
