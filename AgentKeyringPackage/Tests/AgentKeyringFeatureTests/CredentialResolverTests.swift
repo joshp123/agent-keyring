@@ -116,6 +116,52 @@ struct CredentialResolverTests {
         #expect(!encoded.contains("totp-secret-canary"))
     }
 
+    @Test("Account filtering precedes host ranking")
+    func accountBeforeRanking() throws {
+        let parent = item(title: "Parent", origin: "https://example.com", username: "B")
+        let exact = item(title: "Exact", origin: "https://accounts.example.com", username: "A")
+        #expect(try resolver.candidates(in: generation(items: [exact, parent]),
+            targetURL: "https://accounts.example.com", usernameHint: "b").map(\.id) == [parent.id])
+    }
+
+    @Test("Default HTTP logins match HTTPS sign-in pages")
+    func httpUpgrade() throws {
+        let snapshot = generation(items: [item(title: "Example", origin: "http://example.com:80", username: "A")])
+        #expect(try resolver.secret(in: snapshot, targetURL: "https://example.com:443/login", field: .password) == "CANARY-A")
+        #expect(try resolver.candidates(in: snapshot, targetURL: "https://example.com:8443").isEmpty)
+    }
+
+    @Test("Child hosts cannot cross public suffixes", arguments: ["github.io", "vercel.app", "co.uk", "foo.ck", "公司.cn"])
+    func publicSuffixBoundary(suffix: String) throws {
+        let snapshot = generation(items: [item(title: "Shared host", origin: "https://\(suffix)", username: "A")])
+        #expect(try resolver.candidates(in: snapshot, targetURL: "https://tenant.\(suffix)").isEmpty)
+        #expect(try resolver.candidates(in: snapshot, targetURL: "https://www.\(suffix)").isEmpty)
+    }
+
+    @Test("PSL exceptions and tenant child domains remain usable")
+    func suffixExceptions() throws {
+        for host in ["www.ck", "tenant.github.io", "tenant.vercel.app"] {
+            let snapshot = generation(items: [item(title: "Tenant", origin: "https://\(host)", username: "A")])
+            #expect(try resolver.candidates(in: snapshot, targetURL: "https://login.\(host)").count == 1)
+        }
+        let snapshot = generation(items: [item(title: "Child", origin: "https://login.example.com", username: "A")])
+        #expect(try resolver.candidates(in: snapshot, targetURL: "https://example.com").count == 1)
+    }
+
+    @Test("Code-only logins expose and resolve their account name")
+    func codeOnlyAccount() throws {
+        let login = MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(
+            exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
+            title: "Code", origins: ["https://example.com"], credentials: [
+                .totp(secret: Data("12345678901234567890".utf8), period: 30, digits: 6,
+                    userName: "code-account", algorithm: .sha1, issuer: nil)])
+        let snapshot = generation(items: [login])
+        let candidates = try resolver.candidates(in: snapshot, targetURL: "https://example.com", usernameHint: "CODE-ACCOUNT")
+        #expect(candidates.first?.username == "code-account")
+        #expect(candidates.first?.availableFields == [.username, .totp])
+        #expect(try resolver.secret(in: snapshot, targetURL: "https://example.com", usernameHint: "code-account", field: .username) == "code-account")
+    }
+
     private func generation(items: [MirrorItem]) -> MirrorGeneration {
         MirrorGeneration(
             id: UUID(),

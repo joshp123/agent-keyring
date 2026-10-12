@@ -68,6 +68,19 @@ public struct MirrorItem: Codable, Equatable, Sendable {
         self.credentials = credentials
     }
 
+    var accountName: String? {
+        let passwordNames = credentials.compactMap { credential -> String? in
+            guard case let .password(userName, _) = credential else { return nil }
+            return userName
+        }.filter { !$0.isEmpty }
+        if passwordNames.count == 1 { return passwordNames[0] }
+        let codeNames = credentials.compactMap { credential -> String? in
+            guard case let .totp(_, _, _, userName, _, _) = credential else { return nil }
+            return userName
+        }.filter { !$0.isEmpty }
+        return codeNames.count == 1 ? codeNames[0] : nil
+    }
+
     func replacingID(_ id: UUID) -> MirrorItem {
         MirrorItem(
             id: id,

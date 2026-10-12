@@ -75,6 +75,10 @@ public struct CredentialResolver: Sendable {
     ) throws -> [CredentialCandidate] {
         let target = try parsedTarget(targetURL)
         let ranked = generation.items.compactMap { item -> RankedItem? in
+            if let usernameHint = normalisedUsername(usernameHint),
+                normalisedUsername(item.accountName) != usernameHint {
+                return nil
+            }
             guard let score = bestScore(for: item.origins, target: target) else {
                 return nil
             }
@@ -82,13 +86,7 @@ public struct CredentialResolver: Sendable {
         }
 
         guard let bestScore = ranked.map(\.score).max() else { return [] }
-        var matches = ranked.filter { $0.score == bestScore }
-
-        if let usernameHint = normalisedUsername(usernameHint) {
-            matches = matches.filter {
-                normalisedUsername(uniquePassword(in: $0.item)?.userName) == usernameHint
-            }
-        }
+        let matches = ranked.filter { $0.score == bestScore }
 
         return
             matches
@@ -137,7 +135,7 @@ public struct CredentialResolver: Sendable {
 
         switch field {
         case .username:
-            guard let username = uniquePassword(in: item)?.userName,
+            guard let username = item.accountName,
                 !username.isEmpty
             else {
                 throw CredentialResolverError.fieldUnavailable
@@ -170,18 +168,14 @@ public struct CredentialResolver: Sendable {
         let password = uniquePassword(in: item)
         let totp = uniqueTOTP(in: item)
         var fields = [AgentCredentialField]()
-        if let password {
-            if let username = password.userName, !username.isEmpty {
-                fields.append(.username)
-            }
-            fields.append(.password)
-        }
+        if let username = item.accountName, !username.isEmpty { fields.append(.username) }
+        if password != nil { fields.append(.password) }
         if totp != nil { fields.append(.totp) }
 
         return CredentialCandidate(
             id: item.id,
             title: item.title,
-            username: password?.userName,
+            username: item.accountName,
             origins: item.origins,
             availableFields: fields
         )
@@ -217,6 +211,7 @@ public struct CredentialResolver: Sendable {
 
     private struct ParsedTarget {
         let host: String
+        let scheme: String
         let port: Int
         let isSecure: Bool
     }
@@ -224,7 +219,7 @@ public struct CredentialResolver: Sendable {
     private func parsedTarget(_ value: String) throws -> ParsedTarget {
         guard let components = URLComponents(string: value),
             let scheme = components.scheme?.lowercased(),
-            let host = components.host?.lowercased().trimmingCharacters(
+            let host = components.url?.host?.lowercased().trimmingCharacters(
                 in: CharacterSet(charactersIn: ".")),
             !host.isEmpty,
             scheme == "https" || scheme == "http"
@@ -234,6 +229,7 @@ public struct CredentialResolver: Sendable {
         let localhost = host == "localhost" || host == "127.0.0.1" || host == "::1"
         return ParsedTarget(
             host: host,
+            scheme: scheme,
             port: components.port ?? (scheme == "https" ? 443 : 80),
             isSecure: scheme == "https" || localhost
         )
@@ -242,7 +238,9 @@ public struct CredentialResolver: Sendable {
     private func bestScore(for origins: [String], target: ParsedTarget) -> Int? {
         origins.compactMap { origin -> Int? in
             guard let parsed = try? parsedTarget(origin) else { return nil }
-            if parsed.port != target.port {
+            let upgradesDefaultHTTP = parsed.scheme == "http" && parsed.port == 80
+                && target.scheme == "https" && target.port == 443
+            if parsed.port != target.port && !upgradesDefaultHTTP {
                 return nil
             }
             return hostScore(stored: parsed.host, target: target.host)
@@ -251,6 +249,9 @@ public struct CredentialResolver: Sendable {
 
     private func hostScore(stored: String, target: String) -> Int? {
         if stored == target { return 300 }
+        if target.hasSuffix(".\(stored)"), PublicSuffixList.shared.isPublicSuffix(stored) {
+            return nil
+        }
         if strippingWWW(stored) == strippingWWW(target) { return 250 }
 
         let storedLabels = stored.split(separator: ".")
