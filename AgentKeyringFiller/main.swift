@@ -88,26 +88,15 @@ final class FillerService: NSObject, AgentKeyringFillerProtocol {
     }
 
     private func pageAddress(window: AXUIElement, focused: AXUIElement?) -> String? {
-        // Prefer the focused field's web area: panes can contain several documents.
+        // Only the focused field's nearest web area can establish its page.
         var ancestor = focused
         for _ in 0..<64 {
             guard let current = ancestor else { break }
-            if string(current, kAXRoleAttribute) == "AXWebArea", let url = string(current, kAXURLAttribute) {
-                return url
+            if string(current, kAXRoleAttribute) == "AXWebArea" {
+                return string(current, kAXURLAttribute)
             }
             if CFEqual(current, window) { break }
             ancestor = element(current, kAXParentAttribute)
-        }
-        if let url = webAreaAddress(in: window, remainingDepth: 32) { return url }
-        return string(window, kAXDocumentAttribute) ?? string(window, kAXURLAttribute)
-    }
-
-    private func webAreaAddress(in element: AXUIElement, remainingDepth: Int) -> String? {
-        guard remainingDepth > 0 else { return nil }
-        if string(element, kAXRoleAttribute) == "AXWebArea" { return string(element, kAXURLAttribute) }
-        let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []
-        for child in children {
-            if let url = webAreaAddress(in: child, remainingDepth: remainingDepth - 1) { return url }
         }
         return nil
     }
