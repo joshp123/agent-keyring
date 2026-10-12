@@ -91,6 +91,14 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         try await reloadRules()
     }
 
+    public func removePairedApprovalDevice(publicKey: Data) async throws {
+        guard !isSavingRules else { throw PairedDeviceStoreError.notPaired }
+        isSavingRules = true
+        defer { isSavingRules = false }
+        try await store.removePairedDevice(publicKey: publicKey)
+        try await reloadRules()
+    }
+
     public func refresh(from generation: MirrorGeneration?) async {
         await refresh(fromMetadata: generation?.metadata)
     }

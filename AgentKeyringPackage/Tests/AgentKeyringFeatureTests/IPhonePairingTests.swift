@@ -15,6 +15,7 @@ struct IPhonePairingTests {
         defer { fixture.cleanUp() }
         try await confirmInitialAccessRules(in: fixture.store)
         let database = InMemoryApprovalCloudDatabase()
+        let controller = CredentialAccessController(store: fixture.store)
         let session = try IPhonePairingSession(database: database)
         let code = try #require(session.code)
         let scanned = try PairingCode(qrPayload: code.qrPayload)
@@ -30,9 +31,13 @@ struct IPhonePairingTests {
         #expect(PairingRequest.fingerprint(publicKey: received.publicKey) == PairingRequest.fingerprint(publicKey: fixture.device.publicKey))
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
         #expect(database.records.isEmpty)
-        try await session.confirm(in: fixture.store)
+        try await controller.confirmPairing(session)
+        #expect(controller.hasPairedApprovalDevice)
+        #expect(controller.pairedApprovalDevices.map(\.publicKey) == [fixture.device.publicKey])
         #expect(try await fixture.store.loadPairedDevices().map(\.publicKey) == [fixture.device.publicKey])
-        try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey)
+        try await controller.removePairedApprovalDevice(publicKey: fixture.device.publicKey)
+        #expect(!controller.hasPairedApprovalDevice)
+        #expect(controller.pairedApprovalDevices.isEmpty)
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
         #expect(fixture.signer.signingReason == "remove your paired iPhone from Agent Keyring")
     }

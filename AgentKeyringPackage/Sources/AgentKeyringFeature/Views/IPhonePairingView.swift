@@ -136,15 +136,29 @@ struct IPhonePairingView: View {
 struct IPhoneDevicesView: View {
     let controller: CredentialAccessController
     @State private var showingPairing = false
+    @State private var removalError: String?
 
     var body: some View {
-        HStack {
-            Label("iPhone approvals", systemImage: "iphone")
-            ForEach(controller.pairedApprovalDevices, id: \.publicKey) { device in
-                Text(device.name).foregroundStyle(.secondary)
+        VStack(spacing: 8) {
+            HStack {
+                Label("iPhone approvals", systemImage: "iphone")
+                Button("Add iPhone") { showingPairing = true }
+                    .disabled(controller.needsConfirmation || controller.isSavingRules)
             }
-            Button("Add iPhone") { showingPairing = true }
-                .disabled(controller.needsConfirmation || controller.isSavingRules)
+            ForEach(controller.pairedApprovalDevices, id: \.publicKey) { device in
+                HStack {
+                    Text(device.name).foregroundStyle(.secondary)
+                    Button("Remove iPhone", role: .destructive) {
+                        Task {
+                            removalError = nil
+                            do { try await controller.removePairedApprovalDevice(publicKey: device.publicKey) }
+                            catch { removalError = "The iPhone could not be removed." }
+                        }
+                    }
+                    .disabled(controller.isSavingRules)
+                }
+            }
+            if let removalError { Text(removalError).foregroundStyle(.red) }
         }
         .sheet(isPresented: $showingPairing) { IPhonePairingView(controller: controller) }
     }
