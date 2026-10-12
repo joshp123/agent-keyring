@@ -55,6 +55,7 @@ public final class MirrorAppModel {
     private let merger: SnapshotMerger
     private let resolver: CredentialResolver
     private let grants = CredentialApprovalGrants()
+    private let approvals = CredentialApprovalCoordinator()
     private let authorizer: any CredentialReleaseAuthorizing
     private let bridge: AgentBridgeDirectory
     private let pasteboard: ExpiringPasteboard
@@ -390,7 +391,7 @@ public final class MirrorAppModel {
         generation: MirrorGeneration
     ) async throws -> AgentBridgeResponse {
         try await AgentCredentialReleaseProcessor(
-            bridge: bridge, accessControl: accessControl, resolver: resolver, grants: grants
+            bridge: bridge, accessControl: accessControl, resolver: resolver, grants: grants, approvals: approvals
         ).release(
             request: request,
             generation: generation,

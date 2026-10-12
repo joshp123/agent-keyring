@@ -4,6 +4,7 @@ import Foundation
 public struct AgentCredentialReleaseProcessor {
     private let bridge: AgentBridgeDirectory
     private let accessControl: CredentialAccessController
+    private let approvals: CredentialApprovalCoordinator
     private let grants: CredentialApprovalGrants
     private let resolver: CredentialResolver
 
@@ -11,18 +12,20 @@ public struct AgentCredentialReleaseProcessor {
         bridge: AgentBridgeDirectory,
         accessControl: CredentialAccessController,
         resolver: CredentialResolver = CredentialResolver(),
-        grants: CredentialApprovalGrants = CredentialApprovalGrants()
+        grants: CredentialApprovalGrants = CredentialApprovalGrants(),
+        approvals: CredentialApprovalCoordinator = CredentialApprovalCoordinator()
     ) {
         self.bridge = bridge
         self.accessControl = accessControl
         self.resolver = resolver
         self.grants = grants
+        self.approvals = approvals
     }
 
     public func release(
         request: AgentBridgeRequest,
         generation: MirrorGeneration,
-        authorize: (CredentialReleaseAuthorizationRequest) async throws -> Void,
+        authorize: @escaping (CredentialReleaseAuthorizationRequest) async throws -> Void,
         copyNative: (String, TimeInterval) -> Void
     ) async throws -> AgentBridgeResponse {
         guard request.action == .copy || request.action == .acquire else {
@@ -94,7 +97,9 @@ public struct AgentCredentialReleaseProcessor {
                 expirationSeconds: request.action == .copy ? min(120, max(5, request.expirationSeconds)) : nil,
                 authorizationDeadline: request.expiresAt
             )
-            try await authorize(approval)
+            try await approvals.authorize(credentialID: selected.id) {
+                try await authorize(approval)
+            }
         }
 
         try ensureRequestHasNotExpired(request)

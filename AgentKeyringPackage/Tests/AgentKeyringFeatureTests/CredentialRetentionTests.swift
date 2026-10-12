@@ -83,6 +83,36 @@ struct CredentialRetentionTests {
         #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
     }
 
+    @Test("Concurrent requests for a login share approval, then retries use the grant")
+    func duplicateRequests() async throws {
+        let fixture = try ReleaseFixture(policy: .ask, includeCode: true)
+        defer { fixture.cleanUp() }
+        let authorizer = FakeCredentialAuthorizer()
+        let first = fixture.request()
+        let second = fixture.request(field: .totp)
+        try fixture.bridge.write(first)
+        try fixture.bridge.write(second)
+        defer {
+            CredentialTransfer.clear(requestID: first.id)
+            CredentialTransfer.clear(requestID: second.id)
+        }
+        let firstTask = Task { try await fixture.processor.release(request: first, generation: fixture.generation,
+            authorize: { try await authorizer.authorize($0) }, copyNative: { _, _ in }) }
+        while authorizer.requests.isEmpty { await Task.yield() }
+        let secondTask = Task { try await fixture.processor.release(request: second, generation: fixture.generation,
+            authorize: { try await authorizer.authorize($0) }, copyNative: { _, _ in }) }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(authorizer.requests.count == 1)
+        authorizer.complete()
+        #expect(try await firstTask.value.ok)
+        #expect(try await secondTask.value.ok)
+        let retry = fixture.request()
+        try fixture.bridge.write(retry)
+        defer { CredentialTransfer.clear(requestID: retry.id) }
+        #expect(try await fixture.processor.release(request: retry, generation: fixture.generation,
+            authorize: { _ in Issue.record("Retry prompted after approval") }, copyNative: { _, _ in }).ok)
+    }
+
     @Test("A dead caller and the old two-minute limit do not end a request")
     func appOwnsRequest() async throws {
         let fixture = try ReleaseFixture(policy: .ask)
