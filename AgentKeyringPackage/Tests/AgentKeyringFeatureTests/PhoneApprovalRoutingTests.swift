@@ -227,6 +227,14 @@ struct PhoneApprovalRoutingTests {
         #expect(settings.phoneDelaySeconds == 120)
         settings.phoneDelaySeconds = 90
         #expect(ApprovalRoutingSettings(defaults: defaults).phoneDelaySeconds == 90)
+        settings.phoneDelaySeconds = 0
+        #expect(settings.phoneDelaySeconds == 1)
+        settings.phoneDelaySeconds = Int.max
+        #expect(settings.phoneDelaySeconds == Int(ApprovalRequest.lifetimeSeconds))
+        defaults.set(-1, forKey: "phoneApprovalDelaySeconds")
+        #expect(ApprovalRoutingSettings(defaults: defaults).phoneDelaySeconds == 1)
+        defaults.set(Int.max, forKey: "phoneApprovalDelaySeconds")
+        #expect(ApprovalRoutingSettings(defaults: defaults).phoneDelaySeconds == Int(ApprovalRequest.lifetimeSeconds))
     }
 }
 
