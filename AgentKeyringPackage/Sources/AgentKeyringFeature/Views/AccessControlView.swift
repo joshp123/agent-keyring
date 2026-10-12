@@ -23,8 +23,13 @@ public struct AccessControlView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Confirm your access rules")
                             .font(.headline)
-                        Text("Review the rules below. Nothing will be released until you confirm with Touch ID or Apple Watch.")
-                            .foregroundStyle(.secondary)
+                        if controller.confirmationResetsUnreadableRules {
+                            Text("The rules file could not be read. Confirming resets every login to Ask each time. Nothing will be released until then.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Review the rules below. Nothing will be released until you confirm with Touch ID or Apple Watch.")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     Button("Confirm your access rules") {

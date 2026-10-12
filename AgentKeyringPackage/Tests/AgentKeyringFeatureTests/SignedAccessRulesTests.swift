@@ -5,6 +5,42 @@ import Testing
 @MainActor
 @Suite("Tamper-evident access rules")
 struct SignedAccessRulesTests {
+    @Test("Corrupt rules fail closed until an explicit reset is confirmed", arguments: [
+        "invalid-json", "duplicate-record", "unknown-version",
+    ], [true, false])
+    func corruptRules(corruption: String, signed: Bool) async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.store.save([fixture.loginID: .allowAutomatically])
+        let text: String = switch corruption {
+        case "duplicate-record": """
+            {"version":1,"records":[
+            {"credentialID":"\(fixture.loginID)","policy":"block"},
+            {"credentialID":"\(fixture.loginID)","policy":"allowAutomatically"}]}
+            """
+        case "unknown-version": "{\"version\":2,\"records\":[]}"
+        default: "corrupt rules"
+        }
+        let bytes = Data(text.utf8)
+        try bytes.write(to: fixture.fileURL)
+        if signed { try FakeAccessRulesSigner().signature(for: bytes).write(to: fixture.signatureURL) }
+        let controller = CredentialAccessController(store: fixture.store)
+        await controller.refresh(from: fixture.generation)
+        #expect(controller.needsConfirmation)
+        #expect(controller.confirmationResetsUnreadableRules)
+        #expect(controller.errorMessage == AccessRulesConfirmationRequired.message)
+        #expect(controller.releaseDecision(for: fixture.loginID, field: .username) == .needsConfirmation)
+        do {
+            try await controller.ensureRulesConfirmed()
+            Issue.record("Corrupt rules passed the release gate")
+        } catch let failure as AgentBridgeFailure { #expect(failure.code == .rulesNeedConfirmation) }
+        await controller.confirmRules()
+        #expect(!controller.needsConfirmation)
+        #expect(!controller.confirmationResetsUnreadableRules)
+        #expect(try await fixture.store.load().isEmpty)
+        #expect(controller.releaseDecision(for: fixture.loginID, field: .password) == .requestAuthorization)
+    }
+
     @Test("Unsigned upgrades retain the rules for review and require confirmation", arguments: [
         CredentialAccessPolicy.ask, .allowAutomatically, .block,
     ])

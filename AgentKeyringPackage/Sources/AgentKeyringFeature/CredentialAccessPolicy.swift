@@ -84,10 +84,10 @@ public actor CredentialAccessPolicyStore {
             guard try signer.verify(Data(contentsOf: signatureURL), for: bytes) else {
                 throw AccessRulesConfirmationRequired()
             }
+            return try decodePolicies(bytes)
         } catch {
             throw AccessRulesConfirmationRequired()
         }
-        return try decodePolicies(bytes)
     }
 
     public func loadForConfirmation() throws -> [UUID: CredentialAccessPolicy] {
@@ -182,6 +182,7 @@ public final class CredentialAccessController {
     public private(set) var errorMessage: String?
     public private(set) var needsConfirmation = true
     public private(set) var isSavingRules = false
+    public private(set) var confirmationResetsUnreadableRules = false
 
     private let store: CredentialAccessPolicyStore
     private var policies: [UUID: CredentialAccessPolicy] = [:]
@@ -198,11 +199,8 @@ public final class CredentialAccessController {
     public func refresh(fromMetadata metadata: MirrorMetadata?) async {
         do {
             try await reloadRules()
-        } catch is AccessRulesConfirmationRequired {
-            errorMessage = AccessRulesConfirmationRequired.message
         } catch {
-            errorMessage = "Access rules could not be opened. Credentials will ask for approval."
-            policies = [:]
+            errorMessage = AccessRulesConfirmationRequired.message
         }
         guard let metadata else {
             currentGenerationID = nil
@@ -304,10 +302,17 @@ public final class CredentialAccessController {
         do {
             policies = try await store.load()
             needsConfirmation = false
+            confirmationResetsUnreadableRules = false
             errorMessage = nil
         } catch {
             needsConfirmation = true
-            policies = (try? await store.loadForConfirmation()) ?? [:]
+            do {
+                policies = try await store.loadForConfirmation()
+                confirmationResetsUnreadableRules = false
+            } catch {
+                policies = [:]
+                confirmationResetsUnreadableRules = true
+            }
             updateRowPolicies()
             throw error
         }

@@ -164,7 +164,7 @@ struct CredentialAccessPolicyTests {
             ofItemAtPath: fixture.fileURL.path
         )
 
-        await #expect(throws: CocoaError.self) {
+        await #expect(throws: AccessRulesConfirmationRequired.self) {
             try await fixture.store.load()
         }
     }
