@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import OSLog
 
@@ -48,11 +49,18 @@ public final class CloudKitIPhoneApprovalChannel: IPhoneApprovalChannel {
                         publication.sleepTask = nil
                         try Task.checkCancellation()
                         guard self.now().timeIntervalSince1970 < Double(request.expiresAt) else { break }
-                        let record = try await self.database.fetch(ApprovalCloudRecords.decisionID(request.id))
-                        try Task.checkCancellation()
-                        guard self.now().timeIntervalSince1970 < Double(request.expiresAt) else { break }
-                        if let record, let decision = ApprovalCloudRecords.decision(from: record, for: request) {
-                            continuation.yield(decision)
+                        do {
+                            let record = try await self.database.fetch(ApprovalCloudRecords.decisionID(request.id))
+                            try Task.checkCancellation()
+                            guard self.now().timeIntervalSince1970 < Double(request.expiresAt) else { break }
+                            if let record, let decision = ApprovalCloudRecords.decision(from: record, for: request) {
+                                continuation.yield(decision)
+                            }
+                        } catch is CancellationError { throw CancellationError() }
+                        catch let error as CKError where error.code == .notAuthenticated || error.code == .quotaExceeded {
+                            throw error
+                        } catch {
+                            cloudApprovalLogger.error("Approval polling failed; retrying until request expiry.")
                         }
                     }
                 }

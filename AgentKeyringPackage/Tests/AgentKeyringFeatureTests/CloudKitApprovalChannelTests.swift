@@ -159,8 +159,8 @@ struct CloudKitApprovalChannelTests {
         fixture.expectCleanup()
     }
 
-    @Test("Every CloudKit failure falls back to the Mac on publication or polling", arguments:
-        [CKError.Code.notAuthenticated, .networkUnavailable, .quotaExceeded, .requestRateLimited],
+    @Test("Authentication and quota failures fall back to the Mac on publication or polling", arguments:
+        [CKError.Code.notAuthenticated, .quotaExceeded],
         [(true, InMemoryApprovalCloudDatabase.Operation.saveRecord), (false, .saveRecord), (true, .fetchRecord), (false, .fetchRecord)])
     func fallback(code: CKError.Code, scenario: (Bool, InMemoryApprovalCloudDatabase.Operation)) async throws {
         let (locked, operation) = scenario
@@ -194,6 +194,32 @@ struct CloudKitApprovalChannelTests {
         try await task.value
         #expect(fixture.progress.last?.approvedOn == .mac)
         #expect(fixture.progress.last?.iPhoneFailure != nil)
+    }
+
+    @Test("Temporary polling failures keep the phone route alive until it answers or expires", arguments:
+        [CKError.Code.networkFailure, .networkUnavailable, .serviceUnavailable, .requestRateLimited, .zoneBusy], [true, false])
+    func transientPollingFailure(code: CKError.Code, answers: Bool) async throws {
+        let fixture = try CloudApprovalFixture()
+        fixture.database.failures[.fetchRecord] = Array(repeating: CKError(code), count: answers ? 1 : 2)
+        let task = fixture.start()
+        try await cloudEventually { fixture.clock.hasTwoSecondSleep }
+        fixture.clock.advance(seconds: 2)
+        try await cloudEventually { fixture.database.fetchedRecordIDs.count == 1 && fixture.clock.hasTwoSecondSleep }
+        #expect(fixture.progress.last?.iPhoneFailure == nil)
+        #expect(fixture.database.records[ApprovalCloudRecords.requestID(fixture.request.id)] != nil)
+        if answers {
+            try await fixture.database.save(ApprovalCloudRecords.decision(try fixture.decision(.approve)))
+            fixture.clock.advance(seconds: 2)
+            try await task.value
+            #expect(fixture.progress.last?.approvedOn == .iPhone)
+        } else {
+            fixture.clock.advance(seconds: 2)
+            try await cloudEventually { fixture.database.fetchedRecordIDs.count == 2 && fixture.clock.hasTwoSecondSleep }
+            #expect(fixture.progress.last?.iPhoneFailure == nil)
+            fixture.clock.advance(seconds: 596)
+            await #expect(throws: CredentialReleaseAuthorizationError.expired) { try await task.value }
+        }
+        fixture.expectCleanup()
     }
 
     @Test("CloudKit transport errors become fixed plain results", arguments:
