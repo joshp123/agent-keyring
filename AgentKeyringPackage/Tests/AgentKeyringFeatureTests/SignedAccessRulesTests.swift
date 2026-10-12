@@ -5,6 +5,48 @@ import Testing
 @MainActor
 @Suite("Tamper-evident access rules")
 struct SignedAccessRulesTests {
+    @Test("Unsigned upgrades retain the rules for review and require confirmation", arguments: [
+        CredentialAccessPolicy.ask, .allowAutomatically, .block,
+    ])
+    func unsignedUpgrade(policy: CredentialAccessPolicy) async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.store.save([fixture.loginID: policy])
+        try FileManager.default.moveItem(at: fixture.signatureURL,
+            to: fixture.signatureURL.appendingPathExtension("held"))
+        let controller = CredentialAccessController(store: fixture.store)
+        await controller.refresh(from: fixture.generation)
+        #expect(controller.needsConfirmation)
+        #expect(controller.rows.first?.policy == policy)
+        #expect(controller.releaseDecision(for: fixture.loginID, field: .username) == .needsConfirmation)
+        await controller.confirmRules()
+        #expect(!controller.needsConfirmation)
+        #expect(controller.policy(for: fixture.loginID) == policy)
+        #expect(try await fixture.store.load()[fixture.loginID, default: .ask] == policy)
+    }
+
+    @Test("All app bridge requests get the confirmation result before accessing the mirror", arguments: [
+        AgentBridgeAction.status, .resolve, .acquire,
+    ])
+    func unsignedAppRequests(action: AgentBridgeAction) async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        let settingsName = "SignedRulesTests-\(UUID().uuidString)"
+        let settings = try #require(UserDefaults(suiteName: settingsName))
+        defer { settings.removePersistentDomain(forName: settingsName) }
+        let model = MirrorAppModel(store: EncryptedSnapshotStore(directoryURL: fixture.root.appendingPathComponent("vault"),
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32))),
+            bridge: fixture.bridge, accessControl: CredentialAccessController(store: fixture.store), settings: settings)
+        let request = AgentBridgeRequest(action: action, targetURL: "https://example.com", field: .password)
+        try fixture.bridge.write(request)
+        await model.handleAgentRequest(id: request.id)
+        let response = try fixture.bridge.readResponse(id: request.id)
+        #expect(!response.ok)
+        #expect(response.error == .rulesNeedConfirmation)
+        #expect(response.message == AccessRulesConfirmationRequired.message)
+        #expect(response.mirror == nil)
+    }
+
     @Test("A valid signature loads automatic rules")
     func validSignature() async throws {
         let fixture = SignedRulesFixture()

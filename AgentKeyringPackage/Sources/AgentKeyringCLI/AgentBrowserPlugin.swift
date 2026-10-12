@@ -171,6 +171,7 @@ enum AgentBrowserPluginProtocol {
         case .authorizationInterrupted: "macOS interrupted the approval prompt; retry the login."
         case .requestExpired: "The request expired with no answer."
         case .policyDenied: "Access to this login is blocked in Agent Keyring."
+        case .rulesNeedConfirmation: AccessRulesConfirmationRequired.message
         case .notFound, .fieldUnavailable, .mirrorUnavailable: "no matching login"
         case .ambiguous: "ambiguous"
         default: "approval unavailable"

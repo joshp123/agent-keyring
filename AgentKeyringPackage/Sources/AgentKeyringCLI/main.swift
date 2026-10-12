@@ -21,6 +21,7 @@ struct AgentKeyringCLI: AsyncParsableCommand {
               3  The request expired with no answer.
               4  macOS interrupted the approval prompt; retry the request.
               6  Touch ID or Apple Watch did not verify; retry the request.
+              7  Access rules need Josh's confirmation in the app.
               64 Invalid command or arguments.
             """,
         version: installedVersion(),

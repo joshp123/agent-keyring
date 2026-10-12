@@ -17,46 +17,66 @@ public struct AccessControlView: View {
     public var body: some View {
         @Bindable var controller = controller
 
-        HSplitView {
-            AccessPolicySidebar(
-                selectedPolicy: $controller.selectedPolicy,
-                askCount: controller.count(for: .ask),
-                automaticCount: controller.count(for: .allowAutomatically),
-                blockedCount: controller.count(for: .block),
-                openAssistant: { isShowingAssistant = true }
-            )
-            .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
-
-            Group {
-                if controller.rows.isEmpty {
-                    ContentUnavailableView(
-                        "No logins yet",
-                        systemImage: "key.horizontal",
-                        description: Text("Import logins from Apple Passwords first.")
-                    )
-                } else if let selectedPolicy = controller.selectedPolicy {
-                    AccessPolicyDetailView(
-                        policy: selectedPolicy,
-                        rows: controller.visibleRows,
-                        searchText: $controller.searchText,
-                        selection: $selection,
-                        errorMessage: controller.errorMessage,
-                        changePolicy: { policy in
-                            Task {
-                                await controller.setPolicy(policy, for: selection)
-                                selection.removeAll()
-                            }
-                        }
-                    )
-                } else {
-                    ContentUnavailableView(
-                        "Choose an access rule",
-                        systemImage: "sidebar.left",
-                        description: Text("Select one of the three rules in the sidebar.")
-                    )
+        VStack(spacing: 0) {
+            if controller.needsConfirmation {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Confirm your access rules")
+                            .font(.headline)
+                        Text("Review the rules below. Nothing will be released until you confirm with Touch ID or Apple Watch.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Confirm your access rules") {
+                        Task { await controller.confirmRules() }
+                    }
+                    .disabled(controller.isSavingRules)
                 }
+                .padding()
+                Divider()
             }
-            .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+            HSplitView {
+                AccessPolicySidebar(
+                    selectedPolicy: $controller.selectedPolicy,
+                    askCount: controller.count(for: .ask),
+                    automaticCount: controller.count(for: .allowAutomatically),
+                    blockedCount: controller.count(for: .block),
+                    openAssistant: { isShowingAssistant = true }
+                )
+                .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
+
+                Group {
+                    if controller.rows.isEmpty {
+                        ContentUnavailableView(
+                            "No logins yet",
+                            systemImage: "key.horizontal",
+                            description: Text("Import logins from Apple Passwords first.")
+                        )
+                    } else if let selectedPolicy = controller.selectedPolicy {
+                        AccessPolicyDetailView(
+                            policy: selectedPolicy,
+                            rows: controller.visibleRows,
+                            searchText: $controller.searchText,
+                            selection: $selection,
+                            errorMessage: controller.errorMessage,
+                            changePolicy: { policy in
+                                Task {
+                                    await controller.setPolicy(policy, for: selection)
+                                    selection.removeAll()
+                                }
+                            }
+                        )
+                        .disabled(controller.needsConfirmation || controller.isSavingRules)
+                    } else {
+                        ContentUnavailableView(
+                            "Choose an access rule",
+                            systemImage: "sidebar.left",
+                            description: Text("Select one of the three rules in the sidebar.")
+                        )
+                    }
+                }
+                .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(
             minWidth: 760,

@@ -68,6 +68,8 @@ struct CLIError: Error {
             )
         case .policyDenied:
             self.init("Access to this login is blocked in Agent Keyring. Nothing was released.")
+        case .rulesNeedConfirmation:
+            self.init(AccessRulesConfirmationRequired.message, exitCode: 7)
         case .requestExpired, .timedOut:
             self.init("The request expired with no answer.", exitCode: 3)
         case .invalidTOTP:
@@ -75,7 +77,7 @@ struct CLIError: Error {
                 "Agent Keyring could not create a verification code for this login.",
                 suggestion: "Update Agent Keyring from Apple Passwords, then try again."
             )
-        case .bridgeUnavailable, .internalError, .invalidRequest, .approvalPending, .rulesNeedConfirmation, .none:
+        case .bridgeUnavailable, .internalError, .invalidRequest, .approvalPending, .none:
             self.init(
                 response.message ?? "Agent Keyring could not complete the request.",
                 suggestion: "Open the app and try again."
