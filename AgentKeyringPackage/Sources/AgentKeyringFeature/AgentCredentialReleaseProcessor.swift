@@ -102,7 +102,10 @@ public struct AgentCredentialReleaseProcessor {
         }
 
         var approvalProgress: AgentApprovalProgress?
-        let needsApproval = releaseDecision == .requestAuthorization && !grants.contains(selected.id, action: request.action)
+        let hasGrant = requester.verifiedIdentity.map {
+            grants.contains(selected.id, action: request.action, requesterIdentity: $0)
+        } ?? false
+        let needsApproval = requester.verifiedIdentity == nil || (releaseDecision == .requestAuthorization && !hasGrant)
         if needsApproval {
             let approval = CredentialReleaseAuthorizationRequest(
                 destination: approvalDestination(for: targetURL),
@@ -117,7 +120,7 @@ public struct AgentCredentialReleaseProcessor {
             let phoneRequest = try ApprovalRequest(agentDisplayLabel: requester.displayLabel,
                 site: approval.destination, account: approval.account, field: field,
                 action: request.action == .fill ? .fill : .acquire, requesterContext: requester.context, createdAt: now())
-            try await approvals.authorize(credentialID: selected.id, action: request.action, authorizationDeadline: request.expiresAt,
+            try await approvals.authorize(credentialID: selected.id, action: request.action, requesterIdentity: requester.verifiedIdentity, authorizationDeadline: request.expiresAt,
                 approvalRequest: phoneRequest, cancelPrompt: cancelAuthorization,
                 onBlockLogin: { accessControl.stagePhoneBlock(for: selected.id) },
                 onProgress: { progress in
@@ -126,7 +129,10 @@ public struct AgentCredentialReleaseProcessor {
                 }) { onPromptStarted in
                 try await authorize(approval, onPromptStarted)
             }
-            grants.approve(selected.id, action: request.action, site: approval.destination, account: approval.account)
+            if let identity = requester.verifiedIdentity {
+                grants.approve(selected.id, action: request.action, requesterIdentity: identity,
+                    site: approval.destination, account: approval.account)
+            }
         }
 
         try ensureRequestHasNotExpired(request)
