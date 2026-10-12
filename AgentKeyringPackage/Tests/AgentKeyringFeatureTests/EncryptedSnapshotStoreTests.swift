@@ -67,6 +67,25 @@ struct EncryptedSnapshotStoreTests {
         #expect(!String(decoding: try JSONEncoder().encode(metadata), as: UTF8.self).contains("SECRET-CANARY"))
     }
 
+    @Test("A corrupt metadata index is an error without a snapshot fallback")
+    func corruptMetadataDoesNotRebuild() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = EncryptedSnapshotStore(directoryURL: directory,
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x2A, count: 32)))
+        let snapshot = generation(password: "SECRET-CANARY")
+        try await store.save(snapshot)
+        let payloadURL = await store.generationFileURL(for: snapshot.id)
+        let metadataURL = payloadURL.deletingPathExtension().appendingPathExtension("metadata")
+        let corruptMetadata = Data("corrupt metadata".utf8)
+        try corruptMetadata.write(to: metadataURL)
+        await #expect(throws: (any Error).self) {
+            try await store.loadCurrent(metadataOnly: true)
+        }
+        #expect(try Data(contentsOf: metadataURL) == corruptMetadata)
+        #expect(try await store.loadCurrent() == snapshot)
+    }
+
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("AgentKeyringTests-\(UUID().uuidString)", isDirectory: true)

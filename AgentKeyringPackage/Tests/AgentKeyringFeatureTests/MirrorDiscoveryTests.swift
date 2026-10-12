@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import AgentKeyringFeature
@@ -5,8 +6,8 @@ import Testing
 @MainActor
 @Suite("Mirror discovery")
 struct MirrorDiscoveryTests {
-    @Test("App status and find work when the secret snapshot cannot be decrypted")
-    func discoveryUsesOnlyMetadata() async throws {
+    @Test("App status and find reuse metadata, repairing an older snapshot once", arguments: [false, true])
+    func discoveryUsesOnlyMetadata(missingIndex: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = EncryptedSnapshotStore(directoryURL: directory.appendingPathComponent("vault"),
@@ -21,9 +22,21 @@ struct MirrorDiscoveryTests {
             createdAt: Date().addingTimeInterval(-8 * 86_400), sourceExportedAt: Date(),
             scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture",
             items: [item], delta: MirrorDelta(), skippedCredentialCount: 0)
-        try await store.save(generation)
         let payload = await store.generationFileURL(for: generation.id)
-        try Data("corrupt secret payload".utf8).write(to: payload)
+        let metadataURL = payload.deletingPathExtension().appendingPathExtension("metadata")
+        if missingIndex {
+            try FileManager.default.createDirectory(at: payload.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            let sealedBox = try AES.GCM.seal(JSONEncoder().encode(generation),
+                using: SymmetricKey(data: Data(repeating: 0x42, count: 32)))
+            try #require(sealedBox.combined).write(to: payload)
+            try Data(generation.id.uuidString.utf8).write(
+                to: directory.appendingPathComponent("vault/current"))
+            #expect(!FileManager.default.fileExists(atPath: metadataURL.path))
+        } else {
+            try await store.save(generation)
+            try Data("corrupt secret payload".utf8).write(to: payload)
+        }
         let bridge = AgentBridgeDirectory(rootURL: directory.appendingPathComponent("bridge"))
         let model = MirrorAppModel(store: store, bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
@@ -32,6 +45,11 @@ struct MirrorDiscoveryTests {
         await model.loadStatus()
         #expect(model.status == generation.safeStatus)
         #expect(model.notice == nil)
+        #expect(FileManager.default.fileExists(atPath: metadataURL.path))
+        let savedMetadata = try Data(contentsOf: metadataURL)
+        if missingIndex {
+            try Data("corrupt secret payload".utf8).write(to: payload)
+        }
         for action in [AgentBridgeAction.status, .resolve] {
             let request = AgentBridgeRequest(action: action, targetURL: "https://example.com")
             try bridge.write(request)
@@ -48,5 +66,6 @@ struct MirrorDiscoveryTests {
             #expect(!output.contains("SECRET-CANARY"))
             #expect(!output.contains("CODE-CANARY"))
         }
+        #expect(try Data(contentsOf: metadataURL) == savedMetadata)
     }
 }

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import OSLog
 import Security
 
 public protocol MirrorVaultKeyProviding: Sendable {
@@ -131,6 +132,13 @@ public actor EncryptedSnapshotStore {
         else {
             throw MirrorError.invalidCurrentPointer
         }
+        if metadataOnly,
+            !fileManager.fileExists(atPath: generationURL(for: generationID, metadataOnly: true).path) {
+            let generation = try load(generationID: generationID)
+            try saveMetadata(for: generation)
+            Logger(subsystem: "com.agentkeyring.app", category: "MirrorStorage")
+                .info("Rebuilt the missing metadata index for the current mirror")
+        }
         return try load(generationID: generationID, metadataOnly: metadataOnly)
     }
 
@@ -165,10 +173,7 @@ public actor EncryptedSnapshotStore {
         if !fileManager.fileExists(atPath: encryptedURL.path) {
             try combined.write(to: encryptedURL, options: [.atomic])
         }
-        let metadata = try encoder.encode(generation.metadataOnly)
-        let metadataBox = try AES.GCM.seal(metadata, using: keyProvider.loadOrCreateKey())
-        guard let metadataBytes = metadataBox.combined else { throw MirrorError.missingEncryptedPayload }
-        try metadataBytes.write(to: generationURL(for: generation.id, metadataOnly: true), options: [.atomic])
+        try saveMetadata(for: generation)
 
         let pointerURL = directoryURL.appendingPathComponent("current", isDirectory: false)
         try Data(generation.id.uuidString.utf8).write(to: pointerURL, options: [.atomic])
@@ -183,6 +188,13 @@ public actor EncryptedSnapshotStore {
 
     public func generationFileURL(for generationID: UUID) -> URL {
         generationURL(for: generationID)
+    }
+
+    private func saveMetadata(for generation: MirrorGeneration) throws {
+        let metadata = try encoder.encode(generation.metadataOnly)
+        let metadataBox = try AES.GCM.seal(metadata, using: keyProvider.loadOrCreateKey())
+        guard let metadataBytes = metadataBox.combined else { throw MirrorError.missingEncryptedPayload }
+        try metadataBytes.write(to: generationURL(for: generation.id, metadataOnly: true), options: [.atomic])
     }
 
     private func generationURL(for generationID: UUID, metadataOnly: Bool = false) -> URL {
