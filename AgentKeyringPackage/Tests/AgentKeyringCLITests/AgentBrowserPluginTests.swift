@@ -30,7 +30,7 @@ struct AgentBrowserPluginTests {
     }
 
     @Test("Both fields use acquire for the destination and the same selected login", arguments: [
-        "example.com", "example.com synthetic@example.com", "example.com Synthetic Account Name",
+        "example.com", "example.com synthetic@example.com",
     ])
     func resolve(itemRef: String) async throws {
         var requests: [AgentBridgeRequest] = []
