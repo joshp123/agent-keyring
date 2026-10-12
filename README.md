@@ -1,94 +1,76 @@
 ---
-written_by: ai
+written_by: ai (Claude Opus 5.5, 2026-10-12)
 ---
 
 # Agent Keyring
 
-Agent Keyring gives local tools access to saved Apple Passwords credentials under your rules.
+You ask an agent to do something. It needs to sign in. Until now it got stuck, or asked you to paste a password into chat.
 
-The CLI finds the matching Apple Passwords credential and follows your rule:
+With Agent Keyring it carries on. It asks Agent Keyring for the login. Your rule for that login decides: allowed automatically, ask you first, or blocked. If you are asked, you approve on your Mac, or with one tap on your iPhone when you are away. Then Agent Keyring types the login into the sign-in form itself. **The agent never sees your password.**
 
-| Rule | What happens |
+Your logins stay in Apple Passwords. Agent Keyring keeps an encrypted copy on your Mac.
+
+[Download the signed app](https://github.com/joshp123/agent-keyring/releases/latest) · macOS 26 or later · iPhone app for approvals · free and open source
+
+## How it works
+
+| Your rule | What happens when an agent asks |
 | --- | --- |
-| Allow automatically | Codex continues without interrupting you. |
-| Ask each time | Approve the exact website and account on Apple Watch or Touch ID. |
-| Blocked | Agent Keyring refuses the request. |
+| Allow automatically | It signs in without interrupting you. |
+| Ask each time | You approve with Touch ID or Apple Watch, or on your iPhone if you are away. One approval covers that login for 30 minutes. |
+| Blocked | It refuses. |
 
-Apple Passwords remains your source of truth. Agent Keyring uses Apple's credential exchange flow, Keychain and LocalAuthentication. The calling tool owns the login or other operation that uses the credential.
+- **Every browser the agent can drive.** Safari, Chrome, Claude's browser and Codex's browser: the agent focuses the field and Agent Keyring types the value after checking the page is the real site. Headless browsers sign in through the [agent-browser](https://github.com/vercel-labs/agent-browser) plugin.
+- **Agents know what is happening.** While you are being asked, the agent sees lines like "Asked Josh on the Mac at 02:41; will ask on the iPhone at 02:43", so it can tell you what it is waiting for.
+- **Agents cannot change your rules.** The rules are signed with a key that needs your Touch ID. Edit them behind its back and nothing is released until you confirm them.
 
-[Download the signed and notarised app](https://github.com/joshp123/agent-keyring/releases/latest) · macOS 26 or later · free and open source
+## Set rules with AI
 
-[![Agent Keyring: automatic, approved or blocked credential access for Codex](docs/media/agent-keyring-demo.gif)](docs/media/agent-keyring-demo.mp4)
+You do not have to sort hundreds of logins yourself. In `Access Rules`, choose `Set Rules with AI`, paste the prompt into any AI and answer its questions about what you trust agents to do, then paste its answer back and review every change before applying it. The prompt contains only sites and current rules, never account names or passwords.
 
-The demo uses synthetic accounts. Product screens are real native window captures. The macOS Watch prompt is genuine and captured separately; it does not claim to show a completed Watch approval.
+![Setting rules with AI](docs/media/assistant.png)
 
-## Work out your rules with AI
+## Set up
 
-You do not need to classify every credential yourself.
+1. Install `AgentKeyring.app` and open it. It lives in the menu bar.
+2. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`.
+3. Run `/Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install`. It teaches Claude Code and Codex how to use it and registers the agent-browser plugin.
+4. To approve from your iPhone, install the iPhone app, choose `Add iPhone` on the Mac and scan the code.
 
-1. Open `Access Rules`, select `Set Rules with AI` and copy the prompt.
-2. Read the copied text, then paste it into ChatGPT, Claude or another AI. It helps you describe what you trust local agents to access unattended, what should ask you first and what they should never use.
-3. Copy the AI's entire final response and paste it back into Agent Keyring.
-4. Select `Review Changes`. Agent Keyring checks every credential ID and shows every proposed change before you can apply it.
+Apple has no silent export, so Agent Keyring reminds you when its copy is more than a week old. Repeat step 2 to update it.
 
-The copied text contains only a random ID, site and current rule for each login. It never contains account names, usernames, passwords or verification codes.
+## For agents
 
-![Agent Keyring's copy-and-paste AI policy assistant](docs/media/assistant.png)
+`agent-keyring --help` explains everything; the installed skill has the details. In short:
 
-## Approval on Apple Watch
+```sh
+agent-keyring fill username example.com    # focus the field first
+agent-keyring fill password example.com
+agent-keyring fill code example.com        # two-factor code
+agent-keyring sync example.com             # the site rejected the login
+```
 
-For credentials set to `Ask each time`, Agent Keyring shows the requested website, account and field before macOS asks for approval. One Apple Watch or Touch ID approval releases one requested field.
+Programs that need a value get it by pipe, never on screen: `acquire` returns a reference, `read` pipes the value and `clear` removes it.
 
-![Agent Keyring beside the native macOS Apple Watch approval prompt](docs/media/approval-watch.png)
+## Security
 
-## Set up once
-
-1. Download the ZIP, move `AgentKeyring.app` to Applications and open it. It appears as a key in the menu bar.
-2. Ask Codex to run:
-
-   ```text
-   Set up Agent Keyring for me by running:
-   /Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install
-   ```
-
-3. From the menu-bar key, choose `Open Agent Keyring`, then select `Allow Passwords Import`. In Apple Passwords, choose `File` → `Export All Items to App` → `Agent Keyring`, then approve once.
-
-That is it. Ask Codex normally. You do not need to restart Codex.
-
-Repeat the Apple Passwords export to import new, changed and removed credentials into Agent Keyring’s encrypted copy. Apple does not provide silent or incremental password export.
-
-## CLI
-
-`agent-keyring find example.com` lists matching accounts. `acquire FIELD SITE` authorizes once and returns a reference to a private temporary buffer; `FIELD` is `username`, `password` or `code` (TOTP). Select an account with `--account NAME` or a duplicate entry with `--credential UUID`.
-
-`read REF` writes the exact retained value to stdout without an added newline. Pipe it to a consumer or capture it inside that consumer's runtime. Reading does not empty the buffer or request another approval, so failed entry can retry using the same reference. Run `clear REF` after successful entry or when abandoning the operation. Buffers have no automatic expiry; explicit cleanup is required. Errors go to stderr with a nonzero status.
-
-Agents must keep values out of tool results and chat. `status` reports mirror age. Browser control and SMS retrieval belong to the tools that perform those jobs.
-
-## Security boundaries
-
-- the local mirror is encrypted with AES-GCM; its key is stored in your login Keychain
-- `Allow automatically` trusts every process running as your unlocked macOS user
-- `acquire` retains the approved value in a request-specific named macOS pasteboard until `clear`; other processes running as the same unlocked user remain inside the trust boundary
-- the agent supplies the destination URL because browsers do not give Agent Keyring an attested active-tab origin
-- passkeys are not supported yet
-- Apple may omit shared credentials, Sign in with Apple records and items without passwords
-- a changed password is not available to agents until you import from Apple Passwords again
-
-Sparkle checks this repository for signed updates. Automatic installation is off.
+- Passwords never go to the agent through `fill` or the agent-browser plugin. `fill` checks the screen is unlocked, the page address belongs to the saved site, and the focused field is the right kind before typing.
+- Approvals from the iPhone are signed by a key in its Secure Enclave and checked by the Mac against its own copy of the request. Pairing needs a code you type and Touch ID.
+- The encrypted copy and the signed rules stay on your Mac. Requests to the iPhone travel through your private iCloud database, with site and account encrypted.
+- `Allow automatically` trusts any program running as you while your Mac is unlocked.
+- Passkeys are not supported yet.
 
 ## Build from source
 
-You need Xcode 27 and an Apple Developer team with the AutoFill Credential Provider capability.
+You need Xcode 27 and an Apple Developer team.
 
 ```sh
 git clone https://github.com/joshp123/agent-keyring.git
 cd agent-keyring
 cp Config/Local.xcconfig.example Config/Local.xcconfig
 ./script/build_and_run.sh --verify
+swift test --package-path AgentKeyringPackage
 ```
-
-Run tests with `swift test --package-path AgentKeyringPackage`.
 
 ## Licence
 
