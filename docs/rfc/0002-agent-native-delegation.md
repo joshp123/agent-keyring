@@ -169,7 +169,11 @@ approve from the iPhone when Josh is away, keep standing per-login rules
 
 - Policy is checked again after approval. Blocking a login clears its
   outstanding buffers.
-- Buffers expire after 5 minutes and are cleared if the requester exits.
+- Buffers expire after 5 minutes, end on `clear`, and end at once when their
+  login is blocked. They are not tied to the requesting shell, because agents
+  run each step in a fresh shell and the value must survive until it is
+  entered. One-time code buffers hold only the current code; the seed never
+  leaves the app.
 - Approval requests are serialised.
 - Site matching:
   - the page host equals the saved host or is a subdomain of it
