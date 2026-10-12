@@ -3,6 +3,9 @@ import AuthenticationServices
 import Sparkle
 import SwiftUI
 import AgentKeyringFeature
+#if DEBUG
+import AgentKeyringTestSupport
+#endif
 
 @MainActor
 private final class CheckForUpdatesViewModel: ObservableObject {

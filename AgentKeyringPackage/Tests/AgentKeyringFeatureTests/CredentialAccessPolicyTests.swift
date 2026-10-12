@@ -1,3 +1,4 @@
+import AgentKeyringTestSupport
 import Darwin
 import Foundation
 import Testing

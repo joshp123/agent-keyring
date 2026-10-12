@@ -1,3 +1,4 @@
+import AgentKeyringTestSupport
 @testable import AgentKeyringFeature
 import ArgumentParser
 import Foundation

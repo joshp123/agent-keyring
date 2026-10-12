@@ -7,6 +7,7 @@ let package = Package(
     name: "AgentKeyringFeature",
     platforms: [.macOS(.v26)],
     products: [
+        .library(name: "AgentKeyringTestSupport", targets: ["AgentKeyringTestSupport"]),
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "AgentKeyringFeature",
@@ -30,6 +31,7 @@ let package = Package(
         .target(
             name: "AgentKeyringFeature"
         ),
+        .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),
         .executableTarget(
             name: "AgentKeyringCLI",
             dependencies: [
@@ -39,18 +41,20 @@ let package = Package(
         ),
         .executableTarget(
             name: "AgentKeyringFixture",
-            dependencies: ["AgentKeyringFeature"],
+            dependencies: ["AgentKeyringFeature", "AgentKeyringTestSupport"],
             path: "Tools/AgentKeyringFixture"
         ),
         .testTarget(
             name: "AgentKeyringFeatureTests",
             dependencies: [
+                "AgentKeyringTestSupport",
                 "AgentKeyringFeature"
             ]
         ),
         .testTarget(
             name: "AgentKeyringCLITests",
             dependencies: [
+                "AgentKeyringTestSupport",
                 "AgentKeyringCLI",
                 "AgentKeyringFeature",
             ]
