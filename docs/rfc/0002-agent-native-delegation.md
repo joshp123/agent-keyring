@@ -23,6 +23,8 @@ drive."
 - 1Password for Claude fills without revealing, but only in Claude in Chrome,
   only with 1Password, and only with a Mac prompt.
 - Bitwarden Agent Access hands the agent plaintext and has no revocation.
+  Agent Keyring sends credentials to cloud agents only through a fill
+  component, never to the model.
 
 Agent Keyring will fill without revealing in every browser and for every agent,
 approve from the iPhone when Josh is away, keep standing per-login rules
@@ -89,7 +91,14 @@ approve from the iPhone when Josh is away, keep standing per-login rules
   annoying.)
 - **Routing:** if the Mac is locked or its display is asleep, the iPhone is
   asked at once and the Mac prompt is not started. Otherwise the Mac asks
-  first and the iPhone is asked after 10 seconds without an answer. No setting.
+  first and the iPhone is asked after a delay Josh sets (default 2 minutes).
+- **The agent always knows what Josh is being asked and when,** so it can tell
+  him in chat instead of hanging. Each step is a plain line on stderr with an
+  exit status at the end, for example:
+  - "Asked Josh on his Mac at 02:41; will ask on his iPhone at 02:43."
+  - "Asked on iPhone at 02:43."
+  - "Approved at 02:44."
+  - "No answer by 02:51; request expired."
 - **Honest failures,** each with its own exit code and sentence: you declined,
   nobody answered, the request expired, the Mac is locked and no iPhone is
   paired, the rules changed.
@@ -187,17 +196,34 @@ approve from the iPhone when Josh is away, keep standing per-login rules
 
 ## Cloud agents (designed now, built after)
 
-- **The Mac is the hub.** Grok bot and Muse drive agent-browser or Chrome on
-  Josh's Mac over a paired, authenticated connection. Secrets never leave the
-  Mac, and nothing works without it.
-- **Each remote agent is paired** with its own key, signs every request, and is
-  revocable from the iPhone.
-- **Every remote request needs iPhone approval,** with a short binding code
-  shown in the agent's chat and on the phone. "Allowed automatically" applies
-  to local agents only. Grants are per task and per agent, and logged.
-- **The request object already carries** agent identity, request ID,
-  credential ID, origin, fields and expiry, so this phase adds an approval
-  provider and a paired-agent registry, not a rewrite.
+Grok bot and Muse work in their own cloud environments, so the credential has
+to reach them. The design keeps that delivery as narrow as possible. In order
+of preference:
+
+1. **A session, not the password.** Where the site allows it, the Mac signs in
+   and hands the cloud agent's browser the signed-in session. The password
+   stays home, and the session expires and is revocable.
+2. **The password, sent to the cloud agent's browser and never to the model.**
+   The cloud environment runs a small Agent Keyring component (the same
+   agent-browser plugin). The Mac sends the credential encrypted end to end to
+   that component only. It fills the form and discards the value.
+3. **API keys through a relay.** The agent's API calls go through a relay
+   under Josh's control that attaches the key, so the key stays home.
+
+Security around all three:
+- Each cloud agent is paired once with its own key, signs every request, and
+  is revocable from the iPhone.
+- Every cloud request needs iPhone approval, with a short binding code shown
+  both in the agent's chat and on the phone. "Allowed automatically" applies
+  to local agents only.
+- A release is bound to one request and one site, single-use and
+  short-lived, and logged.
+- Follow Bitwarden Agent Access (pairing tokens, Noise encryption through a
+  relay that cannot read traffic) rather than inventing a protocol.
+
+The request object already carries agent identity, request ID, credential ID,
+origin, fields and expiry, so this phase adds an approval provider, a
+paired-agent registry and the remote component, not a rewrite.
 
 ## Execution plan
 
