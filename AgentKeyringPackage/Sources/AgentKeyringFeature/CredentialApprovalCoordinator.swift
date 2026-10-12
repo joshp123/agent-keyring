@@ -8,6 +8,7 @@ public final class CredentialApprovalCoordinator {
         var observers: [(AgentApprovalProgress) -> Void]
     }
     private var pending: [UUID: PendingApproval] = [:]
+    private var lastApprovalTask: Task<Void, Error>?
 
     private let lockState: any CredentialSessionLockState
     private let now: () -> Date
@@ -37,7 +38,9 @@ public final class CredentialApprovalCoordinator {
         }
         let progress = AgentApprovalProgress(waitingSince: now(),
             phase: lockState.isLocked ? .waitingForUnlock : .awaitingApproval)
+        let precedingApproval = lastApprovalTask
         let approval = Task { @MainActor in
+            if let precedingApproval { _ = await precedingApproval.result }
             while self.lockState.isLocked {
                 guard self.now() < authorizationDeadline else {
                     throw CredentialReleaseAuthorizationError.expired
@@ -49,6 +52,7 @@ public final class CredentialApprovalCoordinator {
             }
             try await prompt { self.recordPromptStarted(credentialID: credentialID) }
         }
+        lastApprovalTask = approval
         pending[credentialID] = PendingApproval(task: approval, progress: progress, observers: [onProgress])
         onProgress(progress)
         defer { pending.removeValue(forKey: credentialID) }

@@ -148,7 +148,7 @@ struct AgentKeyringFixture {
         case let failure as AgentBridgeFailure: failure.code
         case CredentialReleaseAuthorizationError.denied: .authorizationDenied
         case CredentialReleaseAuthorizationError.expired: .requestExpired
-        case CredentialReleaseAuthorizationError.busy, CredentialReleaseAuthorizationError.unavailable:
+        case CredentialReleaseAuthorizationError.unavailable:
             .authorizationUnavailable
         case CredentialResolverError.invalidURL: .invalidURL
         case CredentialResolverError.insecureOrigin: .insecureOrigin

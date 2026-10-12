@@ -323,7 +323,7 @@ public final class MirrorAppModel {
         } catch let error as CredentialReleaseAuthorizationError {
             let code: AgentBridgeErrorCode =
                 switch error {
-                case .unavailable, .busy, .systemFailure: .authorizationUnavailable
+                case .unavailable, .systemFailure: .authorizationUnavailable
                 case .denied: .authorizationDenied
                 case .interrupted: .authorizationInterrupted
                 case .notVerified: .authorizationNotVerified
@@ -475,10 +475,6 @@ public final class MirrorAppModel {
         agentRequest: AgentBridgeRequest,
         onPromptStarted: @escaping () -> Void
     ) async throws {
-        guard pendingCredentialRelease == nil else {
-            throw CredentialReleaseAuthorizationError.busy
-        }
-
         let presentation = await approvalWindowPresenter()
         guard let window = presentation.window else {
             throw AgentBridgeFailure(

@@ -154,7 +154,6 @@ struct RetainedCredentialCommandTests {
 
     @Test("Native approval failure reaches stderr unchanged without retry", arguments: [
         "Credential approval failed (LocalAuthentication -4). Nothing was released.",
-        "Another credential request is already awaiting approval.",
         "Touch ID or Apple Watch approval is not available.",
         "Agent Keyring could not show its approval window.",
     ])

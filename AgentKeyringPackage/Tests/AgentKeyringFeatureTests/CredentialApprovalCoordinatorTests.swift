@@ -45,6 +45,50 @@ struct CredentialApprovalCoordinatorTests {
         try await second.value
     }
 
+    @Test("Different logins woken by the same unlock serialize window setup and authentication")
+    func serialApprovalsAfterUnlock() async throws {
+        let lock = FakeCredentialSessionLockState(isLocked: true)
+        let approvals = CredentialApprovalCoordinator(lockState: lock, sleep: { _ in
+            while lock.isLocked { await Task.yield() }
+        })
+        let authorizer = FakeCredentialAuthorizer()
+        var queued = 0
+        var presented: [String] = []
+        var finishFirstWindowSetup: CheckedContinuation<Void, Never>?
+        func start(_ account: String) -> Task<Void, Error> {
+            Task {
+                try await approvals.authorize(credentialID: UUID(), authorizationDeadline: Date().addingTimeInterval(600),
+                    onProgress: { _ in queued += 1 }) { onPromptStarted in
+                        presented.append(account)
+                        if account == "first" {
+                            await withCheckedContinuation { finishFirstWindowSetup = $0 }
+                        }
+                        try await authorizer.authorize(CredentialReleaseAuthorizationRequest(
+                            destination: "example.com", account: account, field: .password), onPromptStarted: onPromptStarted)
+                    }
+            }
+        }
+        let first = start("first")
+        while queued == 0 { await Task.yield() }
+        let second = start("second")
+        while queued < 2 { await Task.yield() }
+        lock.isLocked = false
+        while finishFirstWindowSetup == nil { await Task.yield() }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(presented == ["first"])
+        #expect(authorizer.requests.isEmpty)
+        finishFirstWindowSetup?.resume()
+        while authorizer.requests.isEmpty { await Task.yield() }
+        #expect(presented == ["first"])
+        authorizer.complete()
+        try await first.value
+        while authorizer.requests.count < 2 { await Task.yield() }
+        #expect(presented == ["first", "second"])
+        #expect(authorizer.requests.map(\.account) == ["first", "second"])
+        authorizer.complete()
+        try await second.value
+    }
+
     @Test("A locked Mac does not start authentication until unlock")
     func waitsForUnlock() async throws {
         let lock = FakeCredentialSessionLockState(isLocked: true)

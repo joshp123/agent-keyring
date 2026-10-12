@@ -45,7 +45,6 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
 
 public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable, Equatable {
     case unavailable
-    case busy
     case denied
     case interrupted
     case notVerified
@@ -56,8 +55,6 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
         switch self {
         case .unavailable:
             "Touch ID or Apple Watch approval is not available."
-        case .busy:
-            "Another credential request is already awaiting approval."
         case .denied:
             "Josh declined the request."
         case .interrupted:
