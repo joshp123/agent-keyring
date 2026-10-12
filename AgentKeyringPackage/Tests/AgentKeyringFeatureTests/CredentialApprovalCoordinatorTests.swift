@@ -23,23 +23,49 @@ struct CredentialApprovalCoordinatorTests {
         try await approvals.authorize(credentialID: login, authorizationDeadline: request.authorizationDeadline) { retried = true }
         #expect(retried)
     }
+    @Test("Joined requests receive the original asked time")
+    func joinedStatus() async throws {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let approvals = CredentialApprovalCoordinator(lockState: FakeCredentialSessionLockState(), now: { now })
+        let authorizer = FakeCredentialAuthorizer()
+        let login = UUID()
+        var firstStatus: [AgentApprovalProgress] = []
+        var secondStatus: [AgentApprovalProgress] = []
+        let request = CredentialReleaseAuthorizationRequest(destination: "example.com", account: "synthetic", field: .password)
+        let first = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: now.addingTimeInterval(600),
+            onProgress: { firstStatus.append($0) }) { try await authorizer.authorize(request) } }
+        while authorizer.requests.isEmpty { await Task.yield() }
+        let second = Task { try await approvals.authorize(credentialID: login, authorizationDeadline: now.addingTimeInterval(700),
+            onProgress: { secondStatus.append($0) }) { Issue.record("Duplicate prompted") } }
+        while secondStatus.isEmpty { await Task.yield() }
+        #expect(firstStatus == secondStatus)
+        #expect(secondStatus.first?.askedAt == now)
+        authorizer.complete()
+        try await first.value
+        try await second.value
+    }
+
     @Test("A locked Mac does not start authentication until unlock")
     func waitsForUnlock() async throws {
         let lock = FakeCredentialSessionLockState(isLocked: true)
         let now = Date(timeIntervalSince1970: 1_000)
         var prompts = 0
         var waits = 0
+        var progress: [AgentApprovalProgress] = []
         let approvals = CredentialApprovalCoordinator(lockState: lock, now: { now }, sleep: { _ in
             #expect(prompts == 0)
             waits += 1
             lock.isLocked = false
         })
-        try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600)) {
+        try await approvals.authorize(credentialID: UUID(), authorizationDeadline: now.addingTimeInterval(600),
+            onProgress: { progress.append($0) }) {
             #expect(!lock.isLocked)
             prompts += 1
         }
         #expect(waits == 1)
         #expect(prompts == 1)
+        #expect(progress.map(\.phase) == [.waitingForUnlock, .awaitingApproval])
+        #expect(progress.allSatisfy { $0.askedAt == now })
     }
 
     @Test("An unanswered locked request expires without starting authentication")

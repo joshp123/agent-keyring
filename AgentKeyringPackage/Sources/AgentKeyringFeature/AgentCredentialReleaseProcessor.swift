@@ -25,6 +25,7 @@ public struct AgentCredentialReleaseProcessor {
     public func release(
         request: AgentBridgeRequest,
         generation: MirrorGeneration,
+        onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
         authorize: @escaping (CredentialReleaseAuthorizationRequest) async throws -> Void,
         copyNative: (String, TimeInterval) -> Void
     ) async throws -> AgentBridgeResponse {
@@ -97,7 +98,8 @@ public struct AgentCredentialReleaseProcessor {
                 expirationSeconds: request.action == .copy ? min(120, max(5, request.expirationSeconds)) : nil,
                 authorizationDeadline: request.expiresAt
             )
-            try await approvals.authorize(credentialID: selected.id, authorizationDeadline: request.expiresAt) {
+            try await approvals.authorize(credentialID: selected.id, authorizationDeadline: request.expiresAt,
+                onProgress: onProgress) {
                 try await authorize(approval)
             }
         }

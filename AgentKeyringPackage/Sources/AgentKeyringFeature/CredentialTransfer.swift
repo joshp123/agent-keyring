@@ -138,29 +138,52 @@ public enum CredentialTransfer {
 public struct AgentBridgeClient: Sendable {
     public let bridge: AgentBridgeDirectory
 
-    public init(bridge: AgentBridgeDirectory = AgentBridgeDirectory()) {
+    private let now: @MainActor @Sendable () -> Date
+    private let sleep: @MainActor @Sendable (Duration) async throws -> Void
+
+    public init(
+        bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
+        now: @escaping @MainActor @Sendable () -> Date = Date.init,
+        sleep: @escaping @MainActor @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) {
         self.bridge = bridge
+        self.now = now
+        self.sleep = sleep
     }
 
+    @MainActor
     public func send(
         _ request: AgentBridgeRequest,
+        onStatus: (AgentBridgeWaitStatus) -> Void = { _ in },
         launch: @Sendable (UUID) throws -> Void
     ) async throws -> AgentBridgeResponse {
         bridge.removeResponse(id: request.id)
+        bridge.removeProgress(id: request.id)
         try bridge.write(request)
         try launch(request.id)
         let deadline = request.expiresAt
-        while Date() < deadline {
+        var lastProgress: AgentApprovalProgress?
+        var lastWaitingLineAt = now()
+        while now() < deadline {
+            if let progress = try? bridge.readProgress(id: request.id), progress != lastProgress {
+                lastProgress = progress
+                onStatus(.progress(progress))
+            }
             if bridge.responseExists(id: request.id) {
                 let response = try bridge.readResponse(id: request.id)
                 guard response.id == request.id, response.version == request.version else {
                     throw AgentBridgeFailure(.invalidRequest, "The app returned an invalid receipt.")
                 }
                 bridge.removeResponse(id: request.id)
+                bridge.removeProgress(id: request.id)
                 return response
             }
+            if let lastProgress, now().timeIntervalSince(lastWaitingLineAt) >= 30 {
+                onStatus(.stillWaiting(askedAt: lastProgress.askedAt))
+                lastWaitingLineAt = now()
+            }
             try Task.checkCancellation()
-            try await Task.sleep(for: .milliseconds(50))
+            try await sleep(.milliseconds(50))
         }
         throw AgentBridgeFailure(.requestExpired, "The request expired with no answer.")
     }

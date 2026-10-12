@@ -2,7 +2,12 @@ import Foundation
 
 @MainActor
 public final class CredentialApprovalCoordinator {
-    private var pending: [UUID: Task<Void, Error>] = [:]
+    private struct PendingApproval {
+        let task: Task<Void, Error>
+        var progress: AgentApprovalProgress
+        var observers: [(AgentApprovalProgress) -> Void]
+    }
+    private var pending: [UUID: PendingApproval] = [:]
 
     private let lockState: any CredentialSessionLockState
     private let now: () -> Date
@@ -21,12 +26,17 @@ public final class CredentialApprovalCoordinator {
     public func authorize(
         credentialID: UUID,
         authorizationDeadline: Date,
+        onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
         prompt: @escaping @MainActor () async throws -> Void
     ) async throws {
         if let approval = pending[credentialID] {
-            try await approval.value
+            pending[credentialID]?.observers.append(onProgress)
+            onProgress(approval.progress)
+            try await approval.task.value
             return
         }
+        let progress = AgentApprovalProgress(askedAt: now(),
+            phase: lockState.isLocked ? .waitingForUnlock : .awaitingApproval)
         let approval = Task { @MainActor in
             while self.lockState.isLocked {
                 guard self.now() < authorizationDeadline else {
@@ -37,10 +47,19 @@ public final class CredentialApprovalCoordinator {
             guard self.now() < authorizationDeadline else {
                 throw CredentialReleaseAuthorizationError.expired
             }
+            self.updateProgress(credentialID: credentialID, phase: .awaitingApproval)
             try await prompt()
         }
-        pending[credentialID] = approval
+        pending[credentialID] = PendingApproval(task: approval, progress: progress, observers: [onProgress])
+        onProgress(progress)
         defer { pending.removeValue(forKey: credentialID) }
         try await approval.value
+    }
+
+    private func updateProgress(credentialID: UUID, phase: AgentApprovalPhase) {
+        guard var approval = pending[credentialID], approval.progress.phase != phase else { return }
+        approval.progress = AgentApprovalProgress(askedAt: approval.progress.askedAt, phase: phase)
+        pending[credentialID] = approval
+        for observer in approval.observers { observer(approval.progress) }
     }
 }

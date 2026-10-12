@@ -56,7 +56,7 @@ enum AgentBrowserPluginProtocol {
     static func run(
         input: FileHandle = .standardInput,
         output: FileHandle = .standardOutput,
-        sendRequest: (AgentBridgeRequest) async throws -> AgentBridgeResponse = CLIClient.send
+        sendRequest: (AgentBridgeRequest) async throws -> AgentBridgeResponse = { try await CLIClient.send($0) }
     ) async {
         let response: Response
         do {

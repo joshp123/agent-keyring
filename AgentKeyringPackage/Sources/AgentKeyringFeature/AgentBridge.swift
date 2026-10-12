@@ -78,6 +78,26 @@ public struct AgentMirrorSummary: Codable, Equatable, Sendable {
     }
 }
 
+public enum AgentApprovalPhase: String, Codable, Sendable {
+    case waitingForUnlock
+    case awaitingApproval
+}
+
+public struct AgentApprovalProgress: Codable, Equatable, Sendable {
+    public let askedAt: Date
+    public let phase: AgentApprovalPhase
+
+    public init(askedAt: Date, phase: AgentApprovalPhase) {
+        self.askedAt = askedAt
+        self.phase = phase
+    }
+}
+
+public enum AgentBridgeWaitStatus: Sendable {
+    case progress(AgentApprovalProgress)
+    case stillWaiting(askedAt: Date)
+}
+
 public struct AgentBridgeResponse: Codable, Equatable, Sendable {
     public let version: Int
     public let id: UUID
@@ -199,6 +219,21 @@ public struct AgentBridgeDirectory: Sendable {
         return try decoder.decode(AgentBridgeResponse.self, from: Data(contentsOf: url))
     }
 
+    public func write(_ progress: AgentApprovalProgress, id: UUID) throws {
+        try prepare()
+        try secureWrite(try encoder.encode(progress), to: progressURL(for: id))
+    }
+
+    public func readProgress(id: UUID) throws -> AgentApprovalProgress {
+        let url = progressURL(for: id)
+        try validateOwnedRegularFile(url)
+        return try decoder.decode(AgentApprovalProgress.self, from: Data(contentsOf: url))
+    }
+
+    public func removeProgress(id: UUID) {
+        try? FileManager.default.removeItem(at: progressURL(for: id))
+    }
+
     public func removeResponse(id: UUID) {
         try? FileManager.default.removeItem(at: responseURL(for: id))
     }
@@ -237,6 +272,10 @@ public struct AgentBridgeDirectory: Sendable {
 
     private func requestURL(for id: UUID) -> URL {
         rootURL.appendingPathComponent("\(id.uuidString).request.json", isDirectory: false)
+    }
+
+    private func progressURL(for id: UUID) -> URL {
+        rootURL.appendingPathComponent("\(id.uuidString).progress.json", isDirectory: false)
     }
 
     private func responseURL(for id: UUID) -> URL {

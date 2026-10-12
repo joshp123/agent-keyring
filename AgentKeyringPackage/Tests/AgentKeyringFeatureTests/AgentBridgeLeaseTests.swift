@@ -54,4 +54,39 @@ struct AgentBridgeLeaseTests {
         await #expect(throws: CancellationError.self) { try await task.value }
         #expect(bridge.requestMatches(request))
     }
+    @Test("The client reports waiting every thirty seconds without duplicating app status")
+    @MainActor
+    func waitingCadence() async throws {
+        let bridge = AgentBridgeDirectory(rootURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString))
+        defer { try? FileManager.default.removeItem(at: bridge.rootURL) }
+        let request = AgentBridgeRequest(action: .acquire)
+        let clock = BridgeWaitClock(now: request.createdAt)
+        var heartbeats: [Date] = []
+        var statuses = 0
+        let client = AgentBridgeClient(bridge: bridge, now: { clock.now }, sleep: { _ in
+            clock.now = clock.now.addingTimeInterval(15)
+            if clock.now.timeIntervalSince(request.createdAt) == 75 {
+                try bridge.write(AgentBridgeResponse(id: request.id, ok: true))
+            }
+        })
+        let response = try await client.send(request, onStatus: { status in
+            switch status {
+            case .progress: statuses += 1
+            case .stillWaiting: heartbeats.append(clock.now)
+            }
+        }, launch: { id in
+            try bridge.write(AgentApprovalProgress(askedAt: request.createdAt, phase: .awaitingApproval), id: id)
+        })
+        #expect(response.ok)
+        #expect(statuses == 1)
+        #expect(heartbeats == [request.createdAt.addingTimeInterval(30), request.createdAt.addingTimeInterval(60)])
+    }
+
+}
+
+@MainActor
+private final class BridgeWaitClock {
+    var now: Date
+    init(now: Date) { self.now = now }
 }

@@ -253,7 +253,7 @@ enum CLIClient {
         _ command: CLICommand,
         output: FileHandle = .standardOutput,
         diagnostics: FileHandle = .standardError,
-        sendRequest: (AgentBridgeRequest) async throws -> AgentBridgeResponse = send
+        sendRequest: ((AgentBridgeRequest) async throws -> AgentBridgeResponse)? = nil
     ) async throws {
         var failedFindMirror: AgentMirrorSummary?
         do {
@@ -264,7 +264,9 @@ enum CLIClient {
                 )
             }
             let request = command.request
-            let response = try await sendRequest(request)
+            let response: AgentBridgeResponse
+            if let sendRequest { response = try await sendRequest(request) }
+            else { response = try await send(request, diagnostics: diagnostics) }
             guard response.ok else {
                 if case .find = command { failedFindMirror = response.mirror }
                 throw CLIError(response: response, command: command)
@@ -384,23 +386,65 @@ enum CLIClient {
         )
     }
 
-    static func send(_ request: AgentBridgeRequest) async throws -> AgentBridgeResponse {
-        try await AgentBridgeClient().send(request) { requestID in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = [
-                "-g", "-b", AgentBridgeDirectory.applicationBundleIdentifier,
-                "agentkeyring://agent/\(requestID.uuidString)",
-            ]
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring could not be opened.")
-            }
+    @MainActor
+    static func send(
+        _ request: AgentBridgeRequest,
+        diagnostics: FileHandle? = nil,
+        client: AgentBridgeClient = AgentBridgeClient(),
+        launch: @Sendable (UUID) throws -> Void = launchApp
+    ) async throws -> AgentBridgeResponse {
+        let statusLines = CLIApprovalStatusLines(diagnostics: diagnostics)
+        return try await client.send(request, onStatus: statusLines.receive, launch: launch)
+    }
+
+    private static func launchApp(_ requestID: UUID) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = [
+            "-g", "-b", AgentBridgeDirectory.applicationBundleIdentifier,
+            "agentkeyring://agent/\(requestID.uuidString)",
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring could not be opened.")
         }
     }
+}
+
+@MainActor
+private final class CLIApprovalStatusLines {
+    private let diagnostics: FileHandle?
+    private var askedAt: Date?
+    private var phase: AgentApprovalPhase?
+
+    init(diagnostics: FileHandle?) { self.diagnostics = diagnostics }
+
+    func receive(_ status: AgentBridgeWaitStatus) {
+        guard let diagnostics else { return }
+        switch status {
+        case let .progress(progress):
+            if askedAt != progress.askedAt {
+                askedAt = progress.askedAt
+                write("Asked Josh on his Mac at \(approvalTime(progress.askedAt)).\n", to: diagnostics)
+            }
+            if phase != progress.phase, progress.phase == .waitingForUnlock {
+                write("Josh's Mac is locked; waiting for him to unlock it.\n", to: diagnostics)
+            }
+            phase = progress.phase
+        case let .stillWaiting(askedAt):
+            write("Still waiting for Josh (asked at \(approvalTime(askedAt))).\n", to: diagnostics)
+        }
+    }
+}
+
+func approvalTime(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "HH:mm"
+    return formatter.string(from: date)
 }
 
 struct IntegrationLink {

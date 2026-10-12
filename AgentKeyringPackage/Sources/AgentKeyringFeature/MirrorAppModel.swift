@@ -396,6 +396,10 @@ public final class MirrorAppModel {
         ).release(
             request: request,
             generation: generation,
+            onProgress: { progress in
+                do { try self.bridge.write(progress, id: request.id) }
+                catch { agentBridgeLogger.error("Could not write approval status") }
+            },
             authorize: { approval in
                 try await self.authorizeCredentialRelease(approval, agentRequest: request)
             },
