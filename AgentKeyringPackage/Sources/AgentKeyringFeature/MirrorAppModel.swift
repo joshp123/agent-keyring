@@ -97,7 +97,7 @@ public final class MirrorAppModel {
     public func loadStatus() async {
         defer { isLoading = false }
         do {
-            let generation = generationIncludingExample(try await store.loadCurrent())
+            let generation = generationIncludingExample(try await store.loadCurrent(metadataOnly: true))
             status = generation?.safeStatus
             if let generation {
                 await accessControl.refresh(from: generation)
@@ -271,7 +271,7 @@ public final class MirrorAppModel {
         }
     }
 
-    private func handleAgentRequest(id: UUID) async {
+    func handleAgentRequest(id: UUID) async {
         defer { bridge.removeRequest(id: id) }
         let response: AgentBridgeResponse
         var caller: AgentBridgeRequest?
@@ -286,7 +286,8 @@ public final class MirrorAppModel {
                 throw AgentBridgeFailure(
                     .requestExpired, "The agent request expired before it was handled.")
             }
-            guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
+            let metadataOnly = request.action == .status || request.action == .resolve
+            guard let generation = generationIncludingExample(try await store.loadCurrent(metadataOnly: metadataOnly)) else {
                 throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
             }
             response = try await process(request: request, generation: generation)

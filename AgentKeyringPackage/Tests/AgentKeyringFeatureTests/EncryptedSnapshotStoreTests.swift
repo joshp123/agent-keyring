@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Encrypted snapshot storage")
 struct EncryptedSnapshotStoreTests {
-    @Test("Generations round-trip and remain immutable")
+    @Test("A successful save prunes previous encrypted generations")
     func immutableGenerations() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -19,7 +19,9 @@ struct EncryptedSnapshotStoreTests {
         try await store.save(second)
 
         #expect(try await store.loadCurrent() == second)
-        #expect(try await store.load(generationID: first.id) == first)
+        let oldURL = await store.generationFileURL(for: first.id)
+        #expect(!FileManager.default.fileExists(atPath: oldURL.path))
+        #expect(try await store.loadCurrent(metadataOnly: true) == second.metadataOnly)
     }
 
     @Test("The encrypted file and safe status do not expose credential canaries")
@@ -47,6 +49,22 @@ struct EncryptedSnapshotStoreTests {
         #expect(!statusText.contains("CANARY-PASSWORD-4791"))
         #expect(!statusText.contains("canary.example"))
         #expect(!statusText.contains("canary-user"))
+    }
+
+    @Test("Discovery loads metadata with the secret payload unavailable")
+    func metadataDoesNotReadSecrets() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = EncryptedSnapshotStore(directoryURL: directory,
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x2A, count: 32)))
+        let snapshot = generation(password: "SECRET-CANARY")
+        try await store.save(snapshot)
+        let payloadURL = await store.generationFileURL(for: snapshot.id)
+        try Data("unreadable secret payload".utf8).write(to: payloadURL)
+        let metadata = try #require(try await store.loadCurrent(metadataOnly: true))
+        #expect(metadata.safeStatus == snapshot.safeStatus)
+        #expect(try CredentialResolver().candidates(in: metadata, targetURL: "https://canary.example").first?.username == "canary-user")
+        #expect(!String(decoding: try JSONEncoder().encode(metadata), as: UTF8.self).contains("SECRET-CANARY"))
     }
 
     private func temporaryDirectory() -> URL {

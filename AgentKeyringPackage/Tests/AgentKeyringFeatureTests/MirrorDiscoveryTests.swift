@@ -1,0 +1,52 @@
+import Foundation
+import Testing
+@testable import AgentKeyringFeature
+
+@MainActor
+@Suite("Mirror discovery")
+struct MirrorDiscoveryTests {
+    @Test("App status and find work when the secret snapshot cannot be decrypted")
+    func discoveryUsesOnlyMetadata() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = EncryptedSnapshotStore(directoryURL: directory.appendingPathComponent("vault"),
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32)))
+        let item = MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(
+            exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
+            title: "Test login", origins: ["https://example.com"], credentials: [
+                .password(userName: "synthetic-account", password: "SECRET-CANARY"),
+                .totp(secret: Data("CODE-CANARY".utf8), period: 30, digits: 6,
+                    userName: "synthetic-account", algorithm: .sha1, issuer: nil)])
+        let generation = MirrorGeneration(id: UUID(), previousGenerationID: nil,
+            createdAt: Date().addingTimeInterval(-8 * 86_400), sourceExportedAt: Date(),
+            scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture",
+            items: [item], delta: MirrorDelta(), skippedCredentialCount: 0)
+        try await store.save(generation)
+        let payload = await store.generationFileURL(for: generation.id)
+        try Data("corrupt secret payload".utf8).write(to: payload)
+        let bridge = AgentBridgeDirectory(rootURL: directory.appendingPathComponent("bridge"))
+        let model = MirrorAppModel(store: store, bridge: bridge,
+            accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
+                fileURL: directory.appendingPathComponent("policies.json"))),
+            includeExampleCredential: false)
+        await model.loadStatus()
+        #expect(model.status == generation.safeStatus)
+        #expect(model.notice == nil)
+        for action in [AgentBridgeAction.status, .resolve] {
+            let request = AgentBridgeRequest(action: action, targetURL: "https://example.com")
+            try bridge.write(request)
+            await model.handleAgentRequest(id: request.id)
+            let response = try bridge.readResponse(id: request.id)
+            #expect(response.ok)
+            #expect(response.mirror?.credentialCount == 1)
+            #expect(response.mirror?.ageSeconds ?? 0 >= 8 * 86_400)
+            if action == .resolve {
+                #expect(response.candidates?.first?.username == "synthetic-account")
+                #expect(response.candidates?.first?.availableFields == [.username, .password, .totp])
+            }
+            let output = String(decoding: try JSONEncoder().encode(response), as: UTF8.self)
+            #expect(!output.contains("SECRET-CANARY"))
+            #expect(!output.contains("CODE-CANARY"))
+        }
+    }
+}

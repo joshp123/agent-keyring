@@ -211,6 +211,28 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
         self.skippedCredentialSummary = skippedCredentialSummary
     }
 
+    var metadataOnly: MirrorGeneration {
+        let metadataItems = items.map { item in
+            MirrorItem(id: item.id, sourceIdentity: item.sourceIdentity,
+                createdAt: item.createdAt, lastModifiedAt: item.lastModifiedAt,
+                title: item.title, subtitle: item.subtitle, isFavorite: item.isFavorite,
+                origins: item.origins, credentials: item.credentials.map { credential in
+                    switch credential {
+                    case let .password(userName, _):
+                        .password(userName: userName, password: "")
+                    case let .totp(_, period, digits, userName, algorithm, issuer):
+                        .totp(secret: Data(), period: period, digits: digits,
+                            userName: userName, algorithm: algorithm, issuer: issuer)
+                    }
+                })
+        }
+        return MirrorGeneration(id: id, previousGenerationID: previousGenerationID,
+            createdAt: createdAt, sourceExportedAt: sourceExportedAt, scope: scope,
+            exporterIdentifier: exporterIdentifier, exporterDisplayName: exporterDisplayName,
+            items: metadataItems, delta: delta, skippedCredentialCount: skippedCredentialCount,
+            skippedCredentialSummary: skippedCredentialSummary)
+    }
+
     public var safeStatus: SafeMirrorStatus {
         SafeMirrorStatus(
             generationID: id,

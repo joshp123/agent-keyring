@@ -117,7 +117,7 @@ public actor EncryptedSnapshotStore {
             .appendingPathComponent("vault", isDirectory: true)
     }
 
-    public func loadCurrent() throws -> MirrorGeneration? {
+    public func loadCurrent(metadataOnly: Bool = false) throws -> MirrorGeneration? {
         try prepareDirectory()
         let pointerURL = directoryURL.appendingPathComponent("current", isDirectory: false)
         guard fileManager.fileExists(atPath: pointerURL.path) else { return nil }
@@ -131,12 +131,12 @@ public actor EncryptedSnapshotStore {
         else {
             throw MirrorError.invalidCurrentPointer
         }
-        return try load(generationID: generationID)
+        return try load(generationID: generationID, metadataOnly: metadataOnly)
     }
 
-    public func load(generationID: UUID) throws -> MirrorGeneration {
+    public func load(generationID: UUID, metadataOnly: Bool = false) throws -> MirrorGeneration {
         try prepareDirectory()
-        let encryptedURL = generationURL(for: generationID)
+        let encryptedURL = generationURL(for: generationID, metadataOnly: metadataOnly)
         guard fileManager.fileExists(atPath: encryptedURL.path) else {
             throw MirrorError.missingEncryptedPayload
         }
@@ -162,23 +162,33 @@ public actor EncryptedSnapshotStore {
         }
 
         let encryptedURL = generationURL(for: generation.id)
-        guard !fileManager.fileExists(atPath: encryptedURL.path) else {
-            return
+        if !fileManager.fileExists(atPath: encryptedURL.path) {
+            try combined.write(to: encryptedURL, options: [.atomic])
         }
-        try combined.write(to: encryptedURL, options: [.atomic])
+        let metadata = try encoder.encode(generation.metadataOnly)
+        let metadataBox = try AES.GCM.seal(metadata, using: keyProvider.loadOrCreateKey())
+        guard let metadataBytes = metadataBox.combined else { throw MirrorError.missingEncryptedPayload }
+        try metadataBytes.write(to: generationURL(for: generation.id, metadataOnly: true), options: [.atomic])
 
         let pointerURL = directoryURL.appendingPathComponent("current", isDirectory: false)
         try Data(generation.id.uuidString.utf8).write(to: pointerURL, options: [.atomic])
+        let generationsURL = directoryURL.appendingPathComponent("generations", isDirectory: true)
+        for fileURL in try fileManager.contentsOfDirectory(at: generationsURL, includingPropertiesForKeys: nil) {
+            guard ["mirror", "metadata"].contains(fileURL.pathExtension),
+                let storedID = UUID(uuidString: fileURL.deletingPathExtension().lastPathComponent),
+                storedID != generation.id else { continue }
+            try fileManager.removeItem(at: fileURL)
+        }
     }
 
     public func generationFileURL(for generationID: UUID) -> URL {
         generationURL(for: generationID)
     }
 
-    private func generationURL(for generationID: UUID) -> URL {
+    private func generationURL(for generationID: UUID, metadataOnly: Bool = false) -> URL {
         directoryURL
             .appendingPathComponent("generations", isDirectory: true)
-            .appendingPathComponent("\(generationID.uuidString).mirror", isDirectory: false)
+            .appendingPathComponent("\(generationID.uuidString).\(metadataOnly ? "metadata" : "mirror")", isDirectory: false)
     }
 
     private func prepareDirectory() throws {
