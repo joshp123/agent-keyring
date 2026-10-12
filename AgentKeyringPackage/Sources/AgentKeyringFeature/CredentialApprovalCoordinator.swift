@@ -113,6 +113,7 @@ public final class CredentialApprovalCoordinator {
         } else { phone = nil }
         if phone == nil || !lockState.isLocked { macPromptQueue.append(request.id) }
         let (events, continuation) = AsyncStream<RoutingEvent>.makeStream()
+        var macUnavailable = false
         var macAttempt: UUID?
         var macTask: Task<Void, Never>?
         var phoneTask: Task<Void, Never>?
@@ -231,7 +232,7 @@ public final class CredentialApprovalCoordinator {
                 }
                 try await startPhone()
             } else {
-                if macAttempt == nil { startMac() }
+                if macAttempt == nil && !macUnavailable { startMac() }
                 if phoneScheduledAt.map({ self.now() >= $0 }) == true { try await startPhone() }
             }
             refreshTicker()
@@ -247,10 +248,18 @@ public final class CredentialApprovalCoordinator {
             case .tick: break
             case let .mac(result, attempt):
                 guard macAttempt == attempt else { continue }
-                try result.get()
+                do { try result.get() }
+                catch CredentialReleaseAuthorizationError.unavailable where phone != nil {
+                    macUnavailable = true
+                    stopMac()
+                    try await startPhone()
+                    refreshTicker()
+                    continue
+                }
                 if phone != nil || phoneAsked { recordApproval(scope: scope, provider: .mac) }
                 return
             case let .phoneFailed(failure):
+                if macUnavailable { throw CredentialReleaseAuthorizationError.unavailable }
                 phone?.cancel(requestID: request.id)
                 phone = nil
                 phoneScheduledAt = nil

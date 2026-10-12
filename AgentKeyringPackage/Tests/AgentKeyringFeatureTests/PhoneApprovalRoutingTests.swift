@@ -21,6 +21,26 @@ struct PhoneApprovalRoutingTests {
         #expect(fixture.phone.cancelledRequestIDs == [fixture.request.id])
     }
 
+    @Test("Unavailable Mac authentication asks a paired phone immediately", arguments: [true, false])
+    func noMacAuthentication(paired: Bool) async throws {
+        let fixture = try PhoneRoutingFixture(paired: paired)
+        let task = fixture.start()
+        try await routingEventually { fixture.mac.requests.count == 1 }
+        fixture.mac.complete(error: .unavailable)
+        if paired {
+            try await routingEventually { fixture.phone.requests.count == 1 }
+            #expect(fixture.clock.now == fixture.request.createdAt)
+            #expect(fixture.progress.last?.provider == .iPhone)
+            fixture.phone.answer(try fixture.decision(.approve))
+            try await task.value
+            #expect(fixture.progress.last?.approvedOn == .iPhone)
+            #expect(fixture.mac.requests.count == 1)
+        } else {
+            await #expect(throws: CredentialReleaseAuthorizationError.unavailable) { try await task.value }
+            #expect(fixture.phone.requests.isEmpty)
+        }
+    }
+
     @Test("An unlocked Mac escalates at the configured delay", arguments: [120, 75, 180])
     func escalation(delay: Int) async throws {
         let fixture = try PhoneRoutingFixture(delay: delay)
