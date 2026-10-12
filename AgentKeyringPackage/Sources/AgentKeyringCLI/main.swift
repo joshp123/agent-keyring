@@ -17,7 +17,7 @@ struct AgentKeyringCLI: AsyncParsableCommand {
               agent-keyring clear REFERENCE
             """,
         version: installedVersion(),
-        subcommands: [Find.self, Acquire.self, Read.self, Clear.self, Copy.self, Status.self, Install.self]
+        subcommands: [Find.self, Acquire.self, Read.self, Clear.self, Copy.self, Status.self, Install.self, AgentBrowserPlugin.self]
     )
 
     mutating func run() {
