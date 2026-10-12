@@ -30,6 +30,7 @@ public enum AgentBridgeErrorCode: String, Codable, Sendable {
 }
 
 public struct AgentBridgeRequest: Codable, Equatable, Sendable {
+    public static let lifetimeSeconds: TimeInterval = 10 * 60
     public let version: Int
     public let id: UUID
     public let createdAt: Date
@@ -41,7 +42,7 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
     public let field: AgentCredentialField?
     public let expirationSeconds: Int
 
-    public var expiresAt: Date { createdAt.addingTimeInterval(10 * 60) }
+    public var expiresAt: Date { createdAt.addingTimeInterval(Self.lifetimeSeconds) }
 
     public init(
         version: Int = 1,

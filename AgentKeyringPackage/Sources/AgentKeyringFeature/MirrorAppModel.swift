@@ -291,8 +291,8 @@ public final class MirrorAppModel {
             guard request.version == 1, request.id == id else {
                 throw AgentBridgeFailure(.invalidRequest, "The agent request is invalid.")
             }
-            let age = Date().timeIntervalSince(request.createdAt)
-            guard age >= -5, age < 10 * 60 else {
+            let receivedAt = Date()
+            guard request.createdAt.timeIntervalSince(receivedAt) <= 5, request.expiresAt > receivedAt else {
                 throw AgentBridgeFailure(
                     .requestExpired, "The agent request expired before it was handled.")
             }
