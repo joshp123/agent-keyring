@@ -39,10 +39,17 @@ mutable content enabled and content-available disabled. No silent pushes.
 The desired keys are `agentDisplayLabel`, `expiresAt`, `notificationCategory`.
 
 CloudKit notification configuration has no time-sensitive interruption-level
-property. The out-of-scope iPhone notification service extension must fetch
-the record from its push ID, reject expired requests, read `notificationBody`
-through `encryptedValues`, and set `UNMutableNotificationContent.interruptionLevel`
-to `.timeSensitive`. The phone app registers category `AGENT_KEYRING_APPROVAL` with
+property. The iPhone notification service extension fetches the full record from its
+push ID and rejects malformed or expired requests. It decodes site and account
+through `encryptedValues`, builds the title, body and subtitle from the same
+`ApprovalSignedFields` used for signing, and sets
+`UNMutableNotificationContent.interruptionLevel` to `.timeSensitive`.
+The title is `<agent> wants your <field>`, the body is `<site> · <account>`,
+and the subtitle is `fill` or `acquire`. Stored notification templates are not
+used for display or signing. Fetch failure or extension timeout returns
+`An agent is asking for a login. Open to review.` with no request details.
+The action handler resolves the same push record ID and independently re-fetches
+the record before signing; it never signs notification text. The phone app registers category `AGENT_KEYRING_APPROVAL` with
 `APPROVE`, `DENY` and `BLOCK_THIS_LOGIN` actions requiring device authentication. This gives the
 full agent/site/account alert without copying private fields into plaintext
 push fields. Without that extension, the visible generic alert remains.
@@ -53,8 +60,8 @@ Apple references: [encrypted fields](https://developer.apple.com/documentation/c
 ## Deployment limits
 
 The Mac app target has the CloudKit container and service entitlements; the
-credential-provider extension does not. Unsigned compilation does not prove
-CloudKit access. Configure the container and signed profiles, deploy the
+credential-provider extension does not. The notification service extension has only the app's iCloud container and
+CloudKit service entitlements. Unsigned compilation does not prove CloudKit access. Configure the container and signed profiles, deploy the
 encrypted schema to production, and validate delivery on Josh's devices later.
 Encrypted fields must be encrypted from their first creation in the schema.
 
