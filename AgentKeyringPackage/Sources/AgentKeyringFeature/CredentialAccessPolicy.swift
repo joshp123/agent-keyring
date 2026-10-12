@@ -67,7 +67,6 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     public var signatureURL: URL { fileURL.appendingPathExtension("signature") }
     private let fileManager: FileManager
     private let signer: any AccessRulesSigning
-    private var isSigning = false
 
     private enum PairedDeviceChange {
         case add(PairedApprovalDevice)
@@ -220,10 +219,6 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
 
     private func persist(policies: [UUID: CredentialAccessPolicy]? = nil, confirming: Bool = false,
         deviceChange: PairedDeviceChange? = nil, reason: String) async throws {
-        // Touch ID suspends the actor. A second writer must not sign a stale pairing list.
-        guard !isSigning else { throw PairedDeviceStoreError.changeInProgress }
-        isSigning = true
-        defer { isSigning = false }
         let contents: FileContents?
         do { contents = try loadVerifiedContents() }
         catch {

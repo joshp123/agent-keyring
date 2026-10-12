@@ -4,7 +4,6 @@ import Foundation
 public enum PairedDeviceStoreError: Error, Sendable {
     case alreadyPaired
     case notPaired
-    case changeInProgress
 }
 
 public struct PairedApprovalDevice: Codable, Equatable, Sendable {
