@@ -72,7 +72,6 @@ public final class MirrorAppModel {
         authorizer: any CredentialReleaseAuthorizing = LocalCredentialReleaseAuthorizer(),
         bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
         accessControl: CredentialAccessController = CredentialAccessController(),
-        includeExampleCredential: Bool? = nil,
         settings: UserDefaults = .standard,
         approvalWindowPresenter: ApprovalWindowPresenter? = nil
     ) {
@@ -85,8 +84,7 @@ public final class MirrorAppModel {
         self.bridge = bridge
         self.accessControl = accessControl
         self.settings = settings
-        self.includeExampleCredential = includeExampleCredential
-            ?? (settings.object(forKey: "includeExampleCredential") as? Bool ?? true)
+        self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
         self.pasteboard = ExpiringPasteboard()
         self.approvalWindowPresenter =
             approvalWindowPresenter

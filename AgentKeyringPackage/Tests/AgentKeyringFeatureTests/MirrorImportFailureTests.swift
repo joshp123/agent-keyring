@@ -18,9 +18,14 @@ struct MirrorImportFailureTests {
         )
         let original = generation()
         try await store.save(original)
+        let settingsName = "MirrorImportFailureTests-\(UUID().uuidString)"
+        let settings = try #require(UserDefaults(suiteName: settingsName))
+        defer { settings.removePersistentDomain(forName: settingsName) }
+        settings.set(false, forKey: "includeExampleCredential")
         let model = MirrorAppModel(
             store: store,
-            credentialImporter: RejectedTokenImporter()
+            credentialImporter: RejectedTokenImporter(),
+            settings: settings
         )
 
         await model.loadStatus()

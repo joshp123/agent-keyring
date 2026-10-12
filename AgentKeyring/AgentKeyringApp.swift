@@ -49,6 +49,8 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                     fileURL: fixtureDirectory.appendingPathComponent("access-policies.json")
                 )
             )
+            let settings = UserDefaults(suiteName: "AgentKeyringUITest")!
+            settings.set(false, forKey: "includeExampleCredential")
             self.accessControlFixture = AccessControlUITestFixture.generation()
             self.model = MirrorAppModel(
                 store: EncryptedSnapshotStore(
@@ -56,6 +58,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                     keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x45, count: 32))
                 ),
                 accessControl: accessControl,
+                settings: settings,
                 approvalWindowPresenter: {
                     await presentation.presentApprovalWindow()
                 }

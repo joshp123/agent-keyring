@@ -38,10 +38,14 @@ struct MirrorDiscoveryTests {
             try Data("corrupt secret payload".utf8).write(to: payload)
         }
         let bridge = AgentBridgeDirectory(rootURL: directory.appendingPathComponent("bridge"))
+        let settingsName = "MirrorDiscoveryTests-\(UUID().uuidString)"
+        let settings = try #require(UserDefaults(suiteName: settingsName))
+        defer { settings.removePersistentDomain(forName: settingsName) }
+        settings.set(false, forKey: "includeExampleCredential")
         let model = MirrorAppModel(store: store, bridge: bridge,
             accessControl: CredentialAccessController(store: CredentialAccessPolicyStore(
                 fileURL: directory.appendingPathComponent("policies.json"))),
-            includeExampleCredential: false)
+            settings: settings)
         await model.loadStatus()
         #expect(model.status == generation.safeStatus)
         #expect(model.notice == nil)
