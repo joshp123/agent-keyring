@@ -87,9 +87,6 @@ public struct AgentCredentialReleaseProcessor {
             throw CredentialResolverError.fieldUnavailable
         }
 
-        if accessControl.hasPendingPhoneBlock(for: selected.id) {
-            throw CredentialReleaseAuthorizationError.denied
-        }
         let releaseDecision = accessControl.releaseDecision(
             for: selected.id,
             field: field
