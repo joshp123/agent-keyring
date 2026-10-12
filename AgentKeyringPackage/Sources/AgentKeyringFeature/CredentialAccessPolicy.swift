@@ -153,7 +153,11 @@ public final class CredentialAccessController {
     }
 
     public func refresh(from generation: MirrorGeneration?) async {
-        guard let generation else {
+        await refresh(fromMetadata: generation?.metadata)
+    }
+
+    public func refresh(fromMetadata metadata: MirrorMetadata?) async {
+        guard let metadata else {
             currentGenerationID = nil
             rows = []
             recomputeVisibleRows()
@@ -170,16 +174,16 @@ public final class CredentialAccessController {
             }
         }
 
-        guard currentGenerationID != generation.id
-            || Set(rows.map(\.id)) != Set(generation.items.map(\.id)) else { return }
-        currentGenerationID = generation.id
-        let currentIDs = Set(generation.items.map(\.id))
+        guard currentGenerationID != metadata.id
+            || Set(rows.map(\.id)) != Set(metadata.candidates.map(\.id)) else { return }
+        currentGenerationID = metadata.id
+        let currentIDs = Set(metadata.candidates.map(\.id))
         policies = policies.filter { currentIDs.contains($0.key) }
-        rows = generation.items.map { item in
+        rows = metadata.candidates.map { item in
             AccessCredentialRow(
                 id: item.id,
                 title: item.title,
-                account: Self.accountLabel(for: item),
+                account: item.username ?? "No account name",
                 website: Self.websiteLabel(for: item),
                 policy: policies[item.id, default: .ask]
             )
@@ -268,17 +272,7 @@ public final class CredentialAccessController {
         visibleRows.sort(using: sortOrder)
     }
 
-    private static func accountLabel(for item: MirrorItem) -> String {
-        let names = item.credentials.compactMap { credential -> String? in
-            switch credential {
-            case let .password(userName, _): userName
-            case let .totp(_, _, _, userName, _, _): userName
-            }
-        }.filter { !$0.isEmpty }
-        return names.first ?? "No account name"
-    }
-
-    private static func websiteLabel(for item: MirrorItem) -> String {
+    private static func websiteLabel(for item: CredentialCandidate) -> String {
         let hosts = item.origins.compactMap { URLComponents(string: $0)?.host }
         return hosts.first ?? item.origins.first ?? "No website"
     }

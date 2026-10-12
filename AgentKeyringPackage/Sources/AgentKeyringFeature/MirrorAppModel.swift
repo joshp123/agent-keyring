@@ -101,10 +101,9 @@ public final class MirrorAppModel {
     public func loadStatus() async {
         defer { isLoading = false }
         do {
-            let importedGeneration = try await store.loadCurrent(metadataOnly: true)
-            let generation = generationIncludingExample(importedGeneration)
-            status = importedGeneration?.safeStatus
-            await accessControl.refresh(from: generation)
+            let importedMetadata = try await store.loadCurrentMetadata()
+            status = importedMetadata?.safeStatus
+            await accessControl.refresh(fromMetadata: metadataIncludingExample(importedMetadata))
         } catch {
             notice = MirrorNotice(
                 kind: .error,
@@ -295,15 +294,15 @@ public final class MirrorAppModel {
                 throw AgentBridgeFailure(
                     .requestExpired, "The agent request expired before it was handled.")
             }
-            let metadataOnly = request.action == .status || request.action == .resolve
-            let importedGeneration = try await store.loadCurrent(metadataOnly: metadataOnly)
-            if request.action == .status, importedGeneration == nil {
-                response = AgentBridgeResponse(id: request.id, ok: true,
-                    message: "No mirror has been imported yet.")
-            } else if let generation = generationIncludingExample(importedGeneration) {
-                response = try await process(request: request, generation: generation)
-            } else {
-                throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
+            switch request.action {
+            case .status, .resolve:
+                response = try await processDiscovery(request: request,
+                    metadata: store.loadCurrentMetadata())
+            case .copy, .acquire:
+                guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
+                    throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
+                }
+                response = try await processRelease(request: request, generation: generation)
             }
         } catch let failure as AgentBridgeFailure {
             response = AgentBridgeResponse(
@@ -361,59 +360,63 @@ public final class MirrorAppModel {
         }
     }
 
-    private func process(
+    private func processDiscovery(
+        request: AgentBridgeRequest,
+        metadata: MirrorMetadata?
+    ) async throws -> AgentBridgeResponse {
+        if request.action == .status, metadata == nil {
+            return AgentBridgeResponse(id: request.id, ok: true,
+                message: "No mirror has been imported yet.")
+        }
+        guard let metadata = metadataIncludingExample(metadata) else {
+            throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
+        }
+        await accessControl.refresh(fromMetadata: metadata)
+        let mirror = AgentMirrorSummary(importedAt: metadata.createdAt,
+            ageSeconds: max(0, Int(Date().timeIntervalSince(metadata.createdAt))),
+            credentialCount: metadata.safeStatus.credentialItemCount)
+        if request.action == .status {
+            return AgentBridgeResponse(id: request.id, ok: true, mirror: mirror)
+        }
+        guard let targetURL = request.targetURL else {
+            throw AgentBridgeFailure(.invalidRequest, "The resolve request needs a target URL.")
+        }
+        let candidates = try resolver.candidates(in: metadata, targetURL: targetURL,
+            usernameHint: request.usernameHint)
+        guard !candidates.isEmpty else {
+            return AgentBridgeResponse(id: request.id, ok: false, error: .notFound,
+                message: CredentialResolverError.notFound.localizedDescription,
+                mirror: mirror, candidates: [])
+        }
+        return AgentBridgeResponse(id: request.id, ok: true, mirror: mirror, candidates: candidates)
+    }
+
+    private func processRelease(
         request: AgentBridgeRequest,
         generation: MirrorGeneration
     ) async throws -> AgentBridgeResponse {
-        await accessControl.refresh(from: generation)
-        let mirror = AgentMirrorSummary(
-            importedAt: generation.createdAt,
-            ageSeconds: max(0, Int(Date().timeIntervalSince(generation.createdAt))),
-            credentialCount: generation.safeStatus.credentialItemCount
+        try await AgentCredentialReleaseProcessor(
+            bridge: bridge, accessControl: accessControl, resolver: resolver
+        ).release(
+            request: request,
+            generation: generation,
+            authorize: { approval in
+                try await self.authorizeCredentialRelease(approval, agentRequest: request)
+            },
+            copyNative: { secret, expiration in
+                self.pasteboard.copy(secret, expiresAfter: expiration)
+            }
         )
+    }
 
-        switch request.action {
-        case .status:
-            return AgentBridgeResponse(id: request.id, ok: true, mirror: mirror)
-        case .resolve:
-            guard let targetURL = request.targetURL else {
-                throw AgentBridgeFailure(.invalidRequest, "The resolve request needs a target URL.")
-            }
-            let candidates = try resolver.candidates(
-                in: generation,
-                targetURL: targetURL,
-                usernameHint: request.usernameHint
-            )
-            guard !candidates.isEmpty else {
-                return AgentBridgeResponse(
-                    id: request.id,
-                    ok: false,
-                    error: .notFound,
-                    message: CredentialResolverError.notFound.localizedDescription,
-                    mirror: mirror,
-                    candidates: []
-                )
-            }
-            return AgentBridgeResponse(
-                id: request.id,
-                ok: true,
-                mirror: mirror,
-                candidates: candidates
-            )
-        case .copy, .acquire:
-            return try await AgentCredentialReleaseProcessor(
-                bridge: bridge, accessControl: accessControl, resolver: resolver
-            ).release(
-                request: request,
-                generation: generation,
-                authorize: { approval in
-                    try await self.authorizeCredentialRelease(approval, agentRequest: request)
-                },
-                copyNative: { secret, expiration in
-                    self.pasteboard.copy(secret, expiresAfter: expiration)
-                }
-            )
+    private func metadataIncludingExample(_ metadata: MirrorMetadata?) -> MirrorMetadata? {
+        guard let example = generationIncludingExample(nil)?.metadata else { return metadata }
+        guard let metadata else { return example }
+        guard !metadata.candidates.contains(where: { $0.id == MirrorItem.exampleCredentialID }) else {
+            return metadata
         }
+        return MirrorMetadata(safeStatus: metadata.safeStatus,
+            candidates: metadata.candidates + example.candidates)
     }
 
     private func generationIncludingExample(_ generation: MirrorGeneration?) -> MirrorGeneration? {

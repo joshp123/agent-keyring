@@ -55,8 +55,8 @@ public enum CredentialResolverError: String, Error, Codable, LocalizedError, Sen
 }
 
 public struct CredentialResolver: Sendable {
-    private struct RankedItem {
-        let item: MirrorItem
+    private struct RankedCandidate {
+        let candidate: CredentialCandidate
         let score: Int
     }
 
@@ -73,16 +73,24 @@ public struct CredentialResolver: Sendable {
         targetURL: String,
         usernameHint: String? = nil
     ) throws -> [CredentialCandidate] {
+        try candidates(in: generation.metadata, targetURL: targetURL, usernameHint: usernameHint)
+    }
+
+    public func candidates(
+        in metadata: MirrorMetadata,
+        targetURL: String,
+        usernameHint: String? = nil
+    ) throws -> [CredentialCandidate] {
         let target = try parsedTarget(targetURL)
-        let ranked = generation.items.compactMap { item -> RankedItem? in
+        let ranked = metadata.candidates.compactMap { candidate -> RankedCandidate? in
             if let usernameHint = normalisedUsername(usernameHint),
-                normalisedUsername(item.accountName) != usernameHint {
+                normalisedUsername(candidate.username) != usernameHint {
                 return nil
             }
-            guard let score = bestScore(for: item.origins, target: target) else {
+            guard let score = bestScore(for: candidate.origins, target: target) else {
                 return nil
             }
-            return RankedItem(item: item, score: score)
+            return RankedCandidate(candidate: candidate, score: score)
         }
 
         guard let bestScore = ranked.map(\.score).max() else { return [] }
@@ -90,7 +98,7 @@ public struct CredentialResolver: Sendable {
 
         return
             matches
-            .map { candidate(for: $0.item) }
+            .map(\.candidate)
             .filter { !$0.availableFields.isEmpty }
             .sorted {
                 let lhs = ($0.title.lowercased(), $0.username?.lowercased() ?? "", $0.id.uuidString)
@@ -164,7 +172,7 @@ public struct CredentialResolver: Sendable {
         }
     }
 
-    private func candidate(for item: MirrorItem) -> CredentialCandidate {
+    func candidate(for item: MirrorItem) -> CredentialCandidate {
         let password = uniquePassword(in: item)
         let totp = uniqueTOTP(in: item)
         var fields = [AgentCredentialField]()

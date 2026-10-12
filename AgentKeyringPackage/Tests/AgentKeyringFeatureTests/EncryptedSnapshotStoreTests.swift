@@ -21,7 +21,7 @@ struct EncryptedSnapshotStoreTests {
         #expect(try await store.loadCurrent() == second)
         let oldURL = await store.generationFileURL(for: first.id)
         #expect(!FileManager.default.fileExists(atPath: oldURL.path))
-        #expect(try await store.loadCurrent(metadataOnly: true) == second.metadataOnly)
+        #expect(try await store.loadCurrentMetadata() == second.metadata)
     }
 
     @Test("The encrypted file and safe status do not expose credential canaries")
@@ -61,7 +61,7 @@ struct EncryptedSnapshotStoreTests {
         try await store.save(snapshot)
         let payloadURL = await store.generationFileURL(for: snapshot.id)
         try Data("unreadable secret payload".utf8).write(to: payloadURL)
-        let metadata = try #require(try await store.loadCurrent(metadataOnly: true))
+        let metadata = try #require(try await store.loadCurrentMetadata())
         #expect(metadata.safeStatus == snapshot.safeStatus)
         #expect(try CredentialResolver().candidates(in: metadata, targetURL: "https://canary.example").first?.username == "canary-user")
         #expect(!String(decoding: try JSONEncoder().encode(metadata), as: UTF8.self).contains("SECRET-CANARY"))
@@ -80,7 +80,7 @@ struct EncryptedSnapshotStoreTests {
         let corruptMetadata = Data("corrupt metadata".utf8)
         try corruptMetadata.write(to: metadataURL)
         await #expect(throws: (any Error).self) {
-            try await store.loadCurrent(metadataOnly: true)
+            try await store.loadCurrentMetadata()
         }
         #expect(try Data(contentsOf: metadataURL) == corruptMetadata)
         #expect(try await store.loadCurrent() == snapshot)
