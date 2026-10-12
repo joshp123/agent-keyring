@@ -22,7 +22,7 @@ enum CLIClient {
                 throw CLIError(response: response, command: command)
             }
             write(try CLIOutput.render(response, for: command), to: output)
-            if request.action == .acquire, response.approvalProgress?.askedAt != nil {
+            if (request.action == .acquire || request.action == .fill), response.approvalProgress?.askedAt != nil {
                 write("Approved at \(approvalTime(now())).\n", to: diagnostics)
             }
         } catch let error as CLIError {

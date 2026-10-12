@@ -26,7 +26,7 @@ struct CLIError: Error {
             let choices = accounts.map { "  \($0)" }.joined(separator: "\n")
             let suggestion: String
             let uniqueAccounts = Set(accounts.map { $0.lowercased() })
-            if uniqueAccounts.count < accounts.count {
+            if uniqueAccounts.count < accounts.count, command.releaseVerb == "acquire" {
                 suggestion =
                     "Run 'agent-keyring find \(targetURL)' to see the credential IDs, then choose one:\nagent-keyring \(command.releaseVerb) \(command.fieldArgument) \(shellQuote(targetURL)) --credential UUID"
             } else if let account = accounts.first {
@@ -77,9 +77,23 @@ struct CLIError: Error {
                 "Agent Keyring could not create a verification code for this login.",
                 suggestion: "Update Agent Keyring from Apple Passwords, then try again."
             )
-        case .wrongFocusedField, .pageMismatch, .unsupportedBrowser, .unreadablePageAddress,
-            .accessibilityMissing, .screenLocked, .fillTargetChanged,
-            .bridgeUnavailable, .internalError, .invalidRequest, .approvalPending, .none:
+        case .wrongFocusedField:
+            self.init(command.fieldArgument == "password"
+                ? "Focus a secure password field, then retry."
+                : "Focus a non-secure text field, then retry.", exitCode: 8)
+        case .pageMismatch:
+            self.init(response.message ?? "The page does not match the saved site.", exitCode: 9)
+        case .unsupportedBrowser:
+            self.init("This browser is not supported; use agent-browser.", exitCode: 10)
+        case .unreadablePageAddress:
+            self.init("This browser's page address cannot be read; use agent-browser.", exitCode: 10)
+        case .accessibilityMissing:
+            self.init("Grant Agent Keyring Accessibility in System Settings → Privacy & Security → Accessibility.", exitCode: 11)
+        case .screenLocked:
+            self.init("The screen is locked.", exitCode: 12)
+        case .fillTargetChanged:
+            self.init("The browser, page or focused field changed; focus the field and retry.", exitCode: 13)
+        case .bridgeUnavailable, .internalError, .invalidRequest, .approvalPending, .none:
             self.init(
                 response.message ?? "Agent Keyring could not complete the request.",
                 suggestion: "Open the app and try again."

@@ -4,6 +4,9 @@ import Foundation
 enum CLIOutput {
     static func render(_ response: AgentBridgeResponse, for command: CLICommand) throws -> String {
         switch command {
+        case let .fill(field, _, _):
+            guard response.filledField == field else { throw CLIError.invalidResponse }
+            return "Filled.\n"
         case .acquire: return response.id.uuidString + "\n"
         case .sync:
             return "Josh has been asked to update Agent Keyring’s copy of his passwords.\n"
