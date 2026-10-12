@@ -21,7 +21,7 @@ struct ApprovalDecisionVerifierTests {
         await #expect(throws: ApprovalDecisionRefusal.replayed) { try await verifier.register(request) }
     }
 
-    @Test("Even correctly signed returned fields must match the Mac's own request",
+    @Test("Signing any tampered request field fails against the Mac's retained request",
         arguments: ["site", "account", "field", "action", "one-time-value", "expiry"])
     func tamperedField(field: String) async throws {
         let fixture = PhoneApprovalFixture()
@@ -38,7 +38,7 @@ struct ApprovalDecisionVerifierTests {
             action: field == "action" ? .acquire : original.action,
             oneTimeValue: field == "one-time-value" ? Data(repeating: 0, count: 32) : original.oneTimeValue,
             expiresAt: field == "expiry" ? original.expiresAt + 1 : original.expiresAt)
-        await #expect(throws: ApprovalDecisionRefusal.mismatchedRequest) {
+        await #expect(throws: ApprovalDecisionRefusal.invalidSignature) {
             try await verifier.verify(fixture.decision(changed))
         }
         // Refusals do not consume the authentic request.
@@ -54,7 +54,7 @@ struct ApprovalDecisionVerifierTests {
         let verifier = fixture.verifier()
         try await verifier.register(request)
         let attacker = P256.Signing.PrivateKey()
-        let decision = ApprovalDecision(signedFields: request.signedFields, choice: .approve,
+        let decision = ApprovalDecision(requestID: request.id, choice: .approve,
             devicePublicKey: fixture.phoneKey.publicKey.x963Representation,
             signature: try attacker.signature(for: request.signedFields.canonicalBytes(for: .approve)).derRepresentation)
         await #expect(throws: ApprovalDecisionRefusal.invalidSignature) { try await verifier.verify(decision) }
@@ -69,7 +69,7 @@ struct ApprovalDecisionVerifierTests {
         let verifier = fixture.verifier()
         try await verifier.register(request)
         let original = try fixture.decision(request.signedFields)
-        let changed = ApprovalDecision(signedFields: original.signedFields, choice: .blockThisLogin,
+        let changed = ApprovalDecision(requestID: original.requestID, choice: .blockThisLogin,
             devicePublicKey: original.devicePublicKey, signature: original.signature)
         await #expect(throws: ApprovalDecisionRefusal.invalidSignature) { try await verifier.verify(changed) }
     }
@@ -193,7 +193,7 @@ struct PhoneApprovalFixture {
     }
 
     func decision(_ fields: ApprovalSignedFields, choice: ApprovalChoice = .approve) throws -> ApprovalDecision {
-        ApprovalDecision(signedFields: fields, choice: choice, devicePublicKey: phoneKey.publicKey.x963Representation,
+        ApprovalDecision(requestID: fields.requestID, choice: choice, devicePublicKey: phoneKey.publicKey.x963Representation,
             signature: try phoneKey.signature(for: fields.canonicalBytes(for: choice)).derRepresentation)
     }
 

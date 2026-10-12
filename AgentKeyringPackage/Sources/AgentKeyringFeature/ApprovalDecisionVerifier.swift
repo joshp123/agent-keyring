@@ -11,7 +11,6 @@ public protocol PairedDevicePublicKeyProviding: Sendable {
 public enum ApprovalDecisionRefusal: String, Error, Sendable {
     case unknownRequest
     case requestAlreadyRegistered
-    case mismatchedRequest
     case expired
     case replayed
     case untrustedPairedDevices
@@ -53,7 +52,6 @@ public actor ApprovalDecisionVerifier {
 
         if usedRequestExpiries[decision.requestID] != nil { throw refusal(.replayed) }
         guard let request = pendingRequests[decision.requestID] else { throw refusal(.unknownRequest) }
-        guard decision.signedFields == request.signedFields else { throw refusal(.mismatchedRequest) }
         guard TimeInterval(request.expiresAt) > now().timeIntervalSince1970 else { throw refusal(.expired) }
         guard publicKeys.contains(decision.devicePublicKey) else { throw refusal(.unpairedDevice) }
         guard let publicKey = try? P256.Signing.PublicKey(x963Representation: decision.devicePublicKey),

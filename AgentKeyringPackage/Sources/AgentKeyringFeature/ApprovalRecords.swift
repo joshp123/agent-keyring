@@ -43,7 +43,7 @@ public struct ApprovalRequest: Codable, Equatable, Sendable {
     }
 }
 
-/// The returned fields are untrusted. Verification compares them with the Mac's retained request.
+/// Fields sent for approval. The Mac signs and verifies only its retained copy.
 public struct ApprovalSignedFields: Codable, Equatable, Sendable {
     public let requestID: UUID
     public let site: String
@@ -89,17 +89,16 @@ public struct ApprovalSignedFields: Codable, Equatable, Sendable {
 }
 
 public struct ApprovalDecision: Codable, Equatable, Sendable {
-    public var requestID: UUID { signedFields.requestID }
-    public let signedFields: ApprovalSignedFields
+    public let requestID: UUID
     public let choice: ApprovalChoice
     /// P-256 X9.63 public key bytes; only a key in the verified paired-device store is trusted.
     public let devicePublicKey: Data
-    /// P-256 ECDSA DER signature of signedFields.canonicalBytes(for: choice), using SHA-256.
+    /// P-256 ECDSA DER signature of the request's canonicalBytes(for: choice), using SHA-256.
     public let signature: Data
 
-    public init(signedFields: ApprovalSignedFields, choice: ApprovalChoice, devicePublicKey: Data,
+    public init(requestID: UUID, choice: ApprovalChoice, devicePublicKey: Data,
         signature: Data) {
-        self.signedFields = signedFields
+        self.requestID = requestID
         self.choice = choice
         self.devicePublicKey = devicePublicKey
         self.signature = signature
