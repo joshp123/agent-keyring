@@ -93,9 +93,13 @@ public struct AgentCredentialReleaseProcessor {
         try ensureDecisionPermitsRelease(releaseDecision)
 
         let activeFiller = request.action == .fill ? (filler ?? XPCCredentialFiller()) : nil
-        // Fill must report a locked screen rather than waiting for unlock to prompt.
-        if let activeFiller, try await activeFiller.inspect().screenLocked {
-            throw AgentBridgeFailure(.screenLocked, "The screen is locked.")
+        if let activeFiller {
+            let inspection = try await activeFiller.inspect()
+            try AgentCredentialFillProcessor(filler: activeFiller, resolver: resolver).validate(
+                inspection, candidate: selected, requestedURL: targetURL, field: field)
+            try ensureRequestHasNotExpired(request)
+            try await accessControl.ensureRulesConfirmed()
+            try ensureDecisionPermitsRelease(accessControl.releaseDecision(for: selected.id, field: field))
         }
 
         var approvalProgress: AgentApprovalProgress?

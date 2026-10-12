@@ -10,8 +10,8 @@ struct CredentialFillTests {
     @Test("Each invalid destination refuses without sending a value", arguments: [
         "locked", "permission", "unsupported", "unreadable", "invalid-address", "mismatch", "lookalike",
         "no-field", "plain-password", "secure-username", "secure-code", "insecure-page", "no-window",
-    ])
-    func refuses(path: String) async throws {
+    ], [CredentialAccessPolicy.allowAutomatically, .ask])
+    func refuses(path: String, policy: CredentialAccessPolicy) async throws {
         let inspection: FillInspection = switch path {
         case "locked": fillInspection(screenLocked: true)
         case "permission": fillInspection(accessibilityTrusted: false)
@@ -37,12 +37,12 @@ struct CredentialFillTests {
         }
         let field: AgentCredentialField = path == "secure-username" ? .username : path == "secure-code" ? .totp : .password
         let filler = FakeCredentialFiller(inspection: inspection)
-        let fixture = try FillTestFixture(filler: filler)
+        let fixture = try FillTestFixture(policy: policy, filler: filler)
         defer { fixture.cleanUp() }
         let request = try fixture.request(field: field)
         do {
             _ = try await fixture.processor.release(request: request, generation: fixture.generation, authorize: { _, _ in
-                Issue.record("Automatic rule prompted")
+                Issue.record("Refused fill prompted")
             })
             Issue.record("Refused destination filled")
         } catch let failure as AgentBridgeFailure {
@@ -121,6 +121,36 @@ struct CredentialFillTests {
             #expect(policy == .block && failure.code == .policyDenied)
             #expect(fixture.filler.typedValues.isEmpty)
         }
+    }
+
+    @Test("A destination changed during approval is validated again", arguments: ["page", "field", "address", "app"])
+    func changesDuringApproval(path: String) async throws {
+        let filler = FakeCredentialFiller()
+        let fixture = try FillTestFixture(policy: .ask, filler: filler)
+        defer { fixture.cleanUp() }
+        var prompts = 0
+        do {
+            _ = try await fixture.processor.release(request: fixture.request(), generation: fixture.generation,
+                authorize: { _, started in
+                    prompts += 1; started()
+                    filler.inspection = switch path {
+                    case "page": fillInspection(pageAddress: "https://other.invalid")
+                    case "field": fillInspection(focusedSubrole: nil)
+                    case "address": fillInspection(pageAddress: nil)
+                    default: fillInspection(bundleIdentifier: "org.other.app")
+                    }
+                })
+            Issue.record("Changed destination filled")
+        } catch let failure as AgentBridgeFailure {
+            let expected: AgentBridgeErrorCode = switch path {
+            case "page": .pageMismatch
+            case "field": .wrongFocusedField
+            case "address": .unreadablePageAddress
+            default: .unsupportedBrowser
+            }
+            #expect(failure.code == expected)
+        }
+        #expect(prompts == 1 && filler.typedValues.isEmpty)
     }
 
     @Test("A fill approval never grants acquire, and an acquire approval never grants fill", arguments: [AgentBridgeAction.fill, .acquire])
