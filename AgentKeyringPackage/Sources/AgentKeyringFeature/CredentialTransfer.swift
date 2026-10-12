@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 public enum CredentialTransferError: Error, Sendable {
@@ -12,30 +13,53 @@ public enum CredentialTransfer {
 
     private static let codeType = NSPasteboard.PasteboardType("com.agentkeyring.totp")
 
-    static func publishCode(_ record: MirrorCredential, requestID: UUID) throws {
+    private struct RetainedLifetime: Codable {
+        let expiresAt: Date
+        let requesterPID: Int32
+        let credentialID: UUID?
+    }
+    private static let lifetimeType = NSPasteboard.PasteboardType("com.agentkeyring.lifetime")
+    private static var retainedLifetimes: [UUID: RetainedLifetime] = [:]
+    private static var cleanupTask: Task<Void, Never>?
+
+    static func publishCode(_ record: MirrorCredential, requestID: UUID,
+        requesterPID: Int32 = getpid(), credentialID: UUID? = nil,
+        expiresAfter: TimeInterval = 300) throws {
         let channel = pasteboard(for: requestID)
         channel.clearContents()
         guard channel.setData(try PropertyListEncoder().encode(record), forType: codeType) else {
             channel.releaseGlobally()
             throw CredentialTransferError.unavailable
         }
+        try retain(requestID: requestID, requesterPID: requesterPID,
+            credentialID: credentialID, expiresAfter: expiresAfter)
     }
 
     private static func pasteboard(for requestID: UUID) -> NSPasteboard {
         NSPasteboard(name: .init("com.agentkeyring.credential.\(requestID.uuidString)"))
     }
 
-    public static func publish(_ value: String, requestID: UUID) throws {
+    public static func publish(_ value: String, requestID: UUID,
+        requesterPID: Int32 = getpid(), credentialID: UUID? = nil,
+        expiresAfter: TimeInterval = 300) throws {
         let channel = pasteboard(for: requestID)
         channel.clearContents()
         guard channel.setData(Data(value.utf8), forType: credentialType) else {
             channel.releaseGlobally()
             throw CredentialTransferError.unavailable
         }
+        try retain(requestID: requestID, requesterPID: requesterPID,
+            credentialID: credentialID, expiresAfter: expiresAfter)
     }
 
     public static func read(requestID: UUID, now: Date = Date()) throws -> Data {
         let channel = pasteboard(for: requestID)
+        guard let lifetimeData = channel.data(forType: lifetimeType),
+            let lifetime = try? PropertyListDecoder().decode(RetainedLifetime.self, from: lifetimeData),
+            isLive(lifetime, now: now) else {
+            clear(requestID: requestID)
+            throw CredentialTransferError.unavailable
+        }
         if let data = channel.data(forType: codeType) {
             guard case let .totp(secret, period, digits, _, algorithm, _) =
                 try PropertyListDecoder().decode(MirrorCredential.self, from: data) else {
@@ -52,11 +76,47 @@ public enum CredentialTransfer {
 
     @discardableResult
     public static func clear(requestID: UUID) -> Bool {
+        retainedLifetimes.removeValue(forKey: requestID)
         let channel = pasteboard(for: requestID)
         guard channel.clearContents() > 0 else { return false }
         channel.releaseGlobally()
         return true
     }
+    static func revoke(credentialID: UUID) {
+        let references = retainedLifetimes.filter { $0.value.credentialID == credentialID }.map(\.key)
+        for reference in references { clear(requestID: reference) }
+    }
+
+    static func clearExpired(now: Date = Date()) {
+        let references = retainedLifetimes.filter { !isLive($0.value, now: now) }.map(\.key)
+        for reference in references { clear(requestID: reference) }
+    }
+
+    private static func isLive(_ lifetime: RetainedLifetime, now: Date) -> Bool {
+        lifetime.expiresAt > now && lifetime.requesterPID > 0
+            && (kill(lifetime.requesterPID, 0) == 0 || errno == EPERM)
+    }
+
+    private static func retain(requestID: UUID, requesterPID: Int32,
+        credentialID: UUID?, expiresAfter: TimeInterval) throws {
+        let lifetime = RetainedLifetime(expiresAt: Date().addingTimeInterval(expiresAfter),
+            requesterPID: requesterPID, credentialID: credentialID)
+        let channel = pasteboard(for: requestID)
+        guard channel.setData(try PropertyListEncoder().encode(lifetime), forType: lifetimeType) else {
+            clear(requestID: requestID)
+            throw CredentialTransferError.unavailable
+        }
+        retainedLifetimes[requestID] = lifetime
+        guard cleanupTask == nil else { return }
+        cleanupTask = Task { @MainActor in
+            while !retainedLifetimes.isEmpty {
+                try? await Task.sleep(for: .milliseconds(250))
+                clearExpired()
+            }
+            cleanupTask = nil
+        }
+    }
+
 }
 
 public struct AgentBridgeClient: Sendable {

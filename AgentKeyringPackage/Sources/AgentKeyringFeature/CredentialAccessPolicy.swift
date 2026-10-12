@@ -215,6 +215,7 @@ public final class CredentialAccessController {
         errorMessage = nil
 
         for (id, policy) in assignments {
+            if policy == .block { CredentialTransfer.revoke(credentialID: id) }
             if policy == .ask {
                 policies.removeValue(forKey: id)
             } else {

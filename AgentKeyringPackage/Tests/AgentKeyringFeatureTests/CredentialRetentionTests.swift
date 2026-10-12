@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import Testing
@@ -130,6 +131,109 @@ struct CredentialRetentionTests {
         #expect(try CredentialTransfer.read(requestID: reference, now: Date(timeIntervalSince1970: 60)) == Data("37359152".utf8))
     }
 
+    @Test("Retained values expire after five minutes by default")
+    func defaultExpiry() throws {
+        let reference = UUID()
+        let publishedAt = Date()
+        defer { CredentialTransfer.clear(requestID: reference) }
+        try CredentialTransfer.publish("synthetic", requestID: reference)
+        #expect(try CredentialTransfer.read(requestID: reference, now: publishedAt.addingTimeInterval(299)) == Data("synthetic".utf8))
+        #expect(throws: CredentialTransferError.unavailable) {
+            _ = try CredentialTransfer.read(requestID: reference, now: publishedAt.addingTimeInterval(301))
+        }
+    }
+
+    @Test("The app clears an expired buffer without a read")
+    func unattendedExpiry() async throws {
+        let reference = UUID()
+        defer { CredentialTransfer.clear(requestID: reference) }
+        try CredentialTransfer.publish("synthetic", requestID: reference, expiresAfter: 0.05)
+        try await Task.sleep(for: .milliseconds(600))
+        // Reading with an earlier clock proves cleanup removed the bytes independently.
+        #expect(throws: CredentialTransferError.unavailable) {
+            _ = try CredentialTransfer.read(requestID: reference, now: Date(timeIntervalSince1970: 0))
+        }
+    }
+
+    @Test("The app clears a buffer when its requester exits")
+    func requesterExit() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["0.2"]
+        try process.run()
+        let reference = UUID()
+        defer { CredentialTransfer.clear(requestID: reference) }
+        try CredentialTransfer.publish("synthetic", requestID: reference, requesterPID: process.processIdentifier)
+        #expect(try read(requestID: reference) == Data("synthetic".utf8))
+        process.waitUntilExit()
+        try await Task.sleep(for: .milliseconds(600))
+        let channel = NSPasteboard(name: .init("com.agentkeyring.credential.\(reference.uuidString)"))
+        #expect(channel.data(forType: .init("com.agentkeyring.credential")) == nil)
+        #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: reference) }
+    }
+
+    @Test("Blocking during approval prevents release")
+    func blockedDuringApproval() async throws {
+        let fixture = try ReleaseFixture(policy: .ask)
+        defer { fixture.cleanUp() }
+        let request = fixture.request()
+        try fixture.bridge.write(request)
+        do {
+            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _ in
+                    await fixture.accessControl.setPolicy(.block, for: [fixture.generation.items[0].id])
+                }, copyNative: { _, _ in Issue.record("Unexpected copy") })
+            Issue.record("Blocked login released")
+        } catch let failure as AgentBridgeFailure {
+            #expect(failure.code == .policyDenied)
+        }
+        #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
+    }
+
+    @Test("Blocking a login revokes all its buffers and preserves other logins")
+    func blockingRevokesBuffers() async throws {
+        let fixture = try ReleaseFixture(policy: .allowAutomatically)
+        defer { fixture.cleanUp() }
+        let first = fixture.request()
+        let second = fixture.request()
+        let unrelated = UUID()
+        defer {
+            CredentialTransfer.clear(requestID: first.id)
+            CredentialTransfer.clear(requestID: second.id)
+            CredentialTransfer.clear(requestID: unrelated)
+        }
+        for request in [first, second] {
+            try fixture.bridge.write(request)
+            _ = try await fixture.processor.release(request: request, generation: fixture.generation,
+                authorize: { _ in Issue.record("Unexpected approval") }, copyNative: { _, _ in })
+        }
+        try CredentialTransfer.publish("unrelated", requestID: unrelated, credentialID: UUID())
+        await fixture.accessControl.setPolicy(.block, for: [fixture.generation.items[0].id])
+        for request in [first, second] {
+            #expect(throws: CredentialTransferError.unavailable) { _ = try read(requestID: request.id) }
+        }
+        #expect(try read(requestID: unrelated) == Data("unrelated".utf8))
+    }
+
+    @Test("Acquiring a code-only login approves once and supports fresh retry reads")
+    func acquireCodeOnlyLogin() async throws {
+        let fixture = try ReleaseFixture(policy: .ask, codeOnly: true)
+        defer { fixture.cleanUp() }
+        let request = fixture.request(field: .totp)
+        defer { CredentialTransfer.clear(requestID: request.id) }
+        try fixture.bridge.write(request)
+        var approvals = 0
+        let response = try await fixture.processor.release(request: request, generation: fixture.generation,
+            authorize: { approval in
+                approvals += 1
+                #expect(approval.account == "synthetic@example.com")
+            }, copyNative: { _, _ in Issue.record("Unexpected native copy") })
+        #expect(response.ok)
+        #expect(approvals == 1)
+        #expect(try CredentialTransfer.read(requestID: request.id, now: Date(timeIntervalSince1970: 59)) == Data("94287082".utf8))
+        #expect(try CredentialTransfer.read(requestID: request.id, now: Date(timeIntervalSince1970: 60)) == Data("37359152".utf8))
+    }
+
     private func read(requestID: UUID) throws -> Data {
         try CredentialTransfer.read(requestID: requestID)
     }
@@ -141,8 +245,9 @@ private struct ReleaseFixture {
     let bridge: AgentBridgeDirectory
     let generation: MirrorGeneration
     let processor: AgentCredentialReleaseProcessor
+    let accessControl: CredentialAccessController
 
-    init(policy: CredentialAccessPolicy) throws {
+    init(policy: CredentialAccessPolicy, codeOnly: Bool = false) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("credential-retrieval-test-\(UUID().uuidString)")
         bridge = AgentBridgeDirectory(rootURL: root)
@@ -154,13 +259,15 @@ private struct ReleaseFixture {
             "records": [["credentialID": credentialID.uuidString, "policy": policy.rawValue]],
         ]
         try JSONSerialization.data(withJSONObject: contents).write(to: policyURL)
-        let accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL))
+        accessControl = CredentialAccessController(store: CredentialAccessPolicyStore(fileURL: policyURL))
         processor = AgentCredentialReleaseProcessor(bridge: bridge, accessControl: accessControl)
         let item = MirrorItem(
             id: credentialID,
             sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
             title: "Synthetic login", origins: ["https://example.com"],
-            credentials: [.password(userName: "synthetic@example.com", password: Self.password)]
+            credentials: codeOnly ? [.totp(secret: Data("12345678901234567890".utf8),
+                period: 30, digits: 8, userName: "synthetic@example.com", algorithm: .sha1, issuer: nil)]
+                : [.password(userName: "synthetic@example.com", password: Self.password)]
         )
         generation = MirrorGeneration(
             id: UUID(), previousGenerationID: nil, createdAt: Date(), sourceExportedAt: Date(),
@@ -169,8 +276,8 @@ private struct ReleaseFixture {
         )
     }
 
-    func request() -> AgentBridgeRequest {
-        AgentBridgeRequest(action: .acquire, targetURL: "https://example.com/login", field: .password)
+    func request(field: AgentCredentialField = .password) -> AgentBridgeRequest {
+        AgentBridgeRequest(action: .acquire, targetURL: "https://example.com/login", field: field)
     }
 
     func cleanUp() {

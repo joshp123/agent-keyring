@@ -1,6 +1,7 @@
 import AgentKeyringFeature
 import ArgumentParser
 import Foundation
+import Darwin
 import Testing
 @testable import AgentKeyringCLI
 
@@ -14,6 +15,8 @@ struct RetainedCredentialCommandTests {
         ]) as? Acquire)
         #expect(command.field == .password)
         #expect(command.account == "synthetic@example.com")
+        #expect(CLICommand.acquire(field: .password, targetURL: "https://example.com", account: nil,
+            credentialID: nil).request.callerPID == getppid())
         let reference = UUID().uuidString
         #expect(try AgentKeyringCLI.parseAsRoot(["read", reference]) is Read)
         #expect(try AgentKeyringCLI.parseAsRoot(["clear", reference]) is Clear)
@@ -61,6 +64,45 @@ struct RetainedCredentialCommandTests {
         try afterClear.fileHandleForWriting.close()
         #expect(afterClear.fileHandleForReading.readDataToEndOfFile().isEmpty)
         #expect(requests == 1)
+    }
+
+    @Test("The built CLI reads exact bytes across processes and clears the reference", arguments: ["synthetic-pässword", "value ending with a newline\n", ""])
+    func executableReadAndClear(value: String) throws {
+        var directory = Bundle(for: CLIExecutableTestBundle.self).bundleURL.deletingLastPathComponent()
+        var executable: URL?
+        for _ in 0..<6 {
+            let candidate = directory.appendingPathComponent("agent-keyring")
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                executable = candidate
+                break
+            }
+            directory = directory.deletingLastPathComponent()
+        }
+        let cli = try #require(executable)
+        let reference = UUID()
+        defer { CredentialTransfer.clear(requestID: reference) }
+        try CredentialTransfer.publish(value, requestID: reference)
+        func run(_ command: String) throws -> (Int32, Data) {
+            let process = Process()
+            process.executableURL = cli
+            process.arguments = [command, reference.uuidString]
+            let output = Pipe()
+            process.standardOutput = output
+            process.standardError = Pipe()
+            try process.run()
+            process.waitUntilExit()
+            return (process.terminationStatus, output.fileHandleForReading.readDataToEndOfFile())
+        }
+        for _ in 0..<2 {
+            let result = try run("read")
+            #expect(result.0 == 0)
+            #expect(result.1 == Data(value.utf8))
+        }
+        #expect(try run("clear").0 == 0)
+        #expect(try run("clear").0 == 0)
+        let cleared = try run("read")
+        #expect(cleared.0 != 0)
+        #expect(cleared.1.isEmpty)
     }
 
     @Test("Read supports file redirection and a failed output leaves the value available")
@@ -144,3 +186,5 @@ struct RetainedCredentialCommandTests {
         return output.fileHandleForReading.readDataToEndOfFile()
     }
 }
+
+private final class CLIExecutableTestBundle {}

@@ -230,7 +230,7 @@ enum CLICommand: Equatable {
             )
         case let .acquire(field, targetURL, account, credentialID):
             AgentBridgeRequest(
-                action: .acquire, targetURL: targetURL, usernameHint: account,
+                callerPID: getppid(), action: .acquire, targetURL: targetURL, usernameHint: account,
                 candidateID: credentialID, field: field
             )
         case let .copy(field, targetURL, account, credentialID, expiration):

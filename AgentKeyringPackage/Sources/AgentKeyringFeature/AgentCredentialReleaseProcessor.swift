@@ -94,27 +94,33 @@ public struct AgentCredentialReleaseProcessor {
         }
 
         try ensureRequestIsLive(request)
-        let secret = try resolver.secret(
-            in: generation,
-            targetURL: targetURL,
-            usernameHint: request.usernameHint,
-            candidateID: request.candidateID,
-            field: field
-        )
+        guard accessControl.releaseDecision(for: selected.id, field: field) != .block else {
+            throw AgentBridgeFailure(.policyDenied,
+                "Agent access to this credential is blocked in Agent Keyring.")
+        }
         let expiration = min(120, max(5, request.expirationSeconds))
-        if request.action == .acquire {
-            if field == .totp,
-                let item = generation.items.first(where: { $0.id == selected.id }),
-                let record = item.credentials.first(where: {
-                    if case .totp = $0 { return true }
-                    return false
-                }) {
-                try CredentialTransfer.publishCode(record, requestID: request.id)
-            } else {
-                try CredentialTransfer.publish(secret, requestID: request.id)
-            }
+        if request.action == .acquire, field == .totp,
+            let item = generation.items.first(where: { $0.id == selected.id }),
+            let record = item.credentials.first(where: {
+                if case .totp = $0 { return true }
+                return false
+            }) {
+            try CredentialTransfer.publishCode(record, requestID: request.id,
+                requesterPID: request.callerPID, credentialID: selected.id)
         } else {
-            copyNative(secret, TimeInterval(expiration))
+            let secret = try resolver.secret(
+                in: generation,
+                targetURL: targetURL,
+                usernameHint: request.usernameHint,
+                candidateID: request.candidateID,
+                field: field
+            )
+            if request.action == .acquire {
+                try CredentialTransfer.publish(secret, requestID: request.id,
+                    requesterPID: request.callerPID, credentialID: selected.id)
+            } else {
+                copyNative(secret, TimeInterval(expiration))
+            }
         }
         return AgentBridgeResponse(
             id: request.id,
