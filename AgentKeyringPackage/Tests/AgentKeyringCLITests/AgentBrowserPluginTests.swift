@@ -61,7 +61,7 @@ struct AgentBrowserPluginTests {
     }
 
     @Test("Bridge failures return only a short error and clear partial releases", arguments: [
-        AgentBridgeErrorCode.authorizationDenied, .authorizationInterrupted, .policyDenied, .notFound, .fieldUnavailable,
+        AgentBridgeErrorCode.authorizationDenied, .authorizationInterrupted, .authorizationNotVerified, .policyDenied, .notFound, .fieldUnavailable,
         .ambiguous, .authorizationUnavailable, .bridgeUnavailable, .timedOut, .requestExpired,
         .mirrorUnavailable, .internalError, .invalidRequest, .invalidURL, .insecureOrigin, .invalidTOTP,
     ])
@@ -76,6 +76,7 @@ struct AgentBrowserPluginTests {
         }
         let expected: String = switch code {
         case .authorizationDenied: "Josh declined the request."
+        case .authorizationNotVerified: "Touch ID or Apple Watch did not verify; retry the request."
         case .authorizationInterrupted: "macOS interrupted the approval prompt; retry the login."
         case .requestExpired: "The request expired with no answer."
         case .policyDenied: "Access to this login is blocked in Agent Keyring."

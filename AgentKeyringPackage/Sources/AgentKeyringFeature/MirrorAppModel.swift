@@ -326,6 +326,7 @@ public final class MirrorAppModel {
                 case .unavailable, .busy, .systemFailure: .authorizationUnavailable
                 case .denied: .authorizationDenied
                 case .interrupted: .authorizationInterrupted
+                case .notVerified: .authorizationNotVerified
                 case .expired: .requestExpired
                 }
             response = AgentBridgeResponse(

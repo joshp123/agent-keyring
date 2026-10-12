@@ -48,6 +48,7 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
     case busy
     case denied
     case interrupted
+    case notVerified
     case expired
     case systemFailure(domain: String, code: Int)
 
@@ -61,6 +62,8 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
             "Josh declined the request."
         case .interrupted:
             "macOS interrupted the approval prompt; retry the request."
+        case .notVerified:
+            "Touch ID or Apple Watch did not verify; retry the request."
         case .expired:
             "The request expired with no answer."
         case let .systemFailure(domain, code):
@@ -74,6 +77,8 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
         guard authorizationDeadline > now else { return .expired }
         if error.domain == LAError.errorDomain, let code = LAError.Code(rawValue: error.code) {
             switch code {
+            case .authenticationFailed, .biometryLockout:
+                return .notVerified
             case .userCancel:
                 return .denied
             case .systemCancel:
@@ -120,6 +125,8 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
                 credentialAuthorizationLogger.error(
                     "Approval preflight failed: domain=\(evaluationError.domain, privacy: .public) code=\(evaluationError.code, privacy: .public)"
                 )
+                throw CredentialReleaseAuthorizationError.classifyNativeFailure(
+                    evaluationError, authorizationDeadline: request.authorizationDeadline)
             } else {
                 credentialAuthorizationLogger.error("Approval preflight failed without an error code")
             }
@@ -147,7 +154,7 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
                     localizedReason: request.localizedReason
                 )
             else {
-                throw CredentialReleaseAuthorizationError.denied
+                throw CredentialReleaseAuthorizationError.notVerified
             }
         } catch let error as CredentialReleaseAuthorizationError {
             throw error

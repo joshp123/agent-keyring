@@ -700,6 +700,8 @@ struct CLIError: Error {
             self.init("Waiting for Josh's approval; retry the request after he approves.", exitCode: 5)
         case .authorizationDenied:
             self.init("Josh declined the request.", exitCode: 2)
+        case .authorizationNotVerified:
+            self.init("Touch ID or Apple Watch did not verify; retry the request.", exitCode: 6)
         case .authorizationInterrupted:
             self.init("macOS interrupted the approval prompt; retry the request.", exitCode: 4)
         case .authorizationUnavailable:

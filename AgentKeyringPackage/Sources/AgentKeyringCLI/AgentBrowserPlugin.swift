@@ -167,6 +167,7 @@ enum AgentBrowserPluginProtocol {
     private static func errorMessage(for code: AgentBridgeErrorCode?) -> String {
         switch code {
         case .authorizationDenied: "Josh declined the request."
+        case .authorizationNotVerified: "Touch ID or Apple Watch did not verify; retry the request."
         case .authorizationInterrupted: "macOS interrupted the approval prompt; retry the login."
         case .requestExpired: "The request expired with no answer."
         case .policyDenied: "Access to this login is blocked in Agent Keyring."

@@ -8,24 +8,27 @@ import Testing
 @Suite("Honest approval results")
 struct ApprovalResultTests {
     @Test("Each approval result has a plain sentence and its own exit code", arguments: [
-        "approved", "declined", "expired", "interrupted",
+        "approved", "declined", "expired", "interrupted", "not-verified",
     ])
     func result(path: String) async throws {
         let code: AgentBridgeErrorCode? = switch path {
         case "declined": .authorizationDenied
         case "expired": .requestExpired
+        case "not-verified": .authorizationNotVerified
         case "interrupted": .authorizationInterrupted
         default: nil
         }
         let expectedExit: Int32 = switch path {
         case "declined": 2
         case "expired": 3
+        case "not-verified": 6
         case "interrupted": 4
         default: 0
         }
         let expectedLine = switch path {
         case "declined": "Josh declined the request.\n"
         case "expired": "The request expired with no answer.\n"
+        case "not-verified": "Touch ID or Apple Watch did not verify; retry the request.\n"
         case "interrupted": "macOS interrupted the approval prompt; retry the request.\n"
         default: "Approved.\n"
         }
@@ -47,24 +50,27 @@ struct ApprovalResultTests {
     }
 
     @Test("The real CLI wait distinguishes waiting for unlock from starting the prompt", arguments: [
-        "approved", "declined", "expired", "interrupted",
+        "approved", "declined", "expired", "interrupted", "not-verified",
     ], [true, false])
     func waitingResult(path: String, initiallyLocked: Bool) async throws {
         let code: AgentBridgeErrorCode? = switch path {
         case "declined": .authorizationDenied
         case "expired": .requestExpired
+        case "not-verified": .authorizationNotVerified
         case "interrupted": .authorizationInterrupted
         default: nil
         }
         let expectedExit: Int32 = switch path {
         case "declined": 2
         case "expired": 3
+        case "not-verified": 6
         case "interrupted": 4
         default: 0
         }
         let finalLine = switch path {
         case "declined": "Josh declined the request."
         case "expired": "The request expired with no answer."
+        case "not-verified": "Touch ID or Apple Watch did not verify; retry the request."
         case "interrupted": "macOS interrupted the approval prompt; retry the request."
         default: "Approved."
         }

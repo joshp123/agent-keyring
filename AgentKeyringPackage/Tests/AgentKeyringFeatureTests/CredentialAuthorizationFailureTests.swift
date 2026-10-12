@@ -7,10 +7,17 @@ import Testing
 struct CredentialAuthorizationFailureTests {
     private let now = Date(timeIntervalSince1970: 1_000)
 
-    @Test("System and app cancellations preserve the native failure", arguments: [-1, -9, -10, -999])
+    @Test("System and app cancellations preserve the native failure", arguments: [-9, -10, -999])
     func systemFailure(code: Int) {
         let error = NSError(domain: LAError.errorDomain, code: code)
         #expect(classify(error) == .systemFailure(domain: LAError.errorDomain, code: code))
+    }
+
+    @Test("Failed authentication and biometry lockout have an explicit retry result", arguments: [-1, -8])
+    func notVerified(code: Int) {
+        #expect(classify(NSError(domain: LAError.errorDomain, code: code)) == .notVerified)
+        #expect(CredentialReleaseAuthorizationError.notVerified.errorDescription ==
+            "Touch ID or Apple Watch did not verify; retry the request.")
     }
 
     @Test("Only user cancellation is a decline", arguments: [-2])
