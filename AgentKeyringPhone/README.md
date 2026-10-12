@@ -32,10 +32,12 @@ property-list history contains no request IDs or login fields. Failures are
 logged with a fixed operation and reason or platform error domain/code, never
 error descriptions, records, keys, signatures, nonces or login fields.
 
-Pairing and the notification service extension are out of scope. Until the
-extension exists, alerts have the generic visible title and body from the
-shared subscription. Pairing must later establish trust before the Mac accepts
-this phone's decisions.
+Pairing uses **Add iPhone** in the Mac app and **Pair with Mac** on the phone.
+Scan the five-minute QR, compare the full fingerprint on both devices, and
+confirm the signed-store save on the Mac. See
+[the pairing proof and device steps](../docs/proofs/iphone-qr-pairing.md).
+The notification service extension remains out of scope; until it exists,
+alerts have the generic visible title and body from the shared subscription.
 
 ## Unsigned builds
 
