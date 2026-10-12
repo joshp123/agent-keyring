@@ -4,7 +4,7 @@ import Foundation
 enum CLIOutput {
     static func render(_ response: AgentBridgeResponse, for command: CLICommand) throws -> String {
         switch command {
-        case let .fill(field, _, _):
+        case let .fill(field, _, _, _):
             guard response.filledField == field else { throw CLIError.invalidResponse }
             return "Filled.\n"
         case .acquire: return response.id.uuidString + "\n"

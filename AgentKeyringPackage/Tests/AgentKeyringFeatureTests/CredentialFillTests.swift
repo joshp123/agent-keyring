@@ -211,6 +211,24 @@ struct CredentialFillTests {
         #expect(prompts == 2)
     }
 
+    @Test("A credential ID selects the intended login among duplicate accounts")
+    func duplicateAccountSelection() async throws {
+        let fixture = try FillTestFixture()
+        defer { fixture.cleanUp() }
+        let second = MirrorItem(id: UUID(),
+            sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "second-fixture", accountID: Data(), itemID: Data()),
+            title: "Second duplicate", origins: ["https://example.com"],
+            credentials: [.password(userName: FillTestFixture.username, password: "second-synthetic-password")])
+        let generation = MirrorGeneration(id: UUID(), previousGenerationID: nil, createdAt: Date(), sourceExportedAt: Date(),
+            scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture",
+            items: fixture.generation.items + [second], skippedCredentialCount: 0)
+        let request = AgentBridgeRequest(action: .fill, targetURL: "https://example.com", candidateID: second.id, field: .password)
+        try fixture.bridge.write(request)
+        let response = try await fixture.processor.release(request: request, generation: generation,
+            authorize: { approval, started in #expect(approval.credentialTitle == second.title); started() })
+        #expect(response.ok && fixture.filler.typedValues == ["second-synthetic-password"])
+    }
+
     @Test("Missing rule signatures refuse before inspection or typing")
     func rulesNeedConfirmation() async throws {
         let fixture = try FillTestFixture()

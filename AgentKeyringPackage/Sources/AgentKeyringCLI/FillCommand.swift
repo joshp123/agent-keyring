@@ -32,10 +32,21 @@ struct Fill: AsyncParsableCommand {
     @Argument(help: "The saved site or page URL, such as example.com.") var site: String
     @Option(help: "Choose an account when several logins match.") var account: String?
 
-    func validate() throws { _ = try normaliseSecureWebTarget(site) }
+    @Option(help: "Choose a credential ID shown by find.") var credential: String?
+
+    func validate() throws {
+        _ = try normaliseSecureWebTarget(site)
+        guard account == nil || credential == nil else {
+            throw ValidationError("Choose either --account or --credential.")
+        }
+        if let credential, UUID(uuidString: credential) == nil {
+            throw ValidationError("A valid credential ID is required.")
+        }
+    }
 
     mutating func run() async throws {
         try await CLIClient.run(.fill(field: field.bridgeField,
-            targetURL: normaliseSecureWebTarget(site), account: account))
+            targetURL: normaliseSecureWebTarget(site), account: account,
+            credentialID: credential.flatMap(UUID.init(uuidString:))))
     }
 }

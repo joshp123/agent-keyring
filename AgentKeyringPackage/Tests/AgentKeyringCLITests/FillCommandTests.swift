@@ -20,6 +20,31 @@ struct FillCommandTests {
         #expect(bridgeCommand.request.field == command.field.bridgeField)
     }
 
+    @Test("Fill accepts a credential ID and rejects invalid or conflicting selectors")
+    func credentialSelector() throws {
+        let id = UUID()
+        let command = try #require(AgentKeyringCLI.parseAsRoot(["fill", "password", "example.com", "--credential", id.uuidString]) as? Fill)
+        #expect(command.credential == id.uuidString)
+        let request = CLICommand.fill(field: .password, targetURL: "https://example.com", account: nil, credentialID: id).request
+        #expect(request.candidateID == id && request.action == .fill)
+        #expect(throws: (any Error).self) {
+            try AgentKeyringCLI.parseAsRoot(["fill", "password", "example.com", "--credential", "not-a-uuid"])
+        }
+        #expect(throws: (any Error).self) {
+            try AgentKeyringCLI.parseAsRoot(["fill", "password", "example.com", "--credential", id.uuidString, "--account", "same-account"])
+        }
+        #expect(Fill.helpMessage().contains("--credential"))
+    }
+
+    @Test("Duplicate accounts suggest fill with a credential ID")
+    func duplicateAccountSuggestion() {
+        let candidate = CredentialCandidate(id: UUID(), title: "Duplicate", username: "same-account",
+            origins: ["https://example.com"], availableFields: [.password])
+        let response = AgentBridgeResponse(id: UUID(), ok: false, error: .ambiguous, candidates: [candidate, candidate])
+        let error = CLIError(response: response, command: .fill(field: .password, targetURL: "https://example.com", account: nil))
+        #expect(error.rendered.contains("agent-keyring fill password 'https://example.com' --credential UUID"))
+    }
+
     @Test("Fill validates the secure site and missing arguments")
     func invalidArguments() throws {
         #expect(throws: (any Error).self) { try AgentKeyringCLI.parseAsRoot(["fill", "password"]) }

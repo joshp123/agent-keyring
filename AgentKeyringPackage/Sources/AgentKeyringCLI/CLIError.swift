@@ -26,7 +26,7 @@ struct CLIError: Error {
             let choices = accounts.map { "  \($0)" }.joined(separator: "\n")
             let suggestion: String
             let uniqueAccounts = Set(accounts.map { $0.lowercased() })
-            if uniqueAccounts.count < accounts.count, command.releaseVerb == "acquire" {
+            if uniqueAccounts.count < accounts.count {
                 suggestion =
                     "Run 'agent-keyring find \(targetURL)' to see the credential IDs, then choose one:\nagent-keyring \(command.releaseVerb) \(command.fieldArgument) \(shellQuote(targetURL)) --credential UUID"
             } else if let account = accounts.first {
