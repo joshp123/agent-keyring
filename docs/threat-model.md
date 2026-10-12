@@ -14,7 +14,7 @@ When a request reaches your phone, you are deciding whether *this* agent, on *th
 | Machine: "Josh's MacBook Pro", folder `~/code/nixos-config`, address 192.168.1.20 | Read by Agent Keyring on the Mac from the requesting process | Fact for local agents. |
 | Site, account, field (password, code or username) | Agent Keyring's own lookup | Fact. Fill also checks the page belongs to this site before typing. |
 | "Why" and "Your request" | Written by the agent | **The agent's claim.** Labelled as such. A tricked agent can write anything here. |
-| Flags: first time, high-risk site, many requests | Agent Keyring's own records | Fact. |
+| Flags: first time this agent asked for this login, a login you marked sensitive, many requests | Agent Keyring's own records | Fact. Sensitive is your mark (the rules assistant can suggest it), never a guess from the site's name. |
 
 Everything shown is also what your phone signs, so the Mac releases only what you saw.
 
@@ -22,7 +22,7 @@ Everything shown is also what your phone signs, so the Mac releases only what yo
 
 | Threat | Example | Defence | What remains |
 | --- | --- | --- | --- |
-| A trusted agent is tricked by a web page or document | Claude Code reads a page that tells it to sign in to your bank | Your rules (bank set to Blocked or Ask); the request shows the site, flags high-risk sites and first-time requests; the agent's "why" usually will not fit | You approve what you are shown. Context helps; it cannot be perfect. |
+| A trusted agent is tricked by a web page or document | Claude Code reads a page that tells it to sign in to your bank | Your rules (bank set to Blocked or Ask); the request shows the site and flags logins you marked sensitive and first-time requests; the agent's "why" usually will not fit | You approve what you are shown. Context helps; it cannot be perfect. |
 | Another program pretends to be your agent | A malicious script runs the `agent-keyring` command and labels itself "Claude Code" | The code-signature check marks it **Unverified**; Agent Keyring refuses unverified requesters for logins set to Allow automatically | A program you installed yourself and signed can still ask; it will be named. |
 | A phishing page | The agent is steered to github-login.example.com | Fill types only where the page belongs to the saved site; the agent-browser plugin checks the origin | — |
 | An agent asks over and over until you tap yes | 20 requests in a minute | Requests for the same login join one prompt; many requests are flagged; one approval covers that login for 30 minutes, so there is no need to keep asking | Fatigue is real. Shorter grants and per-site rules reduce it. |
@@ -35,4 +35,4 @@ Everything shown is also what your phone signs, so the Mac releases only what yo
 - **Fill, don't reveal.** The agent never holds the password, so it cannot paste it elsewhere later.
 - **Per-login, per-action, 30-minute grants.** Approving a fill never allows a plaintext `acquire`.
 - **Your words reach the agent.** Deny with a note ("use the gh CLI instead") so the agent changes course rather than retrying.
-- **High-risk sites.** Keep email, banks and Apple ID on Blocked or Ask. The rules assistant suggests this.
+- **Sensitive logins.** Mark email, banks and Apple ID as sensitive and keep them on Blocked or Ask. The rules assistant suggests this; you decide.
