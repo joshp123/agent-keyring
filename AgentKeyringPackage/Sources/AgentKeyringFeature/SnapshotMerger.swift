@@ -125,11 +125,11 @@ public struct SnapshotMerger: Sendable {
             return nil
         }
         guard previousMatches.count == 1, incomingMatches.count == 1 else {
-            throw MirrorError.ambiguousMatch
+            return nil
         }
         guard let fallbackMatch = previousMatches.first, !alreadyMatched.contains(fallbackMatch.id)
         else {
-            throw MirrorError.ambiguousMatch
+            return nil
         }
         return fallbackMatch
     }
@@ -139,7 +139,9 @@ public struct SnapshotMerger: Sendable {
             .compactMap { URL(string: $0) }
             .compactMap { url -> String? in
                 guard let host = url.host?.lowercased() else { return nil }
-                return "\(url.scheme?.lowercased() ?? "https")://\(host)"
+                let scheme = url.scheme?.lowercased() ?? "https"
+                let port = url.port ?? (scheme == "https" ? 443 : 80)
+                return "\(scheme)://\(host):\(port)"
             }
             .sorted()
 

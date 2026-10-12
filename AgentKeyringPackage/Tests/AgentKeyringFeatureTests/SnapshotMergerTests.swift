@@ -105,7 +105,7 @@ struct SnapshotMergerTests {
         #expect(second.delta.removedItemIDs.isEmpty)
     }
 
-    @Test("An ambiguous natural-key match fails closed")
+    @Test("Duplicate accounts keep distinct source identities without rejecting the import")
     func ambiguousMatchFails() throws {
         let first = try merger().merge(
             previous: nil,
@@ -113,9 +113,15 @@ struct SnapshotMergerTests {
         )
         let ambiguous = batch(items: [item(index: 2), item(index: 3)])
 
-        #expect(throws: MirrorError.ambiguousMatch) {
-            try merger().merge(previous: first, importBatch: ambiguous)
-        }
+        let second = try merger().merge(previous: first, importBatch: ambiguous)
+        #expect(second.items.count == 2)
+        #expect(Set(second.items.map(\.sourceIdentity)).count == 2)
+        let third = try merger().merge(previous: second, importBatch: ambiguous)
+        #expect(Set(third.items.map(\.id)) == Set(second.items.map(\.id)))
+        let withOriginal = try merger().merge(previous: first,
+            importBatch: batch(items: [item(index: 2), item(index: 1)]))
+        #expect(withOriginal.items.count == 2)
+        #expect(withOriginal.items.contains { $0.id == first.items[0].id })
     }
 
     private func merger() -> SnapshotMerger {
