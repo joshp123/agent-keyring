@@ -63,11 +63,19 @@ approve from the iPhone when Josh is away, keep standing per-login rules
        site
     3. the focused element is a text field, and for passwords a secure text
        field.
-  - It then types the value and, for the last field, presses Return.
+  - It then types the value. It never presses Return; the agent clicks the
+    sign-in button itself.
   - The agent learns only "filled" or why not.
   - This is how 1Password's Universal Autofill works. It needs one
-    Accessibility permission. Where a browser does not expose its address, the
-    agent-supplied site is used and the fill is limited to secure text fields.
+    Accessibility permission. The checks and the typing run in a small
+    embedded helper outside the App Sandbox, because sandboxed apps cannot use
+    Accessibility; the main app and the extension stay sandboxed.
+  - The page address must be read from the field's own document. If it cannot
+    be read, fill refuses and points the agent to agent-browser. There is no
+    fallback to the agent-supplied site.
+  - Grants are per action: approving a fill never unlocks `acquire`.
+  - Before typing, modifier keys are cleared and everything is re-checked. If
+    focus changes while typing, fill reports it instead of "filled".
 - **agent-browser adapter**, for headless work: a `credential.read` plugin, so
   `agent-browser auth login <site> --credential-provider agent-keyring` signs
   in with agent-browser checking the origin. agent-browser's protocol has no
