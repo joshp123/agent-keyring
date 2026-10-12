@@ -37,7 +37,7 @@ struct AgentBrowserPluginTests {
         let response = try await invoke(request: ["itemRef": itemRef, "url": "https://example.com/login?next=account"]) { request in
             requests.append(request)
             if request.action == .acquire {
-                try CredentialTransfer.publish(request.field == .username ? "synthetic@example.com" : "synthetic-pässword\n", requestID: request.id)
+                try CredentialTransfer.publish(request.field == .username ? "synthetic@example.com" : "synthetic-pässword\n", requestID: request.id, credentialID: UUID(), expiresAfter: 300)
             }
             return AgentBridgeResponse(id: request.id, ok: true, candidates: [candidate])
         }
@@ -70,7 +70,7 @@ struct AgentBrowserPluginTests {
         let response = try await invoke { request in
             if request.action == .resolve { return AgentBridgeResponse(id: request.id, ok: true, candidates: [candidate]) }
             references.append(request.id)
-            try CredentialTransfer.publish("failure-secret-canary", requestID: request.id)
+            try CredentialTransfer.publish("failure-secret-canary", requestID: request.id, credentialID: UUID(), expiresAfter: 300)
             return AgentBridgeResponse(id: request.id, ok: request.field == .username,
                 error: code, message: "failure-secret-canary")
         }
@@ -96,7 +96,7 @@ struct AgentBrowserPluginTests {
             if request.action == .resolve { return AgentBridgeResponse(id: request.id, ok: true, candidates: [candidate]) }
             references.append(request.id)
             if request.field == .username || mode != "missing buffer" {
-                try CredentialTransfer.publish("transport-secret-canary", requestID: request.id)
+                try CredentialTransfer.publish("transport-secret-canary", requestID: request.id, credentialID: UUID(), expiresAfter: 300)
             }
             if request.field == .password {
                 if mode == "throw" { throw AgentBridgeFailure(.authorizationUnavailable, "transport-secret-canary") }
@@ -132,7 +132,7 @@ struct AgentBrowserPluginTests {
         ])) { request in
             #expect(request.targetURL == "https://example.com")
             if request.action == .acquire {
-                try CredentialTransfer.publish(request.field == .username ? "synthetic@example.com" : "synthetic-password", requestID: request.id)
+                try CredentialTransfer.publish(request.field == .username ? "synthetic@example.com" : "synthetic-password", requestID: request.id, credentialID: UUID(), expiresAfter: 300)
             }
             return AgentBridgeResponse(id: request.id, ok: true, candidates: [candidate])
         }
@@ -183,7 +183,7 @@ struct AgentBrowserPluginTests {
             metadata.append(try JSONEncoder().encode(request))
             if request.action == .acquire {
                 references.append(request.id)
-                try CredentialTransfer.publish(request.field == .password ? canary : "synthetic@example.com", requestID: request.id)
+                try CredentialTransfer.publish(request.field == .password ? canary : "synthetic@example.com", requestID: request.id, credentialID: UUID(), expiresAfter: 300)
             }
             let receipt = AgentBridgeResponse(id: request.id, ok: true, candidates: [candidate])
             metadata.append(try JSONEncoder().encode(receipt))
