@@ -53,7 +53,8 @@ let package = Package(
             name: "AgentKeyringFeatureTests",
             dependencies: [
                 "AgentKeyringTestSupport",
-                "AgentKeyringFeature"
+                "AgentKeyringFeature",
+                "AgentKeyringApprovalCore"
             ]
         ),
         .testTarget(
