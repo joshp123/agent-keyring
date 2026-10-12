@@ -2,6 +2,10 @@ import Darwin
 import CryptoKit
 import Foundation
 import Observation
+import OSLog
+import Security
+
+private let accessRulesLogger = Logger(subsystem: "com.agentkeyring.app", category: "AccessRules")
 
 public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable {
     case ask
@@ -84,20 +88,48 @@ public actor CredentialAccessPolicyStore {
 
     public func load() throws -> [UUID: CredentialAccessPolicy] {
         let bytes: Data
+        let signature: Data
         do {
             try validateOwnedRegularFile(fileURL)
             try validateOwnedRegularFile(signatureURL)
             bytes = try Data(contentsOf: fileURL)
-            guard try signer.verify(Data(contentsOf: signatureURL), for: bytes) else {
-                throw AccessRulesConfirmationRequired()
-            }
-            guard try signer.signedBytesHash() == Data(SHA256.hash(data: bytes)) else {
-                throw AccessRulesConfirmationRequired()
-            }
-            return try decodePolicies(bytes)
+            signature = try Data(contentsOf: signatureURL)
         } catch {
+            accessRulesLogger.error("Access rules load failed: unreadable file")
             throw AccessRulesConfirmationRequired()
         }
+        let decodedPolicies: [UUID: CredentialAccessPolicy]
+        do { decodedPolicies = try decodePolicies(bytes) }
+        catch {
+            accessRulesLogger.error("Access rules load failed: decode failure")
+            throw AccessRulesConfirmationRequired()
+        }
+        let validSignature: Bool
+        do { validSignature = try signer.verify(signature, for: bytes) }
+        catch {
+            let nativeError = error as NSError
+            if nativeError.domain == NSOSStatusErrorDomain, nativeError.code == Int(errSecItemNotFound) {
+                accessRulesLogger.error("Access rules load failed: missing key")
+            } else {
+                accessRulesLogger.error("Access rules load failed: bad signature")
+            }
+            throw AccessRulesConfirmationRequired()
+        }
+        guard validSignature else {
+            accessRulesLogger.error("Access rules load failed: bad signature")
+            throw AccessRulesConfirmationRequired()
+        }
+        let signedHash: Data?
+        do { signedHash = try signer.signedBytesHash() }
+        catch {
+            accessRulesLogger.error("Access rules load failed: hash mismatch")
+            throw AccessRulesConfirmationRequired()
+        }
+        guard signedHash == Data(SHA256.hash(data: bytes)) else {
+            accessRulesLogger.error("Access rules load failed: hash mismatch")
+            throw AccessRulesConfirmationRequired()
+        }
+        return decodedPolicies
     }
 
     public func snapshotForConfirmation() throws -> AccessRulesConfirmationSnapshot {
@@ -276,7 +308,12 @@ public final class CredentialAccessController {
     }
 
     public func setPolicies(_ assignments: [UUID: CredentialAccessPolicy]) async {
-        guard !assignments.isEmpty, !isSavingRules, !needsConfirmation else { return }
+        guard !needsConfirmation else {
+            accessRulesLogger.error("Access rule change rejected: confirmation required")
+            errorMessage = AccessRulesConfirmationRequired.message
+            return
+        }
+        guard !assignments.isEmpty, !isSavingRules else { return }
         let knownIDs = Set(rows.map(\.id))
         guard assignments.keys.allSatisfy(knownIDs.contains) else {
             errorMessage = "The access change included an unknown credential. No rule was changed."
