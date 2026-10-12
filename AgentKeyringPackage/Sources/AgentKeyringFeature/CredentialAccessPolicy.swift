@@ -67,6 +67,8 @@ public final class CredentialAccessController {
         "\(count(for: .allowAutomatically)) allowed automatically, \(count(for: .block)) blocked, \(count(for: .ask)) ask each time"
     }
 
+    var approvalDeviceStore: CredentialAccessPolicyStore { store }
+    private var pendingPhoneBlocks: Set<UUID> = []
     private let store: CredentialAccessPolicyStore
     private var policies: [UUID: CredentialAccessPolicy] = [:]
     private var confirmationSnapshot: AccessRulesConfirmationSnapshot?
@@ -102,14 +104,14 @@ public final class CredentialAccessController {
                 title: item.title,
                 account: item.username ?? "No account name",
                 website: Self.websiteLabel(for: item),
-                policy: policies[item.id, default: .ask]
+                policy: policy(for: item.id)
             )
         }
         recomputeVisibleRows()
     }
 
     public func policy(for credentialID: UUID) -> CredentialAccessPolicy {
-        policies[credentialID, default: .ask]
+        pendingPhoneBlocks.contains(credentialID) ? .block : policies[credentialID, default: .ask]
     }
 
     public func releaseDecision(
@@ -125,6 +127,16 @@ public final class CredentialAccessController {
         case .ask:
             field.requiresUserApproval ? .requestAuthorization : .release
         }
+    }
+
+    public func stagePhoneBlock(for credentialID: UUID) {
+        pendingPhoneBlocks.insert(credentialID)
+        CredentialTransfer.revoke(credentialID: credentialID)
+        updateRowPolicies()
+    }
+
+    public func hasPendingPhoneBlock(for credentialID: UUID) -> Bool {
+        pendingPhoneBlocks.contains(credentialID)
     }
 
     public func setPolicy(_ policy: CredentialAccessPolicy, for credentialIDs: Set<UUID>) async {
@@ -157,8 +169,10 @@ public final class CredentialAccessController {
                 proposedPolicies[id] = policy
             }
         }
+        for id in pendingPhoneBlocks { proposedPolicies[id] = .block }
         do {
             try await store.save(proposedPolicies)
+            pendingPhoneBlocks.subtract(proposedPolicies.filter { $0.value == .block }.keys)
             try await reloadRules()
         } catch {
             errorMessage = "The access change could not be saved. No rule was changed."
@@ -178,11 +192,16 @@ public final class CredentialAccessController {
 
     public func confirmRules() async {
         guard canConfirmRules, let snapshot = confirmationSnapshot else { return }
+        var confirmedPolicies = snapshot.policies
+        for id in pendingPhoneBlocks { confirmedPolicies[id] = .block }
+        let confirmedSnapshot = AccessRulesConfirmationSnapshot(policies: confirmedPolicies,
+            resetsUnreadableRules: snapshot.resetsUnreadableRules)
         let reason = "confirm your Agent Keyring access rules: \(confirmationSummary)"
         isSavingRules = true
         defer { isSavingRules = false }
         do {
-            try await store.save(snapshot, reason: reason)
+            try await store.save(confirmedSnapshot, reason: reason)
+            pendingPhoneBlocks.subtract(confirmedPolicies.filter { $0.value == .block }.keys)
             confirmationSnapshot = nil
             try await reloadRules()
         } catch {
@@ -212,7 +231,7 @@ public final class CredentialAccessController {
     }
 
     private func updateRowPolicies() {
-        rows = rows.map { $0.changingPolicy(to: policies[$0.id, default: .ask]) }
+        rows = rows.map { $0.changingPolicy(to: policy(for: $0.id)) }
         recomputeVisibleRows()
     }
 

@@ -95,15 +95,31 @@ public enum AgentApprovalPhase: String, Codable, Sendable {
     case awaitingApproval
 }
 
+public enum ApprovalPromptProvider: String, Codable, Sendable {
+    case mac
+    case iPhone
+}
+
 public struct AgentApprovalProgress: Codable, Equatable, Sendable {
     public let waitingSince: Date
     public let askedAt: Date?
     public let phase: AgentApprovalPhase
 
-    public init(waitingSince: Date, askedAt: Date? = nil, phase: AgentApprovalPhase) {
+    public let provider: ApprovalPromptProvider?
+    public let phoneScheduledAt: Date?
+    public let macWasLocked: Bool?
+    public let approvedAt: Date?
+
+    public init(waitingSince: Date, askedAt: Date? = nil, phase: AgentApprovalPhase,
+        provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
+        macWasLocked: Bool? = nil, approvedAt: Date? = nil) {
         self.waitingSince = waitingSince
         self.askedAt = askedAt
         self.phase = phase
+        self.provider = provider
+        self.phoneScheduledAt = phoneScheduledAt
+        self.macWasLocked = macWasLocked
+        self.approvedAt = approvedAt
     }
 }
 

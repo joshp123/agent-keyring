@@ -64,6 +64,10 @@ public actor ApprovalDecisionVerifier {
         return decision.choice
     }
 
+    public func discard(requestID: UUID) {
+        pendingRequests.removeValue(forKey: requestID)
+    }
+
     private func refusal(_ reason: ApprovalDecisionRefusal) -> ApprovalDecisionRefusal {
         // Only the fixed reason is logged: no IDs, login fields, nonces, keys or signatures.
         approvalDecisionLogger.error("Approval decision refused: \(reason.rawValue, privacy: .public)")

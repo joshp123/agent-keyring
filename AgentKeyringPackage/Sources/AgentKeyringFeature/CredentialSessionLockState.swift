@@ -10,7 +10,7 @@ public struct SystemCredentialSessionLockState: CredentialSessionLockState {
     public init() {}
 
     public var isLocked: Bool {
-        Self.isLocked(session: CGSessionCopyCurrentDictionary() as? [String: Any])
+        CGDisplayIsAsleep(CGMainDisplayID()) != 0 || Self.isLocked(session: CGSessionCopyCurrentDictionary() as? [String: Any])
     }
 
     static func isLocked(session: [String: Any]?) -> Bool {

@@ -33,6 +33,13 @@ public struct ContentView: View {
                     }
                 ))
                 .toggleStyle(.checkbox)
+                HStack {
+                    @Bindable var routingSettings = model.approvalRoutingSettings
+                    Text("Ask on iPhone after")
+                    TextField("Seconds", value: $routingSettings.phoneDelaySeconds, format: .number)
+                        .frame(width: 60)
+                    Text("seconds")
+                }
             }
             .padding(24)
         }

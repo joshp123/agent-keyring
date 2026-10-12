@@ -47,7 +47,8 @@ public final class MirrorAppModel {
     let merger: SnapshotMerger
     let resolver: CredentialResolver
     let grants = CredentialApprovalGrants()
-    let approvals = CredentialApprovalCoordinator()
+    let approvals: CredentialApprovalCoordinator
+    public let approvalRoutingSettings: ApprovalRoutingSettings
     let authorizer: any CredentialReleaseAuthorizing
     let bridge: AgentBridgeDirectory
     public private(set) var includeExampleCredential: Bool
@@ -64,6 +65,7 @@ public final class MirrorAppModel {
         authorizer: any CredentialReleaseAuthorizing = LocalCredentialReleaseAuthorizer(),
         bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
         accessControl: CredentialAccessController = CredentialAccessController(),
+        phoneChannel: (any IPhoneApprovalChannel)? = nil,
         settings: UserDefaults = .standard
     ) {
         self.store = store
@@ -75,6 +77,11 @@ public final class MirrorAppModel {
         self.bridge = bridge
         self.accessControl = accessControl
         self.settings = settings
+        let routingSettings = ApprovalRoutingSettings(defaults: settings)
+        self.approvalRoutingSettings = routingSettings
+        self.approvals = CredentialApprovalCoordinator(phoneChannel: phoneChannel,
+            pairedDevices: accessControl.approvalDeviceStore,
+            phoneDelay: { TimeInterval(routingSettings.phoneDelaySeconds) })
         self.staleLogins = PossiblyStaleLogins(settings: settings)
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
     }

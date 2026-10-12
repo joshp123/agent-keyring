@@ -34,6 +34,7 @@ public struct AgentCredentialReleaseProcessor {
     public func release(
         request: AgentBridgeRequest,
         generation: MirrorGeneration,
+        cancelAuthorization: @escaping () -> Void = {},
         onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in },
         authorize: @escaping @MainActor (CredentialReleaseAuthorizationRequest, @escaping () -> Void) async throws -> Void
     ) async throws -> AgentBridgeResponse {
@@ -86,6 +87,9 @@ public struct AgentCredentialReleaseProcessor {
             throw CredentialResolverError.fieldUnavailable
         }
 
+        if accessControl.hasPendingPhoneBlock(for: selected.id) {
+            throw CredentialReleaseAuthorizationError.denied
+        }
         let releaseDecision = accessControl.releaseDecision(
             for: selected.id,
             field: field
@@ -115,7 +119,12 @@ public struct AgentCredentialReleaseProcessor {
                 authorizationDeadline: request.expiresAt,
                 isPossiblyStale: possiblyStaleCredentialIDs.contains(selected.id)
             )
+            let phoneRequest = try ApprovalRequest(agentDisplayLabel: "Local agent",
+                site: approval.destination, account: approval.account, field: field,
+                action: request.action == .fill ? .fill : .acquire, createdAt: now())
             try await approvals.authorize(credentialID: selected.id, action: request.action, authorizationDeadline: request.expiresAt,
+                approvalRequest: phoneRequest, cancelPrompt: cancelAuthorization,
+                onBlockLogin: { accessControl.stagePhoneBlock(for: selected.id) },
                 onProgress: { progress in
                     approvalProgress = progress
                     onProgress(progress)

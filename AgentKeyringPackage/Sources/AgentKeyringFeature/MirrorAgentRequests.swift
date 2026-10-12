@@ -151,6 +151,7 @@ extension MirrorAppModel {
         ).release(
             request: request,
             generation: generation,
+            cancelAuthorization: { self.authorizer.cancelCurrentAuthorization() },
             onProgress: { progress in
                 do { try self.bridge.write(progress, id: request.id) }
                 catch { agentBridgeLogger.error("Could not write approval status") }
