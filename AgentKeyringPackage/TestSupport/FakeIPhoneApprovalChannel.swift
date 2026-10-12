@@ -17,7 +17,11 @@ public final class FakeIPhoneApprovalChannel: IPhoneApprovalChannel {
     }
 
     public func answer(_ decision: ApprovalDecision) {
-        continuations[decision.requestID]?.yield(decision)
+        answer(decision, on: decision.requestID)
+    }
+
+    public func answer(_ decision: ApprovalDecision, on requestID: UUID) {
+        continuations[requestID]?.yield(decision)
     }
 
     public func cancel(requestID: UUID) {

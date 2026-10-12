@@ -217,6 +217,7 @@ public final class CredentialApprovalCoordinator {
                 if phone != nil { recordApproval(scope: scope, provider: .mac) }
                 return
             case let .phone(decision):
+                guard decision.requestID == request.id else { continue }
                 let choice: ApprovalChoice
                 do { choice = try await verifier.verify(decision) }
                 catch { continue } // The verifier logs its fixed refusal reason without login data.

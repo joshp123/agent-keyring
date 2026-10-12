@@ -61,6 +61,26 @@ struct PhoneApprovalRoutingTests {
         #expect(fixture.phone.cancelledRequestIDs == [fixture.request.id])
     }
 
+    @Test("A signed decision for B on A's stream neither approves A nor consumes B's receipt")
+    func crossRequestDecision() async throws {
+        let fixture = try PhoneRoutingFixture(screenLocked: true)
+        let task = fixture.start()
+        try await routingEventually { fixture.phone.requests.count == 1 }
+        let requestB = try ApprovalRequest(agentDisplayLabel: "Second agent", site: "second.example.com",
+            account: "synthetic", field: .password, action: .acquire, createdAt: fixture.clock.now)
+        try await fixture.verifier.register(requestB)
+        let decisionB = ApprovalDecision(requestID: requestB.id, choice: .approve,
+            devicePublicKey: fixture.key.publicKey.x963Representation,
+            signature: try fixture.key.signature(for: requestB.signedFields.canonicalBytes(for: .approve)).derRepresentation)
+        fixture.phone.answer(decisionB, on: fixture.request.id)
+        for _ in 0..<100 { await Task.yield() }
+        #expect(fixture.progress.last?.approvedAt == nil)
+        #expect(fixture.phone.cancelledRequestIDs.isEmpty)
+        #expect(try await fixture.verifier.verify(decisionB) == .approve)
+        fixture.phone.answer(try fixture.decision(.approve))
+        try await task.value
+    }
+
     @Test("A forged decision leaves both prompts waiting and a later valid answer succeeds")
     func forgedDecision() async throws {
         let fixture = try PhoneRoutingFixture()
@@ -265,6 +285,7 @@ private final class PhoneRoutingFixture {
     let mac = FakeCredentialAuthorizer()
     let request: ApprovalRequest
     let approvals: CredentialApprovalCoordinator
+    let verifier: ApprovalDecisionVerifier
     var progress: [AgentApprovalProgress] = []
 
     init(screenLocked: Bool = false, displayAsleep: Bool = false, delay: Int = 120, paired: Bool = true) throws {
@@ -274,7 +295,7 @@ private final class PhoneRoutingFixture {
         request = try ApprovalRequest(agentDisplayLabel: "Test agent", site: "example.com", account: "synthetic",
             field: .password, action: .acquire, createdAt: start)
         let devices = RoutingPairedKeys(keys: paired ? [key.publicKey.x963Representation] : [])
-        let verifier = ApprovalDecisionVerifier(pairedDevices: devices, now: { start })
+        verifier = ApprovalDecisionVerifier(pairedDevices: devices, now: { start })
         approvals = CredentialApprovalCoordinator(lockState: lock, phoneChannel: phone,
             pairedDevices: devices, verifier: verifier, phoneDelay: { Double(delay) },
             now: { [clock] in clock.now }, sleep: { [clock] in try await clock.sleep($0) })
