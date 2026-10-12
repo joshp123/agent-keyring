@@ -2,6 +2,9 @@ import CloudKit
 import Foundation
 
 public enum ApprovalCloudRecords {
+    public static let notificationCategory = "AGENT_KEYRING_APPROVAL"
+    public static let approveActionIdentifier = "APPROVE"
+    public static let denyActionIdentifier = "DENY"
     public static let requestZone = CKRecordZone.ID(zoneName: "ApprovalRequests", ownerName: CKCurrentUserDefaultName)
     public static let decisionZone = CKRecordZone.ID(zoneName: "ApprovalDecisions", ownerName: CKCurrentUserDefaultName)
 
@@ -22,7 +25,29 @@ public enum ApprovalCloudRecords {
         record["expiresAt"] = NSNumber(value: request.expiresAt)
         record.encryptedValues["site"] = request.site as CKRecordValue
         record.encryptedValues["account"] = request.account as CKRecordValue
+        record["notificationTitle"] = "Login approval" as CKRecordValue
+        record.encryptedValues["notificationBody"] =
+            "\(request.agentDisplayLabel) wants to \(request.action.rawValue) \(request.field.rawValue) for \(request.account) on \(request.site)." as CKRecordValue
+        record["notificationCategory"] = notificationCategory as CKRecordValue
+        record["notificationInterruptionLevel"] = "timeSensitive" as CKRecordValue
         return record
+    }
+
+    /// Saved by the iPhone, whose notification service extension fetches the record
+    /// to read encrypted notificationBody and set the time-sensitive interruption level.
+    public static func requestSubscription() -> CKQuerySubscription {
+        let subscription = CKQuerySubscription(recordType: "ApprovalRequest", predicate: NSPredicate(value: true),
+            subscriptionID: "agent-keyring-approval-requests-v1", options: .firesOnRecordCreation)
+        subscription.zoneID = requestZone
+        let notification = CKSubscription.NotificationInfo()
+        notification.title = "Login approval"
+        notification.alertBody = "An agent is asking to sign in."
+        notification.category = notificationCategory
+        notification.shouldSendMutableContent = true
+        notification.shouldSendContentAvailable = false
+        notification.desiredKeys = ["agentDisplayLabel", "expiresAt", "notificationCategory"]
+        subscription.notificationInfo = notification
+        return subscription
     }
 
     public static func decision(_ decision: ApprovalDecision) -> CKRecord {
