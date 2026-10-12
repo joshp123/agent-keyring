@@ -210,6 +210,8 @@ approve from the iPhone when Josh is away, keep standing per-login rules
 
 ## Cloud agents (designed now, built after)
 
+The risk profile and open decisions are in `0003-cloud-agents-risk.md`.
+
 Grok bot and Muse work in their own cloud environments, so the credential has
 to reach them. The design keeps that delivery as narrow as possible. In order
 of preference:

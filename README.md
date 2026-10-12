@@ -62,6 +62,8 @@ Programs that need a value get it by pipe, never on screen: `acquire` returns a 
 - `Allow automatically` trusts any program running as you while your Mac is unlocked.
 - Passkeys are not supported yet.
 
+Every permission Agent Keyring asks for, and why, is in [docs/permissions.md](docs/permissions.md).
+
 ## Build from source
 
 You need Xcode 27 and an Apple Developer team.
