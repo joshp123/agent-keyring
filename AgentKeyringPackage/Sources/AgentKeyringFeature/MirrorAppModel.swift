@@ -325,6 +325,7 @@ public final class MirrorAppModel {
                 switch error {
                 case .unavailable, .busy, .systemFailure: .authorizationUnavailable
                 case .denied: .authorizationDenied
+                case .interrupted: .authorizationInterrupted
                 case .expired: .requestExpired
                 }
             response = AgentBridgeResponse(

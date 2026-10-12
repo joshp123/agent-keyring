@@ -270,10 +270,16 @@ enum CLIClient {
                 throw CLIError(response: response, command: command)
             }
             write(try CLIOutput.render(response, for: command), to: output)
+            if request.action == .acquire || request.action == .copy {
+                write("Approved.\n", to: diagnostics)
+            }
         } catch let error as CLIError {
             write(error.rendered, to: diagnostics)
             if let mirror = failedFindMirror { write(CLIOutput.mirrorAge(mirror), to: diagnostics) }
             throw ExitCode(error.exitCode)
+        } catch let failure as AgentBridgeFailure {
+            try stop(CLIError(response: AgentBridgeResponse(id: UUID(), ok: false,
+                error: failure.code, message: failure.message), command: command), diagnostics: diagnostics)
         } catch let error as NSError
             where error.domain == NSCocoaErrorDomain
             && [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code)
@@ -633,7 +639,9 @@ struct CLIError: Error {
                 suggestion: "Open Agent Keyring and import them from Apple Passwords."
             )
         case .authorizationDenied:
-            self.init("The request was not approved. Nothing was released.")
+            self.init("Josh declined the request.", exitCode: 2)
+        case .authorizationInterrupted:
+            self.init("macOS interrupted the approval prompt; retry the request.", exitCode: 4)
         case .authorizationUnavailable:
             self.init(
                 response.message ?? "Credential approval is not available. Nothing was released."
@@ -641,10 +649,7 @@ struct CLIError: Error {
         case .policyDenied:
             self.init("Access to this login is blocked in Agent Keyring. Nothing was released.")
         case .requestExpired, .timedOut:
-            self.init(
-                "The request expired before Agent Keyring completed it.",
-                suggestion: "Try again."
-            )
+            self.init("The request expired with no answer.", exitCode: 3)
         case .invalidTOTP:
             self.init(
                 "Agent Keyring could not create a verification code for this login.",

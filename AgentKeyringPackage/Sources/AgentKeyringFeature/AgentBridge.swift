@@ -21,6 +21,7 @@ public enum AgentBridgeErrorCode: String, Codable, Sendable {
     case fieldUnavailable = "field_unavailable"
     case invalidTOTP = "invalid_totp"
     case authorizationDenied = "authorization_denied"
+    case authorizationInterrupted = "authorization_interrupted"
     case authorizationUnavailable = "authorization_unavailable"
     case policyDenied = "policy_denied"
     case internalError = "internal_error"

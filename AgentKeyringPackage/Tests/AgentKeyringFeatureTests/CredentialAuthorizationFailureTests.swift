@@ -7,15 +7,20 @@ import Testing
 struct CredentialAuthorizationFailureTests {
     private let now = Date(timeIntervalSince1970: 1_000)
 
-    @Test("System and app cancellations preserve the native failure", arguments: [-4, -9, -10, -999])
+    @Test("System and app cancellations preserve the native failure", arguments: [-1, -9, -10, -999])
     func systemFailure(code: Int) {
         let error = NSError(domain: LAError.errorDomain, code: code)
         #expect(classify(error) == .systemFailure(domain: LAError.errorDomain, code: code))
     }
 
-    @Test("User cancellation and failed authentication stay unapproved", arguments: [-2, -1])
+    @Test("Only user cancellation is a decline", arguments: [-2])
     func denied(code: Int) {
         #expect(classify(NSError(domain: LAError.errorDomain, code: code)) == .denied)
+    }
+
+    @Test("System cancellation is an interruption, never a decline")
+    func systemCancel() {
+        #expect(classify(NSError(domain: LAError.errorDomain, code: -4)) == .interrupted)
     }
 
     @Test("Unavailable mechanisms and noninteractive requests stay unavailable", arguments: [-6, -11, -1004])

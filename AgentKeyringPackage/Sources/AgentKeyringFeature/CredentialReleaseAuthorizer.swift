@@ -47,6 +47,7 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
     case unavailable
     case busy
     case denied
+    case interrupted
     case expired
     case systemFailure(domain: String, code: Int)
 
@@ -57,9 +58,11 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
         case .busy:
             "Another credential request is already awaiting approval."
         case .denied:
-            "Credential access was not approved."
+            "Josh declined the request."
+        case .interrupted:
+            "macOS interrupted the approval prompt; retry the request."
         case .expired:
-            "The credential request expired before it was approved."
+            "The request expired with no answer."
         case let .systemFailure(domain, code):
             "Credential approval failed (\(domain == LAError.errorDomain ? "LocalAuthentication" : domain) \(code)). Nothing was released."
         }
@@ -71,8 +74,10 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
         guard authorizationDeadline > now else { return .expired }
         if error.domain == LAError.errorDomain, let code = LAError.Code(rawValue: error.code) {
             switch code {
-            case .userCancel, .authenticationFailed:
+            case .userCancel:
                 return .denied
+            case .systemCancel:
+                return .interrupted
             case .biometryNotAvailable, .companionNotAvailable, .notInteractive:
                 return .unavailable
             default:
