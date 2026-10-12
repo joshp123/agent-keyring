@@ -10,7 +10,8 @@ public final class CredentialApprovalCoordinator {
         var observers: [(AgentApprovalProgress) -> Void]
     }
     private var pending: [CredentialApprovalScope: PendingApproval] = [:]
-    private var lastApprovalTask: Task<Void, Error>?
+    private var macPromptOwner: UUID?
+    private var macPromptQueue: [UUID] = []
 
     private let lockState: any CredentialSessionLockState
     private let phoneChannel: (any IPhoneApprovalChannel)?
@@ -69,14 +70,11 @@ public final class CredentialApprovalCoordinator {
         let progress = AgentApprovalProgress(waitingSince: now(),
             phase: lockState.isLocked && phoneChannel == nil ? .waitingForUnlock : .awaitingApproval)
         let approvalID = UUID()
-        let precedingApproval = lastApprovalTask
         let approval = Task { @MainActor in
-            if let precedingApproval { _ = await precedingApproval.result }
             try await self.route(scope: scope, authorizationDeadline: authorizationDeadline,
                 approvalRequest: approvalRequest, cancelPrompt: cancelPrompt,
                 onBlockLogin: onBlockLogin, prompt: prompt)
         }
-        lastApprovalTask = approval
         pending[scope] = PendingApproval(id: approvalID, authorizationDeadline: authorizationDeadline,
             task: approval, progress: progress, observers: [onProgress])
         onProgress(progress)
@@ -102,14 +100,18 @@ public final class CredentialApprovalCoordinator {
         let request = try approvalRequest ?? ApprovalRequest(agentDisplayLabel: "Local agent",
             site: "", account: "", field: .password,
             action: scope.action == .fill ? .fill : .acquire, createdAt: now())
-        let phone: IPhoneApprovalProvider?
+        let phone: (any ApprovalProviding)?
         if let phoneChannel, approvalRequest != nil {
             phone = try await IPhoneApprovalProvider.paired(channel: phoneChannel, devices: pairedDevices)
         } else { phone = nil }
         if phone == nil, phoneChannel != nil, lockState.isLocked {
             recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock)
         }
-        let mac = MacApprovalProvider(prompt: prompt, cancelPrompt: cancelPrompt)
+        if phone == nil || !lockState.isLocked { macPromptQueue.append(request.id) }
+        let mac: any ApprovalProviding = MacApprovalProvider(prompt: { onPromptStarted in
+            guard !self.lockState.isLocked else { throw CredentialReleaseAuthorizationError.interrupted }
+            try await prompt(onPromptStarted)
+        }, cancelPrompt: cancelPrompt)
         let (events, continuation) = AsyncStream<RoutingEvent>.makeStream()
         var macAttempt: UUID?
         var macTask: Task<Void, Never>?
@@ -127,6 +129,8 @@ public final class CredentialApprovalCoordinator {
             } catch { continuation.finish() }
         }
         defer {
+            macPromptQueue.removeAll { $0 == request.id }
+            if macPromptOwner == request.id { macPromptOwner = nil }
             ticker.cancel()
             macTask?.cancel()
             phoneTask?.cancel()
@@ -137,6 +141,8 @@ public final class CredentialApprovalCoordinator {
         }
 
         func startMac() {
+            guard macPromptOwner == nil, macPromptQueue.first == request.id else { return }
+            macPromptOwner = request.id
             let attempt = UUID()
             macAttempt = attempt
             let responses = mac.responses(to: request) {
@@ -179,12 +185,34 @@ public final class CredentialApprovalCoordinator {
             guard now() < authorizationDeadline else { throw CredentialReleaseAuthorizationError.expired }
             switch event {
             case .tick:
+                if lockState.isLocked, macAttempt != nil {
+                    macAttempt = nil
+                    macTask?.cancel()
+                    mac.cancel(requestID: request.id)
+                    if macPromptOwner == request.id { macPromptOwner = nil }
+                    if phone != nil { macPromptQueue.removeAll { $0 == request.id } }
+                    phoneScheduledAt = nil
+                    if !phoneAsked, phone == nil {
+                        recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock)
+                    }
+                }
                 if macAttempt == nil, !lockState.isLocked, !phoneAsked { startMac() }
                 if lockState.isLocked || (phoneScheduledAt.map { now() >= $0 } ?? false) {
                     try await startPhone()
                 }
             case let .mac(result, attempt):
                 guard macAttempt == attempt else { continue }
+                if lockState.isLocked {
+                    macAttempt = nil
+                    macTask?.cancel()
+                    mac.cancel(requestID: request.id)
+                    if macPromptOwner == request.id { macPromptOwner = nil }
+                    if phone != nil { macPromptQueue.removeAll { $0 == request.id } }
+                    phoneScheduledAt = nil
+                    if !phoneAsked, phone == nil { recordProgress(scope: scope, askedAt: nil, phase: .waitingForUnlock) }
+                    try await startPhone()
+                    continue
+                }
                 _ = try result.get()
                 return
             case let .phone(decision):
