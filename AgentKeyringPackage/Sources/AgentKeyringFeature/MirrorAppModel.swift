@@ -58,7 +58,8 @@ public final class MirrorAppModel {
     private let bridge: AgentBridgeDirectory
     private let pasteboard: ExpiringPasteboard
     private let approvalWindowPresenter: ApprovalWindowPresenter
-    private let includeExampleCredential: Bool
+    public private(set) var includeExampleCredential: Bool
+    private let settings: UserDefaults
     private var handledTokens = Set<UUID>()
     private var handledAgentRequests = Set<UUID>()
 
@@ -71,7 +72,8 @@ public final class MirrorAppModel {
         authorizer: any CredentialReleaseAuthorizing = LocalCredentialReleaseAuthorizer(),
         bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
         accessControl: CredentialAccessController = CredentialAccessController(),
-        includeExampleCredential: Bool = false,
+        includeExampleCredential: Bool? = nil,
+        settings: UserDefaults = .standard,
         approvalWindowPresenter: ApprovalWindowPresenter? = nil
     ) {
         self.store = store
@@ -82,7 +84,9 @@ public final class MirrorAppModel {
         self.authorizer = authorizer
         self.bridge = bridge
         self.accessControl = accessControl
+        self.settings = settings
         self.includeExampleCredential = includeExampleCredential
+            ?? (settings.object(forKey: "includeExampleCredential") as? Bool ?? true)
         self.pasteboard = ExpiringPasteboard()
         self.approvalWindowPresenter =
             approvalWindowPresenter
@@ -97,17 +101,22 @@ public final class MirrorAppModel {
     public func loadStatus() async {
         defer { isLoading = false }
         do {
-            let generation = generationIncludingExample(try await store.loadCurrent(metadataOnly: true))
-            status = generation?.safeStatus
-            if let generation {
-                await accessControl.refresh(from: generation)
-            }
+            let importedGeneration = try await store.loadCurrent(metadataOnly: true)
+            let generation = generationIncludingExample(importedGeneration)
+            status = importedGeneration?.safeStatus
+            await accessControl.refresh(from: generation)
         } catch {
             notice = MirrorNotice(
                 kind: .error,
                 text: "The encrypted mirror could not be opened. Apple Passwords was not changed."
             )
         }
+    }
+
+    public func setIncludeExampleCredential(_ enabled: Bool) async {
+        includeExampleCredential = enabled
+        settings.set(enabled, forKey: "includeExampleCredential")
+        await loadStatus()
     }
 
     public func receive(_ activity: NSUserActivity) {
@@ -356,7 +365,7 @@ public final class MirrorAppModel {
         let mirror = AgentMirrorSummary(
             importedAt: generation.createdAt,
             ageSeconds: max(0, Int(Date().timeIntervalSince(generation.createdAt))),
-            credentialCount: generation.items.count
+            credentialCount: generation.safeStatus.credentialItemCount
         )
 
         switch request.action {
@@ -407,7 +416,7 @@ public final class MirrorAppModel {
         guard includeExampleCredential else { return generation }
 
         let item = MirrorItem(
-            id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1)),
+            id: MirrorItem.exampleCredentialID,
             sourceIdentity: MirrorSourceIdentity(
                 exporterIdentifier: "com.agentkeyring.example",
                 accountID: Data("example@example.com".utf8),

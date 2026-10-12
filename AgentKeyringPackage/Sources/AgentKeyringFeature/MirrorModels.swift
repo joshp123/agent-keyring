@@ -68,6 +68,10 @@ public struct MirrorItem: Codable, Equatable, Sendable {
         self.credentials = credentials
     }
 
+    public static let exampleCredentialID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1))
+
+    var isExample: Bool { id == Self.exampleCredentialID }
+
     var accountName: String? {
         let passwordNames = credentials.compactMap { credential -> String? in
             guard case let .password(userName, _) = credential else { return nil }
@@ -239,7 +243,7 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
             importedAt: createdAt,
             sourceExportedAt: sourceExportedAt,
             scope: scope,
-            credentialItemCount: items.count,
+            credentialItemCount: items.filter { !$0.isExample }.count,
             addedCount: delta.addedItemIDs.count,
             changedCount: delta.changedItems.count,
             removedCount: delta.removedItemIDs.count,

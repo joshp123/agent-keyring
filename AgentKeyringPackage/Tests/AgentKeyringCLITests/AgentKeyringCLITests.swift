@@ -124,6 +124,17 @@ struct AgentKeyringCLITests {
         #expect(!output.contains("{"))
     }
 
+    @Test("Find displays the example without counting it as an imported login")
+    func exampleFindCount() throws {
+        let candidate = CredentialCandidate(id: MirrorItem.exampleCredentialID, title: "example.com",
+            username: "example@example.com", origins: ["https://example.com"], availableFields: [.password])
+        let response = AgentBridgeResponse(id: UUID(), ok: true,
+            mirror: AgentMirrorSummary(importedAt: Date(), ageSeconds: 0, credentialCount: 0), candidates: [candidate])
+        let output = try CLIOutput.render(response, for: .find(targetURL: "https://example.com", account: nil))
+        #expect(output.contains("Example login for example.com"))
+        #expect(!output.contains("1 login found"))
+    }
+
     @Test("Copy receipts name the safe account and destination")
     func copyOutput() throws {
         let candidate = CredentialCandidate(

@@ -152,7 +152,13 @@ public final class CredentialAccessController {
         self.store = store
     }
 
-    public func refresh(from generation: MirrorGeneration) async {
+    public func refresh(from generation: MirrorGeneration?) async {
+        guard let generation else {
+            currentGenerationID = nil
+            rows = []
+            recomputeVisibleRows()
+            return
+        }
         if !loadedPolicies {
             do {
                 policies = try await store.load()
@@ -164,7 +170,8 @@ public final class CredentialAccessController {
             }
         }
 
-        guard currentGenerationID != generation.id else { return }
+        guard currentGenerationID != generation.id
+            || Set(rows.map(\.id)) != Set(generation.items.map(\.id)) else { return }
         currentGenerationID = generation.id
         let currentIDs = Set(generation.items.map(\.id))
         policies = policies.filter { currentIDs.contains($0.key) }
@@ -239,7 +246,7 @@ public final class CredentialAccessController {
     }
 
     public func count(for policy: CredentialAccessPolicy) -> Int {
-        rows.lazy.filter { $0.policy == policy }.count
+        rows.lazy.filter { $0.policy == policy && $0.id != MirrorItem.exampleCredentialID }.count
     }
 
     private func recomputeVisibleRows() {

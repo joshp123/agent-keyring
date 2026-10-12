@@ -521,8 +521,12 @@ enum CLIOutput {
         _ candidates: [CredentialCandidate],
         targetURL: String
     ) -> String {
-        let noun = candidates.count == 1 ? "login" : "logins"
-        var lines = ["\(candidates.count) \(noun) found for \(displayHost(targetURL))"]
+        let loginCount = candidates.filter { $0.id != MirrorItem.exampleCredentialID }.count
+        let noun = loginCount == 1 ? "login" : "logins"
+        let heading = loginCount == 0 && candidates.contains { $0.id == MirrorItem.exampleCredentialID }
+            ? "Example login for \(displayHost(targetURL))"
+            : "\(loginCount) \(noun) found for \(displayHost(targetURL))"
+        var lines = [heading]
         let accountCounts = Dictionary(
             grouping: candidates,
             by: { $0.username?.lowercased() ?? "" }

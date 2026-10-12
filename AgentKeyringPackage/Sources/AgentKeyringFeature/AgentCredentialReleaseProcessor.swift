@@ -30,7 +30,7 @@ public struct AgentCredentialReleaseProcessor {
         let mirror = AgentMirrorSummary(
             importedAt: generation.createdAt,
             ageSeconds: max(0, Int(Date().timeIntervalSince(generation.createdAt))),
-            credentialCount: generation.items.count
+            credentialCount: generation.safeStatus.credentialItemCount
         )
         guard let targetURL = request.targetURL, let field = request.field else {
             throw AgentBridgeFailure(

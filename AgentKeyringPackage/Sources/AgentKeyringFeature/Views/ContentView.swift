@@ -30,6 +30,13 @@ public struct ContentView: View {
                         openPasswords: model.openPasswords,
                         manageAccess: { openWindow(id: "access") }
                     )
+                    Toggle("Show example.com login", isOn: Binding(
+                        get: { model.includeExampleCredential },
+                        set: { enabled in
+                            Task { await model.setIncludeExampleCredential(enabled) }
+                        }
+                    ))
+                    .toggleStyle(.checkbox)
                 }
             }
             .padding(24)
