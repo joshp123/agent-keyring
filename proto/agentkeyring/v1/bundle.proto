@@ -1,0 +1,73 @@
+// Written by AI on 2026.10.31 by Claude Opus 5.5.
+// Approver-to-receiver delivery, RFC 0005 and RFC 0006. The relay on the mini
+// stores and forwards these but cannot open a bundle or forge a decision.
+
+syntax = "proto3";
+
+package agentkeyring.v1;
+
+option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1";
+
+// What the receiver gets from BeginOperation once requests travel through the
+// relay. Checked before opening: decision signature by a pinned approver key,
+// statement names this receiver and lease, not_after in the future.
+message SealedDelivery {
+  SignedDecision decision = 1;
+  SealedBundle bundle = 2;
+}
+
+// HPKE (RFC 9180) base mode: DHKEM(P-256, HKDF-SHA256), HKDF-SHA256,
+// AES-256-GCM, sealed to the receiver's enrolled public key.
+// info = "agentkeyring.bundle.v1"; aad = request_digest.
+// P-256 so CryptoKit and the iPhone's Secure Enclave can take part.
+// Plaintext is a serialized BundleContents.
+message SealedBundle {
+  bytes encapsulated_key = 1;
+  bytes ciphertext = 2;
+  string receiver_key_id = 3;
+}
+
+message BundleContents {
+  string lease_id = 1;
+  string login_id = 2;
+  repeated string sites = 3;    // Receiver refuses any origin outside these.
+  string username = 4;
+  string password = 5;
+  // One code per time step up to not_after; the seed never leaves the approver.
+  repeated TimedCode one_time_codes = 6;
+  int64 not_after_unix_seconds = 7;
+}
+
+message TimedCode {
+  int64 valid_from_unix_seconds = 1;
+  int64 valid_until_unix_seconds = 2;
+  string code = 3;
+}
+
+// The approver signs the exact bytes of `statement` (a serialized
+// DecisionStatement) with ECDSA P-256 / SHA-256. Verifiers parse those bytes;
+// nobody re-serializes and compares, because protobuf encoding is not canonical.
+message SignedDecision {
+  bytes statement = 1;
+  bytes signature = 2;          // DER.
+  string approver_key_id = 3;
+  string reply = 4;             // Optional denial reply; not signed, display only.
+}
+
+message DecisionStatement {
+  string domain = 1;            // Always "agentkeyring.decision.v1".
+  bytes request_digest = 2;     // SHA-256 over "agentkeyring.request.v1\0" || RequestRecord bytes.
+  DecisionChoice choice = 3;
+  int64 approved_at_unix_seconds = 4;
+  int64 not_after_unix_seconds = 5;   // At most approved_at + 1800.
+  string recipient_id = 6;
+  string receiver_key_id = 7;
+  bytes bundle_ciphertext_sha256 = 8; // Empty on deny.
+  string lease_id = 9;
+}
+
+enum DecisionChoice {
+  DECISION_CHOICE_UNSPECIFIED = 0;
+  DECISION_CHOICE_APPROVE = 1;  // Includes approval by an Automatic rule.
+  DECISION_CHOICE_DENY = 2;
+}

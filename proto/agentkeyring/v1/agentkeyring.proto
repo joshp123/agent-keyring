@@ -1,0 +1,356 @@
+// Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
+// Local contract for RFC 0004. Remote enrolment, sealed bundles and approvers
+// are in relay.proto (RFCs 0005 and 0006). Agent-facing messages contain no
+// passwords, OTP codes or seeds; only BeginOperationResponse carries values, to
+// the receiver. Find includes account metadata. Transport authentication
+// establishes the caller; task_ref, recipient labels and reasons do not.
+
+syntax = "proto3";
+
+package agentkeyring.v1;
+
+import "agentkeyring/v1/bundle.proto";
+
+option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1";
+
+// Served by the credential authority, not necessarily by the receiving machine.
+service AgentKeyring {
+  rpc FindLogins(FindLoginsRequest) returns (FindLoginsResponse);
+  rpc RequestLease(RequestLeaseRequest) returns (Lease);
+  rpc GetLease(LeaseReference) returns (Lease);
+  // First emits the current snapshot, then changes. Ends at a terminal state.
+  // Disconnecting the watcher does not cancel the lease or initiate a new ask.
+  rpc WatchLease(LeaseReference) returns (stream Lease);
+  // Cancels pending or releases active. Repeated calls return current state.
+  rpc EndLease(LeaseReference) returns (Lease);
+  // Receiver-only. Records the operation as started, then returns the fields it
+  // needs. The same digest again returns the recorded outcome and no values.
+  rpc BeginOperation(BeginOperationRequest) returns (BeginOperationResponse);
+  rpc FinishOperation(FinishOperationRequest) returns (OperationRecord);
+}
+
+// The contract of the receiving code. In release 2 it runs in-process in the
+// `agent-keyring` client; there is no receiver daemon. Never execute these on the vault host
+// merely because it holds the lease. Caller, lease recipient and this receiver
+// must match. The receiver obtains values through an internal authorized path;
+// neither a raw-secret RPC nor an arbitrary recipient key belongs in this API.
+service CredentialReceiver {
+  rpc Fill(FillRequest) returns (FillResult);
+  rpc ExecuteProgram(ExecuteProgramRequest) returns (ExecuteProgramResult);
+}
+
+message FindLoginsRequest {
+  string query = 1;
+}
+
+message FindLoginsResponse {
+  repeated Login logins = 1;
+  int64 mirror_refreshed_unix_seconds = 2;
+}
+
+message Login {
+  string login_id = 1;          // Stable across supported mirror refreshes.
+  string title = 2;
+  repeated string sites = 3;    // Saved destinations, not caller-supplied scope.
+  string account = 4;
+  bool has_one_time_code = 5;
+  AccessRule rule = 6;
+}
+
+enum AccessRule {
+  ACCESS_RULE_UNSPECIFIED = 0;
+  ACCESS_RULE_ASK = 1;
+  ACCESS_RULE_AUTOMATIC = 2;
+  ACCESS_RULE_BLOCKED = 3;
+}
+
+enum Purpose {
+  PURPOSE_UNSPECIFIED = 0;
+  // Authorizes the receiver's Fill operation, not ExecuteProgram.
+  // This is not a claim of secrecy against a compromised receiving host.
+  PURPOSE_BROWSER_SIGN_IN = 1;
+  PURPOSE_PROGRAM = 2;
+  // The value goes to the requesting agent's own code (`read`), for browsers
+  // with no receiver. No protection claim. Shown as such on the approval.
+  PURPOSE_AGENT_PROCESS = 3;
+}
+
+message Recipient {
+  // Authority-issued identity bound to authenticated local peers / later
+  // enrollment. Not a process name, PID, IP address or agent-supplied label.
+  string recipient_id = 1;
+  string machine_label = 2;
+  string client_label = 3;
+}
+
+message ProgramCommand {
+  // Resolved absolute path on the recipient, never on the authority.
+  // Naming a program does not attest its safety or prevent it leaking stdin.
+  string executable = 1;
+  repeated string arguments = 2; // No shell expansion or credential values.
+}
+
+message RequestLeaseRequest {
+  string login_id = 1;
+  // One job, not an entire long-lived chat. Required. Cooperative grouping
+  // unless an integration supplies a trusted task boundary.
+  string task_ref = 2;
+  Purpose purpose = 3;
+  string reason = 4;            // Display as the agent's claim.
+  // Retry identity within the authenticated caller. Exact retries return the
+  // original record, even if terminal. Changed contents are CONFLICT.
+  // Fresh use after termination requires a fresh request_id.
+  string request_id = 5;
+  ProgramCommand program = 6;   // Required only for PURPOSE_PROGRAM.
+  // Empty only on an authenticated local connection: authority selects its
+  // persistent co-located receiver for that OS user. Remote requests name the
+  // enrolled recipient. Caller must be permitted to use the resolved recipient.
+  string recipient_id = 7;
+}
+
+message LeaseReference {
+  string lease_id = 1;          // Reference only, not a bearer credential.
+}
+
+message Lease {
+  string lease_id = 1;
+  string login_id = 2;
+  string task_ref = 3;
+  Purpose purpose = 4;
+  LeaseState state = 5;
+  // Absolute deadline set by the approving authority. Zero before approval.
+  // At most approved_at + 1800; relay receipt/reconnect never extends it.
+  int64 not_after_unix_seconds = 6;
+  int64 pending_until_unix_seconds = 7;
+  ApprovedBy approved_by = 8;
+  string reply = 9;             // Optional human denial reply.
+  // Informational, not machine-readable state or an instruction to notify Josh.
+  repeated string status_lines = 10;
+  Recipient recipient = 11;
+  repeated string sites = 12;  // Authorized destination scope; cannot be widened.
+  ProgramCommand program = 13;
+  // Zero unless a human denial currently suppresses new requests for this
+  // recipient/login. Does not authorize retry or defeat a Blocked rule.
+  int64 retry_not_before_unix_seconds = 14;
+  string reason = 15;
+  int64 approved_at_unix_seconds = 16;
+}
+
+enum LeaseState {
+  LEASE_STATE_UNSPECIFIED = 0;
+  LEASE_STATE_PENDING = 1;
+  LEASE_STATE_ACTIVE = 2;
+  LEASE_STATE_DENIED = 3;
+  LEASE_STATE_EXPIRED = 4;
+  LEASE_STATE_RELEASED = 5;
+  LEASE_STATE_REVOKED = 6;
+  LEASE_STATE_CANCELLED = 7;
+  LEASE_STATE_UNANSWERED = 8;
+}
+
+enum ApprovedBy {
+  APPROVED_BY_UNSPECIFIED = 0;
+  APPROVED_BY_AUTOMATIC_RULE = 1;
+  APPROVED_BY_MAC = 2;
+  APPROVED_BY_IPHONE = 3;
+}
+
+enum CredentialField {
+  CREDENTIAL_FIELD_UNSPECIFIED = 0;
+  CREDENTIAL_FIELD_USERNAME = 1;
+  CREDENTIAL_FIELD_PASSWORD = 2;
+  CREDENTIAL_FIELD_ONE_TIME_CODE = 3; // Current code only, never the seed.
+}
+
+message FillRequest {
+  string lease_id = 1;
+  Target target = 2;
+  // Optional. Empty: the receiver derives the operation digest (RFC 0004,
+  // "Operations and retries"). Records live with the lease at the authority, so
+  // an operation with no recorded result is UNCERTAIN after any restart, never
+  // an automatic second submit.
+  string operation_id = 3;
+  // Perform the same step again on an unchanged document after inspecting it.
+  bool again = 6;
+  repeated FieldBinding fields = 4;
+  // Exact submit control in the selected frame. No caller-provided JavaScript.
+  string submit_selector = 5;
+}
+
+message Target {
+  oneof kind {
+    ChromiumTarget chromium = 1;
+  }
+  // No exact-element AX receiver contract has been proved. Add a new target
+  // variant in its component RFC; do not use a window ID as an element ID.
+  reserved 2;
+  reserved "mac_window";
+}
+
+message ChromiumTarget {
+  // Local to the receiver. Loopback alone does not authenticate the browser;
+  // endpoint ownership must be checked by the receiving integration.
+  string endpoint = 1;
+  string target_id = 2;
+  // Optional. Empty means the tab's main frame.
+  string frame_id = 3;
+  // Optional. The CDP frame loader ID the agent observed. When given, a
+  // changed document is refused. The receiver always checks the frame's actual
+  // origin against the saved login before filling, given or not.
+  string loader_id = 4;
+}
+
+message FieldBinding {
+  CredentialField field = 1;
+  // Exactly one editable element in the selected frame. Model chooses it.
+  // Plain CSS only; no embedded script or selector that queries other frames.
+  string selector = 2;
+}
+
+message FillResult {
+  FillOutcome outcome = 1;
+  string detail = 2;           // Safe outcome text, never page/credential contents.
+  repeated CredentialField fields_filled = 3;
+}
+
+enum FillOutcome {
+  FILL_OUTCOME_UNSPECIFIED = 0;
+  FILL_OUTCOME_SUBMITTED = 1;      // Not proof of authenticated website state.
+  FILL_OUTCOME_UNCERTAIN = 2;      // May have acted. Inspect before a new operation.
+  FILL_OUTCOME_SITE_MISMATCH = 3;
+  FILL_OUTCOME_TARGET_INVALID = 4; // Missing, ambiguous or unsuitable elements.
+  FILL_OUTCOME_TARGET_UNSUPPORTED = 5;
+  FILL_OUTCOME_LEASE_NOT_ACTIVE = 6;
+  FILL_OUTCOME_TARGET_CHANGED = 7;
+  // No success claim; values may remain. Do not read back sensitive fields.
+  FILL_OUTCOME_CLEANUP_FAILED = 8;
+  FILL_OUTCOME_FIELD_UNAVAILABLE = 9;
+}
+
+message ExecuteProgramRequest {
+  string lease_id = 1;
+  string operation_id = 2;     // Same retry/crash rules as Fill.
+  CredentialField field = 3;
+  // Command comes from the approved lease; cannot be substituted at execution.
+}
+
+message ExecuteProgramResult {
+  ProgramOutcome outcome = 1;
+  optional int32 exit_code = 2; // Present only if the child exited.
+  string detail = 3;
+  // Deliberately no child stdout/stderr: arbitrary programs can echo stdin.
+}
+
+enum ProgramOutcome {
+  PROGRAM_OUTCOME_UNSPECIFIED = 0;
+  PROGRAM_OUTCOME_EXITED = 1;
+  PROGRAM_OUTCOME_UNCERTAIN = 2; // May have started; never restart automatically.
+  PROGRAM_OUTCOME_NOT_STARTED = 3;
+  PROGRAM_OUTCOME_LEASE_NOT_ACTIVE = 4;
+  PROGRAM_OUTCOME_FIELD_UNAVAILABLE = 5;
+}
+
+message BeginOperationRequest {
+  string lease_id = 1;
+  // SHA-256 of the operation's identity, computed by the receiver.
+  bytes operation_digest = 2;
+  OperationKind kind = 3;
+  repeated CredentialField fields = 4;
+}
+
+enum OperationKind {
+  OPERATION_KIND_UNSPECIFIED = 0;
+  OPERATION_KIND_FILL = 1;            // Lease purpose must be BROWSER_SIGN_IN.
+  OPERATION_KIND_EXECUTE_PROGRAM = 2; // Lease purpose must be PROGRAM.
+  OPERATION_KIND_READ = 3;            // Lease purpose must be AGENT_PROCESS.
+}
+
+message BeginOperationResponse {
+  oneof result {
+    // Local socket only (release 2). Never sent over a network.
+    CredentialValues values = 1;
+    // Release 3 onwards: sealed to the enrolled receiver, with the approver's
+    // signed decision so the receiver can check who approved what (bundle.proto).
+    SealedDelivery sealed = 2;
+    // This digest was already started: no values, nothing to perform.
+    OperationRecord already_started = 3;
+  }
+  string operation_id = 4;
+}
+
+message CredentialValues {
+  string username = 1;
+  string password = 2;
+  string one_time_code = 3;  // Current code only.
+}
+
+message FinishOperationRequest {
+  string lease_id = 1;
+  string operation_id = 2;
+  oneof outcome {
+    FillOutcome fill = 3;
+    ProgramOutcome program = 4;
+    bool read_delivered = 5;
+  }
+}
+
+message OperationRecord {
+  string operation_id = 1;
+  OperationKind kind = 2;
+  int64 started_unix_seconds = 3;
+  // Unset while started with no recorded result: callers treat it as UNCERTAIN.
+  oneof outcome {
+    FillOutcome fill = 4;
+    ProgramOutcome program = 5;
+    bool read_delivered = 6;
+  }
+}
+
+// Local wire mapping, not gRPC: one RPC per connection. Each frame is a
+// four-byte unsigned big-endian byte length followed by serialized protobuf,
+// with a 1 MiB maximum. Zero/oversized/malformed frames terminate the connection.
+// WireRequest selects the method. Unary responses set end_of_stream; WatchLease
+// first sends a snapshot, then changes, and ends on a terminal state/error.
+// No multiplexing or arbitrary method strings.
+message WireRequest {
+  oneof request {
+    FindLoginsRequest find_logins = 1;
+    RequestLeaseRequest request_lease = 2;
+    LeaseReference get_lease = 3;
+    LeaseReference watch_lease = 4;
+    LeaseReference end_lease = 5;
+    FillRequest fill = 6;
+    ExecuteProgramRequest execute_program = 7;
+    BeginOperationRequest begin_operation = 8;
+    FinishOperationRequest finish_operation = 9;
+  }
+}
+
+message WireResponse {
+  oneof response {
+    FindLoginsResponse logins = 1;
+    Lease lease = 2;
+    FillResult fill = 3;
+    ExecuteProgramResult execute_program = 4;
+    RpcError error = 5;
+    BeginOperationResponse begin_operation = 7;
+    OperationRecord operation = 8;
+  }
+  bool end_of_stream = 6;
+}
+
+message RpcError {
+  RpcErrorCode code = 1;
+  string message = 2;          // Safe text; never arbitrary exception payloads.
+}
+
+enum RpcErrorCode {
+  RPC_ERROR_CODE_UNSPECIFIED = 0;
+  RPC_ERROR_CODE_INVALID_ARGUMENT = 1;
+  RPC_ERROR_CODE_UNAUTHENTICATED = 2;
+  RPC_ERROR_CODE_PERMISSION_DENIED = 3;
+  RPC_ERROR_CODE_NOT_FOUND = 4;
+  RPC_ERROR_CODE_CONFLICT = 5;
+  RPC_ERROR_CODE_UNAVAILABLE = 6;
+  RPC_ERROR_CODE_INTERNAL = 7;
+}
