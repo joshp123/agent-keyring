@@ -6,7 +6,7 @@ import OSLog
 
 private let credentialExchangeLogger = Logger(
     subsystem: "com.agentkeyring.app",
-    category: "CredentialExchange"
+    category: "Import"
 )
 
 private let agentBridgeLogger = Logger(
@@ -135,7 +135,7 @@ public final class MirrorAppModel {
             return
         }
 
-        credentialExchangeLogger.info("Accepted credential import token")
+        credentialExchangeLogger.info("Import token present")
         Task { await importCredentials(token: token) }
     }
 
@@ -241,11 +241,17 @@ public final class MirrorAppModel {
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
-            let generation = try merger.merge(
-                previous: previousGeneration,
-                importBatch: importBatch
-            )
+            let generation: MirrorGeneration
+            do {
+                generation = try merger.merge(previous: previousGeneration, importBatch: importBatch)
+                credentialExchangeLogger.info("Merge completed with \(generation.items.count, privacy: .public) items")
+            } catch {
+                let failure = error as NSError
+                credentialExchangeLogger.error("Merge failed [\(failure.domain, privacy: .public)/\(failure.code, privacy: .public)]")
+                throw error
+            }
             try await store.save(generation)
+            credentialExchangeLogger.info("Save committed; cleanup not performed")
             let visibleGeneration = generationIncludingExample(generation) ?? generation
             await accessControl.refresh(from: visibleGeneration)
             credentialExchangeLogger.info(
