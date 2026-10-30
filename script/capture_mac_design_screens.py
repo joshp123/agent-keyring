@@ -82,8 +82,9 @@ def main():
     screens = sys.argv[3:] or SCREENS
     password = sys.stdin.read().rstrip("\r\n")
     client = api.connect(MINI, username=USER, password=password, timeout=25)
+    was_locked = locked()
     try:
-        if locked():
+        if was_locked:
             unlock(client, password)
             if locked():
                 sys.exit("The mini is still locked after typing the password.")
@@ -95,6 +96,9 @@ def main():
         client.factory.password = None
         client.disconnect()
         api.shutdown()
+        if was_locked:
+            # Closing Screen Sharing doesn't relock the mini; sleeping the display does.
+            ssh("pmset displaysleepnow")
 
 
 main()
