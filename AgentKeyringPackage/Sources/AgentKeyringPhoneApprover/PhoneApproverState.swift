@@ -21,6 +21,11 @@ struct PhonePendingPair: Codable {
     let transcript: Data
 }
 
+struct PhoneReplacementPairing: Codable {
+    let previousKeyID: String
+    var needsFreshIdentity: Bool
+}
+
 struct PhoneRequestLogin: Codable, Equatable {
     let title: String
     let sites: [String]
@@ -46,6 +51,7 @@ struct PhoneApproverState: Codable {
     var endpoint: RelayEndpoint?
     var relaySPKI: Data?
     var pendingPair: PhonePendingPair?
+    var replacementPairing: PhoneReplacementPairing?
     var pairingWanted = false
     var keySet: Data?
     var configuration: Data?
@@ -61,6 +67,7 @@ public final class PhoneRelayApprover {
     let directory: URL
     let keys: any PhoneApproverKeys
     let identityProvider: @MainActor () throws -> RelayTLSIdentity
+    let replaceIdentity: @MainActor () throws -> Void
     var state = PhoneApproverState()
     var loaded = false
     var workTask: Task<Void, Never>?
@@ -81,8 +88,10 @@ public final class PhoneRelayApprover {
     let logger = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Approver")
 
     public init(directory: URL, keys: any PhoneApproverKeys,
-                identity: @escaping @MainActor () throws -> RelayTLSIdentity) {
+                identity: @escaping @MainActor () throws -> RelayTLSIdentity,
+                replaceIdentity: @escaping @MainActor () throws -> Void) {
         self.directory = directory; self.keys = keys; self.identityProvider = identity
+        self.replaceIdentity = replaceIdentity
     }
 
     public func load() throws {

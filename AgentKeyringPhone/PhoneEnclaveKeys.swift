@@ -9,6 +9,17 @@ import Security
 struct PhoneEnclaveKeys: PhoneApproverKeys {
     private let service = "com.joshpalmer.AgentKeyring.Phone.enclave"
 
+    func replace() throws {
+        for account in ["phone-answers.v3", "phone-copies.v1"] {
+            let status = SecItemDelete(query(account: account) as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+            }
+        }
+        _ = try signingPublicKey()
+        _ = try encryptionPublicKey()
+    }
+
     func signingPublicKey() throws -> Data {
         let context = LAContext()
         context.interactionNotAllowed = true
