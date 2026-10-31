@@ -187,15 +187,11 @@ which of his agents is asking; the claim block says where it came from.
   screen takes the relay address (prefilled `mac-mini:17443`), shows the code
   in the same layout, and finishes by itself after the Mac approves.
 
-Still to bind when they reach main: "Doesn't match" for an iPhone joining
-(`dismissApproverPairing`) and for the first relay setup (`abandonPairing`).
-Until then the iPhone case shows that refusing isn't in the build yet, and
-relay setup starts again with Connect.
-
-**Address check.** The Swift `RelayEndpoint` (phone and Mac) accepts only a
-`100.64/10` address, the tailnet IPv6 prefix or a `.ts.net` name, so the
-prefilled `mac-mini:17443` is refused until it also accepts a single-label
-tailnet name, as the Go client now does.
+"Doesn't match" refuses a joining machine (`denyEnrolment`), dismisses a
+joining iPhone locally (`dismissApproverPairing`) and abandons an
+unconfirmed first relay setup (`abandonPairing`). Each reports, in the
+relay's words, when the answer was already signed. The relay address may be
+any host name; the connection checks that it resolves to a tailnet address.
 
 ### Release 3 check on the MacBook
 
