@@ -17,11 +17,11 @@ struct RelayKeychain {
         return data
     }
     func write(_ bytes: Data, account: String) throws {
-        let status = SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: bytes] as CFDictionary)
+        let status = SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: bytes, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary)
         if status == errSecItemNotFound {
             var attributes = query(account)
             attributes[kSecValueData as String] = bytes
-            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let added = SecItemAdd(attributes as CFDictionary, nil)
             guard added == errSecSuccess else { throw KeychainError(status: added) }
         } else if status != errSecSuccess { throw KeychainError(status: status) }
@@ -43,7 +43,10 @@ public struct RelayTLSIdentity: @unchecked Sendable {
     @MainActor public static func loadOrCreate(service: String = "com.agentkeyring.relay-identity.v1") throws -> Self {
         let keychain = RelayKeychain(service: service)
         let saved: Saved
-        if let bytes = try keychain.read("tls") { saved = try PropertyListDecoder().decode(Saved.self, from: bytes) }
+        if let bytes = try keychain.read("tls") {
+            saved = try PropertyListDecoder().decode(Saved.self, from: bytes)
+            try keychain.write(bytes, account: "tls")
+        }
         else {
             let key = P256.Signing.PrivateKey()
             saved = Saved(privateKey: key.x963Representation, certificate: try certificate(key))
@@ -122,9 +125,9 @@ public final class SecureEnclaveRelaySigner: RelayApproverSigning {
     public init(service: String = "com.agentkeyring.relay-signing.v1") throws {
         guard SecureEnclave.isAvailable else { throw CredentialReleaseAuthorizationError.unavailable }
         let keychain = RelayKeychain(service: service)
-        func access(_ flags: SecAccessControlCreateFlags) throws -> SecAccessControl {
+        func access(_ flags: SecAccessControlCreateFlags, accessibility: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly) throws -> SecAccessControl {
             var error: Unmanaged<CFError>?
-            guard let value = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, flags, &error) else {
+            guard let value = SecAccessControlCreateWithFlags(nil, accessibility, flags, &error) else {
                 throw error!.takeRetainedValue() as Error
             }
             return value
@@ -132,6 +135,9 @@ public final class SecureEnclaveRelaySigner: RelayApproverSigning {
         humanAccess = try access([.privateKeyUsage, .biometryAny])
         func load(_ account: String, control: SecAccessControl) throws -> SecureEnclave.P256.Signing.PrivateKey {
             if let bytes = try keychain.read(account) {
+                // The wrapper may be read while locked; the enclave key's own
+                // access control still governs every private-key operation.
+                try keychain.write(bytes, account: account)
                 return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: bytes)
             }
             let key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: control)
@@ -139,7 +145,7 @@ public final class SecureEnclaveRelaySigner: RelayApproverSigning {
             return key
         }
         let human = try load("human", control: humanAccess)
-        let automatic = try load("automatic", control: access(.privateKeyUsage))
+        let automatic = try load("delivery-after-first-unlock.v1", control: access(.privateKeyUsage, accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly))
         humanKey = human.dataRepresentation
         automaticKey = automatic.dataRepresentation
         publicKey = human.publicKey.x963Representation

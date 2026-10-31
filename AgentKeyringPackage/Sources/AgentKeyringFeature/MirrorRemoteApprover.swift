@@ -3,7 +3,7 @@ import Foundation
 @available(macOS 26.0, *)
 extension MirrorAppModel {
     func makeRelayApprover() -> RelayApprover {
-        RelayApprover { [weak self] in
+        RelayApprover(leaseStore: leaseStore, phoneDelay: { [approvalRoutingSettings] in approvalRoutingSettings.phoneDelaySeconds }) { [weak self] in
             guard let self else { throw LeaseFailure(.unavailable, "Agent Keyring is closing.") }
             try await self.accessControl.ensureRulesConfirmed()
             let imported = try await self.store.loadCurrent()

@@ -51,7 +51,6 @@ public final class MirrorAppModel {
     public let leaseStore: CredentialLeaseStore
     @ObservationIgnored public lazy var relayApprover: RelayApprover = makeRelayApprover()
     public var automaticallyPromptForLeases = true
-    var leaseMaintenance: Task<Void, Never>?
     var macApprovalTask: Task<Void, Never>?
     var isApprovingLease = false
     var attemptedMacApprovals = Set<String>()
@@ -74,7 +73,6 @@ public final class MirrorAppModel {
         authorizer: any CredentialReleaseAuthorizing = LocalCredentialReleaseAuthorizer(),
         bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
         accessControl: CredentialAccessController = CredentialAccessController(),
-        phoneChannel: (any IPhoneApprovalChannel)? = nil,
         fillAccessibility: FillAccessibilityOnboarding = FillAccessibilityOnboarding(),
         leaseStore: CredentialLeaseStore = CredentialLeaseStore(),
         settings: UserDefaults = .standard
@@ -94,6 +92,22 @@ public final class MirrorAppModel {
         self.leaseStore = leaseStore
         self.staleLogins = PossiblyStaleLogins(settings: settings)
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
+        self.accessControl.connectAuthority(leaseStore, authorize: { [weak self] context, reason in
+            guard let self else { throw CancellationError() }
+            try self.relayApprover.load()
+            if self.relayApprover.state.keySet != nil {
+                try await self.relayApprover.keys().1.authorize(context: context, reason: reason)
+            }
+        }, commit: { [weak self] policies, rules, context in
+            guard let self else { throw CancellationError() }
+            let imported = try await self.store.loadCurrent()
+            guard let generation = self.generationIncludingExample(imported) else {
+                throw LeaseFailure(.unavailable, "The saved logins could not be opened.")
+            }
+            try Task.checkCancellation()
+            try self.relayApprover.applyConfirmedRules(RelayApproverVault(generation: generation, policies: policies),
+                context: context, rules: rules)
+        })
         self.accessControl.onRulesChanged = { [weak self] in
             guard let self else { return }
             self.relayApprover.noteRulesChanged()

@@ -10,20 +10,13 @@ extension RelayApprover {
         guard state.endpoint != nil || state.pairing?.confirmation != nil else {
             connectionState = .notPaired; publish(); return
         }
-        if outboxTask == nil {
-            outboxTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    guard let self else { return }
-                    await self.flushOutbox()
-                    do { try self.expireRequests() } catch { self.report(error) }
-                    try? await Task.sleep(for: .seconds(2))
-                }
-            }
-        }
+        wakeOutbox()
+        do { try leaseStore.setScreenLocked(lockState.isLocked) } catch { report(error) }
         if state.keySet != nil, sessionTask == nil {
             sessionTask = Task { [weak self, lockState] in
                 for await _ in lockState.changes {
                     guard let self, !Task.isCancelled else { return }
+                    do { try self.leaseStore.setScreenLocked(lockState.isLocked) } catch { self.report(error) }
                     if !lockState.isLocked { self.noteRulesChanged() }
                 }
             }
@@ -72,6 +65,21 @@ extension RelayApprover {
 
     public func reconnect() { stop(); start() }
 
+    func wakeOutbox() {
+        guard loaded, !state.outbox.isEmpty, outboxTask == nil else { return }
+        outboxTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.outboxTask = nil }
+            var delay = 1
+            while !Task.isCancelled && !self.state.outbox.isEmpty {
+                await self.flushOutbox()
+                if self.state.outbox.isEmpty { return }
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                delay = min(30, delay * 2)
+            }
+        }
+    }
+
     func flushOutbox() async {
         guard !isFlushing else { return }
         isFlushing = true
@@ -85,6 +93,11 @@ extension RelayApprover {
                 if case .confirmPairing = command.request, let pending = state.pairing {
                     client = RelayTransport(endpoint: pending.endpoint, identity: try keys().0, pin: pending.relaySPKI)
                 } else { client = try transport() }
+                if case .escalateToPhone = command.request, queued.attempted != true {
+                    var next = state
+                    next.outbox[0].attempted = true
+                    try commit(next)
+                }
                 let response = try await client.call(command)
                 guard state.outbox.first?.bytes == queued.bytes else { continue }
                 var next = state
@@ -106,7 +119,8 @@ extension RelayApprover {
                         lease.state = statement.choice == .approve ? .active : .denied
                         lease.approvedAtUnixSeconds = statement.choice == .approve ? statement.approvedAtUnixSeconds : 0
                         lease.notAfterUnixSeconds = statement.choice == .approve ? statement.notAfterUnixSeconds : 0
-                        lease.approvedBy = statement.choice == .approve ? (statement.authority == .automaticRule ? .automaticRule : .mac) : .unspecified
+                        lease.approvedBy = statement.authority == .phone ? .iphone
+                            : (statement.choice == .approve ? (statement.authority == .automaticRule ? .automaticRule : .mac) : .mac)
                         lease.reply = decision.reply
                         if statement.choice == .deny {
                             lease.endedAtUnixSeconds = Self.now
@@ -131,7 +145,9 @@ extension RelayApprover {
                     next.requests[id] = saved
                 case let (.publishApproverKeys(keys), .publish(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
-                    next.keySet = try keys.serializedData()
+                    let incoming = try Agentkeyring_V1_ApproverKeySet(serializedBytes: keys.keySet)
+                    let current = try Agentkeyring_V1_ApproverKeySet(serializedBytes: currentKeySet().keySet)
+                    if incoming.revision >= current.revision { next.keySet = try keys.serializedData() }
                     if queued.id.hasPrefix("approver-pairing:") {
                         next.pendingApprovers?.removeValue(forKey: String(queued.id.dropFirst("approver-pairing:".count)))
                     }
@@ -139,9 +155,14 @@ extension RelayApprover {
                     guard lease.leaseID == reference.leaseID, Self.isTerminal(lease.state) else {
                         throw LeaseFailure(.conflict, "The relay did not end the requested lease.")
                     }
-                case let (.decideEnrolment, .enrolment(ack)):
+                case let (.publishConfiguration(publication), .publish(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
-                case let (.publishIndex, .publish(ack)), let (.publishEnrolmentSet, .publish(ack)), let (.publishAutomaticGrant, .publish(ack)), let (.clearDenial_p, .publish(ack)):
+                    next.acknowledgedConfigurationRevision = try Agentkeyring_V1_Configuration(serializedBytes: publication.configuration.configuration).revision
+                case let (.updateLocalPhoneLease(update), .decision(ack)):
+                    guard ack.lease.leaseID == update.lease.leaseID else { throw LeaseFailure(.conflict, "The relay acknowledged another local lease.") }
+                case let (.dismissEnrolment, .enrolment(ack)):
+                    guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
+                case let (.escalateToPhone, .publish(ack)), let (.clearDenial_p, .publish(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
                 default: throw LeaseFailure(.unavailable, "The relay returned an unexpected acknowledgement.")
                 }
@@ -159,7 +180,8 @@ extension RelayApprover {
         case let .enrolment(pending):
             _ = try validateEnrolment(pending.record)
             let id = RelayCrypto.hex(RelayCrypto.digest("agentkeyring.enrolment.v1", pending.record))
-            if state.approvedEnrolments.values.contains(where: { (try? Agentkeyring_V1_ApprovedEnrolment(serializedBytes: $0).record) == pending.record }) { return }
+            let record = try Agentkeyring_V1_EnrolmentRecord(serializedBytes: pending.record)
+            if state.machines[record.recipientID] != nil { return }
             var next = state
             next.pendingEnrolments[id] = pending.record
             try commit(next)
@@ -176,27 +198,10 @@ extension RelayApprover {
             }
         case let .pairing(request): try receiveApproverPairing(request)
         case let .lease(lease): try await receiveLeaseReport(lease)
-        case .phoneDecision, .localLeaseAction: // Implemented by the R4.2/R4.5 lanes (RFC 0006).
-            throw LeaseFailure(.unavailable, "This Mac build cannot yet handle phone approval work.")
+        case let .phoneDecision(answer): try await receivePhoneDecision(answer)
+        case let .localLeaseAction(action): try receiveLocalLeaseAction(action)
         case nil: throw LeaseFailure(.invalidArgument, "The relay sent empty work.")
         }
-    }
-
-    func expireRequests() throws {
-        var next = state
-        var changed = false
-        for (id, saved) in state.requests {
-            var lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
-            if lease.state == .pending && saved.decision == nil && lease.pendingUntilUnixSeconds <= Self.now {
-                lease.state = .unanswered
-            } else if lease.state == .active && lease.notAfterUnixSeconds <= Self.now { lease.state = .expired }
-            else { continue }
-            lease.endedAtUnixSeconds = Self.now
-            next.requests[id]!.lease = try lease.serializedData()
-            changed = true
-        }
-        if try expireLeaseReports(&next) { changed = true }
-        if changed { try commit(next) }
     }
 
     func report(_ error: Error) {

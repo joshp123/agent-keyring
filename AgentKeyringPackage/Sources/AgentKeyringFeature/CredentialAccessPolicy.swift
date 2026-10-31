@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Observation
 import OSLog
 
@@ -108,16 +109,16 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         }
     }
 
-    public func pairedDevicePublicKeys() async throws -> [Data] {
-        try await store.pairedDevicePublicKeys()
+    func connectAuthority(_ authority: CredentialLeaseStore,
+        authorize: @escaping @MainActor (LAContext, String) async throws -> Void,
+        commit: @escaping @MainActor ([UUID: CredentialAccessPolicy], CredentialLeaseStore.SavedRules, LAContext) async throws -> Void) {
+        store.authority = authority
+        store.authorizeSave = authorize
+        store.commitSave = commit
     }
 
-    public func confirmPairing(_ session: IPhonePairingSession, confirmationCode: String) async throws {
-        guard !isSavingRules else { throw AccessRulesSaveInProgress() }
-        isSavingRules = true
-        defer { isSavingRules = false }
-        try await session.confirm(in: store, confirmationCode: confirmationCode)
-        try await reloadRules()
+    public func pairedDevicePublicKeys() async throws -> [Data] {
+        try await store.pairedDevicePublicKeys()
     }
 
     public func removePairedApprovalDevice(publicKey: Data) async throws {
