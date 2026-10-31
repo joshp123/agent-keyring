@@ -249,6 +249,11 @@ the lease at the authority, on disk, and the receiver keeps no state.
   digest. Same key with a different digest, kind or fields is a conflict.
   Retain the chosen key through transport retries. `--again` and an explicit
   operation ID cannot be combined.
+- Before validating any target, the receiver looks its key up with
+  `GetOperation`, which starts nothing and returns no values. A known key is
+  reported as recorded, without touching the page: a retry after a submit that
+  navigated would otherwise fail on selectors that no longer exist. Only an
+  unknown key goes on to target validation and `BeginOperation`.
 - `BeginOperation` with a new key durably records Started **before** returning
   any value, then the receiver acts and calls `FinishOperation`.
 - The same key again returns the recorded outcome, or Uncertain if none was

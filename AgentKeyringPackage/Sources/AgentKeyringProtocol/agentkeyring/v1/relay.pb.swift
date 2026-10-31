@@ -8,7 +8,7 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
-// Written by AI on 2026.10.31 by Claude Opus 5.5.
+// Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // The relay on the Mac mini (RFC 0005) and its approvers (RFC 0005: MacBook,
 // RFC 0006: iPhone). Clients keep using the AgentKeyring service from
 // agentkeyring.proto, served by the relay over mutual TLS on the tailnet.
@@ -253,13 +253,26 @@ public nonisolated struct Agentkeyring_V1_DecisionAck: Sendable {
 
   public var accepted: Bool = false
 
-  /// Reasons a decision is refused: unknown request, already decided,
-  /// past pending_until, bad signature. The approver shows "not sent".
+  /// True also for an exact already-accepted resend, even after the pending
+  /// deadline. A conflicting decision returns false and current lease state.
+  /// Never show "try again" for a request that is already terminal.
   public var detail: String = String()
+
+  /// Current state for a known, authorized request.
+  public var lease: Agentkeyring_V1_Lease {
+    get {_lease ?? Agentkeyring_V1_Lease()}
+    set {_lease = newValue}
+  }
+  /// Returns true if `lease` has been explicitly set.
+  public var hasLease: Bool {self._lease != nil}
+  /// Clears the value of `lease`. Subsequent reads from it will return its default value.
+  public mutating func clearLease() {self._lease = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _lease: Agentkeyring_V1_Lease? = nil
 }
 
 public nonisolated struct Agentkeyring_V1_EnrolRequest: Sendable {
@@ -418,6 +431,9 @@ public nonisolated struct Agentkeyring_V1_ApproverKey: Sendable {
   /// "Josh's MacBook Pro", "Josh's iPhone".
   public var label: String = String()
 
+  /// SPKI DER; authenticated alongside signing key.
+  public var tlsPublicKey: Data = Data()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -494,6 +510,8 @@ public nonisolated struct Agentkeyring_V1_LoginIndex: Sendable {
   public init() {}
 }
 
+/// DRAFT: automatic signing authority and the exact signed payload must be
+/// settled in RFCs 0005/0006 before implementing unattended delivery.
 /// RFC 0006. Each entry is a BundleContents-like record sealed to the relay's
 /// key, including the TOTP seed, so the relay can make bundles unattended.
 /// Anything published here is readable by whoever controls the mini.
@@ -657,9 +675,23 @@ public nonisolated struct Agentkeyring_V1_PushRegistration: Sendable {
   /// Must match how the app was signed.
   public var apnsProduction: Bool = false
 
+  /// Persisted preference, strictly below the ten-minute pending deadline.
+  /// Absence preserves the existing setting; new setups default to 120 seconds.
+  /// Zero explicitly requests immediate notification.
+  public var escalationDelaySeconds: UInt32 {
+    get {_escalationDelaySeconds ?? 0}
+    set {_escalationDelaySeconds = newValue}
+  }
+  /// Returns true if `escalationDelaySeconds` has been explicitly set.
+  public var hasEscalationDelaySeconds: Bool {self._escalationDelaySeconds != nil}
+  /// Clears the value of `escalationDelaySeconds`. Subsequent reads from it will return its default value.
+  public mutating func clearEscalationDelaySeconds() {self._escalationDelaySeconds = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _escalationDelaySeconds: UInt32? = nil
 }
 
 public nonisolated struct Agentkeyring_V1_PublishAck: Sendable {
@@ -1153,7 +1185,7 @@ nonisolated extension Agentkeyring_V1_RequestRecord: SwiftProtobuf.Message, Swif
 
 nonisolated extension Agentkeyring_V1_DecisionAck: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DecisionAck"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{1}detail\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{1}detail\0\u{1}lease\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1163,24 +1195,33 @@ nonisolated extension Agentkeyring_V1_DecisionAck: SwiftProtobuf.Message, SwiftP
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularBoolField(value: &self.accepted) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.detail) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._lease) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if self.accepted != false {
       try visitor.visitSingularBoolField(value: self.accepted, fieldNumber: 1)
     }
     if !self.detail.isEmpty {
       try visitor.visitSingularStringField(value: self.detail, fieldNumber: 2)
     }
+    try { if let v = self._lease {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V1_DecisionAck, rhs: Agentkeyring_V1_DecisionAck) -> Bool {
     if lhs.accepted != rhs.accepted {return false}
     if lhs.detail != rhs.detail {return false}
+    if lhs._lease != rhs._lease {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1518,7 +1559,7 @@ nonisolated extension Agentkeyring_V1_EnrolmentAck: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentkeyring_V1_ApproverKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApproverKey"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}key_id\0\u{3}public_key\0\u{1}label\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}key_id\0\u{3}public_key\0\u{1}label\0\u{3}tls_public_key\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1529,6 +1570,7 @@ nonisolated extension Agentkeyring_V1_ApproverKey: SwiftProtobuf.Message, SwiftP
       case 1: try { try decoder.decodeSingularStringField(value: &self.keyID) }()
       case 2: try { try decoder.decodeSingularBytesField(value: &self.publicKey) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.label) }()
+      case 4: try { try decoder.decodeSingularBytesField(value: &self.tlsPublicKey) }()
       default: break
       }
     }
@@ -1544,6 +1586,9 @@ nonisolated extension Agentkeyring_V1_ApproverKey: SwiftProtobuf.Message, SwiftP
     if !self.label.isEmpty {
       try visitor.visitSingularStringField(value: self.label, fieldNumber: 3)
     }
+    if !self.tlsPublicKey.isEmpty {
+      try visitor.visitSingularBytesField(value: self.tlsPublicKey, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1551,6 +1596,7 @@ nonisolated extension Agentkeyring_V1_ApproverKey: SwiftProtobuf.Message, SwiftP
     if lhs.keyID != rhs.keyID {return false}
     if lhs.publicKey != rhs.publicKey {return false}
     if lhs.label != rhs.label {return false}
+    if lhs.tlsPublicKey != rhs.tlsPublicKey {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2013,7 +2059,7 @@ nonisolated extension Agentkeyring_V1_ApprovedEnrolment: SwiftProtobuf.Message, 
 
 nonisolated extension Agentkeyring_V1_PushRegistration: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PushRegistration"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}approver_key_id\0\u{3}apns_device_token\0\u{3}apns_production\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}approver_key_id\0\u{3}apns_device_token\0\u{3}apns_production\0\u{3}escalation_delay_seconds\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2024,12 +2070,17 @@ nonisolated extension Agentkeyring_V1_PushRegistration: SwiftProtobuf.Message, S
       case 1: try { try decoder.decodeSingularStringField(value: &self.approverKeyID) }()
       case 2: try { try decoder.decodeSingularBytesField(value: &self.apnsDeviceToken) }()
       case 3: try { try decoder.decodeSingularBoolField(value: &self.apnsProduction) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self._escalationDelaySeconds) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.approverKeyID.isEmpty {
       try visitor.visitSingularStringField(value: self.approverKeyID, fieldNumber: 1)
     }
@@ -2039,6 +2090,9 @@ nonisolated extension Agentkeyring_V1_PushRegistration: SwiftProtobuf.Message, S
     if self.apnsProduction != false {
       try visitor.visitSingularBoolField(value: self.apnsProduction, fieldNumber: 3)
     }
+    try { if let v = self._escalationDelaySeconds {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2046,6 +2100,7 @@ nonisolated extension Agentkeyring_V1_PushRegistration: SwiftProtobuf.Message, S
     if lhs.approverKeyID != rhs.approverKeyID {return false}
     if lhs.apnsDeviceToken != rhs.apnsDeviceToken {return false}
     if lhs.apnsProduction != rhs.apnsProduction {return false}
+    if lhs._escalationDelaySeconds != rhs._escalationDelaySeconds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
