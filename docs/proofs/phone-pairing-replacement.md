@@ -39,6 +39,16 @@ Mac signing through the existing `PublishApproverKeys` operation; the joint
 actual-Mac proof is recorded separately by the Mac lane. Actual Touch ID and
 the Settings control remain device/interface checks.
 
+The Mac lane's joint receipt `481c58a` passed both replacement of a phone
+already holding a copy and upgrade from a genuine `6e09b58` saved pairing.
+It uses the actual Swift Mac and phone cores, the real relay and production
+Go receiver. Both runs preserve a same-named other phone, recover the exact
+signed key set after import during a lost acknowledgement and both restarts,
+then deliver the refreshed password and TOTP with the Mac stopped. Replay is
+in that commit's `docs/proofs/mac-phone-replacement.md`. Copies of its passing
+logs are retained alongside this lane's logs as `mac-phone-replacement-copy.log`
+and `mac-phone-replacement-legacy.log`.
+
 ## Headless operating proof
 
 The legacy fixture is built from published build 8 source `6e09b58`. It really
