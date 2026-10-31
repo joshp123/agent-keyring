@@ -137,6 +137,7 @@ public final class RelayApprover {
     var workTask: Task<Void, Never>?
     var outboxTask: Task<Void, Never>?
     var pairConnection: RelayConnection?
+    var pairingAttemptID = UUID()
     var sessionTask: Task<Void, Never>?
     var isFlushing = false
     var authorizationID: String?
