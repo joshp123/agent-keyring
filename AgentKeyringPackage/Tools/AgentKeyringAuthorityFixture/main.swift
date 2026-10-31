@@ -5,6 +5,7 @@
 import AgentKeyringFeature
 import AgentKeyringTestSupport
 import Foundation
+import LocalAuthentication
 
 @MainActor
 final class FixtureApproval: CredentialReleaseAuthorizing {
@@ -72,6 +73,20 @@ struct AuthorityFixture {
                     await access.setPolicy(rule, for: [MirrorItem.exampleCredentialID])
                 case "deny" where parts.count >= 2:
                     try model.denyLease(parts[1], reply: parts.count == 3 ? parts[2] : "")
+                case "revoke" where parts.count == 2:
+                    try model.leaseStore.revoke(parts[1])
+                case "failed-approval" where parts.count == 2:
+                    do {
+                        try await model.approveLeaseWithTouchID(parts[1])
+                        throw LeaseFailure(.unavailable, "Fixture must never approve")
+                    } catch CredentialReleaseAuthorizationError.unavailable {}
+                case "cancel-approval" where parts.count == 2:
+                    let approval = Task { try await model.approveLeaseWithTouchID(parts[1], context: LAContext()) }
+                    approval.cancel()
+                    do {
+                        try await approval.value
+                        throw LeaseFailure(.unavailable, "Cancelled fixture must never approve")
+                    } catch is CancellationError {}
                 case "clear-denial": try model.leaseStore.clearDenial(loginID: MirrorItem.exampleCredentialID.uuidString)
                 case "quit": return
                 default: print("Unknown owner action")
