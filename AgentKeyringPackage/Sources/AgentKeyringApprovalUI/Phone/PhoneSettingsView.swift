@@ -25,7 +25,14 @@ struct PhoneSettingsView: View {
                 }
 
                 Section {
-                    connectionRow
+                    if model.pairing == .paired {
+                        connectionRow
+                    } else {
+                        NavigationLink(SetupCopy.pairTitle) { PhonePairingView(model: model) }
+                    }
+                    if let rulesUpdatedAt = model.settings.rulesUpdatedAt {
+                        LabeledContent("Rules", value: "Checked \(rulesUpdatedAt.formatted(.relative(presentation: .named)))")
+                    }
                     Picker("Ask this iPhone after", selection: askAfter) {
                         ForEach(Self.delays, id: \.self) { delay in
                             Text(delayText(delay)).tag(delay)
