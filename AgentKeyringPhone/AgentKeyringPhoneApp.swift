@@ -1,5 +1,4 @@
 import AgentKeyringApprovalUI
-import AuthenticationServices
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -36,9 +35,6 @@ struct AgentKeyringPhoneApp: App {
                     appDelegate.wake = { importBackend?.start() }
                     appDelegate.receivedToken = { importBackend?.receivedPushToken($0) }
                     appDelegate.registrationFailed = { importBackend?.pushRegistrationFailed($0) }
-                }
-                .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
-                    importBackend?.receive(activity)
                 }
         }
     }
