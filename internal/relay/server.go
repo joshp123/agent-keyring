@@ -153,8 +153,13 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 		response, more, err = s.enrol(tx, p, request.Enrol, seen)
 	case *pb.RelayWireRequest_PairApprover:
 		response, more, err = s.pair(tx, p, request.PairApprover, seen)
+		if response.GetEnrolStatus() != nil {
+			response.GetEnrolStatus().AutomaticKeys = s.automaticKeys()
+		}
 	case *pb.RelayWireRequest_ConfirmPairing:
 		response, err = s.confirm(tx, p, request.ConfirmPairing)
+	case *pb.RelayWireRequest_GetAutomaticKeys:
+		response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_AutomaticKeys{AutomaticKeys: s.automaticKeys()}, EndOfStream: true}
 	default:
 		if p.recipient == "" && p.approver == "" {
 			return nil, false, nil, denied("This TLS key is not enrolled. Run enrol first.")
@@ -213,7 +218,7 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 	}
 	if response != nil {
 		for _, lease := range []*pb.Lease{response.GetClient().GetLease(), response.GetDecision().GetLease(), response.GetLease(), response.GetWork().GetLease()} {
-			if err = attachSignedDenial(tx, lease); err != nil {
+			if err = attachRemoteSignedDenial(tx, lease); err != nil {
 				return nil, false, nil, err
 			}
 		}

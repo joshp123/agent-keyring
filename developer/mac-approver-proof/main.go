@@ -52,15 +52,19 @@ type owner struct {
 	enrol                  []string
 	requests               map[string][]string
 	leases                 map[string][]string
+	localLeases            map[string][]string
 	queued, authorizations int
+	backgroundSignatures   int
 	saved                  map[string]string
+	copies                 map[string]string
+	applying               bool
 	pairVisible            bool
 	pendingApprovers       string
 	expectedFailure        string
 }
 
 func startOwner(binary, root string) *owner {
-	p := &owner{events: make(chan []string, 2048), requests: map[string][]string{}, leases: map[string][]string{}, saved: map[string]string{}}
+	p := &owner{events: make(chan []string, 2048), requests: map[string][]string{}, leases: map[string][]string{}, localLeases: map[string][]string{}, saved: map[string]string{}, copies: map[string]string{}}
 	p.command = exec.Command(binary, "--dummy-only", root)
 	var err error
 	p.input, err = p.command.StdinPipe()
@@ -98,11 +102,18 @@ func (p *owner) wait(predicate func([]string) bool) []string {
 				p.requests[e[2]] = e
 			case "LEASE":
 				p.leases[e[1]] = e
+			case "LOCAL":
+				p.localLeases[e[1]] = e
 			case "STATUS":
 				p.queued, _ = strconv.Atoi(e[2])
 				p.authorizations, _ = strconv.Atoi(e[4])
+				p.applying = e[5] == "true"
+			case "COPY":
+				p.copies[e[1]] = e[2]
 			case "SAVED":
 				p.saved[e[1]] = e[2]
+			case "BACKGROUND":
+				p.backgroundSignatures, _ = strconv.Atoi(e[1])
 			case "FAILED":
 				if e[1] != p.expectedFailure {
 					panic(strings.Join(e, " "))
@@ -212,6 +223,7 @@ func identity() tls.Certificate {
 type proof struct {
 	root, relayBinary, fixture       string
 	cli, cliRecipient, browserScript string
+	phoneBinary, approverPort        string
 	relay                            *exec.Cmd
 	log                              *os.File
 	owner                            *owner
@@ -248,7 +260,11 @@ func (p *proof) stopRelay() {
 	}
 }
 func (p *proof) pair() {
-	p.owner.action("pair", "17445")
+	port := p.approverPort
+	if port == "" {
+		port = "17445"
+	}
+	p.owner.action("pair", port)
 	if p.owner.pair == "" {
 		p.owner.wait(func(e []string) bool { return e[0] == "PAIR" })
 	}
@@ -289,6 +305,9 @@ func (p *proof) enrol() {
 	fmt.Println("PASS independently compared machine fingerprint, signed configuration listing the enrolled machine")
 }
 func (p *proof) open(delivery *pb.SealedDelivery, lease string) *pb.BundleContents {
+	return p.openExpected(delivery, lease, "example-password")
+}
+func (p *proof) openExpected(delivery *pb.SealedDelivery, lease, password string) *pb.BundleContents {
 	require(delivery != nil, "no sealed delivery")
 	var st pb.DecisionStatement
 	must(proto.Unmarshal(delivery.Decision.Statement, &st))
@@ -323,15 +342,20 @@ func (p *proof) open(delivery *pb.SealedDelivery, lease string) *pb.BundleConten
 	var contents pb.BundleContents
 	must(proto.Unmarshal(plaintext, &contents))
 	clear(plaintext)
-	require(contents.Password == "example-password" && contents.Username == "example@example.com", "dummy credential mismatch")
+	require(contents.Password == password && contents.Username == "example@example.com", "dummy credential mismatch")
 	require(contents.LeaseId == lease && contents.NotAfterUnixSeconds == st.NotAfterUnixSeconds, "opened bundle scope differs")
-	require(len(contents.OneTimeCodes) >= 60 && len(contents.OneTimeCodes) <= 61, "TOTP steps missing")
+	require(len(contents.OneTimeCodes) > 0 && len(contents.OneTimeCodes) <= 61, "TOTP steps missing")
+	hasCurrentCode := false
 	for i, c := range contents.OneTimeCodes {
 		require(len(c.Code) == 6 && c.ValidUntilUnixSeconds <= st.NotAfterUnixSeconds, "invalid timed code")
 		if i > 0 {
 			require(contents.OneTimeCodes[i-1].ValidUntilUnixSeconds == c.ValidFromUnixSeconds, "gap in TOTP codes")
 		}
+		if c.ValidFromUnixSeconds <= time.Now().Unix() && time.Now().Unix() < c.ValidUntilUnixSeconds {
+			hasCurrentCode = true
+		}
 	}
+	require(hasCurrentCode, "delivery has no currently valid TOTP code")
 	require(contents.OneTimeCodes[len(contents.OneTimeCodes)-1].ValidUntilUnixSeconds == st.NotAfterUnixSeconds, "codes exceed or miss deadline")
 	return &contents
 }
@@ -430,6 +454,9 @@ func (p *proof) run() {
 func main() {
 	p := new(proof)
 	pairingControls := flag.Bool("pairing-controls", false, "short pairing cancellation and resolved-address proof")
+	localPhone := flag.Bool("local-phone-flow", false, "joint phone approval of local agent.sock requests")
+	copyUpdates := flag.Bool("copy-updates", false, "Automatic copy refresh and outbox restart proof")
+	flag.StringVar(&p.phoneBinary, "phone-binary", "", "production Swift phone fixture; runs the joint phone flow")
 	flag.StringVar(&p.root, "root", "", "fresh dummy root inside the app container")
 	flag.StringVar(&p.fixture, "approver", "", "signed mini-only Swift fixture executable")
 	flag.StringVar(&p.relayBinary, "relay", "", "relay executable")
@@ -438,7 +465,14 @@ func main() {
 	flag.Parse()
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	if *pairingControls {
+	if *copyUpdates {
+		p.runCopyUpdates()
+	} else if *localPhone {
+		require(p.phoneBinary != "", "--local-phone-flow needs --phone-binary")
+		p.runLocalPhoneFlow()
+	} else if p.phoneBinary != "" {
+		p.runPhoneFlow()
+	} else if *pairingControls {
 		p.runPairingControls()
 	} else {
 		p.run()

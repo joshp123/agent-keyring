@@ -33,10 +33,12 @@ extension RelayApprover {
             }
             let pin = connection.peerSPKI
             guard !pin.isEmpty else { throw LeaseFailure(.unauthenticated, "The relay did not present a TLS identity.") }
+            try validateAutomaticKeys(status.automaticKeys)
             let transcript = RelayCrypto.pairTranscript(relaySPKI: pin, approverSPKI: identity.publicKeySPKI,
                 signingKey: signer.publicKey, keySet: Data())
             var next = state
             next.pairing = RelayPendingPair(endpoint: endpoint, relaySPKI: pin, transcript: transcript)
+            next.pairing!.automaticKeys = try status.automaticKeys.serializedData()
             try commit(next)
         } catch {
             connection.cancel()
@@ -72,11 +74,17 @@ extension RelayApprover {
         try claimAuthorization("pairing")
         defer { authorizationID = nil }
         let (identity, signer) = try keys()
+        let automaticKeys: Data
+        if let saved = pending.automaticKeys { automaticKeys = saved }
+        else {
+            automaticKeys = try await fetchAutomaticKeys(using: RelayTransport(endpoint: pending.endpoint,
+                identity: identity, pin: pending.relaySPKI)).serializedData()
+        }
         let vault = try await credentialSource()
         try await signer.authorize(context: context, reason: "Pair Agent Keyring with the relay after comparing the full fingerprint")
         let currentVault = try await credentialSource()
         try Task.checkCancellation()
-        guard publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
+        guard try publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
             throw LeaseFailure(.conflict, "The logins changed while pairing. Confirm the current rules first.")
         }
         guard pairingAttemptID == attemptID, state.pairing?.transcript == pending.transcript, state.keySet == nil else {
@@ -108,6 +116,7 @@ extension RelayApprover {
         wire.confirmPairing.initialKeySet.signature = try signer.sign(keySetBytes, context: context, automatic: false)
         wire.confirmPairing.initialKeySet.signerKeyID = key.keyID
         var next = state
+        next.automaticKeys = automaticKeys
         next.pairing!.confirmation = try wire.serializedData()
         next.keySet = try wire.confirmPairing.initialKeySet.serializedData()
         try enqueue(wire, id: "pairing", into: &next)
@@ -132,6 +141,7 @@ extension RelayApprover {
         }
         try claimAuthorization("enrolment:" + id)
         defer { authorizationID = nil }
+        try await prepareForPublication()
         let signer = try keys().1
         try await signer.authorize(context: context, reason: "Allow \(record.machineLabel) to request logins after comparing its full fingerprint")
         try Task.checkCancellation()
@@ -199,6 +209,7 @@ extension RelayApprover {
         let machine = try Agentkeyring_V1_EnrolledMachine(serializedBytes: machineBytes)
         try claimAuthorization("revoke:" + recipientID)
         defer { authorizationID = nil }
+        try await prepareForPublication()
         try await keys().1.authorize(context: context, reason: "End Agent Keyring access for \(machine.machineLabel)")
         let vault = try await credentialSource()
         try Task.checkCancellation()

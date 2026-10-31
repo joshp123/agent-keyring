@@ -129,6 +129,7 @@ type proof struct {
 	enrolled                        *pb.EnrolmentRecord
 	configuration                   *pb.Configuration
 	signedConfiguration             *pb.SignedConfiguration
+	pairingAutomaticKeys            *pb.AutomaticKeys
 	work                            *tls.Conn
 }
 
@@ -168,6 +169,8 @@ func (p *proof) pair() {
 	defer conn.Close()
 	pending := good(receive(conn))
 	require(pending.GetEnrolStatus().GetState() == pb.EnrolState_ENROL_STATE_PENDING, "pair was not pending")
+	p.pairingAutomaticKeys = pending.GetEnrolStatus().GetAutomaticKeys()
+	require(len(p.pairingAutomaticKeys.GetSigningPublicKey()) == 65 && len(p.pairingAutomaticKeys.GetEncryptionPublicKey()) == 65, "pairing stream did not return Automatic keys")
 	p.approver.pin = conn.ConnectionState().PeerCertificates[0].RawSubjectPublicKeyInfo
 	transcript := relaycrypto.PairTranscript(p.approver.pin, spki, p.key.PublicKey, nil)
 	fmt.Println("Fixture pair fingerprint:", relaycrypto.Fingerprint(transcript))
@@ -408,6 +411,7 @@ func main() {
 	action := flag.String("action", "enrol", "Machine action: enrol or find")
 	linuxHost := flag.String("linux", "mini-server-1", "Linux proof host")
 	remoteBinary := flag.String("remote-binary", "", "Linux fixture binary path")
+	copySite := flag.String("site", "https://example.com", "Dummy copy login origin")
 	flag.Parse()
 	if *directory == "" {
 		var err error
@@ -427,6 +431,10 @@ func main() {
 	}
 	p.approver = wireClient{address: p.address, certificate: identity(filepath.Join(p.directory, "approver"))}
 	p.client = wireClient{address: p.address, certificate: identity(filepath.Join(p.directory, "receiver"))}
+	if *mode == "copy" {
+		p.copyFixture(*action, *copySite)
+		return
+	}
 	if *mode == "approver" {
 		p.serveApprover()
 		return

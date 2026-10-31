@@ -304,49 +304,6 @@ These need Josh with the MacBook and the iPhone.
 
 ## Later: answering with the MacBook shut
 
-Josh already wants availability independent of the MacBook. This remains the
-next result to finish, not a new question about whether he wants it. The phone
-then holds an encrypted copy of the
-passwords and seals logins itself, through the same relay channel. Touch ID at
-the MacBook stays, so the MacBook keeps its own copy too.
-
-The earlier contracts below remain the starting point. Activating the phone
-as a password source must explicitly extend its current approval-only role;
-it does not hold or deliver passwords in this release.
-
-**Import onto the phone.** Josh exports from Passwords on the iPhone to Agent
-Keyring. Apple starts this only from the Passwords app, with his
-authentication; no app can start or schedule it. The app merges additively and
-seals each login to a Face ID protected Secure Enclave key. Refresh is the same
-export; Apple offers no way to learn that a login changed.
-
-**Login IDs.** IDs stay the MacBook's. The MacBook's signed configuration carries
-the Apple item, account and exporter IDs for each login; the phone matches on
-those, falls back to saved sites plus account only when exactly one login
-matches on each side, and otherwise gives the item a new ID, starts it as Ask
-and shows it for review. A rule never moves on a guess.
-
-**Rule owner.** One device owns rules and login IDs, named in the approver key
-set. Only it publishes the configuration; others fetch the newest one before
-deciding and always deny a login it marks Blocked. The MacBook stays the owner unless Josh moves it.
-
-**Automatic logins with the MacBook shut.** The rule owner seals Automatic
-logins to the relay's own key and publishes them in the same
-`ConfigurationPublication` as the configuration that names the relay's keys
-and hashes the sealed logins. The relay then approves those leases itself,
-and receivers check the configuration. Anyone who controls the mini can read
-Automatic logins published this way.
-
-**Phone approves and seals.** The phone opens the login with Face ID, seals it
-to the receiving machine, and signs a HUMAN decision with its approver key, as
-the MacBook does in RFC 0005.
-
-**Settings for Josh at that point.** Whether to take the Mac mini off iCloud
-Keychain, so Apple Passwords is not readable there without Agent Keyring, and
-whether to turn Developer Mode off on the iPhone, so a replaced development
-build cannot use the phone's keys.
-
-**Device proofs at that point.** Import a selected test login and re-export a
-changed one without losing the rest; match the MacBook's login IDs and record
-how many match by Apple ID, by the fallback, and not at all; approve with the
-MacBook shut.
+See [RFC 0008](0008-macbook-shut.md). It replaces the plan that was here: the
+phone gets its copy of the Ask logins from the MacBook rather than importing
+from Apple Passwords, and the mini serves Automatic logins.

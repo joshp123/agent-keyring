@@ -51,6 +51,9 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	case *pb.RelayWireRequest_PublishConfiguration:
 		err := s.publishConfiguration(tx, request.PublishConfiguration)
 		return publishAck(), false, err
+	case *pb.RelayWireRequest_PublishCopyUpdate:
+		err := s.publishCopyUpdate(tx, request.PublishCopyUpdate)
+		return publishAck(), false, err
 	case *pb.RelayWireRequest_DismissEnrolment:
 		result, err := tx.Exec("UPDATE enrolments SET state=2 WHERE id=? AND state=0", request.DismissEnrolment.RecipientId)
 		if err == nil {
@@ -95,8 +98,6 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	case *pb.RelayWireRequest_UpdateLocalPhoneLease:
 		ack, err := updateLocalPhoneLease(tx, p, request.UpdateLocalPhoneLease)
 		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Decision{Decision: ack}, EndOfStream: true}, false, err
-	case *pb.RelayWireRequest_GetAutomaticKeys:
-		return nil, false, &rpcError{pb.RpcErrorCode_RPC_ERROR_CODE_UNAVAILABLE, "This method belongs to release 4 and is not available on this relay."}
 	default:
 		return nil, false, invalid("Select a supported relay method.")
 	}
@@ -427,9 +428,6 @@ func (s *Server) publishConfiguration(tx *sql.Tx, publication *pb.ConfigurationP
 	if proto.Unmarshal(r.Configuration, next) != nil || next.Domain != "agentkeyring.configuration.v1" || next.Revision == 0 {
 		return invalid("Invalid configuration.")
 	}
-	if len(publication.AutomaticLogins) != 0 || len(next.SealedAutomaticLoginSha256) != 0 || len(next.RelayEncryptionPublicKey) != 0 {
-		return invalid("Relay-held Automatic logins are not available in this release.")
-	}
 	oldSigned, old, err := configuration(tx)
 	if err != nil {
 		return err
@@ -444,7 +442,10 @@ func (s *Server) publishConfiguration(tx *sql.Tx, publication *pb.ConfigurationP
 	if err != nil {
 		return err
 	}
-	if next.AutomaticKeyId != "" || len(next.AutomaticSigningPublicKey) != 0 {
+	if len(next.RelayEncryptionPublicKey) != 0 && !s.delegatesAutomatic(next) {
+		return denied("Configuration must name this relay's exact Automatic signing and encryption keys.")
+	}
+	if !s.delegatesAutomatic(next) && (next.AutomaticKeyId != "" || len(next.AutomaticSigningPublicKey) != 0) {
 		key, e := relaycrypto.KeyForRole(keys, next.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
 		if e != nil || !bytes.Equal(key, next.AutomaticSigningPublicKey) {
 			return denied("Configuration must name a current Mac delivery key.")
@@ -519,6 +520,9 @@ func (s *Server) publishConfiguration(tx *sql.Tx, publication *pb.ConfigurationP
 				return err
 			}
 		}
+	}
+	if err = s.pruneAutomaticCopies(tx, next); err != nil {
+		return err
 	}
 	return put(tx, "current", "configuration", r)
 }

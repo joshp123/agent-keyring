@@ -188,6 +188,7 @@ private struct SignedRulesUnlockedSession: CredentialSessionLockState {
     var isLocked: Bool { false }
 }
 
+@MainActor
 struct SignedRulesFixture {
     let signer = FakeAccessRulesSigner()
     let root = URL(fileURLWithPath: "/tmp").appendingPathComponent(UUID().uuidString)

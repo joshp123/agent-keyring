@@ -90,6 +90,12 @@ struct RelayPendingPair: Codable {
     var relaySPKI: Data
     var transcript: Data
     var confirmation: Data?
+    var automaticKeys: Data?
+}
+struct RelaySavedCopy: Codable {
+    var revision: UInt64
+    var configurationRevision: UInt64
+    var generationID: UUID
 }
 struct RelayApproverState: Codable {
     var version = 1
@@ -107,7 +113,8 @@ struct RelayApproverState: Codable {
     var outbox: [RelayQueuedCommand] = []
     var configuration: Data?
     var acknowledgedConfigurationRevision: UInt64?
-    var publicationDigest: Data?
+    var automaticKeys: Data?
+    var loginCopies: [String: RelaySavedCopy]?
     var suppressions: [String: Int64] = [:]
 }
 
@@ -264,11 +271,15 @@ public final class RelayApprover {
                 machine: machine, endIsQueued: state.outbox.contains { $0.id == "revoke-lease:" + id })
         }
         leases = displayedLeases.values.sorted { $0.lease.requestedAtUnixSeconds > $1.lease.requestedAtUnixSeconds }
-        queuedAnswerCount = state.outbox.filter { !$0.id.hasPrefix("configuration:") }.count
-        isApplying = state.outbox.contains { $0.id.hasPrefix("configuration:") }
+        queuedAnswerCount = state.outbox.filter { !Self.isPublication($0) }.count
+        isApplying = state.outbox.contains(where: Self.isPublication)
         needsPublication = state.keySet != nil && (state.configuration == nil || rulesDifferFromConfiguration)
         publicationConfirmationChanged?(needsPublication)
         for observer in observers.values { observer.yield(update) }
+    }
+
+    static func isPublication(_ command: RelayQueuedCommand) -> Bool {
+        command.id.hasPrefix("configuration:") || command.id.hasPrefix("login-copy:")
     }
 
     func currentKeySet() throws -> Agentkeyring_V1_SignedApproverKeySet {

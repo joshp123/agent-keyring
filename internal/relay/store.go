@@ -2,6 +2,7 @@
 package relay
 
 import (
+	"crypto/ecdsa"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -15,9 +16,10 @@ import (
 )
 
 type Store struct {
-	mu      sync.Mutex
-	db      *sql.DB
-	changed chan struct{}
+	mu                                    sync.Mutex
+	db                                    *sql.DB
+	changed                               chan struct{}
+	automaticSigning, automaticEncryption *ecdsa.PrivateKey
 }
 
 func OpenStore(directory string) (*Store, error) {
@@ -50,6 +52,9 @@ func OpenStore(directory string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS phone_escalations(lease TEXT PRIMARY KEY,owner TEXT NOT NULL,record BLOB NOT NULL,local_lease BLOB,answer BLOB);
  CREATE TABLE IF NOT EXISTS push_attempts(lease TEXT NOT NULL,phone TEXT NOT NULL,sent INTEGER NOT NULL DEFAULT 0,retry_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(lease,phone));
  CREATE TABLE IF NOT EXISTS local_leases(id TEXT PRIMARY KEY,owner TEXT NOT NULL,request BLOB NOT NULL,lease BLOB NOT NULL,deadline INTEGER,delete_after INTEGER);
+ CREATE TABLE IF NOT EXISTS relay_identity(id TEXT PRIMARY KEY,private BLOB NOT NULL);
+ CREATE TABLE IF NOT EXISTS copy_updates(destination TEXT PRIMARY KEY,revision TEXT NOT NULL,update_hash BLOB NOT NULL);
+ CREATE TABLE IF NOT EXISTS automatic_logins(id TEXT PRIMARY KEY,contents BLOB NOT NULL);
  DROP TABLE IF EXISTS operations;`)
 	if err != nil {
 		db.Close()
@@ -113,6 +118,12 @@ func OpenStore(directory string) (*Store, error) {
 	}
 	if err == nil {
 		err = initializeSetupDeadlines(tx)
+	}
+	if err == nil {
+		store.automaticSigning, err = loadAutomaticKey(tx, "signing")
+	}
+	if err == nil {
+		store.automaticEncryption, err = loadAutomaticKey(tx, "encryption")
 	}
 	if err == nil {
 		err = store.commit(tx, before)
