@@ -27,6 +27,7 @@ type Server struct {
 	Lookup      NodeLookup
 	Log         *slog.Logger
 	pushReady   chan struct{}
+	macWatchers map[string]int // Guarded by Store.mu; pinned MAC WatchWork streams.
 }
 type peer struct {
 	spki                []byte
@@ -44,6 +45,7 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	stop := context.AfterFunc(ctx, func() { listener.Close() })
 	defer stop()
 	s.pushReady = make(chan struct{}, 1)
+	s.macWatchers = make(map[string]int)
 	var active sync.WaitGroup
 	active.Add(1)
 	go func() { defer active.Done(); s.maintain(ctx) }()
@@ -92,6 +94,12 @@ func (s *Server) serveConnection(ctx context.Context, raw net.Conn) {
 	if authority.ReadFrame(conn, request) != nil {
 		return
 	}
+	closeWatcher, err := s.trackMacWatcher(p, request)
+	if err != nil {
+		authority.WriteFrame(conn, wireError(err))
+		return
+	}
+	defer closeWatcher()
 	// One request per connection. Each stream drains its durable snapshot, then
 	// sleeps until a committed change wakes it.
 	raw.SetReadDeadline(time.Time{})
@@ -222,6 +230,9 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 				return nil, false, nil, err
 			}
 		}
+	}
+	if err = s.escalateOffline(tx); err != nil {
+		return nil, false, nil, err
 	}
 	err = s.Store.commit(tx, before)
 	return response, more, nil, err
