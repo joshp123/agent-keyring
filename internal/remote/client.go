@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -268,7 +269,8 @@ func createKeys(label string) (*clientstate.PrivateKeys, error) {
 }
 func ValidateAddress(address string) error {
 	host, port, err := net.SplitHostPort(address)
-	if err != nil || host == "" || port == "" || strings.ContainsAny(host, "/@?#\\") {
+	portNumber, portError := strconv.ParseUint(port, 10, 16)
+	if err != nil || host == "" || portError != nil || portNumber == 0 || strings.ContainsAny(host, "/@?#\\ \t\r\n") {
 		return errors.New("Supply the relay as HOST:PORT, for example mac-mini:7443.")
 	}
 	return nil

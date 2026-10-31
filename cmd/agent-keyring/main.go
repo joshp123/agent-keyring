@@ -181,10 +181,18 @@ func run(ctx context.Context, args []string) (int, error) {
 		if address == "" {
 			address = os.Getenv("AGENT_KEYRING_RELAY")
 		}
-		if address != "" {
-			if err = remote.ValidateAddress(address); err != nil {
-				return 2, err
+		if address == "" {
+			state, e := store.Load(ctx)
+			if e != nil {
+				return 1, e
 			}
+			address = state.RelayAddress
+			if address == "" {
+				return 2, errors.New("Supply --relay HOST:PORT to enrol this machine.")
+			}
+		}
+		if err = remote.ValidateAddress(address); err != nil {
+			return 2, err
 		}
 		return 0, remote.Enrol(ctx, store, address, a.options["name"], os.Stderr)
 	}
