@@ -1,0 +1,164 @@
+Captured by AI on 2026.11.01 by model gpt-6.1-sol.
+Each section below contains unmodified captured output from the named system proof.
+
+=== mac: chrome (script/prove_cli.py) ===
+Proof artifacts: /var/folders/1s/vcsh7yn16jv1d9jn1dvwy9tm0000gn/T/keyring-cli-proof-5zrjp7hy
+PASS: private agent-process delivery, task rejoin and release.
+PASS: bound program stdin, echoed output suppressed, retained exit status, deliberate repeat.
+PASS: receiver killed during program; a new process reports uncertainty without starting it again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+This step was already submitted; it was not submitted again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+That operation key already names a different action in this lease. Use the original inputs, or inspect the result before using --again.
+Page: http://127.0.0.1:55372/account
+Title: Account
+SELECTOR  TYPE  NAME  ID  LABEL  AUTOCOMPLETE
+No visible inputs or buttons.
+PASS: fields-to-fill password and TOTP under one browser lease; authenticated account; receiver receipt survives navigation and authority restart.
+The earlier fill is uncertain or already finished. Inspect the page before deliberately repeating it with --again.
+PASS: receiver killed during browser submit; retry is uncertain and the site receives one POST.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+A field or submit selector is missing, ambiguous or unsuitable. Use one editable input per field and an explicit submit control in the same form.
+This endpoint is not owned by a supported browser installation. Use Google Chrome, Chrome for Testing or Chromium on this machine.
+PASS: SPA submission clears residual inputs; inappropriate field refused.
+PASS: installed command and both skills link to the same build/resources.
+PASS: concurrent fills submit once; fake endpoint refused; receiver transcript has no fixture values or common encodings.
+Proof artifacts: /var/folders/1s/vcsh7yn16jv1d9jn1dvwy9tm0000gn/T/keyring-cli-proof-5zrjp7hy
+
+=== mac: chromium (script/prove_cli.py) ===
+Proof artifacts: /var/folders/1s/vcsh7yn16jv1d9jn1dvwy9tm0000gn/T/keyring-cli-proof-qxqkmi5k
+PASS: private agent-process delivery, task rejoin and release.
+PASS: bound program stdin, echoed output suppressed, retained exit status, deliberate repeat.
+PASS: receiver killed during program; a new process reports uncertainty without starting it again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+This step was already submitted; it was not submitted again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+That operation key already names a different action in this lease. Use the original inputs, or inspect the result before using --again.
+Page: http://127.0.0.1:55436/account
+Title: Account
+SELECTOR  TYPE  NAME  ID  LABEL  AUTOCOMPLETE
+No visible inputs or buttons.
+PASS: fields-to-fill password and TOTP under one browser lease; authenticated account; receiver receipt survives navigation and authority restart.
+The earlier fill is uncertain or already finished. Inspect the page before deliberately repeating it with --again.
+PASS: receiver killed during browser submit; retry is uncertain and the site receives one POST.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+A field or submit selector is missing, ambiguous or unsuitable. Use one editable input per field and an explicit submit control in the same form.
+This endpoint is not owned by a supported browser installation. Use Google Chrome, Chrome for Testing or Chromium on this machine.
+PASS: SPA submission clears residual inputs; inappropriate field refused.
+PASS: installed command and both skills link to the same build/resources.
+PASS: concurrent fills submit once; fake endpoint refused; receiver transcript has no fixture values or common encodings.
+Proof artifacts: /var/folders/1s/vcsh7yn16jv1d9jn1dvwy9tm0000gn/T/keyring-cli-proof-qxqkmi5k
+
+=== mac: cft (script/prove_cli.py) ===
+Proof artifacts: /var/folders/1s/vcsh7yn16jv1d9jn1dvwy9tm0000gn/T/keyring-cli-proof-h1vjt3mc
+PASS: private agent-process delivery, task rejoin and release.
+PASS: bound program stdin, echoed output suppressed, retained exit status, deliberate repeat.
+PASS: receiver killed during program; a new process reports uncertainty without starting it again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+This step was already submitted; it was not submitted again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+That operation key already names a different action in this lease. Use the original inputs, or inspect the result before using --again.
+Page: http://127.0.0.1:55487/account
+Title: Account
+SELECTOR  TYPE  NAME  ID  LABEL  AUTOCOMPLETE
+No visible inputs or buttons.
+PASS: fields-to-fill password and TOTP under one browser lease; authenticated account; receiver receipt survives navigation and authority restart.
+The earlier fill is uncertain or already finished. Inspect the page before deliberately repeating it with --again.
+PASS: receiver killed during browser submit; retry is uncertain and the site receives one POST.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+A field or submit selector is missing, ambiguous or unsuitable. Use one editable input per field and an explicit submit control in the same form.
+This endpoint is not owned by a supported browser installation. Use Google Chrome, Chrome for Testing or Chromium on this machine.
+PASS: SPA submission clears residual inputs; inappropriate field refused.
+PASS: installed command and both skills link to the same build/resources.
+PASS: concurrent fills submit once; fake endpoint refused; receiver transcript has no fixture values or common encodings.
+Proof artifacts: /var/folders/1s/vcsh7yn16jv1d9jn1dvwy9tm0000gn/T/keyring-cli-proof-h1vjt3mc
+
+=== linux: chrome (script/prove_cli.py) ===
+Proof artifacts: /tmp/keyring-cli-proof-o97hz3hy
+PASS: private agent-process delivery, task rejoin and release.
+PASS: bound program stdin, echoed output suppressed, retained exit status, deliberate repeat.
+PASS: receiver killed during program; a new process reports uncertainty without starting it again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+This step was already submitted; it was not submitted again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+That operation key already names a different action in this lease. Use the original inputs, or inspect the result before using --again.
+Page: http://127.0.0.1:36139/account
+Title: Account
+SELECTOR  TYPE  NAME  ID  LABEL  AUTOCOMPLETE
+No visible inputs or buttons.
+PASS: fields-to-fill password and TOTP under one browser lease; authenticated account; receiver receipt survives navigation and authority restart.
+The earlier fill is uncertain or already finished. Inspect the page before deliberately repeating it with --again.
+PASS: receiver killed during browser submit; retry is uncertain and the site receives one POST.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+A field or submit selector is missing, ambiguous or unsuitable. Use one editable input per field and an explicit submit control in the same form.
+This endpoint is not owned by a supported browser installation. Use Google Chrome, Chrome for Testing or Chromium on this machine.
+PASS: SPA submission clears residual inputs; inappropriate field refused.
+PASS: installed command and both skills link to the same build/resources.
+PASS: concurrent fills submit once; fake endpoint refused; receiver transcript has no fixture values or common encodings.
+Proof artifacts: /tmp/keyring-cli-proof-o97hz3hy
+
+=== linux: chromium (script/prove_cli.py) ===
+Proof artifacts: /tmp/keyring-cli-proof-8u8lbx6a
+PASS: private agent-process delivery, task rejoin and release.
+PASS: bound program stdin, echoed output suppressed, retained exit status, deliberate repeat.
+PASS: receiver killed during program; a new process reports uncertainty without starting it again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+This step was already submitted; it was not submitted again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+That operation key already names a different action in this lease. Use the original inputs, or inspect the result before using --again.
+Page: http://127.0.0.1:36733/account
+Title: Account
+SELECTOR  TYPE  NAME  ID  LABEL  AUTOCOMPLETE
+No visible inputs or buttons.
+PASS: fields-to-fill password and TOTP under one browser lease; authenticated account; receiver receipt survives navigation and authority restart.
+The earlier fill is uncertain or already finished. Inspect the page before deliberately repeating it with --again.
+PASS: receiver killed during browser submit; retry is uncertain and the site receives one POST.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+A field or submit selector is missing, ambiguous or unsuitable. Use one editable input per field and an explicit submit control in the same form.
+This endpoint is not owned by a supported browser installation. Use Google Chrome, Chrome for Testing or Chromium on this machine.
+PASS: SPA submission clears residual inputs; inappropriate field refused.
+PASS: installed command and both skills link to the same build/resources.
+PASS: concurrent fills submit once; fake endpoint refused; receiver transcript has no fixture values or common encodings.
+Proof artifacts: /tmp/keyring-cli-proof-8u8lbx6a
+
+=== linux: cft (script/prove_cli.py) ===
+Proof artifacts: /tmp/keyring-cli-proof-sfggku6f
+PASS: private agent-process delivery, task rejoin and release.
+PASS: bound program stdin, echoed output suppressed, retained exit status, deliberate repeat.
+PASS: receiver killed during program; a new process reports uncertainty without starting it again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+This step was already submitted; it was not submitted again.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+That operation key already names a different action in this lease. Use the original inputs, or inspect the result before using --again.
+Page: http://127.0.0.1:43797/account
+Title: Account
+SELECTOR  TYPE  NAME  ID  LABEL  AUTOCOMPLETE
+No visible inputs or buttons.
+PASS: fields-to-fill password and TOTP under one browser lease; authenticated account; receiver receipt survives navigation and authority restart.
+The earlier fill is uncertain or already finished. Inspect the page before deliberately repeating it with --again.
+PASS: receiver killed during browser submit; retry is uncertain and the site receives one POST.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.
+A field or submit selector is missing, ambiguous or unsuitable. Use one editable input per field and an explicit submit control in the same form.
+This endpoint is not owned by a supported browser installation. Use Google Chrome, Chrome for Testing or Chromium on this machine.
+PASS: SPA submission clears residual inputs; inappropriate field refused.
+PASS: installed command and both skills link to the same build/resources.
+PASS: concurrent fills submit once; fake endpoint refused; receiver transcript has no fixture values or common encodings.
+Proof artifacts: /tmp/keyring-cli-proof-sfggku6f
+
+=== mac: Chromium with minimal receiver PATH (script/prove_fields.py) ===
+Private proof artifacts: /var/folders/1s/vcsh7yn16jv1d9jn1dvwy9tm0000gn/T/keyring-fields-ge1zthv7
+PASS fields: tabs and labelled selectors; no authority, no values, no mutation; fake endpoint refused
+PASS fields-to-fill: password then saved TOTP; authenticated account; one POST per step
+PASS selectors: absent and duplicate IDs, unique names, visible button text, hidden controls excluded; fill accepts generated selectors
+
+=== linux: Chromium with minimal receiver PATH (script/prove_fields.py) ===
+Private proof artifacts: /tmp/keyring-fields-pnmurd7c
+PASS fields: tabs and labelled selectors; no authority, no values, no mutation; fake endpoint refused
+PASS fields-to-fill: password then saved TOTP; authenticated account; one POST per step
+PASS selectors: absent and duplicate IDs, unique names, visible button text, hidden controls excluded; fill accepts generated selectors

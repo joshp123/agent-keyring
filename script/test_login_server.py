@@ -74,6 +74,7 @@ class LoginServer(http.server.ThreadingHTTPServer):
             "authenticated_visits": 0,
             "unrelated_field_received_text": False,
             "password_present_in_otp_form": False,
+            "debugger_requests": 0,
         }
 
 
@@ -138,6 +139,10 @@ class LoginHandler(http.server.BaseHTTPRequestHandler):
             self.send_document(200, json.dumps(results), "application/json")
         elif parsed.path == "/health":
             self.send_document(200, '{"ready":true}', "application/json")
+        elif parsed.path == "/json/version":
+            with self.server.lock:
+                self.server.results["debugger_requests"] += 1
+            self.send_document(200, json.dumps({"Browser": "Chrome/156.0.0.0", "webSocketDebuggerUrl": self.server.origin.replace("http:", "ws:") + "/devtools/browser/fake"}), "application/json")
         elif parsed.path in ("/", "/login"):
             self.send_document(200, self.document("Synthetic sign in", f"""
                 <h1>Synthetic sign in</h1>
