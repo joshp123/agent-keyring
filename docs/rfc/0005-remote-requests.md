@@ -1,6 +1,6 @@
 ---
-written_by: AI (Claude Opus 5.5, 2026-10-31)
-status: proposal for implementation; Astra review pending
+written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
+status: reviewed; transport/storage can build; pairing and Automatic contracts need completion below
 depends_on: 0004
 related: 0006 (iPhone approver), 0007 (approval UI); docs/rfc/README.md has the build plan
 ---
@@ -69,6 +69,9 @@ otherwise.
 
 The MacBook's copy keeps today's protections and limits in this release. RFC
 0006 covers moving the strong copy to the iPhone.
+The mini may also run an enrolled receiver. A login approved to that receiver
+is readable on the mini; the relay's ciphertext-only role does not conceal it
+from software administering that same machine.
 
 ## How a remote sign-in works
 
@@ -88,11 +91,21 @@ The MacBook's copy keeps today's protections and limits in this release. RFC
 4. **Seal.** On approval the approver builds `BundleContents` (username,
    password, codes up to `not_after`, saved sites), seals it to that
    receiver's enrolled key, and signs a `DecisionStatement` that binds the
-   request digest, recipient, lease, deadline and ciphertext hash.
+   request digest, recipient, lease, deadline and ciphertext hash. `Decide`
+   uploads that decision with `SignedDecision.bundle`. The relay durably stores
+   the bundle, original request bytes and decision with the lease transition
+   in one transaction before acknowledging it. Denial replies are also bound
+   by the signature, using the SHA-256 of their UTF-8 bytes.
 5. **Fill.** The receiver's `BeginOperation` records the operation at the relay
-   and returns the `SealedDelivery`. The receiver verifies, opens, fills only
-   on the bundle's sites, submits, clears, drops the values and reports the
-   outcome.
+   and returns the `SealedDelivery`, including the exact approved request bytes.
+   The receiver checks their digest and scope against the request it retained
+   locally for this lease: login, task, recipient, purpose and program. It checks
+   the signed deadline and ciphertext hash, then checks the opened bundle's
+   login, lease and deadline against that decision. Fill uses only the bundle's
+   saved sites. It submits, clears, drops the values and reports the outcome.
+   The receiver keeps the expected request fields with its local lease reference
+   so a new CLI process can make the same checks; it never accepts a new scope
+   just because the relay returned it.
 
 Operation records, retries and Uncertain outcomes work exactly as in RFC 0004,
 with the relay holding the records instead of the Mac app.
@@ -103,7 +116,7 @@ with the relay holding the records instead of the Mac app.
 | --- | --- |
 | MacBook asleep or offline | New requests wait, then end as Unanswered at their pending deadline. Active leases keep working, because their bundles are already at the relay |
 | Relay restarts | Nothing is lost: leases, operations and bundles are on disk. Clients reconnect and rejoin by lease ID without a new prompt |
-| Approver answers but the acknowledgement is lost | It resends the same signed decision until acknowledged. The relay accepts the first decision for a request and acknowledges duplicates without change |
+| Approver answers but the acknowledgement is lost | It resends the same signed decision and bundle. The relay acknowledges an exact accepted resend even after the pending deadline; a conflicting answer returns the current lease state, not an invitation to approve again |
 | Client disconnects while waiting | The request stays. `status --wait` rejoins it |
 | Mini down or home internet down | Remote agents get "Agent Keyring unreachable". Local agents on the MacBook keep working through the local socket |
 | Machine revoked | The approver stops sealing to it and the relay ends its leases. Bundles it already opened are not recalled |
@@ -151,6 +164,36 @@ A home outage stops remote requests. That is the limit of one always-on host.
 
 ## Build slices
 
+### Contract work required before the affected slices are complete
+
+- **Pairing (R3.2, R3.4).** Specify the initial TLS exception for unknown peers:
+  only Enrol/first PairApprover are available, no credential or approver methods.
+  Specify the transcript from which both devices independently derive the code,
+  including relay, client TLS/receiver keys and the approver keys being pinned.
+  A code supplied by the relay is not itself evidence of a match. Specify the
+  authenticated confirmation that commits first-approver pairing after Touch ID;
+  the current PairApprover request has no such confirmation. Approver TLS keys
+  now have an explicit field alongside their signing keys.
+- **Automatic (R3.4 and R4.6).** The current biometric-only signing key cannot
+  sign unattended approvals, index updates or background publications. Define
+  which operations use a noninteractive key, what the human-authorized key binds
+  it to, and how receivers distinguish that authority from Ask approval. In
+  release 4 the relay must have explicit authority to sign only published
+  Automatic logins; it cannot become a general approver. Also specify the relay's
+  encryption key and the exact signed bytes of AutomaticSet (its current
+  signature field has no defined payload). Do not disable biometric checks to
+  make the existing design work. This is an engineering gap, not a new question
+  for Josh.
+- **Approver changes (R4.5).** Define how an offline receiver obtains intervening
+  signed key sets when the latest signer was not in its pinned set, and how the
+  new phone receives current enrolments including revocations rather than a
+  replayable bag of old approvals. This needs an agreed pairing/transfer contract
+  before enabling additional approvers, not a general consensus service.
+
+The lease store, wire framing, bundle sealing/opening and screens can be built
+against the fixed interfaces now. These gaps block claiming a complete enrolment
+or unattended approval path, not independent development of those components.
+
 | Slice | Owner | What | Done when |
 | --- | --- | --- | --- |
 | R3.1 | Terra or Sol | Relay core in Go: SQLite store, lease and operation records, request joining and deadlines from RFC 0004, `RelayWireRequest` server over TLS with pinned keys | A scripted client and a scripted approver complete request, approve, begin, finish, release over loopback TLS; relay restart mid-lease loses nothing |
@@ -172,8 +215,8 @@ R3.1 and R3.3 can start together against the proto. R3.4 needs R3.1.
 - **MacBook asleep.** A remote request waits, then reports Unanswered. Nothing
   else releases it.
 - **Restart.** Restart the relay and the Mac app during an active lease. The
-  next fill works without a prompt; a repeated fill of the same step reports
-  Uncertain.
+  next fill works without a prompt; a repeated fill returns the recorded result,
+  or Uncertain if none was recorded, without another submit.
 - **Wrong recipient.** A second enrolled machine cannot open the first
   machine's bundle.
 - **Watch.** Whether an Apple Watch tap can approve with the enclave signing

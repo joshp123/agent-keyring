@@ -1,4 +1,4 @@
-// Written by AI on 2026.10.31 by Claude Opus 5.5.
+// Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // The relay on the Mac mini (RFC 0005) and its approvers (RFC 0005: MacBook,
 // RFC 0006: iPhone). Clients keep using the AgentKeyring service from
 // agentkeyring.proto, served by the relay over mutual TLS on the tailnet.
@@ -21,6 +21,8 @@ service Approvals {
   // Long-lived. First the current backlog, then new work. Reconnecting gets the
   // backlog again; an item answered elsewhere arrives as a cancellation.
   rpc WatchWork(WatchWorkRequest) returns (stream ApproverWork);
+  // Approval includes SignedDecision.bundle. Store bundle, decision and lease
+  // transition atomically; acknowledge a matching resend without changing it.
   rpc Decide(SignedDecision) returns (DecisionAck);
   rpc DecideEnrolment(SignedEnrolmentDecision) returns (EnrolmentAck);
   // Login metadata and rules for Find and for refusing Blocked logins without
@@ -91,9 +93,11 @@ message RequestRecord {
 
 message DecisionAck {
   bool accepted = 1;
-  // Reasons a decision is refused: unknown request, already decided,
-  // past pending_until, bad signature. The approver shows "not sent".
+  // True also for an exact already-accepted resend, even after the pending
+  // deadline. A conflicting decision returns false and current lease state.
+  // Never show "try again" for a request that is already terminal.
   string detail = 2;
+  Lease lease = 3;              // Current state for a known, authorized request.
 }
 
 message EnrolRequest {
@@ -170,6 +174,7 @@ message ApproverKey {
   string key_id = 1;
   bytes public_key = 2;          // P-256 X9.63, signing.
   string label = 3;              // "Josh's MacBook Pro", "Josh's iPhone".
+  bytes tls_public_key = 4;      // SPKI DER; authenticated alongside signing key.
 }
 
 // Receivers accept a new approver key set only if a currently pinned key
@@ -199,6 +204,8 @@ message LoginIndex {
   int64 mirror_refreshed_unix_seconds = 3;
 }
 
+// DRAFT: automatic signing authority and the exact signed payload must be
+// settled in RFCs 0005/0006 before implementing unattended delivery.
 // RFC 0006. Each entry is a BundleContents-like record sealed to the relay's
 // key, including the TOTP seed, so the relay can make bundles unattended.
 // Anything published here is readable by whoever controls the mini.
@@ -247,6 +254,10 @@ message PushRegistration {
   string approver_key_id = 1;
   bytes apns_device_token = 2;
   bool apns_production = 3;      // Must match how the app was signed.
+  // Persisted preference, strictly below the ten-minute pending deadline.
+  // Absence preserves the existing setting; new setups default to 120 seconds.
+  // Zero explicitly requests immediate notification.
+  optional uint32 escalation_delay_seconds = 4;
 }
 
 message PublishAck {
