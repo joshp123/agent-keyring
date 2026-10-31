@@ -10,11 +10,13 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
+	"github.com/joshp123/agent-keyring/internal/apns"
 	"github.com/joshp123/agent-keyring/internal/relay"
 	"github.com/joshp123/agent-keyring/internal/relaycrypto"
 )
@@ -31,6 +33,12 @@ func run() error {
 	state := flags.String("state", "", "Private state directory (required)")
 	tailscale := flags.String("tailscale", "tailscale", "Path to the Tailscale CLI")
 	loopback := flags.Bool("loopback-test", false, "Allow only loopback and use one synthetic node identity for system fixtures")
+	apnsKey := flags.String("apns-key", "", "APNs PKCS#8 token signing key path (optional)")
+	apnsKeyID := flags.String("apns-key-id", "", "Apple APNs key ID")
+	apnsTeam := flags.String("apns-team-id", "", "Apple developer team ID")
+	apnsTopic := flags.String("apns-topic", "", "Phone app bundle ID")
+	apnsGateway := flags.String("apns-test-gateway", "", "Loopback system fixture HTTPS gateway only")
+	apnsCA := flags.String("apns-test-ca", "", "Loopback fixture gateway CA PEM")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return err
 	}
@@ -78,6 +86,25 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var push *apns.Sender
+	if *apnsGateway != "" {
+		gateway, err := url.Parse(*apnsGateway)
+		if err != nil {
+			return err
+		}
+		ip, err := netip.ParseAddr(gateway.Hostname())
+		if !*loopback || err != nil || !ip.IsLoopback() || gateway.Scheme != "https" || gateway.User != nil {
+			return errors.New("test APNs gateway requires loopback-test and loopback HTTPS")
+		}
+	}
+	if *apnsKey != "" {
+		push, err = apns.New(apns.Config{KeyPath: *apnsKey, KeyID: *apnsKeyID, TeamID: *apnsTeam, Topic: *apnsTopic, TestGateway: *apnsGateway, TestCA: *apnsCA})
+		if err != nil {
+			return err
+		}
+	} else if *apnsKeyID != "" || *apnsTeam != "" || *apnsTopic != "" || *apnsGateway != "" || *apnsCA != "" {
+		return errors.New("APNs configuration requires --apns-key")
+	}
 	store, err := relay.OpenStore(*state)
 	if err != nil {
 		return err
@@ -105,5 +132,5 @@ func run() error {
 	fmt.Fprintf(os.Stderr, "Agent Keyring relay listening on %s\n", listener.Addr())
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	return (&relay.Server{Store: store, Certificate: certificate, Lookup: lookup}).Serve(ctx, listener)
+	return (&relay.Server{Store: store, Push: push, Certificate: certificate, Lookup: lookup}).Serve(ctx, listener)
 }
