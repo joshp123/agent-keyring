@@ -278,6 +278,19 @@ func (p *proof) phoneProof(binary string) {
 	// A new task must still require its own answer. Plain denial is unsigned;
 	// a reply must be signed and ask the software biometric stand-in once.
 	p.work = p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: p.key.KeyId}}})
+	require(phone.command("stop") == "STOPPED", "phone did not stop")
+	macLease := good(p.client.call(leaseRequest("mac-already-active", "mac-task", p.enrolled.RecipientId))).GetClient().GetLease()
+	macRecord := p.nextRequest()
+	require(good(p.approver.call(p.decision(macRecord, false))).GetDecision().Accepted, "Mac fixture approval failed")
+	require(phone.command("start") == "STARTED", "phone did not reconnect")
+	remoteID := "lease:" + macLease.LeaseId
+	phone.wait("requests", remoteID+"=approved")
+	require(strings.Contains(phone.command("end\t"+remoteID), "ended"), "phone could not end an existing Mac approval")
+	require(p.client.call(beginRequest(macLease.LeaseId, "after-remote-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "existing Mac approval delivered after phone revoke")
+	count, err = os.ReadFile(countPath)
+	must(err)
+	require(string(count) == "1", "listing or revoking a Mac approval asked for authorization")
+	fmt.Println("PASS phone fetched an already-active Mac approval on reconnect and ended it without authorization")
 	for _, reply := range []string{"", "Use the test account instead"} {
 		index := strconv.Itoa(len(reply))
 		l := good(p.client.call(leaseRequest("deny-"+index, "deny-task-"+index, p.enrolled.RecipientId))).GetClient().GetLease()
