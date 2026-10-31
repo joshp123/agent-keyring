@@ -51,13 +51,21 @@ func skillPath() (string, error) {
 	// Development binaries use the canonical source file; release bundles always
 	// read their own resource, so replacing the prose never changes Go source.
 	executable, _ := os.Executable()
+	executable, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", err
+	}
+	packaged := filepath.Join(filepath.Dir(filepath.Dir(executable)), "share/agent-keyring/skills/agent-keyring/SKILL.md")
+	if _, err := os.Stat(packaged); err == nil {
+		return packaged, nil
+	}
 	for directory := filepath.Dir(executable); directory != "/" && directory != "."; directory = filepath.Dir(directory) {
 		path := filepath.Join(directory, "AgentSkill/agent-keyring/SKILL.md")
 		if _, err := os.Stat(path); err == nil {
 			return path, nil
 		}
 	}
-	return "", errors.New("The bundled skill is missing. Run this command from AgentKeyring.app or rebuild the app with its AgentSkill resource.")
+	return "", errors.New("The bundled skill is missing. Reinstall the Agent Keyring CLI package or Mac app.")
 }
 func integration(command string) error {
 	source, err := skillPath()
