@@ -37,7 +37,9 @@ extension PhoneRelayApprover {
     public func beginPairing(endpoint: RelayEndpoint) async throws {
         try load()
         guard state.keySet == nil else { throw RelayFailure(.conflict, "This iPhone is already paired.") }
-        cancelPairing()
+        pairingAttempt = UUID()
+        pairTask?.cancel(); pairTask = nil; pairConnection?.cancel(); pairConnection = nil
+        var requested = state; requested.pairingWanted = true; try commit(requested)
         let savedComparison = state.pendingPair
         let attempt = pairingAttempt
         logger.notice("Starting phone approver pairing")
@@ -109,8 +111,11 @@ extension PhoneRelayApprover {
 
     public func cancelPairing() {
         pairingAttempt = UUID()
+        pairingStartTask?.cancel(); pairingStartTask = nil
         pairTask?.cancel(); pairTask = nil; pairConnection?.cancel(); pairConnection = nil
         if state.keySet == nil {
+            var next = state; next.pairingWanted = false
+            do { try commit(next) } catch { fail(error, stage: "Cancel pairing") }
             // Keep the comparison receipt so an accepted pairing can recover if its acknowledgement was lost.
             pairing = .notPaired; publish()
         }
@@ -141,7 +146,7 @@ extension PhoneRelayApprover {
         try Task.checkCancellation()
         guard pairingAttempt == attempt, state.pendingPair?.transcript == pending.transcript else { throw CancellationError() }
         var next = state; next.endpoint = pending.endpoint; next.relaySPKI = pending.relaySPKI
-        next.keySet = try signed.serializedData(); next.roster = try roster.serializedData(); next.pendingPair = nil
+        next.keySet = try signed.serializedData(); next.roster = try roster.serializedData(); next.pendingPair = nil; next.pairingWanted = false
         try commit(next); pairing = .paired; lastFailure = nil; publish()
         logger.notice("Accepted Mac-signed approver addition and pinned machine roster; machines=\(parsed.machines.count, privacy: .public)")
     }

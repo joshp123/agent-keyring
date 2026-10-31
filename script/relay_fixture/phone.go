@@ -194,7 +194,6 @@ func (p *proof) phoneProof(binary string) {
 	phone.stop()
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}})).GetPublish().Accepted, "phone addition refused")
 	phone = startPhone(binary, directory)
-	require(phone.command("pair\t"+port) == "PAIRED", "accepted pairing did not recover from its saved comparison")
 	phone.wait("status", "paired")
 	fmt.Println("PASS phone compared the exact transcript, verified the Mac-signed addition and adopted the existing receiver")
 

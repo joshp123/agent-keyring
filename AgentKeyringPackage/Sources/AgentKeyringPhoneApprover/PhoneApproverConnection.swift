@@ -7,7 +7,17 @@ extension PhoneRelayApprover {
     /// Every foreground connection asks WatchWork for the entire pending backlog.
     public func start() {
         do { try load() } catch { fail(error, stage: "Load approver"); return }
-        guard state.keySet != nil, let endpoint = state.endpoint else { return }
+        guard state.keySet != nil, let endpoint = state.endpoint else {
+            if state.pairingWanted, let pending = state.pendingPair, pairTask == nil, pairingStartTask == nil {
+                pairingStartTask = Task { [weak self] in
+                    guard let self else { return }
+                    defer { self.pairingStartTask = nil }
+                    do { try await self.beginPairing(endpoint: pending.endpoint) }
+                    catch { if !Task.isCancelled { self.fail(error, stage: "Resume pairing") } }
+                }
+            }
+            return
+        }
         if retryTask == nil {
             retryTask = Task { [weak self] in
                 while !Task.isCancelled {
@@ -65,6 +75,8 @@ extension PhoneRelayApprover {
     }
 
     public func stop() {
+        pairingAttempt = UUID()
+        pairingStartTask?.cancel(); pairingStartTask = nil
         workTask?.cancel(); workTask = nil
         retryTask?.cancel(); retryTask = nil
         pairTask?.cancel(); pairTask = nil; pairConnection?.cancel(); pairConnection = nil
