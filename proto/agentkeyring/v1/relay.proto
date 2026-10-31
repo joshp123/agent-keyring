@@ -28,6 +28,8 @@ service Approvals {
   // Login metadata and rules for Find and for refusing Blocked logins without
   // waking an approver. The relay may only use it to refuse, never to approve.
   rpc PublishIndex(SignedIndex) returns (PublishAck);
+  // Other approvers fetch the rule owner's signed index before deciding.
+  rpc GetIndex(GetIndexRequest) returns (SignedIndex);
   // RFC 0006: Automatic logins sealed to the relay's own key. Optional.
   rpc PublishAutomatic(AutomaticSet) returns (PublishAck);
   rpc RegisterPush(PushRegistration) returns (PublishAck);
@@ -43,6 +45,9 @@ service Approvals {
   // Names the key that may sign Automatic decisions, and for which logins and
   // machines. Signed by an approver key while Josh is present.
   rpc PublishAutomaticGrant(SignedAutomaticGrant) returns (PublishAck);
+  // Public keys only, over the pinned relay connection. Publishing a grant
+  // delegates to these keys; fetching them grants no authority.
+  rpc GetAutomaticKeys(GetAutomaticKeysRequest) returns (AutomaticKeys);
 }
 
 // Served by the relay to a machine that is not yet enrolled. Reachable only
@@ -50,9 +55,9 @@ service Approvals {
 service Enrolment {
   // Streams PENDING, then APPROVED with the approver keys to pin, or DENIED.
   rpc Enrol(EnrolRequest) returns (stream EnrolStatus);
-  // First approver only, while the relay has none. The relay shows a code in
-  // its own log; the approver shows the same code. Later approvers are added
-  // by PublishApproverKeys.
+  // Starts a pending pairing. First approver: compare with the relay log and
+  // ConfirmPairing. Later: compare with a pinned approver, which commits the
+  // addition through PublishApproverKeys. Neither path activates on request.
   rpc PairApprover(PairApproverRequest) returns (stream EnrolStatus);
   // Enrolled clients: the newest approver key set, checked against the pinned
   // chain before use.
@@ -76,6 +81,7 @@ message ApproverWork {
     PendingRequest request = 1;
     PendingEnrolment enrolment = 2;
     string cancelled_request_digest_hex = 3;
+    PairApproverRequest pairing = 4;
   }
 }
 
@@ -129,8 +135,16 @@ message EnrolStatus {
   // evidence of a match.
   string code = 2;
   string recipient_id = 3;
-  repeated ApproverKey approver_keys = 4;  // Pin on APPROVED.
+  repeated ApproverKey approver_keys = 4;  // Display; must match approver_key_set.
   bool automatic_allowed = 5;
+  // PENDING: candidate current set, bound into the locally computed code.
+  // APPROVED: the accepted set. Pin only after the confirmation checks in
+  // RFC 0005; a relay's APPROVED flag alone establishes no trust.
+  SignedApproverKeySet approver_key_set = 6;
+  // Machine enrolment only: proof of approval over the exact record, whose
+  // keys must match this client's keys and whose key-set hash must match field 6.
+  SignedEnrolmentDecision decision = 7;
+  bytes enrolment_record = 8;
 }
 
 enum EnrolState {
@@ -157,6 +171,7 @@ message EnrolmentRecord {
   string receiver_key_id = 9;
   string code = 10;
   int64 created_unix_seconds = 11;
+  bytes approver_key_set_sha256 = 12; // SHA-256 of the compared key_set bytes.
 }
 
 // Signed like SignedDecision: signature over the exact statement bytes.
@@ -209,6 +224,12 @@ message ApproverKeySet {
   // The one approver whose signed LoginIndex holds the current rules and login
   // IDs (RFC 0006, "Rule owner"). Other approvers follow it.
   string rule_owner_key_id = 4;
+  // On adding an approver, binds the current machine roster it must fetch.
+  // Hash the exact SignedEnrolmentSet.enrolment_set bytes, not a re-encoding.
+  uint64 enrolment_set_revision = 5;
+  bytes enrolment_set_sha256 = 6;
+  // Required on adding an approver; empty for other key-set changes.
+  bytes pairing_transcript_sha256 = 7;
 }
 
 message GetApproverKeyChainRequest {
@@ -219,17 +240,27 @@ message ApproverKeyChain {
   repeated SignedApproverKeySet key_sets = 1;
 }
 
-// Both sides hash the same transcript and show the first six decimal digits of
-// SHA-256 over it. Enrolment: "agentkeyring.enrol.v1\0" || relay TLS SPKI ||
-// client TLS SPKI || receiver public key. Approver pairing:
-// "agentkeyring.pair.v1\0" || relay TLS SPKI || approver TLS SPKI ||
-// approver signing key. Each value is length-prefixed with a 4-byte big-endian
-// length. Each device uses the keys it saw or holds, never ones the relay
-// reports.
+// Code = first 16 bytes of SHA256(transcript), uppercase hex in eight groups
+// of four characters, separated by spaces. Compare the entire fingerprint.
+// Six decimal digits are not enough here: the relay can choose candidate keys
+// and search for a matching short hash. This comparison occurs only at setup.
+// Each component below has a 4-byte big-endian byte-length prefix.
+// Enrol: domain "agentkeyring.enrol.v1\0", relay TLS SPKI, client TLS SPKI,
+// receiver public key, current ApproverKeySet bytes.
+// Pair: domain "agentkeyring.pair.v1\0", relay TLS SPKI, new approver TLS SPKI,
+// new approver signing key, current ApproverKeySet bytes (empty on first pair).
+// Each new device uses its own keys and the relay TLS key it observed; the
+// existing approver uses its pinned relay key and locally pinned key-set bytes.
+// The candidate key set from EnrolStatus is not trusted until codes match and
+// the signed confirmation is verified. Do not re-encode key_set for this hash.
 message SignedPairingConfirmation {
   bytes confirmation = 1;        // Serialized PairingConfirmation.
   bytes signature = 2;           // By the approver signing key being paired.
   string approver_key_id = 3;
+  // First pair only: revision 1, containing only this approver as rule owner,
+  // signed by it and bound to the same pairing transcript. Committed with the
+  // confirmation, so GetApproverKeys never needs an unsigned bootstrap set.
+  SignedApproverKeySet initial_key_set = 4;
 }
 
 message PairingConfirmation {
@@ -267,10 +298,18 @@ message EnrolledMachine {
 }
 
 message GetAutomaticGrantRequest {}
+message GetAutomaticKeysRequest {}
+
+message AutomaticKeys {
+  bytes signing_public_key = 1;     // P-256 X9.63.
+  string signing_key_id = 2;
+  bytes encryption_public_key = 3;  // HPKE P-256 X9.63.
+  string encryption_key_id = 4;
+}
 
 message SignedAutomaticGrant {
   bytes grant = 1;               // Serialized AutomaticGrant.
-  bytes signature = 2;           // By an approver key, after Josh's biometric check.
+  bytes signature = 2;           // By the current rule owner, after biometrics.
   string approver_key_id = 3;
 }
 
@@ -287,8 +326,10 @@ message AutomaticGrant {
   bytes relay_encryption_public_key = 5;
   repeated string login_ids = 6;      // Logins whose rule is Automatic.
   repeated string recipient_ids = 7;  // Machines allowed Automatic logins.
-  // Release 4: SHA-256 of each sealed login in the AutomaticSet published with
-  // this revision, in the same order as login_ids.
+  // Release 4: one hash per login, in login_ids order. Hash the concatenation
+  // of login_id UTF-8, sealed.encapsulated_key, sealed.ciphertext and
+  // sealed.receiver_key_id UTF-8, each with a uint32 big-endian length prefix.
+  // Do not hash a re-serialized protobuf. Empty in release 3.
   repeated bytes sealed_login_sha256 = 8;
 }
 
@@ -297,6 +338,8 @@ message SignedIndex {
   bytes signature = 2;
   string approver_key_id = 3;
 }
+
+message GetIndexRequest {}
 
 // Published only by the rule owner named in the current ApproverKeySet.
 message LoginIndex {
@@ -332,7 +375,10 @@ message AutomaticSet {
 
 message SealedAutomaticLogin {
   string login_id = 1;
-  SealedBundle sealed = 2;       // Plaintext: AutomaticLoginContents.
+  // Same HPKE suite as SealedBundle; info = "agentkeyring.automatic-login.v1";
+  // aad = uint64 big-endian AutomaticSet.revision || login_id UTF-8.
+  // Plaintext: AutomaticLoginContents, whose login_id must match this one.
+  SealedBundle sealed = 2;
 }
 
 message AutomaticLoginContents {
@@ -348,7 +394,7 @@ message AutomaticLoginContents {
 
 message PairApproverRequest {
   ApproverKey key = 1;
-  bytes tls_public_key = 2;
+  bytes tls_public_key = 2;       // Must equal key.tls_public_key and TLS peer key.
 }
 
 message GetApproverKeysRequest {}
@@ -399,6 +445,8 @@ message RelayWireRequest {
     GetEnrolmentSetRequest get_enrolment_set = 16;
     SignedAutomaticGrant publish_automatic_grant = 17;
     GetAutomaticGrantRequest get_automatic_grant = 18;
+    GetIndexRequest get_index = 19;
+    GetAutomaticKeysRequest get_automatic_keys = 20;
   }
 }
 
@@ -416,6 +464,8 @@ message RelayWireResponse {
     ApproverKeyChain approver_key_chain = 11;
     SignedEnrolmentSet enrolment_set = 12;
     SignedAutomaticGrant automatic_grant = 13;
+    SignedIndex index = 14;
+    AutomaticKeys automatic_keys = 15;
   }
   bool end_of_stream = 8;
 }

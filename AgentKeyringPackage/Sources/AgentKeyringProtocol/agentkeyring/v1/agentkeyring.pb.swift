@@ -744,6 +744,18 @@ public nonisolated struct Agentkeyring_V1_Lease: @unchecked Sendable {
     set {_uniqueStorage()._approvedAtUnixSeconds = newValue}
   }
 
+  /// When the request arrived, and when the lease reached a terminal state
+  /// (zero until then). For display; deadlines come from the fields above.
+  public var requestedAtUnixSeconds: Int64 {
+    get {_storage._requestedAtUnixSeconds}
+    set {_uniqueStorage()._requestedAtUnixSeconds = newValue}
+  }
+
+  public var endedAtUnixSeconds: Int64 {
+    get {_storage._endedAtUnixSeconds}
+    set {_uniqueStorage()._endedAtUnixSeconds = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1724,7 +1736,7 @@ nonisolated extension Agentkeyring_V1_LeaseReference: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Lease"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}login_id\0\u{3}task_ref\0\u{1}purpose\0\u{1}state\0\u{3}not_after_unix_seconds\0\u{3}pending_until_unix_seconds\0\u{3}approved_by\0\u{1}reply\0\u{3}status_lines\0\u{1}recipient\0\u{1}sites\0\u{1}program\0\u{3}retry_not_before_unix_seconds\0\u{1}reason\0\u{3}approved_at_unix_seconds\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}login_id\0\u{3}task_ref\0\u{1}purpose\0\u{1}state\0\u{3}not_after_unix_seconds\0\u{3}pending_until_unix_seconds\0\u{3}approved_by\0\u{1}reply\0\u{3}status_lines\0\u{1}recipient\0\u{1}sites\0\u{1}program\0\u{3}retry_not_before_unix_seconds\0\u{1}reason\0\u{3}approved_at_unix_seconds\0\u{3}requested_at_unix_seconds\0\u{3}ended_at_unix_seconds\0")
 
   fileprivate class _StorageClass {
     var _leaseID: String = String()
@@ -1743,6 +1755,8 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
     var _retryNotBeforeUnixSeconds: Int64 = 0
     var _reason: String = String()
     var _approvedAtUnixSeconds: Int64 = 0
+    var _requestedAtUnixSeconds: Int64 = 0
+    var _endedAtUnixSeconds: Int64 = 0
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -1769,6 +1783,8 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
       _retryNotBeforeUnixSeconds = source._retryNotBeforeUnixSeconds
       _reason = source._reason
       _approvedAtUnixSeconds = source._approvedAtUnixSeconds
+      _requestedAtUnixSeconds = source._requestedAtUnixSeconds
+      _endedAtUnixSeconds = source._endedAtUnixSeconds
     }
   }
 
@@ -1803,6 +1819,8 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
         case 14: try { try decoder.decodeSingularInt64Field(value: &_storage._retryNotBeforeUnixSeconds) }()
         case 15: try { try decoder.decodeSingularStringField(value: &_storage._reason) }()
         case 16: try { try decoder.decodeSingularInt64Field(value: &_storage._approvedAtUnixSeconds) }()
+        case 17: try { try decoder.decodeSingularInt64Field(value: &_storage._requestedAtUnixSeconds) }()
+        case 18: try { try decoder.decodeSingularInt64Field(value: &_storage._endedAtUnixSeconds) }()
         default: break
         }
       }
@@ -1863,6 +1881,12 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
       if _storage._approvedAtUnixSeconds != 0 {
         try visitor.visitSingularInt64Field(value: _storage._approvedAtUnixSeconds, fieldNumber: 16)
       }
+      if _storage._requestedAtUnixSeconds != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._requestedAtUnixSeconds, fieldNumber: 17)
+      }
+      if _storage._endedAtUnixSeconds != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._endedAtUnixSeconds, fieldNumber: 18)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -1888,6 +1912,8 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
         if _storage._retryNotBeforeUnixSeconds != rhs_storage._retryNotBeforeUnixSeconds {return false}
         if _storage._reason != rhs_storage._reason {return false}
         if _storage._approvedAtUnixSeconds != rhs_storage._approvedAtUnixSeconds {return false}
+        if _storage._requestedAtUnixSeconds != rhs_storage._requestedAtUnixSeconds {return false}
+        if _storage._endedAtUnixSeconds != rhs_storage._endedAtUnixSeconds {return false}
         return true
       }
       if !storagesAreEqual {return false}
