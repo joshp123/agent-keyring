@@ -2,6 +2,11 @@ Written by AI on 2026.10.31 by model gpt-6.1-sol.
 
 # iPhone vault: R4.2
 
+**Retired implementation.** Release 4 now approves without holding passwords.
+The phone vault, import handler and credential-provider extension were removed;
+this record describes earlier builds. See [the current phone flow](iphone-relay-approver.md).
+The Mac's shared credential importer remains in use.
+
 Agent Keyring 0.4.0 (5) replaces the R4.1 receipt destination with encrypted
 storage. The real import backend reports `.imported(count:at:)` only after the
 vault commits; launch reads that count and date from the durable index. An old

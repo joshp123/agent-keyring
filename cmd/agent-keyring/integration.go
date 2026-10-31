@@ -1,15 +1,17 @@
-// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+// Written by AI on 2026.10.31 by model gpt-6.1-sol; managed skill folders by Claude Opus 5.5.
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -111,6 +113,10 @@ func integration(command string) error {
 		}
 	}
 	for _, link := range destinations {
+		if linksTo(link.destination, link.source) {
+			fmt.Fprintln(os.Stderr, "Already linked:", link.destination)
+			continue
+		}
 		if err = os.MkdirAll(filepath.Dir(link.destination), 0755); err != nil {
 			return err
 		}
@@ -123,6 +129,10 @@ func integration(command string) error {
 		}
 		temporary := link.destination + ".link-" + fmt.Sprint(os.Getpid())
 		if err = os.Symlink(link.source, temporary); err != nil {
+			if errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS) {
+				return fmt.Errorf("%s is read-only, so something else manages it. Link %s there as %s.",
+					filepath.Dir(link.destination), link.source, filepath.Base(link.destination))
+			}
 			return err
 		}
 		if err = os.Rename(temporary, link.destination); err != nil {
@@ -132,6 +142,17 @@ func integration(command string) error {
 	}
 	fmt.Fprintln(os.Stderr, "For sign-ins, use Agent Keyring. Run `agent-keyring skill` for the workflow.")
 	return nil
+}
+
+// A configuration such as Home Manager may already provide the link, in a
+// folder this command cannot write.
+func linksTo(link, target string) bool {
+	resolved, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return false
+	}
+	wanted, err := filepath.EvalSymlinks(target)
+	return err == nil && resolved == wanted
 }
 
 func startApp(ctx context.Context) error {
