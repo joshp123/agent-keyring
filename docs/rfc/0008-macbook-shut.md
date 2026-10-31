@@ -1,6 +1,6 @@
 ---
 written_by: AI (Claude Opus 5.5, 2026-11-01)
-status: design for review; no code yet
+status: design, revised after review; no code yet
 depends_on: 0004, 0005, 0006
 replaces: the "Later: answering with the MacBook shut" section of 0006
 ---
@@ -18,33 +18,64 @@ every request waits, including Automatic ones such as a daily bank download.
 
 ## The design
 
-Each rule has one place it is served from when the MacBook is shut:
+Agents on other machines always ask the Mac mini. Agents on the MacBook keep
+asking the MacBook. One lease record per task, on whichever of those two the
+agent asked, holds its approval and deadline, and every retry rejoins it.
 
-| Rule | MacBook awake | MacBook shut |
+| Rule | Remote agent (asks the mini) | Agent on the MacBook |
 | --- | --- | --- |
-| Automatic | MacBook delivers, no prompt | **The Mac mini delivers**, no prompt |
-| Ask | Touch ID, or the iPhone after the delay; MacBook delivers | **The iPhone** asks Josh, then delivers itself |
+| Automatic | The mini delivers, awake or shut | The MacBook delivers |
+| Ask | Josh approves with Touch ID on the MacBook, or on the iPhone after his delay. Whoever holds the login delivers (below) | Touch ID, or the iPhone after the delay; the MacBook delivers |
 | Blocked | Refused | Refused |
 
-That needs two new copies, each holding only what its job needs:
+For an Ask login approved on the iPhone, the phone delivers it itself if it
+holds an up-to-date copy. If it doesn't, the phone's approval goes to the
+MacBook, which delivers it as in release 4, if it is awake. Either way it is the
+same lease and the first committed answer wins.
 
-- **The mini holds the Automatic logins.** The MacBook sends them to the mini
-  whenever an import or a rule change touches one. The mini then approves and
-  delivers Automatic requests by itself, under the same rules and the same
-  list of approved machines. Nothing else is installed or imported on the
+That needs two copies, each holding only what its job needs, and both coming
+from the MacBook's one import:
+
+- **The mini holds the Automatic logins**, so it can serve them unattended.
+- **The iPhone holds the Ask logins**, sealed to a key in its Secure Enclave
+  that needs Face ID. If the copy never arrives or goes stale, the phone still
+  works as an approval device while the MacBook is awake.
+
+There is no import on the phone or the mini, no second set of login IDs, and
+the MacBook stays the owner of the rules.
+
+## How the copies stay right
+
+The copies travel in the publication the MacBook already sends to the mini
+whenever an import, rule change or machine change is confirmed (RFC 0005).
+
+- The signed configuration already lists every login and its rule. It gains a
+  hash of each sealed phone login, next to the existing hashes of the mini's
+  Automatic logins. So the MacBook's signature covers exactly which logins each
+  copy holds, at which revision.
+- The phone accepts a copy only with a valid configuration signed by the
+  MacBook, at a revision no lower than it has already seen, with every hash
+  matching. An older copy replayed later is refused.
+- The MacBook shows "Applying" until the mini acknowledges the publication.
+  From that moment the mini serves only the new configuration. The phone picks
+  up its copy the next time it connects; until then it treats any login whose
+  copy is behind the configuration as not held, and falls back to approval
+  only.
+
+## When a rule changes
+
+A change takes effect at the mini when it acknowledges the publication, not
+before. Until then the mini may still serve under the previous configuration;
+the MacBook says "Applying" for that period.
+
+- **Automatic to Ask, or to Blocked:** the mini deletes its copy of that login
+  and stops serving it when it commits the new configuration. It cannot take
+  back a password it already delivered or that someone already read on the
   mini.
-- **The iPhone holds the Ask logins.** The MacBook sends them to the phone,
-  sealed to a key in the phone's Secure Enclave that needs Face ID to use.
-  When Josh approves on the phone, it opens that one login and sends it to the
-  machine that asked.
-
-Both copies come from the MacBook. There is still one import, on the MacBook,
-and no import on the phone or the mini. A new or replaced phone gets its copy
-when it pairs.
-
-When the MacBook is awake nothing changes from release 4. The phone delivers
-an Ask login itself whenever it holds it, so the earlier "phone approves, Mac
-delivers" path becomes a fallback for a login the phone doesn't hold yet.
+- **To Blocked:** the mini refuses any delivery of it, including one the phone
+  signs from an older copy. The phone deletes its copy when it next connects.
+- **New login, or changed password:** it reaches the copies at the next
+  MacBook import and confirmation, as today.
 
 ## What each copy exposes
 
@@ -52,89 +83,74 @@ delivers" path becomes a fallback for a login the phone doesn't hold yet.
 | --- | --- | --- |
 | Apple Passwords, through iCloud Keychain | Everything | Whoever controls any device signed in to it. Today that includes the mini, where agents are administrators. This exists already, without Agent Keyring |
 | MacBook's Agent Keyring copy | Everything | Whoever controls the MacBook's user account, as today |
-| **Mini's Agent Keyring copy** | **Automatic logins only, including their two-factor seeds** | **Anyone who administers the mini, and that includes agents.** Moving a login off Automatic deletes it from the mini but cannot take back what was already read |
-| **iPhone's copy** | **Ask logins only, sealed** | Only with Josh's Face ID. A replaced development build of the app could ask for Face ID, which is why Developer Mode matters (below) |
-| A delivery to an agent's machine | One login, for one task | That machine, which can keep it. The relay in between cannot open it |
+| **Mini's copy** | **Automatic logins only, with their two-factor seeds** | **Anyone who administers the mini, and that includes agents.** Removing a login from Automatic deletes it from the mini but cannot take back what was already read |
+| **iPhone's copy** | **Ask logins only, sealed** | It opens only after Face ID. Whether an app update could quietly gain access to that key is not yet proven, so this is not stated as a guarantee |
+| A delivery to an agent's machine | One login, for one task | That machine, which can keep it. The mini cannot open Ask deliveries |
 | Blocked logins | Nothing new | Only Apple Passwords and the MacBook's copy |
 
 Plainly: an Automatic login is trusted to anyone who controls the mini. That is
-what "Automatic, with the laptop shut" means. Logins that must not be exposed
-that way stay Ask.
+what serving it unattended means. Logins that must not be exposed that way stay
+Ask.
 
 The mini's copy adds nothing while iCloud Keychain stays on there, because
-Apple Passwords is already on the mini. It only becomes the boundary once the
-mini is taken off iCloud Keychain, which is Josh's decision.
+Apple Passwords is already on the mini. It only becomes the real limit once the
+mini is taken off iCloud Keychain.
 
-## One place to ask
+## Why one place to ask
 
-Agents on other machines always send requests to the mini. The mini passes Ask
-requests to the MacBook when it is awake and to the iPhone when it isn't, and
-answers Automatic ones itself. Agents on the MacBook keep using the MacBook
-directly, as today.
+The mini must answer when the lid is shut, so it is on every remote path anyway.
+Sending remote agents to the MacBook first would add a second lease store and
+its own retry rules on top. The one thing it would buy is working through a
+mini outage while the MacBook is awake.
 
-This is simpler than asking the MacBook directly over Tailscale and falling
-back to the mini:
+With one place to ask:
 
-| | One place to ask (the mini) | MacBook first, mini as fallback |
-| --- | --- | --- |
-| Where a task's approval and deadline live | One record, on the mini | Two places, which must agree |
-| Lost reply, then a retry | The retry rejoins the same record, as now. No second prompt | The MacBook may have accepted it while the client retries at the mini. Avoiding a second prompt means the two must share lease state |
-| Lid closes mid-task | The approved lease and its sealed login are already on the mini, so the task carries on until its deadline | The lease is on the MacBook, which is now asleep. The task must ask again |
-| Request waiting when the lid closes | The mini sees the MacBook drop off and asks the iPhone at once | The client has to notice and resend to the mini |
-| What the mini can read | Which machine asked for which login and when, and the Automatic logins. Ask logins pass through sealed to the receiving machine, so it cannot open them | The same whenever the lid is shut, so in practice no less |
-| Cost | If the mini is down, remote agents wait even when the MacBook is awake | Remote agents work without the mini only while the MacBook is awake |
+- a lost reply is retried against the same lease, so nobody is prompted twice;
+- a task approved on the MacBook keeps working after the lid closes, because
+  its lease and sealed login are on the mini;
+- a request waiting on the Mac panel when the lid closes goes to the phone,
+  because the mini sees the MacBook drop off and asks the phone at once.
 
-Asking the MacBook directly removes nothing: the mini path has to exist for the
-shut lid, so direct requests are a second path with its own retry rules on top.
-The one thing it buys is working through a mini outage while the MacBook is
-awake. The recommendation is one place to ask.
+While the MacBook is connected, the Mac still decides when to ask the phone:
+after Josh's delay, or at once if its screen is locked.
 
-Who asks the iPhone stays as in release 4 while the MacBook is connected: the
-Mac asks after Josh's delay, or at once if its screen is locked. If the MacBook
-is not connected to the mini, the mini asks the iPhone at once.
+The cost: if the mini is down, remote agents wait even when the MacBook is
+awake.
 
 ## Limits
 
 - Ask with the lid shut needs Josh to answer on the phone, and the phone to
-  reach the tailnet. That is the point of Ask.
+  reach the tailnet.
 - Notifications need an Apple push key. Without one, Josh sees a request only
   when he opens the app.
-- A login added or changed in Apple Passwords reaches the copies at the next
-  MacBook import, as it does today.
-- The mini must be up. If it or the home internet is down, remote agents wait.
+- If the mini or the home internet is down, remote agents wait.
 
-## What this removes from earlier plans
+## Contract changes
 
-- Importing from Apple Passwords on the iPhone. It was unproven and Apple's
-  export is hard to automate; the phone gets its copy from the MacBook instead.
-- Matching login IDs between two separate imports. With one import there is
-  one set of IDs.
-- Moving rule ownership to the phone. The MacBook stays the owner.
-- A separate Agent Keyring on the mini with its own import of a few logins.
-  The mini's copy is part of the same keyring, rules and machine list.
-
-## Contract changes (for the build, after review)
-
-All additions to `relay.proto` and `bundle.proto`:
+All are additions. Signing roles stay as narrow as now.
 
 - The phone's `ApproverKey` gains its Face ID protected key-agreement public
-  key, so the MacBook can seal logins to it.
-- A phone copy message: the Ask logins sealed to that key, with a revision.
-  The MacBook publishes it through the relay; the phone fetches it.
-- A decision signed by the phone's key with `authority = HUMAN` carries a sealed
-  login, like the MacBook's own approvals.
-- The Automatic copy on the mini already exists in the contract
-  (`ConfigurationPublication.automatic_logins`, `GetAutomaticKeys`); it moves
-  from "later" to this release.
+  key. The MacBook signs it into the key set at pairing, as now.
+- `Configuration` gains `sealed_phone_login_sha256`, alongside
+  `sealed_automatic_login_sha256`. `ConfigurationPublication` gains the sealed
+  phone logins, using the same sealed-login message as the Automatic ones.
+  The relay hands the latest publication's phone logins to the phone.
+- A decision with `authority = HUMAN` may be signed by a PHONE key, as well as
+  by the MacBook's key, when the phone delivers a login itself. This changes
+  nothing else about the phone's powers: it still cannot sign configurations or
+  key sets.
+- The configuration's Automatic signing key becomes the mini's key for remote
+  Automatic requests. The existing `GetAutomaticKeys` and
+  `ConfigurationPublication.automatic_logins` already cover this.
 
 ## Build slices
 
 | Slice | What | Done when |
 | --- | --- | --- |
-| S1 | Mini delivers Automatic logins: MacBook publishes them with each configuration; the relay approves and seals Automatic requests | With the MacBook shut, an agent on the mini gets an Automatic test login, and moving it to Ask removes it from the mini |
-| S2 | Phone key and copy: Face ID key-agreement key; MacBook seals Ask logins to it on pairing and after each change | The phone holds the test logins; a re-import that changes one updates it and leaves the rest |
-| S3 | Phone delivers: Face ID opens one login, the phone seals it to the machine that asked, signs, sends | With the MacBook shut and the phone on mobile data, one Face ID completes an agent's test sign-in |
-| S4 | Mini asks the iPhone when the MacBook is not connected, including for a request already waiting when it drops off | A request waiting on the Mac panel reaches the phone as soon as the lid closes, with one prompt |
+| S1 | The mini serves remote Automatic requests, awake or shut, from the Automatic logins in each publication | With the MacBook shut, an agent on the mini gets an Automatic test login; after a change to Ask is acknowledged, the mini refuses it |
+| S2 | Phone copy: the key, sealed Ask logins in the publication, hashes in the signed configuration, revision checks on the phone | The phone holds the test logins; a re-import that changes one updates it; an older copy replayed to the phone is refused |
+| S3 | The phone delivers: Face ID opens one login, the phone seals it to the machine that asked and signs a HUMAN decision; approval-only when it has no current copy | With the MacBook shut and the phone on mobile data, one Face ID completes an agent's test sign-in |
+| S4 | The mini asks the phone when the MacBook is not connected, including for a request already waiting when it drops off | A request waiting on the Mac panel reaches the phone as soon as the lid closes |
 
 ## Device proofs
 
@@ -142,24 +158,27 @@ On the real MacBook, iPhone and mini, with test logins only:
 
 - Lid shut: an Automatic login and an Ask login each complete a sign-in from an
   agent on the mini.
-- Lid closes during a task approved on the MacBook: the agent's next fill
-  works without a new prompt, until the original deadline.
-- Lid closes while a request waits on the Mac panel: the phone is asked once,
-  and the task gets one approval.
-- A reply lost on the way back to the agent: its retry returns the same lease,
-  with no second prompt.
+- Lid closes during a task approved on the MacBook: the next fill works
+  without a new prompt, until the original deadline.
+- Lid closes while a request waits on the Mac panel: the phone is asked, and
+  the task gets one approval.
+- Lost reply, both ways: once where the mini had accepted the request before
+  the connection dropped, and once where it had not. Each retry ends with one
+  lease and no second prompt.
+- Mac and phone answer the same request at nearly the same time: one lease is
+  granted; the other device shows it was answered elsewhere. A notification
+  that arrives twice is not a second approval.
 - One Face ID both opens the login and signs the answer.
-- Rule change from Automatic to Ask: the mini stops delivering it at once.
+- Phone with no copy, or a stale one: it approves, and the MacBook delivers if
+  awake.
 - Phone replaced: the new phone gets its copy at pairing and the old one's key
   is removed.
 
-## Josh's decisions
+## Josh's decision
 
-1. Whether agents on other machines always ask through the mini. Recommended,
-   because the mini path must exist for the shut lid anyway and one path has
-   one set of retry rules. Asking the MacBook directly would only help during
-   a mini outage.
-2. Whether to take the mini off iCloud Keychain. Until he does, Apple Passwords
-   is readable on the mini anyway.
-3. Whether to turn Developer Mode off on the iPhone, so only a build he
-   installed can use the phone's key.
+Whether to take the mini off iCloud Keychain. Until he does, Apple Passwords is
+readable on the mini anyway, so the mini's Automatic copy adds no new exposure.
+
+Separately, before anyone claims that only Josh's installed build can use the
+phone's key, that needs proving: turning Developer Mode off alone does not
+establish it.
