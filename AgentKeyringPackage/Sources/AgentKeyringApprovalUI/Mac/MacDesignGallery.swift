@@ -136,7 +136,7 @@ public final class MacDesignGallery {
         }
         let model = MacMachinesModel(backend: DesignMacBackend(machines: snapshot), initial: snapshot)
         if screen == .machinesSetUp { model.addressDraft = "mac-mini:17443" }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines ? 640 : 420),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines ? 720 : 420),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Machines"
         window.contentView = NSHostingView(rootView: MacMachinesView(model: model))

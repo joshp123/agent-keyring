@@ -221,16 +221,16 @@ private struct RulesHeader: View {
     let isApplying: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
                 Text(title)
                     .font(.title2.weight(.bold))
-                Text(explanation)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Spacer()
+                if isApplying { ApplyingLine() }
             }
-            Spacer()
-            if isApplying { ApplyingLine() }
+            Text(explanation)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
