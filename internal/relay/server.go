@@ -26,6 +26,7 @@ type Server struct {
 	Certificate tls.Certificate
 	Lookup      NodeLookup
 	Log         *slog.Logger
+	pushReady   chan struct{}
 }
 type peer struct {
 	spki                []byte
@@ -42,7 +43,10 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	}
 	stop := context.AfterFunc(ctx, func() { listener.Close() })
 	defer stop()
+	s.pushReady = make(chan struct{}, 1)
 	var active sync.WaitGroup
+	active.Add(1)
+	go func() { defer active.Done(); s.maintain(ctx) }()
 	if s.Push != nil {
 		active.Add(1)
 		go func() { defer active.Done(); s.sendPushes(ctx) }()
@@ -88,8 +92,8 @@ func (s *Server) serveConnection(ctx context.Context, raw net.Conn) {
 	if authority.ReadFrame(conn, request) != nil {
 		return
 	}
-	// One request per connection. Polling is only for durable stream snapshots;
-	// there is no second wire protocol and no in-memory-only queue.
+	// One request per connection. Each stream drains its durable snapshot, then
+	// sleeps until a committed change wakes it.
 	raw.SetReadDeadline(time.Time{})
 	disconnected := make(chan struct{})
 	go func() {
@@ -102,7 +106,7 @@ func (s *Server) serveConnection(ctx context.Context, raw net.Conn) {
 	}()
 	seen := map[string][]byte{}
 	for {
-		response, more, err := s.dispatch(p, request, seen)
+		response, more, wake, err := s.dispatch(p, request, seen)
 		if err != nil {
 			s.Log.Warn("relay request refused", "error", err)
 			response = wireError(err)
@@ -117,29 +121,32 @@ func (s *Server) serveConnection(ctx context.Context, raw net.Conn) {
 		if !more {
 			return
 		}
+		if response != nil {
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-disconnected:
 			return
-		case <-time.After(250 * time.Millisecond):
+		case <-wake:
 		}
 	}
 }
-func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte) (response *pb.RelayWireResponse, more bool, err error) {
+func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte) (response *pb.RelayWireResponse, more bool, wake <-chan struct{}, err error) {
 	s.Store.mu.Lock()
-	defer s.Store.mu.Unlock()
-	tx, err := s.Store.db.Begin()
+	defer func() { wake = s.Store.changed; s.Store.mu.Unlock() }()
+	tx, before, err := s.Store.begin()
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	defer tx.Rollback()
 	if err = s.expire(tx); err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	p, err = authenticate(tx, p)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	switch request := r.Request.(type) {
 	case *pb.RelayWireRequest_Enrol:
@@ -150,7 +157,7 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 		response, err = s.confirm(tx, p, request.ConfirmPairing)
 	default:
 		if p.recipient == "" && p.approver == "" {
-			return nil, false, denied("This TLS key is not enrolled. Run enrol first.")
+			return nil, false, nil, denied("This TLS key is not enrolled. Run enrol first.")
 		}
 		switch request := r.Request.(type) {
 		case *pb.RelayWireRequest_Client:
@@ -186,20 +193,13 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 			}
 			rows.Close()
 			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ApproverKeyChain{ApproverKeyChain: chain}, EndOfStream: true}
-		case *pb.RelayWireRequest_GetIndex:
-			value := new(pb.SignedIndex)
-			err = get(tx, "current", "index", value)
-			if errors.Is(err, sql.ErrNoRows) {
-				err = missing("No login index published yet.")
+		case *pb.RelayWireRequest_GetConfiguration:
+			value, _, e := configuration(tx)
+			err = e
+			if value == nil && err == nil {
+				err = missing("No configuration published yet.")
 			}
-			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Index{Index: value}, EndOfStream: true}
-		case *pb.RelayWireRequest_GetAutomaticGrant:
-			grant := new(pb.SignedAutomaticGrant)
-			err = get(tx, "current", "grant", grant)
-			if errors.Is(err, sql.ErrNoRows) {
-				err = missing("No Automatic authority has been published.")
-			}
-			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_AutomaticGrant{AutomaticGrant: grant}, EndOfStream: true}
+			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Configuration{Configuration: value}, EndOfStream: true}
 		default:
 			if p.approver == "" {
 				err = denied("Only a pinned approver may call this method.")
@@ -209,17 +209,17 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 		}
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	if response != nil {
 		for _, lease := range []*pb.Lease{response.GetClient().GetLease(), response.GetDecision().GetLease(), response.GetLease(), response.GetWork().GetLease()} {
 			if err = attachSignedDenial(tx, lease); err != nil {
-				return nil, false, err
+				return nil, false, nil, err
 			}
 		}
 	}
-	err = tx.Commit()
-	return response, more, err
+	err = s.Store.commit(tx, before)
+	return response, more, nil, err
 }
 func authenticate(tx *sql.Tx, p peer) (peer, error) {
 	_, keys, err := currentKeys(tx)
@@ -240,24 +240,29 @@ func authenticate(tx *sql.Tx, p peer) (peer, error) {
 			return p, nil
 		}
 	}
-	var id, node string
-	var state int
-	err = tx.QueryRow("SELECT id,node,state FROM enrolments WHERE spki=?", p.spki).Scan(&id, &node, &state)
-	if errors.Is(err, sql.ErrNoRows) {
-		return p, nil
-	}
+	_, config, err := configuration(tx)
 	if err != nil {
 		return p, err
 	}
-	if node != p.node.ID {
+	for _, machine := range config.Machines {
+		if bytes.Equal(machine.TlsPublicKey, p.spki) {
+			if machine.TailscaleNodeId != p.node.ID {
+				return p, denied("Receiver TLS key belongs to a different Tailscale node.")
+			}
+			p.recipient = machine.RecipientId
+			return p, nil
+		}
+	}
+	// A pending enrolment is also bound to its observed node before approval.
+	var node string
+	err = tx.QueryRow("SELECT node FROM enrolments WHERE spki=?", p.spki).Scan(&node)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return p, err
+	}
+	if err == nil && node != p.node.ID {
 		return p, denied("Receiver TLS key belongs to a different Tailscale node.")
 	}
-	if state == int(pb.EnrolmentChoice_ENROLMENT_CHOICE_REVOKE) {
-		return p, denied("This machine has been revoked. Enrol with new keys.")
-	}
-	if state == int(pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE) {
-		p.recipient = id
-	}
+
 	return p, nil
 }
 func changed(seen map[string][]byte, id string, message proto.Message) bool {

@@ -27,7 +27,7 @@ service, keychain, phone, signing-account or policy change.
 
 Observed checks:
 
-- Bootstrap the Mac, enrol a receiver, publish its signed roster, compare and
+- Bootstrap the Mac, enrol a receiver, publish its signed configuration, compare and
   add a PHONE key, and add a MAC_DELIVERY key without a pairing/TLS identity.
 - Refuse receiver/Mac registration of a phone token, a phone escalation,
   an un-escalated phone answer, and phone attempts to deliver credentials.
@@ -62,8 +62,8 @@ Observed checks:
   token and stops attempts; registration recovers the pending notification.
 
 The existing relay proof (`--mode proof`, the default) also checks the release
-3 request/approve/begin/finish/release paths, durable mid-lease restart,
+3 request/approve/deliver/release paths, durable mid-lease restart,
 revocation/late approvals and scoped ClearDenial. `prove_remote_cli.py` checks
 real CLI program execution, private process delivery, tampering refusals,
-denial replies, current Automatic delegation, key-chain advancement and removed
+denial replies, current Automatic configuration, key-chain advancement and removed
 signers. Automatic fixture keys now carry the required MAC_DELIVERY role.
