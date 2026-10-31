@@ -222,3 +222,13 @@ public struct AgentBridgeDirectory: Sendable {
 
     public var socketURL: URL { rootURL.appendingPathComponent("agent.sock") }
 }
+
+public struct AgentBridgeFailure: Error, Sendable {
+    public let code: AgentBridgeErrorCode
+    public let message: String
+
+    public init(_ code: AgentBridgeErrorCode, _ message: String) {
+        self.code = code
+        self.message = message
+    }
+}

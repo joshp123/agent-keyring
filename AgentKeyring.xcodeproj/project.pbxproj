@@ -215,14 +215,12 @@
 				8BC265592DEDD3F400F279A4 /* Frameworks */,
 				8BC2655A2DEDD3F400F279A4 /* Resources */,
 				4D10000A0000000000000001 /* Embed App Extensions */,
-				4D4000070000000000000001 /* Embed XPC Services */,
 				4D3000000000000000000001 /* Bundle Agent Tools */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				4D10000C0000000000000001 /* PBXTargetDependency */,
-				4D40000E0000000000000001 /* Filler dependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				8B90D1BC2DEE373300FBD189 /* Config */,
@@ -347,7 +345,7 @@
 			);
 			inputPaths = (
 			);
-			name = "Bundle Agent Tools";
+			name = "Bundle Go CLI and Skill";
 			outputFileListPaths = (
 			);
 			outputPaths = (

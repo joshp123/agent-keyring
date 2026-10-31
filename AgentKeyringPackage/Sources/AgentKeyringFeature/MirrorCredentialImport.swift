@@ -132,7 +132,9 @@ extension MirrorAppModel {
             try await store.save(generation)
             staleLogins.clear()
             let visibleGeneration = generationIncludingExample(generation) ?? generation
+            leaseLogins = visibleGeneration.metadata.candidates
             await accessControl.refresh(from: visibleGeneration)
+            try await refreshLeasePolicy()
             credentialExchangeLogger.info(
                 "Saved encrypted mirror with \(generation.items.count, privacy: .public) items"
             )

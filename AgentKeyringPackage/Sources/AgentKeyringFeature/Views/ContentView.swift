@@ -18,7 +18,6 @@ public struct ContentView: View {
             windowGradient
 
             VStack(spacing: 18) {
-                FillAccessibilityStep(onboarding: model.fillAccessibility)
                 MirrorStatusPanel(
                     status: model.status,
                     isLoading: model.isLoading,
@@ -54,9 +53,6 @@ public struct ContentView: View {
         .tint(.teal)
         .containerBackground(windowGradient, for: .window)
         .task { await model.loadStatus() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model.fillAccessibility.refresh() } }
-        }
         .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
             model.receive(activity)
         }
@@ -82,27 +78,5 @@ public struct ContentView: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-    }
-}
-
-private struct FillAccessibilityStep: View {
-    let onboarding: FillAccessibilityOnboarding
-
-    var body: some View {
-        if onboarding.state == .permissionRequired {
-            VStack(alignment: .leading, spacing: 8) {
-                Button("Allow Agent Keyring to fill sign-in forms") {
-                    Task { await onboarding.requestPermission() }
-                }
-                .accessibilityIdentifier("allow-sign-in-filling")
-                Text("Turn on Agent Keyring in Accessibility settings.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else if onboarding.state == .serviceUnavailable {
-            Text("Agent Keyring’s fill service could not be reached.")
-                .font(.callout)
-        }
     }
 }

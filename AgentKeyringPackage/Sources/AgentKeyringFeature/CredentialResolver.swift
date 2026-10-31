@@ -139,6 +139,10 @@ public struct CredentialResolver: Sendable {
             throw CredentialResolverError.fieldUnavailable
         }
 
+        return try value(in: item, field: field, now: now)
+    }
+
+    func value(in item: MirrorItem, field: AgentCredentialField, now: Date = Date()) throws -> String {
         switch field {
         case .username:
             guard let username = item.accountName,

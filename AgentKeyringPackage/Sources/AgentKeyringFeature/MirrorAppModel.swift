@@ -1,3 +1,4 @@
+import AgentKeyringProtocol
 import AppKit
 import AuthenticationServices
 import Foundation
@@ -47,8 +48,13 @@ public final class MirrorAppModel {
     let credentialImporter: any CredentialImporting
     let merger: SnapshotMerger
     let resolver: CredentialResolver
-    public let grants = CredentialApprovalGrants()
-    let approvals: CredentialApprovalCoordinator
+    public let leaseStore: CredentialLeaseStore
+    public var automaticallyPromptForLeases = true
+    var leaseMaintenance: Task<Void, Never>?
+    var macApprovalTask: Task<Void, Never>?
+    var isApprovingLease = false
+    var attemptedMacApprovals = Set<String>()
+    var leaseLogins: [CredentialCandidate] = []
     public let approvalRoutingSettings: ApprovalRoutingSettings
     let authorizer: any CredentialReleaseAuthorizing
     let bridge: AgentBridgeDirectory
@@ -69,6 +75,7 @@ public final class MirrorAppModel {
         accessControl: CredentialAccessController = CredentialAccessController(),
         phoneChannel: (any IPhoneApprovalChannel)? = nil,
         fillAccessibility: FillAccessibilityOnboarding = FillAccessibilityOnboarding(),
+        leaseStore: CredentialLeaseStore = CredentialLeaseStore(),
         settings: UserDefaults = .standard
     ) {
         self.store = store
@@ -83,11 +90,17 @@ public final class MirrorAppModel {
         self.settings = settings
         let routingSettings = ApprovalRoutingSettings(defaults: settings)
         self.approvalRoutingSettings = routingSettings
-        self.approvals = CredentialApprovalCoordinator(phoneChannel: phoneChannel,
-            pairedDevices: accessControl,
-            phoneDelay: { TimeInterval(routingSettings.phoneDelaySeconds) })
+        self.leaseStore = leaseStore
         self.staleLogins = PossiblyStaleLogins(settings: settings)
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
+        self.accessControl.onRulesChanged = { [weak self] in
+            guard let self else { return }
+            do {
+                try self.leaseStore.reconcile(logins: self.leaseLogins,
+                    policies: Dictionary(uniqueKeysWithValues: self.leaseLogins.map { ($0.id, self.accessControl.policy(for: $0.id)) }),
+                    rulesConfirmed: !self.accessControl.needsConfirmation)
+            } catch { self.notice = MirrorNotice(kind: .error, text: "Lease access could not be updated. New deliveries will check the saved rules.") }
+        }
     }
 
     public func loadStatus() async {
@@ -95,7 +108,9 @@ public final class MirrorAppModel {
         do {
             let importedMetadata = try await store.loadCurrentMetadata()
             status = importedMetadata?.safeStatus
+            leaseLogins = metadataIncludingExample(importedMetadata)?.candidates ?? []
             await accessControl.refresh(fromMetadata: metadataIncludingExample(importedMetadata))
+            try await refreshLeasePolicy()
         } catch {
             notice = MirrorNotice(
                 kind: .error,

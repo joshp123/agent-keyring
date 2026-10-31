@@ -89,6 +89,10 @@ enum DecisionAuthority {
   DECISION_AUTHORITY_UNSPECIFIED = 0;
   DECISION_AUTHORITY_HUMAN = 1;
   DECISION_AUTHORITY_AUTOMATIC_RULE = 2;
+  // DENY with an empty reply only. Sent unsigned over the approver's pinned
+  // connection, so a plain Deny needs no biometric check. It grants nothing.
+  // A denial with a reply must be HUMAN; receivers show a reply only then.
+  DECISION_AUTHORITY_APPROVER_CONNECTION = 3;
 }
 
 enum DecisionChoice {
