@@ -122,9 +122,11 @@ public final class PhoneKeyringModel {
     }
 
     public var waiting: [AccessRequest] { requests.filter(\.state.isWaitingForYou) }
+    /// Answered here, not yet committed by the Mac.
+    public var waitingForMac: [AccessRequest] { requests.filter(\.state.isWaitingForMac) }
     public var inUse: [AccessRequest] { requests.filter(\.state.isInUse) }
     public var finished: [AccessRequest] {
-        requests.filter { !$0.state.isWaitingForYou && !$0.state.isInUse }
+        requests.filter { !$0.state.isWaitingForYou && !$0.state.isWaitingForMac && !$0.state.isInUse }
     }
 
     public func request(id: String) -> AccessRequest? {
