@@ -26,7 +26,7 @@ agent-keyring release "$lease"
 
 ## Using the lease
 
-**A Chromium browser you reach over its debugging endpoint.** Inspect the page with your own browser tools, then pass the exact fields and the sign-in button:
+**Google Chrome on this Mac, reached over its debugging endpoint.** Other Chromium browsers aren't supported yet and say so. Inspect the page with your own browser tools, then pass the exact fields and the sign-in button:
 
 ```sh
 agent-keyring fill "$lease" --browser "$endpoint" --tab "$tab" \
