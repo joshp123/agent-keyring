@@ -26,6 +26,8 @@ const help = `Agent Keyring: use a saved login for one task.
   lease LOGIN --task TASK --reason REASON
                              Ask once; print the lease ID when active
   status LEASE [--wait]      Inspect a lease, or wait for its decision
+  fields --browser ENDPOINT [--tab TAB]
+                             List page tabs, or their visible fields and selectors
   fill LEASE --browser ENDPOINT --tab TAB
        [--username CSS] [--password CSS] [--code CSS] --submit CSS
                              Fill, submit this sign-in step, clear the fields
@@ -51,7 +53,7 @@ read:  fields are username, password and one-time-code. Never run read in a
        model-visible shell call. A pipe alone does not make output private.
 
 Lease IDs and read values go to stdout; progress and outcomes go to stderr.
-Find prints a table. Status without --wait prints readable state.
+Find and fields print tables. Status without --wait prints readable state.
 Exit status: 0 succeeded; 1 refused, unavailable or uncertain; 2 incorrect usage.
 exec returns the approved child's exit status when it exits normally.
 Environment: AGENT_KEYRING_SOCKET overrides the local authority socket.
@@ -162,6 +164,18 @@ func run(ctx context.Context, args []string) (int, error) {
 			return 2, errors.New("This command takes no arguments.")
 		}
 		return 0, integration(command)
+	}
+	if command == "fields" {
+		if err = a.check("browser tab", ""); err != nil {
+			return 2, err
+		}
+		if len(a.positionals) > 0 || len(a.program) > 0 {
+			return 2, errors.New("fields takes --browser ENDPOINT and optionally --tab TAB, without positional arguments.")
+		}
+		if a.options["browser"] == "" {
+			return 2, errors.New("Supply --browser ENDPOINT, such as 127.0.0.1:9222.")
+		}
+		return 0, printFields(ctx, a.options["browser"], a.options["tab"])
 	}
 	if command == "enrol" {
 		if err = a.check("name relay", ""); err != nil {
