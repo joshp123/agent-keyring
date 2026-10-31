@@ -7,7 +7,6 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -36,7 +35,7 @@ type server struct {
 func main() {
 	socket := flag.String("socket", "", "isolated socket")
 	config := flag.String("fixture", "", "dummy test_login_server fixture")
-	state := flag.String("state", "", "private receipt directory")
+	state := flag.String("state", "", "private lease directory")
 	flag.Parse()
 	if *socket == "" || *config == "" || *state == "" {
 		panic("socket, fixture and state are required")
@@ -157,27 +156,11 @@ func (s *server) serve(conn net.Conn) {
 			s.save("lease-"+value.LeaseId, value)
 			response.Response = &pb.WireResponse_Lease{Lease: value}
 		}
-	case *pb.WireRequest_BeginOperation:
-		b := r.BeginOperation
+	case *pb.WireRequest_Deliver:
+		b := r.Deliver
 		value := lease(b.LeaseId)
 		if value == nil {
 			fail("No such lease.")
-			break
-		}
-		key := b.RequestId
-		if key == "" {
-			key = hex.EncodeToString(b.OperationDigest)
-		}
-		id := hex.EncodeToString(receiver.Digest(b.LeaseId, key))
-		record := new(pb.OperationRecord)
-		previous := new(pb.BeginOperationRequest)
-		if s.load("begin-"+id, previous) {
-			if string(previous.OperationDigest) != string(b.OperationDigest) || previous.Kind != b.Kind {
-				fail("That operation key was already used for a different action.")
-				break
-			}
-			s.load("operation-"+id, record)
-			response.Response = &pb.WireResponse_BeginOperation{BeginOperation: &pb.BeginOperationResponse{OperationId: id, Result: &pb.BeginOperationResponse_AlreadyStarted{AlreadyStarted: record}}}
 			break
 		}
 		if value.State != 2 {
@@ -214,50 +197,8 @@ func (s *server) serve(conn net.Conn) {
 				goto done
 			}
 		}
-		record = &pb.OperationRecord{OperationId: id, Kind: b.Kind, StartedUnixSeconds: time.Now().Unix()}
-		s.save("begin-"+id, b)
-		s.save("operation-"+id, record)
-		response.Response = &pb.WireResponse_BeginOperation{BeginOperation: &pb.BeginOperationResponse{OperationId: id, Result: &pb.BeginOperationResponse_Values{Values: values}}}
-	case *pb.WireRequest_GetOperation:
-		b := r.GetOperation
-		key := b.RequestId
-		if key == "" {
-			key = hex.EncodeToString(b.OperationDigest)
-		}
-		id := hex.EncodeToString(receiver.Digest(b.LeaseId, key))
-		previous := new(pb.BeginOperationRequest)
-		lookup := new(pb.GetOperationResponse)
-		if s.load("begin-"+id, previous) {
-			if string(previous.OperationDigest) != string(b.OperationDigest) {
-				fail("That operation key was already used for a different action.")
-				break
-			}
-			lookup.Operation = new(pb.OperationRecord)
-			s.load("operation-"+id, lookup.Operation)
-		}
-		response.Response = &pb.WireResponse_GetOperation_{GetOperation_: lookup}
-	case *pb.WireRequest_FinishOperation:
-		f := r.FinishOperation
-		if _, err := os.Stat(s.path("lose-next-finish")); err == nil {
-			must(os.Rename(s.path("lose-next-finish"), s.path("lost-finish")))
-			return
-		}
-		record := new(pb.OperationRecord)
-		if !s.load("operation-"+f.OperationId, record) {
-			fail("No such operation.")
-			break
-		}
-		switch outcome := f.Outcome.(type) {
-		case *pb.FinishOperationRequest_Fill:
-			record.Outcome = &pb.OperationRecord_Fill{Fill: outcome.Fill}
-		case *pb.FinishOperationRequest_Program:
-			record.Outcome = &pb.OperationRecord_Program{Program: outcome.Program}
-		case *pb.FinishOperationRequest_ReadDelivered:
-			record.Outcome = &pb.OperationRecord_ReadDelivered{ReadDelivered: outcome.ReadDelivered}
-		}
-		record.ExitCode = f.ExitCode
-		s.save("operation-"+record.OperationId, record)
-		response.Response = &pb.WireResponse_Operation{Operation: record}
+		response.Response = &pb.WireResponse_Delivery{Delivery: &pb.Delivery{Result: &pb.Delivery_Values{Values: values}}}
+
 	default:
 		fail("Unsupported fixture method.")
 	}
