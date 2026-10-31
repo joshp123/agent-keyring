@@ -155,15 +155,18 @@ public final class CredentialLeaseStore {
         lease.taskRef = request.taskRef
         lease.purpose = request.purpose
         lease.reason = request.reason
+        lease.requestedAtUnixSeconds = now
         lease.recipient = localRecipient
         lease.sites = login.origins
         if request.hasProgram { lease.program = request.program }
         lease.pendingUntilUnixSeconds = now + 600
         if policy == .block {
             lease.state = .denied
+            lease.endedAtUnixSeconds = now
             lease.statusLines = ["This login is blocked in Agent Keyring."]
         } else if let suppression = next.suppressions[request.loginID], suppression.until > now {
             lease.state = .denied
+            lease.endedAtUnixSeconds = now
             lease.retryNotBeforeUnixSeconds = suppression.until
             lease.reply = suppression.reply
             lease.statusLines = ["A recent denial is still in effect. Wait for Josh to clear it or start a new request later."]
@@ -210,7 +213,8 @@ public final class CredentialLeaseStore {
         guard lease.state == .pending else { return lease }
         lease.state = .denied
         lease.reply = reply
-        lease.retryNotBeforeUnixSeconds = Self.now + 1800
+        lease.endedAtUnixSeconds = Self.now
+        lease.retryNotBeforeUnixSeconds = lease.endedAtUnixSeconds + 1800
         lease.statusLines = ["The request was denied."]
         var next = snapshot!
         next.suppressions[lease.loginID] = Suppression(until: lease.retryNotBeforeUnixSeconds, reply: reply)
@@ -220,6 +224,7 @@ public final class CredentialLeaseStore {
             var waiting = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
             if waiting.loginID == lease.loginID, waiting.state == .pending {
                 waiting.state = .denied
+                waiting.endedAtUnixSeconds = lease.endedAtUnixSeconds
                 waiting.reply = reply
                 waiting.retryNotBeforeUnixSeconds = lease.retryNotBeforeUnixSeconds
                 next.leases[id]!.lease = try waiting.serializedData()
@@ -241,6 +246,7 @@ public final class CredentialLeaseStore {
         if lease.state == .pending { lease.state = .cancelled }
         else if lease.state == .active { lease.state = .released }
         else { return lease }
+        lease.endedAtUnixSeconds = Self.now
         try saveLease(lease)
         return lease
     }
@@ -250,6 +256,7 @@ public final class CredentialLeaseStore {
         var lease = try get(leaseID)
         guard !lease.state.isTerminal else { return lease }
         lease.state = .revoked
+        lease.endedAtUnixSeconds = Self.now
         lease.statusLines = ["You ended access to this login."]
         try saveLease(lease)
         return lease
@@ -272,6 +279,7 @@ public final class CredentialLeaseStore {
                 lease.sites = lease.sites.filter { login.origins.contains($0) }
                 if lease.sites.isEmpty { lease.state = .revoked }
             }
+            if lease.state.isTerminal { lease.endedAtUnixSeconds = Self.now }
             next.leases[id]!.lease = try lease.serializedData()
         }
         if next.leases.mapValues(\.lease) != snapshot!.leases.mapValues(\.lease) { try commit(next) }
@@ -373,8 +381,14 @@ public final class CredentialLeaseStore {
         var next = snapshot
         for (id, saved) in snapshot.leases {
             var lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
-            if lease.state == .pending && lease.pendingUntilUnixSeconds <= Self.now { lease.state = .unanswered }
-            if lease.state == .active && lease.notAfterUnixSeconds <= Self.now { lease.state = .expired }
+            if lease.state == .pending && lease.pendingUntilUnixSeconds <= Self.now {
+                lease.state = .unanswered
+                lease.endedAtUnixSeconds = lease.pendingUntilUnixSeconds
+            }
+            if lease.state == .active && lease.notAfterUnixSeconds <= Self.now {
+                lease.state = .expired
+                lease.endedAtUnixSeconds = lease.notAfterUnixSeconds
+            }
             next.leases[id]!.lease = try lease.serializedData()
         }
         if next.leases.mapValues(\.lease) != snapshot.leases.mapValues(\.lease) { try commit(next) }
