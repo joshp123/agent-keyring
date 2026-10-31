@@ -13,6 +13,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
     private let importer: any CredentialImporting
     private let destination: any PhoneCredentialImportDestination
     private let approver: PhoneRelayApprover
+    private let replyDictation = PhoneReplyDictation()
     private var approverUpdates: Task<Void, Never>?
     private var subscribers: [UUID: AsyncStream<PhoneKeyringSnapshot>.Continuation] = [:]
     private var handledTokens = Set<UUID>()
@@ -148,7 +149,10 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         approver.reconnect()
     }
 
-    func stop() { approver.stop() }
+    func stop() {
+        replyDictation.stop()
+        approver.stop()
+    }
 
     private func refreshApproverSnapshot() {
         do {
@@ -172,7 +176,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
     }
     func allowAskingAgain(requestID: String) async throws -> AccessRequestState { try await approver.clearDenial(requestID) }
     func setAskPhoneAfter(_ delay: Duration) async throws { try await approver.setAskPhoneAfter(delay) }
-    func dictation() -> AsyncStream<String> { AsyncStream { $0.finish() } }
+    func dictation() -> AsyncThrowingStream<String, any Error> { replyDictation.transcript() }
 
     private func logFailure(_ error: any Error, stage: String) {
         let failure = CredentialImportFailure(error: error, hadExistingMirror: false)
