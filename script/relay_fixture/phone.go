@@ -179,6 +179,8 @@ func (p *proof) phoneProof(binary string) {
 	_, port, err := net.SplitHostPort(network.address)
 	must(err)
 	phone := startPhone(binary, directory)
+	require(strings.HasPrefix(phone.command("probe-non-tailnet\t"+port), "REFUSED"), "phone accepted a resolved non-tailnet peer")
+	fmt.Println("PASS resolved non-tailnet peer refused before a request; hostname pairing uses the explicit loopback proof override")
 	comparison := phone.command("pair\t" + port)
 	var pair *pb.PairApproverRequest
 	for pair == nil {
