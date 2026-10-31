@@ -87,19 +87,18 @@ func (x *PrivateKeys) GetReceiverPrivateKey() []byte {
 }
 
 type State struct {
-	state            protoimpl.MessageState   `protogen:"open.v1"`
-	RelayAddress     string                   `protobuf:"bytes,1,opt,name=relay_address,json=relayAddress,proto3" json:"relay_address,omitempty"`
-	RelaySpki        []byte                   `protobuf:"bytes,2,opt,name=relay_spki,json=relaySpki,proto3" json:"relay_spki,omitempty"`
-	RecipientId      string                   `protobuf:"bytes,3,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
-	ReceiverKeyId    string                   `protobuf:"bytes,4,opt,name=receiver_key_id,json=receiverKeyId,proto3" json:"receiver_key_id,omitempty"`
-	Approvers        *v1.SignedApproverKeySet `protobuf:"bytes,5,opt,name=approvers,proto3" json:"approvers,omitempty"`
-	AutomaticGrant   *v1.SignedAutomaticGrant `protobuf:"bytes,6,opt,name=automatic_grant,json=automaticGrant,proto3" json:"automatic_grant,omitempty"`
-	AutomaticAllowed bool                     `protobuf:"varint,7,opt,name=automatic_allowed,json=automaticAllowed,proto3" json:"automatic_allowed,omitempty"`
-	Requests         []*ExpectedRequest       `protobuf:"bytes,8,rep,name=requests,proto3" json:"requests,omitempty"`
-	Index            *v1.SignedIndex          `protobuf:"bytes,9,opt,name=index,proto3" json:"index,omitempty"`
-	MachineLabel     string                   `protobuf:"bytes,11,opt,name=machine_label,json=machineLabel,proto3" json:"machine_label,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	RelayAddress  string                   `protobuf:"bytes,1,opt,name=relay_address,json=relayAddress,proto3" json:"relay_address,omitempty"`
+	RelaySpki     []byte                   `protobuf:"bytes,2,opt,name=relay_spki,json=relaySpki,proto3" json:"relay_spki,omitempty"`
+	RecipientId   string                   `protobuf:"bytes,3,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
+	ReceiverKeyId string                   `protobuf:"bytes,4,opt,name=receiver_key_id,json=receiverKeyId,proto3" json:"receiver_key_id,omitempty"`
+	Approvers     *v1.SignedApproverKeySet `protobuf:"bytes,5,opt,name=approvers,proto3" json:"approvers,omitempty"`
+	Requests      []*ExpectedRequest       `protobuf:"bytes,8,rep,name=requests,proto3" json:"requests,omitempty"`
+	MachineLabel  string                   `protobuf:"bytes,11,opt,name=machine_label,json=machineLabel,proto3" json:"machine_label,omitempty"`
+	Configuration *v1.SignedConfiguration  `protobuf:"bytes,12,opt,name=configuration,proto3" json:"configuration,omitempty"`
+	Operations    []*OperationReceipt      `protobuf:"bytes,13,rep,name=operations,proto3" json:"operations,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *State) Reset() {
@@ -167,30 +166,9 @@ func (x *State) GetApprovers() *v1.SignedApproverKeySet {
 	return nil
 }
 
-func (x *State) GetAutomaticGrant() *v1.SignedAutomaticGrant {
-	if x != nil {
-		return x.AutomaticGrant
-	}
-	return nil
-}
-
-func (x *State) GetAutomaticAllowed() bool {
-	if x != nil {
-		return x.AutomaticAllowed
-	}
-	return false
-}
-
 func (x *State) GetRequests() []*ExpectedRequest {
 	if x != nil {
 		return x.Requests
-	}
-	return nil
-}
-
-func (x *State) GetIndex() *v1.SignedIndex {
-	if x != nil {
-		return x.Index
 	}
 	return nil
 }
@@ -200,6 +178,20 @@ func (x *State) GetMachineLabel() string {
 		return x.MachineLabel
 	}
 	return ""
+}
+
+func (x *State) GetConfiguration() *v1.SignedConfiguration {
+	if x != nil {
+		return x.Configuration
+	}
+	return nil
+}
+
+func (x *State) GetOperations() []*OperationReceipt {
+	if x != nil {
+		return x.Operations
+	}
+	return nil
 }
 
 type ExpectedRequest struct {
@@ -254,6 +246,146 @@ func (x *ExpectedRequest) GetLeaseId() string {
 	return ""
 }
 
+type OperationReceipt struct {
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	LeaseId                  string                 `protobuf:"bytes,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	Key                      string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Digest                   []byte                 `protobuf:"bytes,3,opt,name=digest,proto3" json:"digest,omitempty"`
+	LeaseDeadlineUnixSeconds int64                  `protobuf:"varint,4,opt,name=lease_deadline_unix_seconds,json=leaseDeadlineUnixSeconds,proto3" json:"lease_deadline_unix_seconds,omitempty"`
+	// No outcome means Started: inspect before deliberately repeating it.
+	//
+	// Types that are valid to be assigned to Outcome:
+	//
+	//	*OperationReceipt_Fill
+	//	*OperationReceipt_Program
+	//	*OperationReceipt_ReadDelivered
+	Outcome       isOperationReceipt_Outcome `protobuf_oneof:"outcome"`
+	ExitCode      *int32                     `protobuf:"varint,8,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OperationReceipt) Reset() {
+	*x = OperationReceipt{}
+	mi := &file_internal_clientstate_state_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OperationReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OperationReceipt) ProtoMessage() {}
+
+func (x *OperationReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_clientstate_state_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OperationReceipt.ProtoReflect.Descriptor instead.
+func (*OperationReceipt) Descriptor() ([]byte, []int) {
+	return file_internal_clientstate_state_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *OperationReceipt) GetLeaseId() string {
+	if x != nil {
+		return x.LeaseId
+	}
+	return ""
+}
+
+func (x *OperationReceipt) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *OperationReceipt) GetDigest() []byte {
+	if x != nil {
+		return x.Digest
+	}
+	return nil
+}
+
+func (x *OperationReceipt) GetLeaseDeadlineUnixSeconds() int64 {
+	if x != nil {
+		return x.LeaseDeadlineUnixSeconds
+	}
+	return 0
+}
+
+func (x *OperationReceipt) GetOutcome() isOperationReceipt_Outcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return nil
+}
+
+func (x *OperationReceipt) GetFill() v1.FillOutcome {
+	if x != nil {
+		if x, ok := x.Outcome.(*OperationReceipt_Fill); ok {
+			return x.Fill
+		}
+	}
+	return v1.FillOutcome(0)
+}
+
+func (x *OperationReceipt) GetProgram() v1.ProgramOutcome {
+	if x != nil {
+		if x, ok := x.Outcome.(*OperationReceipt_Program); ok {
+			return x.Program
+		}
+	}
+	return v1.ProgramOutcome(0)
+}
+
+func (x *OperationReceipt) GetReadDelivered() bool {
+	if x != nil {
+		if x, ok := x.Outcome.(*OperationReceipt_ReadDelivered); ok {
+			return x.ReadDelivered
+		}
+	}
+	return false
+}
+
+func (x *OperationReceipt) GetExitCode() int32 {
+	if x != nil && x.ExitCode != nil {
+		return *x.ExitCode
+	}
+	return 0
+}
+
+type isOperationReceipt_Outcome interface {
+	isOperationReceipt_Outcome()
+}
+
+type OperationReceipt_Fill struct {
+	Fill v1.FillOutcome `protobuf:"varint,5,opt,name=fill,proto3,enum=agentkeyring.v1.FillOutcome,oneof"`
+}
+
+type OperationReceipt_Program struct {
+	Program v1.ProgramOutcome `protobuf:"varint,6,opt,name=program,proto3,enum=agentkeyring.v1.ProgramOutcome,oneof"`
+}
+
+type OperationReceipt_ReadDelivered struct {
+	ReadDelivered bool `protobuf:"varint,7,opt,name=read_delivered,json=readDelivered,proto3,oneof"`
+}
+
+func (*OperationReceipt_Fill) isOperationReceipt_Outcome() {}
+
+func (*OperationReceipt_Program) isOperationReceipt_Outcome() {}
+
+func (*OperationReceipt_ReadDelivered) isOperationReceipt_Outcome() {}
+
 var File_internal_clientstate_state_proto protoreflect.FileDescriptor
 
 const file_internal_clientstate_state_proto_rawDesc = "" +
@@ -262,23 +394,37 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\vPrivateKeys\x12'\n" +
 	"\x0fcertificate_pem\x18\x01 \x01(\fR\x0ecertificatePem\x12\x1e\n" +
 	"\vtls_key_pem\x18\x02 \x01(\fR\ttlsKeyPem\x120\n" +
-	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xfe\x03\n" +
+	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xf7\x03\n" +
 	"\x05State\x12#\n" +
 	"\rrelay_address\x18\x01 \x01(\tR\frelayAddress\x12\x1d\n" +
 	"\n" +
 	"relay_spki\x18\x02 \x01(\fR\trelaySpki\x12!\n" +
 	"\frecipient_id\x18\x03 \x01(\tR\vrecipientId\x12&\n" +
 	"\x0freceiver_key_id\x18\x04 \x01(\tR\rreceiverKeyId\x12C\n" +
-	"\tapprovers\x18\x05 \x01(\v2%.agentkeyring.v1.SignedApproverKeySetR\tapprovers\x12N\n" +
-	"\x0fautomatic_grant\x18\x06 \x01(\v2%.agentkeyring.v1.SignedAutomaticGrantR\x0eautomaticGrant\x12+\n" +
-	"\x11automatic_allowed\x18\a \x01(\bR\x10automaticAllowed\x12E\n" +
-	"\brequests\x18\b \x03(\v2).agentkeyring.clientstate.ExpectedRequestR\brequests\x122\n" +
-	"\x05index\x18\t \x01(\v2\x1c.agentkeyring.v1.SignedIndexR\x05index\x12#\n" +
-	"\rmachine_label\x18\v \x01(\tR\fmachineLabelJ\x04\b\n" +
+	"\tapprovers\x18\x05 \x01(\v2%.agentkeyring.v1.SignedApproverKeySetR\tapprovers\x12E\n" +
+	"\brequests\x18\b \x03(\v2).agentkeyring.clientstate.ExpectedRequestR\brequests\x12#\n" +
+	"\rmachine_label\x18\v \x01(\tR\fmachineLabel\x12J\n" +
+	"\rconfiguration\x18\f \x01(\v2$.agentkeyring.v1.SignedConfigurationR\rconfiguration\x12J\n" +
+	"\n" +
+	"operations\x18\r \x03(\v2*.agentkeyring.clientstate.OperationReceiptR\n" +
+	"operationsJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
+	"J\x04\b\n" +
 	"\x10\v\"h\n" +
 	"\x0fExpectedRequest\x12:\n" +
 	"\x05scope\x18\x01 \x01(\v2$.agentkeyring.v1.RequestLeaseRequestR\x05scope\x12\x19\n" +
-	"\blease_id\x18\x02 \x01(\tR\aleaseIdB8Z6github.com/joshp123/agent-keyring/internal/clientstateb\x06proto3"
+	"\blease_id\x18\x02 \x01(\tR\aleaseId\"\xeb\x02\n" +
+	"\x10OperationReceipt\x12\x19\n" +
+	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x16\n" +
+	"\x06digest\x18\x03 \x01(\fR\x06digest\x12=\n" +
+	"\x1blease_deadline_unix_seconds\x18\x04 \x01(\x03R\x18leaseDeadlineUnixSeconds\x122\n" +
+	"\x04fill\x18\x05 \x01(\x0e2\x1c.agentkeyring.v1.FillOutcomeH\x00R\x04fill\x12;\n" +
+	"\aprogram\x18\x06 \x01(\x0e2\x1f.agentkeyring.v1.ProgramOutcomeH\x00R\aprogram\x12'\n" +
+	"\x0eread_delivered\x18\a \x01(\bH\x00R\rreadDelivered\x12 \n" +
+	"\texit_code\x18\b \x01(\x05H\x01R\bexitCode\x88\x01\x01B\t\n" +
+	"\aoutcomeB\f\n" +
+	"\n" +
+	"_exit_codeB8Z6github.com/joshp123/agent-keyring/internal/clientstateb\x06proto3"
 
 var (
 	file_internal_clientstate_state_proto_rawDescOnce sync.Once
@@ -292,27 +438,31 @@ func file_internal_clientstate_state_proto_rawDescGZIP() []byte {
 	return file_internal_clientstate_state_proto_rawDescData
 }
 
-var file_internal_clientstate_state_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_internal_clientstate_state_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_internal_clientstate_state_proto_goTypes = []any{
 	(*PrivateKeys)(nil),             // 0: agentkeyring.clientstate.PrivateKeys
 	(*State)(nil),                   // 1: agentkeyring.clientstate.State
 	(*ExpectedRequest)(nil),         // 2: agentkeyring.clientstate.ExpectedRequest
-	(*v1.SignedApproverKeySet)(nil), // 3: agentkeyring.v1.SignedApproverKeySet
-	(*v1.SignedAutomaticGrant)(nil), // 4: agentkeyring.v1.SignedAutomaticGrant
-	(*v1.SignedIndex)(nil),          // 5: agentkeyring.v1.SignedIndex
+	(*OperationReceipt)(nil),        // 3: agentkeyring.clientstate.OperationReceipt
+	(*v1.SignedApproverKeySet)(nil), // 4: agentkeyring.v1.SignedApproverKeySet
+	(*v1.SignedConfiguration)(nil),  // 5: agentkeyring.v1.SignedConfiguration
 	(*v1.RequestLeaseRequest)(nil),  // 6: agentkeyring.v1.RequestLeaseRequest
+	(v1.FillOutcome)(0),             // 7: agentkeyring.v1.FillOutcome
+	(v1.ProgramOutcome)(0),          // 8: agentkeyring.v1.ProgramOutcome
 }
 var file_internal_clientstate_state_proto_depIdxs = []int32{
-	3, // 0: agentkeyring.clientstate.State.approvers:type_name -> agentkeyring.v1.SignedApproverKeySet
-	4, // 1: agentkeyring.clientstate.State.automatic_grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
-	2, // 2: agentkeyring.clientstate.State.requests:type_name -> agentkeyring.clientstate.ExpectedRequest
-	5, // 3: agentkeyring.clientstate.State.index:type_name -> agentkeyring.v1.SignedIndex
+	4, // 0: agentkeyring.clientstate.State.approvers:type_name -> agentkeyring.v1.SignedApproverKeySet
+	2, // 1: agentkeyring.clientstate.State.requests:type_name -> agentkeyring.clientstate.ExpectedRequest
+	5, // 2: agentkeyring.clientstate.State.configuration:type_name -> agentkeyring.v1.SignedConfiguration
+	3, // 3: agentkeyring.clientstate.State.operations:type_name -> agentkeyring.clientstate.OperationReceipt
 	6, // 4: agentkeyring.clientstate.ExpectedRequest.scope:type_name -> agentkeyring.v1.RequestLeaseRequest
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	7, // 5: agentkeyring.clientstate.OperationReceipt.fill:type_name -> agentkeyring.v1.FillOutcome
+	8, // 6: agentkeyring.clientstate.OperationReceipt.program:type_name -> agentkeyring.v1.ProgramOutcome
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_internal_clientstate_state_proto_init() }
@@ -320,13 +470,18 @@ func file_internal_clientstate_state_proto_init() {
 	if File_internal_clientstate_state_proto != nil {
 		return
 	}
+	file_internal_clientstate_state_proto_msgTypes[3].OneofWrappers = []any{
+		(*OperationReceipt_Fill)(nil),
+		(*OperationReceipt_Program)(nil),
+		(*OperationReceipt_ReadDelivered)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_clientstate_state_proto_rawDesc), len(file_internal_clientstate_state_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

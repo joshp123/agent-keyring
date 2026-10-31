@@ -21,6 +21,7 @@ import (
 	"github.com/coder/websocket"
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/authority"
+	"github.com/joshp123/agent-keyring/internal/clientstate"
 )
 
 type debugger struct {
@@ -194,19 +195,19 @@ func allowedOrigin(origin string, sites []string) bool {
 	}
 	return false
 }
-func tabLock(ctx context.Context, identity, tab string) (func(), error) {
+func operationLock(ctx context.Context, scope, target string) (func(), error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	directory := filepath.Join(home, ".cache/agent-keyring/tab-locks")
+	directory := filepath.Join(home, ".cache/agent-keyring/operation-locks")
 	if err = os.MkdirAll(directory, 0700); err != nil {
-		return nil, errors.New("Cannot create the local browser lock directory.")
+		return nil, errors.New("Cannot create the local operation lock directory.")
 	}
-	path := filepath.Join(directory, hex.EncodeToString(Digest(identity, tab))+".lock")
+	path := filepath.Join(directory, hex.EncodeToString(Digest(scope, target))+".lock")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
-		return nil, errors.New("Cannot lock the selected browser tab.")
+		return nil, errors.New("Cannot lock this operation.")
 	}
 	fd := int(file.Fd())
 	for {
@@ -219,7 +220,7 @@ func tabLock(ctx context.Context, identity, tab string) (func(), error) {
 		}
 		if err != syscall.EWOULDBLOCK {
 			file.Close()
-			return nil, errors.New("Cannot lock the selected browser tab.")
+			return nil, errors.New("Cannot lock this operation.")
 		}
 		select {
 		case <-ctx.Done():
@@ -248,7 +249,7 @@ func Fill(ctx context.Context, client authority.Client, lease *pb.Lease, request
 	if err != nil {
 		return fillResult(5, err.Error())
 	}
-	unlock, err := tabLock(ctx, identity, target.TargetId)
+	unlock, err := operationLock(ctx, identity, target.TargetId)
 	if err != nil {
 		return fillResult(4, err.Error())
 	}
@@ -265,7 +266,8 @@ func Fill(ctx context.Context, client authority.Client, lease *pb.Lease, request
 		parts = append(parts, fmt.Sprint(binding.Field), binding.Selector)
 		selected = append(selected, binding.Field)
 	}
-	record, err := client.Operation(ctx, lease.LeaseId, Digest(parts...), request.OperationId)
+	digest := Digest(parts...)
+	record, err := client.State.LookupOperation(ctx, lease.LeaseId, request.OperationId, digest)
 	if err != nil {
 		return fillResult(6, err.Error())
 	}
@@ -327,12 +329,16 @@ func Fill(ctx context.Context, client authority.Client, lease *pb.Lease, request
 	if err != nil || currentFrame.Loader != f.Loader || currentFrame.Origin != f.Origin {
 		return fillResult(7, "The target document changed during preparation.")
 	}
-	response, err := client.Begin(ctx, &pb.BeginOperationRequest{LeaseId: lease.LeaseId, OperationDigest: Digest(parts...), Kind: pb.OperationKind_OPERATION_KIND_FILL, Fields: selected, RequestId: request.OperationId})
+	record, err = client.State.StartOperation(ctx, lease.LeaseId, request.OperationId, digest, lease.NotAfterUnixSeconds)
 	if err != nil {
 		return fillResult(6, err.Error())
 	}
-	if record := response.GetAlreadyStarted(); record != nil {
+	if record != nil {
 		return previousFill(record)
+	}
+	response, err := client.Deliver(ctx, &pb.DeliverRequest{LeaseId: lease.LeaseId, Kind: pb.OperationKind_OPERATION_KIND_FILL, Fields: selected})
+	if err != nil {
+		return fillResult(6, err.Error())
 	}
 	values, sites, err := Delivered(ctx, client, lease, response, selected)
 	if err != nil {
@@ -340,7 +346,7 @@ func Fill(ctx context.Context, client authority.Client, lease *pb.Lease, request
 	}
 	defer ClearValues(values)
 	if !allowedOrigin(f.Origin, sites) {
-		client.Finish(context.WithoutCancel(ctx), &pb.FinishOperationRequest{LeaseId: lease.LeaseId, OperationId: response.OperationId, Outcome: &pb.FinishOperationRequest_Fill{Fill: pb.FillOutcome_FILL_OUTCOME_SITE_MISMATCH}})
+		client.State.FinishOperation(context.WithoutCancel(ctx), &clientstate.OperationReceipt{LeaseId: lease.LeaseId, Key: request.OperationId, Digest: digest, Outcome: &clientstate.OperationReceipt_Fill{Fill: pb.FillOutcome_FILL_OUTCOME_SITE_MISMATCH}})
 		return fillResult(3, "This frame's actual site is outside the signed login's saved destinations.")
 	}
 	currentFrame, err = d.frame(ctx, f.ID)
@@ -369,7 +375,7 @@ func Fill(ctx context.Context, client authority.Client, lease *pb.Lease, request
 		outcome = pb.FillOutcome_FILL_OUTCOME_CLEANUP_FAILED
 		detail = "Could not confirm cleanup. Values may remain; close the affected tab with your browser tools without reading its fields."
 	}
-	if err = client.Finish(context.WithoutCancel(ctx), &pb.FinishOperationRequest{LeaseId: lease.LeaseId, OperationId: response.OperationId, Outcome: &pb.FinishOperationRequest_Fill{Fill: outcome}}); err != nil {
+	if err = client.State.FinishOperation(context.WithoutCancel(ctx), &clientstate.OperationReceipt{LeaseId: lease.LeaseId, Key: request.OperationId, Digest: digest, Outcome: &clientstate.OperationReceipt_Fill{Fill: outcome}}); err != nil {
 		return fillResult(2, "The browser attempt ended, but its receipt was not saved. Inspect the page; a retry must not submit again.")
 	}
 	result := fillResult(outcome, detail)
@@ -426,7 +432,7 @@ const cleanupScript = `function() {
  const cleared=inputs.every(e=>!this.values.includes(e.value)||e.value==='');this.values=[];return cleared;
 }`
 
-func previousFill(record *pb.OperationRecord) *pb.FillResult {
+func previousFill(record *clientstate.OperationReceipt) *pb.FillResult {
 	switch record.GetFill() {
 	case pb.FillOutcome_FILL_OUTCOME_SUBMITTED:
 		return fillResult(1, "This step was already submitted; it was not submitted again.")
