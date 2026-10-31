@@ -165,9 +165,14 @@ public final class AccessRulesBackend: LoginRulesBackend {
     }
 
     private func confirmation(_ rows: [LoginRuleRow]) -> RulesConfirmation? {
-        guard controller.needsConfirmation, controller.hasLoadedLoginList else { return nil }
+        guard controller.needsConfirmation || controller.needsRelayPublicationConfirmation,
+            controller.hasLoadedLoginList else { return nil }
         func count(_ rule: LoginRule) -> Int { rows.lazy.filter { $0.rule == rule }.count }
         var summary = "\(rows.count) logins: \(count(.ask)) Ask, \(count(.automatic)) Automatic, \(count(.blocked)) Blocked."
+        if !controller.needsConfirmation {
+            return RulesConfirmation(summary: summary, savedRulesWereUnreadable: false,
+                explanation: RulesCopy.confirmForOtherMachinesBody)
+        }
         if controller.pendingPhoneBlockCount > 0 {
             summary += " \(controller.pendingPhoneBlockCount) blocked from your iPhone."
         }

@@ -21,6 +21,7 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case rules
     case rulesAll
     case rulesConfirm
+    case rulesConfirmOtherMachines
     case rulesApplying
     case enrolment
     case enrolmentIPhone
@@ -54,7 +55,7 @@ public final class MacDesignGallery {
             showApprovalPanel()
         case .menuBar, .menuBarQuiet:
             showMenuBar()
-        case .rules, .rulesAll, .rulesConfirm, .rulesApplying:
+        case .rules, .rulesAll, .rulesConfirm, .rulesConfirmOtherMachines, .rulesApplying:
             showRules()
         case .enrolment, .enrolmentIPhone, .enrolmentJoined:
             showEnrolment()
@@ -177,9 +178,13 @@ public final class MacDesignGallery {
 
     private func showRules() {
         let rows = DesignRules.rows(now: now)
-        let confirmation = screen == .rulesConfirm
-            ? RulesConfirmation(summary: "34 logins: 18 Ask, 9 Automatic, 7 Blocked.", savedRulesWereUnreadable: false)
-            : nil
+        let summary = "34 logins: 18 Ask, 9 Automatic, 7 Blocked."
+        let confirmation: RulesConfirmation? = switch screen {
+        case .rulesConfirm: RulesConfirmation(summary: summary, savedRulesWereUnreadable: false)
+        case .rulesConfirmOtherMachines: RulesConfirmation(summary: summary, savedRulesWereUnreadable: false,
+            explanation: RulesCopy.confirmForOtherMachinesBody)
+        default: nil
+        }
         let snapshot = LoginRulesSnapshot(rows: rows, confirmation: confirmation, isApplying: screen == .rulesApplying)
         let model = MacRulesModel(backend: DesignMacBackend(rules: snapshot), initial: snapshot)
         if screen != .rules {
