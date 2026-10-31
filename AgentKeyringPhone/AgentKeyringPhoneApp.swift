@@ -1,7 +1,5 @@
-import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
 import AuthenticationServices
-import CloudKit
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -55,8 +53,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        // Old CloudKit actions must never authorize in the background. R4.4's
-        // notification is only a wake-up; every answer comes from the open app.
+        // Notifications open the app; every answer is checked and signed there.
         UNUserNotificationCenter.current().setNotificationCategories([])
         return true
     }

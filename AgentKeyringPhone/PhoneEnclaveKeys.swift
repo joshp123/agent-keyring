@@ -37,15 +37,6 @@ struct PhoneEnclaveKeys: PhoneApproverKeys {
         context.interactionNotAllowed = true
     }
 
-    /// A fresh authentication context is required for every explicit action.
-    func authenticationContext(reason: String) -> LAContext {
-        let context = LAContext()
-        context.localizedReason = reason
-        context.localizedFallbackTitle = ""
-        context.touchIDAuthenticationAllowableReuseDuration = 0
-        return context
-    }
-
     func sign(_ bytes: Data, context: LAContext) throws -> Data {
         try signingKey(context: context, createIfMissing: false).signature(for: bytes).derRepresentation
     }
