@@ -55,7 +55,7 @@ private struct OutcomeLine: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(AccessRequestCopy.outcome(request) ?? "")
                     .font(.body.weight(.semibold))
-                if case let .denied(_, reply?, _) = request.state {
+                if let reply = request.state.reply {
                     Text("You replied: “\(reply)”")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

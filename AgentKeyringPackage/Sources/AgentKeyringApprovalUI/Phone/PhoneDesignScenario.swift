@@ -14,6 +14,7 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
     case requestForAgentProcess
     case reply
     case sending
+    case waitingForMac
     case approved
     case denied
     case unanswered
@@ -72,6 +73,9 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             reply = "Don't sign in. The invoice is already in my email, use that."
         case .sending:
             requests[0].state = .sendingAnswer(.approve)
+            presented = github.id
+        case .waitingForMac:
+            requests[0].state = .waitingForMac(.deny, reply: "Don't sign in. The invoice is already in my email, use that.")
             presented = github.id
         case .approved:
             requests[0].state = .approved(by: .iPhone, until: now.addingTimeInterval(30 * 60))
