@@ -7,7 +7,6 @@ import argparse
 import os
 from pathlib import Path
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -86,13 +85,14 @@ try:
     assert address, 'fixture did not start'
     env['AGENT_KEYRING_RELAY'] = address
     enrol = run('enrol', '--name', 'Dummy receiver', '--relay', address)
+    env.pop('AGENT_KEYRING_RELAY')
     assert enrol.stdout == b''
     compared = re.search(rb'(?:[0-9A-F]{4} ){7}[0-9A-F]{4}', enrol.stderr).group().decode()
     assert 'COMPARE ' + compared in (root / 'fixture.log').read_text()
     assert (state / 'keys.pb').stat().st_mode & 0o777 == 0o600
     print('PASS enrol: locally computed eight-group fingerprint; owner-signed enrolment configuration; private key storage')
     assert b'dummy' in run('find', 'example.com').stdout
-    print('PASS signed login configuration')
+    print('PASS signed login configuration through the recorded relay, without a connection override')
     child = root / 'login.py'
     child.write_text('import pathlib,sys\nvalue=sys.stdin.read()\nassert value=="keyring-r3-dummy-password"\np=pathlib.Path(sys.argv[1]);p.write_text(p.read_text()+"1" if p.exists() else "1")\nprint(value)\n')
     marker = root / 'signed-in'
@@ -204,4 +204,4 @@ finally:
         fixture.kill()
         fixture.wait()
     log.close()
-    shutil.rmtree(root)
+    subprocess.run(['trash', str(root)], check=True)
