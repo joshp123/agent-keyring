@@ -198,8 +198,8 @@ func (c client) waitLease(lease string, state pb.LeaseState) *pb.Lease {
 	}
 	panic("lease did not reach " + state.String())
 }
-func (c client) begin(lease, key string) *pb.BeginOperationResponse {
-	return c.call(request(&pb.WireRequest{Request: &pb.WireRequest_BeginOperation{BeginOperation: &pb.BeginOperationRequest{LeaseId: lease, RequestId: key, OperationDigest: relaycrypto.Hash([]byte(key)), Kind: pb.OperationKind_OPERATION_KIND_FILL, Fields: []pb.CredentialField{pb.CredentialField_CREDENTIAL_FIELD_PASSWORD, pb.CredentialField_CREDENTIAL_FIELD_ONE_TIME_CODE}}}})).GetClient().GetBeginOperation()
+func (c client) deliver(lease string) *pb.Delivery {
+	return c.call(request(&pb.WireRequest{Request: &pb.WireRequest_Deliver{Deliver: &pb.DeliverRequest{LeaseId: lease, Kind: pb.OperationKind_OPERATION_KIND_FILL, Fields: []pb.CredentialField{pb.CredentialField_CREDENTIAL_FIELD_PASSWORD, pb.CredentialField_CREDENTIAL_FIELD_ONE_TIME_CODE}}}})).GetClient().GetDelivery()
 }
 func identity() tls.Certificate {
 	cert, key, e := relaycrypto.NewIdentity("Mac approver dummy receiver")
@@ -284,10 +284,10 @@ func (p *proof) enrol() {
 	require(approved.State == pb.EnrolState_ENROL_STATE_APPROVED, "enrolment not approved")
 	var keys pb.ApproverKeySet
 	must(proto.Unmarshal(p.keys.KeySet, &keys))
-	must(relaycrypto.Verify(keys.Keys[0].PublicKey, approved.Decision.Statement, approved.Decision.Signature))
+	must(relaycrypto.Verify(keys.Keys[0].PublicKey, approved.Configuration.Configuration, approved.Configuration.Signature))
 	require(bytes.Equal(pending.ApproverKeySet.KeySet, approved.ApproverKeySet.KeySet), "keyset changed")
 	p.recipient = approved.RecipientId
-	fmt.Println("PASS independently compared machine fingerprint, signed enrolment and published roster")
+	fmt.Println("PASS independently compared machine fingerprint, signed configuration listing the enrolled machine")
 }
 func (p *proof) open(delivery *pb.SealedDelivery, lease string) *pb.BundleContents {
 	require(delivery != nil, "no sealed delivery")
@@ -305,14 +305,14 @@ func (p *proof) open(delivery *pb.SealedDelivery, lease string) *pb.BundleConten
 		must(proto.Unmarshal(p.keys.KeySet, &keys))
 		public = keys.Keys[0].PublicKey
 	} else {
-		grant := p.receiver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetAutomaticGrant{GetAutomaticGrant: &pb.GetAutomaticGrantRequest{}}}).GetAutomaticGrant()
+		configuration := p.receiver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfiguration{GetConfiguration: &pb.GetConfigurationRequest{}}}).GetConfiguration()
 		var keys pb.ApproverKeySet
 		must(proto.Unmarshal(p.keys.KeySet, &keys))
-		must(relaycrypto.Verify(keys.Keys[0].PublicKey, grant.Grant, grant.Signature))
-		var g pb.AutomaticGrant
-		must(proto.Unmarshal(grant.Grant, &g))
-		require(g.Revision == st.AutomaticGrantRevision, "Automatic grant revision differs")
-		public = g.AutomaticSigningPublicKey
+		must(relaycrypto.Verify(keys.Keys[0].PublicKey, configuration.Configuration, configuration.Signature))
+		var contents pb.Configuration
+		must(proto.Unmarshal(configuration.Configuration, &contents))
+		require(contents.Revision >= st.ConfigurationRevision, "Automatic configuration revision differs")
+		public = contents.AutomaticSigningPublicKey
 	}
 	must(relaycrypto.Verify(public, delivery.Decision.Statement, delivery.Decision.Signature))
 	key, e := hpke.NewDHKEMPrivateKey(p.receiverKey)
@@ -363,7 +363,7 @@ func (p *proof) run() {
 	require(p.owner.authorizations == before+1, "restart repeated approval")
 	p.startRelay()
 	active := p.receiver.waitLease(l.LeaseId, pb.LeaseState_LEASE_STATE_ACTIVE)
-	first := p.receiver.begin(l.LeaseId, "password")
+	first := p.receiver.deliver(l.LeaseId)
 	p.open(first.GetSealed(), l.LeaseId)
 	returned := proto.Clone(first.GetSealed().Decision).(*pb.SignedDecision)
 	returned.Bundle = first.GetSealed().Bundle
@@ -376,9 +376,9 @@ func (p *proof) run() {
 	p.startRelay()
 	p.owner = startOwner(p.fixture, p.root)
 	require(p.receiver.status(l.LeaseId).NotAfterUnixSeconds == active.NotAfterUnixSeconds, "restart reset deadline")
-	require(p.receiver.begin(l.LeaseId, "password").GetAlreadyStarted() != nil, "retry returned another bundle")
-	p.open(p.receiver.begin(l.LeaseId, "otp").GetSealed(), l.LeaseId)
-	fmt.Println("PASS both restarts preserve deadline and operation retry starts nothing")
+	require(proto.Equal(p.receiver.deliver(l.LeaseId).GetSealed(), first.GetSealed()), "restart changed the accepted sealed delivery")
+	p.open(p.receiver.deliver(l.LeaseId).GetSealed(), l.LeaseId)
+	fmt.Println("PASS both restarts preserve the deadline and exact sealed delivery; receipts belong to the receiving CLI")
 	p.owner.status()
 	before = p.owner.authorizations
 	d := p.receiver.lease("plain-deny", p.recipient)
@@ -403,12 +403,11 @@ func (p *proof) run() {
 	fmt.Println("PASS plain Deny without a touch, signed reply with one, hold-off and remote ClearDenial")
 	p.owner.action("clear", p.recipient)
 	p.owner.action("rule", "auto")
-	p.owner.action("publish")
 	p.owner.status()
 	before = p.owner.authorizations
 	a := p.receiver.lease("automatic", p.recipient)
 	p.receiver.waitLease(a.LeaseId, pb.LeaseState_LEASE_STATE_ACTIVE)
-	p.open(p.receiver.begin(a.LeaseId, "auto-fill").GetSealed(), a.LeaseId)
+	p.open(p.receiver.deliver(a.LeaseId).GetSealed(), a.LeaseId)
 	p.owner.status()
 	require(p.owner.authorizations == before, "Automatic requested biometrics")
 	p.realCLIBrowser()
@@ -418,7 +417,7 @@ func (p *proof) run() {
 	p.owner.pending(ask.LeaseId)
 	time.Sleep(300 * time.Millisecond)
 	require(p.receiver.status(ask.LeaseId).State == pb.LeaseState_LEASE_STATE_PENDING, "stale grant approved under Ask")
-	fmt.Println("PASS delegated Automatic signing without a touch and immediate own-rule enforcement before publication")
+	fmt.Println("PASS delegated Automatic signing without a touch and confirmed own-rule enforcement and atomic configuration publication")
 	p.addApprover()
 	p.owner.action("revoke", p.recipient)
 	conn := p.receiver.open(request(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: ask.LeaseId}}}))
@@ -426,7 +425,7 @@ func (p *proof) run() {
 	must(authority.ReadFrame(conn, response))
 	conn.Close()
 	require(response.GetError() != nil, "revoked machine still authorized")
-	fmt.Println("PASS signed roster revocation refuses the machine")
+	fmt.Println("PASS signed configuration revocation refuses the machine")
 	fmt.Println("ALL MAC APPROVER SYSTEM PROOFS PASSED")
 }
 func main() {

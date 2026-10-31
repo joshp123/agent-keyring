@@ -16,10 +16,14 @@ final class FixtureApproval: CredentialReleaseAuthorizing {
 
 @main
 struct AuthorityFixture {
-    @MainActor static func main() async throws {
+    @MainActor static func main() async {
+        do { try await run() }
+        catch { fputs("Fixture unavailable: \(error.localizedDescription)\n", stderr); exit(1) }
+    }
+    @MainActor static func run() async throws {
         guard (2...3).contains(CommandLine.arguments.count),
             CommandLine.arguments.count == 2 || CommandLine.arguments[2] == "--with-code" else {
-            fatalError("Supply an isolated directory and optional --with-code")
+            throw LeaseFailure(.invalidArgument, "Supply an isolated directory and optional --with-code")
         }
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
         let ruleFile = root.appendingPathComponent("rules.json")
