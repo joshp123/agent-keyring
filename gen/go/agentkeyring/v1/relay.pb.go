@@ -189,6 +189,7 @@ type ApproverWork struct {
 	//	*ApproverWork_Enrolment
 	//	*ApproverWork_CancelledRequestDigestHex
 	//	*ApproverWork_Pairing
+	//	*ApproverWork_Lease
 	Item          isApproverWork_Item `protobuf_oneof:"item"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -267,6 +268,15 @@ func (x *ApproverWork) GetPairing() *PairApproverRequest {
 	return nil
 }
 
+func (x *ApproverWork) GetLease() *Lease {
+	if x != nil {
+		if x, ok := x.Item.(*ApproverWork_Lease); ok {
+			return x.Lease
+		}
+	}
+	return nil
+}
+
 type isApproverWork_Item interface {
 	isApproverWork_Item()
 }
@@ -287,6 +297,12 @@ type ApproverWork_Pairing struct {
 	Pairing *PairApproverRequest `protobuf:"bytes,4,opt,name=pairing,proto3,oneof"`
 }
 
+type ApproverWork_Lease struct {
+	// A remote lease's current state: every pending or active lease in the
+	// backlog, then each change, so approvers can show what is in use.
+	Lease *Lease `protobuf:"bytes,5,opt,name=lease,proto3,oneof"`
+}
+
 func (*ApproverWork_Request) isApproverWork_Item() {}
 
 func (*ApproverWork_Enrolment) isApproverWork_Item() {}
@@ -294,6 +310,8 @@ func (*ApproverWork_Enrolment) isApproverWork_Item() {}
 func (*ApproverWork_CancelledRequestDigestHex) isApproverWork_Item() {}
 
 func (*ApproverWork_Pairing) isApproverWork_Item() {}
+
+func (*ApproverWork_Lease) isApproverWork_Item() {}
 
 // The relay serializes RequestRecord once and never changes those bytes. The
 // approver displays what it parses from them, then checks login and recipient
@@ -3018,6 +3036,7 @@ type RelayWireRequest struct {
 	//	*RelayWireRequest_GetIndex
 	//	*RelayWireRequest_GetAutomaticKeys
 	//	*RelayWireRequest_ClearDenial
+	//	*RelayWireRequest_RevokeLease
 	Request       isRelayWireRequest_Request `protobuf_oneof:"request"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3249,6 +3268,15 @@ func (x *RelayWireRequest) GetClearDenial() *ClearDenialRequest {
 	return nil
 }
 
+func (x *RelayWireRequest) GetRevokeLease() *LeaseReference {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_RevokeLease); ok {
+			return x.RevokeLease
+		}
+	}
+	return nil
+}
+
 type isRelayWireRequest_Request interface {
 	isRelayWireRequest_Request()
 }
@@ -3337,6 +3365,10 @@ type RelayWireRequest_ClearDenial struct {
 	ClearDenial *ClearDenialRequest `protobuf:"bytes,21,opt,name=clear_denial,json=clearDenial,proto3,oneof"`
 }
 
+type RelayWireRequest_RevokeLease struct {
+	RevokeLease *LeaseReference `protobuf:"bytes,22,opt,name=revoke_lease,json=revokeLease,proto3,oneof"`
+}
+
 func (*RelayWireRequest_Client) isRelayWireRequest_Request() {}
 
 func (*RelayWireRequest_WatchWork) isRelayWireRequest_Request() {}
@@ -3379,6 +3411,8 @@ func (*RelayWireRequest_GetAutomaticKeys) isRelayWireRequest_Request() {}
 
 func (*RelayWireRequest_ClearDenial) isRelayWireRequest_Request() {}
 
+func (*RelayWireRequest_RevokeLease) isRelayWireRequest_Request() {}
+
 type RelayWireResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Response:
@@ -3397,6 +3431,7 @@ type RelayWireResponse struct {
 	//	*RelayWireResponse_AutomaticGrant
 	//	*RelayWireResponse_Index
 	//	*RelayWireResponse_AutomaticKeys
+	//	*RelayWireResponse_Lease
 	Response      isRelayWireResponse_Response `protobuf_oneof:"response"`
 	EndOfStream   bool                         `protobuf:"varint,8,opt,name=end_of_stream,json=endOfStream,proto3" json:"end_of_stream,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3566,6 +3601,15 @@ func (x *RelayWireResponse) GetAutomaticKeys() *AutomaticKeys {
 	return nil
 }
 
+func (x *RelayWireResponse) GetLease() *Lease {
+	if x != nil {
+		if x, ok := x.Response.(*RelayWireResponse_Lease); ok {
+			return x.Lease
+		}
+	}
+	return nil
+}
+
 func (x *RelayWireResponse) GetEndOfStream() bool {
 	if x != nil {
 		return x.EndOfStream
@@ -3633,6 +3677,10 @@ type RelayWireResponse_AutomaticKeys struct {
 	AutomaticKeys *AutomaticKeys `protobuf:"bytes,15,opt,name=automatic_keys,json=automaticKeys,proto3,oneof"`
 }
 
+type RelayWireResponse_Lease struct {
+	Lease *Lease `protobuf:"bytes,16,opt,name=lease,proto3,oneof"`
+}
+
 func (*RelayWireResponse_Client) isRelayWireResponse_Response() {}
 
 func (*RelayWireResponse_Work) isRelayWireResponse_Response() {}
@@ -3661,18 +3709,21 @@ func (*RelayWireResponse_Index) isRelayWireResponse_Response() {}
 
 func (*RelayWireResponse_AutomaticKeys) isRelayWireResponse_Response() {}
 
+func (*RelayWireResponse_Lease) isRelayWireResponse_Response() {}
+
 var File_agentkeyring_v1_relay_proto protoreflect.FileDescriptor
 
 const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\n" +
 	"\x1bagentkeyring/v1/relay.proto\x12\x0fagentkeyring.v1\x1a\"agentkeyring/v1/agentkeyring.proto\x1a\x1cagentkeyring/v1/bundle.proto\":\n" +
 	"\x10WatchWorkRequest\x12&\n" +
-	"\x0fapprover_key_id\x18\x01 \x01(\tR\rapproverKeyId\"\x9b\x02\n" +
+	"\x0fapprover_key_id\x18\x01 \x01(\tR\rapproverKeyId\"\xcb\x02\n" +
 	"\fApproverWork\x12;\n" +
 	"\arequest\x18\x01 \x01(\v2\x1f.agentkeyring.v1.PendingRequestH\x00R\arequest\x12A\n" +
 	"\tenrolment\x18\x02 \x01(\v2!.agentkeyring.v1.PendingEnrolmentH\x00R\tenrolment\x12A\n" +
 	"\x1ccancelled_request_digest_hex\x18\x03 \x01(\tH\x00R\x19cancelledRequestDigestHex\x12@\n" +
-	"\apairing\x18\x04 \x01(\v2$.agentkeyring.v1.PairApproverRequestH\x00R\apairingB\x06\n" +
+	"\apairing\x18\x04 \x01(\v2$.agentkeyring.v1.PairApproverRequestH\x00R\apairing\x12.\n" +
+	"\x05lease\x18\x05 \x01(\v2\x16.agentkeyring.v1.LeaseH\x00R\x05leaseB\x06\n" +
 	"\x04item\"(\n" +
 	"\x0ePendingRequest\x12\x16\n" +
 	"\x06record\x18\x01 \x01(\fR\x06record\"\xb4\x04\n" +
@@ -3869,7 +3920,7 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\n" +
 	"PublishAck\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
-	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xa3\r\n" +
+	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xe9\r\n" +
 	"\x10RelayWireRequest\x126\n" +
 	"\x06client\x18\x01 \x01(\v2\x1c.agentkeyring.v1.WireRequestH\x00R\x06client\x12B\n" +
 	"\n" +
@@ -3893,8 +3944,9 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x13get_automatic_grant\x18\x12 \x01(\v2).agentkeyring.v1.GetAutomaticGrantRequestH\x00R\x11getAutomaticGrant\x12?\n" +
 	"\tget_index\x18\x13 \x01(\v2 .agentkeyring.v1.GetIndexRequestH\x00R\bgetIndex\x12X\n" +
 	"\x12get_automatic_keys\x18\x14 \x01(\v2(.agentkeyring.v1.GetAutomaticKeysRequestH\x00R\x10getAutomaticKeys\x12H\n" +
-	"\fclear_denial\x18\x15 \x01(\v2#.agentkeyring.v1.ClearDenialRequestH\x00R\vclearDenialB\t\n" +
-	"\arequest\"\xe4\a\n" +
+	"\fclear_denial\x18\x15 \x01(\v2#.agentkeyring.v1.ClearDenialRequestH\x00R\vclearDenial\x12D\n" +
+	"\frevoke_lease\x18\x16 \x01(\v2\x1f.agentkeyring.v1.LeaseReferenceH\x00R\vrevokeLeaseB\t\n" +
+	"\arequest\"\x94\b\n" +
 	"\x11RelayWireResponse\x127\n" +
 	"\x06client\x18\x01 \x01(\v2\x1d.agentkeyring.v1.WireResponseH\x00R\x06client\x123\n" +
 	"\x04work\x18\x02 \x01(\v2\x1d.agentkeyring.v1.ApproverWorkH\x00R\x04work\x12:\n" +
@@ -3912,7 +3964,8 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\renrolment_set\x18\f \x01(\v2#.agentkeyring.v1.SignedEnrolmentSetH\x00R\fenrolmentSet\x12P\n" +
 	"\x0fautomatic_grant\x18\r \x01(\v2%.agentkeyring.v1.SignedAutomaticGrantH\x00R\x0eautomaticGrant\x124\n" +
 	"\x05index\x18\x0e \x01(\v2\x1c.agentkeyring.v1.SignedIndexH\x00R\x05index\x12G\n" +
-	"\x0eautomatic_keys\x18\x0f \x01(\v2\x1e.agentkeyring.v1.AutomaticKeysH\x00R\rautomaticKeys\x12\"\n" +
+	"\x0eautomatic_keys\x18\x0f \x01(\v2\x1e.agentkeyring.v1.AutomaticKeysH\x00R\rautomaticKeys\x12.\n" +
+	"\x05lease\x18\x10 \x01(\v2\x16.agentkeyring.v1.LeaseH\x00R\x05lease\x12\"\n" +
 	"\rend_of_stream\x18\b \x01(\bR\vendOfStreamB\n" +
 	"\n" +
 	"\bresponse*\x8d\x01\n" +
@@ -3927,7 +3980,8 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x1cENROLMENT_CHOICE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18ENROLMENT_CHOICE_APPROVE\x10\x01\x12\x19\n" +
 	"\x15ENROLMENT_CHOICE_DENY\x10\x02\x12\x1b\n" +
-	"\x17ENROLMENT_CHOICE_REVOKE\x10\x032\xbc\t\n" +
+	"\x17ENROLMENT_CHOICE_REVOKE\x10\x032\x84\n" +
+	"\n" +
 	"\tApprovals\x12O\n" +
 	"\tWatchWork\x12!.agentkeyring.v1.WatchWorkRequest\x1a\x1d.agentkeyring.v1.ApproverWork0\x01\x12G\n" +
 	"\x06Decide\x12\x1f.agentkeyring.v1.SignedDecision\x1a\x1c.agentkeyring.v1.DecisionAck\x12Z\n" +
@@ -3942,7 +3996,8 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x0fGetEnrolmentSet\x12'.agentkeyring.v1.GetEnrolmentSetRequest\x1a#.agentkeyring.v1.SignedEnrolmentSet\x12[\n" +
 	"\x15PublishAutomaticGrant\x12%.agentkeyring.v1.SignedAutomaticGrant\x1a\x1b.agentkeyring.v1.PublishAck\x12\\\n" +
 	"\x10GetAutomaticKeys\x12(.agentkeyring.v1.GetAutomaticKeysRequest\x1a\x1e.agentkeyring.v1.AutomaticKeys\x12O\n" +
-	"\vClearDenial\x12#.agentkeyring.v1.ClearDenialRequest\x1a\x1b.agentkeyring.v1.PublishAck2\xb7\x04\n" +
+	"\vClearDenial\x12#.agentkeyring.v1.ClearDenialRequest\x1a\x1b.agentkeyring.v1.PublishAck\x12F\n" +
+	"\vRevokeLease\x12\x1f.agentkeyring.v1.LeaseReference\x1a\x16.agentkeyring.v1.Lease2\xb7\x04\n" +
 	"\tEnrolment\x12F\n" +
 	"\x05Enrol\x12\x1d.agentkeyring.v1.EnrolRequest\x1a\x1c.agentkeyring.v1.EnrolStatus0\x01\x12T\n" +
 	"\fPairApprover\x12$.agentkeyring.v1.PairApproverRequest\x1a\x1c.agentkeyring.v1.EnrolStatus0\x01\x12a\n" +
@@ -4013,120 +4068,126 @@ var file_agentkeyring_v1_relay_proto_goTypes = []any{
 	(*PublishAck)(nil),                 // 44: agentkeyring.v1.PublishAck
 	(*RelayWireRequest)(nil),           // 45: agentkeyring.v1.RelayWireRequest
 	(*RelayWireResponse)(nil),          // 46: agentkeyring.v1.RelayWireResponse
-	(Purpose)(0),                       // 47: agentkeyring.v1.Purpose
-	(*ProgramCommand)(nil),             // 48: agentkeyring.v1.ProgramCommand
-	(*Lease)(nil),                      // 49: agentkeyring.v1.Lease
+	(*Lease)(nil),                      // 47: agentkeyring.v1.Lease
+	(Purpose)(0),                       // 48: agentkeyring.v1.Purpose
+	(*ProgramCommand)(nil),             // 49: agentkeyring.v1.ProgramCommand
 	(*Login)(nil),                      // 50: agentkeyring.v1.Login
 	(*SealedBundle)(nil),               // 51: agentkeyring.v1.SealedBundle
 	(*WireRequest)(nil),                // 52: agentkeyring.v1.WireRequest
 	(*SignedDecision)(nil),             // 53: agentkeyring.v1.SignedDecision
-	(*WireResponse)(nil),               // 54: agentkeyring.v1.WireResponse
-	(*RpcError)(nil),                   // 55: agentkeyring.v1.RpcError
+	(*LeaseReference)(nil),             // 54: agentkeyring.v1.LeaseReference
+	(*WireResponse)(nil),               // 55: agentkeyring.v1.WireResponse
+	(*RpcError)(nil),                   // 56: agentkeyring.v1.RpcError
 }
 var file_agentkeyring_v1_relay_proto_depIdxs = []int32{
 	4,  // 0: agentkeyring.v1.ApproverWork.request:type_name -> agentkeyring.v1.PendingRequest
 	9,  // 1: agentkeyring.v1.ApproverWork.enrolment:type_name -> agentkeyring.v1.PendingEnrolment
 	37, // 2: agentkeyring.v1.ApproverWork.pairing:type_name -> agentkeyring.v1.PairApproverRequest
-	47, // 3: agentkeyring.v1.RequestRecord.purpose:type_name -> agentkeyring.v1.Purpose
-	48, // 4: agentkeyring.v1.RequestRecord.program:type_name -> agentkeyring.v1.ProgramCommand
-	49, // 5: agentkeyring.v1.DecisionAck.lease:type_name -> agentkeyring.v1.Lease
-	0,  // 6: agentkeyring.v1.EnrolStatus.state:type_name -> agentkeyring.v1.EnrolState
-	14, // 7: agentkeyring.v1.EnrolStatus.approver_keys:type_name -> agentkeyring.v1.ApproverKey
-	15, // 8: agentkeyring.v1.EnrolStatus.approver_key_set:type_name -> agentkeyring.v1.SignedApproverKeySet
-	11, // 9: agentkeyring.v1.EnrolStatus.decision:type_name -> agentkeyring.v1.SignedEnrolmentDecision
-	1,  // 10: agentkeyring.v1.EnrolmentStatement.choice:type_name -> agentkeyring.v1.EnrolmentChoice
-	14, // 11: agentkeyring.v1.ApproverKeySet.keys:type_name -> agentkeyring.v1.ApproverKey
-	15, // 12: agentkeyring.v1.ApproverKeyChain.key_sets:type_name -> agentkeyring.v1.SignedApproverKeySet
-	15, // 13: agentkeyring.v1.SignedPairingConfirmation.initial_key_set:type_name -> agentkeyring.v1.SignedApproverKeySet
-	24, // 14: agentkeyring.v1.EnrolmentSet.machines:type_name -> agentkeyring.v1.EnrolledMachine
-	50, // 15: agentkeyring.v1.LoginIndex.logins:type_name -> agentkeyring.v1.Login
-	33, // 16: agentkeyring.v1.LoginIndex.sources:type_name -> agentkeyring.v1.LoginSource
-	35, // 17: agentkeyring.v1.AutomaticSet.logins:type_name -> agentkeyring.v1.SealedAutomaticLogin
-	28, // 18: agentkeyring.v1.AutomaticSet.grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
-	51, // 19: agentkeyring.v1.SealedAutomaticLogin.sealed:type_name -> agentkeyring.v1.SealedBundle
-	14, // 20: agentkeyring.v1.PairApproverRequest.key:type_name -> agentkeyring.v1.ApproverKey
-	41, // 21: agentkeyring.v1.ListEnrolmentsResponse.enrolments:type_name -> agentkeyring.v1.ApprovedEnrolment
-	11, // 22: agentkeyring.v1.ApprovedEnrolment.decision:type_name -> agentkeyring.v1.SignedEnrolmentDecision
-	52, // 23: agentkeyring.v1.RelayWireRequest.client:type_name -> agentkeyring.v1.WireRequest
-	2,  // 24: agentkeyring.v1.RelayWireRequest.watch_work:type_name -> agentkeyring.v1.WatchWorkRequest
-	53, // 25: agentkeyring.v1.RelayWireRequest.decide:type_name -> agentkeyring.v1.SignedDecision
-	11, // 26: agentkeyring.v1.RelayWireRequest.decide_enrolment:type_name -> agentkeyring.v1.SignedEnrolmentDecision
-	30, // 27: agentkeyring.v1.RelayWireRequest.publish_index:type_name -> agentkeyring.v1.SignedIndex
-	34, // 28: agentkeyring.v1.RelayWireRequest.publish_automatic:type_name -> agentkeyring.v1.AutomaticSet
-	42, // 29: agentkeyring.v1.RelayWireRequest.register_push:type_name -> agentkeyring.v1.PushRegistration
-	7,  // 30: agentkeyring.v1.RelayWireRequest.enrol:type_name -> agentkeyring.v1.EnrolRequest
-	15, // 31: agentkeyring.v1.RelayWireRequest.publish_approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
-	39, // 32: agentkeyring.v1.RelayWireRequest.list_enrolments:type_name -> agentkeyring.v1.ListEnrolmentsRequest
-	37, // 33: agentkeyring.v1.RelayWireRequest.pair_approver:type_name -> agentkeyring.v1.PairApproverRequest
-	38, // 34: agentkeyring.v1.RelayWireRequest.get_approver_keys:type_name -> agentkeyring.v1.GetApproverKeysRequest
-	19, // 35: agentkeyring.v1.RelayWireRequest.confirm_pairing:type_name -> agentkeyring.v1.SignedPairingConfirmation
-	17, // 36: agentkeyring.v1.RelayWireRequest.get_approver_key_chain:type_name -> agentkeyring.v1.GetApproverKeyChainRequest
-	22, // 37: agentkeyring.v1.RelayWireRequest.publish_enrolment_set:type_name -> agentkeyring.v1.SignedEnrolmentSet
-	21, // 38: agentkeyring.v1.RelayWireRequest.get_enrolment_set:type_name -> agentkeyring.v1.GetEnrolmentSetRequest
-	28, // 39: agentkeyring.v1.RelayWireRequest.publish_automatic_grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
-	25, // 40: agentkeyring.v1.RelayWireRequest.get_automatic_grant:type_name -> agentkeyring.v1.GetAutomaticGrantRequest
-	31, // 41: agentkeyring.v1.RelayWireRequest.get_index:type_name -> agentkeyring.v1.GetIndexRequest
-	26, // 42: agentkeyring.v1.RelayWireRequest.get_automatic_keys:type_name -> agentkeyring.v1.GetAutomaticKeysRequest
-	43, // 43: agentkeyring.v1.RelayWireRequest.clear_denial:type_name -> agentkeyring.v1.ClearDenialRequest
-	54, // 44: agentkeyring.v1.RelayWireResponse.client:type_name -> agentkeyring.v1.WireResponse
-	3,  // 45: agentkeyring.v1.RelayWireResponse.work:type_name -> agentkeyring.v1.ApproverWork
-	6,  // 46: agentkeyring.v1.RelayWireResponse.decision:type_name -> agentkeyring.v1.DecisionAck
-	13, // 47: agentkeyring.v1.RelayWireResponse.enrolment:type_name -> agentkeyring.v1.EnrolmentAck
-	44, // 48: agentkeyring.v1.RelayWireResponse.publish:type_name -> agentkeyring.v1.PublishAck
-	8,  // 49: agentkeyring.v1.RelayWireResponse.enrol_status:type_name -> agentkeyring.v1.EnrolStatus
-	55, // 50: agentkeyring.v1.RelayWireResponse.error:type_name -> agentkeyring.v1.RpcError
-	40, // 51: agentkeyring.v1.RelayWireResponse.enrolments:type_name -> agentkeyring.v1.ListEnrolmentsResponse
-	15, // 52: agentkeyring.v1.RelayWireResponse.approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
-	18, // 53: agentkeyring.v1.RelayWireResponse.approver_key_chain:type_name -> agentkeyring.v1.ApproverKeyChain
-	22, // 54: agentkeyring.v1.RelayWireResponse.enrolment_set:type_name -> agentkeyring.v1.SignedEnrolmentSet
-	28, // 55: agentkeyring.v1.RelayWireResponse.automatic_grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
-	30, // 56: agentkeyring.v1.RelayWireResponse.index:type_name -> agentkeyring.v1.SignedIndex
-	27, // 57: agentkeyring.v1.RelayWireResponse.automatic_keys:type_name -> agentkeyring.v1.AutomaticKeys
-	2,  // 58: agentkeyring.v1.Approvals.WatchWork:input_type -> agentkeyring.v1.WatchWorkRequest
-	53, // 59: agentkeyring.v1.Approvals.Decide:input_type -> agentkeyring.v1.SignedDecision
-	11, // 60: agentkeyring.v1.Approvals.DecideEnrolment:input_type -> agentkeyring.v1.SignedEnrolmentDecision
-	30, // 61: agentkeyring.v1.Approvals.PublishIndex:input_type -> agentkeyring.v1.SignedIndex
-	31, // 62: agentkeyring.v1.Approvals.GetIndex:input_type -> agentkeyring.v1.GetIndexRequest
-	34, // 63: agentkeyring.v1.Approvals.PublishAutomatic:input_type -> agentkeyring.v1.AutomaticSet
-	42, // 64: agentkeyring.v1.Approvals.RegisterPush:input_type -> agentkeyring.v1.PushRegistration
-	15, // 65: agentkeyring.v1.Approvals.PublishApproverKeys:input_type -> agentkeyring.v1.SignedApproverKeySet
-	39, // 66: agentkeyring.v1.Approvals.ListEnrolments:input_type -> agentkeyring.v1.ListEnrolmentsRequest
-	22, // 67: agentkeyring.v1.Approvals.PublishEnrolmentSet:input_type -> agentkeyring.v1.SignedEnrolmentSet
-	21, // 68: agentkeyring.v1.Approvals.GetEnrolmentSet:input_type -> agentkeyring.v1.GetEnrolmentSetRequest
-	28, // 69: agentkeyring.v1.Approvals.PublishAutomaticGrant:input_type -> agentkeyring.v1.SignedAutomaticGrant
-	26, // 70: agentkeyring.v1.Approvals.GetAutomaticKeys:input_type -> agentkeyring.v1.GetAutomaticKeysRequest
-	43, // 71: agentkeyring.v1.Approvals.ClearDenial:input_type -> agentkeyring.v1.ClearDenialRequest
-	7,  // 72: agentkeyring.v1.Enrolment.Enrol:input_type -> agentkeyring.v1.EnrolRequest
-	37, // 73: agentkeyring.v1.Enrolment.PairApprover:input_type -> agentkeyring.v1.PairApproverRequest
-	38, // 74: agentkeyring.v1.Enrolment.GetApproverKeys:input_type -> agentkeyring.v1.GetApproverKeysRequest
-	19, // 75: agentkeyring.v1.Enrolment.ConfirmPairing:input_type -> agentkeyring.v1.SignedPairingConfirmation
-	17, // 76: agentkeyring.v1.Enrolment.GetApproverKeyChain:input_type -> agentkeyring.v1.GetApproverKeyChainRequest
-	25, // 77: agentkeyring.v1.Enrolment.GetAutomaticGrant:input_type -> agentkeyring.v1.GetAutomaticGrantRequest
-	3,  // 78: agentkeyring.v1.Approvals.WatchWork:output_type -> agentkeyring.v1.ApproverWork
-	6,  // 79: agentkeyring.v1.Approvals.Decide:output_type -> agentkeyring.v1.DecisionAck
-	13, // 80: agentkeyring.v1.Approvals.DecideEnrolment:output_type -> agentkeyring.v1.EnrolmentAck
-	44, // 81: agentkeyring.v1.Approvals.PublishIndex:output_type -> agentkeyring.v1.PublishAck
-	30, // 82: agentkeyring.v1.Approvals.GetIndex:output_type -> agentkeyring.v1.SignedIndex
-	44, // 83: agentkeyring.v1.Approvals.PublishAutomatic:output_type -> agentkeyring.v1.PublishAck
-	44, // 84: agentkeyring.v1.Approvals.RegisterPush:output_type -> agentkeyring.v1.PublishAck
-	44, // 85: agentkeyring.v1.Approvals.PublishApproverKeys:output_type -> agentkeyring.v1.PublishAck
-	40, // 86: agentkeyring.v1.Approvals.ListEnrolments:output_type -> agentkeyring.v1.ListEnrolmentsResponse
-	44, // 87: agentkeyring.v1.Approvals.PublishEnrolmentSet:output_type -> agentkeyring.v1.PublishAck
-	22, // 88: agentkeyring.v1.Approvals.GetEnrolmentSet:output_type -> agentkeyring.v1.SignedEnrolmentSet
-	44, // 89: agentkeyring.v1.Approvals.PublishAutomaticGrant:output_type -> agentkeyring.v1.PublishAck
-	27, // 90: agentkeyring.v1.Approvals.GetAutomaticKeys:output_type -> agentkeyring.v1.AutomaticKeys
-	44, // 91: agentkeyring.v1.Approvals.ClearDenial:output_type -> agentkeyring.v1.PublishAck
-	8,  // 92: agentkeyring.v1.Enrolment.Enrol:output_type -> agentkeyring.v1.EnrolStatus
-	8,  // 93: agentkeyring.v1.Enrolment.PairApprover:output_type -> agentkeyring.v1.EnrolStatus
-	15, // 94: agentkeyring.v1.Enrolment.GetApproverKeys:output_type -> agentkeyring.v1.SignedApproverKeySet
-	13, // 95: agentkeyring.v1.Enrolment.ConfirmPairing:output_type -> agentkeyring.v1.EnrolmentAck
-	18, // 96: agentkeyring.v1.Enrolment.GetApproverKeyChain:output_type -> agentkeyring.v1.ApproverKeyChain
-	28, // 97: agentkeyring.v1.Enrolment.GetAutomaticGrant:output_type -> agentkeyring.v1.SignedAutomaticGrant
-	78, // [78:98] is the sub-list for method output_type
-	58, // [58:78] is the sub-list for method input_type
-	58, // [58:58] is the sub-list for extension type_name
-	58, // [58:58] is the sub-list for extension extendee
-	0,  // [0:58] is the sub-list for field type_name
+	47, // 3: agentkeyring.v1.ApproverWork.lease:type_name -> agentkeyring.v1.Lease
+	48, // 4: agentkeyring.v1.RequestRecord.purpose:type_name -> agentkeyring.v1.Purpose
+	49, // 5: agentkeyring.v1.RequestRecord.program:type_name -> agentkeyring.v1.ProgramCommand
+	47, // 6: agentkeyring.v1.DecisionAck.lease:type_name -> agentkeyring.v1.Lease
+	0,  // 7: agentkeyring.v1.EnrolStatus.state:type_name -> agentkeyring.v1.EnrolState
+	14, // 8: agentkeyring.v1.EnrolStatus.approver_keys:type_name -> agentkeyring.v1.ApproverKey
+	15, // 9: agentkeyring.v1.EnrolStatus.approver_key_set:type_name -> agentkeyring.v1.SignedApproverKeySet
+	11, // 10: agentkeyring.v1.EnrolStatus.decision:type_name -> agentkeyring.v1.SignedEnrolmentDecision
+	1,  // 11: agentkeyring.v1.EnrolmentStatement.choice:type_name -> agentkeyring.v1.EnrolmentChoice
+	14, // 12: agentkeyring.v1.ApproverKeySet.keys:type_name -> agentkeyring.v1.ApproverKey
+	15, // 13: agentkeyring.v1.ApproverKeyChain.key_sets:type_name -> agentkeyring.v1.SignedApproverKeySet
+	15, // 14: agentkeyring.v1.SignedPairingConfirmation.initial_key_set:type_name -> agentkeyring.v1.SignedApproverKeySet
+	24, // 15: agentkeyring.v1.EnrolmentSet.machines:type_name -> agentkeyring.v1.EnrolledMachine
+	50, // 16: agentkeyring.v1.LoginIndex.logins:type_name -> agentkeyring.v1.Login
+	33, // 17: agentkeyring.v1.LoginIndex.sources:type_name -> agentkeyring.v1.LoginSource
+	35, // 18: agentkeyring.v1.AutomaticSet.logins:type_name -> agentkeyring.v1.SealedAutomaticLogin
+	28, // 19: agentkeyring.v1.AutomaticSet.grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
+	51, // 20: agentkeyring.v1.SealedAutomaticLogin.sealed:type_name -> agentkeyring.v1.SealedBundle
+	14, // 21: agentkeyring.v1.PairApproverRequest.key:type_name -> agentkeyring.v1.ApproverKey
+	41, // 22: agentkeyring.v1.ListEnrolmentsResponse.enrolments:type_name -> agentkeyring.v1.ApprovedEnrolment
+	11, // 23: agentkeyring.v1.ApprovedEnrolment.decision:type_name -> agentkeyring.v1.SignedEnrolmentDecision
+	52, // 24: agentkeyring.v1.RelayWireRequest.client:type_name -> agentkeyring.v1.WireRequest
+	2,  // 25: agentkeyring.v1.RelayWireRequest.watch_work:type_name -> agentkeyring.v1.WatchWorkRequest
+	53, // 26: agentkeyring.v1.RelayWireRequest.decide:type_name -> agentkeyring.v1.SignedDecision
+	11, // 27: agentkeyring.v1.RelayWireRequest.decide_enrolment:type_name -> agentkeyring.v1.SignedEnrolmentDecision
+	30, // 28: agentkeyring.v1.RelayWireRequest.publish_index:type_name -> agentkeyring.v1.SignedIndex
+	34, // 29: agentkeyring.v1.RelayWireRequest.publish_automatic:type_name -> agentkeyring.v1.AutomaticSet
+	42, // 30: agentkeyring.v1.RelayWireRequest.register_push:type_name -> agentkeyring.v1.PushRegistration
+	7,  // 31: agentkeyring.v1.RelayWireRequest.enrol:type_name -> agentkeyring.v1.EnrolRequest
+	15, // 32: agentkeyring.v1.RelayWireRequest.publish_approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
+	39, // 33: agentkeyring.v1.RelayWireRequest.list_enrolments:type_name -> agentkeyring.v1.ListEnrolmentsRequest
+	37, // 34: agentkeyring.v1.RelayWireRequest.pair_approver:type_name -> agentkeyring.v1.PairApproverRequest
+	38, // 35: agentkeyring.v1.RelayWireRequest.get_approver_keys:type_name -> agentkeyring.v1.GetApproverKeysRequest
+	19, // 36: agentkeyring.v1.RelayWireRequest.confirm_pairing:type_name -> agentkeyring.v1.SignedPairingConfirmation
+	17, // 37: agentkeyring.v1.RelayWireRequest.get_approver_key_chain:type_name -> agentkeyring.v1.GetApproverKeyChainRequest
+	22, // 38: agentkeyring.v1.RelayWireRequest.publish_enrolment_set:type_name -> agentkeyring.v1.SignedEnrolmentSet
+	21, // 39: agentkeyring.v1.RelayWireRequest.get_enrolment_set:type_name -> agentkeyring.v1.GetEnrolmentSetRequest
+	28, // 40: agentkeyring.v1.RelayWireRequest.publish_automatic_grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
+	25, // 41: agentkeyring.v1.RelayWireRequest.get_automatic_grant:type_name -> agentkeyring.v1.GetAutomaticGrantRequest
+	31, // 42: agentkeyring.v1.RelayWireRequest.get_index:type_name -> agentkeyring.v1.GetIndexRequest
+	26, // 43: agentkeyring.v1.RelayWireRequest.get_automatic_keys:type_name -> agentkeyring.v1.GetAutomaticKeysRequest
+	43, // 44: agentkeyring.v1.RelayWireRequest.clear_denial:type_name -> agentkeyring.v1.ClearDenialRequest
+	54, // 45: agentkeyring.v1.RelayWireRequest.revoke_lease:type_name -> agentkeyring.v1.LeaseReference
+	55, // 46: agentkeyring.v1.RelayWireResponse.client:type_name -> agentkeyring.v1.WireResponse
+	3,  // 47: agentkeyring.v1.RelayWireResponse.work:type_name -> agentkeyring.v1.ApproverWork
+	6,  // 48: agentkeyring.v1.RelayWireResponse.decision:type_name -> agentkeyring.v1.DecisionAck
+	13, // 49: agentkeyring.v1.RelayWireResponse.enrolment:type_name -> agentkeyring.v1.EnrolmentAck
+	44, // 50: agentkeyring.v1.RelayWireResponse.publish:type_name -> agentkeyring.v1.PublishAck
+	8,  // 51: agentkeyring.v1.RelayWireResponse.enrol_status:type_name -> agentkeyring.v1.EnrolStatus
+	56, // 52: agentkeyring.v1.RelayWireResponse.error:type_name -> agentkeyring.v1.RpcError
+	40, // 53: agentkeyring.v1.RelayWireResponse.enrolments:type_name -> agentkeyring.v1.ListEnrolmentsResponse
+	15, // 54: agentkeyring.v1.RelayWireResponse.approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
+	18, // 55: agentkeyring.v1.RelayWireResponse.approver_key_chain:type_name -> agentkeyring.v1.ApproverKeyChain
+	22, // 56: agentkeyring.v1.RelayWireResponse.enrolment_set:type_name -> agentkeyring.v1.SignedEnrolmentSet
+	28, // 57: agentkeyring.v1.RelayWireResponse.automatic_grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
+	30, // 58: agentkeyring.v1.RelayWireResponse.index:type_name -> agentkeyring.v1.SignedIndex
+	27, // 59: agentkeyring.v1.RelayWireResponse.automatic_keys:type_name -> agentkeyring.v1.AutomaticKeys
+	47, // 60: agentkeyring.v1.RelayWireResponse.lease:type_name -> agentkeyring.v1.Lease
+	2,  // 61: agentkeyring.v1.Approvals.WatchWork:input_type -> agentkeyring.v1.WatchWorkRequest
+	53, // 62: agentkeyring.v1.Approvals.Decide:input_type -> agentkeyring.v1.SignedDecision
+	11, // 63: agentkeyring.v1.Approvals.DecideEnrolment:input_type -> agentkeyring.v1.SignedEnrolmentDecision
+	30, // 64: agentkeyring.v1.Approvals.PublishIndex:input_type -> agentkeyring.v1.SignedIndex
+	31, // 65: agentkeyring.v1.Approvals.GetIndex:input_type -> agentkeyring.v1.GetIndexRequest
+	34, // 66: agentkeyring.v1.Approvals.PublishAutomatic:input_type -> agentkeyring.v1.AutomaticSet
+	42, // 67: agentkeyring.v1.Approvals.RegisterPush:input_type -> agentkeyring.v1.PushRegistration
+	15, // 68: agentkeyring.v1.Approvals.PublishApproverKeys:input_type -> agentkeyring.v1.SignedApproverKeySet
+	39, // 69: agentkeyring.v1.Approvals.ListEnrolments:input_type -> agentkeyring.v1.ListEnrolmentsRequest
+	22, // 70: agentkeyring.v1.Approvals.PublishEnrolmentSet:input_type -> agentkeyring.v1.SignedEnrolmentSet
+	21, // 71: agentkeyring.v1.Approvals.GetEnrolmentSet:input_type -> agentkeyring.v1.GetEnrolmentSetRequest
+	28, // 72: agentkeyring.v1.Approvals.PublishAutomaticGrant:input_type -> agentkeyring.v1.SignedAutomaticGrant
+	26, // 73: agentkeyring.v1.Approvals.GetAutomaticKeys:input_type -> agentkeyring.v1.GetAutomaticKeysRequest
+	43, // 74: agentkeyring.v1.Approvals.ClearDenial:input_type -> agentkeyring.v1.ClearDenialRequest
+	54, // 75: agentkeyring.v1.Approvals.RevokeLease:input_type -> agentkeyring.v1.LeaseReference
+	7,  // 76: agentkeyring.v1.Enrolment.Enrol:input_type -> agentkeyring.v1.EnrolRequest
+	37, // 77: agentkeyring.v1.Enrolment.PairApprover:input_type -> agentkeyring.v1.PairApproverRequest
+	38, // 78: agentkeyring.v1.Enrolment.GetApproverKeys:input_type -> agentkeyring.v1.GetApproverKeysRequest
+	19, // 79: agentkeyring.v1.Enrolment.ConfirmPairing:input_type -> agentkeyring.v1.SignedPairingConfirmation
+	17, // 80: agentkeyring.v1.Enrolment.GetApproverKeyChain:input_type -> agentkeyring.v1.GetApproverKeyChainRequest
+	25, // 81: agentkeyring.v1.Enrolment.GetAutomaticGrant:input_type -> agentkeyring.v1.GetAutomaticGrantRequest
+	3,  // 82: agentkeyring.v1.Approvals.WatchWork:output_type -> agentkeyring.v1.ApproverWork
+	6,  // 83: agentkeyring.v1.Approvals.Decide:output_type -> agentkeyring.v1.DecisionAck
+	13, // 84: agentkeyring.v1.Approvals.DecideEnrolment:output_type -> agentkeyring.v1.EnrolmentAck
+	44, // 85: agentkeyring.v1.Approvals.PublishIndex:output_type -> agentkeyring.v1.PublishAck
+	30, // 86: agentkeyring.v1.Approvals.GetIndex:output_type -> agentkeyring.v1.SignedIndex
+	44, // 87: agentkeyring.v1.Approvals.PublishAutomatic:output_type -> agentkeyring.v1.PublishAck
+	44, // 88: agentkeyring.v1.Approvals.RegisterPush:output_type -> agentkeyring.v1.PublishAck
+	44, // 89: agentkeyring.v1.Approvals.PublishApproverKeys:output_type -> agentkeyring.v1.PublishAck
+	40, // 90: agentkeyring.v1.Approvals.ListEnrolments:output_type -> agentkeyring.v1.ListEnrolmentsResponse
+	44, // 91: agentkeyring.v1.Approvals.PublishEnrolmentSet:output_type -> agentkeyring.v1.PublishAck
+	22, // 92: agentkeyring.v1.Approvals.GetEnrolmentSet:output_type -> agentkeyring.v1.SignedEnrolmentSet
+	44, // 93: agentkeyring.v1.Approvals.PublishAutomaticGrant:output_type -> agentkeyring.v1.PublishAck
+	27, // 94: agentkeyring.v1.Approvals.GetAutomaticKeys:output_type -> agentkeyring.v1.AutomaticKeys
+	44, // 95: agentkeyring.v1.Approvals.ClearDenial:output_type -> agentkeyring.v1.PublishAck
+	47, // 96: agentkeyring.v1.Approvals.RevokeLease:output_type -> agentkeyring.v1.Lease
+	8,  // 97: agentkeyring.v1.Enrolment.Enrol:output_type -> agentkeyring.v1.EnrolStatus
+	8,  // 98: agentkeyring.v1.Enrolment.PairApprover:output_type -> agentkeyring.v1.EnrolStatus
+	15, // 99: agentkeyring.v1.Enrolment.GetApproverKeys:output_type -> agentkeyring.v1.SignedApproverKeySet
+	13, // 100: agentkeyring.v1.Enrolment.ConfirmPairing:output_type -> agentkeyring.v1.EnrolmentAck
+	18, // 101: agentkeyring.v1.Enrolment.GetApproverKeyChain:output_type -> agentkeyring.v1.ApproverKeyChain
+	28, // 102: agentkeyring.v1.Enrolment.GetAutomaticGrant:output_type -> agentkeyring.v1.SignedAutomaticGrant
+	82, // [82:103] is the sub-list for method output_type
+	61, // [61:82] is the sub-list for method input_type
+	61, // [61:61] is the sub-list for extension type_name
+	61, // [61:61] is the sub-list for extension extendee
+	0,  // [0:61] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v1_relay_proto_init() }
@@ -4141,6 +4202,7 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*ApproverWork_Enrolment)(nil),
 		(*ApproverWork_CancelledRequestDigestHex)(nil),
 		(*ApproverWork_Pairing)(nil),
+		(*ApproverWork_Lease)(nil),
 	}
 	file_agentkeyring_v1_relay_proto_msgTypes[40].OneofWrappers = []any{}
 	file_agentkeyring_v1_relay_proto_msgTypes[43].OneofWrappers = []any{
@@ -4165,6 +4227,7 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*RelayWireRequest_GetIndex)(nil),
 		(*RelayWireRequest_GetAutomaticKeys)(nil),
 		(*RelayWireRequest_ClearDenial)(nil),
+		(*RelayWireRequest_RevokeLease)(nil),
 	}
 	file_agentkeyring_v1_relay_proto_msgTypes[44].OneofWrappers = []any{
 		(*RelayWireResponse_Client)(nil),
@@ -4181,6 +4244,7 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*RelayWireResponse_AutomaticGrant)(nil),
 		(*RelayWireResponse_Index)(nil),
 		(*RelayWireResponse_AutomaticKeys)(nil),
+		(*RelayWireResponse_Lease)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
