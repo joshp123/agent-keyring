@@ -26,11 +26,17 @@ approval made by another device while this Mac was offline. Reports update
 display state and close answered prompts; they never authorize a delivery.
 
 - `beginPairing(RelayEndpoint)` observes the relay's TLS key during first setup.
-  The endpoint requires a Tailscale address/name. Loopback is an explicit proof
-  option. The Mac refuses first setup if the relay already has an approver.
+  Host names are accepted. Before sending a request, the connected peer's
+  resolved address must be in `100.64.0.0/10` or `fd7a:115c:a1e0::/48`.
+  Loopback is an explicit proof option, persisted with the endpoint. The Mac
+  refuses first setup if the relay already has an approver.
 - `confirmPairing(comparedFingerprint:context:)` requires the full eight groups,
   compared with the relay's log. It signs and queues both the confirmation and
   initial key set. An identical retry reuses the saved answer.
+- `abandonPairing()` cancels an unconfirmed first setup, including an in-flight
+  connection, and durably clears its comparison. The app returns to unpaired
+  and can start setup again. A confirmation already signed and queued cannot
+  be abandoned, since the relay may already have accepted it.
 - `approveEnrolment(id,comparedFingerprint:automaticAllowed:context:)` compares
   the fingerprint with the receiving machine, defaults Automatic permission to
   false, and signs enrolment plus the complete roster, index and Automatic
@@ -45,6 +51,10 @@ display state and close answered prompts; they never authorize a delivery.
   rule owner, and changes local `approverKeySet` only after acknowledgement.
   The snapshot exposes the resulting signed key set. A pending relay message
   alone adds no key. This is the Mac half of pairing the iPhone in release 4.
+  `dismissApproverPairing(id)` durably dismisses a comparison that does not
+  match. That pairing ID stays hidden across reconnects and restarts. It sends
+  no relay request; cancel the comparison on the phone too. A pairing already
+  confirmed and queued for delivery cannot be dismissed.
 - `approve(id,context:)` signs and seals one task's login after checking the
   current local rules and machine keys. An already prepared answer is resent
   without another authorization. `deny(id,reply:context:)` sends a plain denial

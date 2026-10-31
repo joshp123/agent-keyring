@@ -1020,7 +1020,7 @@ type Lease struct {
 	// (zero until then). For display; deadlines come from the fields above.
 	RequestedAtUnixSeconds int64 `protobuf:"varint,17,opt,name=requested_at_unix_seconds,json=requestedAtUnixSeconds,proto3" json:"requested_at_unix_seconds,omitempty"`
 	EndedAtUnixSeconds     int64 `protobuf:"varint,18,opt,name=ended_at_unix_seconds,json=endedAtUnixSeconds,proto3" json:"ended_at_unix_seconds,omitempty"`
-	// Relay only: the HUMAN-signed denial and the exact request bytes, with no
+	// Relay only: a HUMAN or fully verified PHONE denial and exact request bytes, with no
 	// bundle, when a remote denial carries a reply. The receiver verifies them
 	// like an approval before it shows `reply`; otherwise it shows no reply.
 	SignedDenial  *SealedDelivery `protobuf:"bytes,19,opt,name=signed_denial,json=signedDenial,proto3" json:"signed_denial,omitempty"`

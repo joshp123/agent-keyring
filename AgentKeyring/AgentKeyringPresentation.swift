@@ -9,6 +9,7 @@ import AgentKeyringFeature
 final class AgentKeyringPresentation {
     private(set) var mainWindowRequest = 0
     private(set) var accessWindowRequest = 0
+    private(set) var machinesWindowRequest = 0
 
     func requestMainWindow() {
         mainWindowRequest &+= 1
@@ -16,6 +17,10 @@ final class AgentKeyringPresentation {
 
     func requestAccessWindow() {
         accessWindowRequest &+= 1
+    }
+
+    func requestMachinesWindow() {
+        machinesWindowRequest &+= 1
     }
 
 
@@ -27,7 +32,7 @@ struct AgentKeyringMenuWindow: View {
     @Environment(\.dismiss) private var dismiss
     let presentation: AgentKeyringPresentation
     let menuBar: MacMenuBarModel
-    let leaseApprovals: LeaseApprovalPresenter
+    let approvals: ApprovalPresenter
     let checkForUpdates: () -> Void
 
     var body: some View {
@@ -35,7 +40,15 @@ struct AgentKeyringMenuWindow: View {
             .onAppear {
                 menuBar.review = { leaseID in
                     dismiss()
-                    leaseApprovals.present(leaseID: leaseID)
+                    approvals.present(requestID: leaseID)
+                }
+                menuBar.reviewEnrolment = { enrolmentID in
+                    dismiss()
+                    approvals.present(enrolmentID: enrolmentID)
+                }
+                menuBar.openMachines = {
+                    dismiss()
+                    presentation.requestMachinesWindow()
                 }
                 menuBar.openRules = {
                     dismiss()
@@ -65,6 +78,11 @@ struct AgentKeyringMenuBarLabel: View {
             .onChange(of: presentation.mainWindowRequest, initial: true) { _, request in
                 guard request > 0 else { return }
                 openWindow(id: "main")
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
+            .onChange(of: presentation.machinesWindowRequest, initial: true) { _, request in
+                guard request > 0 else { return }
+                openWindow(id: "machines")
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }
             .onChange(of: presentation.accessWindowRequest, initial: true) { _, request in

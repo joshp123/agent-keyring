@@ -17,8 +17,9 @@ the receiving machine. The relay stores and forwards; it cannot open what it
 forwards for Ask and Blocked logins.
 
 This is release 3. Its limit, stated plainly: Ask requests and Automatic
-requests need the MacBook awake and connected. Release 4 (RFC 0006) adds the
-iPhone, so requests can be answered with the MacBook shut.
+requests need the MacBook awake and connected. Release 4 (RFC 0006) lets Josh
+answer on his iPhone when he is away from the keyboard; the MacBook still
+delivers, so it still needs to be awake.
 
 Not in this RFC: website sessions (they belong to the agent's browser), hosted
 agents that cannot run a client or reach the tailnet, and any change to where
@@ -29,7 +30,7 @@ the MacBook keeps its copy of the passwords.
 | Role | Runs on | Holds | Does |
 | --- | --- | --- | --- |
 | Relay | Mac mini, `agent-keyring-relay`, Go | Lease records, operation records, enrolment records, sealed bundles, signed login index | Accepts requests, wakes approvers, stores decisions, hands sealed bundles to receivers |
-| Approver | MacBook (Mac app); iPhone from release 4 | The passwords, the rules, its signing key, the receiver keys it has approved | Decides, seals approved logins to the receiver, signs the decision |
+| Approver | MacBook (Mac app); from release 4 the iPhone signs answers that the MacBook delivers | The passwords, the rules, its signing key, the receiver keys it has approved | Decides, seals approved logins to the receiver, signs the decision |
 | Receiver | The agent's machine, the Go `agent-keyring` client | Its TLS key, its receiver key, the approver keys it pinned | Requests, opens bundles, fills, runs programs, reports outcomes |
 
 The agent-facing contract does not change: `find`, `lease`, `status`,
@@ -68,8 +69,9 @@ otherwise.
 - **No public credential endpoint exists.** The only outbound public traffic
   is the Apple push in release 4, which carries no secret.
 
-The MacBook's copy keeps today's protections and limits in this release. RFC
-0006 covers moving the strong copy to the iPhone.
+The MacBook's copy keeps today's protections and limits. Release 4 keeps the
+passwords on the MacBook; RFC 0006 describes a later, optional copy on the
+iPhone for answering with the MacBook shut.
 The mini may also run an enrolled receiver. A login approved to that receiver
 is readable on the mini; the relay's ciphertext-only role does not conceal it
 from software administering that same machine.
@@ -168,7 +170,8 @@ A home outage stops remote requests. That is the limit of one always-on host.
 - Existing local agents on the MacBook keep the local socket. Nothing changes
   for them.
 - The relay starts empty. Josh pairs the MacBook with it once (`PairApprover`:
-  the relay logs a code, the Mac app shows the same code, Touch ID), then
+  setup brings him the relay's independently obtained code, the Mac app shows
+  its code, Touch ID), then
   enrols each remote machine. Limit: whoever controls the mini at that moment
   could pair a different approver first. That approver holds no passwords, and
   the MacBook would refuse to pair with a relay that already has one, so the
@@ -204,7 +207,12 @@ These close the three gaps Astra found. Messages are in `relay.proto` and
   for device setup, not ordinary approvals. An unexpected set change restarts
   the pending comparison.
 - *First approver.* `PairApprover` records a pending pairing. The relay prints
-  its code in its own log. Josh compares it with the Mac app's code and approves
+  its code in its own log. Setup tooling reads the code for that pending
+  pairing through the mini's existing trusted SSH connection (checking the
+  known host key), and presents it to Josh. He does not find or read a service
+  log. The Mac screen says to compare with the code brought by setup. Do not
+  replace this independent path with a code fetched over the unpaired relay
+  connection. Josh compares it with the Mac app's code and approves
   with Touch ID; the Mac app then signs a `PairingConfirmation` over the
   transcript hash with its new approver key. Its `initial_key_set` is a signed
   revision 1 containing just that key as rule owner and the same transcript
@@ -240,7 +248,8 @@ These close the three gaps Astra found. Messages are in `relay.proto` and
 - *Approver key changes.* The relay keeps every `SignedApproverKeySet`.
   `GetApproverKeyChain` returns all of them after a given revision, so a
   receiver that was offline walks the chain from a key it pinned, each step
-  signed by a key in the previous set.
+  signed by a MAC key in the previous set. Release 4's PHONE and MAC_DELIVERY
+  keys cannot change the trusted key set (RFC 0006).
 
 **Automatic approval.**
 
@@ -260,10 +269,13 @@ authority, never an approver key with the check turned off.
   An Ask decision says `authority = HUMAN` and must be signed by an approver
   key. Neither can stand in for the other.
 - Release 3: the Automatic key lives in the Mac app, in the Secure Enclave
-  without a biometric requirement, usable while the Mac is unlocked. Automatic
-  logins still need the MacBook awake, as this RFC already says.
-- Release 4: the Automatic key and an encryption key live on the relay (RFC
-  0006). The relay can approve only the logins the grant lists, for the
+  without a biometric requirement. It is the MacBook's delivery key (role
+  MAC_DELIVERY), usable while the Mac is awake, including with the screen
+  locked. Release 4 also uses it to deliver logins Josh approved on his iPhone
+  (RFC 0006). It never signs a HUMAN decision. Automatic logins still need the
+  MacBook awake, as this RFC already says.
+- Later, for the MacBook-shut step: the Automatic key and an encryption key
+  live on the relay (RFC 0006). The relay can approve only the logins the grant lists, for the
   machines it lists.
 - Each new lease is evaluated on its own: Automatic logins are approved again
   without a prompt, as Josh specified.
@@ -274,8 +286,10 @@ authority, never an approver key with the check turned off.
   change. Receivers learn owner changes through the signed approver key chain.
 
 What still needs the device: whether an Apple Watch tap satisfies the approver
-key, and that a Secure Enclave key without a biometric flag signs while the Mac
-is unlocked and refuses while it is locked.
+key, and that the replacement delivery key works with the screen locked after
+login, including after restarting the app (RFC 0006). The human key still needs
+biometric authorisation. The old expectation that the delivery key refuses
+while locked is superseded by phone-approved background delivery.
 
 The lease store, wire framing, bundle sealing and opening, and screens can be
 built now. Pairing and Automatic code follow the contracts above.

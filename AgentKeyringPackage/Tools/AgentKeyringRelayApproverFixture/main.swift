@@ -79,6 +79,7 @@ struct RelayApproverFixture {
         try approver.load()
         approver.start()
         func show(_ update: RelayApproverUpdate) {
+            print("SETUP\t\(update.pairing != nil)\t\(update.approverPairings.map(\.id).joined(separator: ","))")
             if let pairing = update.pairing { print("PAIR\t\(pairing.fingerprint)") }
             for enrolment in update.enrolments { print("ENROL\t\(enrolment.id)\t\(enrolment.fingerprint)") }
             for pairing in update.approverPairings { print("APPROVER\t\(pairing.id)\t\(pairing.fingerprint)") }
@@ -105,7 +106,11 @@ struct RelayApproverFixture {
             do {
                 switch parts[0] {
                 case "pair":
-                    try await approver.beginPairing(RelayEndpoint(host: "127.0.0.1", port: UInt16(parts[1])!, allowsLoopbackForProof: true))
+                    try await approver.beginPairing(RelayEndpoint(host: parts.count > 2 ? parts[2] : "127.0.0.1",
+                        port: UInt16(parts[1])!, allowsLoopbackForProof: parts.count > 3 ? parts[3] == "true" : true))
+                case "abandon": try approver.abandonPairing()
+                case "dismiss-approver": try approver.dismissApproverPairing(parts[1])
+                case "reconnect": approver.reconnect()
                 case "confirm": try await approver.confirmPairing(comparedFingerprint: parts[1])
                 case "enrol": try await approver.approveEnrolment(parts[1], comparedFingerprint: parts[2], automaticAllowed: parts[3] == "true")
                 case "confirm-approver": try await approver.confirmApproverPairing(parts[1], comparedFingerprint: parts[2])

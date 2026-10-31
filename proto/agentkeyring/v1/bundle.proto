@@ -63,6 +63,32 @@ message SignedDecision {
   // denial. Its ciphertext hash must match the signed statement. In a returned
   // SealedDelivery this attachment is omitted; use SealedDelivery.bundle.
   SealedBundle bundle = 5;
+  // Required when authority is PHONE: Josh's answer from his iPhone, which the
+  // MacBook acted on. Receivers verify it as well as the MacBook's signature.
+  SignedPhoneDecision phone_decision = 6;
+}
+
+// Signed on the iPhone after Face ID, over the exact `decision` bytes.
+// Exception: a plain DENY has an empty signature and reply; the relay accepts
+// it only from that paired phone's pinned connection. It grants nothing.
+// The MacBook, which holds the passwords, delivers only what this allows.
+message SignedPhoneDecision {
+  bytes decision = 1;           // Serialized PhoneDecision.
+  bytes signature = 2;          // DER, by the phone's approver key (role PHONE).
+  string phone_key_id = 3;
+  string reply = 4;             // Optional, bound by reply_sha256.
+}
+
+message PhoneDecision {
+  string domain = 1;            // Always "agentkeyring.phonedecision.v1".
+  bytes request_digest = 2;     // Same digest as DecisionStatement.request_digest.
+  DecisionChoice choice = 3;
+  int64 decided_unix_seconds = 4;
+  // Approve only: at most decided + 1800. The MacBook uses this deadline
+  // unchanged; delivery later never extends it.
+  int64 not_after_unix_seconds = 5;
+  bytes reply_sha256 = 6;
+  string lease_id = 7;
 }
 
 message DecisionStatement {
@@ -91,8 +117,15 @@ enum DecisionAuthority {
   DECISION_AUTHORITY_AUTOMATIC_RULE = 2;
   // DENY with an empty reply only. Sent unsigned over the approver's pinned
   // connection, so a plain Deny needs no biometric check. It grants nothing.
-  // A denial with a reply must be HUMAN; receivers show a reply only then.
+  // A denial with a reply must be HUMAN or PHONE with the required signatures.
   DECISION_AUTHORITY_APPROVER_CONNECTION = 3;
+  // Josh answered on his iPhone. Signed by the MacBook's delivery key (role
+  // MAC_DELIVERY) and carrying SignedDecision.phone_decision. Receivers check
+  // both signatures and equal request_digest, lease_id, choice, approval/
+  // decision time, not_after and reply_sha256 (RFC 0006). The outer reply must
+  // equal the phone's reply. A plain unsigned phone denial uses
+  // APPROVER_CONNECTION instead. PHONE never authorizes key or rule changes.
+  DECISION_AUTHORITY_PHONE = 4;
 }
 
 enum DecisionChoice {

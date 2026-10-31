@@ -42,7 +42,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     private var syncTask: Task<Void, Never>?
     private let accessControlFixture: MirrorGeneration?
     private let fixturePolicyStore: CredentialAccessPolicyStore?
-    private(set) lazy var leaseApprovals = LeaseApprovalPresenter(model: model)
+    private(set) lazy var approvals = ApprovalPresenter(model: model)
     private(set) lazy var menuBar: MacMenuBarModel = {
         let backend = LeaseMenuBarBackend(model: model)
         return MacMenuBarModel(backend: backend, initial: backend.snapshot())
@@ -90,7 +90,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Before the socket opens, so no request reaches the old system prompt.
-        leaseApprovals.start()
+        approvals.start()
         // At launch, not when the window opens: the icon shows the waiting count.
         Task { [menuBar] in await menuBar.followUpdates() }
         do { try model.startAgentListener() }
@@ -229,6 +229,12 @@ struct AgentKeyringApp: App {
             }
         }
 
+        Window("Machines", id: "machines") {
+            MachinesWindow(relay: appDelegate.model.relayApprover, approvals: appDelegate.approvals)
+        }
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+
         Window("Rules", id: "access") {
             RulesWindow(model: appDelegate.model)
                 .task { await appDelegate.loadAccessRules() }
@@ -256,7 +262,7 @@ struct AgentKeyringApp: App {
 
         MenuBarExtra {
             AgentKeyringMenuWindow(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar,
-                leaseApprovals: appDelegate.leaseApprovals) {
+                approvals: appDelegate.approvals) {
                 updaterController.checkForUpdates(nil)
             }
         } label: {

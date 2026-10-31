@@ -70,7 +70,8 @@ public final class MacEnrolmentModel {
             try await action()
             outcome = result
         } catch {
-            failure = result == .joined ? SetupCopy.joiningFailed : "That didn't reach the relay. Try again."
+            failure = (error as? LocalizedError)?.errorDescription
+                ?? (result == .joined ? SetupCopy.joiningFailed : "That didn't go through. Try again.")
         }
     }
 }
@@ -98,9 +99,11 @@ public struct MacEnrolmentPanelView: View {
                 Text(model.enrolment.name)
                     .font(.title.weight(.bold))
                     .tracking(-0.6)
-                Text(SetupCopy.tailnetNode(model.enrolment.tailnetNode))
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                if !model.enrolment.tailnetNode.isEmpty {
+                    Text(SetupCopy.tailnetNode(model.enrolment.tailnetNode))
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Divider()
