@@ -40,19 +40,26 @@ describe it.
 - **Two-factor codes** saved with a login in Apple Passwords. Codes sent by
   SMS or email are not handled.
 - **Other machines.** Agents on another Mac, a Linux server or a cloud machine
-  on your tailnet can ask too. Their requests go through a small relay that
-  runs on an always-on Mac, and your MacBook approves and seals each login to
-  the machine that asked. The relay cannot read them.
+  on your tailnet can ask too. Their requests go to a small relay that runs on
+  an always-on Mac, such as a Mac mini.
+  - **Automatic logins** are served by the relay itself, whether your MacBook
+    is awake or shut, to machines you have allowed Automatic logins. Your
+    MacBook keeps the relay's copy up to date, including when you re-import a
+    changed password, without asking you.
+  - **Ask logins** need your approval. Your MacBook delivers them, sealed to
+    the machine that asked, so it must be awake.
 - **Approving on your iPhone.** If you don't answer on the Mac within your
-  delay, or your Mac's screen is locked, the request goes to your iPhone. You
-  approve with Face ID; your Mac delivers the login, so it must be awake.
+  delay, or your Mac's screen is locked, an Ask request goes to your iPhone.
+  You approve with Face ID; your MacBook delivers the login, so it must be
+  awake.
 
 ## What it does not do
 
 - Fill Safari or the closed browser tools in agent apps, except through the
   agent's-own-code route above where the host supports it.
 - Keep a website signed in or sign it out. That is the agent's browser.
-- Work while your MacBook is asleep or shut.
+- Deliver Ask logins while your MacBook is asleep or shut. Delivering them
+  from the iPhone is designed but not built yet.
 - Sync with Apple Passwords by itself. Apple only allows an export that you
   start, so you export again when logins change.
 - Passkeys.
@@ -62,6 +69,18 @@ describe it.
   so. Endpoint checks reject a fake debugging server; they do not authenticate
   the publisher of an ad-hoc or unpacked browser build or isolate software
   running as the same user.
+
+## Who can read what
+
+| Where | What it holds | Who can read it |
+| --- | --- | --- |
+| Your MacBook's Agent Keyring | Every imported login | Whoever controls your MacBook user account |
+| The relay | Your Automatic logins, with their two-factor seeds, and a list of which machine asked for which login and when | **Anyone who administers the Mac running it, including agents you let administer it.** Moving a login off Automatic deletes it from the relay but cannot take back what was already read. Keep a login on Ask if that is not acceptable |
+| An Ask login on its way to a machine | One login, for one task | Only that machine. The relay passes it on sealed and cannot open it |
+| The machine that asked | What it was given | That machine, which can keep it |
+
+If the relay's Mac is also signed in to iCloud Keychain, Apple Passwords on that
+Mac already holds every password, with or without Agent Keyring.
 
 ## Install
 
