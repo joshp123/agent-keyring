@@ -10,17 +10,12 @@
 
 // Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Local contract for RFC 0004. Remote enrolment, sealed bundles and approvers
-// are in relay.proto (RFCs 0005 and 0006). Lease and operation results contain no
-// passwords, OTP codes or seeds. BeginOperationResponse carries values to the
-// client; the explicit agent-process `read` route outputs its selected value.
+// are in relay.proto (RFCs 0005 and 0006). Lease and receiver results contain no
+// passwords, OTP codes or seeds. Delivery carries values to the client; the
+// explicit agent-process `read` route outputs its selected value.
 // Find includes account metadata. Transport authentication
 // establishes the caller; task_ref, recipient labels and reasons do not.
 
-#if canImport(FoundationEssentials)
-import FoundationEssentials
-#else
-import Foundation
-#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -791,12 +786,11 @@ public nonisolated struct Agentkeyring_V1_FillRequest: Sendable {
   /// Clears the value of `target`. Subsequent reads from it will return its default value.
   public mutating func clearTarget() {self._target = nil}
 
-  /// Optional retry key, passed as BeginOperationRequest.request_id. Empty:
-  /// derive it from the action digest, excluding the current document loader ID
-  /// so navigation after a lost reply cannot silently make a retry a new action.
-  /// Records live with the lease at the authority, so
-  /// an operation with no recorded result is UNCERTAIN after any restart, never
-  /// an automatic second submit.
+  /// Optional retry key. Empty: the receiver derives it from the action digest,
+  /// excluding the current document loader ID so navigation after a lost reply
+  /// cannot silently make a retry a new action. The receiver keeps its own
+  /// crash-safe record, so an operation with no recorded result is UNCERTAIN
+  /// after any restart, never an automatic second submit.
   public var operationID: String = String()
 
   /// Deliberately repeat the same step after inspection, even on a new document.
@@ -944,39 +938,30 @@ public nonisolated struct Agentkeyring_V1_ExecuteProgramResult: Sendable {
   fileprivate var _exitCode: Int32? = nil
 }
 
-public nonisolated struct Agentkeyring_V1_BeginOperationRequest: Sendable {
+public nonisolated struct Agentkeyring_V1_DeliverRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var leaseID: String = String()
 
-  /// SHA-256 of the canonical action, computed by the receiver (RFC 0004).
-  /// No credential values or current observed document loader ID.
-  public var operationDigest: Data = Data()
-
   public var kind: Agentkeyring_V1_OperationKind = .unspecified
 
   public var fields: [Agentkeyring_V1_CredentialField] = []
-
-  /// Scoped to authenticated recipient + lease. Empty uses the digest as key.
-  /// Same key with changed digest, kind or fields is CONFLICT. A matching retry
-  /// returns already_started, never values, even after receiver/authority restart.
-  public var requestID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
 
-public nonisolated struct Agentkeyring_V1_BeginOperationResponse: Sendable {
+public nonisolated struct Agentkeyring_V1_Delivery: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var result: Agentkeyring_V1_BeginOperationResponse.OneOf_Result? = nil
+  public var result: Agentkeyring_V1_Delivery.OneOf_Result? = nil
 
-  /// Local socket only (release 2). Never sent over a network.
+  /// Local socket only. Never sent over a network.
   public var values: Agentkeyring_V1_CredentialValues {
     get {
       if case .values(let v)? = result {return v}
@@ -985,8 +970,8 @@ public nonisolated struct Agentkeyring_V1_BeginOperationResponse: Sendable {
     set {result = .values(newValue)}
   }
 
-  /// Release 3 onwards: sealed to the enrolled receiver, with the approver's
-  /// signed decision so the receiver can check who approved what (bundle.proto).
+  /// Through the relay: sealed to the enrolled receiver, with the signed
+  /// decision so the receiver can check who approved what (bundle.proto).
   public var sealed: Agentkeyring_V1_SealedDelivery {
     get {
       if case .sealed(let v)? = result {return v}
@@ -995,71 +980,18 @@ public nonisolated struct Agentkeyring_V1_BeginOperationResponse: Sendable {
     set {result = .sealed(newValue)}
   }
 
-  /// This request was already started: no values, nothing to perform.
-  public var alreadyStarted: Agentkeyring_V1_OperationRecord {
-    get {
-      if case .alreadyStarted(let v)? = result {return v}
-      return Agentkeyring_V1_OperationRecord()
-    }
-    set {result = .alreadyStarted(newValue)}
-  }
-
-  public var operationID: String = String()
-
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Result: Equatable, Sendable {
-    /// Local socket only (release 2). Never sent over a network.
+    /// Local socket only. Never sent over a network.
     case values(Agentkeyring_V1_CredentialValues)
-    /// Release 3 onwards: sealed to the enrolled receiver, with the approver's
-    /// signed decision so the receiver can check who approved what (bundle.proto).
+    /// Through the relay: sealed to the enrolled receiver, with the signed
+    /// decision so the receiver can check who approved what (bundle.proto).
     case sealed(Agentkeyring_V1_SealedDelivery)
-    /// This request was already started: no values, nothing to perform.
-    case alreadyStarted(Agentkeyring_V1_OperationRecord)
 
   }
 
   public init() {}
-}
-
-public nonisolated struct Agentkeyring_V1_GetOperationRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var leaseID: String = String()
-
-  /// The same key BeginOperation uses: request_id if set, otherwise the digest.
-  public var operationDigest: Data = Data()
-
-  public var requestID: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public nonisolated struct Agentkeyring_V1_GetOperationResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  /// Unset when no operation has this key. A record with no outcome was started
-  /// and never finished: report it as UNCERTAIN.
-  public var operation: Agentkeyring_V1_OperationRecord {
-    get {_operation ?? Agentkeyring_V1_OperationRecord()}
-    set {_operation = newValue}
-  }
-  /// Returns true if `operation` has been explicitly set.
-  public var hasOperation: Bool {self._operation != nil}
-  /// Clears the value of `operation`. Subsequent reads from it will return its default value.
-  public mutating func clearOperation() {self._operation = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _operation: Agentkeyring_V1_OperationRecord? = nil
 }
 
 public nonisolated struct Agentkeyring_V1_CredentialValues: Sendable {
@@ -1077,127 +1009,6 @@ public nonisolated struct Agentkeyring_V1_CredentialValues: Sendable {
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
-}
-
-public nonisolated struct Agentkeyring_V1_FinishOperationRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var leaseID: String = String()
-
-  public var operationID: String = String()
-
-  public var outcome: Agentkeyring_V1_FinishOperationRequest.OneOf_Outcome? = nil
-
-  public var fill: Agentkeyring_V1_FillOutcome {
-    get {
-      if case .fill(let v)? = outcome {return v}
-      return .unspecified
-    }
-    set {outcome = .fill(newValue)}
-  }
-
-  public var program: Agentkeyring_V1_ProgramOutcome {
-    get {
-      if case .program(let v)? = outcome {return v}
-      return .unspecified
-    }
-    set {outcome = .program(newValue)}
-  }
-
-  public var readDelivered: Bool {
-    get {
-      if case .readDelivered(let v)? = outcome {return v}
-      return false
-    }
-    set {outcome = .readDelivered(newValue)}
-  }
-
-  /// Present exactly for PROGRAM_OUTCOME_EXITED; retained for command retries.
-  public var exitCode: Int32 {
-    get {_exitCode ?? 0}
-    set {_exitCode = newValue}
-  }
-  /// Returns true if `exitCode` has been explicitly set.
-  public var hasExitCode: Bool {self._exitCode != nil}
-  /// Clears the value of `exitCode`. Subsequent reads from it will return its default value.
-  public mutating func clearExitCode() {self._exitCode = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public nonisolated enum OneOf_Outcome: Equatable, Sendable {
-    case fill(Agentkeyring_V1_FillOutcome)
-    case program(Agentkeyring_V1_ProgramOutcome)
-    case readDelivered(Bool)
-
-  }
-
-  public init() {}
-
-  fileprivate var _exitCode: Int32? = nil
-}
-
-public nonisolated struct Agentkeyring_V1_OperationRecord: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var operationID: String = String()
-
-  public var kind: Agentkeyring_V1_OperationKind = .unspecified
-
-  public var startedUnixSeconds: Int64 = 0
-
-  /// Unset while started with no recorded result: callers treat it as UNCERTAIN.
-  public var outcome: Agentkeyring_V1_OperationRecord.OneOf_Outcome? = nil
-
-  public var fill: Agentkeyring_V1_FillOutcome {
-    get {
-      if case .fill(let v)? = outcome {return v}
-      return .unspecified
-    }
-    set {outcome = .fill(newValue)}
-  }
-
-  public var program: Agentkeyring_V1_ProgramOutcome {
-    get {
-      if case .program(let v)? = outcome {return v}
-      return .unspecified
-    }
-    set {outcome = .program(newValue)}
-  }
-
-  public var readDelivered: Bool {
-    get {
-      if case .readDelivered(let v)? = outcome {return v}
-      return false
-    }
-    set {outcome = .readDelivered(newValue)}
-  }
-
-  public var exitCode: Int32 {
-    get {_exitCode ?? 0}
-    set {_exitCode = newValue}
-  }
-  /// Returns true if `exitCode` has been explicitly set.
-  public var hasExitCode: Bool {self._exitCode != nil}
-  /// Clears the value of `exitCode`. Subsequent reads from it will return its default value.
-  public mutating func clearExitCode() {self._exitCode = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  /// Unset while started with no recorded result: callers treat it as UNCERTAIN.
-  public nonisolated enum OneOf_Outcome: Equatable, Sendable {
-    case fill(Agentkeyring_V1_FillOutcome)
-    case program(Agentkeyring_V1_ProgramOutcome)
-    case readDelivered(Bool)
-
-  }
-
-  public init() {}
-
-  fileprivate var _exitCode: Int32? = nil
 }
 
 /// Local wire mapping, not gRPC: one RPC per connection. Each frame is a
@@ -1269,28 +1080,12 @@ public nonisolated struct Agentkeyring_V1_WireRequest: Sendable {
     set {request = .executeProgram(newValue)}
   }
 
-  public var beginOperation: Agentkeyring_V1_BeginOperationRequest {
+  public var deliver: Agentkeyring_V1_DeliverRequest {
     get {
-      if case .beginOperation(let v)? = request {return v}
-      return Agentkeyring_V1_BeginOperationRequest()
+      if case .deliver(let v)? = request {return v}
+      return Agentkeyring_V1_DeliverRequest()
     }
-    set {request = .beginOperation(newValue)}
-  }
-
-  public var finishOperation: Agentkeyring_V1_FinishOperationRequest {
-    get {
-      if case .finishOperation(let v)? = request {return v}
-      return Agentkeyring_V1_FinishOperationRequest()
-    }
-    set {request = .finishOperation(newValue)}
-  }
-
-  public var getOperation: Agentkeyring_V1_GetOperationRequest {
-    get {
-      if case .getOperation(let v)? = request {return v}
-      return Agentkeyring_V1_GetOperationRequest()
-    }
-    set {request = .getOperation(newValue)}
+    set {request = .deliver(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -1303,93 +1098,69 @@ public nonisolated struct Agentkeyring_V1_WireRequest: Sendable {
     case endLease(Agentkeyring_V1_LeaseReference)
     case fill(Agentkeyring_V1_FillRequest)
     case executeProgram(Agentkeyring_V1_ExecuteProgramRequest)
-    case beginOperation(Agentkeyring_V1_BeginOperationRequest)
-    case finishOperation(Agentkeyring_V1_FinishOperationRequest)
-    case getOperation(Agentkeyring_V1_GetOperationRequest)
+    case deliver(Agentkeyring_V1_DeliverRequest)
 
   }
 
   public init() {}
 }
 
-public nonisolated struct Agentkeyring_V1_WireResponse: @unchecked Sendable {
+public nonisolated struct Agentkeyring_V1_WireResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var response: OneOf_Response? {
-    get {return _storage._response}
-    set {_uniqueStorage()._response = newValue}
-  }
+  public var response: Agentkeyring_V1_WireResponse.OneOf_Response? = nil
 
   public var logins: Agentkeyring_V1_FindLoginsResponse {
     get {
-      if case .logins(let v)? = _storage._response {return v}
+      if case .logins(let v)? = response {return v}
       return Agentkeyring_V1_FindLoginsResponse()
     }
-    set {_uniqueStorage()._response = .logins(newValue)}
+    set {response = .logins(newValue)}
   }
 
   public var lease: Agentkeyring_V1_Lease {
     get {
-      if case .lease(let v)? = _storage._response {return v}
+      if case .lease(let v)? = response {return v}
       return Agentkeyring_V1_Lease()
     }
-    set {_uniqueStorage()._response = .lease(newValue)}
+    set {response = .lease(newValue)}
   }
 
   public var fill: Agentkeyring_V1_FillResult {
     get {
-      if case .fill(let v)? = _storage._response {return v}
+      if case .fill(let v)? = response {return v}
       return Agentkeyring_V1_FillResult()
     }
-    set {_uniqueStorage()._response = .fill(newValue)}
+    set {response = .fill(newValue)}
   }
 
   public var executeProgram: Agentkeyring_V1_ExecuteProgramResult {
     get {
-      if case .executeProgram(let v)? = _storage._response {return v}
+      if case .executeProgram(let v)? = response {return v}
       return Agentkeyring_V1_ExecuteProgramResult()
     }
-    set {_uniqueStorage()._response = .executeProgram(newValue)}
+    set {response = .executeProgram(newValue)}
   }
 
   public var error: Agentkeyring_V1_RpcError {
     get {
-      if case .error(let v)? = _storage._response {return v}
+      if case .error(let v)? = response {return v}
       return Agentkeyring_V1_RpcError()
     }
-    set {_uniqueStorage()._response = .error(newValue)}
+    set {response = .error(newValue)}
   }
 
-  public var beginOperation: Agentkeyring_V1_BeginOperationResponse {
+  public var delivery: Agentkeyring_V1_Delivery {
     get {
-      if case .beginOperation(let v)? = _storage._response {return v}
-      return Agentkeyring_V1_BeginOperationResponse()
+      if case .delivery(let v)? = response {return v}
+      return Agentkeyring_V1_Delivery()
     }
-    set {_uniqueStorage()._response = .beginOperation(newValue)}
+    set {response = .delivery(newValue)}
   }
 
-  public var operation: Agentkeyring_V1_OperationRecord {
-    get {
-      if case .operation(let v)? = _storage._response {return v}
-      return Agentkeyring_V1_OperationRecord()
-    }
-    set {_uniqueStorage()._response = .operation(newValue)}
-  }
-
-  public var getOperation: Agentkeyring_V1_GetOperationResponse {
-    get {
-      if case .getOperation(let v)? = _storage._response {return v}
-      return Agentkeyring_V1_GetOperationResponse()
-    }
-    set {_uniqueStorage()._response = .getOperation(newValue)}
-  }
-
-  public var endOfStream: Bool {
-    get {_storage._endOfStream}
-    set {_uniqueStorage()._endOfStream = newValue}
-  }
+  public var endOfStream: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1399,15 +1170,11 @@ public nonisolated struct Agentkeyring_V1_WireResponse: @unchecked Sendable {
     case fill(Agentkeyring_V1_FillResult)
     case executeProgram(Agentkeyring_V1_ExecuteProgramResult)
     case error(Agentkeyring_V1_RpcError)
-    case beginOperation(Agentkeyring_V1_BeginOperationResponse)
-    case operation(Agentkeyring_V1_OperationRecord)
-    case getOperation(Agentkeyring_V1_GetOperationResponse)
+    case delivery(Agentkeyring_V1_Delivery)
 
   }
 
   public init() {}
-
-  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Agentkeyring_V1_RpcError: Sendable {
@@ -2264,9 +2031,9 @@ nonisolated extension Agentkeyring_V1_ExecuteProgramResult: SwiftProtobuf.Messag
   }
 }
 
-nonisolated extension Agentkeyring_V1_BeginOperationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".BeginOperationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_digest\0\u{1}kind\0\u{1}fields\0\u{3}request_id\0")
+nonisolated extension Agentkeyring_V1_DeliverRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeliverRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{1}kind\0\u{1}fields\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2275,10 +2042,8 @@ nonisolated extension Agentkeyring_V1_BeginOperationRequest: SwiftProtobuf.Messa
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 2: try { try decoder.decodeSingularBytesField(value: &self.operationDigest) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
-      case 4: try { try decoder.decodeRepeatedEnumField(value: &self.fields) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
+      case 3: try { try decoder.decodeRepeatedEnumField(value: &self.fields) }()
       default: break
       }
     }
@@ -2288,35 +2053,27 @@ nonisolated extension Agentkeyring_V1_BeginOperationRequest: SwiftProtobuf.Messa
     if !self.leaseID.isEmpty {
       try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
     }
-    if !self.operationDigest.isEmpty {
-      try visitor.visitSingularBytesField(value: self.operationDigest, fieldNumber: 2)
-    }
     if self.kind != .unspecified {
-      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 3)
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 2)
     }
     if !self.fields.isEmpty {
-      try visitor.visitPackedEnumField(value: self.fields, fieldNumber: 4)
-    }
-    if !self.requestID.isEmpty {
-      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 5)
+      try visitor.visitPackedEnumField(value: self.fields, fieldNumber: 3)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentkeyring_V1_BeginOperationRequest, rhs: Agentkeyring_V1_BeginOperationRequest) -> Bool {
+  public static func ==(lhs: Agentkeyring_V1_DeliverRequest, rhs: Agentkeyring_V1_DeliverRequest) -> Bool {
     if lhs.leaseID != rhs.leaseID {return false}
-    if lhs.operationDigest != rhs.operationDigest {return false}
     if lhs.kind != rhs.kind {return false}
     if lhs.fields != rhs.fields {return false}
-    if lhs.requestID != rhs.requestID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-nonisolated extension Agentkeyring_V1_BeginOperationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".BeginOperationResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}values\0\u{1}sealed\0\u{3}already_started\0\u{3}operation_id\0")
+nonisolated extension Agentkeyring_V1_Delivery: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".Delivery"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}values\0\u{1}sealed\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2350,20 +2107,6 @@ nonisolated extension Agentkeyring_V1_BeginOperationResponse: SwiftProtobuf.Mess
           self.result = .sealed(v)
         }
       }()
-      case 3: try {
-        var v: Agentkeyring_V1_OperationRecord?
-        var hadOneofValue = false
-        if let current = self.result {
-          hadOneofValue = true
-          if case .alreadyStarted(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.result = .alreadyStarted(v)
-        }
-      }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.operationID) }()
       default: break
       }
     }
@@ -2383,95 +2126,13 @@ nonisolated extension Agentkeyring_V1_BeginOperationResponse: SwiftProtobuf.Mess
       guard case .sealed(let v)? = self.result else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
     }()
-    case .alreadyStarted?: try {
-      guard case .alreadyStarted(let v)? = self.result else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    }()
     case nil: break
     }
-    if !self.operationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.operationID, fieldNumber: 4)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentkeyring_V1_BeginOperationResponse, rhs: Agentkeyring_V1_BeginOperationResponse) -> Bool {
+  public static func ==(lhs: Agentkeyring_V1_Delivery, rhs: Agentkeyring_V1_Delivery) -> Bool {
     if lhs.result != rhs.result {return false}
-    if lhs.operationID != rhs.operationID {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentkeyring_V1_GetOperationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GetOperationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_digest\0\u{3}request_id\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 2: try { try decoder.decodeSingularBytesField(value: &self.operationDigest) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.leaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
-    }
-    if !self.operationDigest.isEmpty {
-      try visitor.visitSingularBytesField(value: self.operationDigest, fieldNumber: 2)
-    }
-    if !self.requestID.isEmpty {
-      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 3)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentkeyring_V1_GetOperationRequest, rhs: Agentkeyring_V1_GetOperationRequest) -> Bool {
-    if lhs.leaseID != rhs.leaseID {return false}
-    if lhs.operationDigest != rhs.operationDigest {return false}
-    if lhs.requestID != rhs.requestID {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentkeyring_V1_GetOperationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".GetOperationResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}operation\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._operation) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._operation {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentkeyring_V1_GetOperationResponse, rhs: Agentkeyring_V1_GetOperationResponse) -> Bool {
-    if lhs._operation != rhs._operation {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2517,182 +2178,9 @@ nonisolated extension Agentkeyring_V1_CredentialValues: SwiftProtobuf.Message, S
   }
 }
 
-nonisolated extension Agentkeyring_V1_FinishOperationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".FinishOperationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_id\0\u{1}fill\0\u{1}program\0\u{3}read_delivered\0\u{3}exit_code\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.operationID) }()
-      case 3: try {
-        var v: Agentkeyring_V1_FillOutcome?
-        try decoder.decodeSingularEnumField(value: &v)
-        if let v = v {
-          if self.outcome != nil {try decoder.handleConflictingOneOf()}
-          self.outcome = .fill(v)
-        }
-      }()
-      case 4: try {
-        var v: Agentkeyring_V1_ProgramOutcome?
-        try decoder.decodeSingularEnumField(value: &v)
-        if let v = v {
-          if self.outcome != nil {try decoder.handleConflictingOneOf()}
-          self.outcome = .program(v)
-        }
-      }()
-      case 5: try {
-        var v: Bool?
-        try decoder.decodeSingularBoolField(value: &v)
-        if let v = v {
-          if self.outcome != nil {try decoder.handleConflictingOneOf()}
-          self.outcome = .readDelivered(v)
-        }
-      }()
-      case 6: try { try decoder.decodeSingularInt32Field(value: &self._exitCode) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.leaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
-    }
-    if !self.operationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.operationID, fieldNumber: 2)
-    }
-    switch self.outcome {
-    case .fill?: try {
-      guard case .fill(let v)? = self.outcome else { preconditionFailure() }
-      try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
-    }()
-    case .program?: try {
-      guard case .program(let v)? = self.outcome else { preconditionFailure() }
-      try visitor.visitSingularEnumField(value: v, fieldNumber: 4)
-    }()
-    case .readDelivered?: try {
-      guard case .readDelivered(let v)? = self.outcome else { preconditionFailure() }
-      try visitor.visitSingularBoolField(value: v, fieldNumber: 5)
-    }()
-    case nil: break
-    }
-    try { if let v = self._exitCode {
-      try visitor.visitSingularInt32Field(value: v, fieldNumber: 6)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentkeyring_V1_FinishOperationRequest, rhs: Agentkeyring_V1_FinishOperationRequest) -> Bool {
-    if lhs.leaseID != rhs.leaseID {return false}
-    if lhs.operationID != rhs.operationID {return false}
-    if lhs.outcome != rhs.outcome {return false}
-    if lhs._exitCode != rhs._exitCode {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentkeyring_V1_OperationRecord: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".OperationRecord"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}operation_id\0\u{1}kind\0\u{3}started_unix_seconds\0\u{1}fill\0\u{1}program\0\u{3}read_delivered\0\u{3}exit_code\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.operationID) }()
-      case 2: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
-      case 3: try { try decoder.decodeSingularInt64Field(value: &self.startedUnixSeconds) }()
-      case 4: try {
-        var v: Agentkeyring_V1_FillOutcome?
-        try decoder.decodeSingularEnumField(value: &v)
-        if let v = v {
-          if self.outcome != nil {try decoder.handleConflictingOneOf()}
-          self.outcome = .fill(v)
-        }
-      }()
-      case 5: try {
-        var v: Agentkeyring_V1_ProgramOutcome?
-        try decoder.decodeSingularEnumField(value: &v)
-        if let v = v {
-          if self.outcome != nil {try decoder.handleConflictingOneOf()}
-          self.outcome = .program(v)
-        }
-      }()
-      case 6: try {
-        var v: Bool?
-        try decoder.decodeSingularBoolField(value: &v)
-        if let v = v {
-          if self.outcome != nil {try decoder.handleConflictingOneOf()}
-          self.outcome = .readDelivered(v)
-        }
-      }()
-      case 7: try { try decoder.decodeSingularInt32Field(value: &self._exitCode) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.operationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.operationID, fieldNumber: 1)
-    }
-    if self.kind != .unspecified {
-      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 2)
-    }
-    if self.startedUnixSeconds != 0 {
-      try visitor.visitSingularInt64Field(value: self.startedUnixSeconds, fieldNumber: 3)
-    }
-    switch self.outcome {
-    case .fill?: try {
-      guard case .fill(let v)? = self.outcome else { preconditionFailure() }
-      try visitor.visitSingularEnumField(value: v, fieldNumber: 4)
-    }()
-    case .program?: try {
-      guard case .program(let v)? = self.outcome else { preconditionFailure() }
-      try visitor.visitSingularEnumField(value: v, fieldNumber: 5)
-    }()
-    case .readDelivered?: try {
-      guard case .readDelivered(let v)? = self.outcome else { preconditionFailure() }
-      try visitor.visitSingularBoolField(value: v, fieldNumber: 6)
-    }()
-    case nil: break
-    }
-    try { if let v = self._exitCode {
-      try visitor.visitSingularInt32Field(value: v, fieldNumber: 7)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentkeyring_V1_OperationRecord, rhs: Agentkeyring_V1_OperationRecord) -> Bool {
-    if lhs.operationID != rhs.operationID {return false}
-    if lhs.kind != rhs.kind {return false}
-    if lhs.startedUnixSeconds != rhs.startedUnixSeconds {return false}
-    if lhs.outcome != rhs.outcome {return false}
-    if lhs._exitCode != rhs._exitCode {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}find_logins\0\u{3}request_lease\0\u{3}get_lease\0\u{3}watch_lease\0\u{3}end_lease\0\u{1}fill\0\u{3}execute_program\0\u{3}begin_operation\0\u{3}finish_operation\0\u{3}get_operation\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}find_logins\0\u{3}request_lease\0\u{3}get_lease\0\u{3}watch_lease\0\u{3}end_lease\0\u{1}fill\0\u{3}execute_program\0\u{1}deliver\0\u{c}\u{9}\u{1}\u{c}\u{a}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2792,42 +2280,16 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
         }
       }()
       case 8: try {
-        var v: Agentkeyring_V1_BeginOperationRequest?
+        var v: Agentkeyring_V1_DeliverRequest?
         var hadOneofValue = false
         if let current = self.request {
           hadOneofValue = true
-          if case .beginOperation(let m) = current {v = m}
+          if case .deliver(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.request = .beginOperation(v)
-        }
-      }()
-      case 9: try {
-        var v: Agentkeyring_V1_FinishOperationRequest?
-        var hadOneofValue = false
-        if let current = self.request {
-          hadOneofValue = true
-          if case .finishOperation(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.request = .finishOperation(v)
-        }
-      }()
-      case 10: try {
-        var v: Agentkeyring_V1_GetOperationRequest?
-        var hadOneofValue = false
-        if let current = self.request {
-          hadOneofValue = true
-          if case .getOperation(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.request = .getOperation(v)
+          self.request = .deliver(v)
         }
       }()
       default: break
@@ -2869,17 +2331,9 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
       guard case .executeProgram(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
     }()
-    case .beginOperation?: try {
-      guard case .beginOperation(let v)? = self.request else { preconditionFailure() }
+    case .deliver?: try {
+      guard case .deliver(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
-    }()
-    case .finishOperation?: try {
-      guard case .finishOperation(let v)? = self.request else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
-    }()
-    case .getOperation?: try {
-      guard case .getOperation(let v)? = self.request else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
     }()
     case nil: break
     }
@@ -2895,214 +2349,138 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WireResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{1}lease\0\u{1}fill\0\u{3}execute_program\0\u{1}error\0\u{3}end_of_stream\0\u{3}begin_operation\0\u{1}operation\0\u{3}get_operation\0")
-
-  fileprivate class _StorageClass {
-    var _response: Agentkeyring_V1_WireResponse.OneOf_Response?
-    var _endOfStream: Bool = false
-
-      // This property is used as the initial default value for new instances of the type.
-      // The type itself is protecting the reference to its storage via CoW semantics.
-      // This will force a copy to be made of this reference when the first mutation occurs;
-      // hence, it is safe to mark this as `nonisolated(unsafe)`.
-      static nonisolated(unsafe) let defaultInstance = _StorageClass()
-
-    private init() {}
-
-    init(copying source: _StorageClass) {
-      _response = source._response
-      _endOfStream = source._endOfStream
-    }
-  }
-
-  fileprivate mutating func _uniqueStorage() -> _StorageClass {
-    if !isKnownUniquelyReferenced(&_storage) {
-      _storage = _StorageClass(copying: _storage)
-    }
-    return _storage
-  }
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{1}lease\0\u{1}fill\0\u{3}execute_program\0\u{1}error\0\u{3}end_of_stream\0\u{1}delivery\0\u{c}\u{8}\u{1}\u{c}\u{9}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    _ = _uniqueStorage()
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      while let fieldNumber = try decoder.nextFieldNumber() {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every case branch when no optimizations are
-        // enabled. https://github.com/apple/swift-protobuf/issues/1034
-        switch fieldNumber {
-        case 1: try {
-          var v: Agentkeyring_V1_FindLoginsResponse?
-          var hadOneofValue = false
-          if let current = _storage._response {
-            hadOneofValue = true
-            if case .logins(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._response = .logins(v)
-          }
-        }()
-        case 2: try {
-          var v: Agentkeyring_V1_Lease?
-          var hadOneofValue = false
-          if let current = _storage._response {
-            hadOneofValue = true
-            if case .lease(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._response = .lease(v)
-          }
-        }()
-        case 3: try {
-          var v: Agentkeyring_V1_FillResult?
-          var hadOneofValue = false
-          if let current = _storage._response {
-            hadOneofValue = true
-            if case .fill(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._response = .fill(v)
-          }
-        }()
-        case 4: try {
-          var v: Agentkeyring_V1_ExecuteProgramResult?
-          var hadOneofValue = false
-          if let current = _storage._response {
-            hadOneofValue = true
-            if case .executeProgram(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._response = .executeProgram(v)
-          }
-        }()
-        case 5: try {
-          var v: Agentkeyring_V1_RpcError?
-          var hadOneofValue = false
-          if let current = _storage._response {
-            hadOneofValue = true
-            if case .error(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._response = .error(v)
-          }
-        }()
-        case 6: try { try decoder.decodeSingularBoolField(value: &_storage._endOfStream) }()
-        case 7: try {
-          var v: Agentkeyring_V1_BeginOperationResponse?
-          var hadOneofValue = false
-          if let current = _storage._response {
-            hadOneofValue = true
-            if case .beginOperation(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._response = .beginOperation(v)
-          }
-        }()
-        case 8: try {
-          var v: Agentkeyring_V1_OperationRecord?
-          var hadOneofValue = false
-          if let current = _storage._response {
-            hadOneofValue = true
-            if case .operation(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._response = .operation(v)
-          }
-        }()
-        case 9: try {
-          var v: Agentkeyring_V1_GetOperationResponse?
-          var hadOneofValue = false
-          if let current = _storage._response {
-            hadOneofValue = true
-            if case .getOperation(let m) = current {v = m}
-          }
-          try decoder.decodeSingularMessageField(value: &v)
-          if let v = v {
-            if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._response = .getOperation(v)
-          }
-        }()
-        default: break
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Agentkeyring_V1_FindLoginsResponse?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .logins(let m) = current {v = m}
         }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .logins(v)
+        }
+      }()
+      case 2: try {
+        var v: Agentkeyring_V1_Lease?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .lease(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .lease(v)
+        }
+      }()
+      case 3: try {
+        var v: Agentkeyring_V1_FillResult?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .fill(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .fill(v)
+        }
+      }()
+      case 4: try {
+        var v: Agentkeyring_V1_ExecuteProgramResult?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .executeProgram(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .executeProgram(v)
+        }
+      }()
+      case 5: try {
+        var v: Agentkeyring_V1_RpcError?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .error(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .error(v)
+        }
+      }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.endOfStream) }()
+      case 7: try {
+        var v: Agentkeyring_V1_Delivery?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .delivery(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .delivery(v)
+        }
+      }()
+      default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every if/case branch local when no optimizations
-      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-      // https://github.com/apple/swift-protobuf/issues/1182
-      switch _storage._response {
-      case .logins?: try {
-        guard case .logins(let v)? = _storage._response else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-      }()
-      case .lease?: try {
-        guard case .lease(let v)? = _storage._response else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-      }()
-      case .fill?: try {
-        guard case .fill(let v)? = _storage._response else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-      }()
-      case .executeProgram?: try {
-        guard case .executeProgram(let v)? = _storage._response else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-      }()
-      case .error?: try {
-        guard case .error(let v)? = _storage._response else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
-      }()
-      default: break
-      }
-      if _storage._endOfStream != false {
-        try visitor.visitSingularBoolField(value: _storage._endOfStream, fieldNumber: 6)
-      }
-      switch _storage._response {
-      case .beginOperation?: try {
-        guard case .beginOperation(let v)? = _storage._response else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
-      }()
-      case .operation?: try {
-        guard case .operation(let v)? = _storage._response else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
-      }()
-      case .getOperation?: try {
-        guard case .getOperation(let v)? = _storage._response else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
-      }()
-      default: break
-      }
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.response {
+    case .logins?: try {
+      guard case .logins(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .lease?: try {
+      guard case .lease(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case .fill?: try {
+      guard case .fill(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    }()
+    case .executeProgram?: try {
+      guard case .executeProgram(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    }()
+    case .error?: try {
+      guard case .error(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    }()
+    default: break
     }
+    if self.endOfStream != false {
+      try visitor.visitSingularBoolField(value: self.endOfStream, fieldNumber: 6)
+    }
+    try { if case .delivery(let v)? = self.response {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V1_WireResponse, rhs: Agentkeyring_V1_WireResponse) -> Bool {
-    if lhs._storage !== rhs._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
-        let _storage = _args.0
-        let rhs_storage = _args.1
-        if _storage._response != rhs_storage._response {return false}
-        if _storage._endOfStream != rhs_storage._endOfStream {return false}
-        return true
-      }
-      if !storagesAreEqual {return false}
-    }
+    if lhs.response != rhs.response {return false}
+    if lhs.endOfStream != rhs.endOfStream {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

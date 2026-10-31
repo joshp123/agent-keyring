@@ -320,7 +320,7 @@ func phoneWork(tx *sql.Tx, p peer, seen map[string][]byte) (*pb.RelayWireRespons
 				seen[requestKey] = []byte{2}
 				return workResponse(&pb.ApproverWork{Item: &pb.ApproverWork_CancelledRequestDigestHex{CancelledRequestDigestHex: digest}}), nil
 			}
-			if (!terminal(lease) || seen["lease:"+e.id] != nil) && changed(seen, "lease:"+e.id, lease) {
+			if changed(seen, "lease:"+e.id, lease) {
 				return workResponse(&pb.ApproverWork{Item: &pb.ApproverWork_Lease{Lease: lease}}), nil
 			}
 		} else if e.owner == p.approver {

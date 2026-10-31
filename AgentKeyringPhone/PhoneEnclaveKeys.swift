@@ -5,7 +5,7 @@ import LocalAuthentication
 import Security
 
 /// These are device-wrapped Secure Enclave representations, not exportable private keys.
-/// The v2 signing account deliberately never opens the old biometric-free v1 key.
+/// Approval-only v3 never reuses a key enrolled with the former generic role.
 struct PhoneEnclaveKeys: PhoneApproverKeys {
     private let service = "com.joshpalmer.AgentKeyring.Phone.enclave"
 
@@ -32,23 +32,9 @@ struct PhoneEnclaveKeys: PhoneApproverKeys {
         guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) else {
             throw LAError(.authenticationFailed)
         }
-        // Both key operations must use this action's authentication. If iOS cannot
-        // reuse it, fail rather than silently present a second Face ID prompt.
+        // Signing must use this action's authentication. Fail instead of
+        // silently presenting another Face ID prompt.
         context.interactionNotAllowed = true
-    }
-
-    /// R4.3 shares this context between opening and signing for one explicit approval.
-    /// A new context is required for each action; nothing grants a background unlock.
-    func authenticationContext(reason: String) -> LAContext {
-        let context = LAContext()
-        context.localizedReason = reason
-        context.localizedFallbackTitle = ""
-        context.touchIDAuthenticationAllowableReuseDuration = 0
-        return context
-    }
-
-    func sharedSecret(with publicKey: P256.KeyAgreement.PublicKey, context: LAContext) throws -> SharedSecret {
-        try agreementKey(context: context, createIfMissing: false).sharedSecretFromKeyAgreement(with: publicKey)
     }
 
     func sign(_ bytes: Data, context: LAContext) throws -> Data {
@@ -66,12 +52,12 @@ struct PhoneEnclaveKeys: PhoneApproverKeys {
     }
 
     private func signingKey(context: LAContext, createIfMissing: Bool) throws -> SecureEnclave.P256.Signing.PrivateKey {
-        if let representation = try load(account: "approval.v2") {
+        if let representation = try load(account: "phone-answers.v3") {
             return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: representation, authenticationContext: context)
         }
         guard createIfMissing else { throw PhoneEnclaveFailure.signingKeyMissing }
         let key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: faceIDAccessControl(), authenticationContext: context)
-        try save(key.dataRepresentation, account: "approval.v2")
+        try save(key.dataRepresentation, account: "phone-answers.v3")
         return key
     }
 

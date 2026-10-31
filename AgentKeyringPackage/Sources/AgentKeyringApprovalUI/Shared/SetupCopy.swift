@@ -80,6 +80,42 @@ public enum SetupCopy {
     public static let answersWithFaceID = "Answers with Face ID"
     public static let review = "Review"
 
+    // MARK: When the Mac asks the iPhone
+
+    public static let macAsksPhoneAfter = "Your Mac asks this iPhone after"
+    public static let phoneDelayFooter = "A request shows on your Mac first. If you don't answer there in time, or your Mac is locked, it comes here. The delay is set on your Mac."
+    public static let askPhoneAfterOnMac = "Ask your iPhone after"
+    public static let macDelayFooter = "If you don't answer on this Mac by then. When this Mac is locked, it asks your iPhone at once."
+
+    /// "30 seconds", "1 minute", "9 minutes".
+    public static func delay(_ delay: Duration) -> String {
+        let seconds = Int(delay.components.seconds)
+        return seconds < 60 ? "\(seconds) seconds" : seconds < 120 ? "1 minute" : "\(seconds / 60) minutes"
+    }
+
+    /// Home's empty state; the Lock Screen is mentioned only once it works.
+    public static func nothingWaiting(_ status: PhoneNotifications) -> String {
+        switch status {
+        case .on: "When your Mac asks this iPhone, the request appears here and on your Lock Screen."
+        case .notSetUp: "When your Mac asks this iPhone, the request appears here. Notifications aren't set up yet, so open Agent Keyring to check."
+        case .off: "When your Mac asks this iPhone, the request appears here. Notifications are off, so open Agent Keyring to check."
+        }
+    }
+
+    public static func notifications(_ status: PhoneNotifications) -> String {
+        switch status {
+        case .notSetUp: "Not set up yet"
+        case .off: "Off in iPhone Settings"
+        case .on: "On"
+        }
+    }
+
+    // MARK: Passwords on the iPhone (optional in release 4)
+
+    public static let phonePasswordsTitle = "Passwords on this iPhone"
+    public static let phonePasswordsFooter = "Not needed to approve. Your MacBook delivers logins; this iPhone only says yes or no."
+    public static let phonePasswordsPurpose = "Optional. Today your MacBook delivers every login, and this iPhone only approves. A later version uses passwords kept here when your MacBook is shut."
+
     // MARK: The iPhone's pairing
 
     public static let pairTitle = "Pair with your Mac"

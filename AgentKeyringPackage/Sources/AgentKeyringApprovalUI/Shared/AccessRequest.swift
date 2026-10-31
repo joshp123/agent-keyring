@@ -107,6 +107,10 @@ public enum AccessRequestState: Hashable, Sendable {
     case waitingForYou(until: Date)
     /// Josh answered here; the answer is on its way to Agent Keyring.
     case sendingAnswer(AnswerChoice)
+    /// Josh answered on this device and the relay has the answer durably, but
+    /// the lease is still PENDING until the Mac commits the outcome (RFC 0006).
+    /// Keeps the chosen answer and any typed reply. Never answerable again.
+    case waitingForMac(AnswerChoice, reply: String?)
     /// The agent may use the login until `until`, or until it releases it.
     case approved(by: ApprovalSurface, until: Date)
     /// `askAgainAfter`: new requests for this login from this machine are
@@ -130,9 +134,22 @@ public enum AccessRequestState: Hashable, Sendable {
         return false
     }
 
+    public var isWaitingForMac: Bool {
+        if case .waitingForMac = self { return true }
+        return false
+    }
+
     public var isInUse: Bool {
         if case .approved = self { return true }
         return false
+    }
+
+    /// The reply Josh typed with a denial, sent or still on its way.
+    public var reply: String? {
+        switch self {
+        case let .denied(_, reply, _), let .waitingForMac(.deny, reply): reply
+        default: nil
+        }
     }
 
     /// A denial that still stops this machine asking for the login again.

@@ -139,7 +139,7 @@ private struct PhoneAnswerArea: View {
                 Text(AccessRequestCopy.outcome(request) ?? "")
                     .font(.body.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
-                if case let .denied(_, reply?, _) = request.state {
+                if let reply = request.state.reply {
                     Text("You replied: “\(reply)”")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -154,7 +154,10 @@ private struct PhoneAnswerArea: View {
         }
         HStack(spacing: 12) {
             if request.state.isInUse {
-                Button(AccessRequestCopy.endNow) { Task { await model.endAccess(request.id) } }
+                Button(model.ending.contains(request.id) ? AccessRequestCopy.ending : AccessRequestCopy.endNow) {
+                    Task { await model.endAccess(request.id) }
+                }
+                .disabled(model.ending.contains(request.id))
                     .buttonStyle(.quiet(text: KeyringColour.denyText))
             }
             Button("Done", action: close)
