@@ -44,6 +44,13 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	case *pb.RelayWireRequest_ClearDenial:
 		err := s.clearDenial(tx, request.ClearDenial)
 		return publishAck(), false, err
+	case *pb.RelayWireRequest_RevokeLease:
+		lease, _, err := loadLease(tx, request.RevokeLease.LeaseId)
+		if err == nil && !terminal(lease) {
+			end(lease, pb.LeaseState_LEASE_STATE_REVOKED)
+			err = saveLease(tx, lease)
+		}
+		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Lease{Lease: lease}, EndOfStream: true}, false, err
 	case *pb.RelayWireRequest_PublishIndex:
 		err := s.publishIndex(tx, request.PublishIndex)
 		return publishAck(), false, err
@@ -144,6 +151,11 @@ func (s *Server) work(tx *sql.Tx, seen map[string][]byte) (*pb.RelayWireResponse
 		if l.State != pb.LeaseState_LEASE_STATE_PENDING && bytes.Equal(seen[key], []byte{1}) {
 			seen[key] = []byte{2}
 			next = &pb.ApproverWork{Item: &pb.ApproverWork_CancelledRequestDigestHex{CancelledRequestDigestHex: digest}}
+			break
+		}
+		leaseKey := "lease:" + l.LeaseId
+		if (!terminal(l) || seen[leaseKey] != nil) && changed(seen, leaseKey, l) {
+			next = &pb.ApproverWork{Item: &pb.ApproverWork_Lease{Lease: l}}
 			break
 		}
 	}
