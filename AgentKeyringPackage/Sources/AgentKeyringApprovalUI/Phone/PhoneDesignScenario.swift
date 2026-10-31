@@ -186,9 +186,9 @@ final class DesignPhoneBackend: PhoneKeyringBackend {
 
     func setAskPhoneAfter(_ delay: Duration) async throws {}
 
-    func dictation() -> AsyncStream<String> {
+    func dictation() -> AsyncThrowingStream<String, any Error> {
         let words = "Stop. Use the invoice in my email instead.".split(separator: " ")
-        return AsyncStream { continuation in
+        return AsyncThrowingStream { continuation in
             let task = Task {
                 var transcript = ""
                 for word in words {
