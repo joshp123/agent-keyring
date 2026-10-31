@@ -276,6 +276,9 @@ func (s *Server) requestLease(tx *sql.Tx, p peer, r *pb.RequestLeaseRequest) (*p
 	if err = saveLease(tx, l); err != nil {
 		return nil, err
 	}
+	if _, err = s.activateAutomatic(tx, l); err != nil {
+		return nil, err
+	}
 	_, err = tx.Exec("INSERT INTO aliases VALUES(?,?,?,?)", p.recipient, r.RequestId, l.LeaseId, marshal(r))
 	return l, err
 }
@@ -309,6 +312,11 @@ func (s *Server) deliver(tx *sql.Tx, p peer, r *pb.DeliverRequest) (*pb.Delivery
 		}
 		if field == pb.CredentialField_CREDENTIAL_FIELD_ONE_TIME_CODE && !login.HasOneTimeCode {
 			return nil, denied("This login has no one-time code.")
+		}
+	}
+	if l.ApprovedBy == pb.ApprovedBy_APPROVED_BY_AUTOMATIC_RULE && s.delegatesAutomatic(idx) {
+		if err = s.prepareAutomaticDelivery(tx, l, idx); err != nil {
+			return nil, err
 		}
 	}
 	var decisionBytes, bundleBytes, approvedRecord []byte
