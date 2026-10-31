@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
@@ -59,8 +61,29 @@ func (c *Client) wire(ctx context.Context, request *pb.RelayWireRequest, receive
 	}
 	return stream(ctx, state.RelayAddress, config, request, receive)
 }
+
+var (
+	tailnetIPv4 = netip.MustParsePrefix("100.64.0.0/10")
+	tailnetIPv6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
+)
+
+// Josh's logins only travel over the tailnet, so the client connects to its
+// relay only at a tailnet address, or on this machine for local proofs. The
+// check runs on the resolved address before connecting, so a tailnet name
+// such as mac-mini works and a name that resolves elsewhere sends nothing.
+func refuseNonTailnetAddress(_, address string, _ syscall.RawConn) error {
+	addressAndPort, err := netip.ParseAddrPort(address)
+	if err != nil {
+		return err
+	}
+	ip := addressAndPort.Addr().Unmap()
+	if tailnetIPv4.Contains(ip) || tailnetIPv6.Contains(ip) || ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("%s is not a tailnet address; Agent Keyring only reaches its relay over the tailnet", ip)
+}
 func stream(ctx context.Context, address string, config *tls.Config, request *pb.RelayWireRequest, receive func(*pb.RelayWireResponse) bool) error {
-	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 5 * time.Second}, Config: config}
+	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 5 * time.Second, Control: refuseNonTailnetAddress}, Config: config}
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		return fmt.Errorf("Agent Keyring unreachable at %s: %w", address, err)
@@ -297,7 +320,7 @@ func Enrol(ctx context.Context, store clientstate.Store, address, name string, o
 		return err
 	}
 	if state.RelayAddress != "" && state.RelayAddress != address {
-		return errors.New("An enrolment is already pending with another relay. Rejoin that setup first.")
+		fmt.Fprintln(output, "Replacing the unfinished enrolment at", state.RelayAddress+".")
 	}
 	keys, err := store.Keys(ctx, func() (*clientstate.PrivateKeys, error) { return createKeys(name) })
 	if err != nil {
