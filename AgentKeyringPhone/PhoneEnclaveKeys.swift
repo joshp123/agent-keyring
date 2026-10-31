@@ -9,12 +9,6 @@ import Security
 struct PhoneEnclaveKeys: PhoneApproverKeys {
     private let service = "com.joshpalmer.AgentKeyring.Phone.enclave"
 
-    func vaultPublicKey(createIfMissing: Bool) throws -> P256.KeyAgreement.PublicKey {
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        return try agreementKey(context: context, createIfMissing: createIfMissing).publicKey
-    }
-
     func signingPublicKey() throws -> Data {
         let context = LAContext()
         context.interactionNotAllowed = true
@@ -39,16 +33,6 @@ struct PhoneEnclaveKeys: PhoneApproverKeys {
 
     func sign(_ bytes: Data, context: LAContext) throws -> Data {
         try signingKey(context: context, createIfMissing: false).signature(for: bytes).derRepresentation
-    }
-
-    private func agreementKey(context: LAContext, createIfMissing: Bool) throws -> SecureEnclave.P256.KeyAgreement.PrivateKey {
-        if let representation = try load(account: "vault.v1") {
-            return try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: representation, authenticationContext: context)
-        }
-        guard createIfMissing else { throw PhoneEnclaveFailure.vaultKeyMissing }
-        let key = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: faceIDAccessControl(), authenticationContext: context)
-        try save(key.dataRepresentation, account: "vault.v1")
-        return key
     }
 
     private func signingKey(context: LAContext, createIfMissing: Bool) throws -> SecureEnclave.P256.Signing.PrivateKey {
@@ -109,6 +93,5 @@ struct PhoneEnclaveKeys: PhoneApproverKeys {
 enum PhoneEnclaveFailure: Error {
     case enclaveUnavailable
     case accessControlUnavailable
-    case vaultKeyMissing
     case signingKeyMissing
 }
