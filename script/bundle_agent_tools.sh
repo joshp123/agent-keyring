@@ -20,7 +20,10 @@ fi
 # that path so the link still resolves after an update replaces the app.
 LEGACY_SKILL_DIR="$(dirname "$SKILL_DIR")/CodexSkill"
 /bin/mkdir -p "$LEGACY_SKILL_DIR"
-/bin/ln -sfn ../AgentSkill/agent-keyring "$LEGACY_SKILL_DIR/agent-keyring"
+if [[ -e "$LEGACY_SKILL_DIR/agent-keyring" || -L "$LEGACY_SKILL_DIR/agent-keyring" ]]; then
+  /usr/bin/trash "$LEGACY_SKILL_DIR/agent-keyring"
+fi
+/bin/ln -s ../AgentSkill/agent-keyring "$LEGACY_SKILL_DIR/agent-keyring"
 
 if [[ "${CODE_SIGNING_ALLOWED:-NO}" == "YES" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
   /usr/bin/codesign --force --options runtime --sign "$EXPANDED_CODE_SIGN_IDENTITY" \
