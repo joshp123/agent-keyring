@@ -28,8 +28,7 @@ agent-keyring release "$lease"
 
 ## Using the lease
 
-**Google Chrome on this Mac, reached over its debugging endpoint.** Other Chromium browsers aren't supported yet and say so. Inspect the page with your own browser tools.
-With only a shell, `agent-keyring fields --browser "$endpoint"` lists the tabs; add `--tab "$tab"` for visible fields, buttons and selectors, without their values. Then pass the exact fields and the sign-in button:
+**Google Chrome on this Mac, reached over its debugging endpoint.** Other Chromium browsers aren't supported yet and say so. Inspect the page with your own browser tools. With only a shell, `agent-keyring fields --browser "$endpoint"` lists the tabs, and adding `--tab "$tab"` lists the page's visible fields and buttons with their selectors, never their values. Then pass the exact fields and the sign-in button:
 
 ```sh
 agent-keyring fill "$lease" --browser "$endpoint" --tab "$tab" \
