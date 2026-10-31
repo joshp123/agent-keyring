@@ -14,46 +14,43 @@ public struct ContentView: View {
     }
 
     public var body: some View {
-        ZStack {
-            windowGradient
-
-            VStack(spacing: 18) {
-                if model.leaseStore.needsHistoryReset {
-                    LeaseHistoryRecoveryView(model: model)
+        VStack(spacing: 18) {
+            if model.leaseStore.needsHistoryReset {
+                LeaseHistoryRecoveryView(model: model)
+            }
+            MirrorStatusPanel(
+                status: model.status,
+                isLoading: model.isLoading,
+                isImporting: model.isImporting,
+                providerState: model.providerState,
+                notice: model.notice,
+                enableProvider: model.requestProviderEnablement,
+                openPasswords: model.openPasswords,
+                manageAccess: { openWindow(id: "access") }
+            )
+            Toggle("Show example.com login", isOn: Binding(
+                get: { model.includeExampleCredential },
+                set: { enabled in
+                    Task { await model.setIncludeExampleCredential(enabled) }
                 }
-                MirrorStatusPanel(
-                    status: model.status,
-                    isLoading: model.isLoading,
-                    isImporting: model.isImporting,
-                    providerState: model.providerState,
-                    notice: model.notice,
-                    enableProvider: model.requestProviderEnablement,
-                    openPasswords: model.openPasswords,
-                    manageAccess: { openWindow(id: "access") }
-                )
-                Toggle("Show example.com login", isOn: Binding(
-                    get: { model.includeExampleCredential },
-                    set: { enabled in
-                        Task { await model.setIncludeExampleCredential(enabled) }
-                    }
-                ))
-                .toggleStyle(.checkbox)
-                IPhoneDevicesView(controller: model.accessControl)
-                if model.accessControl.hasPairedApprovalDevice {
-                    HStack {
-                        @Bindable var routingSettings = model.approvalRoutingSettings
-                        Text("Ask on iPhone after")
-                        TextField("Seconds", value: $routingSettings.phoneDelaySeconds, format: .number)
-                            .frame(width: 60)
-                        Text("seconds")
-                    }
+            ))
+            .toggleStyle(.checkbox)
+            IPhoneDevicesView(controller: model.accessControl)
+            if model.accessControl.hasPairedApprovalDevice {
+                HStack {
+                    @Bindable var routingSettings = model.approvalRoutingSettings
+                    Text("Ask on iPhone after")
+                    TextField("Seconds", value: $routingSettings.phoneDelaySeconds, format: .number)
+                        .frame(width: 60)
+                    Text("seconds")
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(24)
         }
+        .padding(24)
         .frame(width: 720)
         .frame(minHeight: 440)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(windowGradient)
         .tint(.teal)
         .containerBackground(windowGradient, for: .window)
         .task { await model.loadStatus() }
