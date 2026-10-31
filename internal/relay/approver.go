@@ -36,7 +36,7 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 		}
 		return s.work(tx, seen)
 	case *pb.RelayWireRequest_Decide:
-		result, err := s.decide(tx, request.Decide)
+		result, err := s.decide(tx, p, request.Decide)
 		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Decision{Decision: result}, EndOfStream: true}, false, err
 	case *pb.RelayWireRequest_DecideEnrolment:
 		err := s.decideEnrolment(tx, request.DecideEnrolment)
@@ -203,7 +203,7 @@ func (s *Server) work(tx *sql.Tx, seen map[string][]byte) (*pb.RelayWireResponse
 	}
 	return nil, true, nil
 }
-func (s *Server) decide(tx *sql.Tx, r *pb.SignedDecision) (*pb.DecisionAck, error) {
+func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionAck, error) {
 	if r == nil {
 		return nil, invalid("Missing decision.")
 	}
@@ -253,6 +253,10 @@ func (s *Server) decide(tx *sql.Tx, r *pb.SignedDecision) (*pb.DecisionAck, erro
 	}
 	login := loginByID(idx, l.LoginId)
 	switch statement.Authority {
+	case pb.DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION:
+		if p.approver == "" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || r.Reply != "" || len(r.Signature) != 0 || r.Bundle != nil || len(statement.BundleCiphertextSha256) != 0 || statement.AutomaticGrantRevision != 0 || (r.ApproverKeyId != "" && r.ApproverKeyId != p.approver) {
+			return nil, denied("Approver connection authority permits only an unsigned denial with no reply.")
+		}
 	case pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN:
 		if statement.AutomaticGrantRevision != 0 {
 			return nil, invalid("Human decision cannot name an Automatic grant.")
