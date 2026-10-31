@@ -65,21 +65,33 @@ The mini's copy adds nothing while iCloud Keychain stays on there, because
 Apple Passwords is already on the mini. It only becomes the boundary once the
 mini is taken off iCloud Keychain, which is Josh's decision.
 
-## Where agents send requests
+## One place to ask
 
-Josh hasn't decided whether agents on other machines should ask the MacBook
-directly over Tailscale.
+Agents on other machines always send requests to the mini. The mini passes Ask
+requests to the MacBook when it is awake and to the iPhone when it isn't, and
+answers Automatic ones itself. Agents on the MacBook keep using the MacBook
+directly, as today.
 
-- **For the laptop-shut case it doesn't matter.** A shut MacBook cannot answer,
-  so something always on has to: the mini. Remote agents therefore need the
-  mini's address whatever he decides.
-- **If he chooses direct:** the client asks the MacBook first and the mini when
-  the MacBook doesn't answer. Two addresses, one fallback rule.
-- **If he doesn't:** agents always ask the mini, which passes requests to the
-  MacBook when it is awake. One address.
+This is simpler than asking the MacBook directly over Tailscale and falling
+back to the mini:
 
-The design holds either way. Direct-only, with nothing on the mini, does not
-meet the goal: it fails whenever the lid is shut.
+| | One place to ask (the mini) | MacBook first, mini as fallback |
+| --- | --- | --- |
+| Where a task's approval and deadline live | One record, on the mini | Two places, which must agree |
+| Lost reply, then a retry | The retry rejoins the same record, as now. No second prompt | The MacBook may have accepted it while the client retries at the mini. Avoiding a second prompt means the two must share lease state |
+| Lid closes mid-task | The approved lease and its sealed login are already on the mini, so the task carries on until its deadline | The lease is on the MacBook, which is now asleep. The task must ask again |
+| Request waiting when the lid closes | The mini sees the MacBook drop off and asks the iPhone at once | The client has to notice and resend to the mini |
+| What the mini can read | Which machine asked for which login and when, and the Automatic logins. Ask logins pass through sealed to the receiving machine, so it cannot open them | The same whenever the lid is shut, so in practice no less |
+| Cost | If the mini is down, remote agents wait even when the MacBook is awake | Remote agents work without the mini only while the MacBook is awake |
+
+Asking the MacBook directly removes nothing: the mini path has to exist for the
+shut lid, so direct requests are a second path with its own retry rules on top.
+The one thing it buys is working through a mini outage while the MacBook is
+awake. The recommendation is one place to ask.
+
+Who asks the iPhone stays as in release 4 while the MacBook is connected: the
+Mac asks after Josh's delay, or at once if its screen is locked. If the MacBook
+is not connected to the mini, the mini asks the iPhone at once.
 
 ## Limits
 
@@ -122,7 +134,7 @@ All additions to `relay.proto` and `bundle.proto`:
 | S1 | Mini delivers Automatic logins: MacBook publishes them with each configuration; the relay approves and seals Automatic requests | With the MacBook shut, an agent on the mini gets an Automatic test login, and moving it to Ask removes it from the mini |
 | S2 | Phone key and copy: Face ID key-agreement key; MacBook seals Ask logins to it on pairing and after each change | The phone holds the test logins; a re-import that changes one updates it and leaves the rest |
 | S3 | Phone delivers: Face ID opens one login, the phone seals it to the machine that asked, signs, sends | With the MacBook shut and the phone on mobile data, one Face ID completes an agent's test sign-in |
-| S4 | Client fallback, only if Josh chooses direct requests | With the MacBook shut, the client reaches the mini without a configuration change |
+| S4 | Mini asks the iPhone when the MacBook is not connected, including for a request already waiting when it drops off | A request waiting on the Mac panel reaches the phone as soon as the lid closes, with one prompt |
 
 ## Device proofs
 
@@ -130,6 +142,12 @@ On the real MacBook, iPhone and mini, with test logins only:
 
 - Lid shut: an Automatic login and an Ask login each complete a sign-in from an
   agent on the mini.
+- Lid closes during a task approved on the MacBook: the agent's next fill
+  works without a new prompt, until the original deadline.
+- Lid closes while a request waits on the Mac panel: the phone is asked once,
+  and the task gets one approval.
+- A reply lost on the way back to the agent: its retry returns the same lease,
+  with no second prompt.
 - One Face ID both opens the login and signs the answer.
 - Rule change from Automatic to Ask: the mini stops delivering it at once.
 - Phone replaced: the new phone gets its copy at pairing and the old one's key
@@ -137,8 +155,10 @@ On the real MacBook, iPhone and mini, with test logins only:
 
 ## Josh's decisions
 
-1. Whether agents on other machines ask the MacBook directly over Tailscale.
-   This design works either way.
+1. Whether agents on other machines always ask through the mini. Recommended,
+   because the mini path must exist for the shut lid anyway and one path has
+   one set of retry rules. Asking the MacBook directly would only help during
+   a mini outage.
 2. Whether to take the mini off iCloud Keychain. Until he does, Apple Passwords
    is readable on the mini anyway.
 3. Whether to turn Developer Mode off on the iPhone, so only a build he
