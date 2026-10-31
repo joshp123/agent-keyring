@@ -327,9 +327,9 @@ func (s *Server) deliver(tx *sql.Tx, p peer, r *pb.DeliverRequest) (*pb.Delivery
 	return &pb.Delivery{Result: &pb.Delivery_Sealed{Sealed: &pb.SealedDelivery{Decision: decision, Bundle: bundle, RequestRecord: approvedRecord}}}, nil
 }
 
-// attachSignedDenial reconstructs the response envelope from the exact durable
+// attachRemoteSignedDenial reconstructs the response envelope from the exact durable
 // upload. It is never a new signature or a proof for a suppression-created lease.
-func attachSignedDenial(tx *sql.Tx, lease *pb.Lease) error {
+func attachRemoteSignedDenial(tx *sql.Tx, lease *pb.Lease) error {
 	if lease == nil {
 		return nil
 	}
@@ -338,7 +338,10 @@ func attachSignedDenial(tx *sql.Tx, lease *pb.Lease) error {
 		return nil
 	}
 	var decisionBytes, record []byte
-	if err := tx.QueryRow("SELECT decision,request FROM leases WHERE id=?", lease.LeaseId).Scan(&decisionBytes, &record); err != nil {
+	if err := tx.QueryRow("SELECT decision,request FROM leases WHERE id=?", lease.LeaseId).Scan(&decisionBytes, &record); errors.Is(err, sql.ErrNoRows) {
+		// Local outcomes have no remote delivery decision; their Mac is the authority.
+		return nil
+	} else if err != nil {
 		return err
 	}
 	if len(decisionBytes) == 0 {
