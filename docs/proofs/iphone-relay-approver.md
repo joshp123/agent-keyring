@@ -63,14 +63,15 @@ No live APNs notification was proved.
 
 ## Joint system proof
 
-The integrated one-configuration flow passed on the physical Mac mini from
-main's production sources, using the actual Swift phone core, Go relay and Go
-receiver. No overlays or substitute phone implementation were used. Only the
-CLI fixture's biometric key is replaced with a software signer and authorization
-counter; the Mac substitute owns a dummy login. Production baseline: local main
-`36c6ad6`; fixture correction: `594e7c2`.
+The integrated one-configuration flow passed again on the physical Mac mini
+from published main `6e09b58e2a5e089169fc7895f6f4888273214756`, including the
+Mac lane's shared Swift changes and the designer's phone changes. It uses the
+actual Swift phone core, Go relay and Go receiver. No overlays or substitute
+phone implementation were used. Only the CLI fixture's biometric key is
+replaced with a software signer and authorization counter; the Mac substitute
+owns a dummy login. No source fixes were needed for this rerun.
 
-The first run exposed a fixture assumption: after reconnect, the Mac work stream
+The earlier run exposed a fixture assumption: after reconnect, the Mac work stream
 may replay an earlier request before a newly created one. The fixture now selects
 the exact lease it requested. The full run then passed without changing the
 production phone, relay or receiver.
@@ -125,23 +126,38 @@ snapshot. A fresh stream could also omit a denial committed while the phone
 was closed. The relay now replays the latest state of each escalation on open
 and sends each subsequent change, including terminal outcomes.
 
-The Swift phone fixture and a fresh iOS Simulator SDK app build passed on
-the mini after cleanup. The resulting app embeds no extensions; its notification
-environment resolves to development. No unit tests ran and no simulator windows
-opened. Logs are preserved in the main checkout's
-`.private/proofs/r4-phone-configuration/`: `phone-configuration-joint.log`,
-`phone-configuration-swift-build.log` and `phone-configuration-main-ios.log`.
-The initial fixture failure is retained as `phone-configuration-joint-main-failure.log`.
+The latest Swift phone fixture build and full joint proof passed on the mini
+over SSH, without accessing its display. Logs are preserved in the main
+checkout's `.private/proofs/r4-phone-build8/`: `phone-build8-joint.log` and
+`phone-build8-swift-build.log`. The earlier simulator build and fixture failure
+remain under `.private/proofs/r4-phone-configuration/`.
 
 ## Device status
 
-No new build was installed: the orchestrator explicitly holds installation
-until the contract simplification lands. Build 7 remains on Josh's iPhone, per
-the orchestrator's installation report. No certificate or Apple account change
-was made.
+Version **0.4.0, build 8** was built in Release configuration from that exact
+published source, using command-line version overrides. It was installed on
+Josh's physical iPhone after CoreDevice reported it available. A fresh
+CoreDevice app inventory confirms version 0.4.0 and bundle version 8. The app
+was not launched and no phone settings were changed.
 
-After the hold is lifted, an agent should build and install with existing
-signing, then help Josh check one dummy request: pair by comparison and Mac
+Signing used the existing Apple Development identity and existing development
+profile, without provisioning-update or device-registration flags. The saved
+bundle passes strict signature verification, embeds no extensions, and has only
+the application/team identifiers, development APNs and development debugging
+entitlements. Its APNs registration setting also resolves to development.
+No certificate, key or Apple account change was made. The signed app is kept
+next to build 7 at `.private/builds/phone-0.4.0-8/AgentKeyringPhone.app` in the
+main checkout.
+
+The same proof directory contains `phone-build8-device-build.log`, the full
+`phone-build8-xcodebuild.log`, `phone-build8-signed-bundle.json`,
+`phone-build8-install.log` and `phone-build8-installed-app.json`. Two preliminary
+build refusals are retained there: Xcode rejected manually selecting its
+managed profile, then rejected a certificate fingerprint with automatic
+signing. The successful build used automatic signing with the existing Apple
+Development identity and no permission to update provisioning.
+
+The next device check uses one dummy request: pair by comparison and Mac
 Touch ID, approve over mobile data with one Face ID, and repeat with a network
 cut just after Face ID. Restoring the connection must deliver the same answer
 without another Face ID. Deny with a typed reply must reach the agent. These
