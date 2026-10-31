@@ -22,7 +22,7 @@ final class AgentKeyringPresentation {
 
 struct AgentKeyringMenu: View {
     let presentation: AgentKeyringPresentation
-    let grants: CredentialApprovalGrants
+    let model: MirrorAppModel
 
     private static let expirationTimeFormat: DateFormatter = {
         let formatter = DateFormatter()
@@ -39,15 +39,15 @@ struct AgentKeyringMenu: View {
 
         Divider()
 
-        TimelineView(.periodic(from: .now, by: 60)) { _ in
-            ForEach(grants.active) { grant in
-                Menu("\(grant.site) · \(grant.account) · \(grant.id.action.rawValue) · until \(Self.expirationTimeFormat.string(from: grant.expiresAt))") {
-                    Button("End") { grants.end(grant.id) }
+        ForEach(model.leaseStore.activeLeases, id: \.leaseID) { lease in
+            Menu("\(lease.sites.first ?? "Login") · \(lease.taskRef) · until \(Self.expirationTimeFormat.string(from: Date(timeIntervalSince1970: TimeInterval(lease.notAfterUnixSeconds))))") {
+                Button("End") {
+                    do { try model.leaseStore.end(lease.leaseID) }
+                    catch { NSLog("Could not end lease: %@", String(describing: error)) }
                 }
             }
         }
-
-        Button("End all grants", action: grants.endAll)
+        Button("End all leases", action: model.endAllGrants)
             .accessibilityIdentifier("end-all-grants")
 
         Divider()
