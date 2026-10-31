@@ -6,6 +6,8 @@
     <string>Agent Keyring</string>
     <key>NSUserActivityTypes</key>
     <array><string>ASCredentialExchangeActivity</string></array>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Use Face ID to open a saved login and approve an agent’s request.</string>
     <key>NSCameraUsageDescription</key>
     <string>Scan the one-time QR code on your Mac to pair this iPhone for login approvals.</string>
 </dict>
