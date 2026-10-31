@@ -84,11 +84,6 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         do { try model.startAgentListener() }
         catch { NSLog("Agent Keyring could not start the agent socket: %@", String(describing: error)) }
-        model.fillAccessibility.showInstructions = { [presentation] in presentation.requestMainWindow() }
-        Task {
-            await model.fillAccessibility.refresh()
-            if model.fillAccessibility.state == .permissionRequired { presentation.requestMainWindow() }
-        }
         if accessControlFixture == nil {
             let notifier = SystemMirrorSyncNotifier { [weak self] in
                 self?.model.openPasswordsExport()
@@ -249,7 +244,7 @@ struct AgentKeyringApp: App {
         }
 
         MenuBarExtra {
-            AgentKeyringMenu(presentation: appDelegate.presentation, grants: appDelegate.model.grants)
+            AgentKeyringMenu(presentation: appDelegate.presentation, model: appDelegate.model)
         } label: {
             AgentKeyringMenuBarLabel(presentation: appDelegate.presentation)
         }

@@ -3,10 +3,13 @@
 #
 # Builds the Mac design gallery, runs it on the Mac mini and saves a
 # screenshot of each Mac screen to docs/design/screens/mac/. Nothing shows on
-# this Mac. Needs Josh's nix-secrets and nixos-config checkouts.
+# this Mac. Needs ssh access to the capture Mac as `mac-mini`, and
+# AGENT_KEYRING_CAPTURE_PASSWORD_COMMAND: a command that prints its login
+# password, used to unlock its screen over Screen Sharing.
 #
 # usage: script/capture_mac_design_screens.sh [screen ...]
 set -euo pipefail
+: "${AGENT_KEYRING_CAPTURE_PASSWORD_COMMAND:?Set it to a command that prints the login password of the capture Mac.}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT_DIR/docs/design/screens/mac"
@@ -35,7 +38,7 @@ ssh mac-mini "rm -rf $REMOTE_DIR && mkdir -p $REMOTE_DIR"
 scp -qr "$APP" "mac-mini:$REMOTE_DIR/"
 
 mkdir -p "$OUT"
-age -d -i ~/.ssh/id_ed25519 ~/code/nix/nix-secrets/mac-mini/login-password.age |
+sh -c "$AGENT_KEYRING_CAPTURE_PASSWORD_COMMAND" |
   nix shell --impure --expr '(builtins.getFlake "nixpkgs").legacyPackages.${builtins.currentSystem}.python3.withPackages (p: [ p.vncdotool ])' \
     -c python3 -u "$ROOT_DIR/script/capture_mac_design_screens.py" \
     "$REMOTE_DIR/AgentKeyringDesignGallery.app" "$OUT" "$@"

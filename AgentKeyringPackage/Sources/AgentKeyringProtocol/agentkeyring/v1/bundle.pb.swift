@@ -10,7 +10,8 @@
 
 // Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Approver-to-receiver delivery, RFC 0005 and RFC 0006. The relay on the mini
-// stores and forwards these but cannot open a bundle or forge a decision.
+// stores and forwards Ask deliveries without opening them. Automatic decisions
+// use the explicitly delegated authority in relay.proto.
 
 #if canImport(FoundationEssentials)
 import FoundationEssentials
@@ -34,6 +35,11 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
   case unspecified // = 0
   case human // = 1
   case automaticRule // = 2
+
+  /// DENY with an empty reply only. Sent unsigned over the approver's pinned
+  /// connection, so a plain Deny needs no biometric check. It grants nothing.
+  /// A denial with a reply must be HUMAN; receivers show a reply only then.
+  case approverConnection // = 3
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -45,6 +51,7 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
     case 0: self = .unspecified
     case 1: self = .human
     case 2: self = .automaticRule
+    case 3: self = .approverConnection
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -54,6 +61,7 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
     case .unspecified: return 0
     case .human: return 1
     case .automaticRule: return 2
+    case .approverConnection: return 3
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -63,6 +71,7 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
     .unspecified,
     .human,
     .automaticRule,
+    .approverConnection,
   ]
 
 }
@@ -109,7 +118,8 @@ public nonisolated enum Agentkeyring_V1_DecisionChoice: SwiftProtobuf.Enum, Swif
 
 /// What the receiver gets from BeginOperation once requests travel through the
 /// relay. Checked before opening: decision signature by a pinned approver key,
-/// statement names this receiver and lease, not_after in the future.
+/// or a granted Automatic key, statement names this receiver and lease,
+/// not_after in the future.
 public nonisolated struct Agentkeyring_V1_SealedDelivery: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -150,7 +160,8 @@ public nonisolated struct Agentkeyring_V1_SealedDelivery: Sendable {
 /// AES-256-GCM, sealed to the receiver's enrolled public key.
 /// info = "agentkeyring.bundle.v1"; aad = request_digest.
 /// P-256 so CryptoKit and the iPhone's Secure Enclave can take part.
-/// Plaintext is a serialized BundleContents.
+/// Plaintext is a serialized BundleContents. SealedAutomaticLogin in relay.proto
+/// reuses this envelope with its own plaintext, info and aad.
 public nonisolated struct Agentkeyring_V1_SealedBundle: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -295,7 +306,7 @@ public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
 fileprivate nonisolated let _protobuf_package = "agentkeyring.v1"
 
 nonisolated extension Agentkeyring_V1_DecisionAuthority: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0DECISION_AUTHORITY_UNSPECIFIED\0\u{1}DECISION_AUTHORITY_HUMAN\0\u{1}DECISION_AUTHORITY_AUTOMATIC_RULE\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0DECISION_AUTHORITY_UNSPECIFIED\0\u{1}DECISION_AUTHORITY_HUMAN\0\u{1}DECISION_AUTHORITY_AUTOMATIC_RULE\0\u{1}DECISION_AUTHORITY_APPROVER_CONNECTION\0")
 }
 
 nonisolated extension Agentkeyring_V1_DecisionChoice: SwiftProtobuf._ProtoNameProviding {

@@ -50,6 +50,8 @@ public struct AccessRulesConfirmationSnapshot: Sendable {
 @MainActor
 @Observable
 public final class CredentialAccessController: PairedDevicePublicKeyProviding {
+    public var onRulesChanged: (@MainActor () -> Void)?
+
     public var searchText = "" {
         didSet { recomputeVisibleRows() }
     }
@@ -172,7 +174,6 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
             errorMessage = "The login is blocked, but its iPhone block could not be saved for restart."
             accessRulesLogger.error("Pending iPhone block save failed")
         }
-        CredentialTransfer.revoke(credentialID: credentialID)
         updateRowPolicies()
     }
 
@@ -203,7 +204,6 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         errorMessage = nil
 
         for (id, policy) in assignments {
-            if policy == .block { CredentialTransfer.revoke(credentialID: id) }
             if policy == .ask {
                 proposedPolicies.removeValue(forKey: id)
             } else {
@@ -277,6 +277,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     private func updateRowPolicies() {
+        onRulesChanged?()
         rows = rows.map { $0.changingPolicy(to: policy(for: $0.id)) }
         recomputeVisibleRows()
     }

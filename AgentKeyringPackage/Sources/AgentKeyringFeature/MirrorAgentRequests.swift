@@ -1,166 +1,176 @@
+import AgentKeyringProtocol
 import Foundation
 import OSLog
 
-private let agentBridgeLogger = Logger(
-    subsystem: "com.agentkeyring.app",
-    category: "AgentBridge"
-)
+private let leaseLogger = Logger(subsystem: "com.agentkeyring.app", category: "CredentialLeases")
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
     public func startAgentListener() throws {
         guard agentListener == nil else { return }
-        let ownerName = MacOwner.fullName
-        agentListener = try AgentBridgeServer(bridge: bridge) { [weak self] request, peer, progress in
-            guard let self else { throw AgentBridgeFailure(.bridgeUnavailable, "Agent Keyring is unavailable.") }
-            return await MacOwner.$fullName.withValue(ownerName) {
-                await self.handleAgentRequest(request, peer: peer, onProgress: progress)
+        try leaseStore.load()
+        agentListener = try AgentBridgeServer(bridge: bridge) { [weak self] request, peer, reply in
+            guard let self else { return }
+            await self.handleLeaseRequest(request, peer: peer, reply: reply)
+        }
+        leaseMaintenance = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                    guard let self else { return }
+                    try self.leaseStore.expire()
+                } catch is CancellationError { return }
+                catch { leaseLogger.error("Lease deadline update failed; deliveries remain subject to their deadline.") }
             }
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.loadStatus()
+            try? await self.refreshLeasePolicy()
+            self.startPendingMacApprovals()
         }
     }
 
-    func handleAgentRequest(_ request: AgentBridgeRequest, peer: AgentBridgePeer,
-        onProgress: @escaping (AgentApprovalProgress) -> Void = { _ in }) async -> AgentBridgeResponse {
-        let requester = AgentRequester.from(peer: peer)
-        let id = request.id
-        let response: AgentBridgeResponse
+    private func handleLeaseRequest(_ request: Agentkeyring_V1_WireRequest, peer: AgentBridgePeer,
+        reply: @escaping @Sendable (Agentkeyring_V1_WireResponse) -> Void) async {
         do {
-            guard request.version == 1 else {
-                throw AgentBridgeFailure(.invalidRequest, "The agent request is invalid.")
-            }
-            let receivedAt = Date()
-            guard request.createdAt.timeIntervalSince(receivedAt) <= 5, request.expiresAt > receivedAt else {
-                throw AgentBridgeFailure(
-                    .requestExpired, "The agent request expired before it was handled.")
-            }
-            if request.action == .fill { try await fillAccessibility.ensureReadyForFill() }
-            if !accessControl.hasLoadedLoginList { await loadStatus() }
-            switch request.action {
-            case .status, .resolve:
-                response = try await processDiscovery(request: request,
-                    metadata: store.loadCurrentMetadata())
-            case .sync:
-                guard let metadata = try await store.loadCurrentMetadata() else {
-                    throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
+            guard peer.userID == getuid() else { throw LeaseFailure(.unauthenticated, "The socket peer is not this Mac user.") }
+            var response = Agentkeyring_V1_WireResponse()
+            response.endOfStream = true
+            switch request.request {
+            case let .findLogins(query):
+                let metadata = metadataIncludingExample(try await store.loadCurrentMetadata())
+                leaseLogins = metadata?.candidates ?? []
+                await accessControl.refresh(fromMetadata: metadata)
+                var result = Agentkeyring_V1_FindLoginsResponse()
+                let candidates = metadata?.candidates ?? []
+                let terms = query.query.lowercased().split(separator: " ")
+                let matching = candidates.filter { login in
+                    let text = ([login.title, login.username ?? "", login.id.uuidString] + login.origins).joined(separator: " ").lowercased()
+                    return terms.allSatisfy { text.contains($0) }
                 }
-                response = try await processSync(request: request, metadata: metadata)
-            case .acquire, .fill:
-                try await accessControl.ensureRulesConfirmed()
+                result.mirrorRefreshedUnixSeconds = Int64(metadata?.createdAt.timeIntervalSince1970 ?? 0)
+                result.logins = matching.map { login in
+                    var item = Agentkeyring_V1_Login()
+                    item.loginID = login.id.uuidString
+                    item.title = login.title
+                    item.sites = login.origins
+                    item.account = login.username ?? ""
+                    item.hasOneTimeCode_p = login.availableFields.contains(.totp)
+                    item.rule = switch accessControl.policy(for: login.id) {
+                    case .ask: .ask
+                    case .allowAutomatically: .automatic
+                    case .block: .blocked
+                    }
+                    return item
+                }
+                response.logins = result
+            case let .requestLease(incoming):
+                try await refreshLeasePolicy()
+                let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
+                response.lease = try leaseStore.request(incoming, login: login,
+                    policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
+                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer)))
+                startPendingMacApprovals()
+            case let .getLease(reference):
+                try await refreshLeasePolicy()
+                response.lease = try leaseStore.get(reference.leaseID)
+            case let .watchLease(reference):
+                try await refreshLeasePolicy()
+                _ = try leaseStore.get(reference.leaseID)
+                var previous: Agentkeyring_V1_Lease?
+                for await leases in leaseStore.changes() {
+                    guard !Task.isCancelled else { return }
+                    guard let lease = leases.first(where: { $0.leaseID == reference.leaseID }) else { continue }
+                    guard lease != previous else { continue }
+                    previous = lease
+                    var update = Agentkeyring_V1_WireResponse()
+                    update.lease = lease
+                    update.endOfStream = lease.state.isTerminal
+                    reply(update)
+                    if update.endOfStream { return }
+                }
+                return
+            case let .endLease(reference):
+                response.lease = try leaseStore.end(reference.leaseID)
+            case let .beginOperation(operation):
+                // Load values before the final policy check. There is no await
+                // between checking current policy, committing Started and reply.
                 guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
-                    throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
+                    throw LeaseFailure(.unavailable, "Import your logins from Apple Passwords first.")
                 }
-                response = try await processRelease(request: request, requester: requester, generation: generation, onProgress: onProgress)
+                let currentMetadata = try await refreshLeasePolicy()
+                guard currentMetadata?.id == generation.id else {
+                    throw LeaseFailure(.unavailable, "The imported logins changed while preparing this operation. Retry the same operation.")
+                }
+                response.beginOperation = try leaseStore.begin(operation) { lease, fields in
+                    guard let loginID = UUID(uuidString: lease.loginID),
+                        let item = generation.items.first(where: { $0.id == loginID }) else {
+                        throw LeaseFailure(.notFound, "The selected login is unavailable.")
+                    }
+                    let candidate = resolver.candidate(for: item)
+                    guard fields.allSatisfy({ candidate.availableFields.contains($0.mirrorField) }) else {
+                        throw LeaseFailure(.invalidArgument, "The login does not have every requested field. No operation was started.")
+                    }
+                    var values = Agentkeyring_V1_CredentialValues()
+                    for field in fields {
+                        let value = try resolver.value(in: item, field: field.mirrorField)
+                        switch field {
+                        case .username: values.username = value
+                        case .password: values.password = value
+                        case .oneTimeCode: values.oneTimeCode = value
+                        default: break
+                        }
+                    }
+                    return values
+                }
+            case let .getOperation(operation): response.getOperation = try leaseStore.operation(operation)
+            case let .finishOperation(operation): response.operation = try leaseStore.finish(operation)
+            case .fill, .executeProgram:
+                throw LeaseFailure(.invalidArgument, "Fill and ExecuteProgram run in the agent-keyring receiver. Use BeginOperation and FinishOperation on the authority socket.")
+            case nil: throw LeaseFailure(.invalidArgument, "Select an authority method.")
             }
-        } catch let failure as AgentBridgeFailure {
-            response = AgentBridgeResponse(
-                id: id,
-                ok: false,
-                error: failure.code,
-                message: failure.message
-            )
-        } catch let error as CredentialResolverError {
-            response = AgentBridgeResponse(
-                id: id,
-                ok: false,
-                error: bridgeCode(for: error),
-                message: error.localizedDescription
-            )
-        } catch let error as CredentialReleaseAuthorizationError {
-            let code: AgentBridgeErrorCode =
-                switch error {
-                case .unavailable, .systemFailure: .authorizationUnavailable
-                case .denied: .authorizationDenied
-                case .interrupted: .authorizationInterrupted
-                case .notVerified: .authorizationNotVerified
-                case .expired: .requestExpired
-                }
-            response = AgentBridgeResponse(
-                id: id,
-                ok: false,
-                error: code,
-                message: error.localizedDescription
-            )
+            reply(response)
         } catch {
-            agentBridgeLogger.error(
-                "Agent request failed: \(String(describing: error), privacy: .private)"
-            )
-            response = AgentBridgeResponse(
-                id: id,
-                ok: false,
-                error: .internalError,
-                message: "Agent Keyring could not handle the agent request."
-            )
-        }
-
-        let activity = AgentRequestActivity(requestID: request.id, action: request.action,
-            requester: requester, completedAt: Date(), succeeded: response.ok, error: response.error)
-        lastAgentActivity = activity
-        activity.log(to: agentBridgeLogger)
-        return response
-    }
-
-    private func processDiscovery(
-        request: AgentBridgeRequest,
-        metadata: MirrorMetadata?
-    ) async throws -> AgentBridgeResponse {
-        await accessControl.refresh(fromMetadata: metadataIncludingExample(metadata))
-        let confirmationMessage = accessControl.needsConfirmation
-            ? "Access rules need \(MacOwner.firstName)'s confirmation in Agent Keyring; nothing will be released until then." : nil
-        if request.action == .status, metadata == nil {
-            return AgentBridgeResponse(id: request.id, ok: true,
-                message: "No mirror has been imported yet." + (confirmationMessage.map { "\n" + $0 } ?? ""))
-        }
-        guard let metadata = metadataIncludingExample(metadata) else {
-            throw AgentBridgeFailure(.mirrorUnavailable, "No encrypted mirror is available yet.")
-        }
-        let mirror = AgentMirrorSummary(importedAt: metadata.createdAt,
-            ageSeconds: max(0, Int(Date().timeIntervalSince(metadata.createdAt))),
-            credentialCount: metadata.safeStatus.credentialItemCount)
-        if request.action == .status {
-            return AgentBridgeResponse(id: request.id, ok: true, message: confirmationMessage, mirror: mirror)
-        }
-        guard let targetURL = request.targetURL else {
-            throw AgentBridgeFailure(.invalidRequest, "The resolve request needs a target URL.")
-        }
-        let candidates = try resolver.candidates(in: metadata, targetURL: targetURL,
-            usernameHint: request.usernameHint).map { staleLogins.annotate($0) }
-        guard !candidates.isEmpty else {
-            return AgentBridgeResponse(id: request.id, ok: false, error: .notFound,
-                message: CredentialResolverError.notFound.localizedDescription,
-                mirror: mirror, candidates: [])
-        }
-        return AgentBridgeResponse(id: request.id, ok: true, mirror: mirror, candidates: candidates)
-    }
-
-    private func processRelease(
-        request: AgentBridgeRequest,
-        requester: AgentRequester,
-        generation: MirrorGeneration,
-        onProgress: @escaping (AgentApprovalProgress) -> Void
-    ) async throws -> AgentBridgeResponse {
-        try await AgentCredentialReleaseProcessor(
-            accessControl: accessControl, resolver: resolver, grants: grants, approvals: approvals,
-            possiblyStaleCredentialIDs: staleLogins.credentialIDs
-        ).release(
-            request: request,
-            requester: requester,
-            generation: generation,
-            cancelAuthorization: { self.authorizer.cancelCurrentAuthorization() },
-            onProgress: onProgress,
-            authorize: { approval, onPromptStarted in
-                try await self.authorizeCredentialRelease(approval, agentRequest: request, onPromptStarted: onPromptStarted)
+            let failure: LeaseFailure
+            if let error = error as? LeaseFailure { failure = error }
+            else if error is AccessRulesConfirmationRequired || (error as? AgentBridgeFailure)?.code == .rulesNeedConfirmation {
+                failure = LeaseFailure(.permissionDenied, AccessRulesConfirmationRequired.message)
+            } else if error is CredentialResolverError { failure = LeaseFailure(.invalidArgument, "The login or requested field is unavailable.") }
+            else {
+                leaseLogger.error("Authority request failed: \(String(describing: error), privacy: .private)")
+                failure = LeaseFailure(.unavailable, "Agent Keyring could not complete this request. Rejoin the same reference; do not request approval again.")
             }
-        )
+            var response = Agentkeyring_V1_WireResponse()
+            response.error.code = failure.code
+            response.error.message = failure.message
+            response.endOfStream = true
+            reply(response)
+        }
     }
 
-    private func bridgeCode(for error: CredentialResolverError) -> AgentBridgeErrorCode {
-        switch error {
-        case .invalidURL: .invalidURL
-        case .insecureOrigin: .insecureOrigin
-        case .notFound: .notFound
-        case .ambiguous: .ambiguous
-        case .fieldUnavailable: .fieldUnavailable
-        case .invalidTOTP: .invalidTOTP
+    @discardableResult
+    func refreshLeasePolicy() async throws -> MirrorMetadata? {
+        let metadata = metadataIncludingExample(try await store.loadCurrentMetadata())
+        leaseLogins = metadata?.candidates ?? []
+        await accessControl.refresh(fromMetadata: metadata)
+        do { try await accessControl.ensureRulesConfirmed() }
+        catch {
+            try leaseStore.reconcile(logins: leaseLogins, policies: [:], rulesConfirmed: false)
+            throw error
+        }
+        try leaseStore.reconcile(logins: leaseLogins,
+            policies: Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, accessControl.policy(for: $0.id)) }), rulesConfirmed: true)
+        return metadata
+    }
+}
+
+extension Agentkeyring_V1_CredentialField {
+    var mirrorField: AgentCredentialField {
+        switch self {
+        case .username: .username
+        case .oneTimeCode: .totp
+        default: .password // Validated by CredentialLeaseStore before this mapping.
         }
     }
 }
