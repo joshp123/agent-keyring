@@ -1016,8 +1016,12 @@ type Lease struct {
 	RetryNotBeforeUnixSeconds int64  `protobuf:"varint,14,opt,name=retry_not_before_unix_seconds,json=retryNotBeforeUnixSeconds,proto3" json:"retry_not_before_unix_seconds,omitempty"`
 	Reason                    string `protobuf:"bytes,15,opt,name=reason,proto3" json:"reason,omitempty"`
 	ApprovedAtUnixSeconds     int64  `protobuf:"varint,16,opt,name=approved_at_unix_seconds,json=approvedAtUnixSeconds,proto3" json:"approved_at_unix_seconds,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// When the request arrived, and when the lease reached a terminal state
+	// (zero until then). For display; deadlines come from the fields above.
+	RequestedAtUnixSeconds int64 `protobuf:"varint,17,opt,name=requested_at_unix_seconds,json=requestedAtUnixSeconds,proto3" json:"requested_at_unix_seconds,omitempty"`
+	EndedAtUnixSeconds     int64 `protobuf:"varint,18,opt,name=ended_at_unix_seconds,json=endedAtUnixSeconds,proto3" json:"ended_at_unix_seconds,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *Lease) Reset() {
@@ -1158,6 +1162,20 @@ func (x *Lease) GetReason() string {
 func (x *Lease) GetApprovedAtUnixSeconds() int64 {
 	if x != nil {
 		return x.ApprovedAtUnixSeconds
+	}
+	return 0
+}
+
+func (x *Lease) GetRequestedAtUnixSeconds() int64 {
+	if x != nil {
+		return x.RequestedAtUnixSeconds
+	}
+	return 0
+}
+
+func (x *Lease) GetEndedAtUnixSeconds() int64 {
+	if x != nil {
+		return x.EndedAtUnixSeconds
 	}
 	return 0
 }
@@ -2740,7 +2758,7 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\aprogram\x18\x06 \x01(\v2\x1f.agentkeyring.v1.ProgramCommandR\aprogram\x12!\n" +
 	"\frecipient_id\x18\a \x01(\tR\vrecipientId\"+\n" +
 	"\x0eLeaseReference\x12\x19\n" +
-	"\blease_id\x18\x01 \x01(\tR\aleaseId\"\xc6\x05\n" +
+	"\blease_id\x18\x01 \x01(\tR\aleaseId\"\xb4\x06\n" +
 	"\x05Lease\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12\x19\n" +
 	"\blogin_id\x18\x02 \x01(\tR\aloginId\x12\x19\n" +
@@ -2759,7 +2777,9 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\aprogram\x18\r \x01(\v2\x1f.agentkeyring.v1.ProgramCommandR\aprogram\x12@\n" +
 	"\x1dretry_not_before_unix_seconds\x18\x0e \x01(\x03R\x19retryNotBeforeUnixSeconds\x12\x16\n" +
 	"\x06reason\x18\x0f \x01(\tR\x06reason\x127\n" +
-	"\x18approved_at_unix_seconds\x18\x10 \x01(\x03R\x15approvedAtUnixSeconds\"\xf2\x01\n" +
+	"\x18approved_at_unix_seconds\x18\x10 \x01(\x03R\x15approvedAtUnixSeconds\x129\n" +
+	"\x19requested_at_unix_seconds\x18\x11 \x01(\x03R\x16requestedAtUnixSeconds\x121\n" +
+	"\x15ended_at_unix_seconds\x18\x12 \x01(\x03R\x12endedAtUnixSeconds\"\xf2\x01\n" +
 	"\vFillRequest\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12/\n" +
 	"\x06target\x18\x02 \x01(\v2\x17.agentkeyring.v1.TargetR\x06target\x12!\n" +
