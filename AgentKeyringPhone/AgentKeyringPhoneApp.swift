@@ -64,11 +64,13 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            didReceive response: UNNotificationResponse) async {
+        PhonePushReceipt.record(response.notification)
         await MainActor.run { wake?() }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        PhonePushReceipt.record(notification)
         await MainActor.run { wake?() }
         return [.banner, .list, .sound]
     }
