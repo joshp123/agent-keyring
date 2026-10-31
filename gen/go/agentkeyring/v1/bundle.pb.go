@@ -32,6 +32,10 @@ const (
 	DecisionAuthority_DECISION_AUTHORITY_UNSPECIFIED    DecisionAuthority = 0
 	DecisionAuthority_DECISION_AUTHORITY_HUMAN          DecisionAuthority = 1
 	DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE DecisionAuthority = 2
+	// DENY with an empty reply only. Sent unsigned over the approver's pinned
+	// connection, so a plain Deny needs no biometric check. It grants nothing.
+	// A denial with a reply must be HUMAN; receivers show a reply only then.
+	DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION DecisionAuthority = 3
 )
 
 // Enum value maps for DecisionAuthority.
@@ -40,11 +44,13 @@ var (
 		0: "DECISION_AUTHORITY_UNSPECIFIED",
 		1: "DECISION_AUTHORITY_HUMAN",
 		2: "DECISION_AUTHORITY_AUTOMATIC_RULE",
+		3: "DECISION_AUTHORITY_APPROVER_CONNECTION",
 	}
 	DecisionAuthority_value = map[string]int32{
-		"DECISION_AUTHORITY_UNSPECIFIED":    0,
-		"DECISION_AUTHORITY_HUMAN":          1,
-		"DECISION_AUTHORITY_AUTOMATIC_RULE": 2,
+		"DECISION_AUTHORITY_UNSPECIFIED":         0,
+		"DECISION_AUTHORITY_HUMAN":               1,
+		"DECISION_AUTHORITY_AUTOMATIC_RULE":      2,
+		"DECISION_AUTHORITY_APPROVER_CONNECTION": 3,
 	}
 )
 
@@ -675,11 +681,12 @@ const file_agentkeyring_v1_bundle_proto_rawDesc = "" +
 	"\freply_sha256\x18\n" +
 	" \x01(\fR\vreplySha256\x12@\n" +
 	"\tauthority\x18\v \x01(\x0e2\".agentkeyring.v1.DecisionAuthorityR\tauthority\x128\n" +
-	"\x18automatic_grant_revision\x18\f \x01(\x04R\x16automaticGrantRevision*|\n" +
+	"\x18automatic_grant_revision\x18\f \x01(\x04R\x16automaticGrantRevision*\xa8\x01\n" +
 	"\x11DecisionAuthority\x12\"\n" +
 	"\x1eDECISION_AUTHORITY_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18DECISION_AUTHORITY_HUMAN\x10\x01\x12%\n" +
-	"!DECISION_AUTHORITY_AUTOMATIC_RULE\x10\x02*h\n" +
+	"!DECISION_AUTHORITY_AUTOMATIC_RULE\x10\x02\x12*\n" +
+	"&DECISION_AUTHORITY_APPROVER_CONNECTION\x10\x03*h\n" +
 	"\x0eDecisionChoice\x12\x1f\n" +
 	"\x1bDECISION_CHOICE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17DECISION_CHOICE_APPROVE\x10\x01\x12\x18\n" +
