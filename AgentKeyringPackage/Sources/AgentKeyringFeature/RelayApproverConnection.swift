@@ -97,7 +97,10 @@ extension RelayApprover {
                         lease.notAfterUnixSeconds = statement.choice == .approve ? statement.notAfterUnixSeconds : 0
                         lease.approvedBy = statement.choice == .approve ? (statement.authority == .automaticRule ? .automaticRule : .mac) : .unspecified
                         lease.reply = decision.reply
-                        if statement.choice == .deny { lease.endedAtUnixSeconds = Self.now }
+                        if statement.choice == .deny {
+                            lease.endedAtUnixSeconds = Self.now
+                            lease.retryNotBeforeUnixSeconds = next.suppressions[lease.recipient.recipientID + "\0" + lease.loginID, default: 0]
+                        }
                     } else {
                         // A conflicting or terminal response closes this request.
                         // It cannot authorize a delivery or invite a second touch.

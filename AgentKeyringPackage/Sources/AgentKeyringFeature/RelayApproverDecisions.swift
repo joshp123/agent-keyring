@@ -118,6 +118,13 @@ extension RelayApprover {
         try load()
         var next = state
         next.suppressions.removeValue(forKey: recipientID + "\0" + loginID)
+        for (id, saved) in next.requests {
+            var lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
+            if lease.loginID == loginID, lease.recipient.recipientID == recipientID, lease.state == .denied {
+                lease.retryNotBeforeUnixSeconds = 0
+                next.requests[id]!.lease = try lease.serializedData()
+            }
+        }
         var command = Agentkeyring_V1_RelayWireRequest()
         command.clearDenial_p.recipientID = recipientID
         command.clearDenial_p.loginID = loginID
