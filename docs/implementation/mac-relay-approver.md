@@ -45,6 +45,10 @@ display state and close answered prompts; they never authorize a delivery.
   rule owner, and changes local `approverKeySet` only after acknowledgement.
   The snapshot exposes the resulting signed key set. A pending relay message
   alone adds no key. This is the Mac half of pairing the iPhone in release 4.
+  `dismissApproverPairing(id)` durably dismisses a comparison that does not
+  match. That pairing ID stays hidden across reconnects and restarts. It sends
+  no relay request; cancel the comparison on the phone too. A pairing already
+  confirmed and queued for delivery cannot be dismissed.
 - `approve(id,context:)` signs and seals one task's login after checking the
   current local rules and machine keys. An already prepared answer is resent
   without another authorization. `deny(id,reply:context:)` sends a plain denial
