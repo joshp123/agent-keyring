@@ -1,0 +1,163 @@
+// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+package receiver
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os/exec"
+	"strings"
+
+	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
+	"github.com/joshp123/agent-keyring/internal/authority"
+)
+
+func NewID() string {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(value[:])
+}
+
+// Lengths make this encoding unambiguous even when arguments contain separators.
+func Digest(parts ...string) []byte {
+	h := sha256.New()
+	for _, part := range parts {
+		binary.Write(h, binary.BigEndian, uint64(len(part)))
+		io.WriteString(h, part)
+	}
+	return h.Sum(nil)
+}
+func OperationKey(explicit string, again bool) (string, error) {
+	if again && explicit != "" {
+		return "", errors.New("Use either --again or --operation, not both.")
+	}
+	if again {
+		return NewID(), nil
+	}
+	return explicit, nil
+}
+func Field(name string) (pb.CredentialField, error) {
+	switch name {
+	case "username":
+		return pb.CredentialField_CREDENTIAL_FIELD_USERNAME, nil
+	case "password":
+		return pb.CredentialField_CREDENTIAL_FIELD_PASSWORD, nil
+	case "code", "one-time-code":
+		return pb.CredentialField_CREDENTIAL_FIELD_ONE_TIME_CODE, nil
+	}
+	return 0, errors.New("Choose --field username, password or one-time-code.")
+}
+func Value(values *pb.CredentialValues, field pb.CredentialField) string {
+	switch field {
+	case pb.CredentialField_CREDENTIAL_FIELD_USERNAME:
+		return values.GetUsername()
+	case pb.CredentialField_CREDENTIAL_FIELD_PASSWORD:
+		return values.GetPassword()
+	case pb.CredentialField_CREDENTIAL_FIELD_ONE_TIME_CODE:
+		return values.GetOneTimeCode()
+	}
+	return ""
+}
+func ClearValues(values *pb.CredentialValues) {
+	if values != nil {
+		values.Username = ""
+		values.Password = ""
+		values.OneTimeCode = ""
+	}
+}
+func Delivered(response *pb.BeginOperationResponse) (*pb.CredentialValues, error) {
+	if response.GetSealed() != nil {
+		return nil, errors.New("This CLI cannot open remote deliveries yet.")
+	}
+	if response.GetValues() == nil {
+		return nil, errors.New("The earlier attempt is uncertain. Inspect its result before deliberately repeating it with --again.")
+	}
+	if response.OperationId == "" {
+		return nil, errors.New("Agent Keyring returned no operation reference.")
+	}
+	return response.GetValues(), nil
+}
+
+func Execute(ctx context.Context, client authority.Client, lease *pb.Lease, field pb.CredentialField, key string) (int, error) {
+	if lease.Purpose != pb.Purpose_PURPOSE_PROGRAM || lease.Program == nil {
+		return 1, errors.New("This lease does not approve a program. Request a program lease with the command you intend to run.")
+	}
+	program := lease.Program
+	digestParts := []string{lease.LeaseId, "execute-program", program.Executable, fmt.Sprint(field)}
+	digestParts = append(digestParts, program.Arguments...)
+	response, err := client.Begin(ctx, &pb.BeginOperationRequest{LeaseId: lease.LeaseId, OperationDigest: Digest(digestParts...), Kind: pb.OperationKind_OPERATION_KIND_EXECUTE_PROGRAM, Fields: []pb.CredentialField{field}, RequestId: key})
+	if err != nil {
+		return 1, err
+	}
+	if record := response.GetAlreadyStarted(); record != nil {
+		if record.GetProgram() == pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED && record.ExitCode != nil {
+			return int(*record.ExitCode), nil
+		}
+		return 1, errors.New("The earlier program attempt may have started. Inspect its result before using --again.")
+	}
+	values, err := Delivered(response)
+	if err != nil {
+		return 1, err
+	}
+	defer ClearValues(values)
+	command := exec.CommandContext(ctx, program.Executable, program.Arguments...)
+	command.Stdin = strings.NewReader(Value(values, field))
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	runError := command.Run()
+	outcome := pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED
+	exitCode := int32(0)
+	if runError != nil {
+		var exited *exec.ExitError
+		if errors.As(runError, &exited) {
+			exitCode = int32(exited.ExitCode())
+			if exitCode < 0 {
+				outcome = pb.ProgramOutcome_PROGRAM_OUTCOME_UNCERTAIN
+			}
+		} else {
+			outcome = pb.ProgramOutcome_PROGRAM_OUTCOME_NOT_STARTED
+		}
+	}
+	finish := &pb.FinishOperationRequest{LeaseId: lease.LeaseId, OperationId: response.OperationId, Outcome: &pb.FinishOperationRequest_Program{Program: outcome}}
+	if outcome == pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED {
+		finish.ExitCode = &exitCode
+	}
+	if err = client.Finish(context.WithoutCancel(ctx), finish); err != nil {
+		return 1, errors.New("The program attempt ended, but its result was not saved. Do not rerun it without inspecting the result.")
+	}
+	if outcome != pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED {
+		return 1, errors.New("The approved program did not exit normally. Inspect its result before repeating it.")
+	}
+	return int(exitCode), nil
+}
+func Read(ctx context.Context, client authority.Client, lease *pb.Lease, field pb.CredentialField, output io.Writer) error {
+	if lease.Purpose != pb.Purpose_PURPOSE_AGENT_PROCESS {
+		return errors.New("This lease does not approve value delivery to the agent's code.")
+	}
+	key := NewID()
+	response, err := client.Begin(ctx, &pb.BeginOperationRequest{LeaseId: lease.LeaseId, OperationDigest: Digest(lease.LeaseId, "read", fmt.Sprint(field)), Kind: pb.OperationKind_OPERATION_KIND_READ, Fields: []pb.CredentialField{field}, RequestId: key})
+	if err != nil {
+		return err
+	}
+	values, err := Delivered(response)
+	if err != nil {
+		return err
+	}
+	defer ClearValues(values)
+	_, writeError := io.WriteString(output, Value(values, field))
+	finishError := client.Finish(context.WithoutCancel(ctx), &pb.FinishOperationRequest{LeaseId: lease.LeaseId, OperationId: response.OperationId, Outcome: &pb.FinishOperationRequest_ReadDelivered{ReadDelivered: writeError == nil}})
+	if writeError != nil {
+		return errors.New("Could not deliver the value to the receiving process.")
+	}
+	if finishError != nil {
+		return errors.New("The value was delivered, but its receipt could not be saved.")
+	}
+	return nil
+}

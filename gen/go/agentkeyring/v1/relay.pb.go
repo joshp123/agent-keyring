@@ -611,8 +611,9 @@ func (x *EnrolRequest) GetReceiverPublicKey() []byte {
 type EnrolStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	State EnrolState             `protobuf:"varint,1,opt,name=state,proto3,enum=agentkeyring.v1.EnrolState" json:"state,omitempty"`
-	// Six digits shown on the new machine and on the approver. Derived from the
-	// relay key, the TLS key and the receiver key, so a swapped key changes it.
+	// Display only. Each side computes the code itself from the pairing
+	// transcript (RFC 0005, "Pairing"); a code sent by the relay is never
+	// evidence of a match.
 	Code             string         `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
 	RecipientId      string         `protobuf:"bytes,3,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
 	ApproverKeys     []*ApproverKey `protobuf:"bytes,4,rep,name=approver_keys,json=approverKeys,proto3" json:"approver_keys,omitempty"` // Pin on APPROVED.
@@ -1175,12 +1176,15 @@ func (x *SignedApproverKeySet) GetSignerKeyId() string {
 }
 
 type ApproverKeySet struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Domain        string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // "agentkeyring.approvers.v1".
-	Revision      uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
-	Keys          []*ApproverKey         `protobuf:"bytes,3,rep,name=keys,proto3" json:"keys,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Domain   string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // "agentkeyring.approvers.v1".
+	Revision uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	Keys     []*ApproverKey         `protobuf:"bytes,3,rep,name=keys,proto3" json:"keys,omitempty"`
+	// The one approver whose signed LoginIndex holds the current rules and login
+	// IDs (RFC 0006, "Rule owner"). Other approvers follow it.
+	RuleOwnerKeyId string `protobuf:"bytes,4,opt,name=rule_owner_key_id,json=ruleOwnerKeyId,proto3" json:"rule_owner_key_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ApproverKeySet) Reset() {
@@ -1234,6 +1238,690 @@ func (x *ApproverKeySet) GetKeys() []*ApproverKey {
 	return nil
 }
 
+func (x *ApproverKeySet) GetRuleOwnerKeyId() string {
+	if x != nil {
+		return x.RuleOwnerKeyId
+	}
+	return ""
+}
+
+type GetApproverKeyChainRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FromRevision  uint64                 `protobuf:"varint,1,opt,name=from_revision,json=fromRevision,proto3" json:"from_revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetApproverKeyChainRequest) Reset() {
+	*x = GetApproverKeyChainRequest{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetApproverKeyChainRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetApproverKeyChainRequest) ProtoMessage() {}
+
+func (x *GetApproverKeyChainRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetApproverKeyChainRequest.ProtoReflect.Descriptor instead.
+func (*GetApproverKeyChainRequest) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GetApproverKeyChainRequest) GetFromRevision() uint64 {
+	if x != nil {
+		return x.FromRevision
+	}
+	return 0
+}
+
+type ApproverKeyChain struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	KeySets       []*SignedApproverKeySet `protobuf:"bytes,1,rep,name=key_sets,json=keySets,proto3" json:"key_sets,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApproverKeyChain) Reset() {
+	*x = ApproverKeyChain{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApproverKeyChain) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApproverKeyChain) ProtoMessage() {}
+
+func (x *ApproverKeyChain) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApproverKeyChain.ProtoReflect.Descriptor instead.
+func (*ApproverKeyChain) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ApproverKeyChain) GetKeySets() []*SignedApproverKeySet {
+	if x != nil {
+		return x.KeySets
+	}
+	return nil
+}
+
+// Both sides hash the same transcript and show the first six decimal digits of
+// SHA-256 over it. Enrolment: "agentkeyring.enrol.v1\0" || relay TLS SPKI ||
+// client TLS SPKI || receiver public key. Approver pairing:
+// "agentkeyring.pair.v1\0" || relay TLS SPKI || approver TLS SPKI ||
+// approver signing key. Each value is length-prefixed with a 4-byte big-endian
+// length. Each device uses the keys it saw or holds, never ones the relay
+// reports.
+type SignedPairingConfirmation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Confirmation  []byte                 `protobuf:"bytes,1,opt,name=confirmation,proto3" json:"confirmation,omitempty"` // Serialized PairingConfirmation.
+	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`       // By the approver signing key being paired.
+	ApproverKeyId string                 `protobuf:"bytes,3,opt,name=approver_key_id,json=approverKeyId,proto3" json:"approver_key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedPairingConfirmation) Reset() {
+	*x = SignedPairingConfirmation{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedPairingConfirmation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedPairingConfirmation) ProtoMessage() {}
+
+func (x *SignedPairingConfirmation) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedPairingConfirmation.ProtoReflect.Descriptor instead.
+func (*SignedPairingConfirmation) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *SignedPairingConfirmation) GetConfirmation() []byte {
+	if x != nil {
+		return x.Confirmation
+	}
+	return nil
+}
+
+func (x *SignedPairingConfirmation) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+func (x *SignedPairingConfirmation) GetApproverKeyId() string {
+	if x != nil {
+		return x.ApproverKeyId
+	}
+	return ""
+}
+
+type PairingConfirmation struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Domain               string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // "agentkeyring.pairconfirm.v1".
+	TranscriptSha256     []byte                 `protobuf:"bytes,2,opt,name=transcript_sha256,json=transcriptSha256,proto3" json:"transcript_sha256,omitempty"`
+	ConfirmedUnixSeconds int64                  `protobuf:"varint,3,opt,name=confirmed_unix_seconds,json=confirmedUnixSeconds,proto3" json:"confirmed_unix_seconds,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *PairingConfirmation) Reset() {
+	*x = PairingConfirmation{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PairingConfirmation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PairingConfirmation) ProtoMessage() {}
+
+func (x *PairingConfirmation) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PairingConfirmation.ProtoReflect.Descriptor instead.
+func (*PairingConfirmation) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *PairingConfirmation) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
+}
+
+func (x *PairingConfirmation) GetTranscriptSha256() []byte {
+	if x != nil {
+		return x.TranscriptSha256
+	}
+	return nil
+}
+
+func (x *PairingConfirmation) GetConfirmedUnixSeconds() int64 {
+	if x != nil {
+		return x.ConfirmedUnixSeconds
+	}
+	return 0
+}
+
+type GetEnrolmentSetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetEnrolmentSetRequest) Reset() {
+	*x = GetEnrolmentSetRequest{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetEnrolmentSetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetEnrolmentSetRequest) ProtoMessage() {}
+
+func (x *GetEnrolmentSetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetEnrolmentSetRequest.ProtoReflect.Descriptor instead.
+func (*GetEnrolmentSetRequest) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{19}
+}
+
+// Absence means not enrolled: a revoked machine is simply left out of the next
+// revision. A new approver accepts the set whose revision and digest the
+// surviving approver named when it paired the new one.
+type SignedEnrolmentSet struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EnrolmentSet  []byte                 `protobuf:"bytes,1,opt,name=enrolment_set,json=enrolmentSet,proto3" json:"enrolment_set,omitempty"` // Serialized EnrolmentSet.
+	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	ApproverKeyId string                 `protobuf:"bytes,3,opt,name=approver_key_id,json=approverKeyId,proto3" json:"approver_key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedEnrolmentSet) Reset() {
+	*x = SignedEnrolmentSet{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedEnrolmentSet) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedEnrolmentSet) ProtoMessage() {}
+
+func (x *SignedEnrolmentSet) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedEnrolmentSet.ProtoReflect.Descriptor instead.
+func (*SignedEnrolmentSet) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SignedEnrolmentSet) GetEnrolmentSet() []byte {
+	if x != nil {
+		return x.EnrolmentSet
+	}
+	return nil
+}
+
+func (x *SignedEnrolmentSet) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+func (x *SignedEnrolmentSet) GetApproverKeyId() string {
+	if x != nil {
+		return x.ApproverKeyId
+	}
+	return ""
+}
+
+type EnrolmentSet struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Domain        string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // "agentkeyring.enrolments.v1".
+	Revision      uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	Machines      []*EnrolledMachine     `protobuf:"bytes,3,rep,name=machines,proto3" json:"machines,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnrolmentSet) Reset() {
+	*x = EnrolmentSet{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnrolmentSet) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnrolmentSet) ProtoMessage() {}
+
+func (x *EnrolmentSet) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnrolmentSet.ProtoReflect.Descriptor instead.
+func (*EnrolmentSet) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *EnrolmentSet) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
+}
+
+func (x *EnrolmentSet) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *EnrolmentSet) GetMachines() []*EnrolledMachine {
+	if x != nil {
+		return x.Machines
+	}
+	return nil
+}
+
+type EnrolledMachine struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	RecipientId       string                 `protobuf:"bytes,1,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
+	MachineLabel      string                 `protobuf:"bytes,2,opt,name=machine_label,json=machineLabel,proto3" json:"machine_label,omitempty"`
+	ClientLabel       string                 `protobuf:"bytes,3,opt,name=client_label,json=clientLabel,proto3" json:"client_label,omitempty"`
+	TailscaleNodeId   string                 `protobuf:"bytes,4,opt,name=tailscale_node_id,json=tailscaleNodeId,proto3" json:"tailscale_node_id,omitempty"`
+	TlsPublicKey      []byte                 `protobuf:"bytes,5,opt,name=tls_public_key,json=tlsPublicKey,proto3" json:"tls_public_key,omitempty"`
+	ReceiverPublicKey []byte                 `protobuf:"bytes,6,opt,name=receiver_public_key,json=receiverPublicKey,proto3" json:"receiver_public_key,omitempty"`
+	ReceiverKeyId     string                 `protobuf:"bytes,7,opt,name=receiver_key_id,json=receiverKeyId,proto3" json:"receiver_key_id,omitempty"`
+	AutomaticAllowed  bool                   `protobuf:"varint,8,opt,name=automatic_allowed,json=automaticAllowed,proto3" json:"automatic_allowed,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *EnrolledMachine) Reset() {
+	*x = EnrolledMachine{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnrolledMachine) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnrolledMachine) ProtoMessage() {}
+
+func (x *EnrolledMachine) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnrolledMachine.ProtoReflect.Descriptor instead.
+func (*EnrolledMachine) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *EnrolledMachine) GetRecipientId() string {
+	if x != nil {
+		return x.RecipientId
+	}
+	return ""
+}
+
+func (x *EnrolledMachine) GetMachineLabel() string {
+	if x != nil {
+		return x.MachineLabel
+	}
+	return ""
+}
+
+func (x *EnrolledMachine) GetClientLabel() string {
+	if x != nil {
+		return x.ClientLabel
+	}
+	return ""
+}
+
+func (x *EnrolledMachine) GetTailscaleNodeId() string {
+	if x != nil {
+		return x.TailscaleNodeId
+	}
+	return ""
+}
+
+func (x *EnrolledMachine) GetTlsPublicKey() []byte {
+	if x != nil {
+		return x.TlsPublicKey
+	}
+	return nil
+}
+
+func (x *EnrolledMachine) GetReceiverPublicKey() []byte {
+	if x != nil {
+		return x.ReceiverPublicKey
+	}
+	return nil
+}
+
+func (x *EnrolledMachine) GetReceiverKeyId() string {
+	if x != nil {
+		return x.ReceiverKeyId
+	}
+	return ""
+}
+
+func (x *EnrolledMachine) GetAutomaticAllowed() bool {
+	if x != nil {
+		return x.AutomaticAllowed
+	}
+	return false
+}
+
+type GetAutomaticGrantRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAutomaticGrantRequest) Reset() {
+	*x = GetAutomaticGrantRequest{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAutomaticGrantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAutomaticGrantRequest) ProtoMessage() {}
+
+func (x *GetAutomaticGrantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAutomaticGrantRequest.ProtoReflect.Descriptor instead.
+func (*GetAutomaticGrantRequest) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{23}
+}
+
+type SignedAutomaticGrant struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Grant         []byte                 `protobuf:"bytes,1,opt,name=grant,proto3" json:"grant,omitempty"`         // Serialized AutomaticGrant.
+	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"` // By an approver key, after Josh's biometric check.
+	ApproverKeyId string                 `protobuf:"bytes,3,opt,name=approver_key_id,json=approverKeyId,proto3" json:"approver_key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedAutomaticGrant) Reset() {
+	*x = SignedAutomaticGrant{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedAutomaticGrant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedAutomaticGrant) ProtoMessage() {}
+
+func (x *SignedAutomaticGrant) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedAutomaticGrant.ProtoReflect.Descriptor instead.
+func (*SignedAutomaticGrant) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *SignedAutomaticGrant) GetGrant() []byte {
+	if x != nil {
+		return x.Grant
+	}
+	return nil
+}
+
+func (x *SignedAutomaticGrant) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+func (x *SignedAutomaticGrant) GetApproverKeyId() string {
+	if x != nil {
+		return x.ApproverKeyId
+	}
+	return ""
+}
+
+// The only authority an Automatic decision has. Revision increases with every
+// change; receivers and the relay use the highest valid revision they have seen.
+type AutomaticGrant struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Domain   string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // "agentkeyring.automatic.v1".
+	Revision uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	// P-256 signing key held by the device that approves Automatic requests:
+	// the Mac app in release 3, the relay in release 4. No biometric check.
+	AutomaticSigningPublicKey []byte `protobuf:"bytes,3,opt,name=automatic_signing_public_key,json=automaticSigningPublicKey,proto3" json:"automatic_signing_public_key,omitempty"`
+	AutomaticKeyId            string `protobuf:"bytes,4,opt,name=automatic_key_id,json=automaticKeyId,proto3" json:"automatic_key_id,omitempty"`
+	// Release 4: the relay's HPKE P-256 key that AutomaticSet logins are sealed to.
+	RelayEncryptionPublicKey []byte   `protobuf:"bytes,5,opt,name=relay_encryption_public_key,json=relayEncryptionPublicKey,proto3" json:"relay_encryption_public_key,omitempty"`
+	LoginIds                 []string `protobuf:"bytes,6,rep,name=login_ids,json=loginIds,proto3" json:"login_ids,omitempty"`             // Logins whose rule is Automatic.
+	RecipientIds             []string `protobuf:"bytes,7,rep,name=recipient_ids,json=recipientIds,proto3" json:"recipient_ids,omitempty"` // Machines allowed Automatic logins.
+	// Release 4: SHA-256 of each sealed login in the AutomaticSet published with
+	// this revision, in the same order as login_ids.
+	SealedLoginSha256 [][]byte `protobuf:"bytes,8,rep,name=sealed_login_sha256,json=sealedLoginSha256,proto3" json:"sealed_login_sha256,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *AutomaticGrant) Reset() {
+	*x = AutomaticGrant{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutomaticGrant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutomaticGrant) ProtoMessage() {}
+
+func (x *AutomaticGrant) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutomaticGrant.ProtoReflect.Descriptor instead.
+func (*AutomaticGrant) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *AutomaticGrant) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
+}
+
+func (x *AutomaticGrant) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *AutomaticGrant) GetAutomaticSigningPublicKey() []byte {
+	if x != nil {
+		return x.AutomaticSigningPublicKey
+	}
+	return nil
+}
+
+func (x *AutomaticGrant) GetAutomaticKeyId() string {
+	if x != nil {
+		return x.AutomaticKeyId
+	}
+	return ""
+}
+
+func (x *AutomaticGrant) GetRelayEncryptionPublicKey() []byte {
+	if x != nil {
+		return x.RelayEncryptionPublicKey
+	}
+	return nil
+}
+
+func (x *AutomaticGrant) GetLoginIds() []string {
+	if x != nil {
+		return x.LoginIds
+	}
+	return nil
+}
+
+func (x *AutomaticGrant) GetRecipientIds() []string {
+	if x != nil {
+		return x.RecipientIds
+	}
+	return nil
+}
+
+func (x *AutomaticGrant) GetSealedLoginSha256() [][]byte {
+	if x != nil {
+		return x.SealedLoginSha256
+	}
+	return nil
+}
+
 type SignedIndex struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Index         []byte                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"` // Serialized LoginIndex.
@@ -1245,7 +1933,7 @@ type SignedIndex struct {
 
 func (x *SignedIndex) Reset() {
 	*x = SignedIndex{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[15]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1257,7 +1945,7 @@ func (x *SignedIndex) String() string {
 func (*SignedIndex) ProtoMessage() {}
 
 func (x *SignedIndex) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[15]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1270,7 +1958,7 @@ func (x *SignedIndex) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedIndex.ProtoReflect.Descriptor instead.
 func (*SignedIndex) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{15}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *SignedIndex) GetIndex() []byte {
@@ -1294,18 +1982,22 @@ func (x *SignedIndex) GetApproverKeyId() string {
 	return ""
 }
 
+// Published only by the rule owner named in the current ApproverKeySet.
 type LoginIndex struct {
 	state                      protoimpl.MessageState `protogen:"open.v1"`
 	Revision                   uint64                 `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
 	Logins                     []*Login               `protobuf:"bytes,2,rep,name=logins,proto3" json:"logins,omitempty"` // Metadata and rules; never secrets.
 	MirrorRefreshedUnixSeconds int64                  `protobuf:"varint,3,opt,name=mirror_refreshed_unix_seconds,json=mirrorRefreshedUnixSeconds,proto3" json:"mirror_refreshed_unix_seconds,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// How each login_id matches an Apple Passwords item, so another approver's
+	// import keeps the same IDs and rules (RFC 0006, "Login IDs").
+	Sources       []*LoginSource `protobuf:"bytes,4,rep,name=sources,proto3" json:"sources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LoginIndex) Reset() {
 	*x = LoginIndex{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[16]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1317,7 +2009,7 @@ func (x *LoginIndex) String() string {
 func (*LoginIndex) ProtoMessage() {}
 
 func (x *LoginIndex) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[16]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1330,7 +2022,7 @@ func (x *LoginIndex) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoginIndex.ProtoReflect.Descriptor instead.
 func (*LoginIndex) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{16}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *LoginIndex) GetRevision() uint64 {
@@ -1354,24 +2046,102 @@ func (x *LoginIndex) GetMirrorRefreshedUnixSeconds() int64 {
 	return 0
 }
 
-// DRAFT: automatic signing authority and the exact signed payload must be
-// settled in RFCs 0005/0006 before implementing unattended delivery.
-// RFC 0006. Each entry is a BundleContents-like record sealed to the relay's
-// key, including the TOTP seed, so the relay can make bundles unattended.
+func (x *LoginIndex) GetSources() []*LoginSource {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
+// The source identity the importer already records (MirrorSourceIdentity).
+// Whether Apple gives the same item the same IDs on the Mac and the iPhone is a
+// device proof in RFC 0006; matching falls back as that RFC describes.
+type LoginSource struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	LoginId            string                 `protobuf:"bytes,1,opt,name=login_id,json=loginId,proto3" json:"login_id,omitempty"`
+	AppleItemId        []byte                 `protobuf:"bytes,2,opt,name=apple_item_id,json=appleItemId,proto3" json:"apple_item_id,omitempty"`          // ASImportableItem.id.
+	AppleAccountId     []byte                 `protobuf:"bytes,3,opt,name=apple_account_id,json=appleAccountId,proto3" json:"apple_account_id,omitempty"` // ASImportableAccount.id.
+	ExporterIdentifier string                 `protobuf:"bytes,4,opt,name=exporter_identifier,json=exporterIdentifier,proto3" json:"exporter_identifier,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *LoginSource) Reset() {
+	*x = LoginSource{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoginSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoginSource) ProtoMessage() {}
+
+func (x *LoginSource) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoginSource.ProtoReflect.Descriptor instead.
+func (*LoginSource) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *LoginSource) GetLoginId() string {
+	if x != nil {
+		return x.LoginId
+	}
+	return ""
+}
+
+func (x *LoginSource) GetAppleItemId() []byte {
+	if x != nil {
+		return x.AppleItemId
+	}
+	return nil
+}
+
+func (x *LoginSource) GetAppleAccountId() []byte {
+	if x != nil {
+		return x.AppleAccountId
+	}
+	return nil
+}
+
+func (x *LoginSource) GetExporterIdentifier() string {
+	if x != nil {
+		return x.ExporterIdentifier
+	}
+	return ""
+}
+
+// RFC 0006. Each entry is sealed to the relay's encryption key named in the
+// grant, including the TOTP seed, so the relay can approve unattended.
 // Anything published here is readable by whoever controls the mini.
+// Authority comes from `grant`; fields 3 and 4 are unused.
 type AutomaticSet struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
 	Revision      uint64                  `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
 	Logins        []*SealedAutomaticLogin `protobuf:"bytes,2,rep,name=logins,proto3" json:"logins,omitempty"`
 	Signature     []byte                  `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
 	ApproverKeyId string                  `protobuf:"bytes,4,opt,name=approver_key_id,json=approverKeyId,proto3" json:"approver_key_id,omitempty"`
+	Grant         *SignedAutomaticGrant   `protobuf:"bytes,5,opt,name=grant,proto3" json:"grant,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AutomaticSet) Reset() {
 	*x = AutomaticSet{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[17]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1383,7 +2153,7 @@ func (x *AutomaticSet) String() string {
 func (*AutomaticSet) ProtoMessage() {}
 
 func (x *AutomaticSet) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[17]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1396,7 +2166,7 @@ func (x *AutomaticSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomaticSet.ProtoReflect.Descriptor instead.
 func (*AutomaticSet) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{17}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *AutomaticSet) GetRevision() uint64 {
@@ -1427,6 +2197,13 @@ func (x *AutomaticSet) GetApproverKeyId() string {
 	return ""
 }
 
+func (x *AutomaticSet) GetGrant() *SignedAutomaticGrant {
+	if x != nil {
+		return x.Grant
+	}
+	return nil
+}
+
 type SealedAutomaticLogin struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LoginId       string                 `protobuf:"bytes,1,opt,name=login_id,json=loginId,proto3" json:"login_id,omitempty"`
@@ -1437,7 +2214,7 @@ type SealedAutomaticLogin struct {
 
 func (x *SealedAutomaticLogin) Reset() {
 	*x = SealedAutomaticLogin{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[18]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1449,7 +2226,7 @@ func (x *SealedAutomaticLogin) String() string {
 func (*SealedAutomaticLogin) ProtoMessage() {}
 
 func (x *SealedAutomaticLogin) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[18]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1462,7 +2239,7 @@ func (x *SealedAutomaticLogin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SealedAutomaticLogin.ProtoReflect.Descriptor instead.
 func (*SealedAutomaticLogin) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{18}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SealedAutomaticLogin) GetLoginId() string {
@@ -1495,7 +2272,7 @@ type AutomaticLoginContents struct {
 
 func (x *AutomaticLoginContents) Reset() {
 	*x = AutomaticLoginContents{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[19]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1507,7 +2284,7 @@ func (x *AutomaticLoginContents) String() string {
 func (*AutomaticLoginContents) ProtoMessage() {}
 
 func (x *AutomaticLoginContents) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[19]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1520,7 +2297,7 @@ func (x *AutomaticLoginContents) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomaticLoginContents.ProtoReflect.Descriptor instead.
 func (*AutomaticLoginContents) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{19}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *AutomaticLoginContents) GetLoginId() string {
@@ -1589,7 +2366,7 @@ type PairApproverRequest struct {
 
 func (x *PairApproverRequest) Reset() {
 	*x = PairApproverRequest{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[20]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1601,7 +2378,7 @@ func (x *PairApproverRequest) String() string {
 func (*PairApproverRequest) ProtoMessage() {}
 
 func (x *PairApproverRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[20]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1614,7 +2391,7 @@ func (x *PairApproverRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PairApproverRequest.ProtoReflect.Descriptor instead.
 func (*PairApproverRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{20}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PairApproverRequest) GetKey() *ApproverKey {
@@ -1639,7 +2416,7 @@ type GetApproverKeysRequest struct {
 
 func (x *GetApproverKeysRequest) Reset() {
 	*x = GetApproverKeysRequest{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[21]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1651,7 +2428,7 @@ func (x *GetApproverKeysRequest) String() string {
 func (*GetApproverKeysRequest) ProtoMessage() {}
 
 func (x *GetApproverKeysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[21]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1664,7 +2441,7 @@ func (x *GetApproverKeysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetApproverKeysRequest.ProtoReflect.Descriptor instead.
 func (*GetApproverKeysRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{21}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{33}
 }
 
 type ListEnrolmentsRequest struct {
@@ -1675,7 +2452,7 @@ type ListEnrolmentsRequest struct {
 
 func (x *ListEnrolmentsRequest) Reset() {
 	*x = ListEnrolmentsRequest{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[22]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1687,7 +2464,7 @@ func (x *ListEnrolmentsRequest) String() string {
 func (*ListEnrolmentsRequest) ProtoMessage() {}
 
 func (x *ListEnrolmentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[22]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1700,7 +2477,7 @@ func (x *ListEnrolmentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEnrolmentsRequest.ProtoReflect.Descriptor instead.
 func (*ListEnrolmentsRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{22}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{34}
 }
 
 type ListEnrolmentsResponse struct {
@@ -1712,7 +2489,7 @@ type ListEnrolmentsResponse struct {
 
 func (x *ListEnrolmentsResponse) Reset() {
 	*x = ListEnrolmentsResponse{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[23]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1724,7 +2501,7 @@ func (x *ListEnrolmentsResponse) String() string {
 func (*ListEnrolmentsResponse) ProtoMessage() {}
 
 func (x *ListEnrolmentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[23]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1737,7 +2514,7 @@ func (x *ListEnrolmentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEnrolmentsResponse.ProtoReflect.Descriptor instead.
 func (*ListEnrolmentsResponse) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{23}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ListEnrolmentsResponse) GetEnrolments() []*ApprovedEnrolment {
@@ -1757,7 +2534,7 @@ type ApprovedEnrolment struct {
 
 func (x *ApprovedEnrolment) Reset() {
 	*x = ApprovedEnrolment{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[24]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1769,7 +2546,7 @@ func (x *ApprovedEnrolment) String() string {
 func (*ApprovedEnrolment) ProtoMessage() {}
 
 func (x *ApprovedEnrolment) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[24]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1782,7 +2559,7 @@ func (x *ApprovedEnrolment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovedEnrolment.ProtoReflect.Descriptor instead.
 func (*ApprovedEnrolment) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{24}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ApprovedEnrolment) GetRecord() []byte {
@@ -1814,7 +2591,7 @@ type PushRegistration struct {
 
 func (x *PushRegistration) Reset() {
 	*x = PushRegistration{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[25]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1826,7 +2603,7 @@ func (x *PushRegistration) String() string {
 func (*PushRegistration) ProtoMessage() {}
 
 func (x *PushRegistration) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[25]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1839,7 +2616,7 @@ func (x *PushRegistration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushRegistration.ProtoReflect.Descriptor instead.
 func (*PushRegistration) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{25}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *PushRegistration) GetApproverKeyId() string {
@@ -1880,7 +2657,7 @@ type PublishAck struct {
 
 func (x *PublishAck) Reset() {
 	*x = PublishAck{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[26]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1892,7 +2669,7 @@ func (x *PublishAck) String() string {
 func (*PublishAck) ProtoMessage() {}
 
 func (x *PublishAck) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[26]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1905,7 +2682,7 @@ func (x *PublishAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishAck.ProtoReflect.Descriptor instead.
 func (*PublishAck) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{26}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *PublishAck) GetAccepted() bool {
@@ -1938,6 +2715,12 @@ type RelayWireRequest struct {
 	//	*RelayWireRequest_ListEnrolments
 	//	*RelayWireRequest_PairApprover
 	//	*RelayWireRequest_GetApproverKeys
+	//	*RelayWireRequest_ConfirmPairing
+	//	*RelayWireRequest_GetApproverKeyChain
+	//	*RelayWireRequest_PublishEnrolmentSet
+	//	*RelayWireRequest_GetEnrolmentSet
+	//	*RelayWireRequest_PublishAutomaticGrant
+	//	*RelayWireRequest_GetAutomaticGrant
 	Request       isRelayWireRequest_Request `protobuf_oneof:"request"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1945,7 +2728,7 @@ type RelayWireRequest struct {
 
 func (x *RelayWireRequest) Reset() {
 	*x = RelayWireRequest{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[27]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1957,7 +2740,7 @@ func (x *RelayWireRequest) String() string {
 func (*RelayWireRequest) ProtoMessage() {}
 
 func (x *RelayWireRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[27]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1970,7 +2753,7 @@ func (x *RelayWireRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayWireRequest.ProtoReflect.Descriptor instead.
 func (*RelayWireRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{27}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *RelayWireRequest) GetRequest() isRelayWireRequest_Request {
@@ -2088,6 +2871,60 @@ func (x *RelayWireRequest) GetGetApproverKeys() *GetApproverKeysRequest {
 	return nil
 }
 
+func (x *RelayWireRequest) GetConfirmPairing() *SignedPairingConfirmation {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_ConfirmPairing); ok {
+			return x.ConfirmPairing
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireRequest) GetGetApproverKeyChain() *GetApproverKeyChainRequest {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_GetApproverKeyChain); ok {
+			return x.GetApproverKeyChain
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireRequest) GetPublishEnrolmentSet() *SignedEnrolmentSet {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_PublishEnrolmentSet); ok {
+			return x.PublishEnrolmentSet
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireRequest) GetGetEnrolmentSet() *GetEnrolmentSetRequest {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_GetEnrolmentSet); ok {
+			return x.GetEnrolmentSet
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireRequest) GetPublishAutomaticGrant() *SignedAutomaticGrant {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_PublishAutomaticGrant); ok {
+			return x.PublishAutomaticGrant
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireRequest) GetGetAutomaticGrant() *GetAutomaticGrantRequest {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_GetAutomaticGrant); ok {
+			return x.GetAutomaticGrant
+		}
+	}
+	return nil
+}
+
 type isRelayWireRequest_Request interface {
 	isRelayWireRequest_Request()
 }
@@ -2140,6 +2977,30 @@ type RelayWireRequest_GetApproverKeys struct {
 	GetApproverKeys *GetApproverKeysRequest `protobuf:"bytes,12,opt,name=get_approver_keys,json=getApproverKeys,proto3,oneof"`
 }
 
+type RelayWireRequest_ConfirmPairing struct {
+	ConfirmPairing *SignedPairingConfirmation `protobuf:"bytes,13,opt,name=confirm_pairing,json=confirmPairing,proto3,oneof"`
+}
+
+type RelayWireRequest_GetApproverKeyChain struct {
+	GetApproverKeyChain *GetApproverKeyChainRequest `protobuf:"bytes,14,opt,name=get_approver_key_chain,json=getApproverKeyChain,proto3,oneof"`
+}
+
+type RelayWireRequest_PublishEnrolmentSet struct {
+	PublishEnrolmentSet *SignedEnrolmentSet `protobuf:"bytes,15,opt,name=publish_enrolment_set,json=publishEnrolmentSet,proto3,oneof"`
+}
+
+type RelayWireRequest_GetEnrolmentSet struct {
+	GetEnrolmentSet *GetEnrolmentSetRequest `protobuf:"bytes,16,opt,name=get_enrolment_set,json=getEnrolmentSet,proto3,oneof"`
+}
+
+type RelayWireRequest_PublishAutomaticGrant struct {
+	PublishAutomaticGrant *SignedAutomaticGrant `protobuf:"bytes,17,opt,name=publish_automatic_grant,json=publishAutomaticGrant,proto3,oneof"`
+}
+
+type RelayWireRequest_GetAutomaticGrant struct {
+	GetAutomaticGrant *GetAutomaticGrantRequest `protobuf:"bytes,18,opt,name=get_automatic_grant,json=getAutomaticGrant,proto3,oneof"`
+}
+
 func (*RelayWireRequest_Client) isRelayWireRequest_Request() {}
 
 func (*RelayWireRequest_WatchWork) isRelayWireRequest_Request() {}
@@ -2164,6 +3025,18 @@ func (*RelayWireRequest_PairApprover) isRelayWireRequest_Request() {}
 
 func (*RelayWireRequest_GetApproverKeys) isRelayWireRequest_Request() {}
 
+func (*RelayWireRequest_ConfirmPairing) isRelayWireRequest_Request() {}
+
+func (*RelayWireRequest_GetApproverKeyChain) isRelayWireRequest_Request() {}
+
+func (*RelayWireRequest_PublishEnrolmentSet) isRelayWireRequest_Request() {}
+
+func (*RelayWireRequest_GetEnrolmentSet) isRelayWireRequest_Request() {}
+
+func (*RelayWireRequest_PublishAutomaticGrant) isRelayWireRequest_Request() {}
+
+func (*RelayWireRequest_GetAutomaticGrant) isRelayWireRequest_Request() {}
+
 type RelayWireResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Response:
@@ -2177,6 +3050,9 @@ type RelayWireResponse struct {
 	//	*RelayWireResponse_Error
 	//	*RelayWireResponse_Enrolments
 	//	*RelayWireResponse_ApproverKeys
+	//	*RelayWireResponse_ApproverKeyChain
+	//	*RelayWireResponse_EnrolmentSet
+	//	*RelayWireResponse_AutomaticGrant
 	Response      isRelayWireResponse_Response `protobuf_oneof:"response"`
 	EndOfStream   bool                         `protobuf:"varint,8,opt,name=end_of_stream,json=endOfStream,proto3" json:"end_of_stream,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2185,7 +3061,7 @@ type RelayWireResponse struct {
 
 func (x *RelayWireResponse) Reset() {
 	*x = RelayWireResponse{}
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[28]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2197,7 +3073,7 @@ func (x *RelayWireResponse) String() string {
 func (*RelayWireResponse) ProtoMessage() {}
 
 func (x *RelayWireResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_relay_proto_msgTypes[28]
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2210,7 +3086,7 @@ func (x *RelayWireResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayWireResponse.ProtoReflect.Descriptor instead.
 func (*RelayWireResponse) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{28}
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RelayWireResponse) GetResponse() isRelayWireResponse_Response {
@@ -2301,6 +3177,33 @@ func (x *RelayWireResponse) GetApproverKeys() *SignedApproverKeySet {
 	return nil
 }
 
+func (x *RelayWireResponse) GetApproverKeyChain() *ApproverKeyChain {
+	if x != nil {
+		if x, ok := x.Response.(*RelayWireResponse_ApproverKeyChain); ok {
+			return x.ApproverKeyChain
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireResponse) GetEnrolmentSet() *SignedEnrolmentSet {
+	if x != nil {
+		if x, ok := x.Response.(*RelayWireResponse_EnrolmentSet); ok {
+			return x.EnrolmentSet
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireResponse) GetAutomaticGrant() *SignedAutomaticGrant {
+	if x != nil {
+		if x, ok := x.Response.(*RelayWireResponse_AutomaticGrant); ok {
+			return x.AutomaticGrant
+		}
+	}
+	return nil
+}
+
 func (x *RelayWireResponse) GetEndOfStream() bool {
 	if x != nil {
 		return x.EndOfStream
@@ -2348,6 +3251,18 @@ type RelayWireResponse_ApproverKeys struct {
 	ApproverKeys *SignedApproverKeySet `protobuf:"bytes,10,opt,name=approver_keys,json=approverKeys,proto3,oneof"`
 }
 
+type RelayWireResponse_ApproverKeyChain struct {
+	ApproverKeyChain *ApproverKeyChain `protobuf:"bytes,11,opt,name=approver_key_chain,json=approverKeyChain,proto3,oneof"`
+}
+
+type RelayWireResponse_EnrolmentSet struct {
+	EnrolmentSet *SignedEnrolmentSet `protobuf:"bytes,12,opt,name=enrolment_set,json=enrolmentSet,proto3,oneof"`
+}
+
+type RelayWireResponse_AutomaticGrant struct {
+	AutomaticGrant *SignedAutomaticGrant `protobuf:"bytes,13,opt,name=automatic_grant,json=automaticGrant,proto3,oneof"`
+}
+
 func (*RelayWireResponse_Client) isRelayWireResponse_Response() {}
 
 func (*RelayWireResponse_Work) isRelayWireResponse_Response() {}
@@ -2365,6 +3280,12 @@ func (*RelayWireResponse_Error) isRelayWireResponse_Response() {}
 func (*RelayWireResponse_Enrolments) isRelayWireResponse_Response() {}
 
 func (*RelayWireResponse_ApproverKeys) isRelayWireResponse_Response() {}
+
+func (*RelayWireResponse_ApproverKeyChain) isRelayWireResponse_Response() {}
+
+func (*RelayWireResponse_EnrolmentSet) isRelayWireResponse_Response() {}
+
+func (*RelayWireResponse_AutomaticGrant) isRelayWireResponse_Response() {}
 
 var File_agentkeyring_v1_relay_proto protoreflect.FileDescriptor
 
@@ -2450,25 +3371,77 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x14SignedApproverKeySet\x12\x17\n" +
 	"\akey_set\x18\x01 \x01(\fR\x06keySet\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\"\n" +
-	"\rsigner_key_id\x18\x03 \x01(\tR\vsignerKeyId\"v\n" +
+	"\rsigner_key_id\x18\x03 \x01(\tR\vsignerKeyId\"\xa1\x01\n" +
 	"\x0eApproverKeySet\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x120\n" +
-	"\x04keys\x18\x03 \x03(\v2\x1c.agentkeyring.v1.ApproverKeyR\x04keys\"i\n" +
+	"\x04keys\x18\x03 \x03(\v2\x1c.agentkeyring.v1.ApproverKeyR\x04keys\x12)\n" +
+	"\x11rule_owner_key_id\x18\x04 \x01(\tR\x0eruleOwnerKeyId\"A\n" +
+	"\x1aGetApproverKeyChainRequest\x12#\n" +
+	"\rfrom_revision\x18\x01 \x01(\x04R\ffromRevision\"T\n" +
+	"\x10ApproverKeyChain\x12@\n" +
+	"\bkey_sets\x18\x01 \x03(\v2%.agentkeyring.v1.SignedApproverKeySetR\akeySets\"\x85\x01\n" +
+	"\x19SignedPairingConfirmation\x12\"\n" +
+	"\fconfirmation\x18\x01 \x01(\fR\fconfirmation\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\x12&\n" +
+	"\x0fapprover_key_id\x18\x03 \x01(\tR\rapproverKeyId\"\x90\x01\n" +
+	"\x13PairingConfirmation\x12\x16\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\x12+\n" +
+	"\x11transcript_sha256\x18\x02 \x01(\fR\x10transcriptSha256\x124\n" +
+	"\x16confirmed_unix_seconds\x18\x03 \x01(\x03R\x14confirmedUnixSeconds\"\x18\n" +
+	"\x16GetEnrolmentSetRequest\"\x7f\n" +
+	"\x12SignedEnrolmentSet\x12#\n" +
+	"\renrolment_set\x18\x01 \x01(\fR\fenrolmentSet\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\x12&\n" +
+	"\x0fapprover_key_id\x18\x03 \x01(\tR\rapproverKeyId\"\x80\x01\n" +
+	"\fEnrolmentSet\x12\x16\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\x04R\brevision\x12<\n" +
+	"\bmachines\x18\x03 \x03(\v2 .agentkeyring.v1.EnrolledMachineR\bmachines\"\xd3\x02\n" +
+	"\x0fEnrolledMachine\x12!\n" +
+	"\frecipient_id\x18\x01 \x01(\tR\vrecipientId\x12#\n" +
+	"\rmachine_label\x18\x02 \x01(\tR\fmachineLabel\x12!\n" +
+	"\fclient_label\x18\x03 \x01(\tR\vclientLabel\x12*\n" +
+	"\x11tailscale_node_id\x18\x04 \x01(\tR\x0ftailscaleNodeId\x12$\n" +
+	"\x0etls_public_key\x18\x05 \x01(\fR\ftlsPublicKey\x12.\n" +
+	"\x13receiver_public_key\x18\x06 \x01(\fR\x11receiverPublicKey\x12&\n" +
+	"\x0freceiver_key_id\x18\a \x01(\tR\rreceiverKeyId\x12+\n" +
+	"\x11automatic_allowed\x18\b \x01(\bR\x10automaticAllowed\"\x1a\n" +
+	"\x18GetAutomaticGrantRequest\"r\n" +
+	"\x14SignedAutomaticGrant\x12\x14\n" +
+	"\x05grant\x18\x01 \x01(\fR\x05grant\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\x12&\n" +
+	"\x0fapprover_key_id\x18\x03 \x01(\tR\rapproverKeyId\"\xe0\x02\n" +
+	"\x0eAutomaticGrant\x12\x16\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\x04R\brevision\x12?\n" +
+	"\x1cautomatic_signing_public_key\x18\x03 \x01(\fR\x19automaticSigningPublicKey\x12(\n" +
+	"\x10automatic_key_id\x18\x04 \x01(\tR\x0eautomaticKeyId\x12=\n" +
+	"\x1brelay_encryption_public_key\x18\x05 \x01(\fR\x18relayEncryptionPublicKey\x12\x1b\n" +
+	"\tlogin_ids\x18\x06 \x03(\tR\bloginIds\x12#\n" +
+	"\rrecipient_ids\x18\a \x03(\tR\frecipientIds\x12.\n" +
+	"\x13sealed_login_sha256\x18\b \x03(\fR\x11sealedLoginSha256\"i\n" +
 	"\vSignedIndex\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\fR\x05index\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12&\n" +
-	"\x0fapprover_key_id\x18\x03 \x01(\tR\rapproverKeyId\"\x9b\x01\n" +
+	"\x0fapprover_key_id\x18\x03 \x01(\tR\rapproverKeyId\"\xd3\x01\n" +
 	"\n" +
 	"LoginIndex\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x04R\brevision\x12.\n" +
 	"\x06logins\x18\x02 \x03(\v2\x16.agentkeyring.v1.LoginR\x06logins\x12A\n" +
-	"\x1dmirror_refreshed_unix_seconds\x18\x03 \x01(\x03R\x1amirrorRefreshedUnixSeconds\"\xaf\x01\n" +
+	"\x1dmirror_refreshed_unix_seconds\x18\x03 \x01(\x03R\x1amirrorRefreshedUnixSeconds\x126\n" +
+	"\asources\x18\x04 \x03(\v2\x1c.agentkeyring.v1.LoginSourceR\asources\"\xa7\x01\n" +
+	"\vLoginSource\x12\x19\n" +
+	"\blogin_id\x18\x01 \x01(\tR\aloginId\x12\"\n" +
+	"\rapple_item_id\x18\x02 \x01(\fR\vappleItemId\x12(\n" +
+	"\x10apple_account_id\x18\x03 \x01(\fR\x0eappleAccountId\x12/\n" +
+	"\x13exporter_identifier\x18\x04 \x01(\tR\x12exporterIdentifier\"\xec\x01\n" +
 	"\fAutomaticSet\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x04R\brevision\x12=\n" +
 	"\x06logins\x18\x02 \x03(\v2%.agentkeyring.v1.SealedAutomaticLoginR\x06logins\x12\x1c\n" +
 	"\tsignature\x18\x03 \x01(\fR\tsignature\x12&\n" +
-	"\x0fapprover_key_id\x18\x04 \x01(\tR\rapproverKeyId\"h\n" +
+	"\x0fapprover_key_id\x18\x04 \x01(\tR\rapproverKeyId\x12;\n" +
+	"\x05grant\x18\x05 \x01(\v2%.agentkeyring.v1.SignedAutomaticGrantR\x05grant\"h\n" +
 	"\x14SealedAutomaticLogin\x12\x19\n" +
 	"\blogin_id\x18\x01 \x01(\tR\aloginId\x125\n" +
 	"\x06sealed\x18\x02 \x01(\v2\x1d.agentkeyring.v1.SealedBundleR\x06sealed\"\x96\x02\n" +
@@ -2503,7 +3476,7 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\n" +
 	"PublishAck\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
-	"\x06detail\x18\x02 \x01(\tR\x06detail\"\x93\a\n" +
+	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xbe\v\n" +
 	"\x10RelayWireRequest\x126\n" +
 	"\x06client\x18\x01 \x01(\v2\x1c.agentkeyring.v1.WireRequestH\x00R\x06client\x12B\n" +
 	"\n" +
@@ -2518,8 +3491,14 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x0flist_enrolments\x18\n" +
 	" \x01(\v2&.agentkeyring.v1.ListEnrolmentsRequestH\x00R\x0elistEnrolments\x12K\n" +
 	"\rpair_approver\x18\v \x01(\v2$.agentkeyring.v1.PairApproverRequestH\x00R\fpairApprover\x12U\n" +
-	"\x11get_approver_keys\x18\f \x01(\v2'.agentkeyring.v1.GetApproverKeysRequestH\x00R\x0fgetApproverKeysB\t\n" +
-	"\arequest\"\xf4\x04\n" +
+	"\x11get_approver_keys\x18\f \x01(\v2'.agentkeyring.v1.GetApproverKeysRequestH\x00R\x0fgetApproverKeys\x12U\n" +
+	"\x0fconfirm_pairing\x18\r \x01(\v2*.agentkeyring.v1.SignedPairingConfirmationH\x00R\x0econfirmPairing\x12b\n" +
+	"\x16get_approver_key_chain\x18\x0e \x01(\v2+.agentkeyring.v1.GetApproverKeyChainRequestH\x00R\x13getApproverKeyChain\x12Y\n" +
+	"\x15publish_enrolment_set\x18\x0f \x01(\v2#.agentkeyring.v1.SignedEnrolmentSetH\x00R\x13publishEnrolmentSet\x12U\n" +
+	"\x11get_enrolment_set\x18\x10 \x01(\v2'.agentkeyring.v1.GetEnrolmentSetRequestH\x00R\x0fgetEnrolmentSet\x12_\n" +
+	"\x17publish_automatic_grant\x18\x11 \x01(\v2%.agentkeyring.v1.SignedAutomaticGrantH\x00R\x15publishAutomaticGrant\x12[\n" +
+	"\x13get_automatic_grant\x18\x12 \x01(\v2).agentkeyring.v1.GetAutomaticGrantRequestH\x00R\x11getAutomaticGrantB\t\n" +
+	"\arequest\"\xe5\x06\n" +
 	"\x11RelayWireResponse\x127\n" +
 	"\x06client\x18\x01 \x01(\v2\x1d.agentkeyring.v1.WireResponseH\x00R\x06client\x123\n" +
 	"\x04work\x18\x02 \x01(\v2\x1d.agentkeyring.v1.ApproverWorkH\x00R\x04work\x12:\n" +
@@ -2532,7 +3511,10 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"enrolments\x18\t \x01(\v2'.agentkeyring.v1.ListEnrolmentsResponseH\x00R\n" +
 	"enrolments\x12L\n" +
 	"\rapprover_keys\x18\n" +
-	" \x01(\v2%.agentkeyring.v1.SignedApproverKeySetH\x00R\fapproverKeys\x12\"\n" +
+	" \x01(\v2%.agentkeyring.v1.SignedApproverKeySetH\x00R\fapproverKeys\x12Q\n" +
+	"\x12approver_key_chain\x18\v \x01(\v2!.agentkeyring.v1.ApproverKeyChainH\x00R\x10approverKeyChain\x12J\n" +
+	"\renrolment_set\x18\f \x01(\v2#.agentkeyring.v1.SignedEnrolmentSetH\x00R\fenrolmentSet\x12P\n" +
+	"\x0fautomatic_grant\x18\r \x01(\v2%.agentkeyring.v1.SignedAutomaticGrantH\x00R\x0eautomaticGrant\x12\"\n" +
 	"\rend_of_stream\x18\b \x01(\bR\vendOfStreamB\n" +
 	"\n" +
 	"\bresponse*\x8d\x01\n" +
@@ -2547,7 +3529,7 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x1cENROLMENT_CHOICE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18ENROLMENT_CHOICE_APPROVE\x10\x01\x12\x19\n" +
 	"\x15ENROLMENT_CHOICE_DENY\x10\x02\x12\x1b\n" +
-	"\x17ENROLMENT_CHOICE_REVOKE\x10\x032\xaa\x05\n" +
+	"\x17ENROLMENT_CHOICE_REVOKE\x10\x032\xc1\a\n" +
 	"\tApprovals\x12O\n" +
 	"\tWatchWork\x12!.agentkeyring.v1.WatchWorkRequest\x1a\x1d.agentkeyring.v1.ApproverWork0\x01\x12G\n" +
 	"\x06Decide\x12\x1f.agentkeyring.v1.SignedDecision\x1a\x1c.agentkeyring.v1.DecisionAck\x12Z\n" +
@@ -2556,11 +3538,17 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x10PublishAutomatic\x12\x1d.agentkeyring.v1.AutomaticSet\x1a\x1b.agentkeyring.v1.PublishAck\x12N\n" +
 	"\fRegisterPush\x12!.agentkeyring.v1.PushRegistration\x1a\x1b.agentkeyring.v1.PublishAck\x12Y\n" +
 	"\x13PublishApproverKeys\x12%.agentkeyring.v1.SignedApproverKeySet\x1a\x1b.agentkeyring.v1.PublishAck\x12a\n" +
-	"\x0eListEnrolments\x12&.agentkeyring.v1.ListEnrolmentsRequest\x1a'.agentkeyring.v1.ListEnrolmentsResponse2\x8c\x02\n" +
+	"\x0eListEnrolments\x12&.agentkeyring.v1.ListEnrolmentsRequest\x1a'.agentkeyring.v1.ListEnrolmentsResponse\x12W\n" +
+	"\x13PublishEnrolmentSet\x12#.agentkeyring.v1.SignedEnrolmentSet\x1a\x1b.agentkeyring.v1.PublishAck\x12_\n" +
+	"\x0fGetEnrolmentSet\x12'.agentkeyring.v1.GetEnrolmentSetRequest\x1a#.agentkeyring.v1.SignedEnrolmentSet\x12[\n" +
+	"\x15PublishAutomaticGrant\x12%.agentkeyring.v1.SignedAutomaticGrant\x1a\x1b.agentkeyring.v1.PublishAck2\xb7\x04\n" +
 	"\tEnrolment\x12F\n" +
 	"\x05Enrol\x12\x1d.agentkeyring.v1.EnrolRequest\x1a\x1c.agentkeyring.v1.EnrolStatus0\x01\x12T\n" +
 	"\fPairApprover\x12$.agentkeyring.v1.PairApproverRequest\x1a\x1c.agentkeyring.v1.EnrolStatus0\x01\x12a\n" +
-	"\x0fGetApproverKeys\x12'.agentkeyring.v1.GetApproverKeysRequest\x1a%.agentkeyring.v1.SignedApproverKeySetBIZGgithub.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1b\x06proto3"
+	"\x0fGetApproverKeys\x12'.agentkeyring.v1.GetApproverKeysRequest\x1a%.agentkeyring.v1.SignedApproverKeySet\x12[\n" +
+	"\x0eConfirmPairing\x12*.agentkeyring.v1.SignedPairingConfirmation\x1a\x1d.agentkeyring.v1.EnrolmentAck\x12e\n" +
+	"\x13GetApproverKeyChain\x12+.agentkeyring.v1.GetApproverKeyChainRequest\x1a!.agentkeyring.v1.ApproverKeyChain\x12e\n" +
+	"\x11GetAutomaticGrant\x12).agentkeyring.v1.GetAutomaticGrantRequest\x1a%.agentkeyring.v1.SignedAutomaticGrantBIZGgithub.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1b\x06proto3"
 
 var (
 	file_agentkeyring_v1_relay_proto_rawDescOnce sync.Once
@@ -2575,113 +3563,150 @@ func file_agentkeyring_v1_relay_proto_rawDescGZIP() []byte {
 }
 
 var file_agentkeyring_v1_relay_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agentkeyring_v1_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_agentkeyring_v1_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_agentkeyring_v1_relay_proto_goTypes = []any{
-	(EnrolState)(0),                 // 0: agentkeyring.v1.EnrolState
-	(EnrolmentChoice)(0),            // 1: agentkeyring.v1.EnrolmentChoice
-	(*WatchWorkRequest)(nil),        // 2: agentkeyring.v1.WatchWorkRequest
-	(*ApproverWork)(nil),            // 3: agentkeyring.v1.ApproverWork
-	(*PendingRequest)(nil),          // 4: agentkeyring.v1.PendingRequest
-	(*RequestRecord)(nil),           // 5: agentkeyring.v1.RequestRecord
-	(*DecisionAck)(nil),             // 6: agentkeyring.v1.DecisionAck
-	(*EnrolRequest)(nil),            // 7: agentkeyring.v1.EnrolRequest
-	(*EnrolStatus)(nil),             // 8: agentkeyring.v1.EnrolStatus
-	(*PendingEnrolment)(nil),        // 9: agentkeyring.v1.PendingEnrolment
-	(*EnrolmentRecord)(nil),         // 10: agentkeyring.v1.EnrolmentRecord
-	(*SignedEnrolmentDecision)(nil), // 11: agentkeyring.v1.SignedEnrolmentDecision
-	(*EnrolmentStatement)(nil),      // 12: agentkeyring.v1.EnrolmentStatement
-	(*EnrolmentAck)(nil),            // 13: agentkeyring.v1.EnrolmentAck
-	(*ApproverKey)(nil),             // 14: agentkeyring.v1.ApproverKey
-	(*SignedApproverKeySet)(nil),    // 15: agentkeyring.v1.SignedApproverKeySet
-	(*ApproverKeySet)(nil),          // 16: agentkeyring.v1.ApproverKeySet
-	(*SignedIndex)(nil),             // 17: agentkeyring.v1.SignedIndex
-	(*LoginIndex)(nil),              // 18: agentkeyring.v1.LoginIndex
-	(*AutomaticSet)(nil),            // 19: agentkeyring.v1.AutomaticSet
-	(*SealedAutomaticLogin)(nil),    // 20: agentkeyring.v1.SealedAutomaticLogin
-	(*AutomaticLoginContents)(nil),  // 21: agentkeyring.v1.AutomaticLoginContents
-	(*PairApproverRequest)(nil),     // 22: agentkeyring.v1.PairApproverRequest
-	(*GetApproverKeysRequest)(nil),  // 23: agentkeyring.v1.GetApproverKeysRequest
-	(*ListEnrolmentsRequest)(nil),   // 24: agentkeyring.v1.ListEnrolmentsRequest
-	(*ListEnrolmentsResponse)(nil),  // 25: agentkeyring.v1.ListEnrolmentsResponse
-	(*ApprovedEnrolment)(nil),       // 26: agentkeyring.v1.ApprovedEnrolment
-	(*PushRegistration)(nil),        // 27: agentkeyring.v1.PushRegistration
-	(*PublishAck)(nil),              // 28: agentkeyring.v1.PublishAck
-	(*RelayWireRequest)(nil),        // 29: agentkeyring.v1.RelayWireRequest
-	(*RelayWireResponse)(nil),       // 30: agentkeyring.v1.RelayWireResponse
-	(Purpose)(0),                    // 31: agentkeyring.v1.Purpose
-	(*ProgramCommand)(nil),          // 32: agentkeyring.v1.ProgramCommand
-	(*Lease)(nil),                   // 33: agentkeyring.v1.Lease
-	(*Login)(nil),                   // 34: agentkeyring.v1.Login
-	(*SealedBundle)(nil),            // 35: agentkeyring.v1.SealedBundle
-	(*WireRequest)(nil),             // 36: agentkeyring.v1.WireRequest
-	(*SignedDecision)(nil),          // 37: agentkeyring.v1.SignedDecision
-	(*WireResponse)(nil),            // 38: agentkeyring.v1.WireResponse
-	(*RpcError)(nil),                // 39: agentkeyring.v1.RpcError
+	(EnrolState)(0),                    // 0: agentkeyring.v1.EnrolState
+	(EnrolmentChoice)(0),               // 1: agentkeyring.v1.EnrolmentChoice
+	(*WatchWorkRequest)(nil),           // 2: agentkeyring.v1.WatchWorkRequest
+	(*ApproverWork)(nil),               // 3: agentkeyring.v1.ApproverWork
+	(*PendingRequest)(nil),             // 4: agentkeyring.v1.PendingRequest
+	(*RequestRecord)(nil),              // 5: agentkeyring.v1.RequestRecord
+	(*DecisionAck)(nil),                // 6: agentkeyring.v1.DecisionAck
+	(*EnrolRequest)(nil),               // 7: agentkeyring.v1.EnrolRequest
+	(*EnrolStatus)(nil),                // 8: agentkeyring.v1.EnrolStatus
+	(*PendingEnrolment)(nil),           // 9: agentkeyring.v1.PendingEnrolment
+	(*EnrolmentRecord)(nil),            // 10: agentkeyring.v1.EnrolmentRecord
+	(*SignedEnrolmentDecision)(nil),    // 11: agentkeyring.v1.SignedEnrolmentDecision
+	(*EnrolmentStatement)(nil),         // 12: agentkeyring.v1.EnrolmentStatement
+	(*EnrolmentAck)(nil),               // 13: agentkeyring.v1.EnrolmentAck
+	(*ApproverKey)(nil),                // 14: agentkeyring.v1.ApproverKey
+	(*SignedApproverKeySet)(nil),       // 15: agentkeyring.v1.SignedApproverKeySet
+	(*ApproverKeySet)(nil),             // 16: agentkeyring.v1.ApproverKeySet
+	(*GetApproverKeyChainRequest)(nil), // 17: agentkeyring.v1.GetApproverKeyChainRequest
+	(*ApproverKeyChain)(nil),           // 18: agentkeyring.v1.ApproverKeyChain
+	(*SignedPairingConfirmation)(nil),  // 19: agentkeyring.v1.SignedPairingConfirmation
+	(*PairingConfirmation)(nil),        // 20: agentkeyring.v1.PairingConfirmation
+	(*GetEnrolmentSetRequest)(nil),     // 21: agentkeyring.v1.GetEnrolmentSetRequest
+	(*SignedEnrolmentSet)(nil),         // 22: agentkeyring.v1.SignedEnrolmentSet
+	(*EnrolmentSet)(nil),               // 23: agentkeyring.v1.EnrolmentSet
+	(*EnrolledMachine)(nil),            // 24: agentkeyring.v1.EnrolledMachine
+	(*GetAutomaticGrantRequest)(nil),   // 25: agentkeyring.v1.GetAutomaticGrantRequest
+	(*SignedAutomaticGrant)(nil),       // 26: agentkeyring.v1.SignedAutomaticGrant
+	(*AutomaticGrant)(nil),             // 27: agentkeyring.v1.AutomaticGrant
+	(*SignedIndex)(nil),                // 28: agentkeyring.v1.SignedIndex
+	(*LoginIndex)(nil),                 // 29: agentkeyring.v1.LoginIndex
+	(*LoginSource)(nil),                // 30: agentkeyring.v1.LoginSource
+	(*AutomaticSet)(nil),               // 31: agentkeyring.v1.AutomaticSet
+	(*SealedAutomaticLogin)(nil),       // 32: agentkeyring.v1.SealedAutomaticLogin
+	(*AutomaticLoginContents)(nil),     // 33: agentkeyring.v1.AutomaticLoginContents
+	(*PairApproverRequest)(nil),        // 34: agentkeyring.v1.PairApproverRequest
+	(*GetApproverKeysRequest)(nil),     // 35: agentkeyring.v1.GetApproverKeysRequest
+	(*ListEnrolmentsRequest)(nil),      // 36: agentkeyring.v1.ListEnrolmentsRequest
+	(*ListEnrolmentsResponse)(nil),     // 37: agentkeyring.v1.ListEnrolmentsResponse
+	(*ApprovedEnrolment)(nil),          // 38: agentkeyring.v1.ApprovedEnrolment
+	(*PushRegistration)(nil),           // 39: agentkeyring.v1.PushRegistration
+	(*PublishAck)(nil),                 // 40: agentkeyring.v1.PublishAck
+	(*RelayWireRequest)(nil),           // 41: agentkeyring.v1.RelayWireRequest
+	(*RelayWireResponse)(nil),          // 42: agentkeyring.v1.RelayWireResponse
+	(Purpose)(0),                       // 43: agentkeyring.v1.Purpose
+	(*ProgramCommand)(nil),             // 44: agentkeyring.v1.ProgramCommand
+	(*Lease)(nil),                      // 45: agentkeyring.v1.Lease
+	(*Login)(nil),                      // 46: agentkeyring.v1.Login
+	(*SealedBundle)(nil),               // 47: agentkeyring.v1.SealedBundle
+	(*WireRequest)(nil),                // 48: agentkeyring.v1.WireRequest
+	(*SignedDecision)(nil),             // 49: agentkeyring.v1.SignedDecision
+	(*WireResponse)(nil),               // 50: agentkeyring.v1.WireResponse
+	(*RpcError)(nil),                   // 51: agentkeyring.v1.RpcError
 }
 var file_agentkeyring_v1_relay_proto_depIdxs = []int32{
 	4,  // 0: agentkeyring.v1.ApproverWork.request:type_name -> agentkeyring.v1.PendingRequest
 	9,  // 1: agentkeyring.v1.ApproverWork.enrolment:type_name -> agentkeyring.v1.PendingEnrolment
-	31, // 2: agentkeyring.v1.RequestRecord.purpose:type_name -> agentkeyring.v1.Purpose
-	32, // 3: agentkeyring.v1.RequestRecord.program:type_name -> agentkeyring.v1.ProgramCommand
-	33, // 4: agentkeyring.v1.DecisionAck.lease:type_name -> agentkeyring.v1.Lease
+	43, // 2: agentkeyring.v1.RequestRecord.purpose:type_name -> agentkeyring.v1.Purpose
+	44, // 3: agentkeyring.v1.RequestRecord.program:type_name -> agentkeyring.v1.ProgramCommand
+	45, // 4: agentkeyring.v1.DecisionAck.lease:type_name -> agentkeyring.v1.Lease
 	0,  // 5: agentkeyring.v1.EnrolStatus.state:type_name -> agentkeyring.v1.EnrolState
 	14, // 6: agentkeyring.v1.EnrolStatus.approver_keys:type_name -> agentkeyring.v1.ApproverKey
 	1,  // 7: agentkeyring.v1.EnrolmentStatement.choice:type_name -> agentkeyring.v1.EnrolmentChoice
 	14, // 8: agentkeyring.v1.ApproverKeySet.keys:type_name -> agentkeyring.v1.ApproverKey
-	34, // 9: agentkeyring.v1.LoginIndex.logins:type_name -> agentkeyring.v1.Login
-	20, // 10: agentkeyring.v1.AutomaticSet.logins:type_name -> agentkeyring.v1.SealedAutomaticLogin
-	35, // 11: agentkeyring.v1.SealedAutomaticLogin.sealed:type_name -> agentkeyring.v1.SealedBundle
-	14, // 12: agentkeyring.v1.PairApproverRequest.key:type_name -> agentkeyring.v1.ApproverKey
-	26, // 13: agentkeyring.v1.ListEnrolmentsResponse.enrolments:type_name -> agentkeyring.v1.ApprovedEnrolment
-	11, // 14: agentkeyring.v1.ApprovedEnrolment.decision:type_name -> agentkeyring.v1.SignedEnrolmentDecision
-	36, // 15: agentkeyring.v1.RelayWireRequest.client:type_name -> agentkeyring.v1.WireRequest
-	2,  // 16: agentkeyring.v1.RelayWireRequest.watch_work:type_name -> agentkeyring.v1.WatchWorkRequest
-	37, // 17: agentkeyring.v1.RelayWireRequest.decide:type_name -> agentkeyring.v1.SignedDecision
-	11, // 18: agentkeyring.v1.RelayWireRequest.decide_enrolment:type_name -> agentkeyring.v1.SignedEnrolmentDecision
-	17, // 19: agentkeyring.v1.RelayWireRequest.publish_index:type_name -> agentkeyring.v1.SignedIndex
-	19, // 20: agentkeyring.v1.RelayWireRequest.publish_automatic:type_name -> agentkeyring.v1.AutomaticSet
-	27, // 21: agentkeyring.v1.RelayWireRequest.register_push:type_name -> agentkeyring.v1.PushRegistration
-	7,  // 22: agentkeyring.v1.RelayWireRequest.enrol:type_name -> agentkeyring.v1.EnrolRequest
-	15, // 23: agentkeyring.v1.RelayWireRequest.publish_approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
-	24, // 24: agentkeyring.v1.RelayWireRequest.list_enrolments:type_name -> agentkeyring.v1.ListEnrolmentsRequest
-	22, // 25: agentkeyring.v1.RelayWireRequest.pair_approver:type_name -> agentkeyring.v1.PairApproverRequest
-	23, // 26: agentkeyring.v1.RelayWireRequest.get_approver_keys:type_name -> agentkeyring.v1.GetApproverKeysRequest
-	38, // 27: agentkeyring.v1.RelayWireResponse.client:type_name -> agentkeyring.v1.WireResponse
-	3,  // 28: agentkeyring.v1.RelayWireResponse.work:type_name -> agentkeyring.v1.ApproverWork
-	6,  // 29: agentkeyring.v1.RelayWireResponse.decision:type_name -> agentkeyring.v1.DecisionAck
-	13, // 30: agentkeyring.v1.RelayWireResponse.enrolment:type_name -> agentkeyring.v1.EnrolmentAck
-	28, // 31: agentkeyring.v1.RelayWireResponse.publish:type_name -> agentkeyring.v1.PublishAck
-	8,  // 32: agentkeyring.v1.RelayWireResponse.enrol_status:type_name -> agentkeyring.v1.EnrolStatus
-	39, // 33: agentkeyring.v1.RelayWireResponse.error:type_name -> agentkeyring.v1.RpcError
-	25, // 34: agentkeyring.v1.RelayWireResponse.enrolments:type_name -> agentkeyring.v1.ListEnrolmentsResponse
-	15, // 35: agentkeyring.v1.RelayWireResponse.approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
-	2,  // 36: agentkeyring.v1.Approvals.WatchWork:input_type -> agentkeyring.v1.WatchWorkRequest
-	37, // 37: agentkeyring.v1.Approvals.Decide:input_type -> agentkeyring.v1.SignedDecision
-	11, // 38: agentkeyring.v1.Approvals.DecideEnrolment:input_type -> agentkeyring.v1.SignedEnrolmentDecision
-	17, // 39: agentkeyring.v1.Approvals.PublishIndex:input_type -> agentkeyring.v1.SignedIndex
-	19, // 40: agentkeyring.v1.Approvals.PublishAutomatic:input_type -> agentkeyring.v1.AutomaticSet
-	27, // 41: agentkeyring.v1.Approvals.RegisterPush:input_type -> agentkeyring.v1.PushRegistration
-	15, // 42: agentkeyring.v1.Approvals.PublishApproverKeys:input_type -> agentkeyring.v1.SignedApproverKeySet
-	24, // 43: agentkeyring.v1.Approvals.ListEnrolments:input_type -> agentkeyring.v1.ListEnrolmentsRequest
-	7,  // 44: agentkeyring.v1.Enrolment.Enrol:input_type -> agentkeyring.v1.EnrolRequest
-	22, // 45: agentkeyring.v1.Enrolment.PairApprover:input_type -> agentkeyring.v1.PairApproverRequest
-	23, // 46: agentkeyring.v1.Enrolment.GetApproverKeys:input_type -> agentkeyring.v1.GetApproverKeysRequest
-	3,  // 47: agentkeyring.v1.Approvals.WatchWork:output_type -> agentkeyring.v1.ApproverWork
-	6,  // 48: agentkeyring.v1.Approvals.Decide:output_type -> agentkeyring.v1.DecisionAck
-	13, // 49: agentkeyring.v1.Approvals.DecideEnrolment:output_type -> agentkeyring.v1.EnrolmentAck
-	28, // 50: agentkeyring.v1.Approvals.PublishIndex:output_type -> agentkeyring.v1.PublishAck
-	28, // 51: agentkeyring.v1.Approvals.PublishAutomatic:output_type -> agentkeyring.v1.PublishAck
-	28, // 52: agentkeyring.v1.Approvals.RegisterPush:output_type -> agentkeyring.v1.PublishAck
-	28, // 53: agentkeyring.v1.Approvals.PublishApproverKeys:output_type -> agentkeyring.v1.PublishAck
-	25, // 54: agentkeyring.v1.Approvals.ListEnrolments:output_type -> agentkeyring.v1.ListEnrolmentsResponse
-	8,  // 55: agentkeyring.v1.Enrolment.Enrol:output_type -> agentkeyring.v1.EnrolStatus
-	8,  // 56: agentkeyring.v1.Enrolment.PairApprover:output_type -> agentkeyring.v1.EnrolStatus
-	15, // 57: agentkeyring.v1.Enrolment.GetApproverKeys:output_type -> agentkeyring.v1.SignedApproverKeySet
-	47, // [47:58] is the sub-list for method output_type
-	36, // [36:47] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	15, // 9: agentkeyring.v1.ApproverKeyChain.key_sets:type_name -> agentkeyring.v1.SignedApproverKeySet
+	24, // 10: agentkeyring.v1.EnrolmentSet.machines:type_name -> agentkeyring.v1.EnrolledMachine
+	46, // 11: agentkeyring.v1.LoginIndex.logins:type_name -> agentkeyring.v1.Login
+	30, // 12: agentkeyring.v1.LoginIndex.sources:type_name -> agentkeyring.v1.LoginSource
+	32, // 13: agentkeyring.v1.AutomaticSet.logins:type_name -> agentkeyring.v1.SealedAutomaticLogin
+	26, // 14: agentkeyring.v1.AutomaticSet.grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
+	47, // 15: agentkeyring.v1.SealedAutomaticLogin.sealed:type_name -> agentkeyring.v1.SealedBundle
+	14, // 16: agentkeyring.v1.PairApproverRequest.key:type_name -> agentkeyring.v1.ApproverKey
+	38, // 17: agentkeyring.v1.ListEnrolmentsResponse.enrolments:type_name -> agentkeyring.v1.ApprovedEnrolment
+	11, // 18: agentkeyring.v1.ApprovedEnrolment.decision:type_name -> agentkeyring.v1.SignedEnrolmentDecision
+	48, // 19: agentkeyring.v1.RelayWireRequest.client:type_name -> agentkeyring.v1.WireRequest
+	2,  // 20: agentkeyring.v1.RelayWireRequest.watch_work:type_name -> agentkeyring.v1.WatchWorkRequest
+	49, // 21: agentkeyring.v1.RelayWireRequest.decide:type_name -> agentkeyring.v1.SignedDecision
+	11, // 22: agentkeyring.v1.RelayWireRequest.decide_enrolment:type_name -> agentkeyring.v1.SignedEnrolmentDecision
+	28, // 23: agentkeyring.v1.RelayWireRequest.publish_index:type_name -> agentkeyring.v1.SignedIndex
+	31, // 24: agentkeyring.v1.RelayWireRequest.publish_automatic:type_name -> agentkeyring.v1.AutomaticSet
+	39, // 25: agentkeyring.v1.RelayWireRequest.register_push:type_name -> agentkeyring.v1.PushRegistration
+	7,  // 26: agentkeyring.v1.RelayWireRequest.enrol:type_name -> agentkeyring.v1.EnrolRequest
+	15, // 27: agentkeyring.v1.RelayWireRequest.publish_approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
+	36, // 28: agentkeyring.v1.RelayWireRequest.list_enrolments:type_name -> agentkeyring.v1.ListEnrolmentsRequest
+	34, // 29: agentkeyring.v1.RelayWireRequest.pair_approver:type_name -> agentkeyring.v1.PairApproverRequest
+	35, // 30: agentkeyring.v1.RelayWireRequest.get_approver_keys:type_name -> agentkeyring.v1.GetApproverKeysRequest
+	19, // 31: agentkeyring.v1.RelayWireRequest.confirm_pairing:type_name -> agentkeyring.v1.SignedPairingConfirmation
+	17, // 32: agentkeyring.v1.RelayWireRequest.get_approver_key_chain:type_name -> agentkeyring.v1.GetApproverKeyChainRequest
+	22, // 33: agentkeyring.v1.RelayWireRequest.publish_enrolment_set:type_name -> agentkeyring.v1.SignedEnrolmentSet
+	21, // 34: agentkeyring.v1.RelayWireRequest.get_enrolment_set:type_name -> agentkeyring.v1.GetEnrolmentSetRequest
+	26, // 35: agentkeyring.v1.RelayWireRequest.publish_automatic_grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
+	25, // 36: agentkeyring.v1.RelayWireRequest.get_automatic_grant:type_name -> agentkeyring.v1.GetAutomaticGrantRequest
+	50, // 37: agentkeyring.v1.RelayWireResponse.client:type_name -> agentkeyring.v1.WireResponse
+	3,  // 38: agentkeyring.v1.RelayWireResponse.work:type_name -> agentkeyring.v1.ApproverWork
+	6,  // 39: agentkeyring.v1.RelayWireResponse.decision:type_name -> agentkeyring.v1.DecisionAck
+	13, // 40: agentkeyring.v1.RelayWireResponse.enrolment:type_name -> agentkeyring.v1.EnrolmentAck
+	40, // 41: agentkeyring.v1.RelayWireResponse.publish:type_name -> agentkeyring.v1.PublishAck
+	8,  // 42: agentkeyring.v1.RelayWireResponse.enrol_status:type_name -> agentkeyring.v1.EnrolStatus
+	51, // 43: agentkeyring.v1.RelayWireResponse.error:type_name -> agentkeyring.v1.RpcError
+	37, // 44: agentkeyring.v1.RelayWireResponse.enrolments:type_name -> agentkeyring.v1.ListEnrolmentsResponse
+	15, // 45: agentkeyring.v1.RelayWireResponse.approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
+	18, // 46: agentkeyring.v1.RelayWireResponse.approver_key_chain:type_name -> agentkeyring.v1.ApproverKeyChain
+	22, // 47: agentkeyring.v1.RelayWireResponse.enrolment_set:type_name -> agentkeyring.v1.SignedEnrolmentSet
+	26, // 48: agentkeyring.v1.RelayWireResponse.automatic_grant:type_name -> agentkeyring.v1.SignedAutomaticGrant
+	2,  // 49: agentkeyring.v1.Approvals.WatchWork:input_type -> agentkeyring.v1.WatchWorkRequest
+	49, // 50: agentkeyring.v1.Approvals.Decide:input_type -> agentkeyring.v1.SignedDecision
+	11, // 51: agentkeyring.v1.Approvals.DecideEnrolment:input_type -> agentkeyring.v1.SignedEnrolmentDecision
+	28, // 52: agentkeyring.v1.Approvals.PublishIndex:input_type -> agentkeyring.v1.SignedIndex
+	31, // 53: agentkeyring.v1.Approvals.PublishAutomatic:input_type -> agentkeyring.v1.AutomaticSet
+	39, // 54: agentkeyring.v1.Approvals.RegisterPush:input_type -> agentkeyring.v1.PushRegistration
+	15, // 55: agentkeyring.v1.Approvals.PublishApproverKeys:input_type -> agentkeyring.v1.SignedApproverKeySet
+	36, // 56: agentkeyring.v1.Approvals.ListEnrolments:input_type -> agentkeyring.v1.ListEnrolmentsRequest
+	22, // 57: agentkeyring.v1.Approvals.PublishEnrolmentSet:input_type -> agentkeyring.v1.SignedEnrolmentSet
+	21, // 58: agentkeyring.v1.Approvals.GetEnrolmentSet:input_type -> agentkeyring.v1.GetEnrolmentSetRequest
+	26, // 59: agentkeyring.v1.Approvals.PublishAutomaticGrant:input_type -> agentkeyring.v1.SignedAutomaticGrant
+	7,  // 60: agentkeyring.v1.Enrolment.Enrol:input_type -> agentkeyring.v1.EnrolRequest
+	34, // 61: agentkeyring.v1.Enrolment.PairApprover:input_type -> agentkeyring.v1.PairApproverRequest
+	35, // 62: agentkeyring.v1.Enrolment.GetApproverKeys:input_type -> agentkeyring.v1.GetApproverKeysRequest
+	19, // 63: agentkeyring.v1.Enrolment.ConfirmPairing:input_type -> agentkeyring.v1.SignedPairingConfirmation
+	17, // 64: agentkeyring.v1.Enrolment.GetApproverKeyChain:input_type -> agentkeyring.v1.GetApproverKeyChainRequest
+	25, // 65: agentkeyring.v1.Enrolment.GetAutomaticGrant:input_type -> agentkeyring.v1.GetAutomaticGrantRequest
+	3,  // 66: agentkeyring.v1.Approvals.WatchWork:output_type -> agentkeyring.v1.ApproverWork
+	6,  // 67: agentkeyring.v1.Approvals.Decide:output_type -> agentkeyring.v1.DecisionAck
+	13, // 68: agentkeyring.v1.Approvals.DecideEnrolment:output_type -> agentkeyring.v1.EnrolmentAck
+	40, // 69: agentkeyring.v1.Approvals.PublishIndex:output_type -> agentkeyring.v1.PublishAck
+	40, // 70: agentkeyring.v1.Approvals.PublishAutomatic:output_type -> agentkeyring.v1.PublishAck
+	40, // 71: agentkeyring.v1.Approvals.RegisterPush:output_type -> agentkeyring.v1.PublishAck
+	40, // 72: agentkeyring.v1.Approvals.PublishApproverKeys:output_type -> agentkeyring.v1.PublishAck
+	37, // 73: agentkeyring.v1.Approvals.ListEnrolments:output_type -> agentkeyring.v1.ListEnrolmentsResponse
+	40, // 74: agentkeyring.v1.Approvals.PublishEnrolmentSet:output_type -> agentkeyring.v1.PublishAck
+	22, // 75: agentkeyring.v1.Approvals.GetEnrolmentSet:output_type -> agentkeyring.v1.SignedEnrolmentSet
+	40, // 76: agentkeyring.v1.Approvals.PublishAutomaticGrant:output_type -> agentkeyring.v1.PublishAck
+	8,  // 77: agentkeyring.v1.Enrolment.Enrol:output_type -> agentkeyring.v1.EnrolStatus
+	8,  // 78: agentkeyring.v1.Enrolment.PairApprover:output_type -> agentkeyring.v1.EnrolStatus
+	15, // 79: agentkeyring.v1.Enrolment.GetApproverKeys:output_type -> agentkeyring.v1.SignedApproverKeySet
+	13, // 80: agentkeyring.v1.Enrolment.ConfirmPairing:output_type -> agentkeyring.v1.EnrolmentAck
+	18, // 81: agentkeyring.v1.Enrolment.GetApproverKeyChain:output_type -> agentkeyring.v1.ApproverKeyChain
+	26, // 82: agentkeyring.v1.Enrolment.GetAutomaticGrant:output_type -> agentkeyring.v1.SignedAutomaticGrant
+	66, // [66:83] is the sub-list for method output_type
+	49, // [49:66] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v1_relay_proto_init() }
@@ -2696,8 +3721,8 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*ApproverWork_Enrolment)(nil),
 		(*ApproverWork_CancelledRequestDigestHex)(nil),
 	}
-	file_agentkeyring_v1_relay_proto_msgTypes[25].OneofWrappers = []any{}
-	file_agentkeyring_v1_relay_proto_msgTypes[27].OneofWrappers = []any{
+	file_agentkeyring_v1_relay_proto_msgTypes[37].OneofWrappers = []any{}
+	file_agentkeyring_v1_relay_proto_msgTypes[39].OneofWrappers = []any{
 		(*RelayWireRequest_Client)(nil),
 		(*RelayWireRequest_WatchWork)(nil),
 		(*RelayWireRequest_Decide)(nil),
@@ -2710,8 +3735,14 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*RelayWireRequest_ListEnrolments)(nil),
 		(*RelayWireRequest_PairApprover)(nil),
 		(*RelayWireRequest_GetApproverKeys)(nil),
+		(*RelayWireRequest_ConfirmPairing)(nil),
+		(*RelayWireRequest_GetApproverKeyChain)(nil),
+		(*RelayWireRequest_PublishEnrolmentSet)(nil),
+		(*RelayWireRequest_GetEnrolmentSet)(nil),
+		(*RelayWireRequest_PublishAutomaticGrant)(nil),
+		(*RelayWireRequest_GetAutomaticGrant)(nil),
 	}
-	file_agentkeyring_v1_relay_proto_msgTypes[28].OneofWrappers = []any{
+	file_agentkeyring_v1_relay_proto_msgTypes[40].OneofWrappers = []any{
 		(*RelayWireResponse_Client)(nil),
 		(*RelayWireResponse_Work)(nil),
 		(*RelayWireResponse_Decision)(nil),
@@ -2721,6 +3752,9 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*RelayWireResponse_Error)(nil),
 		(*RelayWireResponse_Enrolments)(nil),
 		(*RelayWireResponse_ApproverKeys)(nil),
+		(*RelayWireResponse_ApproverKeyChain)(nil),
+		(*RelayWireResponse_EnrolmentSet)(nil),
+		(*RelayWireResponse_AutomaticGrant)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2728,7 +3762,7 @@ func file_agentkeyring_v1_relay_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentkeyring_v1_relay_proto_rawDesc), len(file_agentkeyring_v1_relay_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   29,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

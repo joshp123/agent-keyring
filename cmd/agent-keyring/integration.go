@@ -1,0 +1,153 @@
+// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+)
+
+func contentsPath() string {
+	executable, e := os.Executable()
+	if e != nil {
+		return ""
+	}
+	executable, e = filepath.EvalSymlinks(executable)
+	if e != nil {
+		return ""
+	}
+	directory := filepath.Dir(executable)
+	if filepath.Base(directory) == "Helpers" && filepath.Base(filepath.Dir(directory)) == "Contents" {
+		return filepath.Dir(directory)
+	}
+	return ""
+}
+func bundleID(contents string) string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	data, err := exec.Command("/usr/bin/plutil", "-extract", "CFBundleIdentifier", "raw", "-o", "-", filepath.Join(contents, "Info.plist")).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+func socketPath() string {
+	if override := os.Getenv("AGENT_KEYRING_SOCKET"); override != "" {
+		return override
+	}
+	contents := contentsPath()
+	if contents == "" {
+		contents = "/Applications/AgentKeyring.app/Contents"
+	}
+	id := bundleID(contents)
+	if id == "" {
+		id = "com.joshpalmer.AgentKeyring"
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "Library/Containers", id, "Data/agent.sock")
+}
+func skillPath() (string, error) {
+	if contents := contentsPath(); contents != "" {
+		path := filepath.Join(contents, "Resources/AgentTools/AgentSkill/agent-keyring/SKILL.md")
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+		return "", errors.New("This app is missing its agent skill. Rebuild or update Agent Keyring with its AgentSkill resource.")
+	}
+	// Development binaries use the canonical source file; release bundles always
+	// read their own resource, so replacing the prose never changes Go source.
+	executable, _ := os.Executable()
+	for directory := filepath.Dir(executable); directory != "/" && directory != "."; directory = filepath.Dir(directory) {
+		path := filepath.Join(directory, "AgentSkill/agent-keyring/SKILL.md")
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	return "", errors.New("The bundled skill is missing. Run this command from AgentKeyring.app or rebuild the app with its AgentSkill resource.")
+}
+func integration(command string) error {
+	source, err := skillPath()
+	if err != nil {
+		return err
+	}
+	if command == "skill" {
+		data, e := os.ReadFile(source)
+		if e != nil {
+			return e
+		}
+		_, e = os.Stdout.Write(data)
+		return e
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	destinations := []struct {
+		source, destination string
+		preserve            bool
+	}{{executable, filepath.Join(home, ".local/bin/agent-keyring"), false}, {filepath.Dir(source), filepath.Join(home, ".codex/skills/agent-keyring"), true}, {filepath.Dir(source), filepath.Join(home, ".claude/skills/agent-keyring"), true}}
+	for _, link := range destinations {
+		info, e := os.Lstat(link.destination)
+		if e == nil && info.Mode()&os.ModeSymlink == 0 && !link.preserve {
+			return fmt.Errorf("%s already exists. Move it aside, then run install again.", link.destination)
+		}
+		if e != nil && !os.IsNotExist(e) {
+			return e
+		}
+	}
+	for _, link := range destinations {
+		if err = os.MkdirAll(filepath.Dir(link.destination), 0755); err != nil {
+			return err
+		}
+		if info, e := os.Lstat(link.destination); e == nil && info.Mode()&os.ModeSymlink == 0 {
+			backup := link.destination + ".previous-" + time.Now().Format("20060102-150405.000000000")
+			if err = os.Rename(link.destination, backup); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stderr, "Preserved previous skill:", backup)
+		}
+		temporary := link.destination + ".link-" + fmt.Sprint(os.Getpid())
+		if err = os.Symlink(link.source, temporary); err != nil {
+			return err
+		}
+		if err = os.Rename(temporary, link.destination); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "Linked:", link.destination)
+	}
+	fmt.Fprintln(os.Stderr, "For sign-ins, use Agent Keyring. Run `agent-keyring skill` for the workflow.")
+	return nil
+}
+
+func startApp(ctx context.Context) error {
+	if runtime.GOOS != "darwin" {
+		return errors.New("The local credential authority is available on macOS. Remote transport is not implemented yet.")
+	}
+	contents := contentsPath()
+	if contents == "" {
+		contents = "/Applications/AgentKeyring.app/Contents"
+	}
+	application := filepath.Dir(contents)
+	if _, err := os.Stat(application); err != nil {
+		return errors.New("Agent Keyring is not installed. Install the Mac app before requesting logins.")
+	}
+	if err := exec.CommandContext(ctx, "/usr/bin/open", "-g", application).Run(); err != nil {
+		return errors.New("Could not start Agent Keyring. Open the app, then try this command again.")
+	}
+	return nil
+}

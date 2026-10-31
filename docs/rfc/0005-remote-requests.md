@@ -1,6 +1,6 @@
 ---
 written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
-status: reviewed; transport/storage can build; pairing and Automatic contracts need completion below
+status: reviewed; pairing and Automatic contracts settled in round 7, Astra to confirm
 depends_on: 0004
 related: 0006 (iPhone approver), 0007 (approval UI); docs/rfc/README.md has the build plan
 ---
@@ -164,35 +164,72 @@ A home outage stops remote requests. That is the limit of one always-on host.
 
 ## Build slices
 
-### Contract work required before the affected slices are complete
+### Settled contracts (round 7)
 
-- **Pairing (R3.2, R3.4).** Specify the initial TLS exception for unknown peers:
-  only Enrol/first PairApprover are available, no credential or approver methods.
-  Specify the transcript from which both devices independently derive the code,
-  including relay, client TLS/receiver keys and the approver keys being pinned.
-  A code supplied by the relay is not itself evidence of a match. Specify the
-  authenticated confirmation that commits first-approver pairing after Touch ID;
-  the current PairApprover request has no such confirmation. Approver TLS keys
-  now have an explicit field alongside their signing keys.
-- **Automatic (R3.4 and R4.6).** The current biometric-only signing key cannot
-  sign unattended approvals, index updates or background publications. Define
-  which operations use a noninteractive key, what the human-authorized key binds
-  it to, and how receivers distinguish that authority from Ask approval. In
-  release 4 the relay must have explicit authority to sign only published
-  Automatic logins; it cannot become a general approver. Also specify the relay's
-  encryption key and the exact signed bytes of AutomaticSet (its current
-  signature field has no defined payload). Do not disable biometric checks to
-  make the existing design work. This is an engineering gap, not a new question
-  for Josh.
-- **Approver changes (R4.5).** Define how an offline receiver obtains intervening
-  signed key sets when the latest signer was not in its pinned set, and how the
-  new phone receives current enrolments including revocations rather than a
-  replayable bag of old approvals. This needs an agreed pairing/transfer contract
-  before enabling additional approvers, not a general consensus service.
+These close the three gaps Astra found. Messages are in `relay.proto` and
+`bundle.proto`; all additions are compatible.
 
-The lease store, wire framing, bundle sealing/opening and screens can be built
-against the fixed interfaces now. These gaps block claiming a complete enrolment
-or unattended approval path, not independent development of those components.
+**Pairing.**
+
+- *Unknown peers.* A TLS connection from a key the relay has not pinned may
+  call only `Enrol`, and `PairApprover` and `ConfirmPairing` while the relay has
+  no approver. Every other method needs a pinned key.
+- *Codes.* Each device computes the six digits itself from the pairing
+  transcript defined in `relay.proto`: the relay's TLS key as that device saw it
+  or pinned it, and the new party's keys. The relay never supplies the code the
+  human compares; `EnrolStatus.code` is display only. A key changed anywhere in
+  between gives the two screens different codes.
+- *First approver.* `PairApprover` records a pending pairing. The relay prints
+  its code in its own log. Josh compares it with the Mac app's code and approves
+  with Touch ID; the Mac app then signs a `PairingConfirmation` over the
+  transcript hash with its new approver key. The relay activates the approver
+  only on that confirmation. The Mac app refuses to pair with a relay that
+  already has an approver.
+- *Machines.* Enrolment works the same way, with the approver's
+  `SignedEnrolmentDecision` as the confirmation.
+- *Current enrolments.* After every enrolment or revocation the approver
+  publishes a `SignedEnrolmentSet`: the full list of enrolled machines, with a
+  revision. Revoking means leaving a machine out of the next revision, so an
+  old approval cannot bring it back. When an approver pairs a new one (the
+  iPhone in release 4), it names the current enrolment-set revision and digest
+  in that pairing, and the new approver accepts exactly that set.
+  `ListEnrolments` remains for display.
+- *Approver key changes.* The relay keeps every `SignedApproverKeySet`.
+  `GetApproverKeyChain` returns all of them after a given revision, so a
+  receiver that was offline walks the chain from a key it pinned, each step
+  signed by a key in the previous set.
+
+**Automatic approval.**
+
+Approver keys need Josh's biometric check on every use, so they cannot approve
+unattended. Automatic approval therefore uses its own key with narrower
+authority, never an approver key with the check turned off.
+
+- An approver signs a `SignedAutomaticGrant` while Josh is present (when he
+  changes a rule or enrols a machine). It names one Automatic signing key, the
+  logins that are Automatic, and the machines allowed them, with a revision.
+- An Automatic decision is signed by that key and says
+  `authority = AUTOMATIC_RULE` with the grant revision. A receiver opens it only
+  if the grant is signed by a pinned approver key and lists both the login and
+  the receiver. An Ask decision says `authority = HUMAN` and must be signed by
+  an approver key. Neither can stand in for the other.
+- Release 3: the Automatic key lives in the Mac app, in the Secure Enclave
+  without a biometric requirement, usable while the Mac is unlocked. Automatic
+  logins still need the MacBook awake, as this RFC already says.
+- Release 4: the Automatic key and an encryption key live on the relay (RFC
+  0006). The relay can approve only the logins the grant lists, for the
+  machines it lists.
+- Each new lease is evaluated on its own: Automatic logins are approved again
+  without a prompt, as Josh specified.
+- Login index updates are signed with the approver key at the moment Josh
+  imports or changes a rule, so they need no unattended key.
+
+What still needs the device: whether an Apple Watch tap satisfies the approver
+key, and that a Secure Enclave key without a biometric flag signs while the Mac
+is unlocked and refuses while it is locked.
+
+The lease store, wire framing, bundle sealing and opening, and screens can be
+built now. Pairing and Automatic code follow the contracts above.
 
 | Slice | Owner | What | Done when |
 | --- | --- | --- | --- |

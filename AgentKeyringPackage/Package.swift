@@ -3,11 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "AgentKeyringFeature",
-    platforms: [.macOS(.v26), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "AgentKeyringProtocol", targets: ["AgentKeyringProtocol"]),
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
         .library(name: "AgentKeyringFillerSupport", targets: ["AgentKeyringFillerSupport"]),
+        .library(name: "AgentKeyringApprovalUI", targets: ["AgentKeyringApprovalUI"]),
         .library(name: "AgentKeyringTestSupport", targets: ["AgentKeyringTestSupport"]),
         .library(name: "AgentKeyringFeature", targets: ["AgentKeyringFeature"]),
         .executable(name: "agent-keyring-authority-fixture", targets: ["AgentKeyringAuthorityFixture"]),
@@ -19,6 +20,8 @@ let package = Package(
         .target(name: "AgentKeyringProtocol", dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")]),
         .target(name: "AgentKeyringApprovalCore"),
         .target(name: "AgentKeyringFillerSupport"),
+        .target(name: "AgentKeyringApprovalUI"),
+        .executableTarget(name: "AgentKeyringDesignGallery", dependencies: ["AgentKeyringApprovalUI"], path: "Tools/AgentKeyringDesignGallery"),
         .target(name: "AgentKeyringFeature", dependencies: ["AgentKeyringProtocol", "AgentKeyringFillerSupport", "AgentKeyringApprovalCore"]),
         .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),
         .executableTarget(name: "AgentKeyringAuthorityFixture", dependencies: ["AgentKeyringFeature", "AgentKeyringTestSupport"], path: "Tools/AgentKeyringAuthorityFixture"),
