@@ -43,6 +43,8 @@ public struct RelayApproverUpdate: Sendable {
     public let connection: RelayApproverConnectionState
     public let pairing: RelayPairingComparison?
     public let enrolments: [RelayMachineEnrolment]
+    public let approverPairings: [RelayApproverPairing]
+    public let approverKeySet: Agentkeyring_V1_SignedApproverKeySet?
     public let requests: [RelayRemoteRequest]
     public let machines: [Agentkeyring_V1_EnrolledMachine]
     public let queuedAnswerCount: Int
@@ -78,6 +80,7 @@ struct RelayApproverState: Codable {
     var machines: [String: Data] = [:]
     var approvedEnrolments: [String: Data] = [:]
     var pendingEnrolments: [String: Data] = [:]
+    var pendingApprovers: [String: Data]?
     var requests: [String: RelaySavedRequest] = [:]
     var outbox: [RelayQueuedCommand] = []
     var index: Data?
@@ -95,6 +98,8 @@ public final class RelayApprover {
     public internal(set) var connectionState = RelayApproverConnectionState.notPaired
     public private(set) var pairing: RelayPairingComparison?
     public private(set) var pendingEnrolments: [RelayMachineEnrolment] = []
+    public private(set) var pendingApproverPairings: [RelayApproverPairing] = []
+    public private(set) var approverKeySet: Agentkeyring_V1_SignedApproverKeySet?
     public private(set) var requests: [RelayRemoteRequest] = []
     public private(set) var enrolledMachines: [Agentkeyring_V1_EnrolledMachine] = []
     public private(set) var queuedAnswerCount = 0
@@ -170,6 +175,7 @@ public final class RelayApprover {
 
     public var update: RelayApproverUpdate {
         RelayApproverUpdate(connection: connectionState, pairing: pairing, enrolments: pendingEnrolments,
+            approverPairings: pendingApproverPairings, approverKeySet: approverKeySet,
             requests: requests, machines: enrolledMachines, queuedAnswerCount: queuedAnswerCount,
             needsPublication: needsPublication, errorMessage: errorMessage)
     }
@@ -194,6 +200,15 @@ public final class RelayApprover {
                 tailscaleNodeName: record.tailscaleNodeName,
                 fingerprint: RelayCrypto.fingerprint(RelayCrypto.enrolTranscript(relaySPKI: pin,
                     clientSPKI: record.tlsPublicKey, receiverKey: record.receiverPublicKey, keySet: keySet.keySet)))
+        }.sorted { $0.id < $1.id }
+        approverKeySet = try? currentKeySet()
+        pendingApproverPairings = (state.pendingApprovers ?? [:]).compactMap { id, bytes in
+            guard let request = try? Agentkeyring_V1_PairApproverRequest(serializedBytes: bytes),
+                let pin = state.relaySPKI, let current = approverKeySet else { return nil }
+            return RelayApproverPairing(id: id, label: request.key.label,
+                fingerprint: RelayCrypto.fingerprint(RelayCrypto.pairTranscript(relaySPKI: pin,
+                    approverSPKI: request.tlsPublicKey, signingKey: request.key.publicKey, keySet: current.keySet)),
+                answerIsQueued: state.outbox.contains { $0.id == "approver-pairing:" + id })
         }.sorted { $0.id < $1.id }
         requests = state.requests.compactMap { digest, saved in
             guard let record = try? Agentkeyring_V1_RequestRecord(serializedBytes: saved.record),

@@ -129,6 +129,12 @@ extension RelayApprover {
                     }
                     saved.lease = try lease.serializedData()
                     next.requests[id] = saved
+                case let (.publishApproverKeys(keys), .publish(ack)):
+                    guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
+                    next.keySet = try keys.serializedData()
+                    if queued.id.hasPrefix("approver-pairing:") {
+                        next.pendingApprovers?.removeValue(forKey: String(queued.id.dropFirst("approver-pairing:".count)))
+                    }
                 case let (.decideEnrolment, .enrolment(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
                 case let (.publishIndex, .publish(ack)), let (.publishEnrolmentSet, .publish(ack)), let (.publishAutomaticGrant, .publish(ack)), let (.clearDenial_p, .publish(ack)):
@@ -164,7 +170,8 @@ extension RelayApprover {
                 next.requests[id]!.lease = try lease.serializedData()
                 try commit(next)
             }
-        case .pairing, .lease: break
+        case let .pairing(request): try receiveApproverPairing(request)
+        case .lease: break
         case nil: throw LeaseFailure(.invalidArgument, "The relay sent empty work.")
         }
     }
