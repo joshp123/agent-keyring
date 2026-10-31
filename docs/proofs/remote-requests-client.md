@@ -130,3 +130,16 @@ it does not assert that the kernel returned EINTR on a particular call. Those
 raw `flock` loops retry EINTR and use `os.OpenFile` for opens. The relay has no
 raw open or `flock` loop: its store uses SQLite and Go file APIs, and its
 connections use Go's network APIs. No unit fault-injection test was added.
+
+## Release 4 role enforcement
+
+Written by AI on 2026.10.31 by model gpt-6.1-sol.
+
+The CLI proof now uses explicit MAC and MAC_DELIVERY keys. In addition to a
+corrupt chain signature, it refuses correctly signed key-set updates from a
+PHONE key or a MAC_DELIVERY key: only MAC may advance trust. Enrolment, index,
+grant and HUMAN signature checks also require the appropriate MAC role.
+Automatic grants must bind a current MAC_DELIVERY key and its exact public key.
+The ordinary program/private-process, Automatic, rotation and denial checks
+still pass. The PHONE consent and deadline proof is recorded in
+[phone-approval-relay.md](phone-approval-relay.md).
