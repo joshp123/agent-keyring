@@ -135,6 +135,7 @@ extension MirrorAppModel {
             leaseLogins = visibleGeneration.metadata.candidates
             await accessControl.refresh(from: visibleGeneration)
             try await refreshLeasePolicy()
+            relayApprover.noteRulesChanged()
             credentialExchangeLogger.info(
                 "Saved encrypted mirror with \(generation.items.count, privacy: .public) items"
             )
