@@ -70,6 +70,18 @@ class Browser:
                     raise RuntimeError("debugger refused proof action")
                 return reply["result"]
 
+    def wait_console(self, message):
+        while True:
+            header = self.take(2)
+            length = header[1] & 127
+            if length == 126:
+                length = struct.unpack(">H", self.take(2))[0]
+            elif length == 127:
+                length = struct.unpack(">Q", self.take(8))[0]
+            event = json.loads(self.take(length))
+            if event.get("method") == "Runtime.consoleAPICalled" and any(arg.get("value") == message for arg in event["params"]["args"]):
+                return
+
     def evaluate(self, expression):
         return self.call("Runtime.evaluate", dict(expression=expression, returnByValue=True))["result"].get("value")
 
@@ -101,7 +113,7 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     config = directory / "fixture.json"
     private_json(config, server.fixture)
-    environment = dict(os.environ, AGENT_KEYRING_SOCKET=str(fixture_socket))
+    environment = dict(os.environ, AGENT_KEYRING_SOCKET=str(fixture_socket), AGENT_KEYRING_STATE_DIR=str(directory / "receiver"), HOME=str(directory / "home"))
     processes = []
     browsers = []
     transcript = bytearray()
@@ -113,7 +125,7 @@ def main():
         wait_for(lambda: fixture_socket.exists())
         return process
 
-    def run(*args, expected=0, private=False, env=environment):
+    def run(*args, expected=0, private=False, env=environment, error_contains=None):
         result = subprocess.run([CLI, *map(str, args)], env=env, capture_output=True, timeout=30)
         transcript.extend(result.stderr)
         (directory / "cli-transcript.txt").write_bytes(transcript)
@@ -123,6 +135,8 @@ def main():
             transcript.extend(result.stdout)
         if result.returncode != expected:
             raise AssertionError(f"{args[0]} exited {result.returncode}, expected {expected}: " + result.stderr.decode())
+        if error_contains is not None:
+            assert error_contains.encode() in result.stderr, result.stderr.decode()
         assert server.fixture["password"].encode() not in transcript
         return result.stdout.decode().strip()
 
@@ -152,10 +166,29 @@ def main():
         assert run("exec", program, "--field", "password", expected=7) == ""
         run("exec", program, "--field", "password", expected=7)
         assert count.read_text() == "x"
-        run("exec", program, "--field", "password", "--again", expected=7)
+        run("exec", program, "--field", "password", "--operation", "bound-step", expected=7)
+        run("exec", program, "--field", "username", "--operation", "bound-step", expected=1, error_contains="different action")
         assert count.read_text() == "xx"
+        run("exec", program, "--field", "password", "--again", expected=7)
+        assert count.read_text() == "xxx"
         run("release", program)
         print("PASS: bound program stdin, echoed output suppressed, retained exit status, deliberate repeat.")
+
+        # Kill the receiver while the approved program is still running. Its
+        # Started receipt must survive and block a new process from rerunning it.
+        waiting_child = directory / "waiting-child.py"
+        waiting_child.write_text("import pathlib,sys,time\nvalue=sys.stdin.read(); p=pathlib.Path(sys.argv[1]);p.write_text(p.read_text()+'x' if p.exists() else 'x');time.sleep(3)\n")
+        waiting_count = directory / "waiting-child-runs"
+        waiting_lease = lease("interrupted-program", "--for", "program", "--", sys.executable, waiting_child, waiting_count)
+        waiting = subprocess.Popen([CLI, "exec", waiting_lease, "--field", "password"], env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        processes.append(waiting)
+        wait_for(waiting_count.exists)
+        waiting.kill(); waiting.communicate(timeout=5)
+        authority.terminate(); authority.wait(); authority = start_authority()
+        run("exec", waiting_lease, "--field", "password", expected=1, error_contains="may have started")
+        assert waiting_count.read_text() == "x"
+        run("release", waiting_lease)
+        print("PASS: receiver killed during program; a new process reports uncertainty without starting it again.")
 
         profile = directory / "chrome"
         chrome = subprocess.Popen([CHROME, "--headless=new", "--remote-debugging-port=0", "--user-data-dir=" + str(profile), "--no-first-run", "--no-default-browser-check", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -169,20 +202,40 @@ def main():
         browser_lease = lease("browser")
         fill = ["fill", browser_lease, "--browser", endpoint, "--tab", browser.tab]
         first = [*fill, "--username", "#username", "--password", "#password", "--submit", "#sign-in"]
-        # Lose the finish acknowledgement after a real POST, then restart the
-        # authority. Retrying from another CLI process must not post again.
-        (state / "lose-next-finish").write_text("")
-        run(*first, expected=1)
+        # The receiver remembers its own outcome across navigation and an
+        # authority restart. No browser attempt is stored at the authority.
+        run(*first)
         browser.wait("!!document.querySelector('#verification-code')")
         authority.terminate(); authority.wait(); start_authority()
-        run(*first, expected=1)
+        run(*first)
         assert server.results["password_posts"] == 1
-        run(*fill, "--code", "#verification-code", "--submit", "#verify")
+        run(*fill, "--code", "#verification-code", "--submit", "#verify", "--operation", "code-step")
+        run(*fill, "--code", "#missing-after-navigation", "--submit", "#verify", "--operation", "code-step", expected=1, error_contains="different action")
         browser.wait("!!document.querySelector('#authenticated')")
         assert server.results["verification_accepted"] == 1
         assert not server.results["unrelated_field_received_text"]
         assert not server.results["password_present_in_otp_form"]
-        print("PASS: two-step Chrome login; lost result, navigation and authority restart do not submit twice.")
+        print("PASS: two-step Chrome login; receiver receipt survives navigation and authority restart.")
+
+        # Interrupt the CLI during a real click. The browser completes its
+        # submit, but the receiver cannot save an outcome. Its next process
+        # must report Uncertain before inspecting the now-different page.
+        browser.navigate(server.origin + "/login")
+        browser.wait("!!document.querySelector('#password')")
+        browser.call("Runtime.enable", {})
+        browser.evaluate("document.querySelector('form').addEventListener('submit',()=>{console.log('proof-submit-started'); const until=Date.now()+2000;while(Date.now()<until){}})")
+        interrupted_lease = lease("interrupted-browser")
+        interrupted_fill = ["fill", interrupted_lease, *first[2:]]
+        before_posts = server.results["password_posts"]
+        interrupted = subprocess.Popen([CLI, *interrupted_fill], env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        processes.append(interrupted)
+        browser.wait_console("proof-submit-started")
+        interrupted.kill(); interrupted.communicate(timeout=5)
+        browser.wait("!!document.querySelector('#verification-code')")
+        run(*interrupted_fill, expected=1, error_contains="earlier fill is uncertain")
+        assert server.results["password_posts"] == before_posts + 1
+        run("release", interrupted_lease)
+        print("PASS: receiver killed during browser submit; retry is uncertain and the site receives one POST.")
 
         # An SPA leaves its original controls alive after submit. Prove actual
         # field clearing, including the password, without returning their values.
@@ -197,7 +250,7 @@ def main():
         run(*invalid, expected=1)
         assert browser.evaluate("document.querySelector('#unrelated').value === ''")
         # Two independent CLI processes race on the same fresh step. The tab
-        # lock plus Begin's atomic receipt must permit only one submit.
+        # lock plus the receiver's atomic receipt must permit only one submit.
         concurrent_lease = lease("concurrent-fill")
         concurrent = [str(CLI), *first[0:1], concurrent_lease, *first[2:]]
         before = browser.evaluate("window.submits")

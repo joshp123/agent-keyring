@@ -93,12 +93,11 @@ signing key `04`, current key set empty.
 ## What the client and Mac approver must match
 
 The relay issues recipient IDs and receiver key IDs. The receiver key ID is
-lowercase hex SHA-256 of the receiver's X9.63 bytes; use the returned signed
-record as the authority, rather than deriving a recipient or trusting labels.
-The enrolment decision's Automatic flag is authoritative; its relay display
-copy is not. Initial and subsequent pairing sets must be signed as the RFC
+lowercase hex SHA-256 of the receiver's X9.63 bytes; use the machine in the rule-owner-signed configuration as the authority,
+rather than deriving a recipient or trusting relay labels. Its Automatic
+permission is authoritative; the relay display copy is not. Initial and subsequent pairing sets must be signed as the RFC
 specifies, including the compared transcript and, for an added approver, the
-current signed roster.
+current signed configuration revision and exact configuration digest.
 
 The approver should retain exact request/enrolment/key-set bytes. The relay
 returns them unchanged. Sign `DecisionStatement` over the request's
@@ -137,32 +136,42 @@ approval cannot reactivate a revoked pending lease; an exact resend of a
 previously accepted approval returns its current revoked state. No further
 bundle is delivered. The response uses top-level `RelayWireResponse.lease`.
 
-`BeginOperation` returns the bundle separately in `SealedDelivery`, omitting
-its duplicate upload attachment from the signed decision. It returns the exact
-approved request record. A known operation key returns `already_started` and
-no bundle, including after restart or release. A missing outcome means
-Uncertain. `FinishOperation` can record an existing action after lease expiry
-or release; contradictory finishes conflict.
+`Deliver` returns the bundle separately in `SealedDelivery`, omitting its
+upload attachment from the signed decision. It returns the exact approved
+request record, and checks current lease state, recipient, policy, purpose
+and fields on every call. Operation retry receipts belong to the receiver;
+the relay has no operation methods or operation table.
 
-An unpaired key can call only Enrol, PairApprover and (before first setup is
-committed) ConfirmPairing. A paired approver cannot use receiver methods.
-Enrolled receivers can fetch current signed approver keys, key chains,
-Automatic grants and the signed index. Their ordinary methods stay inside
-`RelayWireRequest.client`; browser/program execution remains on the receiver.
-Every stream rechecks enrollment as it emits state, so revocation also ends
-existing streams.
+Enrolled receivers can fetch current signed approver keys, key chains and
+`GetConfiguration`. Ordinary methods stay inside `RelayWireRequest.client`;
+browser/program execution stays on the receiver. An unpaired key can call
+only Enrol, PairApprover and initial ConfirmPairing.
 
-Publish the signed login index after import or rule changes, and the signed
-machine roster after enrolment/revocation (including an empty roster). Roster
-omission revokes machines and leases; replaying their old approval does not
-restore them. Signing an Automatic grant does not override a machine's
-Automatic opt-in. Grant changes revoke active Automatic leases. Current rules
-are checked before every new delivery.
+`PublishConfiguration` replaces separate index, machine roster and Automatic
+grant publications. The current rule owner signs its exact Configuration bytes.
+A higher revision commits the snapshot and revokes affected leases in the same
+transaction. An exact resend succeeds; different bytes at the same revision
+conflict. Removed machines and missing/Blocked logins lose all pending/active
+leases. Automatic-approved leases also end if their rule, machine's Automatic
+permission or named signing key is withdrawn. Unrelated revisions leave
+Automatic leases working, including decisions made under an older revision.
+The signature and revision do not bypass the authenticated pending enrolment:
+a newly listed machine must match its compared keys, node and current key set.
+`DismissEnrolment` is unsigned, approver-only and idempotent; it grants nothing.
 
-`GetAutomaticKeys`, `PublishAutomatic` and `RegisterPush` are release 4 methods
-and return an explicit unavailable-method error here. The release 3 relay has
-no credential-decryption or Automatic-signing key. The Mac remains responsible
-for both human and delegated Automatic approval.
+The relay still has no credential-decryption or Automatic-signing key.
+`GetAutomaticKeys` and relay-held Automatic login payloads remain unavailable
+until the later MacBook-shut slice. Push registration is implemented for phones.
+
+Lease deadlines and retention deadlines are indexed in SQLite. One timer waits
+for the earliest deadline; a committed mutation wakes connected streams and
+the scheduler. The push worker waits for changes or a scheduled retry, with no
+periodic polling. Ending a lease immediately deletes its bundle, escalation,
+queued phone answer and push attempts. A hash retains exact decision retry
+identity without keeping the upload payload. Signed denial reply evidence stays
+with its denied lease. Ended lease metadata and request aliases last seven days;
+pending setup records last ten minutes. Local phone display history uses the
+same retention, independently of the ephemeral escalation.
 
 ## Proofs
 
@@ -170,21 +179,13 @@ for both human and delegated Automatic approval.
 /tmp/keyring-relay-fixture --relay /tmp/agent-keyring-relay
 ```
 
-This starts an actual relay subprocess with its own database, certificates and
-loopback TLS clients, then kills/restarts it mid-lease. It checks pairing,
-enrolment, role restrictions, request joining, changed retry IDs, invalid
-signatures, signed approval, begin/finish/release, unchanged deadlines,
-Uncertain operation retry, next-step delivery, WatchLease reconnect, a short
-signed expiry, resend after expiry, cancellation, policy revocation, denial
-suppression, Automatic grants and machine opt-in, wrong recipient, signed
-roster revocation, added approver pairing, key-chain fetch, connection-authenticated
-plain denial restrictions, signed denial reply proofs in all lease responses,
-scoped ClearDenial across a restart, followed by a new approval, and Blocked
-policy after clearing suppression. It checks approver lease backlog, updates,
-expiry, denial proofs and reconnect, then revokes pending and active leases,
-including late approvals and exact accepted-decision resends before and after
-restart. It retains the
-fixture directory it prints for inspection. It does not touch installed apps.
+This uses a real relay subprocess, isolated database, certificates and loopback
+TLS clients. It covers request joining, signed approval, delivery, release,
+SIGKILL recovery without extending a deadline, WatchLease and WatchWork,
+revocation and late/replayed decisions, denial replies, suppression,
+ClearDenial, configuration revocations and authenticated setup.
+See [the simplified-contract proof](../proofs/relay-simplified-contract.md) for
+retention, idle behavior and replay commands. No installed app is touched.
 
 The real-tailnet enrolment proof needs the relay already running with a fresh
 empty database on a tailnet host and the fixture cross-built for Linux:
@@ -209,3 +210,81 @@ credential was changed. Loopback proofs and `go vet` also passed.
 These are relay proofs. They do not establish Mac app outbox behavior,
 Touch ID, physical setup-code comparison or a real website sign-in. Those
 remain the Mac/client integration and release device proofs in RFC 0005.
+
+## Phone consent (release 4)
+
+Written by AI on 2026.10.31 by model gpt-6.1-sol.
+
+The relay implements RFC 0006 escalation, phone answers, local outcome mirrors
+and APNs notifications. The phone needs no credential import. A phone answer
+is durable consent waiting for its originating Mac, not an active lease.
+
+- `EscalateToPhone`: pinned MAC only, exact retained remote record or a matching
+  pending local snapshot. Only Ask escalates. The original ten-minute pending
+  deadline remains unchanged. Retries retain the original record and owner.
+- `AnswerFromPhone`: the paired PHONE connection only, matching digest, lease,
+  choice, reply hash and times. Approve and reply-bearing Deny require the
+  phone signature; plain Deny is unsigned. Exact retries return the current lease while the escalation is retained.
+  Once the lease ends, its queued answer is deleted; ended metadata remains. Other answers cannot replace the accepted answer.
+- `WatchWork`: PHONE receives only escalated pending requests (with the source
+  MAC key ID and, locally, the snapshot). It also receives the active remote
+  lease view for End Access. The originating MAC receives retained phone answers
+  until its actual decision commits. A reconnect replays outstanding work.
+- Local copies have no receiver operations or bundles. `UpdateLocalPhoneLease`
+  accepts only the owner and original digest/scope; stale reports cannot reopen
+  leases or change a committed deadline. Local RevokeLease and ClearDenial
+  queue durable `LocalLeaseAction` items, acknowledged by the owner's report.
+  RevokeLease returns the actual last-known snapshot until that report arrives.
+- MAC signs HUMAN, enrolment and key-set changes; the MAC rule owner signs
+  index, roster and grants. PHONE only signs phone consent. MAC_DELIVERY has no
+  TLS identity and is added through MAC-signed key-set publication without
+  pairing. PHONE deliveries and current Automatic grants must name this role.
+  Only the previously pinned rule owner may retain a legacy unspecified role.
+
+Shared `internal/relaycrypto/authority.go` exports `Role`, `KeyForRole`,
+`ValidateRoles` and `VerifyPhoneDelivery`. The last checks both ECDSA/SHA-256
+signatures over the **exact protobuf bytes**, not re-encoded messages, and
+requires equal digest, lease, choice, approval time, deadline, reply hash and
+UTF-8 reply. The receiver separately verifies its retained request scope,
+current enrolment, ciphertext and opened bundle as before. Signed PHONE denial
+replies use `Lease.signed_denial`; historical denials have no approval TTL.
+
+### Push configuration
+
+Supply all four flags to enable APNs; omit them to keep phone fetch/answer
+working without notifications:
+
+```sh
+agent-keyring-relay --listen TAILNET_IP:17443 --state PRIVATE_DIRECTORY \
+  --apns-key /configured/private/AuthKey.p8 --apns-key-id KEY_ID \
+  --apns-team-id TEAM_ID --apns-topic PHONE_APP_BUNDLE_ID
+```
+
+The key is read as PKCS#8 P-256 PEM at startup. Nothing creates an Apple key or
+changes its permissions/account. `PushRegistration.apns_production` chooses
+`api.push.apple.com` or `api.sandbox.push.apple.com`; it must match the app's
+signing environment and the key's permitted environment. The provider JWT uses
+ES256 with a 30-minute cache. HTTP/2 and verified TLS are required; redirects
+are refused.
+
+The push contains only `aps.alert` ("An agent is asking for a login.") and the
+default sound. No account, site, request record, answer or credential goes to
+Apple. The collapse ID is the lowercase hex request digest (64 bytes). APNs
+expiry is the original pending deadline. The relay records an accepted push
+per lease and phone, so escalation retries and relay restarts do not resend it.
+An uncertain transport result retries after five seconds with that same
+collapse ID. HTTP 429 backs off; 5xx follows Apple's fifteen-minute retry
+recommendation, which cannot extend a ten-minute request. Other HTTP refusals
+stop retrying and log the status/reason; a fresh phone registration permits
+retry of refused attempts. An inactive/bad device token is removed only if it
+is still the token used by that attempt.
+
+A crash between Apple's acceptance and the durable acknowledgement can resend
+the same collapsed notification. This is not an exactly-once APNs guarantee:
+Apple controls delivery and may delay or drop pushes. Fetching on app open
+remains authoritative. Already in-flight pushes cannot be recalled after an
+answer. No sender can prove a visible notification from a gateway response.
+
+Protocol sources: Apple's [request headers and environments](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns),
+[token authentication](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)
+and [response handling](https://developer.apple.com/documentation/usernotifications/handling-notification-responses-from-apns).

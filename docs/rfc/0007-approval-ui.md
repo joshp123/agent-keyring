@@ -78,7 +78,7 @@ sources only:
 
 | Shown | Source | Shown as |
 | --- | --- | --- |
-| Site and account | Mac: its vault record; approval-only phone: the rule owner's signed login index for `login_id` | Fact |
+| Site and account | Mac: its vault record; approval-only phone: the rule owner's signed configuration for `login_id` | Fact |
 | Machine | Approver's own approved enrolment record, or local peer | Enrolled identity, in the facts list |
 | Tailnet address | Relay's connection lookup | Address reported by the relay, not independent identity proof; shown next to the machine |
 | Purpose and limit ("Sign-in only, up to 30 min", "Password to gh, up to 30 min", "Password to Codex's own code, up to 30 min") | Lease purpose and program | Requested operation, not a guarantee of how a program uses the password |

@@ -8,7 +8,6 @@ let package = Package(
         .executable(name: "agent-keyring-phone-fixture", targets: ["AgentKeyringPhoneFixture"]),
         .library(name: "AgentKeyringRelaySupport", targets: ["AgentKeyringRelaySupport"]),
         .library(name: "AgentKeyringPhoneApprover", targets: ["AgentKeyringPhoneApprover"]),
-        .library(name: "AgentKeyringPhoneVault", targets: ["AgentKeyringPhoneVault"]),
         .library(name: "AgentKeyringCredentialImport", targets: ["AgentKeyringCredentialImport"]),
         .library(name: "AgentKeyringProtocol", targets: ["AgentKeyringProtocol"]),
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
@@ -26,8 +25,7 @@ let package = Package(
     targets: [
         .executableTarget(name: "AgentKeyringPhoneFixture", dependencies: ["AgentKeyringPhoneApprover"], path: "Tools/AgentKeyringPhoneFixture"),
         .target(name: "AgentKeyringRelaySupport", dependencies: ["AgentKeyringProtocol", "AgentKeyringCredentialImport"]),
-        .target(name: "AgentKeyringPhoneApprover", dependencies: ["AgentKeyringRelaySupport", "AgentKeyringPhoneVault", "AgentKeyringApprovalUI"]),
-        .target(name: "AgentKeyringPhoneVault", dependencies: ["AgentKeyringCredentialImport", "AgentKeyringProtocol"]),
+        .target(name: "AgentKeyringPhoneApprover", dependencies: ["AgentKeyringRelaySupport", "AgentKeyringApprovalUI"]),
         .target(name: "AgentKeyringCredentialImport"),
         .target(name: "AgentKeyringProtocol", dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")]),
         .target(name: "AgentKeyringApprovalCore"),

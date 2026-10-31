@@ -17,14 +17,26 @@ message State {
   string recipient_id = 3;
   string receiver_key_id = 4;
   agentkeyring.v1.SignedApproverKeySet approvers = 5;
-  agentkeyring.v1.SignedAutomaticGrant automatic_grant = 6;
-  bool automatic_allowed = 7;
+  reserved 6, 7, 9, 10;
   repeated ExpectedRequest requests = 8;
-  agentkeyring.v1.SignedIndex index = 9;
-  reserved 10;
   string machine_label = 11;
+  agentkeyring.v1.SignedConfiguration configuration = 12;
+  repeated OperationReceipt operations = 13;
 }
 message ExpectedRequest {
   agentkeyring.v1.RequestLeaseRequest scope = 1;
   string lease_id = 2;
+}
+message OperationReceipt {
+  string lease_id = 1;
+  string key = 2;
+  bytes digest = 3;
+  int64 lease_deadline_unix_seconds = 4;
+  // No outcome means Started: inspect before deliberately repeating it.
+  oneof outcome {
+    agentkeyring.v1.FillOutcome fill = 5;
+    agentkeyring.v1.ProgramOutcome program = 6;
+    bool read_delivered = 7;
+  }
+  optional int32 exit_code = 8;
 }

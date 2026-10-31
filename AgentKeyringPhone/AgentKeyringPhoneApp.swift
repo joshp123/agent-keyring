@@ -1,7 +1,4 @@
-import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
-import AuthenticationServices
-import CloudKit
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -34,9 +31,10 @@ struct AgentKeyringPhoneApp: App {
                     if phase == .active { importBackend?.start() }
                     else if phase == .background { importBackend?.stop() }
                 }
-                .task { appDelegate.wake = { importBackend?.start() } }
-                .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
-                    importBackend?.receive(activity)
+                .task {
+                    appDelegate.wake = { importBackend?.start() }
+                    appDelegate.receivedToken = { importBackend?.receivedPushToken($0) }
+                    appDelegate.registrationFailed = { importBackend?.pushRegistrationFailed($0) }
                 }
         }
     }
@@ -45,23 +43,35 @@ struct AgentKeyringPhoneApp: App {
 @MainActor
 final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     var wake: (() -> Void)?
+    var receivedToken: ((Data) -> Void)?
+    var registrationFailed: ((Error) -> Void)?
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        // Old CloudKit actions must never authorize in the background. R4.4's
-        // notification is only a wake-up; every answer comes from the open app.
+        // Notifications open the app; every answer is checked and signed there.
         UNUserNotificationCenter.current().setNotificationCategories([])
         return true
     }
 
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        receivedToken?(deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        registrationFailed?(error)
+    }
+
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            didReceive response: UNNotificationResponse) async {
+        PhonePushReceipt.record(response.notification)
         await MainActor.run { wake?() }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        PhonePushReceipt.record(notification)
+        await MainActor.run { wake?() }
+        return [.banner, .list, .sound]
     }
 }

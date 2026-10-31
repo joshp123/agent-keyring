@@ -2,6 +2,45 @@
 
 # Remote client proof
 
+## Simplified delivery contract
+
+The updated CLI passed `script/prove_cli.py` on the Mac mini and
+`script/prove_remote_cli.py --browser --interruptions` with CryptoKit and real
+signed headless Chrome. The remote proof also passed on `mini-server-1` with
+the static Linux amd64 CLI, from a temporary directory, without a browser.
+Both use dummy authorities; the production relay proof below predates this
+contract change. No installed app or real credentials were used.
+
+The authority now handles one `Deliver` request. It stores no browser or
+program operation receipts. The receiver writes Started durably in its existing
+private `state.pb` before requesting values, and saves the outcome afterward.
+This applies to the local socket and remote transport. Retry keys are scoped
+to the lease and checked against the saved action digest. Receipts are pruned
+on state updates 24 hours after the lease deadline.
+
+Observed with the updated commands:
+
+- A receiver killed during browser submission left an Uncertain receipt; the
+  site received one password POST. Retrying after navigation did not inspect
+  missing selectors or submit again. A killed program receiver did not start
+  the program again. Completed programs retained their original exit status.
+- Changed field and selector inputs under an existing explicit key were
+  refused as conflicts. Concurrent fills still submitted once.
+- Enrolment accepted only the owner-signed configuration containing this
+  receiver's TLS and encryption keys. Find verified that same configuration.
+- Automatic decisions remained valid after an unrelated configuration revision
+  advanced. Withdrawing the login rule, machine permission or named signing
+  key separately refused the old decision. The receiver retains the highest
+  valid configuration, including one that removes its enrolment.
+- Wrong recipient, lease, task, signer, deadline, ciphertext and encapsulated
+  key were refused without value output. Signed denial replies, approver-key
+  rotation, password/code login and input clearing passed again.
+
+`OpenValues` now takes `*agentkeyringv1.Delivery`; the returned values and signed
+sites are unchanged. The agent-facing commands are unchanged.
+
+## Earlier production-relay joint proof
+
 The production Go CLI enrolled on `mini-server-1` and completed dummy program
 and agent-process sign-ins through the production Go relay on the Mac mini,
 over Tailscale. A fixture approver supplied synthetic example.com credentials.
@@ -10,7 +49,8 @@ No Passwords mirror, human approval, real account or installed app was used.
 Observed:
 
 - Enrol printed its locally computed eight-group fingerprint and accepted the
-  signed enrolment record. `find example.com` verified the signed login index.
+  owner-signed enrolment decision. `find example.com` verified the signed login index
+  used by that earlier contract.
 - A program lease delivered the password through stdin. The fixture program
   checked it and wrote a success marker. Its echoed password was suppressed.
   A second CLI process retried the same operation; the marker still showed
@@ -25,7 +65,7 @@ The relay listened on the mini's tailnet address, port 17443, with real
 Tailscale WhoIs checks. The relay lane's port 17444 was not used. Every process
 and state directory created for this proof was stopped or removed afterward.
 
-## CryptoKit and receiver proof
+## Earlier CryptoKit and receiver proof
 
 `script/prove_remote_cli.py` runs the real CLI against the deliberately small
 `script/remote_fixture` relay/approver stand-in. It is not the production relay
@@ -55,8 +95,10 @@ The complete process proof passed on the mini:
 The final binary passed this proof with the existing helper packaging. Remote
 keys are owner-only files. The state directory defaults to
 `$XDG_STATE_HOME/agent-keyring` or `~/.local/state/agent-keyring`, mode 0700.
-`keys.pb` and `state.pb` are mode 0600. State includes pinned keys, signed grant
-and index revisions, and the request scope retained across CLI processes.
+`keys.pb` and `state.pb` are mode 0600. State now includes pinned keys, the
+highest signed configuration, retained request scopes and local operation
+receipts across CLI processes. Private keys
+remain in the separate owner-only `keys.pb` file on macOS and Linux.
 
 Run the fixture proof on the mini, from a checkout with the pinned Go:
 
@@ -73,7 +115,7 @@ python3 script/prove_remote_cli.py \
 The `--browser` flag is for the mini only. The proof creates and removes its
 own profile, server, keys and state. Without that flag it opens no browser.
 The local R2 CLI proof (`script/prove_cli.py`) also passed after these changes,
-including two-step Chrome, uncertain retry after navigation/restart, cleanup,
+including two-step Chrome, uncertain retry after receiver interruption, cleanup,
 concurrent fills, endpoint ownership and installation into an isolated home.
 
 ## Real relay setup and build
@@ -130,3 +172,16 @@ it does not assert that the kernel returned EINTR on a particular call. Those
 raw `flock` loops retry EINTR and use `os.OpenFile` for opens. The relay has no
 raw open or `flock` loop: its store uses SQLite and Go file APIs, and its
 connections use Go's network APIs. No unit fault-injection test was added.
+
+## Release 4 role enforcement
+
+Written by AI on 2026.10.31 by model gpt-6.1-sol.
+
+The CLI proof now uses explicit MAC and MAC_DELIVERY keys. In addition to a
+corrupt chain signature, it refuses correctly signed key-set updates from a
+PHONE key or a MAC_DELIVERY key: only MAC may advance trust. Enrolment, index,
+grant and HUMAN signature checks also require the appropriate MAC role.
+Automatic grants must bind a current MAC_DELIVERY key and its exact public key.
+The ordinary program/private-process, Automatic, rotation and denial checks
+still pass. The PHONE consent and deadline proof is recorded in
+[phone-approval-relay.md](phone-approval-relay.md).

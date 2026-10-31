@@ -1,9 +1,6 @@
 import AgentKeyringApprovalUI
-import AgentKeyringCredentialImport
-import AgentKeyringPhoneVault
 import AgentKeyringProtocol
 import AgentKeyringRelaySupport
-import CryptoKit
 import Foundation
 import LocalAuthentication
 import OSLog
@@ -12,7 +9,6 @@ import OSLog
 public protocol PhoneApproverKeys {
     func signingPublicKey() throws -> Data
     func authorize(_ context: LAContext, reason: String) async throws
-    func sharedSecret(with publicKey: P256.KeyAgreement.PublicKey, context: LAContext) throws -> SharedSecret
     func sign(_ bytes: Data, context: LAContext) throws -> Data
 }
 
@@ -23,33 +19,41 @@ struct PhonePendingPair: Codable {
     let transcript: Data
 }
 
+struct PhoneRequestLogin: Codable, Equatable {
+    let title: String
+    let sites: [String]
+    let account: String
+    init(_ login: Agentkeyring_V1_Login) { title = login.title; sites = login.sites; account = login.account }
+}
+
 struct PhoneSavedRequest: Codable {
     let record: Data
     var lease: Data
-    let metadata: PhoneVaultItemMetadata
+    let metadata: PhoneRequestLogin
     let machine: Data
+    let sourceMacKeyID: String
+    let isLocal: Bool
     var decision: Data?
     var acknowledged = false
 }
 
 struct PhoneApproverState: Codable {
-    var version = 1
+    var version = 3
     var endpoint: RelayEndpoint?
     var relaySPKI: Data?
     var pendingPair: PhonePendingPair?
     var pairingWanted = false
     var keySet: Data?
-    var roster: Data?
+    var configuration: Data?
     var requests: [String: PhoneSavedRequest] = [:]
     var outbox: [Data] = []
     var remoteLeases: [String: Data] = [:]
-    var askPhoneAfter: UInt32 = 120
+    var rulesUpdatedAt: Date?
 }
 
 @MainActor
 public final class PhoneRelayApprover {
     let directory: URL
-    public let vault: PhoneVault
     let keys: any PhoneApproverKeys
     let identityProvider: @MainActor () throws -> RelayTLSIdentity
     var state = PhoneApproverState()
@@ -63,6 +67,7 @@ public final class PhoneRelayApprover {
     var authorityTask: Task<Void, Error>?
     var flushing = false
     var authorizing = false
+    var lastDeadlineCheck = Int64(Date().timeIntervalSince1970)
     var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
     public internal(set) var pairing = PhonePairingState.notPaired
     public internal(set) var connection = ServiceConnection.notPaired
@@ -70,17 +75,17 @@ public final class PhoneRelayApprover {
     var connectionFailedAt: Date?
     let logger = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Approver")
 
-    public init(directory: URL, vault: PhoneVault, keys: any PhoneApproverKeys,
+    public init(directory: URL, keys: any PhoneApproverKeys,
                 identity: @escaping @MainActor () throws -> RelayTLSIdentity) {
-        self.directory = directory; self.vault = vault; self.keys = keys; self.identityProvider = identity
+        self.directory = directory; self.keys = keys; self.identityProvider = identity
     }
 
     public func load() throws {
         guard !loaded else { return }
-        let url = directory.appending(path: "state.plist")
+        let url = directory.appending(path: "phone-answers-v3.plist")
         if FileManager.default.fileExists(atPath: url.path) {
             state = try PropertyListDecoder().decode(PhoneApproverState.self, from: Data(contentsOf: url))
-            guard state.version == 1 else { throw RelayFailure(.unavailable, "This phone state needs a newer Agent Keyring.") }
+            guard state.version == 3 else { throw RelayFailure(.unavailable, "This phone state needs a newer Agent Keyring.") }
         }
         loaded = true
         if state.keySet != nil { pairing = .paired }
@@ -95,9 +100,9 @@ public final class PhoneRelayApprover {
         let encoder = PropertyListEncoder(); encoder.outputFormat = .binary
         #if os(iOS)
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: directory.path)
-        try encoder.encode(next).write(to: directory.appending(path: "state.plist"), options: [.atomic, .completeFileProtection])
+        try encoder.encode(next).write(to: directory.appending(path: "phone-answers-v3.plist"), options: [.atomic, .completeFileProtection])
         #else
-        try encoder.encode(next).write(to: directory.appending(path: "state.plist"), options: .atomic)
+        try encoder.encode(next).write(to: directory.appending(path: "phone-answers-v3.plist"), options: .atomic)
         #endif
         state = next
         publish()
@@ -122,14 +127,16 @@ public final class PhoneRelayApprover {
     }
 
     func fail(_ error: Error, stage: String) {
+        let message = (error as? RelayFailure)?.message ?? "Agent Keyring couldn't complete the connection."
+        guard lastFailure != message else { return }
         let diagnostic = error as NSError
         logger.error("\(stage, privacy: .public) failed [\(diagnostic.domain, privacy: .public):\(diagnostic.code, privacy: .public)]")
         if let failure = error as? RelayFailure { logger.error("Relay error code=\(failure.code.rawValue, privacy: .public)") }
-        lastFailure = (error as? RelayFailure)?.message ?? "Agent Keyring couldn't complete the connection."
+        lastFailure = message
         publish()
     }
 
-    public var askPhoneAfter: Duration { .seconds(state.askPhoneAfter) }
+    public var rulesUpdatedAt: Date? { state.rulesUpdatedAt }
     public var keyFingerprint: String {
         guard state.keySet != nil || state.pendingPair != nil else { return "Not set up" }
         return (try? keys.signingPublicKey()).map { RelayCrypto.fingerprint($0) } ?? "Unavailable"

@@ -109,8 +109,8 @@ func find() *pb.RelayWireRequest {
 func leaseRequest(id, task, recipient string) *pb.RelayWireRequest {
 	return clientRequest(&pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: "fixture-login", TaskRef: task, RequestId: id, RecipientId: recipient, Purpose: pb.Purpose_PURPOSE_BROWSER_SIGN_IN, Reason: "System proof"}}})
 }
-func beginRequest(lease, key string) *pb.RelayWireRequest {
-	return clientRequest(&pb.WireRequest{Request: &pb.WireRequest_BeginOperation{BeginOperation: &pb.BeginOperationRequest{LeaseId: lease, OperationDigest: relaycrypto.Hash([]byte(key)), RequestId: key, Kind: pb.OperationKind_OPERATION_KIND_FILL, Fields: []pb.CredentialField{pb.CredentialField_CREDENTIAL_FIELD_PASSWORD}}}})
+func deliverRequest(lease string, _ ...string) *pb.RelayWireRequest {
+	return clientRequest(&pb.WireRequest{Request: &pb.WireRequest_Deliver{Deliver: &pb.DeliverRequest{LeaseId: lease, Kind: pb.OperationKind_OPERATION_KIND_FILL, Fields: []pb.CredentialField{pb.CredentialField_CREDENTIAL_FIELD_PASSWORD}}}})
 }
 func endRequest(lease string) *pb.RelayWireRequest {
 	return clientRequest(&pb.WireRequest{Request: &pb.WireRequest_EndLease{EndLease: &pb.LeaseReference{LeaseId: lease}}})
@@ -118,22 +118,28 @@ func endRequest(lease string) *pb.RelayWireRequest {
 
 type proof struct {
 	address, directory, relayBinary string
+	extraFlags                      []string
 	process                         *exec.Cmd
+	relayLog                        *os.File
 	approver, client                wireClient
 	signer                          *ecdsa.PrivateKey
 	receiver                        *ecdsa.PrivateKey
 	key                             *pb.ApproverKey
 	keys                            *pb.SignedApproverKeySet
 	enrolled                        *pb.EnrolmentRecord
-	enrolDecision                   *pb.SignedEnrolmentDecision
+	configuration                   *pb.Configuration
+	signedConfiguration             *pb.SignedConfiguration
 	work                            *tls.Conn
-	indexRevision                   uint64
 }
 
 func (p *proof) start() {
-	p.process = exec.Command(p.relayBinary, "--listen", p.address, "--state", filepath.Join(p.directory, "relay"), "--loopback-test")
+	p.process = exec.Command(p.relayBinary, append([]string{"--listen", p.address, "--state", filepath.Join(p.directory, "relay"), "--loopback-test"}, p.extraFlags...)...)
 	p.process.Stdout = os.Stdout
 	p.process.Stderr = os.Stderr
+	if p.relayLog != nil {
+		p.process.Stdout = p.relayLog
+		p.process.Stderr = p.relayLog
+	}
 	must(p.process.Start())
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
 		conn, err := net.DialTimeout("tcp", p.address, 100*time.Millisecond)
@@ -177,9 +183,21 @@ func (p *proof) pair() {
 	p.work = p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: p.key.KeyId}}})
 }
 func (p *proof) publishIndex(rule pb.AccessRule) {
-	p.indexRevision++
-	data := encoded(&pb.LoginIndex{Revision: p.indexRevision, Logins: []*pb.Login{{LoginId: "fixture-login", Title: "example.com", Account: "fixture", Sites: []string{"https://example.com"}, Rule: rule, HasOneTimeCode: true}}})
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishIndex{PublishIndex: &pb.SignedIndex{Index: data, Signature: sign(p.signer, data), ApproverKeyId: p.key.KeyId}}})).GetPublish().Accepted, "publish index failed")
+	if p.configuration == nil {
+		p.configuration = &pb.Configuration{Domain: "agentkeyring.configuration.v1"}
+	}
+	p.configuration.Logins = []*pb.Login{{LoginId: "fixture-login", Title: "example.com", Account: "fixture", Sites: []string{"https://example.com"}, Rule: rule, HasOneTimeCode: true}}
+	p.publishConfiguration()
+}
+func (p *proof) publishConfiguration() {
+	p.configuration.Revision++
+	data := encoded(p.configuration)
+	p.signedConfiguration = &pb.SignedConfiguration{Configuration: data, Signature: sign(p.signer, data), ApproverKeyId: p.key.KeyId}
+	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishConfiguration{PublishConfiguration: &pb.ConfigurationPublication{Configuration: p.signedConfiguration}}})).GetPublish().Accepted, "publish configuration failed")
+}
+func (p *proof) enrolledMachine(automatic bool) *pb.EnrolledMachine {
+	r := p.enrolled
+	return &pb.EnrolledMachine{RecipientId: r.RecipientId, MachineLabel: r.MachineLabel, ClientLabel: r.ClientLabel, TailscaleNodeId: r.TailscaleNodeId, TlsPublicKey: r.TlsPublicKey, ReceiverPublicKey: r.ReceiverPublicKey, ReceiverKeyId: r.ReceiverKeyId, AutomaticAllowed: automatic}
 }
 func (p *proof) nextRequest() []byte {
 	for {
@@ -203,9 +221,8 @@ func (p *proof) approveEnrolment(record []byte, automatic ...bool) {
 	expected := relaycrypto.Fingerprint(relaycrypto.EnrolTranscript(p.approver.pin, p.enrolled.TlsPublicKey, p.enrolled.ReceiverPublicKey, p.keys.KeySet))
 	require(p.enrolled.Code == expected, "enrol transcript mismatch")
 	allowed := len(automatic) > 0 && automatic[0]
-	data := encoded(&pb.EnrolmentStatement{AutomaticAllowed: allowed, Domain: "agentkeyring.enrolment.v1", EnrolmentDigest: relaycrypto.Digest("agentkeyring.enrolment.v1", record), Choice: pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE, DecidedUnixSeconds: time.Now().Unix()})
-	p.enrolDecision = &pb.SignedEnrolmentDecision{Statement: data, Signature: sign(p.signer, data), ApproverKeyId: p.key.KeyId}
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_DecideEnrolment{DecideEnrolment: p.enrolDecision}})).GetEnrolment().Accepted, "enrolment approval failed")
+	p.configuration.Machines = append(p.configuration.Machines, p.enrolledMachine(allowed))
+	p.publishConfiguration()
 }
 func (p *proof) enrol(automatic ...bool) {
 	spki, err := relaycrypto.CertificateSPKI(p.client.certificate)
@@ -219,13 +236,16 @@ func (p *proof) enrol(automatic ...bool) {
 	record := p.nextEnrolment()
 	p.approveEnrolment(record, automatic...)
 	status := good(receive(conn)).GetEnrolStatus()
-	require(status.State == pb.EnrolState_ENROL_STATE_APPROVED && bytes.Equal(status.EnrolmentRecord, record), "enrolment stream lost exact proof bytes")
+	require(status.State == pb.EnrolState_ENROL_STATE_APPROVED && proto.Equal(status.Configuration, p.signedConfiguration), "enrolment stream lost exact proof bytes")
 	require(good(p.client.call(find())).GetClient().GetLogins().Logins[0].LoginId == "fixture-login", "enrolled client cannot find")
 }
 func (p *proof) decision(record []byte, deny bool, lifetime ...int64) *pb.RelayWireRequest {
 	request := new(pb.RequestRecord)
 	must(proto.Unmarshal(record, request))
 	statement := &pb.DecisionStatement{Domain: "agentkeyring.decision.v1", RequestDigest: relaycrypto.Digest("agentkeyring.request.v1", record), Choice: pb.DecisionChoice_DECISION_CHOICE_APPROVE, ApprovedAtUnixSeconds: time.Now().Unix(), NotAfterUnixSeconds: time.Now().Unix() + 1800, RecipientId: p.enrolled.RecipientId, ReceiverKeyId: p.enrolled.ReceiverKeyId, LeaseId: request.LeaseId, ReplySha256: relaycrypto.Hash(nil), Authority: pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN}
+	if len(lifetime) > 1 {
+		statement.ApprovedAtUnixSeconds = lifetime[1]
+	}
 	if len(lifetime) > 0 {
 		statement.NotAfterUnixSeconds = statement.ApprovedAtUnixSeconds + lifetime[0]
 	}
@@ -254,8 +274,14 @@ func (p *proof) decision(record []byte, deny bool, lifetime ...int64) *pb.RelayW
 	return &pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: &pb.SignedDecision{Statement: data, Signature: sign(p.signer, data), ApproverKeyId: p.key.KeyId, Reply: reply, Bundle: bundle}}}
 }
 func (p *proof) revoke() {
-	data := encoded(&pb.EnrolmentStatement{Domain: "agentkeyring.enrolment.v1", EnrolmentDigest: relaycrypto.Digest("agentkeyring.enrolment.v1", encoded(p.enrolled)), Choice: pb.EnrolmentChoice_ENROLMENT_CHOICE_REVOKE, DecidedUnixSeconds: time.Now().Unix()})
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_DecideEnrolment{DecideEnrolment: &pb.SignedEnrolmentDecision{Statement: data, Signature: sign(p.signer, data), ApproverKeyId: p.key.KeyId}}})).GetEnrolment().Accepted, "revoke failed")
+	var retained []*pb.EnrolledMachine
+	for _, machine := range p.configuration.Machines {
+		if machine.RecipientId != p.enrolled.RecipientId {
+			retained = append(retained, machine)
+		}
+	}
+	p.configuration.Machines = retained
+	p.publishConfiguration()
 }
 func (p *proof) local() {
 	p.start()
@@ -293,31 +319,23 @@ func (p *proof) local() {
 	altered := proto.Clone(decision).(*pb.RelayWireRequest)
 	altered.GetDecide().Reply = "tamper"
 	require(!good(p.approver.call(altered)).GetDecision().Accepted, "conflicting decision accepted")
-	begin := beginRequest(l.LeaseId, "step-1")
-	started := good(p.client.call(begin)).GetClient().GetBeginOperation()
-	require(started.GetSealed() != nil && bytes.Equal(started.GetSealed().RequestRecord, record), "begin lost signed request bytes")
+	begin := deliverRequest(l.LeaseId, "step-1")
+	started := good(p.client.call(begin)).GetClient().GetDelivery()
+	require(started.GetSealed() != nil && bytes.Equal(started.GetSealed().RequestRecord, record), "delivery lost signed request bytes")
 	require(started.GetSealed().Decision.Bundle == nil, "bundle attachment duplicated")
-	fmt.Println("PASS request joining, conflicting retry IDs, signed approval and begin")
+	fmt.Println("PASS request joining, conflicting retry IDs, signed approval and delivery")
 	p.work.Close()
 	p.stop()
 	p.start()
-	retry := good(p.client.call(begin)).GetClient().GetBeginOperation()
-	require(retry.GetAlreadyStarted() != nil && retry.GetAlreadyStarted().Outcome == nil, "restart redelivered or inferred an outcome")
+	retry := good(p.client.call(begin)).GetClient().GetDelivery()
+	require(proto.Equal(retry, started), "restart lost the original sealed delivery")
 	require(good(p.approver.call(decision)).GetDecision().Accepted, "restart lost decision")
 	afterRestart := good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: l.LeaseId}}}))).GetClient().GetLease()
 	require(afterRestart.NotAfterUnixSeconds == approved.Lease.NotAfterUnixSeconds && afterRestart.ApprovedAtUnixSeconds == approved.Lease.ApprovedAtUnixSeconds, "restart extended approval deadline")
-	second := good(p.client.call(beginRequest(l.LeaseId, "step-2"))).GetClient().GetBeginOperation()
-	require(second.GetSealed() != nil, "active lease lost after restart")
-	finish := clientRequest(&pb.WireRequest{Request: &pb.WireRequest_FinishOperation{FinishOperation: &pb.FinishOperationRequest{LeaseId: l.LeaseId, OperationId: started.OperationId, Outcome: &pb.FinishOperationRequest_Fill{Fill: pb.FillOutcome_FILL_OUTCOME_SUBMITTED}}}})
-	require(good(p.client.call(finish)).GetClient().GetOperation().GetFill() == pb.FillOutcome_FILL_OUTCOME_SUBMITTED, "finish failed")
-	good(p.client.call(finish))
-	changedFinish := proto.Clone(finish).(*pb.RelayWireRequest)
-	changedFinish.GetClient().GetFinishOperation().Outcome = &pb.FinishOperationRequest_Fill{Fill: pb.FillOutcome_FILL_OUTCOME_UNCERTAIN}
-	require(p.client.call(changedFinish).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_CONFLICT, "contradictory finish accepted")
 	require(good(p.client.call(endRequest(l.LeaseId))).GetClient().GetLease().State == pb.LeaseState_LEASE_STATE_RELEASED, "release failed")
-	require(p.client.call(beginRequest(l.LeaseId, "step-3")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "released lease delivered")
+	require(p.client.call(deliverRequest(l.LeaseId, "step-3")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "released lease delivered")
 	require(good(p.client.call(first)).GetClient().GetLease().State == pb.LeaseState_LEASE_STATE_RELEASED, "request retry created a new lease")
-	fmt.Println("PASS SIGKILL restart, unchanged deadline, uncertain retry, next step, finish and release")
+	fmt.Println("PASS SIGKILL restart, exact sealed delivery, unchanged deadline and release")
 	p.work = p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: p.key.KeyId}}})
 	p.delegationProof()
 	expiryLease := good(p.client.call(leaseRequest("request-expiry", "task-expiry", p.enrolled.RecipientId))).GetClient().GetLease()
@@ -332,7 +350,7 @@ func (p *proof) local() {
 	approverExpiry.Close()
 	watch.Close()
 	require(good(p.approver.call(expiryDecision)).GetDecision().Accepted, "accepted decision resend refused after expiry")
-	require(p.client.call(beginRequest(expiryLease.LeaseId, "expired-operation")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "expired lease delivered")
+	require(p.client.call(deliverRequest(expiryLease.LeaseId, "expired-operation")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "expired lease delivered")
 	cancelLease := good(p.client.call(leaseRequest("request-cancel", "task-cancel", p.enrolled.RecipientId))).GetClient().GetLease()
 	lateDecision := p.decision(p.nextRequest(), false)
 	require(good(p.client.call(endRequest(cancelLease.LeaseId))).GetClient().GetLease().State == pb.LeaseState_LEASE_STATE_CANCELLED, "pending release did not cancel")
@@ -340,7 +358,7 @@ func (p *proof) local() {
 	policyLease := good(p.client.call(leaseRequest("request-policy", "task-policy", p.enrolled.RecipientId))).GetClient().GetLease()
 	require(good(p.approver.call(p.decision(p.nextRequest(), false))).GetDecision().Accepted, "policy lease refused")
 	p.publishIndex(pb.AccessRule_ACCESS_RULE_BLOCKED)
-	require(p.client.call(beginRequest(policyLease.LeaseId, "blocked-operation")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "policy change did not revoke active lease")
+	require(p.client.call(deliverRequest(policyLease.LeaseId, "blocked-operation")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "policy change did not revoke active lease")
 	p.publishIndex(pb.AccessRule_ACCESS_RULE_ASK)
 	fmt.Println("PASS WatchLease reconnect, signed expiry, accepted resend after expiry, cancellation and current-policy revocation")
 	pending := good(p.client.call(leaseRequest("request-denied", "task-denied", p.enrolled.RecipientId))).GetClient().GetLease()
@@ -373,6 +391,9 @@ func (p *proof) local() {
 	blocked := good(p.client.call(leaseRequest("blocked", "blocked-task", p.enrolled.RecipientId))).GetClient().GetLease()
 	require(blocked.State == pb.LeaseState_LEASE_STATE_DENIED, "blocked request prompted")
 	p.connectionDenialProof()
+	p.dismissEnrolmentProof()
+	p.retentionProof()
+	p.setupExpiryProof()
 	p.revoke()
 	require(p.client.call(find()).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "revoked client authorized")
 	fmt.Println("PASS human denial suppression, Blocked policy and machine revocation")
@@ -398,7 +419,7 @@ func main() {
 		return
 	}
 	p := &proof{address: *address, directory: *directory, relayBinary: *relayBinary}
-	if *mode == "proof" || *mode == "phone" {
+	if *mode == "proof" || *mode == "phone" || *mode == "phone-approval" || *mode == "idle" {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		must(err)
 		p.address = listener.Addr().String()
@@ -410,7 +431,11 @@ func main() {
 		p.serveApprover()
 		return
 	}
-	if *mode == "phone" {
+	if *mode == "idle" {
+		p.idleProof()
+	} else if *mode == "phone-approval" {
+		p.phoneApprovalProof()
+	} else if *mode == "phone" {
 		p.phoneProof(*phoneBinary)
 	} else if *mode == "tailnet" {
 		p.tailnet(*linuxHost, *remoteBinary)
@@ -504,12 +529,9 @@ func (p *proof) serveApprover() {
 		case *pb.ApproverWork_Request:
 			request := new(pb.RequestRecord)
 			must(proto.Unmarshal(item.Request.Record, request))
-			response := good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_ListEnrolments{ListEnrolments: &pb.ListEnrolmentsRequest{}}}))
-			for _, candidate := range response.GetEnrolments().Enrolments {
-				enrolled := new(pb.EnrolmentRecord)
-				must(proto.Unmarshal(candidate.Record, enrolled))
-				if enrolled.RecipientId == request.RecipientId {
-					p.enrolled = enrolled
+			for _, machine := range p.configuration.Machines {
+				if machine.RecipientId == request.RecipientId {
+					p.enrolled = &pb.EnrolmentRecord{RecipientId: machine.RecipientId, MachineLabel: machine.MachineLabel, ClientLabel: machine.ClientLabel, TailscaleNodeId: machine.TailscaleNodeId, TlsPublicKey: machine.TlsPublicKey, ReceiverPublicKey: machine.ReceiverPublicKey, ReceiverKeyId: machine.ReceiverKeyId}
 					break
 				}
 			}

@@ -29,9 +29,9 @@ the MacBook keeps its copy of the passwords.
 
 | Role | Runs on | Holds | Does |
 | --- | --- | --- | --- |
-| Relay | Mac mini, `agent-keyring-relay`, Go | Lease records, operation records, enrolment records, sealed bundles, signed login index | Accepts requests, wakes approvers, stores decisions, hands sealed bundles to receivers |
+| Relay | Mac mini, `agent-keyring-relay`, Go | Lease records, pending enrolments, sealed bundles, the signed configuration | Accepts requests, wakes approvers, stores decisions, hands sealed bundles to receivers |
 | Approver | MacBook (Mac app); from release 4 the iPhone signs answers that the MacBook delivers | The passwords, the rules, its signing key, the receiver keys it has approved | Decides, seals approved logins to the receiver, signs the decision |
-| Receiver | The agent's machine, the Go `agent-keyring` client | Its TLS key, its receiver key, the approver keys it pinned | Requests, opens bundles, fills, runs programs, reports outcomes |
+| Receiver | The agent's machine, the Go `agent-keyring` client | Its TLS key, its receiver key, the approver keys it pinned | Requests, opens bundles, fills, runs programs, keeps its own retry records |
 
 The agent-facing contract does not change: `find`, `lease`, `status`,
 `release`, `fill`, `exec`, `read`, same flags, same exit codes. The client
@@ -83,10 +83,11 @@ from software administering that same machine.
    shows a code. The approver shows the same code with the machine name and the
    tailnet node the relay observed. Josh approves with Touch ID and chooses
    whether this machine may use Automatic logins (default off). The client pins
-   the approver key set bound into that code, after checking the signed
-   enrolment decision. An APPROVED status from the relay alone is insufficient.
+   the approver key set bound into that code once it sees a configuration,
+   signed by a key in that set, that lists this machine with exactly its keys.
+   An APPROVED status from the relay alone is insufficient.
 2. **Request.** The agent runs `agent-keyring lease` as on the MacBook. The
-   relay refuses Blocked logins from the signed index without waking anyone,
+   relay refuses Blocked logins from the signed configuration without waking anyone,
    otherwise stores a `RequestRecord` and sends it to connected approvers.
 3. **Decide.** The approver parses the record, then checks the login and the
    recipient against its own data, never the relay's. Automatic, with this
@@ -114,8 +115,8 @@ from software administering that same machine.
    Approvers see remote leases as `ApproverWork.lease` updates on the same
    stream, and Josh ends one early with `RevokeLease`, also unsigned over the
    pinned connection: it only takes access away.
-5. **Fill.** The receiver's `BeginOperation` records the operation at the relay
-   and returns the `SealedDelivery`, including the exact approved request bytes.
+5. **Fill.** The receiver's `Deliver` call returns the `SealedDelivery`,
+   including the exact approved request bytes.
    The receiver checks their digest and scope against the request it retained
    locally for this lease: login, task, recipient, purpose and program. It checks
    the signed deadline and ciphertext hash, then checks the opened bundle's
@@ -125,8 +126,8 @@ from software administering that same machine.
    so a new CLI process can make the same checks; it never accepts a new scope
    just because the relay returned it.
 
-Operation records, retries and Uncertain outcomes work exactly as in RFC 0004,
-with the relay holding the records instead of the Mac app.
+Retries and Uncertain outcomes work exactly as in RFC 0004: the receiver keeps
+the records in its own state file, and the relay only delivers.
 
 ## Availability and recovery
 
@@ -179,15 +180,14 @@ A home outage stops remote requests. That is the limit of one always-on host.
 - The approver key on the MacBook is new: a Secure Enclave P-256 signing key
   created by the Mac app. Its access control requires biometrics; whether an
   Apple Watch tap can satisfy the same key needs the device proof below.
-- The Mac app publishes a signed login index to the relay after each import or
-  rule change.
+- The Mac app publishes a signed configuration to the relay after each import,
+  rule change, enrolment or revocation (see "Configuration" below).
 
 ## Build slices
 
-### Settled contracts (round 10)
+### Settled contracts (round 10, simplified in round 9 of review)
 
-These close the three gaps Astra found. Messages are in `relay.proto` and
-`bundle.proto`; all additions are compatible.
+Messages are in `relay.proto` and `bundle.proto`.
 
 **Pairing.**
 
@@ -220,31 +220,25 @@ These close the three gaps Astra found. Messages are in `relay.proto` and
   set. The current-set transcript component is empty for this first pairing.
   First-setup mode refuses a relay that already has an approver; adding to an
   existing setup uses the path below.
-- *Machines.* Enrolment works the same way, with the approver's
-  `SignedEnrolmentDecision` as the confirmation. The record binds the hash of
-  the compared key-set bytes. On APPROVED, `EnrolStatus` returns the exact
-  record and signed decision. The client checks its own keys, that key-set
-  hash, the approval choice and the signature by a key in the compared set;
-  only then does it pin the set and accept recipient ID and Automatic access.
+- *Machines.* Enrolment uses the same comparison. Approving is publishing the
+  next configuration with the machine added; "Doesn't match" is
+  `DismissEnrolment`. On APPROVED, `EnrolStatus` returns that signed
+  configuration. The client checks its own keys in it, and that it is signed by
+  the rule owner's key in the compared set; only then does it pin the set and
+  accept its recipient ID and Automatic access.
 - *Adding an approver.* The phone calls `PairApprover`. Its pending request
   reaches existing approvers through `ApproverWork.pairing`. Both screens
   compute the code from the phone's keys, the pinned relay key and the current
   key-set bytes. After the comparison and Touch ID, the Mac signs the next
   `ApproverKeySet`, with the phone added, the pairing transcript hash and the
-  current enrolment-set revision and digest. `PublishApproverKeys` activates
+  current configuration revision and digest. `PublishApproverKeys` activates
   the phone and completes its pending stream. The phone checks that the new
   set is signed by a key in the compared previous set, advances its revision,
   contains its own keys and matches the transcript. No relay status can add
   an approver by itself. A lost reply can return the same accepted set.
-- *Current enrolments.* After every enrolment or revocation the approver
-  publishes a `SignedEnrolmentSet`: the full list of enrolled machines, with a
-  revision. Revoking means leaving a machine out of the next revision, so an
-  old approval cannot bring it back. When an approver pairs a new one (the
-  iPhone in release 4), `ApproverKeySet.enrolment_set_revision` and
-  `enrolment_set_sha256` name the current set, and the new approver fetches and
-  accepts exactly that signed set before answering requests. The Mac publishes
-  an empty signed roster too if no machines have enrolled yet.
-  `ListEnrolments` remains for display.
+- *Revoking a machine* is publishing a configuration without it, so an old
+  approval cannot bring it back. A new approver fetches and accepts exactly the
+  configuration its pairing names before answering requests.
 - *Approver key changes.* The relay keeps every `SignedApproverKeySet`.
   `GetApproverKeyChain` returns all of them after a given revision, so a
   receiver that was offline walks the chain from a key it pinned, each step
@@ -257,17 +251,19 @@ Approver keys need Josh's biometric check on every use, so they cannot approve
 unattended. Automatic approval therefore uses its own key with narrower
 authority, never an approver key with the check turned off.
 
-- The rule owner signs a `SignedAutomaticGrant` while Josh is present (when he
-  changes a rule or enrols a machine). It names one Automatic signing key, the
-  logins that are Automatic, and the machines allowed them, with a revision.
+- The configuration names one Automatic signing key. It may sign only for
+  logins whose rule there is Automatic and machines marked Automatic-allowed.
 - An Automatic decision is signed by that key and says
-  `authority = AUTOMATIC_RULE` with the grant revision. A receiver opens it only
-  if the grant is signed by the current rule owner, names that Automatic key,
-  lists both the login and the receiver, and matches the decision's grant
-  revision. Receivers fetch `GetAutomaticGrant`, retain the highest valid
-  revision and reject a downgrade or different bytes at the same revision.
-  An Ask decision says `authority = HUMAN` and must be signed by an approver
-  key. Neither can stand in for the other.
+  `authority = AUTOMATIC_RULE` with the configuration revision it was made
+  under. A receiver opens it only if its current configuration, at that
+  revision or later and signed by the current rule owner, still names that key,
+  has the login as Automatic and the receiver as Automatic-allowed. A newer
+  revision that keeps all three, such as an import or another machine's
+  enrolment, leaves an active lease working; one that withdraws any of them
+  ends it. Receivers fetch `GetConfiguration`, retain the highest valid
+  revision and reject a downgrade or different bytes at the same revision. An Ask decision
+  says `authority = HUMAN` and must be signed by an approver key. Neither can
+  stand in for the other.
 - Release 3: the Automatic key lives in the Mac app, in the Secure Enclave
   without a biometric requirement. It is the MacBook's delivery key (role
   MAC_DELIVERY), usable while the Mac is awake, including with the screen
@@ -275,15 +271,35 @@ authority, never an approver key with the check turned off.
   (RFC 0006). It never signs a HUMAN decision. Automatic logins still need the
   MacBook awake, as this RFC already says.
 - Later, for the MacBook-shut step: the Automatic key and an encryption key
-  live on the relay (RFC 0006). The relay can approve only the logins the grant lists, for the
-  machines it lists.
+  live on the relay (RFC 0006). The relay can approve only the Automatic
+  logins the configuration lists, for the machines it allows.
 - Each new lease is evaluated on its own: Automatic logins are approved again
   without a prompt, as Josh specified.
-- Login index updates are signed with the approver key at the moment Josh
-  imports or changes a rule, so they need no unattended key.
-- `GetIndex` returns the rule owner's signed index for other approvers to
-  follow. Index and grant revisions continue increasing across a rule-owner
-  change. Receivers learn owner changes through the signed approver key chain.
+- Configurations are signed with the approver key at the moment Josh imports,
+  changes a rule or approves a machine, so they need no unattended key.
+  Revisions continue increasing across a rule-owner change. Receivers learn
+  owner changes through the signed approver key chain.
+
+**Configuration.**
+
+One signed configuration holds everything that decides who may ask for what:
+logins with their rules, enrolled machines (with Automatic allowed or not), and
+the Automatic signing key. There is one revision and one signature, so the
+relay never holds a new rule with an old machine list, or the reverse.
+
+- *Applying a change.* Confirming a rule change, approving or revoking a
+  machine, or importing writes three things to the Mac app's store in one
+  transaction: the new configuration, revocation of the Mac's own local leases
+  it affects, and a queued publication. The app sends the publication until the
+  relay acknowledges it, and shows "Applying" until then. Quitting or losing
+  the network does not lose it.
+- *At the relay.* `PublishConfiguration` checks the rule owner's signature and
+  a higher revision, then in one transaction stores it and revokes affected
+  leases: leases of removed machines, of logins now Blocked or removed, and
+  Automatic-approved leases of logins no longer Automatic, of machines no
+  longer Automatic-allowed, or signed by an Automatic key the configuration no
+  longer names. Other active leases continue. An exact resend is
+  acknowledged; different bytes at the same revision are refused.
 
 What still needs the device: whether an Apple Watch tap satisfies the approver
 key, and that the replacement delivery key works with the screen locked after
@@ -296,10 +312,10 @@ built now. Pairing and Automatic code follow the contracts above.
 
 | Slice | Owner | What | Done when |
 | --- | --- | --- | --- |
-| R3.1 | Terra or Sol | Relay core in Go: SQLite store, lease and operation records, request joining and deadlines from RFC 0004, `RelayWireRequest` server over TLS with pinned keys | A scripted client and a scripted approver complete request, approve, begin, finish, release over loopback TLS; relay restart mid-lease loses nothing |
-| R3.2 | Terra or Sol | Enrolment: `Enrol` stream, code derivation, Tailscale node lookup, approver decision, revocation | A Linux test machine enrols, is refused from a different tailnet node with the same keys, and is revoked |
-| R3.3 | Terra or Sol | Client: relay transport, enrolled-key storage (a file with owner-only permissions, on Linux and on Macs without the app), pinned approver keys, bundle verification and opening | Wrong recipient, wrong lease, expired deadline, unknown signer and tampered ciphertext are each refused with a clear error |
-| R3.4 | Sol | Mac app approver: relay connection, `WatchWork`, local decision checks, bundle sealing with precomputed codes, signed decisions, outbox with resend until acknowledged | MacBook approves a remote request; killing the network after Touch ID and restoring it delivers the same decision with no second touch |
+| R3.1 | Terra or Sol | Relay core in Go: SQLite store, lease records with request joining, deadlines from a timer and the retention rules from RFC 0004, `PublishConfiguration` with its revocations, `RelayWireRequest` server over TLS with pinned keys | A scripted client and a scripted approver complete request, approve, deliver, release over loopback TLS; relay restart mid-lease loses nothing; an idle relay does no periodic work |
+| R3.2 | Terra or Sol | Enrolment: `Enrol` stream, code derivation, Tailscale node lookup, approval and revocation through the configuration, `DismissEnrolment` | A Linux test machine enrols, is refused from a different tailnet node with the same keys, and is revoked |
+| R3.3 | Terra or Sol | Client: relay transport, enrolled-key storage (a file with owner-only permissions, on Linux and on Macs without the app), pinned approver keys, bundle verification and opening, retry records in the same state file | Wrong recipient, wrong lease, expired deadline, unknown signer and tampered ciphertext are each refused with a clear error |
+| R3.4 | Sol | Mac app approver: relay connection, `WatchWork`, local decision checks, bundle sealing with precomputed codes, signed decisions, one outbox for decisions and configurations with resend until acknowledged, "Applying" state | MacBook approves a remote request; killing the network after Touch ID and restoring it delivers the same decision with no second touch |
 | R3.5 | Terra | nix-darwin service and tailnet access rule for the relay port | Mini reboots and the relay is back before anyone logs in |
 | R3.6 | Opus | Enrolment and remote-request screens in the Mac panel (RFC 0007) | Josh can tell a remote request from a local one at a glance |
 

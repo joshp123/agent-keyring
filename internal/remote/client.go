@@ -48,7 +48,7 @@ func Load(ctx context.Context, store clientstate.Store) (*Client, error) {
 	return &Client{store, keys, certificate}, nil
 }
 func (c *Client) Authority() authority.Client {
-	return authority.Client{Exchange: c.exchange, OpenValues: c.OpenValues, Remote: true}
+	return authority.Client{Exchange: c.exchange, OpenValues: c.OpenValues, Remote: true, State: c.Store}
 }
 func (c *Client) wire(ctx context.Context, request *pb.RelayWireRequest, receive func(*pb.RelayWireResponse) bool) error {
 	state, err := c.Store.Load(ctx)
@@ -159,33 +159,55 @@ func (c *Client) refreshKeys(ctx context.Context) error {
 		return advanceKeys(current, remaining)
 	})
 }
-func (c *Client) refreshGrant(ctx context.Context) error {
-	response, err := c.call(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetAutomaticGrant{GetAutomaticGrant: &pb.GetAutomaticGrantRequest{}}})
+func (c *Client) refreshConfiguration(ctx context.Context) error {
+	response, err := c.call(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfiguration{GetConfiguration: &pb.GetConfigurationRequest{}}})
 	if err != nil {
 		return err
 	}
-	return c.Store.Update(ctx, func(state *clientstate.State) error { return acceptGrant(state, response.GetAutomaticGrant()) })
+	var membershipError error
+	err = c.Store.Update(ctx, func(state *clientstate.State) error {
+		configuration, err := verifyConfiguration(state, response.GetConfiguration())
+		if err != nil {
+			return err
+		}
+		clientSPKI, err := relaycrypto.CertificateSPKI(c.Certificate)
+		if err != nil {
+			return err
+		}
+		receiver, err := ecdh.P256().NewPrivateKey(c.Keys.ReceiverPrivateKey)
+		if err != nil {
+			return err
+		}
+		enrolled := machine(configuration, state.RecipientId)
+		if enrolled == nil || !bytesEqual(enrolled.TlsPublicKey, clientSPKI) || !bytesEqual(enrolled.ReceiverPublicKey, receiver.PublicKey().Bytes()) || enrolled.ReceiverKeyId != state.ReceiverKeyId {
+			membershipError = errors.New("The current signed configuration no longer enrolls this machine's keys.")
+		}
+		state.Configuration = proto.Clone(response.GetConfiguration()).(*pb.SignedConfiguration)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return membershipError
 }
 func (c *Client) find(ctx context.Context, query string) (*pb.WireResponse, error) {
 	if err := c.refreshKeys(ctx); err != nil {
 		return nil, err
 	}
-	response, err := c.call(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetIndex{GetIndex: &pb.GetIndexRequest{}}})
+	if err := c.refreshConfiguration(ctx); err != nil {
+		return nil, err
+	}
+	state, err := c.Store.Load(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var index *pb.LoginIndex
-	err = c.Store.Update(ctx, func(state *clientstate.State) error {
-		var e error
-		index, e = verifyIndex(state, response.GetIndex())
-		return e
-	})
+	configuration, err := verifyConfiguration(state, state.Configuration)
 	if err != nil {
 		return nil, err
 	}
-	results := &pb.FindLoginsResponse{MirrorRefreshedUnixSeconds: index.MirrorRefreshedUnixSeconds}
+	results := &pb.FindLoginsResponse{MirrorRefreshedUnixSeconds: configuration.MirrorRefreshedUnixSeconds}
 	query = strings.ToLower(query)
-	for _, login := range index.Logins {
+	for _, login := range configuration.Logins {
 		if strings.Contains(strings.ToLower(strings.Join(append([]string{login.LoginId, login.Title, login.Account}, login.Sites...), " ")), query) {
 			results.Logins = append(results.Logins, login)
 		}
@@ -400,42 +422,27 @@ func acceptEnrolment(ctx context.Context, store clientstate.Store, status *pb.En
 	if len(compared) == 0 || status.ApproverKeySet == nil || !bytesEqual(compared, status.ApproverKeySet.KeySet) {
 		return errors.New("The enrolled approver keys do not match the compared fingerprint.")
 	}
-	set, err := keySet(status.ApproverKeySet)
-	if err != nil {
+	if _, err := keySet(status.ApproverKeySet); err != nil {
 		return err
-	}
-	record := new(pb.EnrolmentRecord)
-	if proto.Unmarshal(status.EnrolmentRecord, record) != nil {
-		return errors.New("The signed enrolment record is unreadable.")
 	}
 	receiverID := fmt.Sprintf("%x", relaycrypto.Hash(receiver))
-	if record.RecipientId == "" || record.RecipientId != status.RecipientId || !bytesEqual(record.TlsPublicKey, clientSPKI) || !bytesEqual(record.ReceiverPublicKey, receiver) || record.ReceiverKeyId != receiverID || !bytesEqual(record.ApproverKeySetSha256, relaycrypto.Hash(compared)) {
-		return errors.New("The enrolment record does not bind this machine's keys to the compared approver keys.")
-	}
-	signed := status.Decision
-	if signed == nil {
-		return errors.New("The relay approved enrolment without an approver's signed decision.")
-	}
-	statement := new(pb.EnrolmentStatement)
-	if proto.Unmarshal(signed.Statement, statement) != nil || statement.Domain != "agentkeyring.enrolment.v1" || statement.Choice != pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE || !bytesEqual(statement.EnrolmentDigest, relaycrypto.Digest("agentkeyring.enrolment.v1", status.EnrolmentRecord)) {
-		return errors.New("The signed enrolment decision does not approve this machine.")
-	}
-	key, err := signingKey(set, signed.ApproverKeyId)
-	if err != nil {
-		return err
-	}
-	if relaycrypto.Verify(key, signed.Statement, signed.Signature) != nil {
-		return errors.New("The enrolment approval has an invalid signature.")
-	}
 	return store.Update(ctx, func(state *clientstate.State) error {
-		if state.RecipientId != "" && state.RecipientId != record.RecipientId {
+		if state.RecipientId != "" && state.RecipientId != status.RecipientId {
 			return errors.New("Another enrolment already assigned this machine a different identity.")
 		}
-		state.RelaySpki = append([]byte(nil), relaySPKI...)
-		state.RecipientId = record.RecipientId
-		state.ReceiverKeyId = receiverID
 		state.Approvers = proto.Clone(status.ApproverKeySet).(*pb.SignedApproverKeySet)
-		state.AutomaticAllowed = statement.AutomaticAllowed
+		configuration, err := verifyConfiguration(state, status.Configuration)
+		if err != nil {
+			return err
+		}
+		enrolled := machine(configuration, status.RecipientId)
+		if status.RecipientId == "" || enrolled == nil || !bytesEqual(enrolled.TlsPublicKey, clientSPKI) || !bytesEqual(enrolled.ReceiverPublicKey, receiver) || enrolled.ReceiverKeyId != receiverID {
+			return errors.New("The signed configuration does not enroll this machine's keys.")
+		}
+		state.Configuration = proto.Clone(status.Configuration).(*pb.SignedConfiguration)
+		state.RelaySpki = append([]byte(nil), relaySPKI...)
+		state.RecipientId = enrolled.RecipientId
+		state.ReceiverKeyId = receiverID
 		return nil
 	})
 }
