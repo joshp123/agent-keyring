@@ -220,7 +220,7 @@ extension PhoneRelayApprover {
         case .active:
             if lease.notAfterUnixSeconds <= Self.now { return .expired(at: Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds))) }
             return .approved(by: lease.approvedBy == .iphone ? .iPhone : (lease.approvedBy == .automaticRule ? .automaticRule : .mac), until: Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds)))
-        case .denied: return .denied(by: lease.approvedBy == .iphone ? .iPhone : .mac, reply: (lease.reply.isEmpty ? verifiedReply : lease.reply).flatMap { $0.isEmpty ? nil : $0 },
+        case .denied: return .denied(by: lease.approvedBy == .iphone ? .iPhone : (lease.approvedBy == .automaticRule ? .automaticRule : .mac), reply: (lease.reply.isEmpty ? verifiedReply : lease.reply).flatMap { $0.isEmpty ? nil : $0 },
                                     askAgainAfter: lease.retryNotBeforeUnixSeconds > Self.now ? Date(timeIntervalSince1970: Double(lease.retryNotBeforeUnixSeconds)) : nil)
         case .released: return .released(at: Date(timeIntervalSince1970: Double(lease.endedAtUnixSeconds)))
         case .revoked: return .ended(at: Date(timeIntervalSince1970: Double(lease.endedAtUnixSeconds)))
