@@ -62,7 +62,9 @@ struct UpgradeState {
             sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "com.agentkeyring.example",
                 accountID: Data("example@example.com".utf8), itemID: Data("example.com".utf8)),
             title: "example.com", origins: ["https://example.com", "http://127.0.0.1:8443"],
-            credentials: [.password(userName: "example@example.com", password: "example-password")])
+            credentials: [.password(userName: "example@example.com", password: "example-password"),
+                .totp(secret: Data("12345678901234567890".utf8), period: 30, digits: 6,
+                    userName: nil, algorithm: .sha1, issuer: "Synthetic upgrade proof")])
         let generation = MirrorGeneration(id: UUID(), previousGenerationID: nil,
             createdAt: Date(), sourceExportedAt: Date(), scope: .full,
             exporterIdentifier: "com.agentkeyring.example", exporterDisplayName: "Synthetic upgrade proof",
