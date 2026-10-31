@@ -54,7 +54,7 @@ func ValidateRoles(set *pb.ApproverKeySet, legacyOwner string) error {
 // fields. Scope, current policy, request lifetime and ciphertext are checked by
 // the caller against its retained request. Denial history has no approval TTL.
 func VerifyPhoneDelivery(set *pb.ApproverKeySet, signed *pb.SignedDecision, statement *pb.DecisionStatement) error {
-	if signed == nil || signed.PhoneDecision == nil || statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_PHONE || statement.AutomaticGrantRevision != 0 {
+	if signed == nil || signed.PhoneDecision == nil || statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_PHONE || statement.ConfigurationRevision != 0 {
 		return errors.New("Missing phone consent.")
 	}
 	deliveryKey, err := KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
