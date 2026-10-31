@@ -176,6 +176,8 @@ extension RelayApprover {
             }
         case let .pairing(request): try receiveApproverPairing(request)
         case let .lease(lease): try await receiveLeaseReport(lease)
+        case .phoneDecision, .localLeaseAction: // Implemented by the R4.2/R4.5 lanes (RFC 0006).
+            throw LeaseFailure(.unavailable, "This Mac build cannot yet handle phone approval work.")
         case nil: throw LeaseFailure(.invalidArgument, "The relay sent empty work.")
         }
     }
