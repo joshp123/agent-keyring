@@ -7,7 +7,7 @@ metadata:
 
 # Agent Keyring
 
-Agent Keyring holds the user's saved logins. You lease one login for the task you are doing, use it as often as the task needs, and release it when you are done. The user's rule for that login decides whether the lease is approved automatically, needs their Touch ID or iPhone approval, or is refused. One approval covers your whole task, including retries and two-factor steps, for up to 30 minutes.
+Agent Keyring holds the user's saved logins. You lease one login for the task you are doing, use it as often as the task needs, and release it when you are done. The user's rule for that login decides whether the lease is approved automatically, needs their Touch ID or iPhone approval, or is refused. One approval covers your whole task, including retries and two-factor steps, for up to 30 minutes. That is how long Agent Keyring will hand out the login for the task; it does not sign you out of the website, and anything already delivered stays where it went.
 
 The values go into the sign-in form or the program, not into your output. Keep it that way: your conversation is stored, and the user is trusting the tool with their accounts.
 
@@ -60,7 +60,7 @@ agent-keyring exec "$lease" --field password
 Agent Keyring runs on the user's Mac. On another machine on their tailnet, such as a server or a cloud VM, enrol it once:
 
 ```sh
-agent-keyring enrol --name "build server" --relay mac-mini:17443
+agent-keyring enrol --name "build server" --relay RELAY_HOST:17443
 ```
 
 Ask the user for the relay address if you don't know it. `enrol` prints a code of eight groups and waits. Show the user that code and ask them to compare every group with the one Agent Keyring shows on their Mac before they approve there: the comparison is what proves this machine reached their own Agent Keyring, so it needs their eyes. After that, every command above works the same. Answers can take longer, because the user may approve on their iPhone.
