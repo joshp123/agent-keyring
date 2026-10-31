@@ -17,11 +17,11 @@ struct PhoneSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    passwordsRow
+                    NavigationLink { PhoneImportView(model: model) } label: { passwordsRow }
                 } header: {
-                    Text("Passwords on this iPhone")
+                    Text(SetupCopy.phonePasswordsTitle)
                 } footer: {
-                    Text("After you add or change a password, export it again: in the Passwords app, tap ··· then Export Data to Another App, and choose Agent Keyring. Logins you leave out are kept.")
+                    Text(SetupCopy.phonePasswordsFooter)
                 }
 
                 Section {
@@ -76,9 +76,9 @@ struct PhoneSettingsView: View {
         case let .importing(received):
             LabeledContent("Importing", value: "\(received) so far")
         case .notImported:
-            LabeledContent("No passwords yet", value: "")
+            LabeledContent("None", value: "Optional")
         case .importFailed:
-            LabeledContent("Last import failed", value: "")
+            LabeledContent("Last import didn't finish") { Text("See why").foregroundStyle(KeyringColour.denyText) }
         }
     }
 
