@@ -109,6 +109,9 @@ from software administering that same machine.
    Josh's "let it ask again" sends `ClearDenial` over the same pinned
    connection, unsigned for the same reason: it lets a machine ask, and each
    new request still needs its own decision.
+   Approvers see remote leases as `ApproverWork.lease` updates on the same
+   stream, and Josh ends one early with `RevokeLease`, also unsigned over the
+   pinned connection: it only takes access away.
 5. **Fill.** The receiver's `BeginOperation` records the operation at the relay
    and returns the `SealedDelivery`, including the exact approved request bytes.
    The receiver checks their digest and scope against the request it retained

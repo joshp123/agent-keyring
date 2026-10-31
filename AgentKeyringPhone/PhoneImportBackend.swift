@@ -10,7 +10,6 @@ private let phoneImportLogger = Logger(subsystem: "com.joshpalmer.AgentKeyring.P
 final class PhoneImportBackend: PhoneKeyringBackend {
     private let importer: any CredentialImporting
     private let destination: any PhoneCredentialImportDestination
-    private let receiptURL = URL.applicationSupportDirectory.appending(path: "last-import-receipt.plist")
     private var subscribers: [UUID: AsyncStream<PhoneKeyringSnapshot>.Continuation] = [:]
     private var handledTokens = Set<UUID>()
     private var pendingTokens: [UUID] = []
@@ -27,18 +26,17 @@ final class PhoneImportBackend: PhoneKeyringBackend {
 
     init(
         importer: any CredentialImporting = SystemCredentialImporter(),
-        destination: any PhoneCredentialImportDestination = ReceiptOnlyPhoneImportDestination()
+        destination: any PhoneCredentialImportDestination = EncryptedPhoneImportDestination()
     ) {
         self.importer = importer
         self.destination = destination
-        if FileManager.default.fileExists(atPath: receiptURL.path) {
-            do {
-                let receipt = try PropertyListDecoder().decode(PhoneImportReceipt.self, from: Data(contentsOf: receiptURL))
-                snapshot.passwords = .importFailed(receipt.receivedOnlyMessage)
-            } catch {
-                logFailure(error, stage: "Read import receipt")
-                snapshot.passwords = .importFailed("The last import report couldn't be read. Export a test login again from Passwords.")
+        do {
+            if let status = try destination.status() {
+                snapshot.passwords = .imported(count: status.loginCount, at: status.importedAt)
             }
+        } catch {
+            logFailure(error, stage: "Read phone vault index")
+            snapshot.passwords = .importFailed("The saved phone vault couldn't be read. Unlock this iPhone and open Agent Keyring again.")
         }
     }
 
@@ -87,7 +85,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         } catch {
             let failure = CredentialImportFailure(error: error, hadExistingMirror: false)
             phoneImportLogger.error("Credential transfer failed [\(failure.diagnostic, privacy: .public)]")
-            snapshot.passwords = .importFailed("Apple Passwords couldn't transfer the logins. Start the export again in Passwords. No logins were saved on this iPhone.")
+            snapshot.passwords = .importFailed("Apple Passwords couldn't transfer the logins. Start the export again in Passwords. Existing saved logins are unchanged.")
             return
         }
 
@@ -98,26 +96,12 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         phoneImportLogger.notice("Mapped \(receipt.loginCount, privacy: .public) items; passwords=\(receipt.passwordCount, privacy: .public) codes=\(receipt.codeCount, privacy: .public) skippedPasskeys=\(receipt.skippedPasskeyCount, privacy: .public) skippedMissingPassword=\(receipt.skippedMissingPasswordCount, privacy: .public) skippedOther=\(receipt.skippedOtherCount, privacy: .public)")
         snapshot.passwords = .importing(received: receipt.loginCount)
         do {
-            let disposition = try await destination.receive(batch)
-            switch disposition {
-            case .receivedOnly:
-                phoneImportLogger.notice("Import hand-off completed; receipt only, credentials not saved")
-                snapshot.passwords = .importFailed(receipt.receivedOnlyMessage)
-                do {
-                    try FileManager.default.createDirectory(at: receiptURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try PropertyListEncoder().encode(receipt).write(to: receiptURL, options: [.atomic, .completeFileProtection])
-                    phoneImportLogger.notice("Saved import receipt (counts only)")
-                } catch {
-                    logFailure(error, stage: "Save import receipt")
-                    snapshot.passwords = .importFailed(receipt.receivedOnlyMessage + " This report couldn't be kept after closing the app.")
-                }
-            case let .saved(totalLoginCount, date):
-                phoneImportLogger.notice("Saved encrypted phone vault with \(totalLoginCount, privacy: .public) items")
-                snapshot.passwords = .imported(count: totalLoginCount, at: date)
-            }
+            let status = try await destination.receive(batch)
+            phoneImportLogger.notice("Saved encrypted phone vault with \(status.loginCount, privacy: .public) items")
+            snapshot.passwords = .imported(count: status.loginCount, at: status.importedAt)
         } catch {
             logFailure(error, stage: "Phone vault import")
-            snapshot.passwords = .importFailed("Passwords transferred \(receipt.loginCount) logins, but the phone vault could not save them. Start the export again in Passwords.")
+            snapshot.passwords = .importFailed("Passwords transferred \(receipt.loginCount) logins, but the phone vault could not save them. Existing saved logins are unchanged. Start the export again in Passwords.")
         }
     }
 
