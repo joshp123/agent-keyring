@@ -2,7 +2,9 @@ import AppKit
 import AuthenticationServices
 import Sparkle
 import SwiftUI
+import AgentKeyringApprovalUI
 import AgentKeyringFeature
+import AgentKeyringScreenBackends
 #if DEBUG
 import AgentKeyringTestSupport
 #endif
@@ -41,6 +43,10 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     private let accessControlFixture: MirrorGeneration?
     private let fixturePolicyStore: CredentialAccessPolicyStore?
     private(set) lazy var leaseApprovals = LeaseApprovalPresenter(model: model)
+    private(set) lazy var menuBar: MacMenuBarModel = {
+        let backend = LeaseMenuBarBackend(model: model)
+        return MacMenuBarModel(backend: backend, initial: backend.snapshot())
+    }()
 
     override init() {
         let presentation = AgentKeyringPresentation()
@@ -85,6 +91,8 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Before the socket opens, so no request reaches the old system prompt.
         leaseApprovals.start()
+        // At launch, not when the window opens: the icon shows the waiting count.
+        Task { [menuBar] in await menuBar.followUpdates() }
         do { try model.startAgentListener() }
         catch { NSLog("Agent Keyring could not start the agent socket: %@", String(describing: error)) }
         if accessControlFixture == nil {
@@ -247,9 +255,13 @@ struct AgentKeyringApp: App {
         }
 
         MenuBarExtra {
-            AgentKeyringMenu(presentation: appDelegate.presentation, model: appDelegate.model)
+            AgentKeyringMenuWindow(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar,
+                leaseApprovals: appDelegate.leaseApprovals) {
+                updaterController.checkForUpdates(nil)
+            }
         } label: {
-            AgentKeyringMenuBarLabel(presentation: appDelegate.presentation)
+            AgentKeyringMenuBarLabel(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar)
         }
+        .menuBarExtraStyle(.window)
     }
 }
