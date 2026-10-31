@@ -16,6 +16,11 @@ if [[ -e "$SKILL_DIR/agent-keyring" || -L "$SKILL_DIR/agent-keyring" ]]; then
   /usr/bin/trash "$SKILL_DIR/agent-keyring"
 fi
 /usr/bin/ditto "$SRCROOT/AgentSkill/agent-keyring" "$SKILL_DIR/agent-keyring"
+# 0.2.5 and earlier linked ~/.codex/skills/agent-keyring to CodexSkill; keep
+# that path so the link still resolves after an update replaces the app.
+LEGACY_SKILL_DIR="$(dirname "$SKILL_DIR")/CodexSkill"
+/bin/mkdir -p "$LEGACY_SKILL_DIR"
+/bin/ln -sfn ../AgentSkill/agent-keyring "$LEGACY_SKILL_DIR/agent-keyring"
 
 if [[ "${CODE_SIGNING_ALLOWED:-NO}" == "YES" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
   /usr/bin/codesign --force --options runtime --sign "$EXPANDED_CODE_SIGN_IDENTITY" \
