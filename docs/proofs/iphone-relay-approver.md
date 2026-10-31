@@ -63,20 +63,20 @@ No live APNs notification was proved.
 
 ## Joint system proof
 
-The configuration adaptation's Swift phone fixture and iOS SDK app build pass.
-The joint run below passed before the one-configuration simplification. Its
-fixture now uses `GetConfiguration` and `Delivery`; rerunning against the
-adapted relay and receiver is pending those lanes. The added configuration
-exercise restarts the real relay with stale, replaced or incorrectly signed
-fixture state and requires the Swift phone to refuse before authorization,
-then recover when the valid configuration returns. This exercise is not yet
-claimed as passed.
+The integrated one-configuration flow passed on the physical Mac mini from
+main's production sources, using the actual Swift phone core, Go relay and Go
+receiver. No overlays or substitute phone implementation were used. Only the
+CLI fixture's biometric key is replaced with a software signer and authorization
+counter; the Mac substitute owns a dummy login. Production baseline: local main
+`36c6ad6`; fixture correction: `594e7c2`.
 
-On the physical Darwin Mac mini with Xcode beta, the production Swift phone
-core ran against the current Go relay and real Go receiver. Software signing
-keys and an authorization counter replace device biometrics only in the CLI
-fixture. The fixture never creates a phone vault or imports a password. Its
-Mac substitute holds a dummy example.com login.
+The first run exposed a fixture assumption: after reconnect, the Mac work stream
+may replay an earlier request before a newly created one. The fixture now selects
+the exact lease it requested. The full run then passed without changing the
+production phone, relay or receiver.
+
+The fixture never creates a phone vault or imports a password. Its Mac
+substitute holds a dummy example.com login.
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
@@ -110,8 +110,16 @@ Passed:
   with the reply intact and no second authorization. Scoped clear then works.
 - A local request needs no remote receiver enrolment. Its approval uses one
   authorization; End remains active until the Mac reports REVOKED.
+- After accepting a higher configuration revision, the phone and relay restart
+  with the relay's isolated fixture state replaced in turn by an older valid
+  configuration, changed bytes at the same revision, a PHONE-signed
+  configuration and an invalid rule-owner signature. Each is refused for the
+  expected reason before the authorization counter advances. Restoring the
+  highest valid configuration recovers the normal denial flow. The cached
+  original configuration stays at the lower revision; the advance is published
+  directly, so this checks a real downgrade.
 
-The run exposed and fixed a relay race: a phone that had seen PendingRequest
+The earlier approval-only run exposed and fixed a relay race: a phone that had seen PendingRequest
 could miss its terminal Lease if the outcome arrived before the initial lease
 snapshot. A fresh stream could also omit a denial committed while the phone
 was closed. The relay now replays the latest state of each escalation on open
@@ -119,8 +127,11 @@ and sends each subsequent change, including terminal outcomes.
 
 The Swift phone fixture and a fresh iOS Simulator SDK app build passed on
 the mini after cleanup. The resulting app embeds no extensions; its notification
-environment resolves to development. No unit tests ran and no simulator windows opened. Logs are preserved in the main checkout's
-`.private/proofs/r4-phone-approval/`.
+environment resolves to development. No unit tests ran and no simulator windows
+opened. Logs are preserved in the main checkout's
+`.private/proofs/r4-phone-configuration/`: `phone-configuration-joint.log`,
+`phone-configuration-swift-build.log` and `phone-configuration-main-ios.log`.
+The initial fixture failure is retained as `phone-configuration-joint-main-failure.log`.
 
 ## Device status
 
