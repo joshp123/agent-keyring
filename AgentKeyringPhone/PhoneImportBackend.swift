@@ -105,7 +105,8 @@ final class PhoneImportBackend: PhoneKeyringBackend {
                 settings = await center.notificationSettings()
             }
             let allowed = [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus)
-            snapshot.settings.notifications = allowed ? .notSetUp : .off
+            for notification in await center.deliveredNotifications() { PhonePushReceipt.record(notification) }
+            snapshot.settings.notifications = allowed && PhonePushReceipt.received ? .on : .notSetUp
             guard allowed else { return }
             if pushToken == nil { UIApplication.shared.registerForRemoteNotifications(); return }
             guard let token = pushToken, registeredPushToken != token else { return }
@@ -124,5 +125,17 @@ final class PhoneImportBackend: PhoneKeyringBackend {
     private func logFailure(_ error: any Error, stage: String) {
         let diagnostic = error as NSError
         phoneLogger.error("\(stage, privacy: .public) failed [\(diagnostic.domain, privacy: .public):\(diagnostic.code, privacy: .public)]")
+    }
+}
+
+/// Registration is not delivery. Only a remote notification observed by iOS counts.
+enum PhonePushReceipt {
+    private static let receivedKey = "receivedRelayPush"
+    static var received: Bool { UserDefaults.standard.bool(forKey: receivedKey) }
+
+    static func record(_ notification: UNNotification) {
+        guard notification.request.trigger is UNPushNotificationTrigger,
+              notification.request.content.userInfo["ck"] == nil else { return }
+        UserDefaults.standard.set(true, forKey: receivedKey)
     }
 }
