@@ -14,14 +14,15 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
     case requestForAgentProcess
     case reply
     case sending
+    case waitingForMac
     case approved
     case denied
     case unanswered
     case inUseDetail
     case historyDetail
     case unreachable
-    case importNeeded
-    case importing
+    case importFailed
+    case notificationsOn
     case settings
     case settingsNotPaired
     case homeNotPaired
@@ -50,6 +51,8 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
         var reply = ""
         var showingSettings = false
         var pairing = PhonePairingState.paired
+        // The real state until the push key exists (RFC 0006).
+        var notifications = PhoneNotifications.notSetUp
 
         switch self {
         case .home, .inUseDetail, .historyDetail:
@@ -73,6 +76,9 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
         case .sending:
             requests[0].state = .sendingAnswer(.approve)
             presented = github.id
+        case .waitingForMac:
+            requests[0].state = .waitingForMac(.deny, reply: "Don't sign in. The invoice is already in my email, use that.")
+            presented = github.id
         case .approved:
             requests[0].state = .approved(by: .iPhone, until: now.addingTimeInterval(30 * 60))
             presented = github.id
@@ -84,14 +90,15 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             requests[0].state = .unanswered
             presented = github.id
         case .unreachable:
-            requests = history
+            // Disconnected with a request already fetched: it stays answerable.
+            requests = [github] + history
             connection = .unreachable(service: DesignExamples.macMini.name, since: now.addingTimeInterval(-11 * 60))
-        case .importNeeded:
-            requests = []
-            passwords = .notImported
-        case .importing:
-            requests = []
-            passwords = .importing(received: 318)
+        case .importFailed:
+            // A failed optional import changes nothing on Home.
+            passwords = .importFailed("Turn on Agent Keyring in Settings → General → AutoFill & Passwords, then export from Passwords.")
+        case .notificationsOn:
+            requests = history.filter { !$0.state.isInUse }
+            notifications = .on
         case .settings:
             showingSettings = true
         case .settingsNotPaired:
@@ -117,7 +124,7 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             requests: requests,
             passwords: passwords,
             connection: connection,
-            settings: PhoneSettings(askPhoneAfter: .seconds(120), notificationsAllowed: true,
+            settings: PhoneSettings(askPhoneAfter: .seconds(120), notifications: notifications,
                 keyFingerprint: "7F3A 91C2 0B4E D8A5 6C17 E902 44BB 13F0",
                 rulesUpdatedAt: now.addingTimeInterval(-11 * 60)),
             pairing: pairing
@@ -184,5 +191,4 @@ final class DesignPhoneBackend: PhoneKeyringBackend {
 
     func openPasswordsForImport() {}
 
-    func setAskPhoneAfter(_ delay: Duration) async throws {}
 }

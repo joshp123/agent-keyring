@@ -1,8 +1,9 @@
 // Written by AI on 2026.10.31 by model Claude Opus 5.5.
 //
-// Before the first import there is nothing to approve, so this replaces the
-// home screen. Apple only lets the Passwords app start an export, so the
-// screen says exactly where to tap there.
+// Passwords on this iPhone, opened from Settings. Optional: in release 4 the
+// MacBook delivers logins and the iPhone only approves (RFC 0006), so nothing
+// here gates approving. Apple only lets the Passwords app start an export, so
+// the screen says exactly where to tap there.
 
 #if os(iOS)
 import SwiftUI
@@ -13,7 +14,7 @@ struct PhoneImportView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Text("Agent Keyring keeps an encrypted copy of your Apple Passwords on this iPhone. Agents never see it: Agent Keyring fills the sign-in for them, after you approve.")
+                Text(SetupCopy.phonePasswordsPurpose)
                     .font(.body)
                     .foregroundStyle(.secondary)
                 Hairline()
@@ -22,15 +23,8 @@ struct PhoneImportView: View {
             .padding(.horizontal, KeyringMetric.margin)
             .padding(.top, 8)
         }
-        .navigationTitle(title)
-    }
-
-    private var title: String {
-        switch model.passwords {
-        case .importing: "Importing passwords"
-        case .importFailed: "The import didn't finish"
-        default: "Import passwords"
-        }
+        .navigationTitle(SetupCopy.phonePasswordsTitle)
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     @ViewBuilder private var content: some View {
@@ -42,7 +36,14 @@ struct PhoneImportView: View {
                     .font(.body)
             }
         case let .importFailed(reason):
-            Text(reason).font(.body)
+            Label(reason, systemImage: "exclamationmark.circle.fill")
+                .font(.body)
+                .foregroundStyle(KeyringColour.denyText)
+            steps
+            allowExportsButton
+        case let .imported(count, at):
+            Text("\(count) logins on this iPhone, updated \(at.formatted(.relative(presentation: .named))). To add or change one, export again; logins you leave out are kept.")
+                .font(.body)
             steps
             allowExportsButton
         default:

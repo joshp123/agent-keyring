@@ -13,13 +13,14 @@ Face ID on his iPhone.
 | --- | --- | --- |
 | [0004](0004-credential-leases.md) | Task leases, the CLI, receivers, the bundled skill | 2 |
 | [0005](0005-remote-requests.md) | Always-on relay on the Mac mini, enrolling agent machines, sealed delivery | 3 |
-| [0006](0006-iphone-approver.md) | iPhone import, Secure Enclave keys, approval, recovery | 4 |
+| [0006](0006-iphone-approver.md) | Phone approval without a phone vault; the awake Mac delivers | 4 |
 | [0007](0007-approval-ui.md) | Approval screens on the Mac and iPhone | 2 to 4 |
 | 0002, 0003 | Earlier drafts; superseded where 0004 to 0006 say so | |
 
 Contracts: `proto/agentkeyring/v1/` (`agentkeyring.proto` for agents and
 receivers, `bundle.proto` for sealed delivery, `relay.proto` for the relay and
-approvers). Field numbers and names are stable; add, don't change.
+approvers). Nothing is released yet, so the round 9 simplification removed
+methods; from the first release on, add and don't change.
 
 ## One seam, three parts
 
@@ -42,7 +43,7 @@ it, release it. Behind that, three parts change independently:
 | 2 | One approval per task, Go CLI, Chromium receiver, bundled skill, Mac approval panel | One Touch ID session |
 | 3 | Agents on other machines through the mini; MacBook approves | Pairing and enrolment codes, one Touch ID session |
 | 4 | Approve on the iPhone when away from the MacBook; the MacBook keeps the passwords and delivers | Creating a free Apple push key; one device session |
-| Later | Answering with the MacBook shut: an optional copy on the iPhone | Two settings (below) |
+| Next result | Answering with the MacBook shut: prove the phone copy independently of approval-only use | Phone import/device proof and two settings below |
 
 ## Slices
 
@@ -54,7 +55,7 @@ the way a person would use it.
 | --- | --- | --- |
 | 2 | R2.0 additive merge and import logging port; R2.1 toolchain; R2.2 lease store; R2.3 socket cut-over; R2.4 Go CLI; R2.5 Chromium receiver; R2.6 skill and install; U1 to U3 screens | RFC 0004 reviewed with round 7 corrections; implementation can proceed |
 | 3 | R3.1 relay core; R3.2 enrolment; R3.3 client relay transport; R3.4 Mac approver; R3.5 deployment; U4 | Contracts agreed with round 10 completions; all implementation lanes can start |
-| 4 | R4.1 phone key and pairing; R4.2 Mac escalation; R4.3 relay push; R4.4 phone answer; R4.5 Mac delivery under a phone decision; R4.6 receiver checks; R4.7 screens; R4.8 remove the iCloud channel and microphone button | R4.1, R4.3 and R4.7 now; R4.5 after R4.2 and R4.4 |
+| 4 | R4.1 phone key and pairing; R4.2 Mac escalation and local state reporting; R4.3 relay push; R4.4 phone answer; R4.5 delivery while the Mac screen is locked; R4.6 receiver checks; R4.7 screens; R4.8 remove the iCloud channel and microphone button | Build against the round 15 contracts now; physical notification proof needs the push key |
 
 ## Review result and remaining engineering work
 
@@ -63,29 +64,35 @@ Round 8 adds the missing sealed-bundle upload and approved request bytes,
 binds denial replies, makes decision resends idempotent, and preserves the
 configurable phone delay. Existing protobuf field numbers are unchanged.
 
-Opus's revision and Astra's round 10 completions settle the three contract seams:
+Contract seams, as simplified after a fresh Astra review for Josh:
 
 1. Pairing: unknown TLS peers may only enrol or pair; each device computes the
    full fingerprint from a defined transcript; the first approver is committed by a
    signed confirmation; codes bind the approver keys being trusted too; adding
-   the phone binds the current signed machine roster in the new key set;
+   the phone binds the current signed configuration in the new key set;
    offline receivers walk a signed approver key chain (0005).
-2. Automatic approval: a separate Automatic key whose authority is an approver-
-   signed grant from the rule owner listing logins and machines; decisions say
-   which authority signed them, and receivers check the grant. The later
-   MacBook-shut step publishes the grant and encrypted logins in one atomic
-   snapshot (0005, 0006).
-3. Phone copy, for the later MacBook-shut step: login IDs stay the MacBook's, matched by Apple source
-   identity with a narrow fallback and review; one named rule owner publishes
-   rules and grants; other approvers fetch that signed index through `GetIndex`
-   (0006).
-
-Release 3 and 4 lanes can build from these contracts. Existing field numbers
-are unchanged; round 10 adds the missing pairing proofs, index and public-key
-lookups, and exact bytes for Automatic sealing and hashing.
+2. One signed configuration: logins and rules, enrolled machines and the
+   Automatic signing key, one revision, published in the same transaction that
+   records a rule change and revokes affected leases. Approving or revoking a
+   machine is a new configuration (0005).
+3. Automatic approval: the configuration's Automatic key signs only Automatic
+   logins for allowed machines; decisions say which authority signed them, and
+   receivers check the configuration (0005, 0006).
+4. Retries are recorded by the receiver in its own state file; the authority
+   only authorizes and delivers (0004).
+5. Bounded state: ended leases kept 7 days, receiver records 24 hours,
+   delivery payloads deleted when a lease ends, deadlines from a timer (0004).
 
 Device proofs remain necessary after implementation; compiler success is not
 that proof.
+
+Round 15 makes the approval-only path buildable: local requests keep one
+authority on the Mac and report outcomes to the phone; signed phone consent
+preserves its original deadline; delivery keys cannot sign changes to rules or
+trusted keys. Phone import never gates approval. First relay setup brings Josh
+the independent comparison code rather than sending him to service logs.
+Direct APNs remains the notification path; RFC 0006 records why the existing
+CloudKit entitlement is not evidence of a ready alternative.
 
 Main's app version is 0.2.0; release 2 must ship above the installed 0.2.4.
 Releases are built and notarised with `script/build_release.sh` on the current

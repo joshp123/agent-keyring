@@ -34,11 +34,14 @@ const (
 	DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE DecisionAuthority = 2
 	// DENY with an empty reply only. Sent unsigned over the approver's pinned
 	// connection, so a plain Deny needs no biometric check. It grants nothing.
-	// A denial with a reply must be HUMAN; receivers show a reply only then.
+	// A denial with a reply must be HUMAN or PHONE with the required signatures.
 	DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION DecisionAuthority = 3
 	// Josh answered on his iPhone. Signed by the MacBook's delivery key (role
 	// MAC_DELIVERY) and carrying SignedDecision.phone_decision. Receivers check
-	// both signatures, the same request_digest and the same not_after.
+	// both signatures and equal request_digest, lease_id, choice, approval/
+	// decision time, not_after and reply_sha256 (RFC 0006). The outer reply must
+	// equal the phone's reply. A plain unsigned phone denial uses
+	// APPROVER_CONNECTION instead. PHONE never authorizes key or rule changes.
 	DecisionAuthority_DECISION_AUTHORITY_PHONE DecisionAuthority = 4
 )
 
@@ -136,9 +139,9 @@ func (DecisionChoice) EnumDescriptor() ([]byte, []int) {
 	return file_agentkeyring_v1_bundle_proto_rawDescGZIP(), []int{1}
 }
 
-// What the receiver gets from BeginOperation once requests travel through the
+// What the receiver gets from Deliver once requests travel through the
 // relay. Checked before opening: decision signature by a pinned approver key,
-// or a granted Automatic key, statement names this receiver and lease,
+// or the configuration's Automatic key, statement names this receiver and lease,
 // not_after in the future.
 type SealedDelivery struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
@@ -515,6 +518,8 @@ func (x *SignedDecision) GetPhoneDecision() *SignedPhoneDecision {
 }
 
 // Signed on the iPhone after Face ID, over the exact `decision` bytes.
+// Exception: a plain DENY has an empty signature and reply; the relay accepts
+// it only from that paired phone's pinned connection. It grants nothing.
 // The MacBook, which holds the passwords, delivers only what this allows.
 type SignedPhoneDecision struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -692,13 +697,16 @@ type DecisionStatement struct {
 	// SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
 	ReplySha256 []byte `protobuf:"bytes,10,opt,name=reply_sha256,json=replySha256,proto3" json:"reply_sha256,omitempty"`
 	// Who decided. HUMAN: signed by an approver key after Josh's biometric check.
-	// AUTOMATIC_RULE: signed by the Automatic key named in a current
-	// SignedAutomaticGrant (relay.proto); valid only for the logins and
-	// recipients that grant lists. Receivers check the grant before opening.
-	Authority              DecisionAuthority `protobuf:"varint,11,opt,name=authority,proto3,enum=agentkeyring.v1.DecisionAuthority" json:"authority,omitempty"`
-	AutomaticGrantRevision uint64            `protobuf:"varint,12,opt,name=automatic_grant_revision,json=automaticGrantRevision,proto3" json:"automatic_grant_revision,omitempty"` // Set only for AUTOMATIC_RULE.
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// AUTOMATIC_RULE: signed by the Automatic key named in the signed
+	// Configuration (relay.proto); valid only for logins whose rule is AUTOMATIC
+	// and machines with automatic_allowed there. Receivers check it before opening.
+	Authority DecisionAuthority `protobuf:"varint,11,opt,name=authority,proto3,enum=agentkeyring.v1.DecisionAuthority" json:"authority,omitempty"`
+	// Set only for AUTOMATIC_RULE: the revision the decision was made under. It
+	// stays valid under later revisions that keep the key, the Automatic rule
+	// and the receiver's Automatic access (RFC 0005).
+	ConfigurationRevision uint64 `protobuf:"varint,12,opt,name=configuration_revision,json=configurationRevision,proto3" json:"configuration_revision,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *DecisionStatement) Reset() {
@@ -808,9 +816,9 @@ func (x *DecisionStatement) GetAuthority() DecisionAuthority {
 	return DecisionAuthority_DECISION_AUTHORITY_UNSPECIFIED
 }
 
-func (x *DecisionStatement) GetAutomaticGrantRevision() uint64 {
+func (x *DecisionStatement) GetConfigurationRevision() uint64 {
 	if x != nil {
-		return x.AutomaticGrantRevision
+		return x.ConfigurationRevision
 	}
 	return 0
 }
@@ -862,7 +870,7 @@ const file_agentkeyring_v1_bundle_proto_rawDesc = "" +
 	"\x14decided_unix_seconds\x18\x04 \x01(\x03R\x12decidedUnixSeconds\x123\n" +
 	"\x16not_after_unix_seconds\x18\x05 \x01(\x03R\x13notAfterUnixSeconds\x12!\n" +
 	"\freply_sha256\x18\x06 \x01(\fR\vreplySha256\x12\x19\n" +
-	"\blease_id\x18\a \x01(\tR\aleaseId\"\xb8\x04\n" +
+	"\blease_id\x18\a \x01(\tR\aleaseId\"\xb5\x04\n" +
 	"\x11DecisionStatement\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12%\n" +
 	"\x0erequest_digest\x18\x02 \x01(\fR\rrequestDigest\x127\n" +
@@ -875,8 +883,8 @@ const file_agentkeyring_v1_bundle_proto_rawDesc = "" +
 	"\blease_id\x18\t \x01(\tR\aleaseId\x12!\n" +
 	"\freply_sha256\x18\n" +
 	" \x01(\fR\vreplySha256\x12@\n" +
-	"\tauthority\x18\v \x01(\x0e2\".agentkeyring.v1.DecisionAuthorityR\tauthority\x128\n" +
-	"\x18automatic_grant_revision\x18\f \x01(\x04R\x16automaticGrantRevision*\xc6\x01\n" +
+	"\tauthority\x18\v \x01(\x0e2\".agentkeyring.v1.DecisionAuthorityR\tauthority\x125\n" +
+	"\x16configuration_revision\x18\f \x01(\x04R\x15configurationRevision*\xc6\x01\n" +
 	"\x11DecisionAuthority\x12\"\n" +
 	"\x1eDECISION_AUTHORITY_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18DECISION_AUTHORITY_HUMAN\x10\x01\x12%\n" +

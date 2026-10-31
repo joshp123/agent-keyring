@@ -24,29 +24,21 @@ service Approvals {
   // Approval includes SignedDecision.bundle. Store bundle, decision and lease
   // transition atomically; acknowledge a matching resend without changing it.
   rpc Decide(SignedDecision) returns (DecisionAck);
-  rpc DecideEnrolment(SignedEnrolmentDecision) returns (EnrolmentAck);
-  // Login metadata and rules for Find and for refusing Blocked logins without
-  // waking an approver. The relay may only use it to refuse, never to approve.
-  rpc PublishIndex(SignedIndex) returns (PublishAck);
-  // Other approvers fetch the rule owner's signed index before deciding.
-  rpc GetIndex(GetIndexRequest) returns (SignedIndex);
-  // RFC 0006: Automatic logins sealed to the relay's own key. Optional.
-  rpc PublishAutomatic(AutomaticSet) returns (PublishAck);
+  // The rule owner's whole configuration in one signed snapshot: logins and
+  // rules, enrolled machines, and who may sign Automatic decisions. Approving
+  // or revoking a machine and changing a rule are each a new configuration.
+  // The relay commits it and revokes affected leases in one transaction
+  // (RFC 0005, "Configuration"). An exact resend is acknowledged.
+  rpc PublishConfiguration(ConfigurationPublication) returns (PublishAck);
+  // Josh pressed "Doesn't match" or dismissed a pending enrolment. Grants
+  // nothing, so unsigned; accepted only from a pinned approver connection.
+  rpc DismissEnrolment(DismissEnrolmentRequest) returns (PublishAck);
   rpc RegisterPush(PushRegistration) returns (PublishAck);
   // A pinned approver adds or removes approvers (release 4 adds the iPhone).
   rpc PublishApproverKeys(SignedApproverKeySet) returns (PublishAck);
-  // Enrolment records with the signed decisions that approved them, so a new
-  // approver can trust machines another pinned approver already enrolled.
-  rpc ListEnrolments(ListEnrolmentsRequest) returns (ListEnrolmentsResponse);
-  // The current list of enrolled machines, signed by an approver. Replaces
-  // ListEnrolments for transfer to a new approver (RFC 0005, "Pairing").
-  rpc PublishEnrolmentSet(SignedEnrolmentSet) returns (PublishAck);
-  rpc GetEnrolmentSet(GetEnrolmentSetRequest) returns (SignedEnrolmentSet);
-  // Names the key that may sign Automatic decisions, and for which logins and
-  // machines. Signed by an approver key while Josh is present.
-  rpc PublishAutomaticGrant(SignedAutomaticGrant) returns (PublishAck);
-  // Public keys only, over the pinned relay connection. Publishing a grant
-  // delegates to these keys; fetching them grants no authority.
+  // Later MacBook-shut step. Public keys only, over the pinned relay
+  // connection. A configuration naming them delegates Automatic approval;
+  // fetching them grants no authority.
   rpc GetAutomaticKeys(GetAutomaticKeysRequest) returns (AutomaticKeys);
   // Lets a recipient ask again for a login before a denial's 30-minute
   // suppression ends (RFC 0004). It grants nothing by itself, so it needs no
@@ -62,14 +54,20 @@ service Approvals {
   // ApproverWork.phone_decision. The relay stores it until the MacBook
   // acknowledges by delivering or denying; an exact resend is acknowledged.
   rpc AnswerFromPhone(SignedPhoneDecision) returns (DecisionAck);
+  // The owning Mac reports the outcome of a local lease that it escalated.
+  // Display/acknowledgement only: never creates a remotely usable lease or
+  // bundle. Accepted only from the same pinned MAC connection as escalation.
+  rpc UpdateLocalPhoneLease(LocalPhoneLeaseUpdate) returns (DecisionAck);
 }
 
 // Served by the relay to a machine that is not yet enrolled. Reachable only
 // on the tailnet. Enrolling grants the right to ask, nothing more.
 service Enrolment {
-  // Streams PENDING, then APPROVED with the approver keys to pin, or DENIED.
+  // Streams PENDING, then APPROVED once a published configuration lists this
+  // machine, or DENIED if dismissed, or EXPIRED after ten minutes.
   rpc Enrol(EnrolRequest) returns (stream EnrolStatus);
-  // Starts a pending pairing. First approver: compare with the relay log and
+  // Starts a pending pairing. First approver: setup brings the relay's code
+  // over an independently trusted path (e.g. existing SSH), then compare and
   // ConfirmPairing. Later: compare with a pinned approver, which commits the
   // addition through PublishApproverKeys. Neither path activates on request.
   rpc PairApprover(PairApproverRequest) returns (stream EnrolStatus);
@@ -82,8 +80,9 @@ service Enrolment {
   // Every signed approver key set after from_revision, oldest first, so a
   // receiver that missed changes can walk the chain from a key it pinned.
   rpc GetApproverKeyChain(GetApproverKeyChainRequest) returns (ApproverKeyChain);
-  // The current Automatic grant, for receivers checking Automatic decisions.
-  rpc GetAutomaticGrant(GetAutomaticGrantRequest) returns (SignedAutomaticGrant);
+  // The current signed configuration. Receivers use it to check Automatic
+  // decisions; approvers that are not the rule owner use it before deciding.
+  rpc GetConfiguration(GetConfigurationRequest) returns (SignedConfiguration);
 }
 
 message WatchWorkRequest {
@@ -100,6 +99,7 @@ message ApproverWork {
     // backlog, then each change, so approvers can show what is in use.
     Lease lease = 5;
     SignedPhoneDecision phone_decision = 6;  // To the MacBook only.
+    LocalLeaseAction local_lease_action = 7; // To the owning MacBook only.
   }
 }
 
@@ -108,6 +108,13 @@ message ApproverWork {
 // against its own state, never the relay's.
 message PendingRequest {
   bytes record = 1;             // Serialized RequestRecord.
+  // Phone work only, after escalation. The relay derives this from the
+  // escalating MAC's pinned connection. The phone uses the pinned MAC label.
+  string source_mac_key_id = 2;
+  // Present only for a local Mac lease. It is a display copy, not a receiver
+  // enrolment. Fields must agree with record. Metadata comes from the
+  // current configuration.
+  Lease local_lease = 3;
 }
 
 message RequestRecord {
@@ -125,7 +132,7 @@ message RequestRecord {
   // From Tailscale WhoIs on the connection, not from the request.
   string tailscale_node_name = 12;
   string tailscale_address = 13;
-  // Set when the login's rule is Automatic in the latest SignedIndex. The
+  // Set when the login's rule is Automatic in the current configuration. The
   // approver still checks its own rule before approving without a prompt.
   bool automatic = 14;
 }
@@ -159,10 +166,10 @@ message EnrolStatus {
   // APPROVED: the accepted set. Pin only after the confirmation checks in
   // RFC 0005; a relay's APPROVED flag alone establishes no trust.
   SignedApproverKeySet approver_key_set = 6;
-  // Machine enrolment only: proof of approval over the exact record, whose
-  // keys must match this client's keys and whose key-set hash must match field 6.
-  SignedEnrolmentDecision decision = 7;
-  bytes enrolment_record = 8;
+  // Machine enrolment, APPROVED only: the configuration that lists this
+  // machine with exactly this client's keys, signed by the rule owner in field 6.
+  SignedConfiguration configuration = 7;
+  reserved 8;
 }
 
 enum EnrolState {
@@ -192,28 +199,6 @@ message EnrolmentRecord {
   bytes approver_key_set_sha256 = 12; // SHA-256 of the compared key_set bytes.
 }
 
-// Signed like SignedDecision: signature over the exact statement bytes.
-message SignedEnrolmentDecision {
-  bytes statement = 1;           // Serialized EnrolmentStatement.
-  bytes signature = 2;
-  string approver_key_id = 3;
-}
-
-message EnrolmentStatement {
-  string domain = 1;             // "agentkeyring.enrolment.v1".
-  bytes enrolment_digest = 2;    // SHA-256 over "agentkeyring.enrolment.v1\0" || record.
-  EnrolmentChoice choice = 3;
-  bool automatic_allowed = 4;    // Whether Automatic logins may go to this machine.
-  int64 decided_unix_seconds = 5;
-}
-
-enum EnrolmentChoice {
-  ENROLMENT_CHOICE_UNSPECIFIED = 0;
-  ENROLMENT_CHOICE_APPROVE = 1;
-  ENROLMENT_CHOICE_DENY = 2;
-  ENROLMENT_CHOICE_REVOKE = 3;
-}
-
 message EnrolmentAck {
   bool accepted = 1;
   string detail = 2;
@@ -224,7 +209,9 @@ message ApproverKey {
   bytes public_key = 2;          // P-256 X9.63, signing.
   string label = 3;              // "Josh's MacBook Pro", "Josh's iPhone".
   bytes tls_public_key = 4;      // SPKI DER; authenticated alongside signing key.
-  // Key sets published before this field existed contain only MAC keys.
+  // MAC_DELIVERY has no TLS identity of its own: tls_public_key is empty.
+  // A legacy unspecified role is accepted only for the already pinned Mac
+  // rule-owner key. Other unspecified keys must be paired with an explicit role.
   ApproverRole role = 5;
 }
 
@@ -233,7 +220,7 @@ enum ApproverRole {
   APPROVER_ROLE_MAC = 1;          // MacBook, Touch ID on every signature.
   APPROVER_ROLE_PHONE = 2;        // iPhone, Face ID on every signature.
   // MacBook key with no biometric check, usable while the Mac is awake, even
-  // with the screen locked. Signs only AUTOMATIC_RULE decisions under a grant
+  // with the screen locked. Signs only AUTOMATIC_RULE decisions under the configuration
   // and PHONE decisions carrying a valid phone decision. Never HUMAN.
   APPROVER_ROLE_MAC_DELIVERY = 3;
 }
@@ -245,9 +232,27 @@ enum ApproverRole {
 message PhoneEscalation {
   string lease_id = 1;
   bytes record = 2;
+  // Present for a local lease: snapshot from the Mac's existing lease store.
+  // Absent for a remote lease whose identical record is already at the relay.
+  Lease local_lease = 3;
 }
 
-// Receivers accept a new approver key set only if a currently pinned key
+message LocalPhoneLeaseUpdate {
+  bytes request_digest = 1;
+  Lease lease = 2;              // Actual state committed by the owning Mac.
+}
+
+// Reuse the phone's existing RevokeLease/ClearDenial calls. For a local lease
+// the relay queues this work until the Mac reports the resulting state through
+// UpdateLocalPhoneLease. A relay acknowledgement alone does not end access.
+message LocalLeaseAction {
+  oneof action {
+    LeaseReference revoke_lease = 1;
+    ClearDenialRequest clear_denial = 2;
+  }
+}
+
+// Receivers accept a new approver key set only if a currently pinned MAC key
 // signed it and its revision is higher. This is how the iPhone is added in
 // release 4 without re-enrolling every machine.
 message SignedApproverKeySet {
@@ -260,13 +265,13 @@ message ApproverKeySet {
   string domain = 1;             // "agentkeyring.approvers.v1".
   uint64 revision = 2;
   repeated ApproverKey keys = 3;
-  // The one approver whose signed LoginIndex holds the current rules and login
-  // IDs (RFC 0006, "Rule owner"). Other approvers follow it.
+  // The one approver whose signed configuration is current (RFC 0006, "Rule
+  // owner"). Other approvers follow it.
   string rule_owner_key_id = 4;
-  // On adding an approver, binds the current machine roster it must fetch.
-  // Hash the exact SignedEnrolmentSet.enrolment_set bytes, not a re-encoding.
-  uint64 enrolment_set_revision = 5;
-  bytes enrolment_set_sha256 = 6;
+  // On adding an approver, binds the current configuration it must fetch.
+  // Hash the exact SignedConfiguration.configuration bytes, not a re-encoding.
+  uint64 configuration_revision = 5;
+  bytes configuration_sha256 = 6;
   // Required on adding an approver; empty for other key-set changes.
   bytes pairing_transcript_sha256 = 7;
 }
@@ -308,23 +313,6 @@ message PairingConfirmation {
   int64 confirmed_unix_seconds = 3;
 }
 
-message GetEnrolmentSetRequest {}
-
-// Absence means not enrolled: a revoked machine is simply left out of the next
-// revision. A new approver accepts the set whose revision and digest the
-// surviving approver named when it paired the new one.
-message SignedEnrolmentSet {
-  bytes enrolment_set = 1;       // Serialized EnrolmentSet.
-  bytes signature = 2;
-  string approver_key_id = 3;
-}
-
-message EnrolmentSet {
-  string domain = 1;             // "agentkeyring.enrolments.v1".
-  uint64 revision = 2;
-  repeated EnrolledMachine machines = 3;
-}
-
 message EnrolledMachine {
   string recipient_id = 1;
   string machine_label = 2;
@@ -336,7 +324,50 @@ message EnrolledMachine {
   bool automatic_allowed = 8;
 }
 
-message GetAutomaticGrantRequest {}
+message GetConfigurationRequest {}
+
+message DismissEnrolmentRequest {
+  string recipient_id = 1;
+}
+
+// Signed by the rule owner after Josh confirms the change with Touch ID.
+message SignedConfiguration {
+  bytes configuration = 1;       // Serialized Configuration.
+  bytes signature = 2;
+  string approver_key_id = 3;
+}
+
+// Everything that decides who may ask for what, in one revision. A machine
+// absent from `machines` is not enrolled; a login absent from `logins` cannot
+// be requested. Receivers and the relay use the highest valid revision.
+message Configuration {
+  string domain = 1;             // "agentkeyring.configuration.v1".
+  uint64 revision = 2;
+  repeated Login logins = 3;     // Metadata and rules; never secrets.
+  repeated LoginSource sources = 4;
+  int64 mirror_refreshed_unix_seconds = 5;
+  repeated EnrolledMachine machines = 6;
+  // The key that may sign AUTOMATIC_RULE decisions, only for logins whose rule
+  // is AUTOMATIC and machines with automatic_allowed. The MacBook's delivery
+  // key until the later MacBook-shut step moves it to the relay.
+  bytes automatic_signing_public_key = 7;
+  string automatic_key_id = 8;
+  // Later MacBook-shut step only: the relay's encryption key and one hash per
+  // sealed Automatic login in ConfigurationPublication, in that order. Hash the
+  // concatenation of login_id UTF-8, encapsulated_key, ciphertext and
+  // receiver_key_id UTF-8, each with a uint32 big-endian length prefix.
+  bytes relay_encryption_public_key = 9;
+  repeated bytes sealed_automatic_login_sha256 = 10;
+}
+
+// What PublishConfiguration carries: the signed configuration and, only in the
+// later MacBook-shut step, the Automatic logins sealed to the relay. One
+// message, so the relay never holds one without the other.
+message ConfigurationPublication {
+  SignedConfiguration configuration = 1;
+  repeated SealedAutomaticLogin automatic_logins = 2;
+}
+
 message GetAutomaticKeysRequest {}
 
 message AutomaticKeys {
@@ -344,50 +375,6 @@ message AutomaticKeys {
   string signing_key_id = 2;
   bytes encryption_public_key = 3;  // HPKE P-256 X9.63.
   string encryption_key_id = 4;
-}
-
-message SignedAutomaticGrant {
-  bytes grant = 1;               // Serialized AutomaticGrant.
-  bytes signature = 2;           // By the current rule owner, after biometrics.
-  string approver_key_id = 3;
-}
-
-// The only authority an Automatic decision has. Revision increases with every
-// change; receivers and the relay use the highest valid revision they have seen.
-message AutomaticGrant {
-  string domain = 1;             // "agentkeyring.automatic.v1".
-  uint64 revision = 2;
-  // P-256 signing key held by the device that approves Automatic requests:
-  // the Mac app in release 3, the relay in release 4. No biometric check.
-  bytes automatic_signing_public_key = 3;
-  string automatic_key_id = 4;
-  // Release 4: the relay's HPKE P-256 key that AutomaticSet logins are sealed to.
-  bytes relay_encryption_public_key = 5;
-  repeated string login_ids = 6;      // Logins whose rule is Automatic.
-  repeated string recipient_ids = 7;  // Machines allowed Automatic logins.
-  // Release 4: one hash per login, in login_ids order. Hash the concatenation
-  // of login_id UTF-8, sealed.encapsulated_key, sealed.ciphertext and
-  // sealed.receiver_key_id UTF-8, each with a uint32 big-endian length prefix.
-  // Do not hash a re-serialized protobuf. Empty in release 3.
-  repeated bytes sealed_login_sha256 = 8;
-}
-
-message SignedIndex {
-  bytes index = 1;               // Serialized LoginIndex.
-  bytes signature = 2;
-  string approver_key_id = 3;
-}
-
-message GetIndexRequest {}
-
-// Published only by the rule owner named in the current ApproverKeySet.
-message LoginIndex {
-  uint64 revision = 1;
-  repeated Login logins = 2;     // Metadata and rules; never secrets.
-  int64 mirror_refreshed_unix_seconds = 3;
-  // How each login_id matches an Apple Passwords item, so another approver's
-  // import keeps the same IDs and rules (RFC 0006, "Login IDs").
-  repeated LoginSource sources = 4;
 }
 
 // The source identity the importer already records (MirrorSourceIdentity).
@@ -400,22 +387,10 @@ message LoginSource {
   string exporter_identifier = 4;
 }
 
-// RFC 0006. Each entry is sealed to the relay's encryption key named in the
-// grant, including the TOTP seed, so the relay can approve unattended.
-// Anything published here is readable by whoever controls the mini.
-// Authority comes from `grant`; fields 3 and 4 are unused.
-message AutomaticSet {
-  uint64 revision = 1;
-  repeated SealedAutomaticLogin logins = 2;
-  bytes signature = 3;
-  string approver_key_id = 4;
-  SignedAutomaticGrant grant = 5;
-}
-
 message SealedAutomaticLogin {
   string login_id = 1;
   // Same HPKE suite as SealedBundle; info = "agentkeyring.automatic-login.v1";
-  // aad = uint64 big-endian AutomaticSet.revision || login_id UTF-8.
+  // aad = uint64 big-endian Configuration.revision || login_id UTF-8.
   // Plaintext: AutomaticLoginContents, whose login_id must match this one.
   SealedBundle sealed = 2;
 }
@@ -437,17 +412,6 @@ message PairApproverRequest {
 }
 
 message GetApproverKeysRequest {}
-
-message ListEnrolmentsRequest {}
-
-message ListEnrolmentsResponse {
-  repeated ApprovedEnrolment enrolments = 1;
-}
-
-message ApprovedEnrolment {
-  bytes record = 1;                 // Serialized EnrolmentRecord.
-  SignedEnrolmentDecision decision = 2;
-}
 
 message PushRegistration {
   string approver_key_id = 1;
@@ -473,28 +437,24 @@ message RelayWireRequest {
     WireRequest client = 1;      // The AgentKeyring service, unchanged.
     WatchWorkRequest watch_work = 2;
     SignedDecision decide = 3;
-    SignedEnrolmentDecision decide_enrolment = 4;
-    SignedIndex publish_index = 5;
-    AutomaticSet publish_automatic = 6;
+    ConfigurationPublication publish_configuration = 4;
+    DismissEnrolmentRequest dismiss_enrolment = 5;
+    GetConfigurationRequest get_configuration = 6;
     PushRegistration register_push = 7;
     EnrolRequest enrol = 8;
     SignedApproverKeySet publish_approver_keys = 9;
-    ListEnrolmentsRequest list_enrolments = 10;
     PairApproverRequest pair_approver = 11;
     GetApproverKeysRequest get_approver_keys = 12;
     SignedPairingConfirmation confirm_pairing = 13;
     GetApproverKeyChainRequest get_approver_key_chain = 14;
-    SignedEnrolmentSet publish_enrolment_set = 15;
-    GetEnrolmentSetRequest get_enrolment_set = 16;
-    SignedAutomaticGrant publish_automatic_grant = 17;
-    GetAutomaticGrantRequest get_automatic_grant = 18;
-    GetIndexRequest get_index = 19;
     GetAutomaticKeysRequest get_automatic_keys = 20;
     ClearDenialRequest clear_denial = 21;
     LeaseReference revoke_lease = 22;
     PhoneEscalation escalate_to_phone = 23;
     SignedPhoneDecision answer_from_phone = 24;
+    LocalPhoneLeaseUpdate update_local_phone_lease = 25;
   }
+  reserved 10, 15, 16, 17, 18, 19;
 }
 
 message RelayWireResponse {
@@ -506,14 +466,12 @@ message RelayWireResponse {
     PublishAck publish = 5;
     EnrolStatus enrol_status = 6;
     RpcError error = 7;
-    ListEnrolmentsResponse enrolments = 9;
     SignedApproverKeySet approver_keys = 10;
     ApproverKeyChain approver_key_chain = 11;
-    SignedEnrolmentSet enrolment_set = 12;
-    SignedAutomaticGrant automatic_grant = 13;
-    SignedIndex index = 14;
+    SignedConfiguration configuration = 12;
     AutomaticKeys automatic_keys = 15;
     Lease lease = 16;
   }
   bool end_of_stream = 8;
+  reserved 9, 13, 14;
 }

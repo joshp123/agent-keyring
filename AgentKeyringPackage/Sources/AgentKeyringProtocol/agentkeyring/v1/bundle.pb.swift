@@ -38,12 +38,15 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
 
   /// DENY with an empty reply only. Sent unsigned over the approver's pinned
   /// connection, so a plain Deny needs no biometric check. It grants nothing.
-  /// A denial with a reply must be HUMAN; receivers show a reply only then.
+  /// A denial with a reply must be HUMAN or PHONE with the required signatures.
   case approverConnection // = 3
 
   /// Josh answered on his iPhone. Signed by the MacBook's delivery key (role
   /// MAC_DELIVERY) and carrying SignedDecision.phone_decision. Receivers check
-  /// both signatures, the same request_digest and the same not_after.
+  /// both signatures and equal request_digest, lease_id, choice, approval/
+  /// decision time, not_after and reply_sha256 (RFC 0006). The outer reply must
+  /// equal the phone's reply. A plain unsigned phone denial uses
+  /// APPROVER_CONNECTION instead. PHONE never authorizes key or rule changes.
   case phone // = 4
   case UNRECOGNIZED(Int)
 
@@ -124,9 +127,9 @@ public nonisolated enum Agentkeyring_V1_DecisionChoice: SwiftProtobuf.Enum, Swif
 
 }
 
-/// What the receiver gets from BeginOperation once requests travel through the
+/// What the receiver gets from Deliver once requests travel through the
 /// relay. Checked before opening: decision signature by a pinned approver key,
-/// or a granted Automatic key, statement names this receiver and lease,
+/// or the configuration's Automatic key, statement names this receiver and lease,
 /// not_after in the future.
 public nonisolated struct Agentkeyring_V1_SealedDelivery: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -278,6 +281,8 @@ public nonisolated struct Agentkeyring_V1_SignedDecision: Sendable {
 }
 
 /// Signed on the iPhone after Face ID, over the exact `decision` bytes.
+/// Exception: a plain DENY has an empty signature and reply; the relay accepts
+/// it only from that paired phone's pinned connection. It grants nothing.
 /// The MacBook, which holds the passwords, delivers only what this allows.
 public nonisolated struct Agentkeyring_V1_SignedPhoneDecision: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -359,13 +364,15 @@ public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
   public var replySha256: Data = Data()
 
   /// Who decided. HUMAN: signed by an approver key after Josh's biometric check.
-  /// AUTOMATIC_RULE: signed by the Automatic key named in a current
-  /// SignedAutomaticGrant (relay.proto); valid only for the logins and
-  /// recipients that grant lists. Receivers check the grant before opening.
+  /// AUTOMATIC_RULE: signed by the Automatic key named in the signed
+  /// Configuration (relay.proto); valid only for logins whose rule is AUTOMATIC
+  /// and machines with automatic_allowed there. Receivers check it before opening.
   public var authority: Agentkeyring_V1_DecisionAuthority = .unspecified
 
-  /// Set only for AUTOMATIC_RULE.
-  public var automaticGrantRevision: UInt64 = 0
+  /// Set only for AUTOMATIC_RULE: the revision the decision was made under. It
+  /// stays valid under later revisions that keep the key, the Automatic rule
+  /// and the receiver's Automatic access (RFC 0005).
+  public var configurationRevision: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -734,7 +741,7 @@ nonisolated extension Agentkeyring_V1_PhoneDecision: SwiftProtobuf.Message, Swif
 
 nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DecisionStatement"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_digest\0\u{1}choice\0\u{3}approved_at_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}recipient_id\0\u{3}receiver_key_id\0\u{3}bundle_ciphertext_sha256\0\u{3}lease_id\0\u{3}reply_sha256\0\u{1}authority\0\u{3}automatic_grant_revision\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_digest\0\u{1}choice\0\u{3}approved_at_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}recipient_id\0\u{3}receiver_key_id\0\u{3}bundle_ciphertext_sha256\0\u{3}lease_id\0\u{3}reply_sha256\0\u{1}authority\0\u{3}configuration_revision\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -753,7 +760,7 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
       case 9: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
       case 10: try { try decoder.decodeSingularBytesField(value: &self.replySha256) }()
       case 11: try { try decoder.decodeSingularEnumField(value: &self.authority) }()
-      case 12: try { try decoder.decodeSingularUInt64Field(value: &self.automaticGrantRevision) }()
+      case 12: try { try decoder.decodeSingularUInt64Field(value: &self.configurationRevision) }()
       default: break
       }
     }
@@ -793,8 +800,8 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
     if self.authority != .unspecified {
       try visitor.visitSingularEnumField(value: self.authority, fieldNumber: 11)
     }
-    if self.automaticGrantRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.automaticGrantRevision, fieldNumber: 12)
+    if self.configurationRevision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.configurationRevision, fieldNumber: 12)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -811,7 +818,7 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
     if lhs.leaseID != rhs.leaseID {return false}
     if lhs.replySha256 != rhs.replySha256 {return false}
     if lhs.authority != rhs.authority {return false}
-    if lhs.automaticGrantRevision != rhs.automaticGrantRevision {return false}
+    if lhs.configurationRevision != rhs.configurationRevision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

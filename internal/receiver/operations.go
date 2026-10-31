@@ -15,6 +15,7 @@ import (
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/authority"
+	"github.com/joshp123/agent-keyring/internal/clientstate"
 )
 
 func NewID() string {
@@ -72,10 +73,7 @@ func ClearValues(values *pb.CredentialValues) {
 		values.OneTimeCode = ""
 	}
 }
-func Delivered(ctx context.Context, client authority.Client, lease *pb.Lease, response *pb.BeginOperationResponse, fields []pb.CredentialField) (*pb.CredentialValues, []string, error) {
-	if response.OperationId == "" {
-		return nil, nil, errors.New("Agent Keyring returned no operation reference.")
-	}
+func Delivered(ctx context.Context, client authority.Client, lease *pb.Lease, response *pb.Delivery, fields []pb.CredentialField) (*pb.CredentialValues, []string, error) {
 	if response.GetSealed() != nil {
 		if client.OpenValues == nil {
 			return nil, nil, errors.New("This local connection returned an unexpected sealed delivery.")
@@ -96,7 +94,7 @@ func Delivered(ctx context.Context, client authority.Client, lease *pb.Lease, re
 		return nil, nil, errors.New("The relay returned unsealed credentials. No value was used.")
 	}
 	if response.GetValues() == nil {
-		return nil, nil, errors.New("The earlier attempt is uncertain. Inspect its result before deliberately repeating it with --again.")
+		return nil, nil, errors.New("Agent Keyring returned no credential values.")
 	}
 	return response.GetValues(), lease.Sites, nil
 }
@@ -108,15 +106,25 @@ func Execute(ctx context.Context, client authority.Client, lease *pb.Lease, fiel
 	program := lease.Program
 	digestParts := []string{lease.LeaseId, "execute-program", program.Executable, fmt.Sprint(field)}
 	digestParts = append(digestParts, program.Arguments...)
-	response, err := client.Begin(ctx, &pb.BeginOperationRequest{LeaseId: lease.LeaseId, OperationDigest: Digest(digestParts...), Kind: pb.OperationKind_OPERATION_KIND_EXECUTE_PROGRAM, Fields: []pb.CredentialField{field}, RequestId: key})
+	digest := Digest(digestParts...)
+	unlock, err := operationLock(ctx, "lease", lease.LeaseId)
 	if err != nil {
 		return 1, err
 	}
-	if record := response.GetAlreadyStarted(); record != nil {
+	defer unlock()
+	record, err := client.State.StartOperation(ctx, lease.LeaseId, key, digest, lease.NotAfterUnixSeconds)
+	if err != nil {
+		return 1, err
+	}
+	if record != nil {
 		if record.GetProgram() == pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED && record.ExitCode != nil {
 			return int(*record.ExitCode), nil
 		}
 		return 1, errors.New("The earlier program attempt may have started. Inspect its result before using --again.")
+	}
+	response, err := client.Deliver(ctx, &pb.DeliverRequest{LeaseId: lease.LeaseId, Kind: pb.OperationKind_OPERATION_KIND_EXECUTE_PROGRAM, Fields: []pb.CredentialField{field}})
+	if err != nil {
+		return 1, err
 	}
 	values, _, err := Delivered(ctx, client, lease, response, []pb.CredentialField{field})
 	if err != nil {
@@ -141,11 +149,11 @@ func Execute(ctx context.Context, client authority.Client, lease *pb.Lease, fiel
 			outcome = pb.ProgramOutcome_PROGRAM_OUTCOME_NOT_STARTED
 		}
 	}
-	finish := &pb.FinishOperationRequest{LeaseId: lease.LeaseId, OperationId: response.OperationId, Outcome: &pb.FinishOperationRequest_Program{Program: outcome}}
+	finish := &clientstate.OperationReceipt{LeaseId: lease.LeaseId, Key: key, Digest: digest, Outcome: &clientstate.OperationReceipt_Program{Program: outcome}}
 	if outcome == pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED {
 		finish.ExitCode = &exitCode
 	}
-	if err = client.Finish(context.WithoutCancel(ctx), finish); err != nil {
+	if err = client.State.FinishOperation(context.WithoutCancel(ctx), finish); err != nil {
 		return 1, errors.New("The program attempt ended, but its result was not saved. Do not rerun it without inspecting the result.")
 	}
 	if outcome != pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED {
@@ -158,7 +166,11 @@ func Read(ctx context.Context, client authority.Client, lease *pb.Lease, field p
 		return errors.New("This lease does not approve value delivery to the agent's code.")
 	}
 	key := NewID()
-	response, err := client.Begin(ctx, &pb.BeginOperationRequest{LeaseId: lease.LeaseId, OperationDigest: Digest(lease.LeaseId, "read", fmt.Sprint(field)), Kind: pb.OperationKind_OPERATION_KIND_READ, Fields: []pb.CredentialField{field}, RequestId: key})
+	digest := Digest(lease.LeaseId, "read", fmt.Sprint(field))
+	if _, err := client.State.StartOperation(ctx, lease.LeaseId, key, digest, lease.NotAfterUnixSeconds); err != nil {
+		return err
+	}
+	response, err := client.Deliver(ctx, &pb.DeliverRequest{LeaseId: lease.LeaseId, Kind: pb.OperationKind_OPERATION_KIND_READ, Fields: []pb.CredentialField{field}})
 	if err != nil {
 		return err
 	}
@@ -168,7 +180,7 @@ func Read(ctx context.Context, client authority.Client, lease *pb.Lease, field p
 	}
 	defer ClearValues(values)
 	_, writeError := io.WriteString(output, Value(values, field))
-	finishError := client.Finish(context.WithoutCancel(ctx), &pb.FinishOperationRequest{LeaseId: lease.LeaseId, OperationId: response.OperationId, Outcome: &pb.FinishOperationRequest_ReadDelivered{ReadDelivered: writeError == nil}})
+	finishError := client.State.FinishOperation(context.WithoutCancel(ctx), &clientstate.OperationReceipt{LeaseId: lease.LeaseId, Key: key, Digest: digest, Outcome: &clientstate.OperationReceipt_ReadDelivered{ReadDelivered: writeError == nil}})
 	if writeError != nil {
 		return errors.New("Could not deliver the value to the receiving process.")
 	}

@@ -158,6 +158,7 @@ func (s Store) Update(ctx context.Context, change func(*State) error) error {
 	if err = s.read("state.pb", state); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	pruneOperations(state)
 	if err = change(state); err != nil {
 		return err
 	}

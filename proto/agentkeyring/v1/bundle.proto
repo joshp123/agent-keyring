@@ -9,9 +9,9 @@ package agentkeyring.v1;
 
 option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1";
 
-// What the receiver gets from BeginOperation once requests travel through the
+// What the receiver gets from Deliver once requests travel through the
 // relay. Checked before opening: decision signature by a pinned approver key,
-// or a granted Automatic key, statement names this receiver and lease,
+// or the configuration's Automatic key, statement names this receiver and lease,
 // not_after in the future.
 message SealedDelivery {
   SignedDecision decision = 1;
@@ -69,6 +69,8 @@ message SignedDecision {
 }
 
 // Signed on the iPhone after Face ID, over the exact `decision` bytes.
+// Exception: a plain DENY has an empty signature and reply; the relay accepts
+// it only from that paired phone's pinned connection. It grants nothing.
 // The MacBook, which holds the passwords, delivers only what this allows.
 message SignedPhoneDecision {
   bytes decision = 1;           // Serialized PhoneDecision.
@@ -102,11 +104,14 @@ message DecisionStatement {
   // SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
   bytes reply_sha256 = 10;
   // Who decided. HUMAN: signed by an approver key after Josh's biometric check.
-  // AUTOMATIC_RULE: signed by the Automatic key named in a current
-  // SignedAutomaticGrant (relay.proto); valid only for the logins and
-  // recipients that grant lists. Receivers check the grant before opening.
+  // AUTOMATIC_RULE: signed by the Automatic key named in the signed
+  // Configuration (relay.proto); valid only for logins whose rule is AUTOMATIC
+  // and machines with automatic_allowed there. Receivers check it before opening.
   DecisionAuthority authority = 11;
-  uint64 automatic_grant_revision = 12;  // Set only for AUTOMATIC_RULE.
+  // Set only for AUTOMATIC_RULE: the revision the decision was made under. It
+  // stays valid under later revisions that keep the key, the Automatic rule
+  // and the receiver's Automatic access (RFC 0005).
+  uint64 configuration_revision = 12;
 }
 
 enum DecisionAuthority {
@@ -115,11 +120,14 @@ enum DecisionAuthority {
   DECISION_AUTHORITY_AUTOMATIC_RULE = 2;
   // DENY with an empty reply only. Sent unsigned over the approver's pinned
   // connection, so a plain Deny needs no biometric check. It grants nothing.
-  // A denial with a reply must be HUMAN; receivers show a reply only then.
+  // A denial with a reply must be HUMAN or PHONE with the required signatures.
   DECISION_AUTHORITY_APPROVER_CONNECTION = 3;
   // Josh answered on his iPhone. Signed by the MacBook's delivery key (role
   // MAC_DELIVERY) and carrying SignedDecision.phone_decision. Receivers check
-  // both signatures, the same request_digest and the same not_after.
+  // both signatures and equal request_digest, lease_id, choice, approval/
+  // decision time, not_after and reply_sha256 (RFC 0006). The outer reply must
+  // equal the phone's reply. A plain unsigned phone denial uses
+  // APPROVER_CONNECTION instead. PHONE never authorizes key or rule changes.
   DECISION_AUTHORITY_PHONE = 4;
 }
 

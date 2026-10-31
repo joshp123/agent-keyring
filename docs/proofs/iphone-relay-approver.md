@@ -1,118 +1,86 @@
+# Approval-only iPhone backend
+
 Written by AI on 2026.10.31 by model gpt-6.1-sol.
 
-# iPhone relay approver: R4.3 and phone half of R4.5
+The actual `PhoneRelayApprover` now signs answers; it does not open, seal or
+send credentials. Its package target no longer depends on the phone vault.
+The deferred phone vault, Passwords import and credential-provider extension
+have been deleted. The Mac shared importer remains. The Mac holds and delivers
+the password; phone pairing, requests and history need no phone import.
 
-The real `PhoneImportBackend` composes `PhoneRelayApprover` with the R4.2 vault,
-Secure Enclave keys and device-only TLS identity. The existing home, request and
-settings views consume its snapshots. No view was changed for this backend.
-The Mac remains the rule owner and signs the phone's addition. No live authority
-was paired or changed during this work.
+The phone uses a fresh Secure Enclave signing account with
+`biometryCurrentSet` and `WhenUnlockedThisDeviceOnly`, a fresh non-synchronizable
+TLS identity, and new approval-only state. Old generic approver state and keys
+are not reused. This build must pair again. Public-key lookup does not sign;
+each approval or denial reply uses a fresh Face ID context with no reuse
+window. After authentication, signing cannot silently request another prompt.
+Actual Secure Enclave and Face ID behavior remains a device check.
 
-## Pairing screen interface
+The unused CloudKit controller, QR pairing screen, signing adapter and
+notification service extension have been deleted. Their CloudKit, camera and
+time-sensitive notification capabilities are gone. The custom speech backend
+and its permission strings are gone too. Opus's current views were untouched.
 
-These types are in `AgentKeyringApprovalUI`:
+## Backend values
 
-```swift
-public struct PhoneRelayEndpoint: Hashable, Sendable {
-    public var host: String
-    public var port: UInt16
-    public init(host: String, port: UInt16)
-}
+Pairing retains `beginPairing(endpoint:)`, `cancelPairing()` and
+`PhonePairingState.comparing(fingerprint:relayAddress:)`. The candidate has role
+PHONE. The phone verifies the Mac signature, exact comparison transcript and
+bound signed configuration. `GetConfiguration` supplies the one snapshot of
+logins, rules and enrolled machines. The phone verifies its domain, rule-owner
+signature and revision, then atomically retains it with the verified key chain.
+It rejects a lower revision and different exact bytes at the same revision,
+including across restart. The old index and roster caches are gone; state v3
+starts a fresh pairing for this unreleased contract. Local requests use the
+trusted source Mac's label; remote requests use machines from the configuration.
 
-public enum PhonePairingState: Hashable, Sendable {
-    case notPaired
-    case connecting
-    case comparing(fingerprint: String, relayAddress: String)
-    case paired
-    case failed(String)
-}
+`approve` and `deny` return and stream:
 
-// PhoneKeyringBackend
-func beginPairing(endpoint: PhoneRelayEndpoint) async throws
-func cancelPairing()
+- `.sendingAnswer(choice)` before relay acknowledgement;
+- `.waitingForMac(choice, reply:)` after acknowledgement while the lease is
+  PENDING, preserving a typed denial reply;
+- the actual `.approved` or `.denied` outcome after the Mac commits it.
 
-// PhoneKeyringModel: views call these.
-public func beginPairing(endpoint: PhoneRelayEndpoint) async
-public func cancelPairing()
-public private(set) var pairing: PhonePairingState
-```
+The atomic outbox stores the exact serialized `SignedPhoneDecision` and wire
+command before any network call after Face ID. Retries and restart reuse those
+bytes. Plain Deny is unsigned over the pinned PHONE connection; a reply is
+Face ID signed. Cancellation hints do not invent a terminal outcome. Elapsed
+local deadlines affect display without overwriting the Mac's stored state.
+End and Let it ask again retain the last actual local lease until the Mac's
+report arrives.
 
-`PhoneKeyringSnapshot.pairing` has the same type, defaulting to `.notPaired`.
-`PhoneSettings.rulesUpdatedAt: Date?` is the last verified owner-index receipt
-time; it defaults to nil. It is suitable for “Rules checked …” copy.
-The service connection and requests are real snapshot values as well.
+`settings.rulesUpdatedAt` comes from a verified GetConfiguration receipt.
+`settings.askPhoneAfter` stays nil because this protocol does not expose the
+Mac's setting. Notification permission is requested after pairing. The OS
+push token is refreshed on open and registered with the relay; one build setting controls both the
+`aps-environment` entitlement and the registration's production flag.
+Settings show `.on` only when iOS permission is granted and a remote relay
+notification has actually been observed. Otherwise they show `.notSetUp`.
+Foreground delivery, tapping a notification and the OS delivered-notification
+list all record that receipt locally; local and former CloudKit notifications
+do not count. A token registration acknowledgement never turns the setting on.
+No live APNs notification was proved.
 
-The fingerprint is computed locally over the exact transcript bytes. The phone
-does not offer first-authority bootstrap. It activates only after verifying a
-previous approver's signature, the compared transcript, its own signing/TLS
-keys, the unchanged rule owner, and the exact signed roster revision/hash bound
-by the Mac. A saved comparison survives interruption. Foregrounding resumes an unfinished
-attempt automatically; explicitly cancelling disables that resume. Reopening pairing can
-verify an already accepted addition from that receipt; an APPROVED flag alone
-cannot establish trust. Cancel closes the attempt and does not activate it.
+## Joint system proof
 
-## Approval and recovery
+The configuration adaptation's Swift phone fixture and iOS SDK app build pass.
+The joint run below passed before the one-configuration simplification. Its
+fixture now uses `GetConfiguration` and `Delivery`; rerunning against the
+adapted relay and receiver is pending those lanes. The added configuration
+exercise restarts the real relay with stale, replaced or incorrectly signed
+fixture state and requires the Swift phone to refuse before authorization,
+then recover when the valid configuration returns. This exercise is not yet
+claimed as passed.
 
-A completed import reconnects so requests previously missing a local login are
-replayed. Each foreground connection walks the signed approver chain, verifies the signed
-machine roster, fetches the owner's index through GetIndex, and opens WatchWork.
-WatchWork replays pending requests and active remote leases before updates.
-The phone uses its own login metadata and the signed roster's receiver keys.
-Blocked, unmatched, ambiguous and Automatic logins cannot use the human Ask
-approval path. The index retains Mac login IDs and the vault's conservative
-source/fallback matching from R4.2.
-
-Approve checks the request and current index before Face ID. One fresh
-`LAContext` evaluates biometrics, opens the enclave-protected vault item and
-signs the decision. Key operations cannot silently request a second prompt:
-after authorization the context forbids interaction. Actual reuse across the
-two enclave operations remains a physical-device proof.
-
-The phone seals username/password and timed codes to the enrolled receiver
-with CryptoKit HPKE. The signed decision binds the original request digest,
-recipient, receiver key, lease, deadline, reply and ciphertext. No network call
-occurs between successful authorization and the atomic outbox commit. Retrying
-and process restart reuse the saved statement, signature and ciphertext. An
-accepted resend reporting an already terminal lease does not reactivate it.
-
-Plain Deny has no signature and no biometric operation; it travels over the
-pinned approver connection with APPROVER_CONNECTION authority. A denial with
-a reply uses the explicit action's Face ID signature. ClearDenial is scoped to
-recipient/login. End Access calls RevokeLease over the pinned connection and
-reports an end only after the relay confirms a terminal lease. Lease updates
-drive the in-use list, including approvals made on another approver.
-
-State and outbox files use complete iOS file protection and are excluded from
-backup. TLS private material is in explicitly non-synchronizable,
-WhenUnlockedThisDeviceOnly Keychain items. The production app has no software
-replacement for the enclave/Face ID keys. Stage logs contain counts and error
-domain/code, never passwords, code seeds, replies or login metadata.
-
-## Resolved relay address
-
-The phone accepts a host name such as `mac-mini`. When Network.framework reports
-the TLS connection ready, the actual remote IP must be in `100.64.0.0/10` or
-`fd7a:115c:a1e0::/48`. Missing/unresolved addresses, public addresses and LAN
-addresses are refused. The transport checks again before sending a framed
-request. The DNS name and certificate pin alone cannot bypass this check.
-Loopback is available only with the fixture's explicit proof override, which
-survives fixture restart. Older saved endpoints default to no loopback override.
-
-The mini proof resolves `localhost` against the real relay: the normal endpoint
-is refused after TLS readiness and before a request; the explicit proof endpoint
-then pairs and completes the entire approval/restart proof through that name.
-The proof output is `resolved-peer-proof.log` alongside the other private receipts.
-
-## System proof on the Mac mini
-
-The fixture invokes the production phone core, vault, TLS, HPKE, signature and
-outbox code against the real Go relay and receiver wire methods. Its software
-keys, authorization counter and dummy Passwords input are confined to the CLI
-fixture target; they are not compiled into the iPhone app.
+On the physical Darwin Mac mini with Xcode beta, the production Swift phone
+core ran against the current Go relay and real Go receiver. Software signing
+keys and an authorization counter replace device biometrics only in the CLI
+fixture. The fixture never creates a phone vault or imports a password. Its
+Mac substitute holds a dummy example.com login.
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
-  xcrun swift build --package-path AgentKeyringPackage \
+  swift build --package-path AgentKeyringPackage \
   --product agent-keyring-phone-fixture
 devenv shell -- go build -o /tmp/keyring-relay ./cmd/agent-keyring-relay
 devenv shell -- go build -o /tmp/keyring-relay-fixture ./script/relay_fixture
@@ -120,123 +88,51 @@ devenv shell -- go build -o /tmp/keyring-relay-fixture ./script/relay_fixture
   --phone-binary "$PWD/AgentKeyringPackage/.build/debug/agent-keyring-phone-fixture"
 ```
 
-Passed on the physical Darwin Mac mini with Xcode beta:
+Passed:
 
-- Swift and Go computed the same full pairing fingerprint. The phone closed
-  before the Mac signed, then verified the accepted addition after reopening.
-- The phone adopted the already enrolled receiver through the signed roster.
-  The receiver did not enrol again.
-- A pending request survived phone-process restart and backlog replay.
-- A TCP fault discarded the encrypted acknowledgement after the relay committed
-  ACTIVE; the independent receiver observed that commit. Both relay and phone
-  restarted. The saved answer was acknowledged with the authorization counter
-  still at one.
-- Go verified the phone signature and opened CryptoKit HPKE contents: expected
-  dummy username/password, Mac login ID, lease ID and at least 60 timed codes.
-- Phone End Access was confirmed, repeating it was harmless, and subsequent
-  receiver delivery was refused. An already active Mac approval, created while
-  the phone was disconnected, appeared on reconnect and was ended from the
-  phone without another authorization.
-- Plain Deny used zero authorizations and carried no signed denial proof.
-  Deny with a reply added one authorization and a verified signed reply.
-  ClearDenial allowed a fresh task to ask again.
+- Normal hostname resolution refuses a non-tailnet peer before sending a
+  request. The explicit loopback proof override then permits this fixture.
+- Swift and Go compute the same full pairing comparison. Restart during
+  pairing verifies the saved comparison and Mac-signed PHONE addition.
+- Only escalated requests reach the phone. Reopening fetches pending work
+  without any import, and the existing receiver does not enrol again.
+- A proxy discards the acknowledgement after the Mac independently receives
+  the exact signed phone answer. Both relay and phone restart; the identical
+  answer is acknowledged with the authorization counter still at one.
+  The phone waits for the Mac instead of showing premature approval.
+- The Mac substitute commits delivery under that answer. The real Go receiver
+  advances its previously pinned key set, verifies both signatures and opens
+  the dummy login. The phone displays the actual approval. End Access prevents
+  another delivery.
+- Plain Deny needs no authorization; a typed reply adds one signature and
+  remains visible while waiting. Close the phone after its answer is
+  acknowledged; a Mac denial committed while it is closed arrives on reopening,
+  with the reply intact and no second authorization. Scoped clear then works.
+- A local request needs no remote receiver enrolment. Its approval uses one
+  authorization; End remains active until the Mac reports REVOKED.
 
-The final run's isolated state directory and output are recorded in
-`.private/proofs/r43/phone-relay-proof.log` in the main checkout. Build output
-is alongside it. No unit tests ran. No simulator windows opened on the MacBook.
-These checks prove the protocol/storage/recovery path with fixtures, not Apple
-credential exchange, Secure Enclave enforcement, Face ID, mobile data or a real
-website sign-in.
+The run exposed and fixed a relay race: a phone that had seen PendingRequest
+could miss its terminal Lease if the outcome arrived before the initial lease
+snapshot. A fresh stream could also omit a denial committed while the phone
+was closed. The relay now replays the latest state of each escalation on open
+and sends each subsequent change, including terminal outcomes.
 
-## Device installation
+The Swift phone fixture and a fresh iOS Simulator SDK app build passed on
+the mini after cleanup. The resulting app embeds no extensions; its notification
+environment resolves to development. No unit tests ran and no simulator windows opened. Logs are preserved in the main checkout's
+`.private/proofs/r4-phone-approval/`.
 
-Version 0.4.0, build 6 was installed on Josh's iPhone 17 Pro. CoreDevice's
-installed-app inventory independently confirmed the version and build after
-installation. The device build used the existing Apple Development identity
-and profiles for team 7M8BR7R488; strict verification of the app and embedded
-extensions passed. No certificate, profile or Apple account key was created,
-deleted or revoked.
+## Device status
 
-The phone was locked. Launch was refused with CoreDevice's `Locked` reason;
-no phone settings or other apps were changed. The installed build has the
-real import, vault and approver backend.
+No new build was installed: the orchestrator explicitly holds installation
+until the contract simplification lands. Build 7 remains on Josh's iPhone, per
+the orchestrator's installation report. No certificate or Apple account change
+was made.
 
-Build 7 adds the designer's pairing screen and prefilled `mac-mini:17443`,
-on-device reply dictation, and the resolved-peer restriction above. Both the
-signed device build and the simulator SDK build on the mini passed. Strict
-verification of the app and its embedded extensions passed with the existing
-signing identity and profiles. Installation was attempted but failed with
-CoreDevice error 4016: no trusted connectivity/development services available.
-The physical phone is reported unavailable. Build 7 is **not installed**;
-build 6 is the last confirmed installation.
-
-The signed app is preserved in the main checkout at
-`.private/builds/phone-0.4.0-7/AgentKeyringPhone.app`. Build, installation,
-inventory and launch receipts are in `.private/proofs/r43/`; build 7 receipts
-use the `build7-` prefix. Reconnect the iPhone for development, install the
-preserved app, then independently check its installed build number.
-
-## Reply dictation
-
-The existing microphone button now calls `PhoneReplyDictation`, using Apple's
-`SFSpeechRecognizer` with `supportsOnDeviceRecognition` required and
-`requiresOnDeviceRecognition = true`. Partial results replace the live
-transcript and retain any reply text written before recording. The locale is
-the iPhone's first preferred language. Audio is passed directly from the
-microphone to the recognition request; it is not saved or logged. There is no
-server-recognition fallback. Apple's
-[request contract](https://developer.apple.com/documentation/speech/sfspeechrecognitionrequest/requiresondevicerecognition)
-requires the
-[local capability check](https://developer.apple.com/documentation/speech/sfspeechrecognizer/supportsondevicerecognition)
-as well as the request flag; both are enforced.
-
-First use requests speech-recognition and microphone permission. The purpose
-strings are “Turn your speech into a reply on this iPhone. Your voice stays on
-this iPhone.” and “Use the microphone to dictate your reply to an agent.”
-An unsupported local recognizer or denied permission reports a plain error in
-the existing alert; typing remains available. Stop, Cancel, closing the request,
-an audio interruption or backgrounding releases recording and the audio session.
-Starting again cannot let an old stream replace the new draft/listening state.
-
-`PhoneKeyringBackend.dictation()` now returns
-`AsyncThrowingStream<String, any Error>` so the model can show failures. The
-design mock has the same signature. No view was edited. No entitlement,
-provisioning-profile or Apple account change was made for speech.
-Live microphone capture, permission prompts and offline recognition remain
-physical-device checks; compilation does not prove these behaviors.
-
-## Remaining device checks
-
-The pairing views are the designer's work. The Mac's added-approver action,
-physical fingerprint comparison and Touch ID are the Mac lane's work.
-APNs and delay registration remain R4.4; the R3 relay returns unavailable for
-RegisterPush. The speech backend is implemented; its real microphone and
-permission prompts remain unproved until the phone can run build 7.
-
-Josh's morning check, with an agent handling relay/receiver commands:
-
-1. Unlock the iPhone and open Agent Keyring. If needed, tap Allow Exports.
-   In Passwords, export two harmless test logins to Agent Keyring. Reopen the
-   app and check the saved count remains.
-2. Change one test password in Passwords and export only that login. The date
-   advances and the count stays the same. This count alone does not prove the
-   changed secret; the approval below must open and use it.
-3. Start pairing to the agent-provided tailnet endpoint. Compare all eight
-   fingerprint groups on phone and Mac. Approve the addition on the Mac with
-   Touch ID. The phone should become paired without enrolling the receiver again.
-4. Have an agent request the test login. With Wi-Fi off and Tailscale connected
-   over mobile data, open the request and approve. One Face ID should both open
-   and sign; the receiver should sign in using the changed test password.
-5. For another request, approve and interrupt the network immediately after
-   Face ID. Restore it and reopen the app if necessary. The same answer must
-   arrive without another Face ID.
-6. Start a reply, tap the microphone and allow speech/microphone access. Speak
-   a harmless reply and check words appear while speaking. Repeat with Wi-Fi
-   and mobile data off to prove local recognition. Stop or close the request:
-   the microphone indicator must clear and the words must remain. Restore the
-   tailnet connection and deny with the reply: the receiver must see it with
-   one Face ID. Plain Deny must need none. Check End Access stops a later
-   receiver operation, and that Mac Touch ID approval still works.
-
-No production authority is activated automatically. Automatic publishing,
-push and Josh's cutover choices remain their later slices.
+After the hold is lifted, an agent should build and install with existing
+signing, then help Josh check one dummy request: pair by comparison and Mac
+Touch ID, approve over mobile data with one Face ID, and repeat with a network
+cut just after Face ID. Restoring the connection must deliver the same answer
+without another Face ID. Deny with a typed reply must reach the agent. These
+physical checks, production Mac delivery, and an Apple notification remain
+unproved here; the joint fixture is not a substitute for them.

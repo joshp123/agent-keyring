@@ -61,14 +61,10 @@ struct PhoneHomeView: View {
     let pair: () -> Void
 
     var body: some View {
-        Group {
-            switch model.passwords {
-            case .notImported, .importing, .importFailed:
-                PhoneImportView(model: model)
-            case .imported:
-                requestList.navigationTitle("Agent Keyring")
-            }
-        }
+        // Always the requests. Passwords on the phone are optional (RFC 0006),
+        // so their state never replaces this list; it lives in Settings.
+        requestList
+        .navigationTitle("Agent Keyring")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Settings", systemImage: "gearshape") { model.isShowingSettings = true }
@@ -84,9 +80,9 @@ struct PhoneHomeView: View {
                 Section { UnreachableNotice(service: service, since: since) }
             }
 
-            if !model.waiting.isEmpty {
+            if !(model.waiting.isEmpty && model.waitingForMac.isEmpty) {
                 Section {
-                    ForEach(model.waiting) { request in
+                    ForEach(model.waiting + model.waitingForMac) { request in
                         Button { model.presentedRequestID = request.id } label: {
                             WaitingRow(request: request)
                         }
@@ -99,14 +95,19 @@ struct PhoneHomeView: View {
                 Section {
                     ForEach(model.inUse) { request in
                         NavigationLink(value: request.id) {
-                            InUseRow(request: request) { Task { await model.endAccess(request.id) } }
+                            InUseRow(request: request, isEnding: model.ending.contains(request.id)) {
+                                Task { await model.endAccess(request.id) }
+                            }
                         }
                     }
                 } header: { SectionHeading("In use now") }
             }
 
-            if model.waiting.isEmpty && model.inUse.isEmpty {
-                Section { NothingWaiting() }
+            if model.waiting.isEmpty && model.waitingForMac.isEmpty && model.inUse.isEmpty {
+                // Unpaired, the notice above already says why nothing arrives.
+                if model.pairing == .paired {
+                    Section { NothingWaiting(notifications: model.settings.notifications) }
+                }
             }
 
             ForEach(historyDays, id: \.title) { day in
@@ -115,11 +116,6 @@ struct PhoneHomeView: View {
                         NavigationLink(value: request.id) { HistoryRow(request: request) }
                     }
                 } header: { SectionHeading(day.title) }
-            }
-
-            if case let .imported(count, at) = model.passwords {
-                Section { PasswordsFooter(count: count, importedAt: at) }
-                    .listSectionSeparator(.hidden)
             }
         }
         .listStyle(.plain)
@@ -167,6 +163,10 @@ private struct WaitingRow: View {
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(KeyringColour.signal)
                 }
+            } else if request.state.isWaitingForMac {
+                Text(AccessRequestCopy.waitingForMac)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
         }
@@ -177,6 +177,7 @@ private struct WaitingRow: View {
 
 private struct InUseRow: View {
     let request: AccessRequest
+    let isEnding: Bool
     let end: () -> Void
 
     var body: some View {
@@ -194,10 +195,16 @@ private struct InUseRow: View {
                 }
             }
             Spacer()
-            Button(AccessRequestCopy.endNow, action: end)
-                .buttonStyle(.borderless)
-                .font(.body.weight(.medium))
-                .foregroundStyle(KeyringColour.denyText)
+            if isEnding {
+                Text(AccessRequestCopy.ending)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button(AccessRequestCopy.endNow, action: end)
+                    .buttonStyle(.borderless)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(KeyringColour.denyText)
+            }
         }
         .padding(.vertical, 4)
     }
@@ -225,11 +232,13 @@ private struct HistoryRow: View {
 }
 
 private struct NothingWaiting: View {
+    let notifications: PhoneNotifications
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Nothing waiting")
                 .font(.title3.weight(.semibold))
-            Text("When an agent asks for a login and you're away from your Mac, it appears here and on your Lock Screen.")
+            Text(SetupCopy.nothingWaiting(notifications))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -278,16 +287,4 @@ private struct UnreachableNotice: View {
     }
 }
 
-private struct PasswordsFooter: View {
-    let count: Int
-    let importedAt: Date
-
-    var body: some View {
-        Text("\(count) logins on this iPhone · updated \(importedAt.formatted(.relative(presentation: .named)))")
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
-    }
-}
 #endif

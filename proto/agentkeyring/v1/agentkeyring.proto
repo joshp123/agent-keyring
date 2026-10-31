@@ -1,8 +1,8 @@
 // Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Local contract for RFC 0004. Remote enrolment, sealed bundles and approvers
-// are in relay.proto (RFCs 0005 and 0006). Lease and operation results contain no
-// passwords, OTP codes or seeds. BeginOperationResponse carries values to the
-// client; the explicit agent-process `read` route outputs its selected value.
+// are in relay.proto (RFCs 0005 and 0006). Lease and receiver results contain no
+// passwords, OTP codes or seeds. Delivery carries values to the client; the
+// explicit agent-process `read` route outputs its selected value.
 // Find includes account metadata. Transport authentication
 // establishes the caller; task_ref, recipient labels and reasons do not.
 
@@ -24,23 +24,18 @@ service AgentKeyring {
   rpc WatchLease(LeaseReference) returns (stream Lease);
   // Cancels pending or releases active. Repeated calls return current state.
   rpc EndLease(LeaseReference) returns (Lease);
-  // Client delivery path. Local peers with the same OS user are one principal;
-  // "receiver" is a code role, not a separately authenticated local identity.
-  // Checks active lease, recipient, purpose and requested fields, then durably
-  // records Started before returning values. A retry returns no values.
-  rpc BeginOperation(BeginOperationRequest) returns (BeginOperationResponse);
-  rpc FinishOperation(FinishOperationRequest) returns (OperationRecord);
-  // Client delivery path. Looks an operation up by BeginOperation's key without
-  // starting anything or returning values. A retry checks it before validating
-  // targets, which may be gone after a submit navigated, and reports the
-  // recorded outcome instead.
-  rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
+  // Client delivery path. Checks the lease is active, names this recipient,
+  // matches the kind's purpose and offers the requested fields, then returns
+  // them. Retries and their outcomes are recorded by the receiver, not here
+  // (RFC 0004, "Operations and retries"). Local peers with the same OS user are
+  // one principal; "receiver" is a code role, not a separate local identity.
+  rpc Deliver(DeliverRequest) returns (Delivery);
 }
 
 // The contract of the receiving code. In release 2 it runs in-process in the
 // `agent-keyring` client; there is no receiver daemon. Never execute these on the vault host
 // merely because it holds the lease. Caller, lease recipient and this receiver
-// must match. BeginOperation is the authorized value-delivery path. Browser
+// must match. Deliver is the authorized value-delivery path. Browser
 // checks run in this client, not in the authority, and are not isolation from
 // another process with the same user's privileges.
 service CredentialReceiver {
@@ -147,7 +142,7 @@ message Lease {
   // (zero until then). For display; deadlines come from the fields above.
   int64 requested_at_unix_seconds = 17;
   int64 ended_at_unix_seconds = 18;
-  // Relay only: the HUMAN-signed denial and the exact request bytes, with no
+  // Relay only: a HUMAN or fully verified PHONE denial and exact request bytes, with no
   // bundle, when a remote denial carries a reply. The receiver verifies them
   // like an approval before it shows `reply`; otherwise it shows no reply.
   SealedDelivery signed_denial = 19;
@@ -182,12 +177,11 @@ enum CredentialField {
 message FillRequest {
   string lease_id = 1;
   Target target = 2;
-  // Optional retry key, passed as BeginOperationRequest.request_id. Empty:
-  // derive it from the action digest, excluding the current document loader ID
-  // so navigation after a lost reply cannot silently make a retry a new action.
-  // Records live with the lease at the authority, so
-  // an operation with no recorded result is UNCERTAIN after any restart, never
-  // an automatic second submit.
+  // Optional retry key. Empty: the receiver derives it from the action digest,
+  // excluding the current document loader ID so navigation after a lost reply
+  // cannot silently make a retry a new action. The receiver keeps its own
+  // crash-safe record, so an operation with no recorded result is UNCERTAIN
+  // after any restart, never an automatic second submit.
   string operation_id = 3;
   // Deliberately repeat the same step after inspection, even on a new document.
   // Generates a fresh retry key; cannot be combined with operation_id.
@@ -271,17 +265,10 @@ enum ProgramOutcome {
   PROGRAM_OUTCOME_FIELD_UNAVAILABLE = 5;
 }
 
-message BeginOperationRequest {
+message DeliverRequest {
   string lease_id = 1;
-  // SHA-256 of the canonical action, computed by the receiver (RFC 0004).
-  // No credential values or current observed document loader ID.
-  bytes operation_digest = 2;
-  OperationKind kind = 3;
-  repeated CredentialField fields = 4;
-  // Scoped to authenticated recipient + lease. Empty uses the digest as key.
-  // Same key with changed digest, kind or fields is CONFLICT. A matching retry
-  // returns already_started, never values, even after receiver/authority restart.
-  string request_id = 5;
+  OperationKind kind = 2;
+  repeated CredentialField fields = 3;
 }
 
 enum OperationKind {
@@ -291,61 +278,20 @@ enum OperationKind {
   OPERATION_KIND_READ = 3;            // Lease purpose must be AGENT_PROCESS.
 }
 
-message BeginOperationResponse {
+message Delivery {
   oneof result {
-    // Local socket only (release 2). Never sent over a network.
+    // Local socket only. Never sent over a network.
     CredentialValues values = 1;
-    // Release 3 onwards: sealed to the enrolled receiver, with the approver's
-    // signed decision so the receiver can check who approved what (bundle.proto).
+    // Through the relay: sealed to the enrolled receiver, with the signed
+    // decision so the receiver can check who approved what (bundle.proto).
     SealedDelivery sealed = 2;
-    // This request was already started: no values, nothing to perform.
-    OperationRecord already_started = 3;
   }
-  string operation_id = 4;
-}
-
-message GetOperationRequest {
-  string lease_id = 1;
-  // The same key BeginOperation uses: request_id if set, otherwise the digest.
-  bytes operation_digest = 2;
-  string request_id = 3;
-}
-
-message GetOperationResponse {
-  // Unset when no operation has this key. A record with no outcome was started
-  // and never finished: report it as UNCERTAIN.
-  OperationRecord operation = 1;
 }
 
 message CredentialValues {
   string username = 1;
   string password = 2;
   string one_time_code = 3;  // Current code only.
-}
-
-message FinishOperationRequest {
-  string lease_id = 1;
-  string operation_id = 2;
-  oneof outcome {
-    FillOutcome fill = 3;
-    ProgramOutcome program = 4;
-    bool read_delivered = 5;
-  }
-  // Present exactly for PROGRAM_OUTCOME_EXITED; retained for command retries.
-  optional int32 exit_code = 6;
-}
-
-message OperationRecord {
-  string operation_id = 1;
-  OperationKind kind = 2;
-  int64 started_unix_seconds = 3;
-  // Unset while started with no recorded result: callers treat it as UNCERTAIN.
-  oneof outcome {
-    FillOutcome fill = 4;
-    ProgramOutcome program = 5;
-    bool read_delivered = 6;
-  }
-  optional int32 exit_code = 7;
 }
 
 // Local wire mapping, not gRPC: one RPC per connection. Each frame is a
@@ -363,10 +309,9 @@ message WireRequest {
     LeaseReference end_lease = 5;
     FillRequest fill = 6;
     ExecuteProgramRequest execute_program = 7;
-    BeginOperationRequest begin_operation = 8;
-    FinishOperationRequest finish_operation = 9;
-    GetOperationRequest get_operation = 10;
+    DeliverRequest deliver = 8;
   }
+  reserved 9, 10;
 }
 
 message WireResponse {
@@ -376,10 +321,9 @@ message WireResponse {
     FillResult fill = 3;
     ExecuteProgramResult execute_program = 4;
     RpcError error = 5;
-    BeginOperationResponse begin_operation = 7;
-    OperationRecord operation = 8;
-    GetOperationResponse get_operation = 9;
+    Delivery delivery = 7;
   }
+  reserved 8, 9;
   bool end_of_stream = 6;
 }
 

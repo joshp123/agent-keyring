@@ -39,9 +39,9 @@ func (s *Server) enrol(tx *sql.Tx, p peer, r *pb.EnrolRequest, seen map[string][
 	if err != nil {
 		return nil, false, err
 	}
-	var recordBytes, decisionBytes, keysetBytes []byte
+	var recordBytes, configurationBytes, keysetBytes []byte
 	var state int
-	err = tx.QueryRow("SELECT record,decision,keyset,state FROM enrolments WHERE spki=?", p.spki).Scan(&recordBytes, &decisionBytes, &keysetBytes, &state)
+	err = tx.QueryRow("SELECT record,decision,keyset,state FROM enrolments WHERE spki=?", p.spki).Scan(&recordBytes, &configurationBytes, &keysetBytes, &state)
 	if err == nil && state == 0 && len(seen) == 0 {
 		previous := new(pb.EnrolmentRecord)
 		if decodeErr := proto.Unmarshal(recordBytes, previous); decodeErr != nil {
@@ -54,12 +54,20 @@ func (s *Server) enrol(tx *sql.Tx, p peer, r *pb.EnrolRequest, seen map[string][
 			err = sql.ErrNoRows
 		}
 	}
+	if errors.Is(err, sql.ErrNoRows) && seen["enrol"] != nil {
+		status := new(pb.EnrolStatus)
+		if err = proto.Unmarshal(seen["enrol"], status); err != nil {
+			return nil, false, err
+		}
+		status.State = pb.EnrolState_ENROL_STATE_EXPIRED
+		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_EnrolStatus{EnrolStatus: status}, EndOfStream: true}, false, nil
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		relaySPKI, _ := relaycrypto.CertificateSPKI(s.Certificate)
 		record := &pb.EnrolmentRecord{RecipientId: newID(), MachineLabel: r.MachineLabel, ClientLabel: r.ClientLabel, TailscaleNodeId: p.node.ID, TailscaleNodeName: p.node.Name, TailscaleTags: p.node.Tags, TlsPublicKey: p.spki, ReceiverPublicKey: r.ReceiverPublicKey, ReceiverKeyId: hashID(r.ReceiverPublicKey), CreatedUnixSeconds: time.Now().Unix(), ApproverKeySetSha256: relaycrypto.Hash(signed.KeySet), Code: relaycrypto.Fingerprint(relaycrypto.EnrolTranscript(relaySPKI, p.spki, r.ReceiverPublicKey, signed.KeySet))}
 		recordBytes = marshal(record)
 		keysetBytes = marshal(signed)
-		_, err = tx.Exec("INSERT INTO enrolments VALUES(?,?,?,?,?,?,?)", record.RecipientId, p.spki, p.node.ID, 0, recordBytes, nil, keysetBytes)
+		_, err = tx.Exec("INSERT INTO enrolments(id,spki,node,state,record,keyset,expires) VALUES(?,?,?,?,?,?,?)", record.RecipientId, p.spki, p.node.ID, 0, recordBytes, keysetBytes, record.CreatedUnixSeconds+600)
 	}
 	if err != nil {
 		return nil, false, err
@@ -75,25 +83,25 @@ func (s *Server) enrol(tx *sql.Tx, p peer, r *pb.EnrolRequest, seen map[string][
 	if err = proto.Unmarshal(keysetBytes, compared); err != nil {
 		return nil, false, err
 	}
-	status := &pb.EnrolStatus{State: pb.EnrolState_ENROL_STATE_PENDING, Code: record.Code, RecipientId: record.RecipientId, ApproverKeySet: compared, EnrolmentRecord: recordBytes}
+	status := &pb.EnrolStatus{State: pb.EnrolState_ENROL_STATE_PENDING, Code: record.Code, RecipientId: record.RecipientId, ApproverKeySet: compared}
 	keys := new(pb.ApproverKeySet)
 	if err = proto.Unmarshal(compared.KeySet, keys); err != nil {
 		return nil, false, err
 	}
 	status.ApproverKeys = keys.Keys
-	switch pb.EnrolmentChoice(state) {
-	case pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE:
+	switch state {
+	case 1:
 		status.State = pb.EnrolState_ENROL_STATE_APPROVED
-		status.Decision = new(pb.SignedEnrolmentDecision)
-		if err = proto.Unmarshal(decisionBytes, status.Decision); err != nil {
+		status.Configuration = new(pb.SignedConfiguration)
+		if err = proto.Unmarshal(configurationBytes, status.Configuration); err != nil {
 			return nil, false, err
 		}
-		statement := new(pb.EnrolmentStatement)
-		if err = proto.Unmarshal(status.Decision.Statement, statement); err != nil {
+		config := new(pb.Configuration)
+		if err = proto.Unmarshal(status.Configuration.Configuration, config); err != nil {
 			return nil, false, err
 		}
-		status.AutomaticAllowed = statement.AutomaticAllowed
-	case pb.EnrolmentChoice_ENROLMENT_CHOICE_DENY, pb.EnrolmentChoice_ENROLMENT_CHOICE_REVOKE:
+		status.AutomaticAllowed = machineByID(config, record.RecipientId).GetAutomaticAllowed()
+	case 2, 3:
 		status.State = pb.EnrolState_ENROL_STATE_DENIED
 	default:
 		if time.Now().Unix() >= record.CreatedUnixSeconds+600 || !bytes.Equal(compared.KeySet, signed.KeySet) {
@@ -124,12 +132,16 @@ func (s *Server) pair(tx *sql.Tx, p peer, r *pb.PairApproverRequest, seen map[st
 	var node string
 	var created int64
 	err = tx.QueryRow("SELECT node,request,keyset,created FROM pairings WHERE id=?", r.Key.KeyId).Scan(&node, &requestBytes, &comparedBytes, &created)
+	if errors.Is(err, sql.ErrNoRows) && seen["pair"] != nil {
+		status := &pb.EnrolStatus{State: pb.EnrolState_ENROL_STATE_EXPIRED}
+		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_EnrolStatus{EnrolStatus: status}, EndOfStream: true}, false, nil
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		comparedBytes = append([]byte{}, signed.GetKeySet()...)
 		created = time.Now().Unix()
 		node = p.node.ID
 		requestBytes = marshal(r)
-		_, err = tx.Exec("INSERT INTO pairings VALUES(?,?,?,?,?)", r.Key.KeyId, node, requestBytes, comparedBytes, created)
+		_, err = tx.Exec("INSERT INTO pairings(id,node,request,keyset,created,expires) VALUES(?,?,?,?,?,?)", r.Key.KeyId, node, requestBytes, comparedBytes, created, created+600)
 		relaySPKI, _ := relaycrypto.CertificateSPKI(s.Certificate)
 		s.Log.Info("compare pairing fingerprint on approver", "fingerprint", relaycrypto.Fingerprint(relaycrypto.PairTranscript(relaySPKI, p.spki, r.Key.PublicKey, comparedBytes)))
 	}
@@ -146,7 +158,7 @@ func (s *Server) pair(tx *sql.Tx, p peer, r *pb.PairApproverRequest, seen map[st
 	if keyByID(keys, r.Key.KeyId) == nil && len(seen) == 0 && (time.Now().Unix() >= created+600 || !bytes.Equal(comparedBytes, signed.GetKeySet())) {
 		comparedBytes = append([]byte{}, signed.GetKeySet()...)
 		created = time.Now().Unix()
-		if _, err = tx.Exec("UPDATE pairings SET keyset=?,created=? WHERE id=?", comparedBytes, created, r.Key.KeyId); err != nil {
+		if _, err = tx.Exec("UPDATE pairings SET keyset=?,created=?,expires=? WHERE id=?", comparedBytes, created, created+600, r.Key.KeyId); err != nil {
 			return nil, false, err
 		}
 		relaySPKI, _ := relaycrypto.CertificateSPKI(s.Certificate)
@@ -214,6 +226,9 @@ func (s *Server) confirm(tx *sql.Tx, p peer, r *pb.SignedPairingConfirmation) (*
 	if err := relaycrypto.Verify(pair.Key.PublicKey, initial.KeySet, initial.Signature); err != nil {
 		return nil, denied("Invalid key-set signature.")
 	}
+	if err := relaycrypto.ValidateRoles(keys, keys.RuleOwnerKeyId); err != nil {
+		return nil, denied(err.Error())
+	}
 	if err := put(tx, "current", "keys", initial); err != nil {
 		return nil, err
 	}
@@ -221,6 +236,9 @@ func (s *Server) confirm(tx *sql.Tx, p peer, r *pb.SignedPairingConfirmation) (*
 		return nil, err
 	}
 	if err := put(tx, "confirmation", r.ApproverKeyId, r); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec("UPDATE pairings SET expires=NULL WHERE id=?", r.ApproverKeyId); err != nil {
 		return nil, err
 	}
 	return enrolAck(), nil
