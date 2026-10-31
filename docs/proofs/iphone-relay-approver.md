@@ -119,7 +119,9 @@ Passed on the physical Darwin Mac mini with Xcode beta:
 - Go verified the phone signature and opened CryptoKit HPKE contents: expected
   dummy username/password, Mac login ID, lease ID and at least 60 timed codes.
 - Phone End Access was confirmed, repeating it was harmless, and subsequent
-  receiver delivery was refused.
+  receiver delivery was refused. An already active Mac approval, created while
+  the phone was disconnected, appeared on reconnect and was ended from the
+  phone without another authorization.
 - Plain Deny used zero authorizations and carried no signed denial proof.
   Deny with a reply added one authorization and a verified signed reply.
   ClearDenial allowed a fresh task to ask again.
