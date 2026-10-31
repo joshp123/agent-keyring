@@ -103,7 +103,9 @@ from software administering that same machine.
    It grants nothing, and a relay that wanted to stop a request could withhold
    it anyway. A denial with a reply is signed with the human key, because the
    reply is an instruction to the agent; a receiver shows a reply only when
-   that signature checks.
+   that signature checks. The relay returns that signed denial and the exact
+   request bytes in `Lease.signed_denial`, with no bundle, and the receiver
+   verifies them the same way as an approval.
 5. **Fill.** The receiver's `BeginOperation` records the operation at the relay
    and returns the `SealedDelivery`, including the exact approved request bytes.
    The receiver checks their digest and scope against the request it retained
