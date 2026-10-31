@@ -24,6 +24,10 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case enrolment
     case enrolmentIPhone
     case enrolmentJoined
+    case machines
+    case machinesSetUp
+    case machinesComparing
+    case menuBarRemote
 }
 
 @MainActor
@@ -53,6 +57,10 @@ public final class MacDesignGallery {
             showRules()
         case .enrolment, .enrolmentIPhone, .enrolmentJoined:
             showEnrolment()
+        case .machines, .machinesSetUp, .machinesComparing:
+            showMachines()
+        case .menuBarRemote:
+            showMenuBar()
         }
     }
 
@@ -109,13 +117,52 @@ public final class MacDesignGallery {
         if let panel = NSApplication.shared.windows.last(where: { $0 is NSPanel }) { report(panel) }
     }
 
+    private func showMachines() {
+        let snapshot: MachinesSnapshot = switch screen {
+        case .machinesSetUp: MachinesSnapshot(relay: .notSetUp)
+        case .machinesComparing:
+            MachinesSnapshot(relay: .comparing(code: "C3E1 5A90 7B24 0DF8 916C 2E47 B8A3 54D0", address: "mac-mini:17443"))
+        default:
+            MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0, rulesNotSent: true,
+                waiting: [DesignExamples.machineEnrolment(now: now)],
+                machines: [
+                    EnrolledMachine(id: "m-mini", name: "Mac mini", tailnetNode: "mac-mini", automaticAllowed: true),
+                    EnrolledMachine(id: "m-linux", name: "build server", tailnetNode: "mini-server-1",
+                        automaticAllowed: false),
+                ],
+                approvers: [ApproverDevice(name: "MacBook Pro", isPhone: false),
+                    ApproverDevice(name: "Josh's iPhone", isPhone: true)])
+        }
+        let model = MacMachinesModel(backend: DesignMacBackend(machines: snapshot), initial: snapshot)
+        if screen == .machinesSetUp { model.addressDraft = "mac-mini:17443" }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines ? 640 : 420),
+            styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.title = "Machines"
+        window.contentView = NSHostingView(rootView: MacMachinesView(model: model))
+        if let visible = NSScreen.main?.visibleFrame {
+            window.setFrameTopLeftPoint(NSPoint(x: visible.minX + 24, y: visible.maxY - 24))
+        }
+        window.level = .floating
+        window.makeKeyAndOrderFront(nil)
+        windows.append(window)
+        report(window)
+    }
+
     private func showMenuBar() {
         let history = DesignExamples.history(now: now)
         let requests = self.requests ?? (screen == .menuBarQuiet
             ? history.filter { !$0.state.isInUse }
             : [DesignExamples.githubSignIn(now: now)] + history)
-        let snapshot = MacMenuBarSnapshot(requests: requests,
-            passwords: ImportedPasswords(count: 542, importedAt: now.addingTimeInterval(-3 * 86_400)))
+        var snapshot = MacMenuBarSnapshot(requests: requests,
+            passwords: ImportedPasswords(count: 542, importedAt: now.addingTimeInterval(-3 * 86_400)),
+            relay: .connected(address: "mac-mini:17443"))
+        if screen == .menuBarRemote {
+            snapshot.requests = [DesignExamples.githubSignIn(now: now), DesignExamples.localSignIn(now: now)]
+                + history.filter { !$0.state.isInUse }
+            snapshot.enrolments = [DesignExamples.machineEnrolment(now: now)]
+            snapshot.relay = .offline(address: "mac-mini:17443")
+            snapshot.queuedAnswers = 1
+        }
         let model = MacMenuBarModel(backend: DesignMacBackend(menuBar: snapshot), initial: snapshot)
         // Drawn like a menu bar extra window: material, rounded, under the bar.
         let panel = KeyringPanel.floating(MacMenuBarView(model: model))
@@ -172,7 +219,22 @@ public final class MacDesignGallery {
 /// Answers instantly and pretends everything works. Each stream yields the
 /// one snapshot it was given.
 @MainActor
-final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesBackend, MacEnrolmentBackend {
+final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesBackend, MacEnrolmentBackend,
+    MacMachinesBackend {
+    private var machines: MachinesSnapshot?
+
+    convenience init(machines: MachinesSnapshot) {
+        self.init()
+        self.machines = machines
+    }
+
+    func updates() -> AsyncStream<MachinesSnapshot> { Self.once(machines) }
+    func connect(host: String, port: UInt16) async throws {}
+    func confirmRelay(comparedCode: String) async throws {}
+    func cancelRelaySetup() {}
+    func sendRules() async throws {}
+    func remove(machineID: String) async throws {}
+
     private let request: AccessRequest?
     private let menuBar: MacMenuBarSnapshot?
     private let rules: LoginRulesSnapshot?

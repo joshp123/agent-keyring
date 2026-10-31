@@ -71,6 +71,9 @@ public enum SetupCopy {
     public static let automaticAllowed = "Automatic logins allowed"
     public static let asksEveryTime = "Asks every time"
     public static let remove = "Remove"
+    public static let canApprove = "Can approve requests"
+    public static let answersWithTouchID = "Answers with Touch ID"
+    public static let answersWithFaceID = "Answers with Face ID"
     public static let review = "Review"
 
     // MARK: The iPhone's pairing

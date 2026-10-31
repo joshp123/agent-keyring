@@ -19,13 +19,24 @@ public struct ImportedPasswords: Hashable, Sendable {
 }
 
 public struct MacMenuBarSnapshot: Hashable, Sendable {
-    /// Waiting, in use and recent requests, in any order.
+    /// Waiting, in use and recent requests, local and remote, in any order.
     public var requests: [AccessRequest]
     public var passwords: ImportedPasswords?
+    /// Machines and iPhones waiting to join.
+    public var enrolments: [DeviceEnrolment]
+    /// Nil until the relay is set up (release 3).
+    public var relay: RelayLink?
+    public var queuedAnswers: Int
+    public var rulesNotSent: Bool
 
-    public init(requests: [AccessRequest], passwords: ImportedPasswords?) {
+    public init(requests: [AccessRequest], passwords: ImportedPasswords?, enrolments: [DeviceEnrolment] = [],
+        relay: RelayLink? = nil, queuedAnswers: Int = 0, rulesNotSent: Bool = false) {
         self.requests = requests
         self.passwords = passwords
+        self.enrolments = enrolments
+        self.relay = relay
+        self.queuedAnswers = queuedAnswers
+        self.rulesNotSent = rulesNotSent
     }
 }
 
@@ -44,7 +55,13 @@ public protocol MacMenuBarBackend: AnyObject {
 public final class MacMenuBarModel {
     public private(set) var requests: [AccessRequest]
     public private(set) var passwords: ImportedPasswords?
+    public private(set) var enrolments: [DeviceEnrolment]
+    public private(set) var relay: RelayLink?
+    public private(set) var queuedAnswers: Int
+    public private(set) var rulesNotSent: Bool
     public var review: (String) -> Void = { _ in }
+    public var reviewEnrolment: (String) -> Void = { _ in }
+    public var openMachines: () -> Void = {}
     public var openRules: () -> Void = {}
     public var openAgentKeyring: () -> Void = {}
     public var checkForUpdates: () -> Void = {}
@@ -55,7 +72,23 @@ public final class MacMenuBarModel {
     public init(backend: any MacMenuBarBackend, initial: MacMenuBarSnapshot) {
         self.requests = initial.requests
         self.passwords = initial.passwords
+        self.enrolments = initial.enrolments
+        self.relay = initial.relay
+        self.queuedAnswers = initial.queuedAnswers
+        self.rulesNotSent = initial.rulesNotSent
         self.backend = backend
+    }
+
+    /// Everything that needs Josh: waiting requests and devices waiting to join.
+    public var attentionCount: Int { waiting.count + enrolments.count }
+
+    /// One line when the relay needs attention; nil when all is well.
+    public var relayAttention: String? {
+        if case let .offline(address) = relay {
+            return SetupCopy.relayOffline(address)
+                + (queuedAnswers > 0 ? " " + SetupCopy.queuedAnswers(queuedAnswers) : "")
+        }
+        return rulesNotSent ? SetupCopy.rulesNotSent : nil
     }
 
     /// Follows the backend for as long as the app runs. Start it once at launch,
@@ -64,6 +97,10 @@ public final class MacMenuBarModel {
         for await snapshot in backend.updates() {
             requests = snapshot.requests
             passwords = snapshot.passwords
+            enrolments = snapshot.enrolments
+            relay = snapshot.relay
+            queuedAnswers = snapshot.queuedAnswers
+            rulesNotSent = snapshot.rulesNotSent
         }
     }
 
@@ -119,8 +156,11 @@ public struct MacMenuBarView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !model.waiting.isEmpty {
+            if model.attentionCount > 0 {
                 MenuSection(title: "Waiting for you") {
+                    ForEach(model.enrolments) { enrolment in
+                        JoiningMenuRow(enrolment: enrolment) { model.reviewEnrolment(enrolment.id) }
+                    }
                     ForEach(model.waiting) { request in
                         WaitingMenuRow(request: request) { model.review(request.id) }
                     }
@@ -133,7 +173,7 @@ public struct MacMenuBarView: View {
                     }
                 }
             }
-            if model.waiting.isEmpty && model.inUse.isEmpty {
+            if model.attentionCount == 0 && model.inUse.isEmpty {
                 Text("No agent is using a login now.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -146,6 +186,18 @@ public struct MacMenuBarView: View {
                         RecentMenuRow(request: request) { Task { await model.allowAskingAgain(request.id) } }
                     }
                 }
+            }
+            if let attention = model.relayAttention {
+                Divider().padding(.top, 6)
+                Button(action: model.openMachines) {
+                    Label(attention, systemImage: "exclamationmark.circle")
+                        .font(.callout)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
             }
             Divider().padding(.top, 6)
             footer
@@ -168,6 +220,9 @@ public struct MacMenuBarView: View {
                 .accessibilityIdentifier("menu-rules")
             Menu {
                 Button("Open Agent Keyring", action: model.openAgentKeyring)
+                if model.relay != nil {
+                    Button("Machines…", action: model.openMachines)
+                }
                 Button("Check for Updates…", action: model.checkForUpdates)
                 Divider()
                 Button("Quit Agent Keyring", action: model.quit)
@@ -225,6 +280,31 @@ private struct WaitingMenuRow: View {
                 }
             }
             Button("Review", action: review)
+                .buttonStyle(.borderedProminent)
+                .tint(KeyringColour.signal)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+}
+
+private struct JoiningMenuRow: View {
+    let enrolment: DeviceEnrolment
+    let review: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: enrolment.kind == .machine ? "desktopcomputer" : "iphone")
+                .foregroundStyle(KeyringColour.signal)
+                .frame(width: 8)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(enrolment.name).font(.body.weight(.semibold))
+                Text(enrolment.kind == .machine ? "Wants to ask for logins" : "Wants to approve requests")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(SetupCopy.review, action: review)
                 .buttonStyle(.borderedProminent)
                 .tint(KeyringColour.signal)
                 .controlSize(.small)

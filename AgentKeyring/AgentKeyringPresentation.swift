@@ -60,7 +60,7 @@ struct AgentKeyringMenuBarLabel: View {
     let menuBar: MacMenuBarModel
 
     var body: some View {
-        MacMenuBarLabel(waitingCount: menuBar.waiting.count)
+        MacMenuBarLabel(waitingCount: menuBar.attentionCount)
             .accessibilityIdentifier("agent-keyring-menu")
             .onChange(of: presentation.mainWindowRequest, initial: true) { _, request in
                 guard request > 0 else { return }
