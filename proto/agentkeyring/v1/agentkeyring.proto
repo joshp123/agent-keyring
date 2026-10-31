@@ -30,6 +30,11 @@ service AgentKeyring {
   // records Started before returning values. A retry returns no values.
   rpc BeginOperation(BeginOperationRequest) returns (BeginOperationResponse);
   rpc FinishOperation(FinishOperationRequest) returns (OperationRecord);
+  // Client delivery path. Looks an operation up by BeginOperation's key without
+  // starting anything or returning values. A retry checks it before validating
+  // targets, which may be gone after a submit navigated, and reports the
+  // recorded outcome instead.
+  rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
 }
 
 // The contract of the receiving code. In release 2 it runs in-process in the
@@ -291,6 +296,19 @@ message BeginOperationResponse {
   string operation_id = 4;
 }
 
+message GetOperationRequest {
+  string lease_id = 1;
+  // The same key BeginOperation uses: request_id if set, otherwise the digest.
+  bytes operation_digest = 2;
+  string request_id = 3;
+}
+
+message GetOperationResponse {
+  // Unset when no operation has this key. A record with no outcome was started
+  // and never finished: report it as UNCERTAIN.
+  OperationRecord operation = 1;
+}
+
 message CredentialValues {
   string username = 1;
   string password = 2;
@@ -339,6 +357,7 @@ message WireRequest {
     ExecuteProgramRequest execute_program = 7;
     BeginOperationRequest begin_operation = 8;
     FinishOperationRequest finish_operation = 9;
+    GetOperationRequest get_operation = 10;
   }
 }
 
@@ -351,6 +370,7 @@ message WireResponse {
     RpcError error = 5;
     BeginOperationResponse begin_operation = 7;
     OperationRecord operation = 8;
+    GetOperationResponse get_operation = 9;
   }
   bool end_of_stream = 6;
 }

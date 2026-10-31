@@ -1,4 +1,4 @@
-// Written by AI on 2026.10.31 by Claude Opus 5.5.
+// Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Approver-to-receiver delivery, RFC 0005 and RFC 0006. The relay on the mini
 // stores and forwards these but cannot open a bundle or forge a decision.
 
@@ -14,6 +14,10 @@ option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;ag
 message SealedDelivery {
   SignedDecision decision = 1;
   SealedBundle bundle = 2;
+  // Exact RequestRecord bytes approved by the signer. Verify request_digest
+  // over these bytes and compare the parsed scope with the locally retained
+  // request before opening. Never reconstruct them from relay-provided labels.
+  bytes request_record = 3;
 }
 
 // HPKE (RFC 9180) base mode: DHKEM(P-256, HKDF-SHA256), HKDF-SHA256,
@@ -51,7 +55,11 @@ message SignedDecision {
   bytes statement = 1;
   bytes signature = 2;          // DER.
   string approver_key_id = 3;
-  string reply = 4;             // Optional denial reply; not signed, display only.
+  string reply = 4;             // Optional denial reply, bound by reply_sha256.
+  // Upload attachment for Approvals.Decide: required on approval, absent on
+  // denial. Its ciphertext hash must match the signed statement. In a returned
+  // SealedDelivery this attachment is omitted; use SealedDelivery.bundle.
+  SealedBundle bundle = 5;
 }
 
 message DecisionStatement {
@@ -64,6 +72,8 @@ message DecisionStatement {
   string receiver_key_id = 7;
   bytes bundle_ciphertext_sha256 = 8; // Empty on deny.
   string lease_id = 9;
+  // SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
+  bytes reply_sha256 = 10;
 }
 
 enum DecisionChoice {

@@ -8,7 +8,7 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
-// Written by AI on 2026.10.31 by Claude Opus 5.5.
+// Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Approver-to-receiver delivery, RFC 0005 and RFC 0006. The relay on the mini
 // stores and forwards these but cannot open a bundle or forge a decision.
 
@@ -94,6 +94,11 @@ public nonisolated struct Agentkeyring_V1_SealedDelivery: Sendable {
   public var hasBundle: Bool {self._bundle != nil}
   /// Clears the value of `bundle`. Subsequent reads from it will return its default value.
   public mutating func clearBundle() {self._bundle = nil}
+
+  /// Exact RequestRecord bytes approved by the signer. Verify request_digest
+  /// over these bytes and compare the parsed scope with the locally retained
+  /// request before opening. Never reconstruct them from relay-provided labels.
+  public var requestRecord: Data = Data()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -181,12 +186,26 @@ public nonisolated struct Agentkeyring_V1_SignedDecision: Sendable {
 
   public var approverKeyID: String = String()
 
-  /// Optional denial reply; not signed, display only.
+  /// Optional denial reply, bound by reply_sha256.
   public var reply: String = String()
+
+  /// Upload attachment for Approvals.Decide: required on approval, absent on
+  /// denial. Its ciphertext hash must match the signed statement. In a returned
+  /// SealedDelivery this attachment is omitted; use SealedDelivery.bundle.
+  public var bundle: Agentkeyring_V1_SealedBundle {
+    get {_bundle ?? Agentkeyring_V1_SealedBundle()}
+    set {_bundle = newValue}
+  }
+  /// Returns true if `bundle` has been explicitly set.
+  public var hasBundle: Bool {self._bundle != nil}
+  /// Clears the value of `bundle`. Subsequent reads from it will return its default value.
+  public mutating func clearBundle() {self._bundle = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _bundle: Agentkeyring_V1_SealedBundle? = nil
 }
 
 public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
@@ -216,6 +235,9 @@ public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
 
   public var leaseID: String = String()
 
+  /// SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
+  public var replySha256: Data = Data()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -231,7 +253,7 @@ nonisolated extension Agentkeyring_V1_DecisionChoice: SwiftProtobuf._ProtoNamePr
 
 nonisolated extension Agentkeyring_V1_SealedDelivery: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SealedDelivery"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}decision\0\u{1}bundle\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}decision\0\u{1}bundle\0\u{3}request_record\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -241,6 +263,7 @@ nonisolated extension Agentkeyring_V1_SealedDelivery: SwiftProtobuf.Message, Swi
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._decision) }()
       case 2: try { try decoder.decodeSingularMessageField(value: &self._bundle) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.requestRecord) }()
       default: break
       }
     }
@@ -257,12 +280,16 @@ nonisolated extension Agentkeyring_V1_SealedDelivery: SwiftProtobuf.Message, Swi
     try { if let v = self._bundle {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
     } }()
+    if !self.requestRecord.isEmpty {
+      try visitor.visitSingularBytesField(value: self.requestRecord, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V1_SealedDelivery, rhs: Agentkeyring_V1_SealedDelivery) -> Bool {
     if lhs._decision != rhs._decision {return false}
     if lhs._bundle != rhs._bundle {return false}
+    if lhs.requestRecord != rhs.requestRecord {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -410,7 +437,7 @@ nonisolated extension Agentkeyring_V1_TimedCode: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SignedDecision"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}statement\0\u{1}signature\0\u{3}approver_key_id\0\u{1}reply\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}statement\0\u{1}signature\0\u{3}approver_key_id\0\u{1}reply\0\u{1}bundle\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -422,12 +449,17 @@ nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, Swi
       case 2: try { try decoder.decodeSingularBytesField(value: &self.signature) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.approverKeyID) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.reply) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._bundle) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.statement.isEmpty {
       try visitor.visitSingularBytesField(value: self.statement, fieldNumber: 1)
     }
@@ -440,6 +472,9 @@ nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, Swi
     if !self.reply.isEmpty {
       try visitor.visitSingularStringField(value: self.reply, fieldNumber: 4)
     }
+    try { if let v = self._bundle {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -448,6 +483,7 @@ nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, Swi
     if lhs.signature != rhs.signature {return false}
     if lhs.approverKeyID != rhs.approverKeyID {return false}
     if lhs.reply != rhs.reply {return false}
+    if lhs._bundle != rhs._bundle {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -455,7 +491,7 @@ nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DecisionStatement"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_digest\0\u{1}choice\0\u{3}approved_at_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}recipient_id\0\u{3}receiver_key_id\0\u{3}bundle_ciphertext_sha256\0\u{3}lease_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_digest\0\u{1}choice\0\u{3}approved_at_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}recipient_id\0\u{3}receiver_key_id\0\u{3}bundle_ciphertext_sha256\0\u{3}lease_id\0\u{3}reply_sha256\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -472,6 +508,7 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
       case 7: try { try decoder.decodeSingularStringField(value: &self.receiverKeyID) }()
       case 8: try { try decoder.decodeSingularBytesField(value: &self.bundleCiphertextSha256) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
+      case 10: try { try decoder.decodeSingularBytesField(value: &self.replySha256) }()
       default: break
       }
     }
@@ -505,6 +542,9 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
     if !self.leaseID.isEmpty {
       try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 9)
     }
+    if !self.replySha256.isEmpty {
+      try visitor.visitSingularBytesField(value: self.replySha256, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -518,6 +558,7 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
     if lhs.receiverKeyID != rhs.receiverKeyID {return false}
     if lhs.bundleCiphertextSha256 != rhs.bundleCiphertextSha256 {return false}
     if lhs.leaseID != rhs.leaseID {return false}
+    if lhs.replySha256 != rhs.replySha256 {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

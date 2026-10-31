@@ -30,7 +30,9 @@ public struct SnapshotMerger: Sendable {
         var matchedPreviousIDs = Set<UUID>()
         var mergedItems: [MirrorItem] = []
 
-        for importedItem in importBatch.items {
+        let orderedIncoming = importBatch.items.filter { previousBySource[$0.sourceIdentity] != nil }
+            + importBatch.items.filter { previousBySource[$0.sourceIdentity] == nil }
+        for importedItem in orderedIncoming {
             let previousItem = try match(
                 importedItem,
                 previousBySource: previousBySource,
@@ -50,6 +52,9 @@ public struct SnapshotMerger: Sendable {
             mergedItems.append(updatedItem)
         }
 
+        let unmatchedPrevious = previousItems.filter { !matchedPreviousIDs.contains($0.id) }
+        mergedItems.append(contentsOf: unmatchedPrevious)
+
         return MirrorGeneration(
             id: idFactory(),
             previousGenerationID: previous?.id,
@@ -59,6 +64,7 @@ public struct SnapshotMerger: Sendable {
             exporterIdentifier: importBatch.exporterIdentifier,
             exporterDisplayName: importBatch.exporterDisplayName,
             items: mergedItems.sorted { $0.id.uuidString < $1.id.uuidString },
+            missingItemIDs: unmatchedPrevious.map(\.id).sorted { $0.uuidString < $1.uuidString },
             skippedCredentialCount: importBatch.skippedCredentialCount,
             skippedCredentialSummary: importBatch.skippedCredentialSummary
         )

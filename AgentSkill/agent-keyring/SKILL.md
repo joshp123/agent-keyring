@@ -1,66 +1,66 @@
 ---
 name: agent-keyring
-description: "Sign in to websites and use passwords, one-time codes and API keys from the user's Apple Passwords without ever seeing them. Use whenever a task needs a login, a password, a two-factor code or a saved secret. Do not ask the user to type or paste passwords."
+description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation. Use whenever a task needs a login, a password or a two-factor code. Never ask the user to type or paste a password."
 metadata:
-  written_by: "AI on 2026-10-12 by model Claude Opus 5.5"
+  written_by: "AI on 2026-10-31 by model Claude Opus 5.5"
 ---
 
 # Agent Keyring
 
-Agent Keyring holds the user's saved logins. You ask for a login; their rule for it decides, or they approve on their Mac or iPhone. Agent Keyring then puts the value where it is needed. You never see it, never print it and never ask the user for it.
+Agent Keyring holds the user's saved logins. You lease one login for the task you are doing, use it as often as the task needs, and release it when you are done. The user's rule for that login decides whether the lease is approved automatically, needs their Touch ID or iPhone approval, or is refused. One approval covers your whole task, including retries and two-factor steps, for up to 30 minutes.
 
-## Sign in to a website in a visible browser
+The values go into the sign-in form or the program, not into your output. Keep it that way: your conversation is stored, and the user is trusting the tool with their accounts.
 
-This works in Safari, Chrome, Claude's built-in browser pane, Claude in Chrome and Codex's browser.
-
-1. Focus the username field, then run `agent-keyring fill username example.com`.
-2. Focus the password field, then run `agent-keyring fill password example.com`.
-3. Click the sign-in button yourself. Agent Keyring never presses Return.
-4. If a two-factor code is asked for, focus that field and run `agent-keyring fill code example.com`.
-
-Use the site the login is saved under. The page you are on must be that site or one of its subdomains.
-
-## Sign in headlessly with agent-browser
+## The shape of every sign-in
 
 ```sh
-agent-browser auth login example --credential-provider agent-keyring --item "example.com"
+agent-keyring find example.com          # logins, accounts and login IDs; no secrets
+lease=$(agent-keyring lease LOGIN_ID --task "$task" --reason "What the user asked for, in one line")
+# ... use the lease, as many times as the task needs ...
+agent-keyring release "$lease"
 ```
 
-To choose an account, add it after the site: `--item "example.com jane@example.com"`. If this returns "Waiting for … approval", wait until the user approves, then run the same command again; it fills from the approval.
+- **The task reference** names this job. Make one up when you start the job and keep it through every retry. A new job gets a new reference. Leases are per task, so a reused reference mixes jobs, and a fresh one for the same job asks the user again.
+- **The reason** is shown to the user when they are asked. Say what they asked you to do, plainly. It is labelled as your claim, so don't oversell it.
+- **`lease` waits** while the user is asked and prints only the lease ID. Status lines go to stderr; tell the user in your own words what you are waiting for, once. If your command is interrupted, rejoin the same request with `agent-keyring status LEASE --wait`. Running `lease` again for the same task joins the waiting request rather than asking twice, but don't make a habit of it.
 
-## Give a secret to a program
+## Using the lease
 
-Pipe it straight into the program. Never let `read` output reach your own tool output.
+**A Chromium browser you reach over its debugging endpoint.** Inspect the page with your own browser tools, then pass the exact fields and the sign-in button:
 
 ```sh
-ref=$(agent-keyring acquire password example.com)
-agent-keyring read "$ref" | some-command --password-stdin
-agent-keyring clear "$ref"
+agent-keyring fill "$lease" --browser "$endpoint" --tab "$tab" \
+  --username '#username' --password '#password' --submit 'button[type=submit]'
 ```
 
-Values expire after 5 minutes. Clear them when you are done.
+Agent Keyring checks the page is the saved site, fills, submits and clears what it typed. Then look at the new page yourself. A two-factor step is another `fill` under the same lease, for example `--code '#otp' --submit '#verify'`. If the site showed an error without leaving the page, inspect it before repeating the step with `--again`. A result of "uncertain" means the step may already have happened: look before doing anything else.
 
-## Approvals take time
+**A browser with no debugging endpoint, driven from your own code.** If your code can type into the page itself, lease with `--for agent-process`. Then have that same code run `agent-keyring read "$lease" --field password` and pass its output straight to the field, so the value goes from the command to the page without appearing in your output. Don't run `read` as a shell command of its own: shell tools show you what a command prints, and `read` refuses a terminal for the same reason.
 
-A command may wait up to 10 minutes while the user is asked on their Mac or iPhone. It prints plain status lines, such as "Asked … on his Mac at 02:41". Tell the user what you are waiting for, in your own words. One approval covers that login for 30 minutes, so later fills do not ask again.
+```sh
+lease=$(agent-keyring lease LOGIN_ID --task "$task" --for agent-process --reason "...")
+```
 
-## When something goes wrong
+The user's approval says plainly that the value goes to your code, so use this route only when the browser leaves you no other, and only through input your environment allows.
 
-The exit code says what happened; `agent-keyring --help` lists every code. The ones that need you to act:
+**A program that needs the value.** Name the program when you lease, and Agent Keyring gives it the value on stdin. You get its exit status, not its output:
 
-| Code | Meaning | What to do |
-| --- | --- | --- |
-| 2 | The user declined | Stop and ask them what they want. |
-| 3 | No answer in 10 minutes | Tell the user, then retry when they are back. |
-| 7 | The access rules need confirming | Ask the user to confirm the rules in Agent Keyring. |
-| 8 | Wrong or no field focused | Focus the right field and run fill again. |
-| 9 | The page does not match the saved site | Check you are on the real site. Do not work around this. |
-| 10 | This browser's address cannot be read | Use agent-browser instead. |
-| 11 | Accessibility permission is missing | Ask the user to grant Agent Keyring Accessibility. |
-| 13 | The page or field changed | Focus the field again and retry. |
+```sh
+lease=$(agent-keyring lease LOGIN_ID --task "$task" --for program \
+  --reason "..." -- /absolute/path/to/client login --password-stdin)
+agent-keyring exec "$lease" --field password
+```
 
-If a site rejects a login that Agent Keyring filled, run `agent-keyring sync example.com`, then tell the user that their saved password may be out of date.
+**Two-factor codes.** Authenticator codes saved with the login come from Agent Keyring (`--code` when filling, `--field one-time-code` otherwise). Codes sent by SMS or email come from your own tools for the user's messages or mail, if you have them. Get them yourself rather than asking the user.
 
-## Finding the right login
+## When it doesn't work
 
-`agent-keyring find example.com` lists matching logins and their accounts without revealing any secret. Pass `--account` to `fill` or `acquire` when several match.
+- **Denied.** The user said no, and any reply they wrote is printed. Do what it says, or stop and ask them.
+- **Unanswered.** Nobody answered in time. Tell the user, and try again when they are back, not in a loop.
+- **Expired or released.** Lease again for the same task. Automatic logins don't ask; others ask once.
+- **The page isn't the saved site.** You are not where the login belongs. Don't work around it.
+- **Fields not found or ambiguous.** Inspect the page again and pass better selectors. This never asks the user again.
+- **Clearing failed.** A value may still be on the page. Don't read the fields back; close the tab with your browser tools.
+- **The site rejects the password.** The user's saved password is probably out of date. Tell them, and don't retry it.
+
+`agent-keyring --help` describes every command, option and exit code.

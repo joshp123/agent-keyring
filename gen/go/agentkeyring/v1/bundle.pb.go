@@ -1,4 +1,4 @@
-// Written by AI on 2026.10.31 by Claude Opus 5.5.
+// Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Approver-to-receiver delivery, RFC 0005 and RFC 0006. The relay on the mini
 // stores and forwards these but cannot open a bundle or forge a decision.
 
@@ -78,9 +78,13 @@ func (DecisionChoice) EnumDescriptor() ([]byte, []int) {
 // relay. Checked before opening: decision signature by a pinned approver key,
 // statement names this receiver and lease, not_after in the future.
 type SealedDelivery struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Decision      *SignedDecision        `protobuf:"bytes,1,opt,name=decision,proto3" json:"decision,omitempty"`
-	Bundle        *SealedBundle          `protobuf:"bytes,2,opt,name=bundle,proto3" json:"bundle,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Decision *SignedDecision        `protobuf:"bytes,1,opt,name=decision,proto3" json:"decision,omitempty"`
+	Bundle   *SealedBundle          `protobuf:"bytes,2,opt,name=bundle,proto3" json:"bundle,omitempty"`
+	// Exact RequestRecord bytes approved by the signer. Verify request_digest
+	// over these bytes and compare the parsed scope with the locally retained
+	// request before opening. Never reconstruct them from relay-provided labels.
+	RequestRecord []byte `protobuf:"bytes,3,opt,name=request_record,json=requestRecord,proto3" json:"request_record,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -125,6 +129,13 @@ func (x *SealedDelivery) GetDecision() *SignedDecision {
 func (x *SealedDelivery) GetBundle() *SealedBundle {
 	if x != nil {
 		return x.Bundle
+	}
+	return nil
+}
+
+func (x *SealedDelivery) GetRequestRecord() []byte {
+	if x != nil {
+		return x.RequestRecord
 	}
 	return nil
 }
@@ -355,7 +366,11 @@ type SignedDecision struct {
 	Statement     []byte                 `protobuf:"bytes,1,opt,name=statement,proto3" json:"statement,omitempty"`
 	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"` // DER.
 	ApproverKeyId string                 `protobuf:"bytes,3,opt,name=approver_key_id,json=approverKeyId,proto3" json:"approver_key_id,omitempty"`
-	Reply         string                 `protobuf:"bytes,4,opt,name=reply,proto3" json:"reply,omitempty"` // Optional denial reply; not signed, display only.
+	Reply         string                 `protobuf:"bytes,4,opt,name=reply,proto3" json:"reply,omitempty"` // Optional denial reply, bound by reply_sha256.
+	// Upload attachment for Approvals.Decide: required on approval, absent on
+	// denial. Its ciphertext hash must match the signed statement. In a returned
+	// SealedDelivery this attachment is omitted; use SealedDelivery.bundle.
+	Bundle        *SealedBundle `protobuf:"bytes,5,opt,name=bundle,proto3" json:"bundle,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -418,6 +433,13 @@ func (x *SignedDecision) GetReply() string {
 	return ""
 }
 
+func (x *SignedDecision) GetBundle() *SealedBundle {
+	if x != nil {
+		return x.Bundle
+	}
+	return nil
+}
+
 type DecisionStatement struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	Domain                 string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`                                    // Always "agentkeyring.decision.v1".
@@ -429,8 +451,10 @@ type DecisionStatement struct {
 	ReceiverKeyId          string                 `protobuf:"bytes,7,opt,name=receiver_key_id,json=receiverKeyId,proto3" json:"receiver_key_id,omitempty"`
 	BundleCiphertextSha256 []byte                 `protobuf:"bytes,8,opt,name=bundle_ciphertext_sha256,json=bundleCiphertextSha256,proto3" json:"bundle_ciphertext_sha256,omitempty"` // Empty on deny.
 	LeaseId                string                 `protobuf:"bytes,9,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
+	ReplySha256   []byte `protobuf:"bytes,10,opt,name=reply_sha256,json=replySha256,proto3" json:"reply_sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DecisionStatement) Reset() {
@@ -526,14 +550,22 @@ func (x *DecisionStatement) GetLeaseId() string {
 	return ""
 }
 
+func (x *DecisionStatement) GetReplySha256() []byte {
+	if x != nil {
+		return x.ReplySha256
+	}
+	return nil
+}
+
 var File_agentkeyring_v1_bundle_proto protoreflect.FileDescriptor
 
 const file_agentkeyring_v1_bundle_proto_rawDesc = "" +
 	"\n" +
-	"\x1cagentkeyring/v1/bundle.proto\x12\x0fagentkeyring.v1\"\x84\x01\n" +
+	"\x1cagentkeyring/v1/bundle.proto\x12\x0fagentkeyring.v1\"\xab\x01\n" +
 	"\x0eSealedDelivery\x12;\n" +
 	"\bdecision\x18\x01 \x01(\v2\x1f.agentkeyring.v1.SignedDecisionR\bdecision\x125\n" +
-	"\x06bundle\x18\x02 \x01(\v2\x1d.agentkeyring.v1.SealedBundleR\x06bundle\"\x81\x01\n" +
+	"\x06bundle\x18\x02 \x01(\v2\x1d.agentkeyring.v1.SealedBundleR\x06bundle\x12%\n" +
+	"\x0erequest_record\x18\x03 \x01(\fR\rrequestRecord\"\x81\x01\n" +
 	"\fSealedBundle\x12)\n" +
 	"\x10encapsulated_key\x18\x01 \x01(\fR\x0fencapsulatedKey\x12\x1e\n" +
 	"\n" +
@@ -551,12 +583,13 @@ const file_agentkeyring_v1_bundle_proto_rawDesc = "" +
 	"\tTimedCode\x125\n" +
 	"\x17valid_from_unix_seconds\x18\x01 \x01(\x03R\x14validFromUnixSeconds\x127\n" +
 	"\x18valid_until_unix_seconds\x18\x02 \x01(\x03R\x15validUntilUnixSeconds\x12\x12\n" +
-	"\x04code\x18\x03 \x01(\tR\x04code\"\x8a\x01\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\"\xc1\x01\n" +
 	"\x0eSignedDecision\x12\x1c\n" +
 	"\tstatement\x18\x01 \x01(\fR\tstatement\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12&\n" +
 	"\x0fapprover_key_id\x18\x03 \x01(\tR\rapproverKeyId\x12\x14\n" +
-	"\x05reply\x18\x04 \x01(\tR\x05reply\"\x99\x03\n" +
+	"\x05reply\x18\x04 \x01(\tR\x05reply\x125\n" +
+	"\x06bundle\x18\x05 \x01(\v2\x1d.agentkeyring.v1.SealedBundleR\x06bundle\"\xbc\x03\n" +
 	"\x11DecisionStatement\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12%\n" +
 	"\x0erequest_digest\x18\x02 \x01(\fR\rrequestDigest\x127\n" +
@@ -566,7 +599,9 @@ const file_agentkeyring_v1_bundle_proto_rawDesc = "" +
 	"\frecipient_id\x18\x06 \x01(\tR\vrecipientId\x12&\n" +
 	"\x0freceiver_key_id\x18\a \x01(\tR\rreceiverKeyId\x128\n" +
 	"\x18bundle_ciphertext_sha256\x18\b \x01(\fR\x16bundleCiphertextSha256\x12\x19\n" +
-	"\blease_id\x18\t \x01(\tR\aleaseId*h\n" +
+	"\blease_id\x18\t \x01(\tR\aleaseId\x12!\n" +
+	"\freply_sha256\x18\n" +
+	" \x01(\fR\vreplySha256*h\n" +
 	"\x0eDecisionChoice\x12\x1f\n" +
 	"\x1bDECISION_CHOICE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17DECISION_CHOICE_APPROVE\x10\x01\x12\x18\n" +
@@ -599,12 +634,13 @@ var file_agentkeyring_v1_bundle_proto_depIdxs = []int32{
 	5, // 0: agentkeyring.v1.SealedDelivery.decision:type_name -> agentkeyring.v1.SignedDecision
 	2, // 1: agentkeyring.v1.SealedDelivery.bundle:type_name -> agentkeyring.v1.SealedBundle
 	4, // 2: agentkeyring.v1.BundleContents.one_time_codes:type_name -> agentkeyring.v1.TimedCode
-	0, // 3: agentkeyring.v1.DecisionStatement.choice:type_name -> agentkeyring.v1.DecisionChoice
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	2, // 3: agentkeyring.v1.SignedDecision.bundle:type_name -> agentkeyring.v1.SealedBundle
+	0, // 4: agentkeyring.v1.DecisionStatement.choice:type_name -> agentkeyring.v1.DecisionChoice
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v1_bundle_proto_init() }

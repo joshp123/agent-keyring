@@ -1,5 +1,5 @@
 ---
-written_by: AI (Claude Opus 5.5, 2026-10-31)
+written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
 ---
 
 # Agent Keyring RFCs and build plan
@@ -40,7 +40,7 @@ it, release it. Behind that, three parts change independently:
 | 1 (done) | Import that works, 0.2.4 notarised and installed, 542 logins | Done |
 | 2 | One approval per task, Go CLI, Chromium receiver, bundled skill, Mac approval panel | One Touch ID session |
 | 3 | Agents on other machines through the mini; MacBook approves | Pairing and enrolment codes, one Touch ID session |
-| 4 | iPhone imports and approves; MacBook can be shut | The device session, and two decisions (RFC 0006) |
+| 4 | iPhone imports and approves; MacBook can be shut | The device session and cutover decisions (RFC 0006) |
 
 ## Slices
 
@@ -50,9 +50,31 @@ the way a person would use it.
 
 | Release | Slices | Can start |
 | --- | --- | --- |
-| 2 | R2.0 additive merge and import logging port; R2.1 toolchain; R2.2 lease store; R2.3 socket cut-over; R2.4 Go CLI; R2.5 Chromium receiver; R2.6 skill and install; U1 to U3 screens | R2.0, R2.1, U1 now; R2.5 against a fake authority now; the rest after Astra signs off revision 2 of 0004 |
-| 3 | R3.1 relay core; R3.2 enrolment; R3.3 client relay transport; R3.4 Mac approver; R3.5 deployment; U4 | R3.1 and R3.3 once release 2's store is in; R3.5 any time |
-| 4 | R4.1 phone import (first, riskiest); R4.2 phone vault; R4.3 phone approver; R4.4 push; R4.5 approver key set; R4.6 Automatic publishing; U5; R4.8 cutover | R4.1 any time on a real iPhone; R4.8 only after Josh decides |
+| 2 | R2.0 additive merge and import logging port; R2.1 toolchain; R2.2 lease store; R2.3 socket cut-over; R2.4 Go CLI; R2.5 Chromium receiver; R2.6 skill and install; U1 to U3 screens | RFC 0004 reviewed with round 7 corrections; implementation can proceed |
+| 3 | R3.1 relay core; R3.2 enrolment; R3.3 client relay transport; R3.4 Mac approver; R3.5 deployment; U4 | Store, framing and bundle implementation can start; finish the pairing and Automatic contracts in 0005 before their dependent code |
+| 4 | R4.1 phone import; R4.2 phone vault; R4.3 phone approver; R4.4 push; R4.5 approver key set; R4.6 Automatic publishing; U5; R4.8 cutover | Import, vault and screens can build with fixtures now; key/rule handover and Automatic need the contracts below; physical proof and cutover wait for Josh |
+
+## Review result and remaining engineering work
+
+Astra agrees with the screen/backend boundary in 0007 and the release order.
+Round 8 adds the missing sealed-bundle upload and approved request bytes,
+binds denial replies, makes decision resends idempotent, and preserves the
+configurable phone delay. Existing protobuf field numbers are unchanged.
+
+Three contract seams still need Opus/Astra agreement before their dependent
+implementation, rather than each build agent inventing a different answer:
+
+1. Pairing: bootstrap TLS permissions, independently checked codes, human
+   confirmation and current approver/enrolment transfer (0005).
+2. Unattended Automatic access: a signing/decryption path that works without
+   biometrics and cannot be mistaken for Ask authority, with exact signed
+   publication bytes (0005/0006).
+3. Phone handover: shared login IDs, rule/index ownership and stale-device
+   behavior under Josh's eventual desktop-authority choice (0006).
+
+These do not block independent import, storage, transport or UI work. They are
+engineering work for the collaborators, not extra questions for Josh. Device
+proofs remain necessary after implementation; compiler success is not that proof.
 
 Main's app version is 0.2.0; release 2 must ship above the installed 0.2.4.
 Releases are built and notarised with `script/build_release.sh` on the current
