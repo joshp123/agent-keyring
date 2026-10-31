@@ -4,9 +4,8 @@ Written by AI on 2026.10.31 by model Claude Opus 5.5.
 
 Runs on the MacBook and shows nothing there. Copies the design gallery to the
 mini, shows each screen there, and screenshots it over Screen Sharing (VNC).
-Unlocks the mini's screen first if needed, the way
-nixos-config/hosts/darwin/mac-mini/scripts/mini-unlock.py does. Reads the mini
-login password from stdin. script/capture_mac_design_screens.sh is the entry
+Unlocks the mini's screen first if needed, by typing its login password over
+Screen Sharing. Reads that password from stdin. script/capture_mac_design_screens.sh is the entry
 point.
 
 usage: python3 capture_mac_design_screens.py GALLERY_APP OUT_DIR [SCREEN ...]
