@@ -700,8 +700,11 @@ type DecisionStatement struct {
 	// AUTOMATIC_RULE: signed by the Automatic key named in the signed
 	// Configuration (relay.proto); valid only for logins whose rule is AUTOMATIC
 	// and machines with automatic_allowed there. Receivers check it before opening.
-	Authority             DecisionAuthority `protobuf:"varint,11,opt,name=authority,proto3,enum=agentkeyring.v1.DecisionAuthority" json:"authority,omitempty"`
-	ConfigurationRevision uint64            `protobuf:"varint,12,opt,name=configuration_revision,json=configurationRevision,proto3" json:"configuration_revision,omitempty"` // Set only for AUTOMATIC_RULE.
+	Authority DecisionAuthority `protobuf:"varint,11,opt,name=authority,proto3,enum=agentkeyring.v1.DecisionAuthority" json:"authority,omitempty"`
+	// Set only for AUTOMATIC_RULE: the revision the decision was made under. It
+	// stays valid under later revisions that keep the key, the Automatic rule
+	// and the receiver's Automatic access (RFC 0005).
+	ConfigurationRevision uint64 `protobuf:"varint,12,opt,name=configuration_revision,json=configurationRevision,proto3" json:"configuration_revision,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }

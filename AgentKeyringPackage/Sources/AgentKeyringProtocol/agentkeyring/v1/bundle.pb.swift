@@ -369,7 +369,9 @@ public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
   /// and machines with automatic_allowed there. Receivers check it before opening.
   public var authority: Agentkeyring_V1_DecisionAuthority = .unspecified
 
-  /// Set only for AUTOMATIC_RULE.
+  /// Set only for AUTOMATIC_RULE: the revision the decision was made under. It
+  /// stays valid under later revisions that keep the key, the Automatic rule
+  /// and the receiver's Automatic access (RFC 0005).
   public var configurationRevision: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()

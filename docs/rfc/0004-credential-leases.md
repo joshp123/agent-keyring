@@ -246,7 +246,10 @@ receiver's own claims anyway.)
   length-prefixed encoding; it never includes values. Origin and document checks
   still run before any new fill.
 - The operation key is `operation_id` if an integration passes one, otherwise
-  the digest. `--again` and an explicit operation ID cannot be combined.
+  the digest. `--again` and an explicit operation ID cannot be combined. Keys
+  are scoped to the lease, and the record keeps the action's digest: reusing a
+  key with a different digest is refused as a conflict before any recorded
+  result is returned, so one action can never report another's outcome.
 - The receiver takes a local file lock for the browser tab (or the lease, for
   programs), then looks the key up in its state file **before** validating any
   target. A known key is reported as recorded without touching the page: a
@@ -359,7 +362,7 @@ No method-name strings or multiplexing. Invalid/unknown enum values and missing
 required oneof variants are rejected, not interpreted as defaults. Safe typed
 errors are available on every method.
 
-The authority socket handles Find/Request/Get/Watch/End/Begin/Finish only.
+The authority socket handles Find/Request/Get/Watch/End/Deliver only.
 Fill/ExecuteProgram describe local client operations; their existing wire fields
 remain assigned to that role and the authority rejects them. It never executes
 a browser or program target named in a socket request.

@@ -224,8 +224,8 @@ Messages are in `relay.proto` and `bundle.proto`.
   next configuration with the machine added; "Doesn't match" is
   `DismissEnrolment`. On APPROVED, `EnrolStatus` returns that signed
   configuration. The client checks its own keys in it, and that it is signed by
-  a key in the compared set; only then does it pin the set and accept its
-  recipient ID and Automatic access.
+  the rule owner's key in the compared set; only then does it pin the set and
+  accept its recipient ID and Automatic access.
 - *Adding an approver.* The phone calls `PairApprover`. Its pending request
   reaches existing approvers through `ApproverWork.pairing`. Both screens
   compute the code from the phone's keys, the pinned relay key and the current
@@ -254,11 +254,14 @@ authority, never an approver key with the check turned off.
 - The configuration names one Automatic signing key. It may sign only for
   logins whose rule there is Automatic and machines marked Automatic-allowed.
 - An Automatic decision is signed by that key and says
-  `authority = AUTOMATIC_RULE` with the configuration revision. A receiver
-  opens it only if that configuration is signed by the current rule owner,
-  names that key, has the login as Automatic and the receiver as allowed.
-  Receivers fetch `GetConfiguration`, retain the highest valid revision and
-  reject a downgrade or different bytes at the same revision. An Ask decision
+  `authority = AUTOMATIC_RULE` with the configuration revision it was made
+  under. A receiver opens it only if its current configuration, at that
+  revision or later and signed by the current rule owner, still names that key,
+  has the login as Automatic and the receiver as Automatic-allowed. A newer
+  revision that keeps all three, such as an import or another machine's
+  enrolment, leaves an active lease working; one that withdraws any of them
+  ends it. Receivers fetch `GetConfiguration`, retain the highest valid
+  revision and reject a downgrade or different bytes at the same revision. An Ask decision
   says `authority = HUMAN` and must be signed by an approver key. Neither can
   stand in for the other.
 - Release 3: the Automatic key lives in the Mac app, in the Secure Enclave
@@ -293,7 +296,9 @@ relay never holds a new rule with an old machine list, or the reverse.
 - *At the relay.* `PublishConfiguration` checks the rule owner's signature and
   a higher revision, then in one transaction stores it and revokes affected
   leases: leases of removed machines, of logins now Blocked or removed, and
-  Automatic-approved leases of logins no longer Automatic. An exact resend is
+  Automatic-approved leases of logins no longer Automatic, of machines no
+  longer Automatic-allowed, or signed by an Automatic key the configuration no
+  longer names. Other active leases continue. An exact resend is
   acknowledged; different bytes at the same revision are refused.
 
 What still needs the device: whether an Apple Watch tap satisfies the approver
