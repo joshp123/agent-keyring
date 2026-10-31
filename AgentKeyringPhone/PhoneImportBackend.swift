@@ -19,7 +19,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
 
     private(set) var snapshot = PhoneKeyringSnapshot(
         requests: [], connection: .notPaired,
-        settings: PhoneSettings(askPhoneAfter: nil, notifications: .notSetUp, keyFingerprint: "Not set up")
+        settings: PhoneSettings(notifications: .notSetUp, keyFingerprint: "Not set up")
     ) {
         didSet { for continuation in subscribers.values { continuation.yield(snapshot) } }
     }

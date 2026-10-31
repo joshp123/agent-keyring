@@ -24,17 +24,12 @@ public enum PhoneNotifications: Hashable, Sendable {
 }
 
 public struct PhoneSettings: Hashable, Sendable {
-    /// The Mac's setting: how long a request waits there before it comes to
-    /// this iPhone. Read-only here; nil until the Mac's value is known.
-    public var askPhoneAfter: Duration?
     /// The real permission and registration result, never a placeholder.
     public var notifications: PhoneNotifications
     public var keyFingerprint: String
     public var rulesUpdatedAt: Date?
 
-    public init(askPhoneAfter: Duration?, notifications: PhoneNotifications, keyFingerprint: String,
-        rulesUpdatedAt: Date? = nil) {
-        self.askPhoneAfter = askPhoneAfter
+    public init(notifications: PhoneNotifications, keyFingerprint: String, rulesUpdatedAt: Date? = nil) {
         self.notifications = notifications
         self.keyFingerprint = keyFingerprint
         self.rulesUpdatedAt = rulesUpdatedAt

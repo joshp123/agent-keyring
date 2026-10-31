@@ -118,9 +118,10 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
         let snapshot = PhoneKeyringSnapshot(
             requests: requests,
             connection: connection,
-            settings: PhoneSettings(askPhoneAfter: .seconds(120), notifications: notifications,
+            settings: PhoneSettings(notifications: notifications,
                 keyFingerprint: "7F3A 91C2 0B4E D8A5 6C17 E902 44BB 13F0",
-                rulesUpdatedAt: now.addingTimeInterval(-11 * 60)),
+                // Rules arrive from the relay, so an unpaired iPhone has none.
+                rulesUpdatedAt: pairing == .paired ? now.addingTimeInterval(-11 * 60) : nil),
             pairing: pairing
         )
         let model = PhoneKeyringModel(backend: DesignPhoneBackend(snapshot: snapshot), initial: snapshot)

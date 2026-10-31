@@ -85,7 +85,6 @@ public enum SetupCopy {
 
     // MARK: When the Mac asks the iPhone
 
-    public static let macAsksPhoneAfter = "Your Mac asks this iPhone after"
     public static let phoneDelayFooter = "A request shows on your Mac first. If you don't answer there in time, or your Mac is locked, it comes here. The delay is set on your Mac."
     public static let askPhoneAfterOnMac = "Ask your iPhone after"
     public static let macDelayFooter = "If you don't answer on this Mac by then. When this Mac is locked, it asks your iPhone at once."

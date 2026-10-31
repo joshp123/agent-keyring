@@ -23,9 +23,6 @@ struct PhoneSettingsView: View {
                     if let rulesUpdatedAt = model.settings.rulesUpdatedAt {
                         LabeledContent("Rules", value: "Checked \(rulesUpdatedAt.formatted(.relative(presentation: .named)))")
                     }
-                    if let delay = model.settings.askPhoneAfter {
-                        LabeledContent(SetupCopy.macAsksPhoneAfter, value: SetupCopy.delay(delay))
-                    }
                 } header: {
                     Text("Requests")
                 } footer: {
