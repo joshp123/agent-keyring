@@ -37,7 +37,7 @@ extension PhoneRelayApprover {
             }
         }
         let mac = try sourceMac(pending.sourceMacKeyID)
-        let login = try indexedLogin(record.loginID)
+        let login = try configuredLogin(record.loginID)
         let metadata = PhoneRequestLogin(login)
         let machine: Agentkeyring_V1_EnrolledMachine
         if pending.hasLocalLease {
@@ -47,7 +47,7 @@ extension PhoneRelayApprover {
             machine = local
             try validateLease(pending.localLease, record: record)
             guard pending.localLease.state == .pending, pending.localLease.sites == login.sites else {
-                throw RelayFailure(.permissionDenied, "The Mac's local request does not match its signed login index.")
+                throw RelayFailure(.permissionDenied, "The Mac's local request does not match its signed configuration.")
             }
         } else { machine = try self.machine(record.recipientID) }
         var lease = Agentkeyring_V1_Lease()
@@ -64,7 +64,7 @@ extension PhoneRelayApprover {
         next.requests[id] = PhoneSavedRequest(record: bytes, lease: try lease.serializedData(), metadata: metadata,
                                               machine: try machine.serializedData(), sourceMacKeyID: mac.keyID, isLocal: pending.hasLocalLease)
         try commit(next)
-        logger.notice("Escalated request checked against signed index and trusted Mac; local=\(pending.hasLocalLease, privacy: .public)")
+        logger.notice("Escalated request checked against signed configuration and trusted Mac; local=\(pending.hasLocalLease, privacy: .public)")
         if login.rule == .blocked && lease.state == .pending { try queueDecision(id, approve: false, reply: "", context: nil) }
         // Automatic never borrows the phone signing key.
     }
@@ -83,7 +83,7 @@ extension PhoneRelayApprover {
                 throw RelayFailure(.permissionDenied, "The receiving machine changed or was revoked.")
             }
         }
-        let login = try indexedLogin(record.loginID)
+        let login = try configuredLogin(record.loginID)
         guard PhoneRequestLogin(login) == saved.metadata else {
             throw RelayFailure(.conflict, "The saved login changed. Ask the agent to request it again.")
         }
@@ -190,7 +190,7 @@ extension PhoneRelayApprover {
         let remote = try state.remoteLeases.values.compactMap { bytes -> AccessRequest? in
             let lease = try Agentkeyring_V1_Lease(serializedBytes: bytes)
             guard !localLeaseIDs.contains(lease.leaseID), lease.state != .pending,
-                  let login = try? indexedLogin(lease.loginID),
+                  let login = try? configuredLogin(lease.loginID),
                   let machine = try? machine(lease.recipient.recipientID) else { return nil }
             let access: RequestedAccess = lease.purpose == .program ? .program(([lease.program.executable] + lease.program.arguments).joined(separator: " ")) : (lease.purpose == .agentProcess ? .agentProcess : .signIn)
             return AccessRequest(id: "lease:" + lease.leaseID,
