@@ -1,6 +1,6 @@
 ---
 written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
-status: reviewed; login IDs, rule owner and Automatic settled in round 7, Astra to confirm; Touch ID choice open for Josh
+status: agreed by Opus and Astra for implementation, with round 10 contract completions; device proofs and Josh's cutover choices pending
 depends_on: 0004, 0005
 related: 0007 (approval UI); docs/rfc/README.md has the build plan
 ---
@@ -61,11 +61,13 @@ and its limits are below; development can continue without changing that setting
    authentication; no app can start or schedule it.
 2. Agent Keyring receives the token, calls `importCredentials(token:)`, maps
    logins and code seeds, and merges them additively (the release 2 merge): a
-   selected export updates and adds; items missing from it stay; a full export
-   shows removals for Josh to confirm.
+   selected export updates and adds; items missing from it stay. Apple does not
+   identify export scope in the payload, so missing items are never treated as
+   removals without an explicit full-export review.
 3. Each login is sealed to the phone's own Secure Enclave key-agreement key and
    stored in the app's container. Passkeys are not imported, as today.
-4. The phone publishes a signed login index to the relay, so agents can `find`.
+4. If the phone is the rule owner it publishes the signed login index. Until
+   cutover it follows the Mac's index and keeps unmatched imports for review.
 
 Refresh is the same export. There is no continuous sync: Apple offers no API to
 read Passwords or learn that a login changed. The app shows the import age on
@@ -108,15 +110,16 @@ cannot show Face ID, so it cannot use these keys.
 
 ### Adding the iPhone to an existing setup
 
-The MacBook is already a pinned approver (RFC 0005). Pairing the iPhone with
-the MacBook by code lets the MacBook sign a new approver key set that includes
-the phone. Receivers accept it because a key they pinned signed it. The phone
-fetches the enrolled machines with the MacBook's signed approvals and trusts
-those, so no machine needs re-enrolling.
+The MacBook is already a pinned approver (RFC 0005). The phone's `PairApprover`
+request reaches the Mac through `ApproverWork.pairing`. Comparing the code
+binds the phone's keys and the existing approver key set; Touch ID lets the
+MacBook sign the new set including the phone. Receivers accept it because a
+key they pinned signed it. The phone fetches the signed current machine roster
+through `GetEnrolmentSet`, so no machine needs re-enrolling.
 
-The pairing names the current enrolment-set revision and digest (RFC 0005,
-"Pairing"), so the phone takes exactly the MacBook's current list, revocations
-included.
+The signed `ApproverKeySet` names the current enrolment-set revision and digest
+(RFC 0005, "Pairing"), so the phone takes exactly the MacBook's current list,
+revocations included. Old individual enrolment approvals cannot replace it.
 
 ### Login IDs
 
@@ -144,9 +147,9 @@ Exactly one approver owns the rules and login IDs at a time. The current
 
 - Only the owner publishes the `LoginIndex` and the `AutomaticGrant`. The relay
   accepts each only from the owner, at a higher revision.
-- Other approvers follow the owner's latest signed index. Before deciding, an
-  approver checks the relay's newest index revision and fetches it if it is
-  behind; it always denies a login that index marks Blocked.
+- Other approvers fetch the owner's signed index with `GetIndex` before
+  deciding, retain the highest valid revision and reject different bytes at
+  the same revision. They always deny a login that index marks Blocked.
 - Limit: the relay could withhold a newer index, so a device that has not seen
   a rule change may still approve under the previous rule. Its decision is
   limited to Ask logins it holds, and the screen shows when its rules were
@@ -179,10 +182,23 @@ Automatic means no prompt. To approve without the MacBook or the iPhone
 present, the relay needs to open those logins itself.
 
 - The relay holds two keys of its own: an HPKE encryption key and an Automatic
-  signing key. The rule owner publishes a `SignedAutomaticGrant` naming both,
-  the Automatic logins, the machines allowed them, and the hash of each sealed
-  login, then an `AutomaticSet` with those logins sealed to the relay's
-  encryption key, code seeds included.
+  signing key. The rule owner fetches their public parts with `GetAutomaticKeys`
+  over its pinned relay connection. Publishing explicitly delegates Automatic
+  access to those keys; the relay chooses no Ask authority through this call.
+  The owner seals the Automatic logins to the encryption key, code seeds
+  included, then signs a `SignedAutomaticGrant` naming both keys, the logins,
+  the allowed machines and each sealed login's hash. It uploads that grant
+  inside `AutomaticSet` through `PublishAutomatic`.
+- That upload is one complete snapshot. The relay checks the owner's signature,
+  revision, login IDs and hashes, opens every listed login, then commits the
+  grant and replacement set together. An exact resend is acknowledged; changed
+  bytes at the same revision or a lower revision are refused. Release 4 does
+  not activate a grant through `PublishAutomaticGrant` before its matching
+  ciphertext arrives; that method is the release 3 grant-only path.
+- `SealedAutomaticLogin` defines the HPKE context and the grant defines the
+  hash encoding, so Swift and Go produce the same bytes. Login IDs must be
+  unique and match in the grant, sealed list and opened contents. An empty
+  snapshot removes all Automatic access. A later snapshot omits removed logins.
 - The relay approves a new lease for a listed login and machine without a
   prompt, seals the bundle to the receiver and signs the decision with
   `authority = AUTOMATIC_RULE`. Receivers check the grant (RFC 0005), so the
@@ -191,9 +207,9 @@ present, the relay needs to open those logins itself.
   the owner's key can sign.
 
 Stated plainly: anyone who controls the mini can read Automatic logins, and
-moving a login back to Ask does not recall a copy already published; it stops
-new Automatic approvals at the next grant revision. Changing a login to
-Automatic says so on the screen.
+moving a login back to Ask does not recall a copy already published; the next
+grant revision stops new approvals and revokes its leases as in RFC 0004.
+Changing a login to Automatic says so on the screen.
 
 ## Protections and their limits
 

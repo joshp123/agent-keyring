@@ -10,7 +10,8 @@
 
 // Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Approver-to-receiver delivery, RFC 0005 and RFC 0006. The relay on the mini
-// stores and forwards these but cannot open a bundle or forge a decision.
+// stores and forwards Ask deliveries without opening them. Automatic decisions
+// use the explicitly delegated authority in relay.proto.
 
 #if canImport(FoundationEssentials)
 import FoundationEssentials
@@ -109,7 +110,8 @@ public nonisolated enum Agentkeyring_V1_DecisionChoice: SwiftProtobuf.Enum, Swif
 
 /// What the receiver gets from BeginOperation once requests travel through the
 /// relay. Checked before opening: decision signature by a pinned approver key,
-/// statement names this receiver and lease, not_after in the future.
+/// or a granted Automatic key, statement names this receiver and lease,
+/// not_after in the future.
 public nonisolated struct Agentkeyring_V1_SealedDelivery: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -150,7 +152,8 @@ public nonisolated struct Agentkeyring_V1_SealedDelivery: Sendable {
 /// AES-256-GCM, sealed to the receiver's enrolled public key.
 /// info = "agentkeyring.bundle.v1"; aad = request_digest.
 /// P-256 so CryptoKit and the iPhone's Secure Enclave can take part.
-/// Plaintext is a serialized BundleContents.
+/// Plaintext is a serialized BundleContents. SealedAutomaticLogin in relay.proto
+/// reuses this envelope with its own plaintext, info and aad.
 public nonisolated struct Agentkeyring_V1_SealedBundle: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
