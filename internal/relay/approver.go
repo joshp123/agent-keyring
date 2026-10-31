@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
@@ -34,7 +35,7 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	role := relaycrypto.Role(keys, keyByID(keys, p.approver))
 	if role == pb.ApproverRole_APPROVER_ROLE_PHONE {
 		switch r.Request.(type) {
-		case *pb.RelayWireRequest_WatchWork, *pb.RelayWireRequest_RegisterPush, *pb.RelayWireRequest_AnswerFromPhone, *pb.RelayWireRequest_RevokeLease, *pb.RelayWireRequest_ClearDenial:
+		case *pb.RelayWireRequest_WatchWork, *pb.RelayWireRequest_RegisterPush, *pb.RelayWireRequest_AnswerFromPhone, *pb.RelayWireRequest_RevokeLease, *pb.RelayWireRequest_ClearDenial, *pb.RelayWireRequest_GetCopyUpdate, *pb.RelayWireRequest_Decide:
 		default:
 			return nil, false, denied("This method requires a Mac approver.")
 		}
@@ -54,6 +55,9 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	case *pb.RelayWireRequest_PublishCopyUpdate:
 		err := s.publishCopyUpdate(tx, request.PublishCopyUpdate)
 		return publishAck(), false, err
+	case *pb.RelayWireRequest_GetCopyUpdate:
+		value, err := phoneCopy(tx, p)
+		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_CopyUpdate{CopyUpdate: value}, EndOfStream: true}, false, err
 	case *pb.RelayWireRequest_DismissEnrolment:
 		result, err := tx.Exec("UPDATE enrolments SET state=2 WHERE id=? AND state=0", request.DismissEnrolment.RecipientId)
 		if err == nil {
@@ -132,6 +136,18 @@ func (s *Server) work(tx *sql.Tx, p peer, seen map[string][]byte) (*pb.RelayWire
 		return nil, false, err
 	}
 	if relaycrypto.Role(keys, keyByID(keys, p.approver)) == pb.ApproverRole_APPROVER_ROLE_PHONE {
+		if len(keyByID(keys, p.approver).EncryptionPublicKey) > 0 {
+			copy, e := phoneCopy(tx, p)
+			if e == nil && changed(seen, "copy", copy) {
+				return workResponse(&pb.ApproverWork{Item: &pb.ApproverWork_CopyUpdate{CopyUpdate: copy}}), true, nil
+			}
+			if e != nil {
+				var rpc *rpcError
+				if !errors.As(e, &rpc) || rpc.code != pb.RpcErrorCode_RPC_ERROR_CODE_NOT_FOUND {
+					return nil, false, e
+				}
+			}
+		}
 		leases, err := allLeases(tx)
 		if err != nil {
 			return nil, false, err
@@ -299,6 +315,20 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		return nil, denied("Decision reply hash mismatch.")
 	}
 	login := loginByID(config, l.LoginId)
+	_, keys, err := currentKeys(tx)
+	if err != nil {
+		return nil, err
+	}
+	phonePeer := relaycrypto.Role(keys, keyByID(keys, p.approver)) == pb.ApproverRole_APPROVER_ROLE_PHONE
+	if phonePeer {
+		var count int
+		if err = tx.QueryRow("SELECT count(*) FROM phone_escalations WHERE lease=? AND local_lease IS NULL", l.LeaseId).Scan(&count); err != nil {
+			return nil, err
+		}
+		if login.GetRule() != pb.AccessRule_ACCESS_RULE_ASK || count != 1 || r.ApproverKeyId != p.approver || (statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN && statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION) {
+			return nil, denied("Phone decisions require their own escalated remote Ask request.")
+		}
+	}
 	switch statement.Authority {
 	case pb.DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION:
 		if p.approver == "" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || r.Reply != "" || len(r.Signature) != 0 || r.Bundle != nil || len(statement.BundleCiphertextSha256) != 0 || statement.ConfigurationRevision != 0 || (r.ApproverKeyId != "" && r.ApproverKeyId != p.approver) {
@@ -321,8 +351,12 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		if statement.ConfigurationRevision != 0 {
 			return nil, invalid("Human decision cannot name an Automatic configuration revision.")
 		}
-		if err = verifyApprover(tx, r.ApproverKeyId, r.Statement, r.Signature, false); err != nil {
-			return nil, err
+		if relaycrypto.Role(keys, keyByID(keys, r.ApproverKeyId)) == pb.ApproverRole_APPROVER_ROLE_PHONE && (p.approver != r.ApproverKeyId || r.PhoneDecision != nil) {
+			return nil, denied("A phone signs its own direct human decision without a forwarded phone answer.")
+		}
+		public, e := relaycrypto.HumanKey(keys, r.ApproverKeyId)
+		if e != nil || relaycrypto.Verify(public, r.Statement, r.Signature) != nil {
+			return nil, denied("Invalid human decision signature or role.")
 		}
 	case pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE:
 		if statement.Choice != pb.DecisionChoice_DECISION_CHOICE_APPROVE || login == nil || login.Rule != pb.AccessRule_ACCESS_RULE_AUTOMATIC {
@@ -374,7 +408,7 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		return nil, invalid("Unknown decision choice.")
 	}
 	l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_MAC
-	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_PHONE {
+	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_PHONE || phonePeer {
 		l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_IPHONE
 	}
 	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE {
@@ -564,7 +598,7 @@ func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
 		}
 		before := keyByID(old, key.KeyId)
 		if before != nil {
-			if !bytes.Equal(before.PublicKey, key.PublicKey) || !bytes.Equal(before.TlsPublicKey, key.TlsPublicKey) || relaycrypto.Role(old, before) != relaycrypto.Role(next, key) {
+			if !bytes.Equal(before.PublicKey, key.PublicKey) || !bytes.Equal(before.TlsPublicKey, key.TlsPublicKey) || !bytes.Equal(before.EncryptionPublicKey, key.EncryptionPublicKey) || relaycrypto.Role(old, before) != relaycrypto.Role(next, key) {
 				return invalid("Key rotation requires a new key ID and pairing.")
 			}
 			continue
@@ -582,7 +616,7 @@ func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
 		if err = proto.Unmarshal(data, pair); err != nil {
 			return err
 		}
-		if !proto.Equal(pair.Key, key) || !bytes.Equal(compared, oldSigned.KeySet) || time.Now().Unix() >= created+600 || !bytes.Equal(next.PairingTranscriptSha256, relaycrypto.Hash(relaycrypto.PairTranscript(relaySPKI, key.TlsPublicKey, key.PublicKey, oldSigned.KeySet))) {
+		if !proto.Equal(pair.Key, key) || !bytes.Equal(compared, oldSigned.KeySet) || time.Now().Unix() >= created+600 || !bytes.Equal(next.PairingTranscriptSha256, relaycrypto.Hash(relaycrypto.PairTranscript(relaySPKI, key.TlsPublicKey, key.PublicKey, oldSigned.KeySet, key.EncryptionPublicKey))) {
 			return denied("Added approver does not match the compared pairing.")
 		}
 	}
@@ -610,6 +644,9 @@ func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
 	}
 	for _, key := range old.Keys {
 		if keyByID(next, key.KeyId) == nil {
+			if err = removePhoneCopy(tx, key); err != nil {
+				return err
+			}
 			if _, err = tx.Exec("DELETE FROM pairings WHERE id=?", key.KeyId); err != nil {
 				return err
 			}

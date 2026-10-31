@@ -30,8 +30,27 @@ func KeyForRole(set *pb.ApproverKeySet, id string, role pb.ApproverRole) ([]byte
 	}
 	return nil, errors.New("The delivery was signed by an unknown approver. No value was opened.")
 }
+func HumanKey(set *pb.ApproverKeySet, id string) ([]byte, error) {
+	for _, key := range set.GetKeys() {
+		if key.KeyId == id {
+			role := Role(set, key)
+			if role == pb.ApproverRole_APPROVER_ROLE_MAC || role == pb.ApproverRole_APPROVER_ROLE_PHONE {
+				return key.PublicKey, nil
+			}
+		}
+	}
+	return nil, errors.New("Human decisions require a current Mac or phone approver.")
+}
 func ValidateRoles(set *pb.ApproverKeySet, legacyOwner string) error {
 	for _, key := range set.GetKeys() {
+		if len(key.EncryptionPublicKey) > 0 {
+			if Role(set, key) != pb.ApproverRole_APPROVER_ROLE_PHONE {
+				return errors.New("Only phone approvers have copy encryption keys.")
+			}
+			if _, err := PublicKey(key.EncryptionPublicKey); err != nil {
+				return err
+			}
+		}
 		if key.Role == pb.ApproverRole_APPROVER_ROLE_UNSPECIFIED && (key.KeyId != legacyOwner || key.KeyId != set.RuleOwnerKeyId) {
 			return errors.New("New approver keys require an explicit role.")
 		}
