@@ -17,9 +17,15 @@ extension RelayApprover {
         var request = Agentkeyring_V1_RelayWireRequest()
         request.pairApprover.key = key
         request.pairApprover.tlsPublicKey = identity.publicKeySPKI
-        let connection = try await RelayTransport(endpoint: endpoint, identity: identity, pin: nil).open(request)
+        pairConnection?.cancel()
+        pairingAttemptID = UUID()
+        let connection = RelayConnection(endpoint: endpoint, identity: identity, pin: nil)
+        pairConnection = connection
         do {
+            try await connection.open()
+            try await connection.send(request)
             let response = try await connection.next()
+            guard pairConnection === connection else { throw CancellationError() }
             guard case let .enrolStatus(status) = response.response, status.state == .pending,
                 status.approverKeySet.keySet.isEmpty, status.approverKeys.isEmpty else {
                 throw LeaseFailure(.permissionDenied, "The relay already has an approver. This first-setup flow cannot replace it.")
@@ -31,9 +37,27 @@ extension RelayApprover {
             var next = state
             next.pairing = RelayPendingPair(endpoint: endpoint, relaySPKI: pin, transcript: transcript)
             try commit(next)
-            pairConnection?.cancel()
-            pairConnection = connection
-        } catch { connection.cancel(); throw error }
+        } catch {
+            connection.cancel()
+            if pairConnection === connection { pairConnection = nil }
+            throw error
+        }
+    }
+
+    public func abandonPairing() throws {
+        try load()
+        guard state.keySet == nil, state.pairing?.confirmation == nil else {
+            throw LeaseFailure(.conflict, "Relay pairing has already been confirmed.")
+        }
+        var next = state
+        next.pairing = nil
+        try commit(next)
+        pairingAttemptID = UUID()
+        pairConnection?.cancel()
+        pairConnection = nil
+        connectionState = .notPaired
+        errorMessage = nil
+        publish()
     }
 
     public func confirmPairing(comparedFingerprint: String, context: LAContext = LAContext()) async throws {
@@ -43,12 +67,13 @@ extension RelayApprover {
             throw LeaseFailure(.invalidArgument, "Compare every group of the fingerprint on the relay and this Mac.")
         }
         if pending.confirmation != nil { start(); await flushOutbox(); return }
+        let attemptID = pairingAttemptID
         try claimAuthorization("pairing")
         defer { authorizationID = nil }
         let (identity, signer) = try keys()
         try await signer.authorize(context: context, reason: "Pair Agent Keyring with the relay after comparing the full fingerprint")
         try Task.checkCancellation()
-        guard state.pairing?.transcript == pending.transcript, state.keySet == nil else {
+        guard pairingAttemptID == attemptID, state.pairing?.transcript == pending.transcript, state.keySet == nil else {
             throw LeaseFailure(.conflict, "Pairing changed. Compare the current fingerprint.")
         }
         var key = Agentkeyring_V1_ApproverKey()

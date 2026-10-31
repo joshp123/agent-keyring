@@ -31,6 +31,10 @@ display state and close answered prompts; they never authorize a delivery.
 - `confirmPairing(comparedFingerprint:context:)` requires the full eight groups,
   compared with the relay's log. It signs and queues both the confirmation and
   initial key set. An identical retry reuses the saved answer.
+- `abandonPairing()` cancels an unconfirmed first setup, including an in-flight
+  connection, and durably clears its comparison. The app returns to unpaired
+  and can start setup again. A confirmation already signed and queued cannot
+  be abandoned, since the relay may already have accepted it.
 - `approveEnrolment(id,comparedFingerprint:automaticAllowed:context:)` compares
   the fingerprint with the receiving machine, defaults Automatic permission to
   false, and signs enrolment plus the complete roster, index and Automatic
