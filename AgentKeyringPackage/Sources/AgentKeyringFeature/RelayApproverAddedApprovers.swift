@@ -36,6 +36,9 @@ extension RelayApprover {
         try load()
         let queuedID = "approver-pairing:" + id
         if state.outbox.contains(where: { $0.id == queuedID }) { await flushOutbox(); return }
+        guard !state.outbox.contains(where: { $0.id.hasPrefix("approver-pairing:") }) else {
+            throw LeaseFailure(.conflict, "Finish delivering the previous approver pairing before adding another device.")
+        }
         let previous = try currentKeySet()
         let previousSet = try Agentkeyring_V1_ApproverKeySet(serializedBytes: previous.keySet)
         guard let bytes = state.pendingApprovers?[id] else {

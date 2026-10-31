@@ -106,9 +106,11 @@ extension RelayApprover {
         try load()
         if state.requests[id]?.decision != nil { await flushOutbox(); return }
         let hasReply = !reply.isEmpty
-        defer { if hasReply { authorizationID = nil } }
+        var ownsAuthorization = false
+        defer { if ownsAuthorization { authorizationID = nil } }
         if hasReply {
             try claimAuthorization("reply:" + id)
+            ownsAuthorization = true
             _ = try pendingRequest(id)
             try await keys().1.authorize(context: context, reason: "Send your reply when denying this Agent Keyring request")
         }
