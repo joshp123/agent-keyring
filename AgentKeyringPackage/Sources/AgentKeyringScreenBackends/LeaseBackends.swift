@@ -78,10 +78,22 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
         self.model = model
     }
 
+    /// Local leases and, from the relay, remote requests and leases.
     public func snapshot() -> MacMenuBarSnapshot {
-        MacMenuBarSnapshot(
-            requests: model.leaseStore.leases.map(model.accessRequest(for:)),
-            passwords: model.status.map { ImportedPasswords(count: $0.credentialItemCount, importedAt: $0.importedAt) })
+        let relay = model.relayApprover.update
+        let remoteLeaseIDs = Set(relay.leases.map(\.lease.leaseID))
+        let remoteWaiting = relay.requests
+            .filter { $0.lease.state == .pending && !remoteLeaseIDs.contains($0.lease.leaseID) }
+            .map { RelayScreenMapping.accessRequest($0, answered: nil) }
+        return MacMenuBarSnapshot(
+            requests: model.leaseStore.leases.map(model.accessRequest(for:)) + remoteWaiting
+                + relay.leases.map(RelayScreenMapping.accessRequest),
+            passwords: model.status.map { ImportedPasswords(count: $0.credentialItemCount, importedAt: $0.importedAt) },
+            enrolments: relay.enrolments.map(RelayScreenMapping.enrolment)
+                + relay.approverPairings.map(RelayScreenMapping.enrolment),
+            relay: RelayScreenMapping.relayLink(relay),
+            queuedAnswers: relay.queuedAnswerCount,
+            rulesNotSent: relay.needsPublication)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {
@@ -90,10 +102,22 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
     }
 
     public func endAccess(requestID: String) async throws -> AccessRequestState {
-        model.accessRequest(for: try model.leaseStore.revoke(requestID)).state
+        let relay = model.relayApprover
+        if relay.leases.contains(where: { $0.lease.leaseID == requestID }) {
+            try await screenErrors { try await relay.revokeLease(requestID) }
+            return .ended(at: .now)
+        }
+        return model.accessRequest(for: try model.leaseStore.revoke(requestID)).state
     }
 
     public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
+        let relay = model.relayApprover
+        if let remote = relay.leases.first(where: { $0.lease.leaseID == requestID }) {
+            try await screenErrors {
+                try await relay.clearDenial(loginID: remote.lease.loginID, recipientID: remote.lease.recipient.recipientID)
+            }
+            return .denied(by: .mac, reply: nil, askAgainAfter: nil)
+        }
         let lease = try model.leaseStore.get(requestID)
         try model.leaseStore.clearDenial(loginID: lease.loginID)
         return model.accessRequest(for: try model.leaseStore.get(requestID)).state
