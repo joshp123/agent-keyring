@@ -82,7 +82,10 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     public private(set) var hasLoadedLoginList = false
     public var canConfirmRules: Bool { needsConfirmation && hasLoadedLoginList && !isSavingRules }
     public var confirmationSummary: String {
-        "\(count(for: .allowAutomatically)) allowed automatically, \(count(for: .block)) blocked, \(count(for: .ask)) ask each time"
+        let automaticCount = rows.filter { $0.policy == .allowAutomatically }.count
+        let blockedCount = rows.filter { $0.policy == .block }.count
+        let askCount = rows.filter { $0.policy == .ask }.count
+        return "\(automaticCount) allowed automatically, \(blockedCount) blocked, \(askCount) ask each time"
     }
 
     private var pendingPhoneBlocks: Set<UUID> = []
