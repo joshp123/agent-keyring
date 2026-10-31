@@ -1,5 +1,5 @@
 ---
-written_by: ai (Claude Opus 5.5, 2026-10-31); replaces iphone-approval.md
+written_by: ai (Claude Opus 5.5, 2026-10-31; updated for release 4 the same day); replaces iphone-approval.md
 ---
 
 # iPhone app
@@ -7,8 +7,9 @@ written_by: ai (Claude Opus 5.5, 2026-10-31); replaces iphone-approval.md
 ## What it is for
 
 1. **Answer requests when you're away from the Mac.** Almost every visit starts from a notification. This is the job the design is built around.
-2. **Hold the passwords.** It imports from Apple Passwords on the phone and keeps the encrypted copy agents are filled from.
-3. **Show what happened.** What agents are using now, with a way to end it, and what they asked for before.
+2. **Show what happened.** What agents are using now, with a way to end it, and what they asked for before.
+
+The phone holds no passwords and imports nothing. Your Mac keeps them and delivers the login; the phone only answers, with Face ID.
 
 Everything else (pairing, the phone's key, notification status) sits behind Settings.
 
@@ -22,12 +23,10 @@ Large title "Agent Keyring", Settings in the toolbar, then up to four groups:
 
 - **Waiting for you.** Site, agent and machine, time left. Tap to answer.
 - **In use now.** Site, agent and machine, minutes left, and **End now** in red.
-- **Nothing waiting.** Shown when neither of the above has anything: "When an agent asks for a login and you're away from your Mac, it appears here and on your Lock Screen."
+- **Nothing waiting.** Shown when neither of the above has anything. It mentions the Lock Screen only once a notification has really arrived: "When your Mac asks this iPhone, the request appears here and on your Lock Screen." Before that: "…appears here. Notifications aren't set up yet, so open Agent Keyring to check." (or "Notifications are off").
 - **Today, Yesterday, then dates.** Time, site, agent and machine, and one coloured word: Done, Denied, Blocked, Expired, Unanswered, Automatic.
 
-The footer says how many logins the phone holds and when they were imported.
-
-Screens: `screens/phone/home-*.png`, `nothingWaiting-*.png`.
+Screens: `screens/phone/home-*.png`, `nothingWaiting-*.png`, `notificationsOn-*.png`.
 
 ### Request
 
@@ -54,6 +53,7 @@ The buttons become one sentence with a symbol, and **Done**:
 | State | Copy |
 | --- | --- |
 | Sending | The pressed button keeps its colour and shows a spinner; the other fades. |
+| Waiting for your Mac | Your answer reached the relay, and your Mac hasn't acted on it yet: "You approved. Waiting for your Mac to deliver it." or "You denied. Waiting for your Mac to pass your reply to Codex." Your reply stays in view. |
 | Approved | "Approved. Codex can use it until 01:53, or until it says it's done." Plus **End now**. |
 | Denied | "Denied. Codex got your reply." and "You replied: “…”". Without a reply: "Denied. Codex was told." |
 | Unanswered | "Nobody answered, so Codex stopped waiting." |
@@ -65,7 +65,7 @@ The buttons become one sentence with a symbol, and **Done**:
 
 If the answer can't be sent: an alert, "Your answer didn't reach Agent Keyring. Try again.", and the request goes back to waiting.
 
-Screens: `sending-*.png`, `approved-*.png`, `denied-*.png`, `unanswered-*.png`.
+Screens: `sending-*.png`, `waitingForMac-*.png`, `approved-*.png`, `denied-*.png`, `unanswered-*.png`.
 
 ### Past request
 
@@ -77,23 +77,14 @@ After a denial, Agent Keyring refuses new requests for that login from that mach
 
 ### Unreachable
 
-When the phone can't reach Agent Keyring, a line at the top of Home: "Can't reach Agent Keyring on Mac mini. Since 01:15. Requests can't reach you until it's back. Check Tailscale is on. Retrying." It retries by itself; there is no button.
+When the phone can't reach Agent Keyring, a line at the top of Home: "Can't reach Agent Keyring on Mac mini. Since 01:15. Requests can't reach you until it's back. Check Tailscale is on. Retrying." It retries by itself; there is no button. Requests and history stay below it.
 
 Screen: `unreachable-*.png`.
 
-### Import needed
-
-Before the first import there is nothing to approve, so this replaces Home. Title "Import passwords", one sentence on what the phone keeps, three numbered steps (allow exports, ··· then Export Data to Another App in Passwords, choose Agent Keyring) and **Allow Exports**, which makes Agent Keyring an export destination; iOS doesn't let an app open the export screen itself. While it runs: "Importing passwords", "318 logins so far. Keep Passwords open until it finishes."
-
-Apple only lets the Passwords app start an export, so the screen says exactly where to tap. The menu wording is to check on a real iOS 27 phone.
-
-Screens: `importNeeded-*.png`, `importing-*.png`.
-
 ### Settings
 
-- **Passwords on this iPhone:** count, when imported, **Import again** ("after you add or change a password in Apple Passwords").
-- **Requests:** which Agent Keyring the phone talks to and when it last heard from it; **Ask this iPhone after** (30 seconds to 10 minutes, default 2 minutes): "A request shows on your Mac first. If you don't answer there, it comes here after this delay."
-- **This iPhone:** notifications, and the key fingerprint: "Your approvals are signed with this key, which never leaves the iPhone's Secure Enclave."
+- **Requests:** which Agent Keyring the phone talks to and when it last heard from it, and when it last checked the rules ("Rules · Checked 11 minutes ago"). Footer: "A request shows on your Mac first. If you don't answer there in time, or your Mac is locked, it comes here. The delay is set on your Mac." The phone doesn't show the delay itself: the Mac runs it and the phone never learns it.
+- **This iPhone:** notifications ("Not set up yet" until a notification has actually arrived, "Off in iPhone Settings", or "On"), and the key fingerprint: "Your approvals are signed with this key, which never leaves the iPhone's Secure Enclave."
 
 Screen: `settings-*.png`.
 
@@ -103,17 +94,11 @@ Until the phone is paired, Home starts with "Not paired yet, so requests can't r
 
 The pairing screen takes the relay's address, prefilled `mac-mini:17443`. It then shows the code to compare with the Mac's, in the same two rows of four groups the Mac shows, and "When every group matches, approve on your Mac with Touch ID. This iPhone carries on by itself." There is no confirm button on the phone: the Mac's signed approval is the confirmation. **Doesn't match** cancels. A failure shows the reason and **Try again**.
 
-Settings also shows when the phone last checked the rules: "Rules · Checked 11 minutes ago".
-
 Screens: `pairing*.png`, `homeNotPaired-*.png`, `settingsNotPaired-*.png`.
 
-## Lock Screen notification
+## Notifications
 
-Not built yet; release 4 adds it with the push channel.
-
-- Title: "Codex wants github.com"
-- Body: "josh@example.com · Codex on Mac mini"
-- Actions: **Approve** (needs Face ID) and **Deny**. Long-press or tap opens the request screen, where **Deny and reply…** is.
+A notification says a request is waiting. Tapping it opens the request screen; every answer is given there, with Face ID. There are no Approve or Deny buttons on the notification itself.
 
 ## Decisions, and why
 
@@ -126,4 +111,4 @@ Not built yet; release 4 adds it with the push channel.
 
 ## Built and not built
 
-The screens are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone`, fed by `PhoneKeyringModel`, which follows `PhoneKeyringBackend`'s update stream. Until release 4 they run on mock data; launch with `-designScenario <name>` to open any state. Without a scenario the app opens on the import screen, which is true today: the phone holds no passwords yet. The existing CloudKit notification actions and pairing code are untouched and still compiled.
+The screens are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone`, fed by `PhoneKeyringModel`, which follows `PhoneKeyringBackend`'s update stream. The release 4 phone backend (`AgentKeyringPhone/PhoneImportBackend.swift`) feeds them in the app; launch with `-designScenario <name>` to open any state on mock data. `real-*.png` is the app with nothing paired.

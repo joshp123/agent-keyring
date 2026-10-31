@@ -94,7 +94,7 @@ private struct RulesTable: View {
                 }
                 Divider()
             }
-            RulesHeader(filter: model.filter, shown: model.visibleRows.count)
+            RulesHeader(filter: model.filter, shown: model.visibleRows.count, isApplying: model.isApplying)
             Divider()
             Table(model.visibleRows, selection: $model.selection, sortOrder: $model.sortOrder) {
                 TableColumn("Login", value: \.site) { row in
@@ -217,11 +217,16 @@ private struct ConfirmRulesBanner: View {
 private struct RulesHeader: View {
     let filter: LoginRuleFilter
     let shown: Int
+    let isApplying: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.title2.weight(.bold))
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.title2.weight(.bold))
+                Spacer()
+                if isApplying { ApplyingLine() }
+            }
             Text(explanation)
                 .font(.callout)
                 .foregroundStyle(.secondary)
