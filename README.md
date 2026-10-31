@@ -24,10 +24,12 @@ describe it.
 - **What the 30 minutes means.** It is how long Agent Keyring will hand out the
   login for that task. It does not take back a password the agent's machine
   has already received, and it does not sign anyone out of the website.
-- **Google Chrome.** Agent Keyring fills a sign-in form in Google Chrome on the
-  same machine as the agent, reached through Chrome's remote debugging port. It
-  checks the page belongs to the saved site, fills only the fields the agent
-  names, submits, and clears what it typed.
+- **Google Chrome, Chrome for Testing and Chromium on macOS and Linux.** Agent
+  Keyring uses the browser's existing local debugging endpoint on the same
+  machine as the agent. It checks which process owns the endpoint and identifies
+  its browser installation, checks the page belongs to the saved site, fills
+  only the fields the agent names, submits, and clears what it typed. It does
+  not launch or restart browsers or change their profiles.
 - **Programs.** A program named when the agent asks gets the password on its
   standard input. The agent gets the program's exit status, not its output.
 - **Other browsers, from the agent's own code.** For a browser with no
@@ -47,8 +49,8 @@ describe it.
 
 ## What it does not do
 
-- Fill Safari, Claude's or Codex's built-in browsers, or Chromium browsers other
-  than Google Chrome, except through the agent's-own-code route above.
+- Fill Safari or the closed browser tools in agent apps, except through the
+  agent's-own-code route above where the host supports it.
 - Keep a website signed in or sign it out. That is the agent's browser.
 - Work while your MacBook is asleep or shut.
 - Sync with Apple Passwords by itself. Apple only allows an export that you
@@ -57,7 +59,9 @@ describe it.
 - Protect a password from software that controls the machine receiving it.
   Agent Keyring keeps passwords out of the agent's conversation and tool
   output; an agent that sets out to read the browser it controls can still do
-  so.
+  so. Endpoint checks reject a fake debugging server; they do not authenticate
+  the publisher of an ad-hoc or unpacked browser build or isolate software
+  running as the same user.
 
 ## Install
 
