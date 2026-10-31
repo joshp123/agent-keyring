@@ -176,6 +176,7 @@ extension RelayApprover {
             }
         case let .pairing(request): try receiveApproverPairing(request)
         case let .lease(lease): try await receiveLeaseReport(lease)
+        case .phoneDecision: break // R4.5 delivers under a phone decision (RFC 0006).
         case nil: throw LeaseFailure(.invalidArgument, "The relay sent empty work.")
         }
     }

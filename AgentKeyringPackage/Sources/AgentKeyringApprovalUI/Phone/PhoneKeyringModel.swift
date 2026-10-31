@@ -70,8 +70,6 @@ public protocol PhoneKeyringBackend: AnyObject {
     /// Asks iOS to allow exports to Agent Keyring; the export starts in Passwords.
     func openPasswordsForImport()
     func setAskPhoneAfter(_ delay: Duration) async throws
-    /// Live transcript of Josh speaking, until the stream is cancelled.
-    func dictation() -> AsyncStream<String>
 }
 
 @MainActor
@@ -87,11 +85,9 @@ public final class PhoneKeyringModel {
     public var isShowingSettings = false
     public var replyDraft = ""
     public var isReplying = false
-    public private(set) var isListening = false
     public private(set) var failure: String?
 
     private let backend: any PhoneKeyringBackend
-    private var dictationTask: Task<Void, Never>?
 
     public init(backend: any PhoneKeyringBackend, initial: PhoneKeyringSnapshot) {
         self.backend = backend
@@ -141,7 +137,6 @@ public final class PhoneKeyringModel {
 
     public func deny(_ id: String) async {
         let reply = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        stopDictation()
         isReplying = false
         await answer(id, choice: .deny) {
             try await backend.deny(requestID: id, reply: reply.isEmpty ? nil : reply)
@@ -178,25 +173,6 @@ public final class PhoneKeyringModel {
             settings.askPhoneAfter = previous
             failure = "Couldn't save that. Agent Keyring isn't reachable."
         }
-    }
-
-    public func toggleDictation() {
-        if isListening { stopDictation(); return }
-        isListening = true
-        let start = replyDraft.isEmpty ? "" : replyDraft + " "
-        let stream = backend.dictation()
-        dictationTask = Task { [weak self] in
-            for await transcript in stream {
-                self?.replyDraft = start + transcript
-            }
-            self?.isListening = false
-        }
-    }
-
-    public func stopDictation() {
-        dictationTask?.cancel()
-        dictationTask = nil
-        isListening = false
     }
 
     public func dismissFailure() { failure = nil }

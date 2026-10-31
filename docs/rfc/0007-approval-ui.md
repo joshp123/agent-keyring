@@ -1,6 +1,6 @@
 ---
 written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
-status: agreed for implementation; U1 to U3 built, U2 awaiting its MacBook check; designs remain a placeholder for Josh's review
+status: agreed for implementation; U1 to U4 built, U2 and U4 awaiting device checks; designs remain a placeholder for Josh's review
 depends_on: 0004; 0005 and 0006 for remote and phone states
 related: docs/design/, AgentKeyringPackage/Sources/AgentKeyringApprovalUI
 ---
@@ -40,7 +40,7 @@ never poll and never build a lease.
 | `MacApprovalBackend` | `updates(requestID:)`: one request until it is final | `approve`, `deny(reply:)`, `embeddedTouchIDContext` |
 | `MacMenuBarBackend` | `updates()`: all requests plus the import count and date | `endAccess`, `allowAskingAgain` |
 | `LoginRulesBackend` | `updates()`: logins with rules, plus a pending confirmation | `setRule`, `confirmRules` |
-| `PhoneKeyringBackend` | `updates()`: requests, passwords, connection, settings | `approve`, `deny`, `endAccess`, `allowAskingAgain`, `openPasswordsForImport`, `setAskPhoneAfter`, `dictation` |
+| `PhoneKeyringBackend` | `updates()`: requests, connection, pairing; passwords only in the later MacBook-shut step | `approve`, `deny(reply:)`, `endAccess`, `allowAskingAgain`, `pair`; `openPasswordsForImport` only in the later step |
 
 `embeddedTouchIDContext` returns the `LAContext` that `approve` will evaluate.
 The panel shows it with `LAAuthenticationView`, starts the evaluation as it
@@ -98,7 +98,9 @@ which of his agents is asking; the claim block says where it came from.
 ## Rules carried over from the designs and Josh's steering
 
 - Site is the headline; Deny and Approve are equal size, red and green; reply
-  is a kind of denial, with dictation.
+  is a kind of denial. The reply box is an ordinary text field: the iOS
+  keyboard's own dictation covers speaking, so there is no custom microphone
+  button and no microphone or speech permission.
 - No risk badges, warning flags or verified-agent marks.
 - The Mac panel never takes keyboard focus by itself, so typing elsewhere cannot
   answer it. Unproved: whether Touch ID can run from a non-activating panel
@@ -108,8 +110,13 @@ which of his agents is asking; the claim block says where it came from.
   assumed one: Sending until the authority acknowledges, then Approved, Denied,
   Unanswered or a transport failure. An accepted resend is already sent; a
   request answered elsewhere or expired must not invite another approval.
-- Keep the configurable phone escalation delay and show its real pending state
-  to the agent. A quick answer at the Mac cancels the phone notification.
+- The phone delay ("Ask iPhone after", 30 seconds to 10 minutes, default 2
+  minutes) is a Mac setting, because the Mac decides when to ask the phone
+  (RFC 0006). The phone's Settings screen shows it but does not change it.
+  A locked Mac asks the phone at once. A quick answer at the Mac means no
+  phone notification. The agent sees the real pending state.
+- The phone screens work with no passwords on the phone. The import screen
+  belongs to the later MacBook-shut step and must not block approving.
 - 24-hour times. Interrupt Josh only when his answer is needed.
 
 ## Build slices
@@ -119,15 +126,16 @@ which of his agents is asking; the claim block says where it came from.
 | U1 | Opus | Merge `AgentKeyringApprovalUI` from the design branch into main behind the four protocols, with mock backends kept for the design gallery | Done: main builds (package, Mac app, iPhone app); every state renders from the real views (`docs/design/screens/`) |
 | U2 | Opus | `MacApprovalBackend` over the release 2 lease store and Touch ID; panel supplies context while macOS performs biometric authorization | Built (`LeaseApprovalBackend`, `LeaseApprovalPresenter`); proof is the MacBook check below |
 | U3 | Opus | `MacMenuBarBackend` and `LoginRulesBackend` | Built (`LeaseMenuBarBackend`, `AccessRulesBackend`, `RulesWindow`); proof is the same check, plus the Mac UI tests |
-| U4 | Opus | Remote request and enrolment states on the Mac (release 3) | Josh can tell a remote request from a local one, and compares the enrolment code on screen |
-| U5 | Opus | `PhoneKeyringBackend` over the phone vault and relay (release 4), Lock Screen notification | Every designed phone state renders from real requests |
+| U4 | Opus | Remote request and enrolment states on the Mac (release 3) | Built over `RelayApprover`; proof is the release 3 MacBook check below |
+| U5 | Opus | `PhoneKeyringBackend` over the relay (release 4): pairing, waiting requests, answer, outcome, in use; opens on Home, not on the import screen; reply box without the custom microphone | Every designed state renders from real requests, with no passwords on the phone |
 
 ## Human proofs
 
 - **Device: MacBook, Josh present.** Approve with one touch while typing in
   another app; nothing typed reaches the panel; a failed touch shares nothing.
-- **Device: iPhone.** One Face ID approves; Deny and reply with dictation
-  reaches the agent; an unreachable relay shows the retrying banner.
+- **Device: iPhone.** One Face ID approves; Deny with a reply spoken through
+  the keyboard's dictation reaches the agent; an unreachable relay shows the
+  retrying banner.
 - **Rendered check.** Screenshots of every state from the real views, light and
   dark, after U2 and U5. Josh reviews those, not mocks.
 
@@ -155,6 +163,53 @@ which of his agents is asking; the claim block says where it came from.
   `leaseMenuBar` screens map store-shaped lease records through
   `LeaseScreenMapping` (`docs/design/screens/mac/lease*.png`). The installed
   app with a live store is the morning check.
+
+## How U4 is built
+
+- **Remote at a glance.** A request knows whether it came from this Mac
+  (`RequestingAgent.isLocal`). A remote one names the machine in the question
+  ("Codex on Mac mini wants to sign in to"); lists say "This Mac" or the
+  machine's name. A reply to a remote agent is signed, so "Deny and send"
+  shows Touch ID; a plain Deny needs none. An answer still in the outbox says
+  so under the outcome.
+- **Comparing a code.** `FingerprintGrid` lays the eight groups out as two
+  rows of four on every screen (Mac panel, Machines window, iPhone), so Josh
+  compares the same positions on both. All eight must match; there is no
+  shorter or picture form. "They match" approves with Touch ID.
+- **Panels.** `ApprovalPresenter` shows one floating panel at a time:
+  devices joining first, since someone is waiting at the other device, then
+  requests from this Mac and through the relay, oldest first.
+- **Backends.** `RelayScreenMapping` is the only code that reads relay
+  records. `RelayApprovalBackend` (approve, deny, the panel's Touch ID
+  context), `RelayEnrolmentBackend` (`approveEnrolment`,
+  `confirmApproverPairing`, `denyEnrolment`) and `RelayMachinesBackend`
+  (`beginPairing`, `confirmPairing`, `publishCurrentRules`, `revokeMachine`)
+  wrap `RelayApprover`. The menu bar backend adds remote requests and leases;
+  End calls `revokeLease`, "Let it ask again" calls `clearDenial` with the
+  lease's recipient.
+- **Machines window.** Relay setup, connection and outbox, rule changes not
+  yet sent, devices waiting to join, machines that can ask (Remove), and
+  devices that can approve. Opened from the menu bar's More menu.
+- **iPhone pairing.** Home says "Not paired yet" with Pair; Settings has
+  "Pair with your Mac" and "Rules · Checked 11 minutes ago". The pairing
+  screen takes the relay address (prefilled `mac-mini:17443`), shows the code
+  in the same layout, and finishes by itself after the Mac approves.
+
+"Doesn't match" refuses a joining machine (`denyEnrolment`), dismisses a
+joining iPhone locally (`dismissApproverPairing`) and abandons an
+unconfirmed first relay setup (`abandonPairing`). Each reports, in the
+relay's words, when the answer was already signed. The relay address may be
+any host name; the connection checks that it resolves to a tailnet address.
+
+### Release 3 check on the MacBook
+
+1. Run `agent-keyring enrol --name "build server"` on another machine. The
+   Mac panel shows it with its code; compare all eight groups with the code
+   the command printed, and touch "They match".
+2. Ask an agent there to sign in somewhere. The panel reads "Codex on build
+   server wants to sign in to"; one touch approves.
+3. Open the menu bar: the lease is under "In use now" with the machine's
+   name; End it.
 
 ## Morning check: one look, one touch
 

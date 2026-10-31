@@ -40,6 +40,11 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
   /// connection, so a plain Deny needs no biometric check. It grants nothing.
   /// A denial with a reply must be HUMAN; receivers show a reply only then.
   case approverConnection // = 3
+
+  /// Josh answered on his iPhone. Signed by the MacBook's delivery key (role
+  /// MAC_DELIVERY) and carrying SignedDecision.phone_decision. Receivers check
+  /// both signatures, the same request_digest and the same not_after.
+  case phone // = 4
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -52,6 +57,7 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
     case 1: self = .human
     case 2: self = .automaticRule
     case 3: self = .approverConnection
+    case 4: self = .phone
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -62,6 +68,7 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
     case .human: return 1
     case .automaticRule: return 2
     case .approverConnection: return 3
+    case .phone: return 4
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -72,6 +79,7 @@ public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, S
     .human,
     .automaticRule,
     .approverConnection,
+    .phone,
   ]
 
 }
@@ -250,11 +258,74 @@ public nonisolated struct Agentkeyring_V1_SignedDecision: Sendable {
   /// Clears the value of `bundle`. Subsequent reads from it will return its default value.
   public mutating func clearBundle() {self._bundle = nil}
 
+  /// Required when authority is PHONE: Josh's answer from his iPhone, which the
+  /// MacBook acted on. Receivers verify it as well as the MacBook's signature.
+  public var phoneDecision: Agentkeyring_V1_SignedPhoneDecision {
+    get {_phoneDecision ?? Agentkeyring_V1_SignedPhoneDecision()}
+    set {_phoneDecision = newValue}
+  }
+  /// Returns true if `phoneDecision` has been explicitly set.
+  public var hasPhoneDecision: Bool {self._phoneDecision != nil}
+  /// Clears the value of `phoneDecision`. Subsequent reads from it will return its default value.
+  public mutating func clearPhoneDecision() {self._phoneDecision = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _bundle: Agentkeyring_V1_SealedBundle? = nil
+  fileprivate var _phoneDecision: Agentkeyring_V1_SignedPhoneDecision? = nil
+}
+
+/// Signed on the iPhone after Face ID, over the exact `decision` bytes.
+/// The MacBook, which holds the passwords, delivers only what this allows.
+public nonisolated struct Agentkeyring_V1_SignedPhoneDecision: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Serialized PhoneDecision.
+  public var decision: Data = Data()
+
+  /// DER, by the phone's approver key (role PHONE).
+  public var signature: Data = Data()
+
+  public var phoneKeyID: String = String()
+
+  /// Optional, bound by reply_sha256.
+  public var reply: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_PhoneDecision: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Always "agentkeyring.phonedecision.v1".
+  public var domain: String = String()
+
+  /// Same digest as DecisionStatement.request_digest.
+  public var requestDigest: Data = Data()
+
+  public var choice: Agentkeyring_V1_DecisionChoice = .unspecified
+
+  public var decidedUnixSeconds: Int64 = 0
+
+  /// Approve only: at most decided + 1800. The MacBook uses this deadline
+  /// unchanged; delivery later never extends it.
+  public var notAfterUnixSeconds: Int64 = 0
+
+  public var replySha256: Data = Data()
+
+  public var leaseID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
@@ -306,7 +377,7 @@ public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
 fileprivate nonisolated let _protobuf_package = "agentkeyring.v1"
 
 nonisolated extension Agentkeyring_V1_DecisionAuthority: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0DECISION_AUTHORITY_UNSPECIFIED\0\u{1}DECISION_AUTHORITY_HUMAN\0\u{1}DECISION_AUTHORITY_AUTOMATIC_RULE\0\u{1}DECISION_AUTHORITY_APPROVER_CONNECTION\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0DECISION_AUTHORITY_UNSPECIFIED\0\u{1}DECISION_AUTHORITY_HUMAN\0\u{1}DECISION_AUTHORITY_AUTOMATIC_RULE\0\u{1}DECISION_AUTHORITY_APPROVER_CONNECTION\0\u{1}DECISION_AUTHORITY_PHONE\0")
 }
 
 nonisolated extension Agentkeyring_V1_DecisionChoice: SwiftProtobuf._ProtoNameProviding {
@@ -499,7 +570,7 @@ nonisolated extension Agentkeyring_V1_TimedCode: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SignedDecision"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}statement\0\u{1}signature\0\u{3}approver_key_id\0\u{1}reply\0\u{1}bundle\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}statement\0\u{1}signature\0\u{3}approver_key_id\0\u{1}reply\0\u{1}bundle\0\u{3}phone_decision\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -512,6 +583,7 @@ nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, Swi
       case 3: try { try decoder.decodeSingularStringField(value: &self.approverKeyID) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.reply) }()
       case 5: try { try decoder.decodeSingularMessageField(value: &self._bundle) }()
+      case 6: try { try decoder.decodeSingularMessageField(value: &self._phoneDecision) }()
       default: break
       }
     }
@@ -537,6 +609,9 @@ nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, Swi
     try { if let v = self._bundle {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
     } }()
+    try { if let v = self._phoneDecision {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -546,6 +621,112 @@ nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, Swi
     if lhs.approverKeyID != rhs.approverKeyID {return false}
     if lhs.reply != rhs.reply {return false}
     if lhs._bundle != rhs._bundle {return false}
+    if lhs._phoneDecision != rhs._phoneDecision {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_SignedPhoneDecision: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SignedPhoneDecision"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}decision\0\u{1}signature\0\u{3}phone_key_id\0\u{1}reply\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.decision) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.signature) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.phoneKeyID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.reply) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.decision.isEmpty {
+      try visitor.visitSingularBytesField(value: self.decision, fieldNumber: 1)
+    }
+    if !self.signature.isEmpty {
+      try visitor.visitSingularBytesField(value: self.signature, fieldNumber: 2)
+    }
+    if !self.phoneKeyID.isEmpty {
+      try visitor.visitSingularStringField(value: self.phoneKeyID, fieldNumber: 3)
+    }
+    if !self.reply.isEmpty {
+      try visitor.visitSingularStringField(value: self.reply, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_SignedPhoneDecision, rhs: Agentkeyring_V1_SignedPhoneDecision) -> Bool {
+    if lhs.decision != rhs.decision {return false}
+    if lhs.signature != rhs.signature {return false}
+    if lhs.phoneKeyID != rhs.phoneKeyID {return false}
+    if lhs.reply != rhs.reply {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_PhoneDecision: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".PhoneDecision"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_digest\0\u{1}choice\0\u{3}decided_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}reply_sha256\0\u{3}lease_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.domain) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.requestDigest) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.choice) }()
+      case 4: try { try decoder.decodeSingularInt64Field(value: &self.decidedUnixSeconds) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.notAfterUnixSeconds) }()
+      case 6: try { try decoder.decodeSingularBytesField(value: &self.replySha256) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.domain.isEmpty {
+      try visitor.visitSingularStringField(value: self.domain, fieldNumber: 1)
+    }
+    if !self.requestDigest.isEmpty {
+      try visitor.visitSingularBytesField(value: self.requestDigest, fieldNumber: 2)
+    }
+    if self.choice != .unspecified {
+      try visitor.visitSingularEnumField(value: self.choice, fieldNumber: 3)
+    }
+    if self.decidedUnixSeconds != 0 {
+      try visitor.visitSingularInt64Field(value: self.decidedUnixSeconds, fieldNumber: 4)
+    }
+    if self.notAfterUnixSeconds != 0 {
+      try visitor.visitSingularInt64Field(value: self.notAfterUnixSeconds, fieldNumber: 5)
+    }
+    if !self.replySha256.isEmpty {
+      try visitor.visitSingularBytesField(value: self.replySha256, fieldNumber: 6)
+    }
+    if !self.leaseID.isEmpty {
+      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 7)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_PhoneDecision, rhs: Agentkeyring_V1_PhoneDecision) -> Bool {
+    if lhs.domain != rhs.domain {return false}
+    if lhs.requestDigest != rhs.requestDigest {return false}
+    if lhs.choice != rhs.choice {return false}
+    if lhs.decidedUnixSeconds != rhs.decidedUnixSeconds {return false}
+    if lhs.notAfterUnixSeconds != rhs.notAfterUnixSeconds {return false}
+    if lhs.replySha256 != rhs.replySha256 {return false}
+    if lhs.leaseID != rhs.leaseID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

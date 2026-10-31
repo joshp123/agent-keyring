@@ -8,18 +8,36 @@ import SwiftProtobuf
 public struct RelayEndpoint: Codable, Equatable, Sendable {
     public let host: String
     public let port: UInt16
+    // Older saved endpoints have no proof override and keep loopback disabled.
+    private let allowsLoopbackForProof: Bool?
 
     public init(host: String, port: UInt16, allowsLoopbackForProof: Bool = false) throws {
-        let segments = host.split(separator: ".", omittingEmptySubsequences: false)
-        let parts = segments.compactMap { UInt8($0) }
-        let tailnetV4 = segments.count == 4 && parts.count == 4 && parts[0] == 100 && (64...127).contains(parts[1])
-        let tailnetV6 = host.lowercased().hasPrefix("fd7a:115c:a1e0:")
-        let tailnetDNS = host.lowercased().hasSuffix(".ts.net") && !host.contains("/")
-        guard port > 0, tailnetV4 || tailnetV6 || tailnetDNS || (allowsLoopbackForProof && host == "127.0.0.1") else {
-            throw RelayFailure(.invalidArgument, "Use the relay's Tailscale address and port.")
+        guard port > 0, !host.isEmpty, !host.contains("/"), !host.contains("@"),
+              host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            throw RelayFailure(.invalidArgument, "Enter the relay's host name and port.")
         }
         self.host = host
         self.port = port
+        self.allowsLoopbackForProof = allowsLoopbackForProof ? true : nil
+    }
+
+    fileprivate func permitsPeer(_ endpoint: NWEndpoint?) -> Bool {
+        guard case let .hostPort(host, _) = endpoint else { return false }
+        switch host {
+        case let .ipv4(address): return permitsIPv4(address)
+        case let .ipv6(address):
+            if address.isIPv4Mapped, let ipv4 = address.asIPv4 { return permitsIPv4(ipv4) }
+            return address.rawValue.starts(with: [0xfd, 0x7a, 0x11, 0x5c, 0xa1, 0xe0])
+                || (allowsLoopbackForProof == true && address.isLoopback)
+        case .name: return false
+        @unknown default: return false
+        }
+    }
+
+    private func permitsIPv4(_ address: IPv4Address) -> Bool {
+        let bytes = address.rawValue
+        return (bytes[0] == 100 && (64...127).contains(bytes[1]))
+            || (allowsLoopbackForProof == true && address.isLoopback)
     }
 }
 
@@ -31,9 +49,11 @@ public final class RelayConnection: @unchecked Sendable {
     private let lock = NSLock()
     private var observedSPKI: Data?
     private var opened = false
+    private let endpoint: RelayEndpoint
     public var peerSPKI: Data { lock.withLock { observedSPKI ?? Data() } }
 
     public init(endpoint: RelayEndpoint, identity: RelayTLSIdentity, pin: Data?) {
+        self.endpoint = endpoint
         let tls = NWProtocolTLS.Options()
         sec_protocol_options_set_min_tls_protocol_version(tls.securityProtocolOptions, .TLSv13)
         sec_protocol_options_set_local_identity(tls.securityProtocolOptions, sec_identity_create(identity.identity)!)
@@ -66,7 +86,9 @@ public final class RelayConnection: @unchecked Sendable {
                 }
                 connection.stateUpdateHandler = { state in
                     switch state {
-                    case .ready: finish(nil)
+                    case .ready:
+                        do { try self.requireTailnetPeer(); finish(nil) }
+                        catch { finish(error); self.cancel() }
                     case let .failed(error): finish(error)
                     case let .waiting(error): finish(error); self.cancel()
                     case .cancelled: finish(CancellationError())
@@ -87,6 +109,7 @@ public final class RelayConnection: @unchecked Sendable {
     }
 
     public func send(_ request: Agentkeyring_V1_RelayWireRequest) async throws {
+        try requireTailnetPeer()
         let data = try request.serializedData()
         guard !data.isEmpty, data.count <= 1_048_576 else { throw RelayFailure(.invalidArgument, "The relay request is too large.") }
         var size = UInt32(data.count).bigEndian
@@ -98,6 +121,13 @@ public final class RelayConnection: @unchecked Sendable {
                 })
             }
         } onCancel: { self.cancel() }
+    }
+
+    private func requireTailnetPeer() throws {
+        guard endpoint.permitsPeer(connection.currentPath?.remoteEndpoint) else {
+            connection.cancel()
+            throw RelayFailure(.permissionDenied, "The relay must connect over Tailscale.")
+        }
     }
 
     public func next() async throws -> Agentkeyring_V1_RelayWireResponse {

@@ -88,6 +88,21 @@ WhenUnlockedThisDeviceOnly Keychain items. The production app has no software
 replacement for the enclave/Face ID keys. Stage logs contain counts and error
 domain/code, never passwords, code seeds, replies or login metadata.
 
+## Resolved relay address
+
+The phone accepts a host name such as `mac-mini`. When Network.framework reports
+the TLS connection ready, the actual remote IP must be in `100.64.0.0/10` or
+`fd7a:115c:a1e0::/48`. Missing/unresolved addresses, public addresses and LAN
+addresses are refused. The transport checks again before sending a framed
+request. The DNS name and certificate pin alone cannot bypass this check.
+Loopback is available only with the fixture's explicit proof override, which
+survives fixture restart. Older saved endpoints default to no loopback override.
+
+The mini proof resolves `localhost` against the real relay: the normal endpoint
+is refused after TLS readiness and before a request; the explicit proof endpoint
+then pairs and completes the entire approval/restart proof through that name.
+The proof output is `resolved-peer-proof.log` alongside the other private receipts.
+
 ## System proof on the Mac mini
 
 The fixture invokes the production phone core, vault, TLS, HPKE, signature and
@@ -135,7 +150,7 @@ website sign-in.
 
 ## Device installation
 
-Version 0.4.0, build 6 is installed on Josh's iPhone 17 Pro. CoreDevice's
+Version 0.4.0, build 6 was installed on Josh's iPhone 17 Pro. CoreDevice's
 installed-app inventory independently confirmed the version and build after
 installation. The device build used the existing Apple Development identity
 and profiles for team 7M8BR7R488; strict verification of the app and embedded
@@ -144,17 +159,59 @@ deleted or revoked.
 
 The phone was locked. Launch was refused with CoreDevice's `Locked` reason;
 no phone settings or other apps were changed. The installed build has the
-real import, vault and approver backend. The designer's pairing screen is
-still pending integration into a follow-up installation. Build, installation,
-inventory and launch receipts are in `.private/proofs/r43/` in the main checkout.
+real import, vault and approver backend.
+
+Build 7 adds the designer's pairing screen and prefilled `mac-mini:17443`,
+on-device reply dictation, and the resolved-peer restriction above. Both the
+signed device build and the simulator SDK build on the mini passed. Strict
+verification of the app and its embedded extensions passed with the existing
+signing identity and profiles. Installation was attempted but failed with
+CoreDevice error 4016: no trusted connectivity/development services available.
+The physical phone is reported unavailable. Build 7 is **not installed**;
+build 6 is the last confirmed installation.
+
+The signed app is preserved in the main checkout at
+`.private/builds/phone-0.4.0-7/AgentKeyringPhone.app`. Build, installation,
+inventory and launch receipts are in `.private/proofs/r43/`; build 7 receipts
+use the `build7-` prefix. Reconnect the iPhone for development, install the
+preserved app, then independently check its installed build number.
+
+## Reply dictation
+
+The existing microphone button now calls `PhoneReplyDictation`, using Apple's
+`SFSpeechRecognizer` with `supportsOnDeviceRecognition` required and
+`requiresOnDeviceRecognition = true`. Partial results replace the live
+transcript and retain any reply text written before recording. The locale is
+the iPhone's first preferred language. Audio is passed directly from the
+microphone to the recognition request; it is not saved or logged. There is no
+server-recognition fallback. Apple's
+[request contract](https://developer.apple.com/documentation/speech/sfspeechrecognitionrequest/requiresondevicerecognition)
+requires the
+[local capability check](https://developer.apple.com/documentation/speech/sfspeechrecognizer/supportsondevicerecognition)
+as well as the request flag; both are enforced.
+
+First use requests speech-recognition and microphone permission. The purpose
+strings are “Turn your speech into a reply on this iPhone. Your voice stays on
+this iPhone.” and “Use the microphone to dictate your reply to an agent.”
+An unsupported local recognizer or denied permission reports a plain error in
+the existing alert; typing remains available. Stop, Cancel, closing the request,
+an audio interruption or backgrounding releases recording and the audio session.
+Starting again cannot let an old stream replace the new draft/listening state.
+
+`PhoneKeyringBackend.dictation()` now returns
+`AsyncThrowingStream<String, any Error>` so the model can show failures. The
+design mock has the same signature. No view was edited. No entitlement,
+provisioning-profile or Apple account change was made for speech.
+Live microphone capture, permission prompts and offline recognition remain
+physical-device checks; compilation does not prove these behaviors.
 
 ## Remaining device checks
 
 The pairing views are the designer's work. The Mac's added-approver action,
 physical fingerprint comparison and Touch ID are the Mac lane's work.
 APNs and delay registration remain R4.4; the R3 relay returns unavailable for
-RegisterPush. The phone's custom microphone button still needs a speech backend;
-typed replies and keyboard/system dictation use the real signed-reply path.
+RegisterPush. The speech backend is implemented; its real microphone and
+permission prompts remain unproved until the phone can run build 7.
 
 Josh's morning check, with an agent handling relay/receiver commands:
 
@@ -173,8 +230,12 @@ Josh's morning check, with an agent handling relay/receiver commands:
 5. For another request, approve and interrupt the network immediately after
    Face ID. Restore it and reopen the app if necessary. The same answer must
    arrive without another Face ID.
-6. Deny a fresh request with a harmless reply. The receiver must see that reply
-   with one Face ID. Plain Deny must need none. Check End Access stops a later
+6. Start a reply, tap the microphone and allow speech/microphone access. Speak
+   a harmless reply and check words appear while speaking. Repeat with Wi-Fi
+   and mobile data off to prove local recognition. Stop or close the request:
+   the microphone indicator must clear and the words must remain. Restore the
+   tailnet connection and deny with the reply: the receiver must see it with
+   one Face ID. Plain Deny must need none. Check End Access stops a later
    receiver operation, and that Mac Touch ID approval still works.
 
 No production authority is activated automatically. Automatic publishing,

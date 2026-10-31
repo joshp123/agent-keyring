@@ -74,7 +74,7 @@ public enum DesignExamples {
     }
 
     public static func iPhoneEnrolment(now: Date = .now) -> DeviceEnrolment {
-        DeviceEnrolment(id: "enrol-iphone", kind: .approver, name: "Josh's iPhone", tailnetNode: "iphone-15",
+        DeviceEnrolment(id: "enrol-iphone", kind: .approver, name: "Josh's iPhone", tailnetNode: "",
             code: "A04C 7E19 33D2 9B60 0F8E C51A 6D27 E4B3", askedAt: now.addingTimeInterval(-8))
     }
 

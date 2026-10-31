@@ -70,7 +70,8 @@ public protocol MacMachinesBackend: AnyObject {
     func connect(host: String, port: UInt16) async throws
     /// Josh compared the relay's code; Touch ID confirms.
     func confirmRelay(comparedCode: String) async throws
-    func cancelRelaySetup()
+    /// Abandons an unconfirmed first setup. Fails once it has been confirmed.
+    func cancelRelaySetup() throws
     /// Publishes changed rules to the relay, with Touch ID.
     func sendRules() async throws
     /// Removes a machine's right to ask, with Touch ID.
@@ -81,7 +82,7 @@ public protocol MacMachinesBackend: AnyObject {
 @Observable
 public final class MacMachinesModel {
     public private(set) var snapshot: MachinesSnapshot
-    public var addressDraft = ""
+    public var addressDraft = SetupCopy.defaultRelayAddress
     public private(set) var isWorking = false
     public private(set) var failure: String?
     /// Opens the enrolment panel for a waiting machine.
@@ -98,7 +99,7 @@ public final class MacMachinesModel {
         for await next in backend.updates() { snapshot = next }
     }
 
-    /// "mac-mini:17443" into host and port.
+    /// "mac-mini.example.ts.net:17443" into host and port.
     public var parsedAddress: (host: String, port: UInt16)? {
         let parts = addressDraft.trimmingCharacters(in: .whitespaces).split(separator: ":")
         guard parts.count == 2, !parts[0].isEmpty, let port = UInt16(parts[1]) else { return nil }
@@ -117,7 +118,9 @@ public final class MacMachinesModel {
         await run(SetupCopy.joiningFailed) { try await backend.confirmRelay(comparedCode: code) }
     }
 
-    public func cancelRelaySetup() { backend.cancelRelaySetup() }
+    public func cancelRelaySetup() async {
+        await run("The setup couldn't be cancelled.") { try backend.cancelRelaySetup() }
+    }
 
     public func sendRules() async {
         await run("The rules weren't sent. Try again.") { try await backend.sendRules() }
@@ -129,10 +132,13 @@ public final class MacMachinesModel {
 
     public func dismissFailure() { failure = nil }
 
+    /// Shows the backend's own explanation when it gives one.
     private func run(_ message: String, action: () async throws -> Void) async {
         isWorking = true
         defer { isWorking = false }
-        do { try await action() } catch { failure = message }
+        do { try await action() } catch {
+            failure = (error as? LocalizedError)?.errorDescription ?? message
+        }
     }
 }
 
@@ -164,7 +170,9 @@ public struct MacMachinesView: View {
                 Section(SetupCopy.waitingToJoin) {
                     ForEach(model.snapshot.waiting) { enrolment in
                         HStack {
-                            MachineLabel(name: enrolment.name, detail: SetupCopy.tailnetNode(enrolment.tailnetNode),
+                            MachineLabel(name: enrolment.name,
+                                detail: enrolment.tailnetNode.isEmpty
+                                    ? "Wants to approve requests" : SetupCopy.tailnetNode(enrolment.tailnetNode),
                                 symbol: enrolment.kind == .machine ? "desktopcomputer" : "iphone")
                             Spacer()
                             Button(SetupCopy.review) { model.review(enrolment.id) }
@@ -221,10 +229,14 @@ public struct MacMachinesView: View {
             Text(SetupCopy.relayNotSetUp)
                 .foregroundStyle(.secondary)
             HStack {
-                TextField(SetupCopy.relayAddress, text: $model.addressDraft, prompt: Text("mac-mini:17443"))
+                TextField(SetupCopy.relayAddress, text: $model.addressDraft,
+                    prompt: Text(SetupCopy.relayAddressExample))
                 Button(SetupCopy.connect) { Task { await model.connect() } }
                     .disabled(model.parsedAddress == nil || model.isWorking)
             }
+            Text(SetupCopy.relayAddressHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         case let .connecting(address):
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -243,7 +255,7 @@ public struct MacMachinesView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    Button(SetupCopy.doesNotMatch) { model.cancelRelaySetup() }
+                    Button(SetupCopy.doesNotMatch) { Task { await model.cancelRelaySetup() } }
                         .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 32))
                     Button { Task { await model.confirmRelay() } } label: {
                         Label(SetupCopy.theyMatch, systemImage: "touchid")
