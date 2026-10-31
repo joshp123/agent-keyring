@@ -181,9 +181,10 @@ public final class MacDesignGallery {
         let rows = DesignRules.rows(now: now)
         let summary = "34 logins: 18 Ask, 9 Automatic, 7 Blocked."
         let confirmation: RulesConfirmation? = switch screen {
-        case .rulesConfirm: RulesConfirmation(summary: summary, savedRulesWereUnreadable: false)
+        case .rulesConfirm: RulesConfirmation(summary: summary, savedRulesWereUnreadable: false,
+            explanation: RulesCopy.confirmBody + " " + RulesCopy.automaticStoredOnMini)
         case .rulesConfirmOtherMachines: RulesConfirmation(summary: summary, savedRulesWereUnreadable: false,
-            explanation: RulesCopy.confirmForOtherMachinesBody)
+            explanation: RulesCopy.confirmForOtherMachinesBody + " " + RulesCopy.automaticStoredOnMini)
         default: nil
         }
         let snapshot = LoginRulesSnapshot(rows: rows, confirmation: confirmation, isApplying: screen == .rulesApplying)
