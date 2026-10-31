@@ -2,6 +2,11 @@ Written by AI on 2026.10.31 by model gpt-6.1-sol.
 
 # iPhone Passwords import: R4.1
 
+**Retired implementation.** Release 4 now approves without holding passwords.
+The phone vault, import handler and credential-provider extension were removed;
+this record describes earlier builds. See [the current phone flow](iphone-relay-approver.md).
+The Mac's shared credential importer remains in use.
+
 Historical R4.1 record. The installed vault build and current morning steps are
 in [iPhone vault: R4.2](iphone-vault.md). It saves imported logins; receipt-only
 behavior below describes build 4.
