@@ -213,7 +213,7 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 	}
 	if response != nil {
 		for _, lease := range []*pb.Lease{response.GetClient().GetLease(), response.GetDecision().GetLease(), response.GetLease(), response.GetWork().GetLease()} {
-			if err = attachSignedDenial(tx, lease); err != nil {
+			if err = attachRemoteSignedDenial(tx, lease); err != nil {
 				return nil, false, nil, err
 			}
 		}
