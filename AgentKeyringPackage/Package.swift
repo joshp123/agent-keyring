@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
         .library(name: "AgentKeyringFillerSupport", targets: ["AgentKeyringFillerSupport"]),
         .library(name: "AgentKeyringApprovalUI", targets: ["AgentKeyringApprovalUI"]),
+        .library(name: "AgentKeyringScreenBackends", targets: ["AgentKeyringScreenBackends"]),
         .library(name: "AgentKeyringTestSupport", targets: ["AgentKeyringTestSupport"]),
         .library(name: "AgentKeyringFeature", targets: ["AgentKeyringFeature"]),
         .executable(name: "agent-keyring-authority-fixture", targets: ["AgentKeyringAuthorityFixture"]),
@@ -23,6 +24,8 @@ let package = Package(
         .target(name: "AgentKeyringApprovalCore"),
         .target(name: "AgentKeyringFillerSupport"),
         .target(name: "AgentKeyringApprovalUI"),
+        // Joins the lease store and access rules to the screens (RFC 0007, U2 and U3).
+        .target(name: "AgentKeyringScreenBackends", dependencies: ["AgentKeyringApprovalUI", "AgentKeyringFeature", "AgentKeyringProtocol"]),
         .executableTarget(name: "AgentKeyringDesignGallery", dependencies: ["AgentKeyringApprovalUI"], path: "Tools/AgentKeyringDesignGallery"),
         .target(name: "AgentKeyringFeature", dependencies: ["AgentKeyringProtocol", "AgentKeyringFillerSupport", "AgentKeyringApprovalCore", "AgentKeyringCredentialImport"]),
         .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),

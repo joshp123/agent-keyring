@@ -54,7 +54,7 @@ public final class MirrorAppModel {
     var macApprovalTask: Task<Void, Never>?
     var isApprovingLease = false
     var attemptedMacApprovals = Set<String>()
-    var leaseLogins: [CredentialCandidate] = []
+    public internal(set) var leaseLogins: [CredentialCandidate] = []
     public let approvalRoutingSettings: ApprovalRoutingSettings
     let authorizer: any CredentialReleaseAuthorizing
     let bridge: AgentBridgeDirectory
