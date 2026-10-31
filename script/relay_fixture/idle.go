@@ -29,10 +29,11 @@ func (p *proof) idleProof() {
 	defer p.work.Close()
 	p.enrol()
 	must(p.work.SetDeadline(time.Time{}))
-	// SIGQUIT records how long each goroutine has stayed blocked, then exits.
+	// Go records waitsince during GC, not when a goroutine first blocks. Allow
+	// its two-minute forced-GC interval, then a full minute before SIGQUIT.
 	// A 250 ms watcher or 1 s push poll cannot report a full minute in select.
-	fmt.Println("Idle relay has an open approver watch and a push worker; observing for 62 seconds.")
-	time.Sleep(62 * time.Second)
+	fmt.Println("Idle relay has an open approver watch and a push worker; observing for 185 seconds.")
+	time.Sleep(185 * time.Second)
 	must(p.process.Process.Signal(syscall.SIGQUIT))
 	p.process.Wait()
 	p.process = nil
@@ -42,7 +43,8 @@ func (p *proof) idleProof() {
 	for _, function := range []string{"(*Server).serveConnection", "(*Server).maintain", "(*Server).sendPushes"} {
 		blocked := false
 		for _, goroutine := range strings.Split(string(trace), "\ngoroutine ") {
-			if strings.Contains(goroutine, function) && strings.Contains(strings.SplitN(goroutine, "\n", 2)[0], "[select, 1 minutes]") {
+			header := strings.SplitN(goroutine, "\n", 2)[0]
+			if strings.Contains(goroutine, function) && strings.Contains(header, "[select, ") && strings.Contains(header, " minutes]") {
 				blocked = true
 				break
 			}

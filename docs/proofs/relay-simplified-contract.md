@@ -43,10 +43,13 @@ Observed:
   the timer deletes history and aliases, finishes connected setup streams as
   EXPIRED, deletes setup rows and preserves pinned approver identities.
 - The idle proof starts the actual relay with an open WatchWork stream and
-  its APNs worker, then leaves it alone for 62 seconds. SIGQUIT records a Go
+  its APNs worker, then leaves it alone for 185 seconds. SIGQUIT records a Go
   runtime dump and exits. The watcher, deadline scheduler and push worker each
-  report `select, 1 minutes`: none resumed periodically. The fixture prints the
-  trace path. Short signed deadlines in the ordinary proof still wake both
+  report at least one full minute in `select`: none resumed periodically. Go
+  starts that duration during garbage collection, so the observation allows
+  its two-minute forced-GC interval before measuring the minute. The former
+  62-second observation could finish before that duration was recorded. The
+  fixture prints the trace path. Short signed deadlines still wake both
   receiver and approver streams without polling.
 - The phone proof still passes HTTP/2 APNs deduplication, durable consent over
   restart, both PHONE signatures, mismatched-consent refusals, signed denial
