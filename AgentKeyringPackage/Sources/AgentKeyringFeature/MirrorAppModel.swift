@@ -112,14 +112,16 @@ public final class MirrorAppModel {
             status = importedMetadata?.safeStatus
             leaseLogins = metadataIncludingExample(importedMetadata)?.candidates ?? []
             await accessControl.refresh(fromMetadata: metadataIncludingExample(importedMetadata))
-            try await refreshLeasePolicy()
-            relayApprover.start()
         } catch {
             notice = MirrorNotice(
                 kind: .error,
                 text: "The encrypted mirror could not be opened. Apple Passwords was not changed."
             )
+            return
         }
+        do { try await refreshLeasePolicy() }
+        catch { /* The rules and task-history screens show their own recovery action. */ }
+        relayApprover.start()
     }
 
     public func setIncludeExampleCredential(_ enabled: Bool) async {

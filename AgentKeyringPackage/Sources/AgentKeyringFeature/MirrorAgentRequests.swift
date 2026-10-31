@@ -8,7 +8,8 @@ private let leaseLogger = Logger(subsystem: "com.agentkeyring.app", category: "C
 extension MirrorAppModel {
     public func startAgentListener() throws {
         guard agentListener == nil else { return }
-        try leaseStore.load()
+        do { try leaseStore.load() }
+        catch { leaseLogger.error("Task history needs owner recovery; the socket will report how to reset it.") }
         agentListener = try AgentBridgeServer(bridge: bridge) { [weak self] request, peer, reply in
             guard let self else { return }
             await self.handleLeaseRequest(request, peer: peer, reply: reply)

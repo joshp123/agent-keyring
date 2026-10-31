@@ -18,6 +18,9 @@ public struct ContentView: View {
             windowGradient
 
             VStack(spacing: 18) {
+                if model.leaseStore.needsHistoryReset {
+                    LeaseHistoryRecoveryView(model: model)
+                }
                 MirrorStatusPanel(
                     status: model.status,
                     isLoading: model.isLoading,
@@ -78,5 +81,35 @@ public struct ContentView: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
+    }
+}
+
+@available(macOS 26.0, *)
+private struct LeaseHistoryRecoveryView: View {
+    let model: MirrorAppModel
+    @State private var isResetting = false
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Task history could not be opened", systemImage: "exclamationmark.circle")
+                .font(.headline)
+            Text("Reset it to let agents ask again. This ends previous task access on this Mac. Your saved logins and access rules are kept.")
+                .font(.callout)
+            if let failure { Text(failure).font(.callout).foregroundStyle(.red) }
+            Button("Reset task history…") {
+                Task {
+                    isResetting = true
+                    defer { isResetting = false }
+                    do { try await model.resetLeaseHistory() }
+                    catch { failure = "Task history wasn't reset: \(error.localizedDescription)" }
+                }
+            }
+            .disabled(isResetting)
+            .accessibilityIdentifier("reset-task-history")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(.regularMaterial, in: .rect(cornerRadius: 16))
     }
 }

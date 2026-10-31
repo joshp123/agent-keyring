@@ -58,6 +58,7 @@ public final class CredentialLeaseStore {
     private let persistence: LeasePersistence
     public private(set) var leases: [Agentkeyring_V1_Lease] = []
     public private(set) var errorMessage: String?
+    public private(set) var needsHistoryReset = false
     @ObservationIgnored private var observers: [UUID: AsyncStream<[Agentkeyring_V1_Lease]>.Continuation] = [:]
 
     public init(persistence: LeasePersistence = LeasePersistence()) { self.persistence = persistence }
@@ -72,18 +73,36 @@ public final class CredentialLeaseStore {
                 guard saved.version == 1 else { throw LeaseFailure(.unavailable, "This lease state needs a newer Agent Keyring.") }
                 snapshot = saved
             } else {
-                var recipient = Agentkeyring_V1_Recipient()
-                recipient.recipientID = UUID().uuidString
-                recipient.machineLabel = Host.current().localizedName ?? "This Mac"
-                recipient.clientLabel = "Local agents"
-                try commit(Snapshot(recipient: recipient.serializedData()))
+                try commit(emptySnapshot())
             }
             try expire()
+            errorMessage = nil
+            needsHistoryReset = false
             publish()
         } catch {
-            errorMessage = "Saved lease authority is unavailable. Nothing will be released."
-            throw error
+            snapshot = nil
+            needsHistoryReset = true
+            errorMessage = "Task history could not be opened. Task access on this Mac is stopped. Open Agent Keyring and choose Reset task history."
+            publish()
+            throw LeaseFailure(.unavailable, errorMessage!)
         }
+    }
+
+    /// Called only after the owner approves resetting the unavailable history.
+    /// A new recipient and empty records make every old reference unusable.
+    func resetHistoryAfterOwnerConfirmation() throws {
+        guard needsHistoryReset else { return }
+        try commit(emptySnapshot())
+        errorMessage = nil
+        needsHistoryReset = false
+    }
+
+    private func emptySnapshot() throws -> Snapshot {
+        var recipient = Agentkeyring_V1_Recipient()
+        recipient.recipientID = UUID().uuidString
+        recipient.machineLabel = Host.current().localizedName ?? "This Mac"
+        recipient.clientLabel = "Local agents"
+        return Snapshot(recipient: try recipient.serializedData())
     }
 
     public func changes() -> AsyncStream<[Agentkeyring_V1_Lease]> {

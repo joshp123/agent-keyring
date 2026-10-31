@@ -28,15 +28,18 @@ public struct MacMenuBarSnapshot: Hashable, Sendable {
     public var relay: RelayLink?
     public var queuedAnswers: Int
     public var rulesNotSent: Bool
+    public var taskHistoryNeedsReset: Bool
 
     public init(requests: [AccessRequest], passwords: ImportedPasswords?, enrolments: [DeviceEnrolment] = [],
-        relay: RelayLink? = nil, queuedAnswers: Int = 0, rulesNotSent: Bool = false) {
+        relay: RelayLink? = nil, queuedAnswers: Int = 0, rulesNotSent: Bool = false,
+        taskHistoryNeedsReset: Bool = false) {
         self.requests = requests
         self.passwords = passwords
         self.enrolments = enrolments
         self.relay = relay
         self.queuedAnswers = queuedAnswers
         self.rulesNotSent = rulesNotSent
+        self.taskHistoryNeedsReset = taskHistoryNeedsReset
     }
 }
 
@@ -59,6 +62,7 @@ public final class MacMenuBarModel {
     public private(set) var relay: RelayLink?
     public private(set) var queuedAnswers: Int
     public private(set) var rulesNotSent: Bool
+    public private(set) var taskHistoryNeedsReset: Bool
     public var review: (String) -> Void = { _ in }
     public var reviewEnrolment: (String) -> Void = { _ in }
     public var openMachines: () -> Void = {}
@@ -76,11 +80,12 @@ public final class MacMenuBarModel {
         self.relay = initial.relay
         self.queuedAnswers = initial.queuedAnswers
         self.rulesNotSent = initial.rulesNotSent
+        self.taskHistoryNeedsReset = initial.taskHistoryNeedsReset
         self.backend = backend
     }
 
     /// Everything that needs Josh: waiting requests and devices waiting to join.
-    public var attentionCount: Int { waiting.count + enrolments.count }
+    public var attentionCount: Int { waiting.count + enrolments.count + (taskHistoryNeedsReset ? 1 : 0) }
 
     /// One line when the relay needs attention; nil when all is well.
     public var relayAttention: String? {
@@ -101,6 +106,7 @@ public final class MacMenuBarModel {
             relay = snapshot.relay
             queuedAnswers = snapshot.queuedAnswers
             rulesNotSent = snapshot.rulesNotSent
+            taskHistoryNeedsReset = snapshot.taskHistoryNeedsReset
         }
     }
 
@@ -156,7 +162,16 @@ public struct MacMenuBarView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if model.attentionCount > 0 {
+            if model.taskHistoryNeedsReset {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Task history needs attention").font(.headline)
+                    Text("Task access on this Mac is stopped. Your logins and rules are kept.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Button("Reset task history…", action: model.openAgentKeyring)
+                }
+                .padding(14)
+            }
+            if !model.waiting.isEmpty || !model.enrolments.isEmpty {
                 MenuSection(title: "Waiting for you") {
                     ForEach(model.enrolments) { enrolment in
                         JoiningMenuRow(enrolment: enrolment) { model.reviewEnrolment(enrolment.id) }
