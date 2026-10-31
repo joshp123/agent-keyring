@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AgentKeyringTestSupport
+import AgentKeyringProtocol
 @testable import AgentKeyringFeature
 
 @MainActor
@@ -98,6 +99,26 @@ struct SnapshotMergerTests {
             password: "new-password", origins: ["https://z.example.com", "https://example.com"])]))
         #expect(second.items[0].id == first.items[0].id)
         try await checkRuleAfterImport(first, second, expectedPolicy: .allowAutomatically)
+    }
+
+    @Test("Publication needs confirmation for an added login, but not a password-only refresh", arguments: [false, true])
+    func publicationAfterRefresh(addLogin: Bool) throws {
+        let first = try merger().merge(previous: nil, importBatch: batch(items: [item(index: 1)]))
+        var imported = [item(index: 1, password: "refreshed-password")]
+        if addLogin { imported.append(item(index: 2)) }
+        let second = try merger().merge(previous: first, importBatch: batch(items: imported))
+        let rules = [first.items[0].id: CredentialAccessPolicy.allowAutomatically]
+        let approver = RelayApprover { throw CocoaError(.fileReadUnknown) }
+        var published = try approver.configurationContents(RelayApproverVault(generation: first, policies: rules), machines: [:])
+        published.domain = "agentkeyring.configuration.v1"
+        published.revision = 12
+        published.mirrorRefreshedUnixSeconds = 1_000
+        // Use the stored configuration bytes, including after an app upgrade:
+        // no old generation-based cache can force a second confirmation.
+        let restored = try Agentkeyring_V1_Configuration(serializedBytes: published.serializedData())
+        let changed = try approver.publicationDigest(restored)
+            != approver.publicationDigest(RelayApproverVault(generation: second, policies: rules), machines: [:])
+        #expect(changed == addLogin)
     }
 
     @Test("Duplicate accounts keep distinct source identities without rejecting the import")
