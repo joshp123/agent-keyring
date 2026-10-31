@@ -1,5 +1,4 @@
 import AgentKeyringApprovalUI
-import AgentKeyringPhoneVault
 import AgentKeyringProtocol
 import AgentKeyringRelaySupport
 import CryptoKit
@@ -10,11 +9,13 @@ extension PhoneRelayApprover {
         let set = try Agentkeyring_V1_ApproverKeySet(serializedBytes: signed.keySet)
         guard set.domain == "agentkeyring.approvers.v1", set.revision > 0,
               !set.keys.isEmpty, Set(set.keys.map(\.keyID)).count == set.keys.count,
-              set.keys.contains(where: { $0.keyID == set.ruleOwnerKeyID }) else {
+              set.keys.contains(where: { $0.keyID == set.ruleOwnerKeyID && ($0.role == .mac || $0.role == .unspecified) }) else {
             throw RelayFailure(.permissionDenied, "The approver key set is invalid.")
         }
         for key in set.keys {
-            guard key.keyID == RelayCrypto.keyID(key.publicKey), !key.tlsPublicKey.isEmpty else {
+            guard key.keyID == RelayCrypto.keyID(key.publicKey),
+                  (key.role == .macDelivery ? key.tlsPublicKey.isEmpty : !key.tlsPublicKey.isEmpty),
+                  [.mac, .phone, .macDelivery].contains(key.role) || (key.role == .unspecified && key.keyID == set.ruleOwnerKeyID) else {
                 throw RelayFailure(.permissionDenied, "The approver identity is invalid.")
             }
             _ = try P256.Signing.PublicKey(x963Representation: key.publicKey)
@@ -29,6 +30,7 @@ extension PhoneRelayApprover {
 
     func verify(_ signature: Data, bytes: Data, signerID: String, in set: Agentkeyring_V1_ApproverKeySet) throws {
         guard let key = set.keys.first(where: { $0.keyID == signerID }),
+              key.role == .mac || (key.role == .unspecified && key.keyID == set.ruleOwnerKeyID),
               try RelayCrypto.verify(signature: signature, statement: bytes, publicKey: key.publicKey) else {
             throw RelayFailure(.permissionDenied, "The signed record does not match the trusted approvers.")
         }
@@ -56,6 +58,7 @@ extension PhoneRelayApprover {
         request.pairApprover.key.publicKey = publicKey
         request.pairApprover.key.tlsPublicKey = identity.publicKeySPKI
         request.pairApprover.key.label = "Josh's iPhone"
+        request.pairApprover.key.role = .phone
         request.pairApprover.tlsPublicKey = identity.publicKeySPKI
         let connection = try await RelayTransport(endpoint: endpoint, identity: identity, pin: nil).open(request)
         do {
@@ -130,7 +133,7 @@ extension PhoneRelayApprover {
         guard state.pendingPair?.transcript == pending.transcript,
               nextSet.revision > previous.revision, nextSet.ruleOwnerKeyID == previous.ruleOwnerKeyID,
               nextSet.pairingTranscriptSha256 == RelayCrypto.hash(pending.transcript),
-              nextSet.keys.contains(where: { $0.keyID == RelayCrypto.keyID(ownKey) && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) }),
+              nextSet.keys.contains(where: { $0.role == .phone && $0.keyID == RelayCrypto.keyID(ownKey) && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) }),
               nextSet.enrolmentSetRevision > 0, nextSet.enrolmentSetSha256.count == 32 else {
             throw RelayFailure(.permissionDenied, "The Mac's signed pairing does not match this phone's comparison.")
         }
@@ -152,6 +155,9 @@ extension PhoneRelayApprover {
     }
 
     func verifiedRoster(_ signed: Agentkeyring_V1_SignedEnrolmentSet, keys: Agentkeyring_V1_ApproverKeySet) throws -> Agentkeyring_V1_EnrolmentSet {
+        guard signed.approverKeyID == keys.ruleOwnerKeyID else {
+            throw RelayFailure(.permissionDenied, "Only the rule owner may sign the machine list.")
+        }
         try verify(signed.signature, bytes: signed.enrolmentSet, signerID: signed.approverKeyID, in: keys)
         let roster = try Agentkeyring_V1_EnrolmentSet(serializedBytes: signed.enrolmentSet)
         guard roster.domain == "agentkeyring.enrolments.v1", roster.revision > 0,
@@ -185,12 +191,13 @@ extension PhoneRelayApprover {
         guard case let .approverKeyChain(chain) = chain.response else { throw RelayFailure(.unavailable, "The approver key chain is unavailable.") }
         for signed in chain.keySets {
             let candidate = try parsedKeys(signed)
-            guard candidate.revision > set.revision else { throw RelayFailure(.permissionDenied, "The approver key chain rolled back.") }
+            guard candidate.revision > set.revision,
+                  candidate.keys.allSatisfy({ $0.role != .unspecified || ($0.keyID == set.ruleOwnerKeyID && $0.publicKey == set.keys.first(where: { $0.keyID == set.ruleOwnerKeyID })?.publicKey) }) else { throw RelayFailure(.permissionDenied, "The approver key chain rolled back.") }
             try verify(signed.signature, bytes: signed.keySet, signerID: signed.signerKeyID, in: set)
             current = signed; set = candidate
         }
         let ownKey = try keys.signingPublicKey()
-        guard set.keys.contains(where: { $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) }) else {
+        guard set.keys.contains(where: { $0.role == .phone && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) }) else {
             throw RelayFailure(.permissionDenied, "This iPhone is no longer an approver.")
         }
         request = .init(); request.getEnrolmentSet = .init()
@@ -212,8 +219,44 @@ extension PhoneRelayApprover {
         request = .init(); request.getIndex = .init()
         let index = try await client.call(request)
         guard case let .index(index) = index.response else { throw RelayFailure(.unavailable, "The rule owner's index is unavailable.") }
-        try vault.acceptOwnerIndex(index, owner: PhoneRuleOwner(keyID: owner.keyID, publicKey: owner.publicKey))
-        logger.notice("Rule owner index verified and matched to phone vault")
+        guard index.approverKeyID == owner.keyID else { throw RelayFailure(.permissionDenied, "Only the rule owner may sign the login index.") }
+        try verify(index.signature, bytes: index.index, signerID: index.approverKeyID, in: set)
+        let parsedIndex = try Agentkeyring_V1_LoginIndex(serializedBytes: index.index)
+        let ids = parsedIndex.logins.map(\.loginID)
+        guard parsedIndex.revision > 0, !ids.contains(""), Set(ids).count == ids.count,
+              parsedIndex.logins.allSatisfy({ [.ask, .automatic, .blocked].contains($0.rule) }) else {
+            throw RelayFailure(.permissionDenied, "The signed login index is invalid.")
+        }
+        if let bytes = state.signedIndex {
+            let previous = try Agentkeyring_V1_SignedIndex(serializedBytes: bytes)
+            let oldIndex = try Agentkeyring_V1_LoginIndex(serializedBytes: previous.index)
+            guard parsedIndex.revision >= oldIndex.revision,
+                  parsedIndex.revision != oldIndex.revision || index.index == previous.index else {
+                throw RelayFailure(.permissionDenied, "The login index rolled back or changed at the same revision.")
+            }
+        }
+        next = state; next.signedIndex = try index.serializedData(); next.rulesUpdatedAt = Date()
+        try commit(next)
+        logger.notice("Verified rule owner index; logins=\(parsedIndex.logins.count, privacy: .public)")
+    }
+
+    func indexedLogin(_ id: String) throws -> Agentkeyring_V1_Login {
+        guard let bytes = state.signedIndex else { throw RelayFailure(.unavailable, "The Mac's login index has not arrived.") }
+        let signed = try Agentkeyring_V1_SignedIndex(serializedBytes: bytes)
+        let index = try Agentkeyring_V1_LoginIndex(serializedBytes: signed.index)
+        guard let login = index.logins.first(where: { $0.loginID == id }) else {
+            throw RelayFailure(.notFound, "The Mac's signed index has no such login.")
+        }
+        return login
+    }
+
+    func sourceMac(_ id: String) throws -> Agentkeyring_V1_ApproverKey {
+        let set = try parsedKeys(currentKeys())
+        guard let mac = set.keys.first(where: { $0.keyID == id }),
+              mac.role == .mac || (mac.role == .unspecified && id == set.ruleOwnerKeyID) else {
+            throw RelayFailure(.permissionDenied, "The escalating Mac is no longer trusted.")
+        }
+        return mac
     }
 
     func machine(_ recipientID: String) throws -> Agentkeyring_V1_EnrolledMachine {

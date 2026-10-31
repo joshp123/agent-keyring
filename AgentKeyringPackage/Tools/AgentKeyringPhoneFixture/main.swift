@@ -1,8 +1,6 @@
 // Written by AI on 2026.10.31 by model gpt-6.1-sol.
 // Process fixture only. Software keys and dummy credentials never enter the iOS app.
-import AgentKeyringCredentialImport
 import AgentKeyringPhoneApprover
-import AgentKeyringPhoneVault
 import AgentKeyringRelaySupport
 import CryptoKit
 import Foundation
@@ -12,11 +10,9 @@ import LocalAuthentication
 final class FixtureKeys: PhoneApproverKeys {
     let directory: URL
     let signer: P256.Signing.PrivateKey
-    let agreement: P256.KeyAgreement.PrivateKey
     init(_ directory: URL) throws {
         self.directory = directory
         signer = try P256.Signing.PrivateKey(rawRepresentation: Data(contentsOf: directory.appending(path: "signing.raw")))
-        agreement = try P256.KeyAgreement.PrivateKey(rawRepresentation: Data(contentsOf: directory.appending(path: "agreement.raw")))
     }
     func signingPublicKey() throws -> Data { signer.publicKey.x963Representation }
     func authorize(_ context: LAContext, reason: String) async throws {
@@ -26,9 +22,6 @@ final class FixtureKeys: PhoneApproverKeys {
         while FileManager.default.fileExists(atPath: directory.appending(path: "hold-authorization").path) {
             try await Task.sleep(for: .milliseconds(50))
         }
-    }
-    func sharedSecret(with publicKey: P256.KeyAgreement.PublicKey, context: LAContext) throws -> SharedSecret {
-        try agreement.sharedSecretFromKeyAgreement(with: publicKey)
     }
     func sign(_ bytes: Data, context: LAContext) throws -> Data { try signer.signature(for: bytes).derRepresentation }
 }
@@ -44,16 +37,7 @@ struct PhoneFixture {
         let keys = try FixtureKeys(directory)
         let identity = try RelayTLSIdentity(privateKey: Data(contentsOf: directory.appending(path: "tls-private.x963")),
                                             certificate: Data(contentsOf: directory.appending(path: "tls-cert.der")))
-        let vault = PhoneVault(directory: directory.appending(path: "vault"))
-        if try vault.status() == nil {
-            let item = MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "phone-fixture", accountID: Data([1]), itemID: Data([2])),
-                                  title: "example.com", origins: ["https://example.com"],
-                                  credentials: [.password(userName: "fixture", password: "phone-fixture-password"),
-                                                .totp(secret: Data("12345678901234567890".utf8), period: 30, digits: 6, userName: "fixture", algorithm: .sha1, issuer: "Fixture")])
-            _ = try vault.importCredentials(MirrorImportBatch(scope: .selected, exportedAt: Date(), exporterIdentifier: "phone-fixture",
-                                                              exporterDisplayName: "Dummy", items: [item], skippedCredentialCount: 0), publicKey: keys.agreement.publicKey)
-        }
-        let approver = PhoneRelayApprover(directory: directory.appending(path: "approver"), vault: vault, keys: keys, identity: { identity })
+        let approver = PhoneRelayApprover(directory: directory.appending(path: "approver"), keys: keys, identity: { identity })
         try approver.load(); approver.start()
         output("READY")
         while let line = await Task.detached(operation: { readLine() }).value {

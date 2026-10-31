@@ -35,8 +35,8 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         self.importer = importer
         self.destination = destination
         approver = PhoneRelayApprover(directory: URL.applicationSupportDirectory.appending(path: "PhoneApprover", directoryHint: .isDirectory),
-                                      vault: destination.vault, keys: destination.keys,
-                                      identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v1") })
+                                      keys: destination.keys,
+                                      identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.phone-v2") })
         do {
             if let status = try destination.status() {
                 snapshot.passwords = .imported(count: status.loginCount, at: status.importedAt)
@@ -106,7 +106,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
             let status = try await destination.receive(batch)
             phoneImportLogger.notice("Saved encrypted phone vault with \(status.loginCount, privacy: .public) items")
             snapshot.passwords = .imported(count: status.loginCount, at: status.importedAt)
-            // A request for a previously missing login must be replayed after import.
+            // Optional import never gates phone approval.
             approver.reconnect()
         } catch {
             logFailure(error, stage: "Phone vault import")
@@ -158,7 +158,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
             snapshot.connection = approver.connection
             snapshot.pairing = approver.pairing
             snapshot.settings.keyFingerprint = approver.keyFingerprint
-            snapshot.settings.rulesUpdatedAt = approver.vault.rulesUpdatedAt
+            snapshot.settings.rulesUpdatedAt = approver.rulesUpdatedAt
         } catch { logFailure(error, stage: "Read approver state") }
     }
 
@@ -172,7 +172,6 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         try await approver.endAccess(requestID)
     }
     func allowAskingAgain(requestID: String) async throws -> AccessRequestState { try await approver.clearDenial(requestID) }
-    func setAskPhoneAfter(_ delay: Duration) async throws { try await approver.setAskPhoneAfter(delay) }
 
     private func logFailure(_ error: any Error, stage: String) {
         let failure = CredentialImportFailure(error: error, hadExistingMirror: false)
