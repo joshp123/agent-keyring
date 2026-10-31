@@ -110,12 +110,6 @@ public enum SetupCopy {
         }
     }
 
-    // MARK: Passwords on the iPhone (optional in release 4)
-
-    public static let phonePasswordsTitle = "Passwords on this iPhone"
-    public static let phonePasswordsFooter = "Not needed to approve. Your MacBook delivers logins; this iPhone only says yes or no."
-    public static let phonePasswordsPurpose = "Optional. Today your MacBook delivers every login, and this iPhone only approves. A later version uses passwords kept here when your MacBook is shut."
-
     // MARK: The iPhone's pairing
 
     public static let pairTitle = "Pair with your Mac"

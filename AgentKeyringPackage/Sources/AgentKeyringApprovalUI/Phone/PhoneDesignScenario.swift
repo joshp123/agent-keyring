@@ -21,7 +21,6 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
     case inUseDetail
     case historyDetail
     case unreachable
-    case importFailed
     case notificationsOn
     case settings
     case settingsNotPaired
@@ -43,7 +42,6 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
         let github = DesignExamples.githubSignIn(now: now)
         let history = DesignExamples.history(now: now)
         var requests = [github] + history
-        var passwords = PasswordsOnPhone.imported(count: 522, at: now.addingTimeInterval(-3 * 86_400))
         var connection = ServiceConnection.connected(service: DesignExamples.macMini.name,
             lastContact: now.addingTimeInterval(-4))
         var presented: String?
@@ -93,9 +91,6 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             // Disconnected with a request already fetched: it stays answerable.
             requests = [github] + history
             connection = .unreachable(service: DesignExamples.macMini.name, since: now.addingTimeInterval(-11 * 60))
-        case .importFailed:
-            // A failed optional import changes nothing on Home.
-            passwords = .importFailed("Turn on Agent Keyring in Settings → General → AutoFill & Passwords, then export from Passwords.")
         case .notificationsOn:
             requests = history.filter { !$0.state.isInUse }
             notifications = .on
@@ -122,7 +117,6 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
 
         let snapshot = PhoneKeyringSnapshot(
             requests: requests,
-            passwords: passwords,
             connection: connection,
             settings: PhoneSettings(askPhoneAfter: .seconds(120), notifications: notifications,
                 keyFingerprint: "7F3A 91C2 0B4E D8A5 6C17 E902 44BB 13F0",
@@ -189,6 +183,5 @@ final class DesignPhoneBackend: PhoneKeyringBackend {
         return .denied(by: by, reply: reply, askAgainAfter: nil)
     }
 
-    func openPasswordsForImport() {}
 
 }

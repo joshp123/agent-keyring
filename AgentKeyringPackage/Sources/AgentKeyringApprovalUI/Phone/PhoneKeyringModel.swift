@@ -1,18 +1,11 @@
 // Written by AI on 2026.10.31 by model Claude Opus 5.5.
 //
 // The iPhone app's one view model. Views read its values and call its
-// methods; everything real (push, the tailnet, Face ID, the vault, speech)
+// methods; everything real (push, the tailnet, Face ID)
 // sits behind PhoneKeyringBackend, so it can arrive without touching a view.
 
 import Foundation
 import Observation
-
-public enum PasswordsOnPhone: Hashable, Sendable {
-    case notImported
-    case importing(received: Int)
-    case imported(count: Int, at: Date)
-    case importFailed(String)
-}
 
 public enum ServiceConnection: Hashable, Sendable {
     case connected(service: String, lastContact: Date)
@@ -52,15 +45,13 @@ public struct PhoneSettings: Hashable, Sendable {
 public struct PhoneKeyringSnapshot: Hashable, Sendable {
     /// Waiting, in use and recent requests, in any order.
     public var requests: [AccessRequest]
-    public var passwords: PasswordsOnPhone
     public var connection: ServiceConnection
     public var settings: PhoneSettings
     public var pairing: PhonePairingState
 
-    public init(requests: [AccessRequest], passwords: PasswordsOnPhone, connection: ServiceConnection,
+    public init(requests: [AccessRequest], connection: ServiceConnection,
         settings: PhoneSettings, pairing: PhonePairingState = .notPaired) {
         self.requests = requests
-        self.passwords = passwords
         self.connection = connection
         self.settings = settings
         self.pairing = pairing
@@ -80,15 +71,12 @@ public protocol PhoneKeyringBackend: AnyObject {
     func endAccess(requestID: String) async throws -> AccessRequestState
     /// Clears a denial's hold-off, so this machine may ask for the login again.
     func allowAskingAgain(requestID: String) async throws -> AccessRequestState
-    /// Asks iOS to allow exports to Agent Keyring; the export starts in Passwords.
-    func openPasswordsForImport()
 }
 
 @MainActor
 @Observable
 public final class PhoneKeyringModel {
     public private(set) var requests: [AccessRequest]
-    public private(set) var passwords: PasswordsOnPhone
     public private(set) var connection: ServiceConnection
     public private(set) var settings: PhoneSettings
     public private(set) var pairing: PhonePairingState
@@ -104,7 +92,6 @@ public final class PhoneKeyringModel {
     public init(backend: any PhoneKeyringBackend, initial: PhoneKeyringSnapshot) {
         self.backend = backend
         self.requests = initial.requests
-        self.passwords = initial.passwords
         self.connection = initial.connection
         self.settings = initial.settings
         self.pairing = initial.pairing
@@ -127,7 +114,6 @@ public final class PhoneKeyringModel {
             if request.state.isWaitingForYou, let state = sending[request.id] { request.state = state }
             return request
         }
-        passwords = snapshot.passwords
         connection = snapshot.connection
         settings = snapshot.settings
         pairing = snapshot.pairing
@@ -195,10 +181,6 @@ public final class PhoneKeyringModel {
     }
 
     public func cancelPairing() { backend.cancelPairing() }
-
-    public func importPasswords() {
-        backend.openPasswordsForImport()
-    }
 
     public func dismissFailure() { failure = nil }
 

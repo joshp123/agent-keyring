@@ -15,14 +15,6 @@ struct PhoneSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    NavigationLink { PhoneImportView(model: model) } label: { passwordsRow }
-                } header: {
-                    Text(SetupCopy.phonePasswordsTitle)
-                } footer: {
-                    Text(SetupCopy.phonePasswordsFooter)
-                }
-
-                Section {
                     if model.pairing == .paired {
                         connectionRow
                     } else {
@@ -63,19 +55,6 @@ struct PhoneSettingsView: View {
             }
         }
         .tint(KeyringColour.signal)
-    }
-
-    @ViewBuilder private var passwordsRow: some View {
-        switch model.passwords {
-        case let .imported(count, at):
-            LabeledContent("\(count) logins on this iPhone", value: "Updated \(at.formatted(.relative(presentation: .named)))")
-        case let .importing(received):
-            LabeledContent("Importing", value: "\(received) so far")
-        case .notImported:
-            LabeledContent("None", value: "Optional")
-        case .importFailed:
-            LabeledContent("Last import didn't finish") { Text("See why").foregroundStyle(KeyringColour.denyText) }
-        }
     }
 
     @ViewBuilder private var connectionRow: some View {
