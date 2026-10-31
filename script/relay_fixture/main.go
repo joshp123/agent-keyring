@@ -118,6 +118,7 @@ func endRequest(lease string) *pb.RelayWireRequest {
 
 type proof struct {
 	address, directory, relayBinary string
+	extraFlags                      []string
 	process                         *exec.Cmd
 	approver, client                wireClient
 	signer                          *ecdsa.PrivateKey
@@ -131,7 +132,7 @@ type proof struct {
 }
 
 func (p *proof) start() {
-	p.process = exec.Command(p.relayBinary, "--listen", p.address, "--state", filepath.Join(p.directory, "relay"), "--loopback-test")
+	p.process = exec.Command(p.relayBinary, append([]string{"--listen", p.address, "--state", filepath.Join(p.directory, "relay"), "--loopback-test"}, p.extraFlags...)...)
 	p.process.Stdout = os.Stdout
 	p.process.Stderr = os.Stderr
 	must(p.process.Start())
@@ -226,6 +227,9 @@ func (p *proof) decision(record []byte, deny bool, lifetime ...int64) *pb.RelayW
 	request := new(pb.RequestRecord)
 	must(proto.Unmarshal(record, request))
 	statement := &pb.DecisionStatement{Domain: "agentkeyring.decision.v1", RequestDigest: relaycrypto.Digest("agentkeyring.request.v1", record), Choice: pb.DecisionChoice_DECISION_CHOICE_APPROVE, ApprovedAtUnixSeconds: time.Now().Unix(), NotAfterUnixSeconds: time.Now().Unix() + 1800, RecipientId: p.enrolled.RecipientId, ReceiverKeyId: p.enrolled.ReceiverKeyId, LeaseId: request.LeaseId, ReplySha256: relaycrypto.Hash(nil), Authority: pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN}
+	if len(lifetime) > 1 {
+		statement.ApprovedAtUnixSeconds = lifetime[1]
+	}
 	if len(lifetime) > 0 {
 		statement.NotAfterUnixSeconds = statement.ApprovedAtUnixSeconds + lifetime[0]
 	}
@@ -398,7 +402,7 @@ func main() {
 		return
 	}
 	p := &proof{address: *address, directory: *directory, relayBinary: *relayBinary}
-	if *mode == "proof" || *mode == "phone" {
+	if *mode == "proof" || *mode == "phone" || *mode == "phone-approval" {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		must(err)
 		p.address = listener.Addr().String()
@@ -410,7 +414,9 @@ func main() {
 		p.serveApprover()
 		return
 	}
-	if *mode == "phone" {
+	if *mode == "phone-approval" {
+		p.phoneApprovalProof()
+	} else if *mode == "phone" {
 		p.phoneProof(*phoneBinary)
 	} else if *mode == "tailnet" {
 		p.tailnet(*linuxHost, *remoteBinary)

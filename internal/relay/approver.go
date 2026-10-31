@@ -20,7 +20,7 @@ func verifyApprover(tx *sql.Tx, id string, statement, signature []byte, owner bo
 		return err
 	}
 	key := keyByID(keys, id)
-	if key == nil || (owner && keys.RuleOwnerKeyId != id) {
+	if key == nil || relaycrypto.Role(keys, key) != pb.ApproverRole_APPROVER_ROLE_MAC || (owner && keys.RuleOwnerKeyId != id) {
 		return denied("Signer is not a current authorized approver.")
 	}
 	if relaycrypto.Verify(key.PublicKey, statement, signature) != nil {
@@ -29,12 +29,24 @@ func verifyApprover(tx *sql.Tx, id string, statement, signature []byte, owner bo
 	return nil
 }
 func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[string][]byte) (*pb.RelayWireResponse, bool, error) {
+	_, keys, err := currentKeys(tx)
+	if err != nil {
+		return nil, false, err
+	}
+	role := relaycrypto.Role(keys, keyByID(keys, p.approver))
+	if role == pb.ApproverRole_APPROVER_ROLE_PHONE {
+		switch r.Request.(type) {
+		case *pb.RelayWireRequest_WatchWork, *pb.RelayWireRequest_RegisterPush, *pb.RelayWireRequest_AnswerFromPhone, *pb.RelayWireRequest_RevokeLease, *pb.RelayWireRequest_ClearDenial, *pb.RelayWireRequest_GetEnrolmentSet:
+		default:
+			return nil, false, denied("This method requires a Mac approver.")
+		}
+	}
 	switch request := r.Request.(type) {
 	case *pb.RelayWireRequest_WatchWork:
 		if request.WatchWork.ApproverKeyId != p.approver {
 			return nil, false, denied("Watcher must name its pinned approver key.")
 		}
-		return s.work(tx, seen)
+		return s.work(tx, p, seen)
 	case *pb.RelayWireRequest_Decide:
 		result, err := s.decide(tx, p, request.Decide)
 		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Decision{Decision: result}, EndOfStream: true}, false, err
@@ -43,8 +55,14 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 		return enrolAck(), false, err
 	case *pb.RelayWireRequest_ClearDenial:
 		err := s.clearDenial(tx, request.ClearDenial)
+		if err == nil {
+			err = queueLocalClear(tx, request.ClearDenial)
+		}
 		return publishAck(), false, err
 	case *pb.RelayWireRequest_RevokeLease:
+		if lease, err := revokeLocal(tx, request.RevokeLease.LeaseId); err != nil || lease != nil {
+			return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Lease{Lease: lease}, EndOfStream: true}, false, err
+		}
 		lease, _, err := loadLease(tx, request.RevokeLease.LeaseId)
 		if err == nil && !terminal(lease) {
 			end(lease, pb.LeaseState_LEASE_STATE_REVOKED)
@@ -99,7 +117,19 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	case *pb.RelayWireRequest_PublishApproverKeys:
 		err := s.publishKeys(tx, request.PublishApproverKeys)
 		return publishAck(), false, err
-	case *pb.RelayWireRequest_PublishAutomatic, *pb.RelayWireRequest_RegisterPush, *pb.RelayWireRequest_GetAutomaticKeys:
+	case *pb.RelayWireRequest_RegisterPush:
+		err := registerPush(tx, p, request.RegisterPush)
+		return publishAck(), false, err
+	case *pb.RelayWireRequest_EscalateToPhone:
+		err := escalate(tx, p, request.EscalateToPhone)
+		return publishAck(), false, err
+	case *pb.RelayWireRequest_AnswerFromPhone:
+		ack, err := answerPhone(tx, p, request.AnswerFromPhone)
+		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Decision{Decision: ack}, EndOfStream: true}, false, err
+	case *pb.RelayWireRequest_UpdateLocalPhoneLease:
+		ack, err := updateLocalPhoneLease(tx, p, request.UpdateLocalPhoneLease)
+		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Decision{Decision: ack}, EndOfStream: true}, false, err
+	case *pb.RelayWireRequest_PublishAutomatic, *pb.RelayWireRequest_GetAutomaticKeys:
 		return nil, false, &rpcError{pb.RpcErrorCode_RPC_ERROR_CODE_UNAVAILABLE, "This method belongs to release 4 and is not available on this relay."}
 	default:
 		return nil, false, invalid("Select a supported relay method.")
@@ -126,7 +156,27 @@ func (s *Server) clearDenial(tx *sql.Tx, request *pb.ClearDenialRequest) error {
 func workResponse(work *pb.ApproverWork) *pb.RelayWireResponse {
 	return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Work{Work: work}}
 }
-func (s *Server) work(tx *sql.Tx, seen map[string][]byte) (*pb.RelayWireResponse, bool, error) {
+func (s *Server) work(tx *sql.Tx, p peer, seen map[string][]byte) (*pb.RelayWireResponse, bool, error) {
+	if next, err := phoneWork(tx, p, seen); err != nil || next != nil {
+		return next, true, err
+	}
+	_, keys, err := currentKeys(tx)
+	if err != nil {
+		return nil, false, err
+	}
+	if relaycrypto.Role(keys, keyByID(keys, p.approver)) == pb.ApproverRole_APPROVER_ROLE_PHONE {
+		leases, err := allLeases(tx)
+		if err != nil {
+			return nil, false, err
+		}
+		for _, lease := range leases {
+			key := "lease:" + lease.LeaseId
+			if (lease.State == pb.LeaseState_LEASE_STATE_ACTIVE || seen[key] != nil) && changed(seen, key, lease) {
+				return workResponse(&pb.ApproverWork{Item: &pb.ApproverWork_Lease{Lease: lease}}), true, nil
+			}
+		}
+		return nil, true, nil
+	}
 	rows, err := tx.Query("SELECT request,lease FROM leases ORDER BY rowid")
 	if err != nil {
 		return nil, false, err
@@ -290,6 +340,19 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		if p.approver == "" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || r.Reply != "" || len(r.Signature) != 0 || r.Bundle != nil || len(statement.BundleCiphertextSha256) != 0 || statement.AutomaticGrantRevision != 0 || (r.ApproverKeyId != "" && r.ApproverKeyId != p.approver) {
 			return nil, denied("Approver connection authority permits only an unsigned denial with no reply.")
 		}
+	case pb.DecisionAuthority_DECISION_AUTHORITY_PHONE:
+		_, keys, e := currentKeys(tx)
+		if e != nil {
+			return nil, e
+		}
+		if err = relaycrypto.VerifyPhoneDelivery(keys, r, statement); err != nil {
+			return nil, denied(err.Error())
+		}
+		var owner string
+		var answer []byte
+		if tx.QueryRow("SELECT owner,answer FROM phone_escalations WHERE lease=? AND local_lease IS NULL", l.LeaseId).Scan(&owner, &answer) != nil || owner != p.approver || !bytes.Equal(answer, marshal(r.PhoneDecision)) {
+			return nil, denied("Phone answer was not accepted for this escalation.")
+		}
 	case pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN:
 		if statement.AutomaticGrantRevision != 0 {
 			return nil, invalid("Human decision cannot name an Automatic grant.")
@@ -327,6 +390,14 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		if !enrolStatement.AutomaticAllowed {
 			return nil, denied("This machine was not allowed Automatic logins.")
 		}
+		_, keys, e := currentKeys(tx)
+		if e != nil {
+			return nil, e
+		}
+		delivery, e := relaycrypto.KeyForRole(keys, grant.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
+		if e != nil || !bytes.Equal(delivery, grant.AutomaticSigningPublicKey) {
+			return nil, denied("Automatic delivery key is no longer authorized.")
+		}
 		if relaycrypto.Verify(grant.AutomaticSigningPublicKey, r.Statement, r.Signature) != nil {
 			return nil, denied("Invalid Automatic signature.")
 		}
@@ -334,7 +405,7 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		return nil, invalid("Unknown decision authority.")
 	}
 	now := time.Now().Unix()
-	if statement.ApprovedAtUnixSeconds < l.RequestedAtUnixSeconds || statement.ApprovedAtUnixSeconds > now+30 {
+	if statement.ApprovedAtUnixSeconds < l.RequestedAtUnixSeconds || statement.ApprovedAtUnixSeconds > now+30 || statement.ApprovedAtUnixSeconds >= l.PendingUntilUnixSeconds {
 		return nil, denied("Decision approval time is outside this request.")
 	}
 	switch statement.Choice {
@@ -355,6 +426,9 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		l.ApprovedAtUnixSeconds = statement.ApprovedAtUnixSeconds
 		l.NotAfterUnixSeconds = statement.NotAfterUnixSeconds
 		l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_MAC
+		if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_PHONE {
+			l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_IPHONE
+		}
 		if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE {
 			l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_AUTOMATIC_RULE
 		}
@@ -538,6 +612,14 @@ func (s *Server) publishGrant(tx *sql.Tx, r *pb.SignedAutomaticGrant) error {
 	if proto.Unmarshal(r.Grant, next) != nil || next.Domain != "agentkeyring.automatic.v1" || next.Revision == 0 || next.AutomaticKeyId == "" {
 		return invalid("Invalid Automatic grant.")
 	}
+	_, keys, err := currentKeys(tx)
+	if err != nil {
+		return err
+	}
+	delivery, err := relaycrypto.KeyForRole(keys, next.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
+	if err != nil || !bytes.Equal(delivery, next.AutomaticSigningPublicKey) {
+		return denied("Automatic grant must name a current Mac delivery key.")
+	}
 	if _, err := relaycrypto.PublicKey(next.AutomaticSigningPublicKey); err != nil {
 		return invalid("Invalid Automatic signing key.")
 	}
@@ -678,19 +760,27 @@ func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
 	tlsKeys := map[string]bool{}
 	added := 0
 	for _, key := range next.Keys {
-		if key.KeyId == "" || ids[key.KeyId] || tlsKeys[string(key.TlsPublicKey)] || !validSPKI(key.TlsPublicKey) {
+		if key.KeyId == "" || ids[key.KeyId] || (len(key.TlsPublicKey) > 0 && (tlsKeys[string(key.TlsPublicKey)] || !validSPKI(key.TlsPublicKey))) {
 			return invalid("Duplicate or invalid approver keys.")
 		}
+		if key.Role != pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY && !validSPKI(key.TlsPublicKey) {
+			return invalid("Approver requires a TLS identity.")
+		}
 		ids[key.KeyId] = true
-		tlsKeys[string(key.TlsPublicKey)] = true
+		if len(key.TlsPublicKey) > 0 {
+			tlsKeys[string(key.TlsPublicKey)] = true
+		}
 		if _, err = relaycrypto.PublicKey(key.PublicKey); err != nil {
 			return invalid("Invalid approver signing key.")
 		}
 		before := keyByID(old, key.KeyId)
 		if before != nil {
-			if !bytes.Equal(before.PublicKey, key.PublicKey) || !bytes.Equal(before.TlsPublicKey, key.TlsPublicKey) {
+			if !bytes.Equal(before.PublicKey, key.PublicKey) || !bytes.Equal(before.TlsPublicKey, key.TlsPublicKey) || relaycrypto.Role(old, before) != relaycrypto.Role(next, key) {
 				return invalid("Key rotation requires a new key ID and pairing.")
 			}
+			continue
+		}
+		if key.Role == pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY {
 			continue
 		}
 		added++
@@ -706,6 +796,9 @@ func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
 		if !proto.Equal(pair.Key, key) || !bytes.Equal(compared, oldSigned.KeySet) || time.Now().Unix() >= created+600 || !bytes.Equal(next.PairingTranscriptSha256, relaycrypto.Hash(relaycrypto.PairTranscript(relaySPKI, key.TlsPublicKey, key.PublicKey, oldSigned.KeySet))) {
 			return denied("Added approver does not match the compared pairing.")
 		}
+	}
+	if err = relaycrypto.ValidateRoles(next, old.RuleOwnerKeyId); err != nil {
+		return denied(err.Error())
 	}
 	if added > 1 {
 		return invalid("Pair one new approver at a time.")
