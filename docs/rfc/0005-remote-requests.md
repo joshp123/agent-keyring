@@ -47,7 +47,8 @@ otherwise.
 - **Only approved machines can ask.** A machine enrols once; Josh compares a
   key fingerprint on the new machine with the one on the approver and approves
   with Touch ID. Enrolling grants the right to ask, nothing more. Limit: any
-  agent running on an enrolled machine can ask as that machine.
+  agent running on an enrolled machine can ask as that machine. Its keys are
+  an owner-only file, so that includes any process running as its user.
 - **A receiver opens only what an approver signed for it.** It checks the
   decision against the approver keys it pinned at enrolment, and that the
   decision names it, this lease and an unexpired deadline. Limit: a receiver
@@ -96,7 +97,13 @@ from software administering that same machine.
    uploads that decision with `SignedDecision.bundle`. The relay durably stores
    the bundle, original request bytes and decision with the lease transition
    in one transaction before acknowledging it. Denial replies are also bound
-   by the signature, using the SHA-256 of their UTF-8 bytes.
+   by the signature, using the SHA-256 of their UTF-8 bytes. A denial without
+   a reply is the exception: the approver sends it unsigned over its pinned
+   connection, with authority `APPROVER_CONNECTION`, so Deny needs no Touch ID.
+   It grants nothing, and a relay that wanted to stop a request could withhold
+   it anyway. A denial with a reply is signed with the human key, because the
+   reply is an instruction to the agent; a receiver shows a reply only when
+   that signature checks.
 5. **Fill.** The receiver's `BeginOperation` records the operation at the relay
    and returns the `SealedDelivery`, including the exact approved request bytes.
    The receiver checks their digest and scope against the request it retained
@@ -269,7 +276,7 @@ built now. Pairing and Automatic code follow the contracts above.
 | --- | --- | --- | --- |
 | R3.1 | Terra or Sol | Relay core in Go: SQLite store, lease and operation records, request joining and deadlines from RFC 0004, `RelayWireRequest` server over TLS with pinned keys | A scripted client and a scripted approver complete request, approve, begin, finish, release over loopback TLS; relay restart mid-lease loses nothing |
 | R3.2 | Terra or Sol | Enrolment: `Enrol` stream, code derivation, Tailscale node lookup, approver decision, revocation | A Linux test machine enrols, is refused from a different tailnet node with the same keys, and is revoked |
-| R3.3 | Terra or Sol | Client: relay transport, enrolled-key storage (file with owner-only permissions on Linux; Keychain on macOS), pinned approver keys, bundle verification and opening | Wrong recipient, wrong lease, expired deadline, unknown signer and tampered ciphertext are each refused with a clear error |
+| R3.3 | Terra or Sol | Client: relay transport, enrolled-key storage (a file with owner-only permissions, on Linux and on Macs without the app), pinned approver keys, bundle verification and opening | Wrong recipient, wrong lease, expired deadline, unknown signer and tampered ciphertext are each refused with a clear error |
 | R3.4 | Sol | Mac app approver: relay connection, `WatchWork`, local decision checks, bundle sealing with precomputed codes, signed decisions, outbox with resend until acknowledged | MacBook approves a remote request; killing the network after Touch ID and restoring it delivers the same decision with no second touch |
 | R3.5 | Terra | nix-darwin service and tailnet access rule for the relay port | Mini reboots and the relay is back before anyone logs in |
 | R3.6 | Opus | Enrolment and remote-request screens in the Mac panel (RFC 0007) | Josh can tell a remote request from a local one at a glance |
