@@ -46,21 +46,39 @@ the MacBook stays the owner of the rules.
 
 ## How the copies stay right
 
-The copies travel in the publication the MacBook already sends to the mini
-whenever an import, rule change or machine change is confirmed (RFC 0005).
+Two kinds of change reach the copies, and only one needs Josh.
 
-- The signed configuration already lists every login and its rule. It gains a
-  hash of each sealed phone login, next to the existing hashes of the mini's
-  Automatic logins. So the MacBook's signature covers exactly which logins each
-  copy holds, at which revision.
-- The phone accepts a copy only with a valid configuration signed by the
-  MacBook, at a revision no lower than it has already seen, with every hash
-  matching. An older copy replayed later is refused.
-- The MacBook shows "Applying" until the mini acknowledges the publication.
-  From that moment the mini serves only the new configuration. The phone picks
-  up its copy the next time it connects; until then it treats any login whose
-  copy is behind the configuration as not held, and falls back to approval
-  only.
+- **What is allowed** (which logins exist, their rules, which machines are
+  enrolled) is the signed configuration from RFC 0005. Changing it needs Touch
+  ID, as now.
+- **What the copies contain** (the current passwords and code seeds) changes
+  whenever a password changes. Re-importing a changed password must not ask
+  Josh anything, and today a password-only import correctly publishes no new
+  configuration. So the copies cannot be covered by the configuration's
+  signature.
+
+The copies are therefore signed by the MacBook's background delivery key, the
+key it already uses without Touch ID, in a separate copy update:
+
+- Each update names one destination (the mini or the phone), the configuration
+  revision it belongs to, its own revision, and the sealed logins.
+- The mini or phone accepts it only if it is signed by the MacBook's delivery
+  key from the pinned key set, belongs to the configuration it already holds,
+  has a higher revision than the last update, and contains only logins that
+  configuration allows there: Automatic logins for the mini, Ask logins for the
+  phone. An older update replayed later is refused.
+- The MacBook sends a copy update after every import that changes a copied
+  password, and after every configuration change. Both go through the same
+  outbox, so a password-only refresh reaches the copies with no prompt.
+- The MacBook shows "Applying" until the mini acknowledges the update. The
+  phone picks up its copy the next time it connects; until then it treats any
+  login whose copy belongs to an older configuration as not held, and falls
+  back to approval only.
+
+What this lets the delivery key do: put new contents into a copy for logins
+Josh has already allowed there. It cannot add a login, change a rule or enrol a
+machine. Software controlling the MacBook could push a wrong password into a
+copy, but it can already read every password there.
 
 ## When a rule changes
 
@@ -74,8 +92,9 @@ the MacBook says "Applying" for that period.
   mini.
 - **To Blocked:** the mini refuses any delivery of it, including one the phone
   signs from an older copy. The phone deletes its copy when it next connects.
-- **New login, or changed password:** it reaches the copies at the next
-  MacBook import and confirmation, as today.
+- **Changed password:** a copy update follows the import, with no prompt.
+- **New login:** it starts as Ask. It reaches a copy after Josh confirms the
+  new configuration, as today.
 
 ## What each copy exposes
 
@@ -127,30 +146,33 @@ awake.
 
 ## Contract changes
 
-All are additions. Signing roles stay as narrow as now.
+Signing roles stay as narrow as now, apart from the one addition to the
+delivery key above.
 
 - The phone's `ApproverKey` gains its Face ID protected key-agreement public
   key. The MacBook signs it into the key set at pairing, as now.
-- `Configuration` gains `sealed_phone_login_sha256`, alongside
-  `sealed_automatic_login_sha256`. `ConfigurationPublication` gains the sealed
-  phone logins, using the same sealed-login message as the Automatic ones.
-  The relay hands the latest publication's phone logins to the phone.
+- A signed copy update, signed by the MAC_DELIVERY key: destination,
+  configuration revision, update revision, and the sealed logins, using the
+  existing sealed-login message. It replaces
+  `Configuration.sealed_automatic_login_sha256` and
+  `ConfigurationPublication.automatic_logins`, which tied the copy's contents
+  to the Touch ID signature. The relay stores the newest update for each
+  destination and hands the phone's to the phone.
 - A decision with `authority = HUMAN` may be signed by a PHONE key, as well as
-  by the MacBook's key, when the phone delivers a login itself. This changes
-  nothing else about the phone's powers: it still cannot sign configurations or
-  key sets.
+  by the MacBook's key, when the phone delivers a login itself. The phone still
+  cannot sign configurations, key sets or copy updates.
 - The configuration's Automatic signing key becomes the mini's key for remote
-  Automatic requests. The existing `GetAutomaticKeys` and
-  `ConfigurationPublication.automatic_logins` already cover this.
+  Automatic requests, through the existing `GetAutomaticKeys`.
 
 ## Build slices
 
 | Slice | What | Done when |
 | --- | --- | --- |
-| S1 | The mini serves remote Automatic requests, awake or shut, from the Automatic logins in each publication | With the MacBook shut, an agent on the mini gets an Automatic test login; after a change to Ask is acknowledged, the mini refuses it |
-| S2 | Phone copy: the key, sealed Ask logins in the publication, hashes in the signed configuration, revision checks on the phone | The phone holds the test logins; a re-import that changes one updates it; an older copy replayed to the phone is refused |
-| S3 | The phone delivers: Face ID opens one login, the phone seals it to the machine that asked and signs a HUMAN decision; approval-only when it has no current copy | With the MacBook shut and the phone on mobile data, one Face ID completes an agent's test sign-in |
-| S4 | The mini asks the phone when the MacBook is not connected, including for a request already waiting when it drops off | A request waiting on the Mac panel reaches the phone as soon as the lid closes |
+| S1 | Copy updates: signed by the delivery key, checked against the current configuration, sent after password-only imports and configuration changes | Changing a test password and re-importing updates the mini's copy with no prompt; an older update replayed is refused |
+| S2 | The mini serves remote Automatic requests, awake or shut, from its copy | With the MacBook shut, an agent on the mini gets an Automatic test login; after a change to Ask is acknowledged, the mini refuses it |
+| S3 | Phone copy: the Face ID key and the phone's copy updates | The phone holds the test logins; a password-only re-import updates its copy with no prompt |
+| S4 | The phone delivers: Face ID opens one login, the phone seals it to the machine that asked and signs a HUMAN decision; approval-only when it has no current copy | With the MacBook shut and the phone on mobile data, one Face ID completes an agent's test sign-in |
+| S5 | The mini asks the phone when the MacBook is not connected, including for a request already waiting when it drops off | A request waiting on the Mac panel reaches the phone as soon as the lid closes |
 
 ## Device proofs
 
@@ -169,6 +191,8 @@ On the real MacBook, iPhone and mini, with test logins only:
   granted; the other device shows it was answered elsewhere. A notification
   that arrives twice is not a second approval.
 - One Face ID both opens the login and signs the answer.
+- Change a copied password in Apple Passwords and re-import: no prompt, and
+  the next delivery from the mini and from the phone uses the new password.
 - Phone with no copy, or a stale one: it approves, and the MacBook delivers if
   awake.
 - Phone replaced: the new phone gets its copy at pairing and the old one's key
