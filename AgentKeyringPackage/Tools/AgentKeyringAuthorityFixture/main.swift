@@ -1,0 +1,84 @@
+// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+// An isolated authority process for full-system socket proofs, never bundled.
+// Only example.com exists. Access-rule signing and biometrics are fixtures;
+// socket handling, lease state, Keychain checkpointing and mirror are production.
+import AgentKeyringFeature
+import AgentKeyringTestSupport
+import Foundation
+
+@MainActor
+final class FixtureApproval: CredentialReleaseAuthorizing {
+    func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
+        throw CredentialReleaseAuthorizationError.unavailable
+    }
+}
+
+@main
+struct AuthorityFixture {
+    @MainActor static func main() async throws {
+        guard (2...3).contains(CommandLine.arguments.count),
+            CommandLine.arguments.count == 2 || CommandLine.arguments[2] == "--with-code" else {
+            fatalError("Supply an isolated directory and optional --with-code")
+        }
+        let root = URL(fileURLWithPath: CommandLine.arguments[1])
+        let ruleFile = root.appendingPathComponent("rules.json")
+        let signer = FakeAccessRulesSigner(signedBytes: try? Data(contentsOf: ruleFile))
+        let rules = CredentialAccessPolicyStore(fileURL: ruleFile, signer: signer)
+        if !FileManager.default.fileExists(atPath: ruleFile.path) {
+            try await confirmInitialAccessRules(in: rules, policies: [MirrorItem.exampleCredentialID: .allowAutomatically])
+        }
+        let access = CredentialAccessController(store: rules)
+        let settings = UserDefaults(suiteName: "AgentKeyringAuthorityFixture")!
+        settings.set(true, forKey: "includeExampleCredential")
+        let vault = EncryptedSnapshotStore(directoryURL: root.appendingPathComponent("vault"),
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x36, count: 32)))
+        if CommandLine.arguments.count == 3, try await vault.loadCurrent() == nil {
+            let item = MirrorItem(id: MirrorItem.exampleCredentialID,
+                sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "com.agentkeyring.example",
+                    accountID: Data("example@example.com".utf8), itemID: Data("example.com".utf8)),
+                title: "example.com", origins: ["https://example.com", "http://127.0.0.1:8443"],
+                credentials: [.password(userName: "example@example.com", password: "example-password"),
+                    .totp(secret: Data("12345678901234567890".utf8), period: 30, digits: 6,
+                        userName: nil, algorithm: .sha1, issuer: "Synthetic proof")])
+            try await vault.save(MirrorGeneration(id: UUID(), previousGenerationID: nil,
+                createdAt: Date(), sourceExportedAt: Date(), scope: .full,
+                exporterIdentifier: "com.agentkeyring.example", exporterDisplayName: "Synthetic proof",
+                items: [item], skippedCredentialCount: 0))
+        }
+        let model = MirrorAppModel(store: vault,
+            authorizer: FixtureApproval(), bridge: AgentBridgeDirectory(rootURL: root), accessControl: access,
+            leaseStore: CredentialLeaseStore(persistence: LeasePersistence(directory: root.appendingPathComponent("leases"),
+                checkpointService: "com.agentkeyring.authority-fixture." + root.lastPathComponent)), settings: settings)
+        model.automaticallyPromptForLeases = false
+        await model.loadStatus()
+        try model.startAgentListener()
+        print("Ready: \(root.appendingPathComponent("agent.sock").path)")
+        fflush(stdout)
+        // Control input represents the owner's actions. It does not authenticate
+        // a biometric; the fixture refuses every production Touch ID request.
+        let lines = AsyncStream<String> { continuation in
+            DispatchQueue.global().async {
+                while let line = readLine() { continuation.yield(line) }
+                continuation.finish()
+            }
+        }
+        for await line in lines {
+            let parts = line.split(separator: " ", maxSplits: 2).map(String.init)
+            guard let command = parts.first else { continue }
+            do {
+                switch command {
+                case "ask", "auto", "block":
+                    let rule: CredentialAccessPolicy = command == "ask" ? .ask : command == "auto" ? .allowAutomatically : .block
+                    await access.setPolicy(rule, for: [MirrorItem.exampleCredentialID])
+                case "deny" where parts.count >= 2:
+                    try model.denyLease(parts[1], reply: parts.count == 3 ? parts[2] : "")
+                case "clear-denial": try model.leaseStore.clearDenial(loginID: MirrorItem.exampleCredentialID.uuidString)
+                case "quit": return
+                default: print("Unknown owner action")
+                }
+                print("Owner action committed")
+            } catch { print("Owner action failed: \(error)") }
+            fflush(stdout)
+        }
+    }
+}
