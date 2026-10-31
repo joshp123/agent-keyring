@@ -296,7 +296,7 @@ func Fill(ctx context.Context, client authority.Client, lease *pb.Lease, request
 	if target.LoaderId != "" && f.Loader != target.LoaderId {
 		return fillResult(7, "The page changed since you inspected it. Inspect the current page before filling.")
 	}
-	if !allowedOrigin(f.Origin, lease.Sites) {
+	if !client.Remote && !allowedOrigin(f.Origin, lease.Sites) {
 		return fillResult(3, "This frame's actual site is outside the saved login's destinations.")
 	}
 	var world struct {
@@ -331,11 +331,19 @@ func Fill(ctx context.Context, client authority.Client, lease *pb.Lease, request
 	if record := response.GetAlreadyStarted(); record != nil {
 		return previousFill(record)
 	}
-	values, err := Delivered(response)
+	values, sites, err := Delivered(ctx, client, lease, response, selected)
 	if err != nil {
 		return fillResult(2, err.Error())
 	}
 	defer ClearValues(values)
+	if !allowedOrigin(f.Origin, sites) {
+		client.Finish(context.WithoutCancel(ctx), &pb.FinishOperationRequest{LeaseId: lease.LeaseId, OperationId: response.OperationId, Outcome: &pb.FinishOperationRequest_Fill{Fill: pb.FillOutcome_FILL_OUTCOME_SITE_MISMATCH}})
+		return fillResult(3, "This frame's actual site is outside the signed login's saved destinations.")
+	}
+	currentFrame, err = d.frame(ctx, f.ID)
+	if err != nil || currentFrame.Loader != f.Loader || currentFrame.Origin != f.Origin {
+		return fillResult(7, "The target document changed while the delivery was being verified.")
+	}
 	payload := []string{}
 	for _, field := range selected {
 		payload = append(payload, Value(values, field))

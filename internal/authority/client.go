@@ -17,8 +17,11 @@ import (
 const MaxFrame = 1 << 20
 
 type Client struct {
-	Socket string
-	Start  func(context.Context) error
+	Socket     string
+	Start      func(context.Context) error
+	Exchange   func(context.Context, *pb.WireRequest, func(*pb.WireResponse) bool) error
+	OpenValues func(context.Context, *pb.Lease, *pb.BeginOperationResponse) (*pb.CredentialValues, []string, error)
+	Remote     bool
 }
 
 func WriteFrame(w io.Writer, message proto.Message) error {
@@ -68,6 +71,9 @@ func (c Client) Call(ctx context.Context, request *pb.WireRequest) (*pb.WireResp
 	return result, err
 }
 func (c Client) Stream(ctx context.Context, request *pb.WireRequest, receive func(*pb.WireResponse) bool) error {
+	if c.Exchange != nil {
+		return c.Exchange(ctx, request, receive)
+	}
 	conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "unix", c.Socket)
 	if err != nil && c.Start != nil {
 		if startError := c.Start(ctx); startError != nil {
