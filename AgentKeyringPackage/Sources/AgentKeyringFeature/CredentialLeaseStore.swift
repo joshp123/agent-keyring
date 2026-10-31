@@ -11,6 +11,20 @@ public struct LeaseFailure: Error, Sendable {
     }
 }
 
+public struct CredentialLeaseRequester: Codable, Sendable {
+    public let name: String
+    public let workingDirectory: String?
+    public let machineName: String
+    public let networkAddress: String?
+
+    init(_ requester: AgentRequester) {
+        name = requester.name
+        workingDirectory = requester.workingDirectory
+        machineName = requester.machineName
+        networkAddress = requester.networkAddress
+    }
+}
+
 /// Authority methods run synchronously on the main actor: the durable commit
 /// precedes publication and value delivery, with no suspension between them.
 @MainActor @Observable
@@ -26,6 +40,7 @@ public final class CredentialLeaseStore {
     private struct SavedLease: Codable {
         var lease: Data
         var automatic: Bool
+        var requester: CredentialLeaseRequester? = nil
         var operations: [String: SavedOperation] = [:]
     }
     private struct Suppression: Codable {
@@ -90,7 +105,7 @@ public final class CredentialLeaseStore {
     /// The bridge has authenticated the local OS peer. Release 2 deliberately
     /// has one principal/recipient for that OS user, independent of process IDs.
     public func request(_ incoming: Agentkeyring_V1_RequestLeaseRequest, login: CredentialCandidate?,
-        policy: CredentialAccessPolicy) throws -> Agentkeyring_V1_Lease {
+        policy: CredentialAccessPolicy, requester: CredentialLeaseRequester? = nil) throws -> Agentkeyring_V1_Lease {
         try load()
         var request = incoming
         guard let loginID = UUID(uuidString: request.loginID), !request.requestID.isEmpty,
@@ -161,11 +176,13 @@ public final class CredentialLeaseStore {
             lease.state = .pending
             lease.statusLines = ["Waiting for approval in Agent Keyring."]
         }
-        next.leases[lease.leaseID] = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically)
+        next.leases[lease.leaseID] = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically, requester: requester)
         next.requests[request.requestID] = RequestRecord(request: try request.serializedData(), leaseID: lease.leaseID)
         try commit(next)
         return lease
     }
+
+    public func requester(for leaseID: String) -> CredentialLeaseRequester? { snapshot?.leases[leaseID]?.requester }
 
     public func get(_ leaseID: String) throws -> Agentkeyring_V1_Lease {
         try load()
@@ -175,13 +192,14 @@ public final class CredentialLeaseStore {
     }
 
     /// Call only after successful Touch ID. Late/duplicate answers cannot revive a lease.
-    public func approve(_ leaseID: String) throws -> Agentkeyring_V1_Lease {
+    func approve(_ leaseID: String) throws -> Agentkeyring_V1_Lease {
         var lease = try get(leaseID)
         guard lease.state == .pending else { return lease }
         lease.state = .active
         lease.approvedBy = .mac
-        lease.approvedAtUnixSeconds = Self.now
-        lease.notAfterUnixSeconds = Self.now + 1800
+        let approvedAt = Self.now
+        lease.approvedAtUnixSeconds = approvedAt
+        lease.notAfterUnixSeconds = approvedAt + 1800
         lease.statusLines = []
         try saveLease(lease)
         return lease
@@ -290,6 +308,23 @@ public final class CredentialLeaseStore {
         try commit(next)
         response.operationID = record.operationID
         response.values = selectedValues
+        return response
+    }
+
+    public func operation(_ request: Agentkeyring_V1_GetOperationRequest) throws -> Agentkeyring_V1_GetOperationResponse {
+        _ = try get(request.leaseID)
+        guard request.operationDigest.count == 32 else {
+            throw LeaseFailure(.invalidArgument, "Supply the SHA-256 action digest.")
+        }
+        let key = request.requestID.isEmpty ? "digest:" + request.operationDigest.base64EncodedString() : "request:" + request.requestID
+        var response = Agentkeyring_V1_GetOperationResponse()
+        if let saved = snapshot!.leases[request.leaseID]!.operations[key] {
+            let original = try Agentkeyring_V1_BeginOperationRequest(serializedBytes: saved.request)
+            guard original.operationDigest == request.operationDigest else {
+                throw LeaseFailure(.conflict, "That operation key was already used for a different action.")
+            }
+            response.operation = try Agentkeyring_V1_OperationRecord(serializedBytes: saved.record)
+        }
         return response
     }
 

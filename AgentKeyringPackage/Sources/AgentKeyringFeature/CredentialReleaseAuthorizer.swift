@@ -9,6 +9,7 @@ private let credentialAuthorizationLogger = Logger(
 )
 
 public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
+    public let leaseDescription: String?
     public let destination: String
     public let account: String
     public let field: AgentCredentialField
@@ -26,8 +27,10 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
         expirationSeconds: Int? = 30,
         fillsFocusedField: Bool = false,
         authorizationDeadline: Date = Date().addingTimeInterval(AgentBridgeRequest.lifetimeSeconds),
-        isPossiblyStale: Bool = false
+        isPossiblyStale: Bool = false,
+        leaseDescription: String? = nil
     ) {
+        self.leaseDescription = leaseDescription
         self.destination = destination
         self.account = account
         self.field = field
@@ -39,6 +42,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
     }
 
     public var localizedReason: String {
+        if let leaseDescription { return "\(account) on \(destination). \(leaseDescription)" }
         let value =
             switch field {
             case .username: "username"

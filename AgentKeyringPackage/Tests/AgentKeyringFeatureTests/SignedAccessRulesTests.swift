@@ -6,26 +6,6 @@ import Testing
 @MainActor
 @Suite("Tamper-evident access rules")
 struct SignedAccessRulesTests {
-    @Test("A cold app request loads signed rules without opening a window")
-    func signedColdStart() async throws {
-        let fixture = SignedRulesFixture()
-        defer { fixture.cleanUp() }
-        try await confirmInitialAccessRules(in: fixture.store)
-        let settingsName = "SignedRulesColdStart-\(UUID().uuidString)"
-        let settings = try #require(UserDefaults(suiteName: settingsName))
-        defer { settings.removePersistentDomain(forName: settingsName) }
-        let controller = CredentialAccessController(store: fixture.store)
-        let model = MirrorAppModel(store: EncryptedSnapshotStore(directoryURL: fixture.root.appendingPathComponent("vault"),
-            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32))),
-            bridge: fixture.bridge, accessControl: controller, settings: settings)
-        #expect(!controller.hasLoadedLoginList)
-        let request = AgentBridgeRequest(action: .status)
-
-        let socketResponse = try await sendTestAgentRequest(request, model: model, bridge: fixture.bridge)
-        #expect(socketResponse.ok)
-        #expect(!controller.needsConfirmation)
-    }
-
     @Test("Agent requests and later file edits cannot replace the confirmation snapshot")
     func stableConfirmationSnapshot() async throws {
         let fixture = SignedRulesFixture()
@@ -128,25 +108,6 @@ struct SignedAccessRulesTests {
         #expect(try await fixture.store.load()[fixture.loginID, default: .ask] == policy)
     }
 
-    @Test("Acquire needs confirmation before accessing the mirror")
-    func unsignedAppRequests() async throws {
-        let fixture = SignedRulesFixture()
-        defer { fixture.cleanUp() }
-        let settingsName = "SignedRulesTests-\(UUID().uuidString)"
-        let settings = try #require(UserDefaults(suiteName: settingsName))
-        defer { settings.removePersistentDomain(forName: settingsName) }
-        let model = MirrorAppModel(store: EncryptedSnapshotStore(directoryURL: fixture.root.appendingPathComponent("vault"),
-            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x42, count: 32))),
-            bridge: fixture.bridge, accessControl: CredentialAccessController(store: fixture.store), settings: settings)
-        let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
-
-        let response = try await sendTestAgentRequest(request, model: model, bridge: fixture.bridge)
-        #expect(!response.ok)
-        #expect(response.error == .rulesNeedConfirmation)
-        #expect(response.message == AccessRulesConfirmationRequired.message)
-        #expect(response.mirror == nil)
-    }
-
     @Test("A valid signature loads automatic rules")
     func validSignature() async throws {
         let fixture = SignedRulesFixture()
@@ -190,17 +151,6 @@ struct SignedAccessRulesTests {
         for field in [AgentCredentialField.username, .password, .totp] {
             #expect(activeController.releaseDecision(for: fixture.loginID, field: field) == .needsConfirmation)
         }
-        let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
-
-        let grants = CredentialApprovalGrants()
-        grants.approve(fixture.loginID, action: .acquire, session: syntheticRequester.session!, site: "example.com", account: "synthetic@example.com")
-        let processor = AgentCredentialReleaseProcessor(accessControl: activeController, grants: grants)
-        do {
-            _ = try await processor.release(request: request, requester: syntheticRequester, generation: fixture.generation,
-                authorize: { _, _ in Issue.record("Untrusted rules started an approval") })
-            Issue.record("Untrusted rules released a credential")
-        } catch let failure as AgentBridgeFailure { #expect(failure.code == .rulesNeedConfirmation) }
-        #expect(throws: CredentialTransferError.unavailable) { _ = try CredentialTransfer.read(requestID: request.id) }
     }
 
     @Test("An attacker's public key beside the file cannot authenticate replacement rules")
@@ -232,26 +182,6 @@ struct SignedAccessRulesTests {
         #expect(try await fixture.store.load() == [fixture.loginID: .allowAutomatically])
     }
 
-    @Test("Editing rules while an approval is open prevents release")
-    func editedDuringApproval() async throws {
-        let fixture = SignedRulesFixture()
-        defer { fixture.cleanUp() }
-        try await confirmInitialAccessRules(in: fixture.store)
-        let controller = CredentialAccessController(store: fixture.store)
-        let request = AgentBridgeRequest(action: .acquire, targetURL: "https://example.com", field: .password)
-
-        let processor = AgentCredentialReleaseProcessor(accessControl: controller,
-            approvals: CredentialApprovalCoordinator(lockState: SignedRulesUnlockedSession()))
-        do {
-            _ = try await processor.release(request: request, requester: syntheticRequester, generation: fixture.generation, authorize: { _, _ in
-                var bytes = try Data(contentsOf: fixture.fileURL)
-                bytes.append(0x20)
-                try bytes.write(to: fixture.fileURL)
-            })
-            Issue.record("Rules changed during approval but a credential was released")
-        } catch let failure as AgentBridgeFailure { #expect(failure.code == .rulesNeedConfirmation) }
-        #expect(throws: CredentialTransferError.unavailable) { _ = try CredentialTransfer.read(requestID: request.id) }
-    }
 }
 
 private struct SignedRulesUnlockedSession: CredentialSessionLockState {

@@ -74,6 +74,7 @@ public final class LeasePersistence {
         context.interactionNotAllowed = true
         return [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
          kSecAttrAccount as String: "committed-snapshot", kSecUseDataProtectionKeychain as String: true,
+         kSecAttrSynchronizable as String: false,
          kSecUseAuthenticationContext as String: context]
     }
 }
