@@ -206,11 +206,10 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 		return nil, false, err
 	}
 	if response != nil {
-		if err = attachSignedDenial(tx, response.GetClient().GetLease()); err != nil {
-			return nil, false, err
-		}
-		if err = attachSignedDenial(tx, response.GetDecision().GetLease()); err != nil {
-			return nil, false, err
+		for _, lease := range []*pb.Lease{response.GetClient().GetLease(), response.GetDecision().GetLease(), response.GetLease(), response.GetWork().GetLease()} {
+			if err = attachSignedDenial(tx, lease); err != nil {
+				return nil, false, err
+			}
 		}
 	}
 	err = tx.Commit()
