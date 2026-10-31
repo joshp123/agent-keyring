@@ -2,6 +2,7 @@
 // Dummy-only owner controls for the production Mac approver and its real TLS,
 // HPKE, persisted outbox and Keychain checkpoint. Never bundled with the app.
 import AgentKeyringFeature
+import AgentKeyringTestSupport
 import CryptoKit
 import Foundation
 import LocalAuthentication
@@ -50,7 +51,7 @@ final class FixtureVault {
         if let bytes = try? String(contentsOf: root.appendingPathComponent("fixture-rule"), encoding: .utf8),
             let saved = CredentialAccessPolicy(rawValue: bytes) { rule = saved }
     }
-    func read() -> RelayApproverVault {
+    func generation() -> MirrorGeneration {
         let item = MirrorItem(id: MirrorItem.exampleCredentialID,
             sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "com.agentkeyring.example",
                 accountID: Data("example@example.com".utf8), itemID: Data("example.com".utf8)),
@@ -58,10 +59,18 @@ final class FixtureVault {
             credentials: [.password(userName: "example@example.com", password: "example-password"),
                 .totp(secret: Data("12345678901234567890".utf8), period: 30, digits: 6,
                     userName: nil, algorithm: .sha1, issuer: "Synthetic proof")])
-        return RelayApproverVault(generation: MirrorGeneration(id: MirrorItem.exampleCredentialID,
+        return MirrorGeneration(id: MirrorItem.exampleCredentialID,
             previousGenerationID: nil, createdAt: Date(timeIntervalSince1970: 1), sourceExportedAt: Date(timeIntervalSince1970: 1),
             scope: .full, exporterIdentifier: "com.agentkeyring.example", exporterDisplayName: "Synthetic proof",
-            items: [item], skippedCredentialCount: 0), policies: [item.id: rule])
+            items: [item], skippedCredentialCount: 0)
+    }
+    func read() -> RelayApproverVault { RelayApproverVault(generation: generation(), policies: [MirrorItem.exampleCredentialID: rule]) }
+}
+
+@MainActor
+struct NoNativeApproval: CredentialReleaseAuthorizing {
+    func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
+        throw CredentialReleaseAuthorizationError.unavailable
     }
 }
 @MainActor
@@ -113,6 +122,8 @@ struct RelayApproverFixture {
                 guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
                 print("ERASED\t\(name)\t\(status)")
             }
+            UserDefaults(suiteName: "com.agentkeyring.relay-proof." + root.lastPathComponent)?
+                .removePersistentDomain(forName: "com.agentkeyring.relay-proof." + root.lastPathComponent)
             return
         }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -127,8 +138,27 @@ struct RelayApproverFixture {
         let leases = CredentialLeaseStore(persistence: authorityPersistence)
         let approver = RelayApprover(persistence: persistence, leaseStore: leases, phoneDelay: { 30 }, identity: identity, signer: signer,
             lockState: lockState, credentialSource: { vault.read() })
+        let ruleFile = root.appendingPathComponent("local-rules.json")
+        let ruleSigner = FakeAccessRulesSigner(signedBytes: try? Data(contentsOf: ruleFile))
+        let rules = CredentialAccessPolicyStore(fileURL: ruleFile, signer: ruleSigner)
+        if !FileManager.default.fileExists(atPath: ruleFile.path) {
+            try await confirmInitialAccessRules(in: rules, policies: [MirrorItem.exampleCredentialID: .ask])
+        }
+        let mirror = EncryptedSnapshotStore(directoryURL: root.appendingPathComponent("local-vault"),
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x36, count: 32)))
+        if try await mirror.loadCurrent() == nil { try await mirror.save(vault.generation()) }
+        let settings = UserDefaults(suiteName: "com.agentkeyring.relay-proof." + root.lastPathComponent)!
+        settings.set(false, forKey: "includeExampleCredential")
+        settings.set(30, forKey: "phoneApprovalDelaySeconds")
+        let model = MirrorAppModel(store: mirror, authorizer: NoNativeApproval(),
+            bridge: AgentBridgeDirectory(rootURL: root), accessControl: CredentialAccessController(store: rules),
+            leaseStore: leases, settings: settings)
+        model.automaticallyPromptForLeases = false
+        model.relayApprover = approver
+        defer { withExtendedLifetime(model) {} }
         try approver.load()
-        approver.start()
+        await model.loadStatus()
+        try model.startAgentListener()
         func show(_ update: RelayApproverUpdate) {
             print("SETUP\t\(update.pairing != nil)\t\(update.approverPairings.map(\.id).joined(separator: ","))")
             if let pairing = update.pairing { print("PAIR\t\(pairing.fingerprint)") }
@@ -146,7 +176,20 @@ struct RelayApproverFixture {
             fflush(stdout)
         }
         let updates = Task { for await update in approver.changes() { show(update) } }
-        defer { updates.cancel(); approver.stop() }
+        let localUpdates = Task {
+            for await current in leases.changes() {
+                let bytes = try authorityPersistence.load()!
+                let plist = try PropertyListSerialization.propertyList(from: bytes, format: nil) as! [String: Any]
+                let saved = plist["leases"] as? [String: [String: Any]] ?? [:]
+                for lease in current {
+                    let phone = saved[lease.leaseID]?["phone"] as? [String: Any]
+                    let record = phone?["record"] as? Data ?? Data()
+                    print("LOCAL\t\(lease.leaseID)\t\(lease.taskRef)\t\(lease.state.rawValue)\t\(RelayCrypto.hex(RelayCrypto.digest("agentkeyring.request.v1", record)))")
+                }
+                fflush(stdout)
+            }
+        }
+        defer { updates.cancel(); localUpdates.cancel(); approver.stop() }
         print("READY"); fflush(stdout)
         let lines = AsyncStream<String> { continuation in
             DispatchQueue.global().async {

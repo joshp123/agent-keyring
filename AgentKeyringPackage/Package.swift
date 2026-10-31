@@ -39,7 +39,7 @@ let package = Package(
         .target(name: "AgentKeyringFeature", dependencies: ["AgentKeyringProtocol", "AgentKeyringFillerSupport", "AgentKeyringApprovalCore", "AgentKeyringCredentialImport"]),
         .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),
         .executableTarget(name: "AgentKeyringAuthorityFixture", dependencies: ["AgentKeyringFeature", "AgentKeyringTestSupport"], path: "Tools/AgentKeyringAuthorityFixture"),
-        .executableTarget(name: "AgentKeyringRelayApproverFixture", dependencies: ["AgentKeyringFeature"], path: "Tools/AgentKeyringRelayApproverFixture"),
+        .executableTarget(name: "AgentKeyringRelayApproverFixture", dependencies: ["AgentKeyringFeature", "AgentKeyringTestSupport"], path: "Tools/AgentKeyringRelayApproverFixture"),
         .testTarget(name: "AgentKeyringFeatureTests", dependencies: ["AgentKeyringTestSupport", "AgentKeyringFeature", "AgentKeyringApprovalCore"]),
     ]
 )

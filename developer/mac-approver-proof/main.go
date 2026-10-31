@@ -52,6 +52,7 @@ type owner struct {
 	enrol                  []string
 	requests               map[string][]string
 	leases                 map[string][]string
+	localLeases            map[string][]string
 	queued, authorizations int
 	backgroundSignatures   int
 	saved                  map[string]string
@@ -61,7 +62,7 @@ type owner struct {
 }
 
 func startOwner(binary, root string) *owner {
-	p := &owner{events: make(chan []string, 2048), requests: map[string][]string{}, leases: map[string][]string{}, saved: map[string]string{}}
+	p := &owner{events: make(chan []string, 2048), requests: map[string][]string{}, leases: map[string][]string{}, localLeases: map[string][]string{}, saved: map[string]string{}}
 	p.command = exec.Command(binary, "--dummy-only", root)
 	var err error
 	p.input, err = p.command.StdinPipe()
@@ -99,6 +100,8 @@ func (p *owner) wait(predicate func([]string) bool) []string {
 				p.requests[e[2]] = e
 			case "LEASE":
 				p.leases[e[1]] = e
+			case "LOCAL":
+				p.localLeases[e[1]] = e
 			case "STATUS":
 				p.queued, _ = strconv.Atoi(e[2])
 				p.authorizations, _ = strconv.Atoi(e[4])
@@ -438,6 +441,7 @@ func (p *proof) run() {
 func main() {
 	p := new(proof)
 	pairingControls := flag.Bool("pairing-controls", false, "short pairing cancellation and resolved-address proof")
+	localPhone := flag.Bool("local-phone-flow", false, "joint phone approval of local agent.sock requests")
 	flag.StringVar(&p.phoneBinary, "phone-binary", "", "production Swift phone fixture; runs the joint phone flow")
 	flag.StringVar(&p.root, "root", "", "fresh dummy root inside the app container")
 	flag.StringVar(&p.fixture, "approver", "", "signed mini-only Swift fixture executable")
@@ -447,7 +451,10 @@ func main() {
 	flag.Parse()
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	if p.phoneBinary != "" {
+	if *localPhone {
+		require(p.phoneBinary != "", "--local-phone-flow needs --phone-binary")
+		p.runLocalPhoneFlow()
+	} else if p.phoneBinary != "" {
 		p.runPhoneFlow()
 	} else if *pairingControls {
 		p.runPairingControls()
