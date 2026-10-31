@@ -173,6 +173,16 @@ public nonisolated struct Agentkeyring_V1_ApproverWork: Sendable {
     set {item = .pairing(newValue)}
   }
 
+  /// A remote lease's current state: every pending or active lease in the
+  /// backlog, then each change, so approvers can show what is in use.
+  public var lease: Agentkeyring_V1_Lease {
+    get {
+      if case .lease(let v)? = item {return v}
+      return Agentkeyring_V1_Lease()
+    }
+    set {item = .lease(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Item: Equatable, Sendable {
@@ -180,6 +190,9 @@ public nonisolated struct Agentkeyring_V1_ApproverWork: Sendable {
     case enrolment(Agentkeyring_V1_PendingEnrolment)
     case cancelledRequestDigestHex(String)
     case pairing(Agentkeyring_V1_PairApproverRequest)
+    /// A remote lease's current state: every pending or active lease in the
+    /// backlog, then each change, so approvers can show what is in use.
+    case lease(Agentkeyring_V1_Lease)
 
   }
 
@@ -1258,6 +1271,14 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     set {request = .clearDenial_p(newValue)}
   }
 
+  public var revokeLease: Agentkeyring_V1_LeaseReference {
+    get {
+      if case .revokeLease(let v)? = request {return v}
+      return Agentkeyring_V1_LeaseReference()
+    }
+    set {request = .revokeLease(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Request: Equatable, Sendable {
@@ -1283,6 +1304,7 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     case getIndex(Agentkeyring_V1_GetIndexRequest)
     case getAutomaticKeys(Agentkeyring_V1_GetAutomaticKeysRequest)
     case clearDenial_p(Agentkeyring_V1_ClearDenialRequest)
+    case revokeLease(Agentkeyring_V1_LeaseReference)
 
   }
 
@@ -1408,6 +1430,14 @@ public nonisolated struct Agentkeyring_V1_RelayWireResponse: Sendable {
     set {response = .automaticKeys(newValue)}
   }
 
+  public var lease: Agentkeyring_V1_Lease {
+    get {
+      if case .lease(let v)? = response {return v}
+      return Agentkeyring_V1_Lease()
+    }
+    set {response = .lease(newValue)}
+  }
+
   public var endOfStream: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -1427,6 +1457,7 @@ public nonisolated struct Agentkeyring_V1_RelayWireResponse: Sendable {
     case automaticGrant(Agentkeyring_V1_SignedAutomaticGrant)
     case index(Agentkeyring_V1_SignedIndex)
     case automaticKeys(Agentkeyring_V1_AutomaticKeys)
+    case lease(Agentkeyring_V1_Lease)
 
   }
 
@@ -1477,7 +1508,7 @@ nonisolated extension Agentkeyring_V1_WatchWorkRequest: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApproverWork"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{1}enrolment\0\u{3}cancelled_request_digest_hex\0\u{1}pairing\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{1}enrolment\0\u{3}cancelled_request_digest_hex\0\u{1}pairing\0\u{1}lease\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1532,6 +1563,19 @@ nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, Swift
           self.item = .pairing(v)
         }
       }()
+      case 5: try {
+        var v: Agentkeyring_V1_Lease?
+        var hadOneofValue = false
+        if let current = self.item {
+          hadOneofValue = true
+          if case .lease(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.item = .lease(v)
+        }
+      }()
       default: break
       }
     }
@@ -1558,6 +1602,10 @@ nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, Swift
     case .pairing?: try {
       guard case .pairing(let v)? = self.item else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    }()
+    case .lease?: try {
+      guard case .lease(let v)? = self.item else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
     }()
     case nil: break
     }
@@ -3318,7 +3366,7 @@ nonisolated extension Agentkeyring_V1_PublishAck: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayWireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}decide_enrolment\0\u{3}publish_index\0\u{3}publish_automatic\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{3}list_enrolments\0\u{3}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{3}publish_enrolment_set\0\u{3}get_enrolment_set\0\u{3}publish_automatic_grant\0\u{3}get_automatic_grant\0\u{3}get_index\0\u{3}get_automatic_keys\0\u{3}clear_denial\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}decide_enrolment\0\u{3}publish_index\0\u{3}publish_automatic\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{3}list_enrolments\0\u{3}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{3}publish_enrolment_set\0\u{3}get_enrolment_set\0\u{3}publish_automatic_grant\0\u{3}get_automatic_grant\0\u{3}get_index\0\u{3}get_automatic_keys\0\u{3}clear_denial\0\u{3}revoke_lease\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3599,6 +3647,19 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
           self.request = .clearDenial_p(v)
         }
       }()
+      case 22: try {
+        var v: Agentkeyring_V1_LeaseReference?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .revokeLease(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .revokeLease(v)
+        }
+      }()
       default: break
       }
     }
@@ -3694,6 +3755,10 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
       guard case .clearDenial_p(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 21)
     }()
+    case .revokeLease?: try {
+      guard case .revokeLease(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 22)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -3708,7 +3773,7 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayWireResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{1}work\0\u{1}decision\0\u{1}enrolment\0\u{1}publish\0\u{3}enrol_status\0\u{1}error\0\u{3}end_of_stream\0\u{1}enrolments\0\u{3}approver_keys\0\u{3}approver_key_chain\0\u{3}enrolment_set\0\u{3}automatic_grant\0\u{1}index\0\u{3}automatic_keys\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{1}work\0\u{1}decision\0\u{1}enrolment\0\u{1}publish\0\u{3}enrol_status\0\u{1}error\0\u{3}end_of_stream\0\u{1}enrolments\0\u{3}approver_keys\0\u{3}approver_key_chain\0\u{3}enrolment_set\0\u{3}automatic_grant\0\u{1}index\0\u{3}automatic_keys\0\u{1}lease\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3899,6 +3964,19 @@ nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, 
           self.response = .automaticKeys(v)
         }
       }()
+      case 16: try {
+        var v: Agentkeyring_V1_Lease?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .lease(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .lease(v)
+        }
+      }()
       default: break
       }
     }
@@ -3971,6 +4049,10 @@ nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, 
     case .automaticKeys?: try {
       guard case .automaticKeys(let v)? = self.response else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 15)
+    }()
+    case .lease?: try {
+      guard case .lease(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 16)
     }()
     default: break
     }

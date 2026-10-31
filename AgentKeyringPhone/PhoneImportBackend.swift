@@ -1,5 +1,7 @@
 import AgentKeyringApprovalUI
 import AgentKeyringCredentialImport
+import AgentKeyringPhoneApprover
+import AgentKeyringRelaySupport
 import AuthenticationServices
 import Foundation
 import OSLog
@@ -10,6 +12,8 @@ private let phoneImportLogger = Logger(subsystem: "com.joshpalmer.AgentKeyring.P
 final class PhoneImportBackend: PhoneKeyringBackend {
     private let importer: any CredentialImporting
     private let destination: any PhoneCredentialImportDestination
+    private let approver: PhoneRelayApprover
+    private var approverUpdates: Task<Void, Never>?
     private var subscribers: [UUID: AsyncStream<PhoneKeyringSnapshot>.Continuation] = [:]
     private var handledTokens = Set<UUID>()
     private var pendingTokens: [UUID] = []
@@ -26,10 +30,13 @@ final class PhoneImportBackend: PhoneKeyringBackend {
 
     init(
         importer: any CredentialImporting = SystemCredentialImporter(),
-        destination: any PhoneCredentialImportDestination = EncryptedPhoneImportDestination()
+        destination: EncryptedPhoneImportDestination = EncryptedPhoneImportDestination()
     ) {
         self.importer = importer
         self.destination = destination
+        approver = PhoneRelayApprover(directory: URL.applicationSupportDirectory.appending(path: "PhoneApprover", directoryHint: .isDirectory),
+                                      vault: destination.vault, keys: destination.keys,
+                                      identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v1") })
         do {
             if let status = try destination.status() {
                 snapshot.passwords = .imported(count: status.loginCount, at: status.importedAt)
@@ -99,6 +106,8 @@ final class PhoneImportBackend: PhoneKeyringBackend {
             let status = try await destination.receive(batch)
             phoneImportLogger.notice("Saved encrypted phone vault with \(status.loginCount, privacy: .public) items")
             snapshot.passwords = .imported(count: status.loginCount, at: status.importedAt)
+            // A request for a previously missing login must be replayed after import.
+            approver.reconnect()
         } catch {
             logFailure(error, stage: "Phone vault import")
             snapshot.passwords = .importFailed("Passwords transferred \(receipt.loginCount) logins, but the phone vault could not save them. Existing saved logins are unchanged. Start the export again in Passwords.")
@@ -129,12 +138,40 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         }
     }
 
-    // The relay and approval backend arrive in R4.3. Never manufacture an answer.
-    func approve(requestID: String) async throws -> AccessRequestState { throw PhoneImportBackendFailure.approvalsUnavailable }
-    func deny(requestID: String, reply: String?) async throws -> AccessRequestState { throw PhoneImportBackendFailure.approvalsUnavailable }
-    func endAccess(requestID: String) async throws -> AccessRequestState { throw PhoneImportBackendFailure.approvalsUnavailable }
-    func allowAskingAgain(requestID: String) async throws -> AccessRequestState { throw PhoneImportBackendFailure.approvalsUnavailable }
-    func setAskPhoneAfter(_ delay: Duration) async throws { throw PhoneImportBackendFailure.approvalsUnavailable }
+    func start() {
+        if approverUpdates == nil {
+            approverUpdates = Task { [weak self] in
+                guard let stream = self?.approver.changes() else { return }
+                for await _ in stream { self?.refreshApproverSnapshot() }
+            }
+        }
+        approver.reconnect()
+    }
+
+    func stop() { approver.stop() }
+
+    private func refreshApproverSnapshot() {
+        do {
+            snapshot.requests = try approver.requests()
+            snapshot.connection = approver.connection
+            snapshot.pairing = approver.pairing
+            snapshot.settings.askPhoneAfter = approver.askPhoneAfter
+            snapshot.settings.keyFingerprint = approver.keyFingerprint
+            snapshot.settings.rulesUpdatedAt = approver.vault.rulesUpdatedAt
+        } catch { logFailure(error, stage: "Read approver state") }
+    }
+
+    func beginPairing(endpoint: PhoneRelayEndpoint) async throws {
+        try await approver.beginPairing(endpoint: RelayEndpoint(host: endpoint.host, port: endpoint.port))
+    }
+    func cancelPairing() { approver.cancelPairing() }
+    func approve(requestID: String) async throws -> AccessRequestState { try await approver.approve(requestID) }
+    func deny(requestID: String, reply: String?) async throws -> AccessRequestState { try await approver.deny(requestID, reply: reply) }
+    func endAccess(requestID: String) async throws -> AccessRequestState {
+        try await approver.endAccess(requestID)
+    }
+    func allowAskingAgain(requestID: String) async throws -> AccessRequestState { try await approver.clearDenial(requestID) }
+    func setAskPhoneAfter(_ delay: Duration) async throws { try await approver.setAskPhoneAfter(delay) }
     func dictation() -> AsyncStream<String> { AsyncStream { $0.finish() } }
 
     private func logFailure(_ error: any Error, stage: String) {
@@ -142,5 +179,3 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         phoneImportLogger.error("\(stage, privacy: .public) failed [\(failure.diagnostic, privacy: .public)]")
     }
 }
-
-private enum PhoneImportBackendFailure: Error { case approvalsUnavailable }

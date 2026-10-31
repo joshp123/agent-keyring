@@ -105,3 +105,28 @@ Still outside these proofs: the real Mac approver's outbox and Touch ID,
 revocation/device setup by Josh, and Linux browser endpoint ownership. Linux
 supports the program and agent-process routes; its Chromium receiver still
 reports that endpoint ownership is supported on macOS only.
+
+## Interrupted calls
+
+On 31 October the actual CLI repeated the TLS proof on the Mac mini with
+`script/prove_remote_cli.py --browser --interruptions`. Each CLI call receives
+repeated SIGURG signals, the signal Go uses for asynchronous preemption,
+while it runs. The proof exercises enrolment and persistent client state,
+program delivery, private reads, denial verification, Automatic decisions,
+key rotation and real headless Chrome password/code submission and cleanup.
+All completed without an interrupted-system-call failure or duplicate submit.
+
+To repeat with dummy data only, build the CLI and `script/remote_fixture`,
+then run on the mini with Chrome already installed:
+
+```sh
+python3 -B script/prove_remote_cli.py \
+  --cli /tmp/agent-keyring --fixture /tmp/remote-fixture \
+  --browser --interruptions
+```
+
+This exercises the client-state and browser-tab file-lock paths under signals;
+it does not assert that the kernel returned EINTR on a particular call. Those
+raw `flock` loops retry EINTR and use `os.OpenFile` for opens. The relay has no
+raw open or `flock` loop: its store uses SQLite and Go file APIs, and its
+connections use Go's network APIs. No unit fault-injection test was added.

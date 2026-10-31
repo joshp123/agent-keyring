@@ -121,6 +121,7 @@ type proof struct {
 	process                         *exec.Cmd
 	approver, client                wireClient
 	signer                          *ecdsa.PrivateKey
+	receiver                        *ecdsa.PrivateKey
 	key                             *pb.ApproverKey
 	keys                            *pb.SignedApproverKeySet
 	enrolled                        *pb.EnrolmentRecord
@@ -155,7 +156,7 @@ func (p *proof) pair() {
 	p.signer = signingKey()
 	spki, err := relaycrypto.CertificateSPKI(p.approver.certificate)
 	must(err)
-	p.key = &pb.ApproverKey{KeyId: "fixture-approver", Label: "Fixture approver", PublicKey: public(p.signer), TlsPublicKey: spki}
+	p.key = &pb.ApproverKey{KeyId: hex.EncodeToString(relaycrypto.Hash(public(p.signer))), Label: "Fixture approver", PublicKey: public(p.signer), TlsPublicKey: spki}
 	pair := &pb.PairApproverRequest{Key: p.key, TlsPublicKey: spki}
 	conn := p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PairApprover{PairApprover: pair}})
 	defer conn.Close()
@@ -210,6 +211,7 @@ func (p *proof) enrol(automatic ...bool) {
 	spki, err := relaycrypto.CertificateSPKI(p.client.certificate)
 	must(err)
 	receiver := signingKey()
+	p.receiver = receiver
 	r := &pb.RelayWireRequest{Request: &pb.RelayWireRequest_Enrol{Enrol: &pb.EnrolRequest{MachineLabel: "Fixture machine", ClientLabel: "Fixture agent", TlsPublicKey: spki, ReceiverPublicKey: public(receiver)}}}
 	conn := p.client.open(r)
 	defer conn.Close()
@@ -264,6 +266,7 @@ func (p *proof) local() {
 	require(stranger.call(find()).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "unknown peer could call Find")
 	p.enrol()
 	fmt.Println("PASS initial pairing, exact enrolment proof and role authentication")
+	p.approverLeaseProof()
 	first := leaseRequest("request-1", "task-1", p.enrolled.RecipientId)
 	l := good(p.client.call(first)).GetClient().GetLease()
 	record := p.nextRequest()
@@ -320,9 +323,13 @@ func (p *proof) local() {
 	expiryLease := good(p.client.call(leaseRequest("request-expiry", "task-expiry", p.enrolled.RecipientId))).GetClient().GetLease()
 	expiryDecision := p.decision(p.nextRequest(), false, 2)
 	require(good(p.approver.call(expiryDecision)).GetDecision().Accepted, "short signed deadline refused")
+	approverExpiry := p.watchWork()
+	nextLease(approverExpiry, expiryLease.LeaseId, pb.LeaseState_LEASE_STATE_ACTIVE)
 	watch = p.client.open(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_WatchLease{WatchLease: &pb.LeaseReference{LeaseId: expiryLease.LeaseId}}}))
 	require(good(receive(watch)).GetClient().GetLease().State == pb.LeaseState_LEASE_STATE_ACTIVE, "expiry watcher missed active lease")
 	require(good(receive(watch)).GetClient().GetLease().State == pb.LeaseState_LEASE_STATE_EXPIRED, "signed deadline did not expire")
+	nextLease(approverExpiry, expiryLease.LeaseId, pb.LeaseState_LEASE_STATE_EXPIRED)
+	approverExpiry.Close()
 	watch.Close()
 	require(good(p.approver.call(expiryDecision)).GetDecision().Accepted, "accepted decision resend refused after expiry")
 	require(p.client.call(beginRequest(expiryLease.LeaseId, "expired-operation")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "expired lease delivered")
@@ -338,7 +345,11 @@ func (p *proof) local() {
 	fmt.Println("PASS WatchLease reconnect, signed expiry, accepted resend after expiry, cancellation and current-policy revocation")
 	pending := good(p.client.call(leaseRequest("request-denied", "task-denied", p.enrolled.RecipientId))).GetClient().GetLease()
 	denial := p.decision(p.nextRequest(), true)
+	denialView := p.watchWork()
+	nextLease(denialView, pending.LeaseId, pb.LeaseState_LEASE_STATE_PENDING)
 	signedDenial := good(p.approver.call(denial)).GetDecision()
+	denialUpdate := nextLease(denialView, pending.LeaseId, pb.LeaseState_LEASE_STATE_DENIED)
+	denialView.Close()
 	require(signedDenial.Accepted, "deny failed")
 	require(signedDenial.Lease.SignedDenial != nil && signedDenial.Lease.SignedDenial.Bundle == nil, "denial ack lost proof")
 	deniedSnapshot := clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: pending.LeaseId}}})
@@ -352,6 +363,8 @@ func (p *proof) local() {
 	assertProof(good(p.client.call(deniedSnapshot)).GetClient().GetLease())
 	assertProof(good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_WatchLease{WatchLease: &pb.LeaseReference{LeaseId: pending.LeaseId}}}))).GetClient().GetLease())
 	assertProof(good(p.client.call(endRequest(pending.LeaseId))).GetClient().GetLease())
+	assertProof(denialUpdate)
+	assertProof(good(p.approver.call(revokeLeaseRequest(pending.LeaseId))).GetLease())
 	suppressed := good(p.client.call(leaseRequest("request-suppressed", "new-task", p.enrolled.RecipientId))).GetClient().GetLease()
 	require(suppressed.State == pb.LeaseState_LEASE_STATE_DENIED && suppressed.RetryNotBeforeUnixSeconds > 0, "human denial did not suppress")
 	require(pending.LeaseId != suppressed.LeaseId && suppressed.SignedDenial == nil && suppressed.Reply == "", "suppression claimed a signed reply for the wrong request")
@@ -365,7 +378,8 @@ func (p *proof) local() {
 	fmt.Println("PASS human denial suppression, Blocked policy and machine revocation")
 }
 func main() {
-	mode := flag.String("mode", "proof", "proof, tailnet, or machine")
+	mode := flag.String("mode", "proof", "proof, phone, tailnet, or machine")
+	phoneBinary := flag.String("phone-binary", "", "Swift phone fixture for phone mode")
 	address := flag.String("address", "127.0.0.1:0", "Relay address")
 	directory := flag.String("state", "", "Fixture directory")
 	relayBinary := flag.String("relay", "", "Relay binary for loopback proof")
@@ -384,7 +398,7 @@ func main() {
 		return
 	}
 	p := &proof{address: *address, directory: *directory, relayBinary: *relayBinary}
-	if *mode == "proof" {
+	if *mode == "proof" || *mode == "phone" {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		must(err)
 		p.address = listener.Addr().String()
@@ -396,7 +410,9 @@ func main() {
 		p.serveApprover()
 		return
 	}
-	if *mode == "tailnet" {
+	if *mode == "phone" {
+		p.phoneProof(*phoneBinary)
+	} else if *mode == "tailnet" {
 		p.tailnet(*linuxHost, *remoteBinary)
 	} else {
 		p.local()
