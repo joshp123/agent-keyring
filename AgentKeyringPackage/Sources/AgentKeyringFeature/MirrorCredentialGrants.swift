@@ -16,6 +16,7 @@ extension MirrorAppModel {
         isApprovingLease = true
         defer { isApprovingLease = false }
         try await refreshLeasePolicy()
+        try Task.checkCancellation()
         let lease = try leaseStore.get(leaseID)
         guard lease.state == .pending else { return lease }
         guard let login = leaseLogins.first(where: { $0.id.uuidString == lease.loginID }) else {
@@ -31,10 +32,11 @@ extension MirrorAppModel {
             account: login.username ?? login.title, field: .password, credentialTitle: login.title,
             expirationSeconds: 1800, authorizationDeadline: Date(timeIntervalSince1970: TimeInterval(lease.pendingUntilUnixSeconds)),
             leaseDescription: purpose + ". Agent's reason: “\(lease.reason)”")
-        do { try await authorizer.authorize(approval, onPromptStarted: {}) }
-        catch CredentialReleaseAuthorizationError.denied { return try leaseStore.deny(leaseID) }
+        try await authorizer.authorize(approval, onPromptStarted: {})
+        try Task.checkCancellation()
         // Re-read signed rules after the suspension and reject a late answer.
         try await refreshLeasePolicy()
+        try Task.checkCancellation()
         return try leaseStore.approve(leaseID)
     }
 
