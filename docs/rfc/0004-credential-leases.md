@@ -164,10 +164,9 @@ path to the vault host.
 
 In release 2 the receiver is the `agent-keyring` client process itself: `fill`,
 `exec` and `read` run the operation in-process and exit. There is no receiver
-daemon. To act, the client calls the authority's `BeginOperation`, which records
-the operation and returns only the fields that operation needs, then
-`FinishOperation` with the outcome. On the local socket `BeginOperation` returns
-plain values. Any process running as the same user can call it with a lease ID,
+daemon. To act, the client calls the authority's `Deliver`, which returns only
+the fields that operation needs. On the local socket `Deliver` returns plain
+values. Any process running as the same user can call it with a lease ID,
 which is the same-user limit stated below, not a new one. Release 3 returns a
 bundle sealed to the enrolled receiver's key instead (RFC 0005); the receiver
 code is the same apart from opening it.
@@ -187,11 +186,11 @@ isolate hostile same-user processes. Do not invent verified agent identities
 from process names. A lease ID alone grants no access across principals.
 
 The authority checks the authenticated caller, lease recipient, active state,
-current policy, and operation kind before `BeginOperation` returns anything.
+current policy, and operation kind before `Deliver` returns anything.
 Fill requires browser purpose, ExecuteProgram requires program purpose, and Read
 requires agent-process purpose. Fields must be known, nonempty, nonduplicated and
 available; ExecuteProgram and Read select exactly one. An unavailable field
-fails the whole delivery without starting an operation or asking again. Only
+fails the whole delivery without asking again. Only
 requested fields are returned. The browser and command checks are in the client;
 they are not a separate trust boundary from same-user software. There is no
 caller-chosen decryption key.
@@ -230,57 +229,54 @@ or a universal login state machine. The initial receiver need not support every
 shadow-DOM or split-code widget. It reports unsupported shapes without falling
 back to arbitrary JavaScript or global keyboard input.
 
-**Operations and retries.** The earlier draft kept receipts in the receiver's
-memory. That cannot work: the release 2 receiver is a short-lived CLI process,
-and a retry is a new process with no memory, so a receipt would be lost exactly
-when it matters and the retry would submit again. Receipts therefore live with
-the lease at the authority, on disk, and the receiver keeps no state.
+**Operations and retries.** The machine doing the operation keeps the record.
+The client already has a persistent, owner-only state file, so retries are
+remembered there and the authority only authorizes and delivers. (Earlier
+drafts kept records at the authority; that added three remote calls per fill
+and duplicate stores in Swift and Go, for receipts that are only the
+receiver's own claims anyway.)
 
 - An operation's digest covers the action, not the moment: lease, kind, validated
   browser instance, target tab and requested frame (empty means main), each field
   binding and selector, the submit control, and for programs the lease-bound
   command and selected field. Include an explicitly supplied document
-  precondition, but leave out the current loader ID discovered by the receiver, so a
-  submit that navigated before its reply was lost cannot turn a retry into a
-  new action. The receiver sorts bindings by field and hashes an unambiguous
+  precondition, but leave out the current loader ID discovered by the receiver,
+  so a submit that navigated before its reply was lost cannot turn a retry into
+  a new action. The receiver sorts bindings by field and hashes an unambiguous
   length-prefixed encoding; it never includes values. Origin and document checks
   still run before any new fill.
-- The retry key is `request_id` if an integration passes one, otherwise the
-  digest. Same key with a different digest, kind or fields is a conflict.
-  Retain the chosen key through transport retries. `--again` and an explicit
-  operation ID cannot be combined.
-- Before validating any target, the receiver looks its key up with
-  `GetOperation`, which starts nothing and returns no values. A known key is
-  reported as recorded, without touching the page: a retry after a submit that
-  navigated would otherwise fail on selectors that no longer exist. Only an
-  unknown key goes on to target validation and `BeginOperation`.
-- `BeginOperation` with a new key durably records Started **before** returning
-  any value, then the receiver acts and calls `FinishOperation`.
-- The same key again returns the recorded outcome, or Uncertain if none was
-  recorded (receiver crashed, timed out or lost its reply). No value is returned
-  and nothing is done twice, after any restart of receiver or authority.
+- The operation key is `operation_id` if an integration passes one, otherwise
+  the digest. `--again` and an explicit operation ID cannot be combined.
+- The receiver takes a local file lock for the browser tab (or the lease, for
+  programs), then looks the key up in its state file **before** validating any
+  target. A known key is reported as recorded without touching the page: a
+  retry after a submit that navigated would otherwise fail on selectors that
+  no longer exist. A key that was started but has no outcome reports Uncertain.
+- For a new key it validates the target, writes the record as Started and
+  syncs the file, then calls `Deliver`, acts, and writes the outcome. A crash
+  between those steps leaves Started, so the next attempt reports Uncertain and
+  never submits twice.
 - The next sign-in step, such as a code field, has different bindings, so it is
   a new operation without any flag.
 - Repeating the same step deliberately, even on a new page, needs `--again` on
   `fill` or `exec`. That makes a fresh key after inspecting the result. A page
-  change is not evidence that the preceding command failed. A fresh CLI process
-  likewise cannot know whether its predecessor launched a child. Store the exit
-  code with an Exited outcome so retries can return the original result.
-- `read` makes a fresh key per explicit invocation; the agent asked for the
-  value again. Transport retries keep that key; an uncertain delivery returns
-  no value. Another explicit read under the active lease can retrieve it again,
-  including a fresh TOTP, without another approval.
-- Finish authenticates the same recipient and lease, requires an existing
-  operation and the outcome for its kind, and writes its result once. Matching
-  repeats return that record; contradictory finishes conflict. A finish may
-  record an already-started action after lease expiry/release, but grants no
-  further use. Unknown outcomes remain Uncertain, never inferred success.
-- Serialize browser operations with a local OS file lock for the validated
-  browser instance and tab, shared by the short-lived CLI processes. After
-  obtaining it, revalidate the target and begin the operation. A crash releases
-  the lock; the authority's receipt still prevents replay. Do not serialize all
-  uses of one login. Records live as long as their lease record. This is
-  conservative retry handling, not exactly-once execution.
+  change is not evidence that the preceding command failed. Store the exit
+  code with an Exited outcome so a retried `exec` returns the original result.
+- `read` is a new operation per explicit invocation; the agent asked for the
+  value again. Another `read` under the active lease can retrieve it again,
+  including a fresh code, without another approval.
+- Records are deleted 24 hours after their lease's deadline. Serialize by tab,
+  not by login. This is conservative retry handling, not exactly-once
+  execution.
+
+**What is kept, and for how long.** The Mac app's lease store and the relay's
+store follow the same rule. Active leases are indexed by deadline; one timer
+fires at the earliest deadline, and watchers are woken by changes, not by
+polling. When a lease ends, its sealed bundle, phone answer and escalation are
+deleted at once. The ended lease and its request ID are kept for 7 days, which
+is enough to answer late retries with the original outcome, enforce a denial's
+30-minute suppression and show recent history, and then deleted. Pending
+enrolments and pairings are deleted after 10 minutes.
 
 ## Receiver evidence and release scope
 
@@ -310,7 +306,7 @@ browser protection is claimed only for a demonstrated integration.
 ## What this protects
 
 Agent-facing lease messages and receiver results contain no passwords, OTP
-codes or seeds. Only `BeginOperation`'s reply to the receiver carries values,
+codes or seeds. Only `Deliver`'s reply to the receiver carries values,
 and the client never prints it except through `read` for the agent-process
 purpose. Find deliberately exposes login/account metadata to authorized callers.
 This reduces accidental disclosure through the normal tool path; it does not
@@ -431,8 +427,8 @@ in parallel.
 | --- | --- | --- |
 | R2.0 | Additive merge: a selected export updates and adds; items missing from it stay; a full export shows removals for review | Export one changed login and the other 520 are still there with their rules |
 | R2.1 | Toolchain: `devenv` with Go, `protoc`, `protoc-gen-go`, `protoc-gen-swift`; generated code committed; one script regenerates | A clean checkout builds both sides from the proto |
-| R2.2 | Authority lease store in the Mac app: records on disk, request joining, deadlines, denial suppression, revocation on rule change, operation records | Leases survive an app restart without a second prompt or a reset clock |
-| R2.3 | Socket cut-over to protobuf framing with Begin/FinishOperation | Old JSON clients get a clear error; the Go CLI round-trips every method |
+| R2.2 | Authority lease store in the Mac app: records on disk, request joining, deadlines, denial suppression, revocation on rule change, 7-day retention with a deadline timer | Leases survive an app restart without a second prompt or a reset clock |
+| R2.3 | Socket cut-over to protobuf framing with `Deliver` | Old JSON clients get a clear error; the Go CLI round-trips every method |
 | R2.4 | Go CLI: `find`, `lease`, `status`, `release`, `exec`, `read`, `skill`, `install`, human output, stdout carries only the lease ID or the value | A shell agent completes a program login and an agent-process login with one Touch ID |
 | R2.5 | Chromium receiver in the Go CLI: endpoint check, origin check, element checks, fill, submit, clear, digest | Dummy and real low-value logins on the mini's debug-port Chrome, including a two-step code login; retries return the recorded result or Uncertain without a second submit, including after navigation |
 | R2.6 | Skill text and install | A fresh Codex and Claude session follow it unaided to a signed-in site |
@@ -468,7 +464,7 @@ Revision 2 (Opus, 31 Oct), for Astra's review: operation records move from
 receiver memory to the authority's lease records, with receiver-computed
 digests, because the receiver is a short-lived process; the agent-process
 purpose keeps today's working route for browsers without a receiver, under a
-lease and labelled honestly; `BeginOperation`/`FinishOperation` name the
+lease and labelled honestly; `Deliver` names the
 internal delivery path the first draft left implicit.
 
 Astra's round 7 corrections: keep retry identity stable across navigation and
@@ -477,6 +473,12 @@ specify Begin/Finish checks and cross-process tab serialization; and distinguish
 the explicit value route from proven browser support. These correct the existing
 operating path without adding product scope. With them, Astra agrees to
 implementation; Opus can concur before starting the build lanes.
+
+Round 9 simplification (Opus, after a fresh Astra review for Josh): operation
+records move from the authority to the receiver's own state file, so
+`BeginOperation`, `FinishOperation` and `GetOperation` become one `Deliver`
+call; retention is bounded (7 days for ended leases, 24 hours for receiver
+records) and deadlines use a timer instead of scans.
 
 Still unproved: production browser endpoint binding, exact AX filling, actual
 harness coverage, and the final phone/Touch ID authority arrangement. These are

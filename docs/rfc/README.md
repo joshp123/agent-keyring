@@ -19,7 +19,8 @@ Face ID on his iPhone.
 
 Contracts: `proto/agentkeyring/v1/` (`agentkeyring.proto` for agents and
 receivers, `bundle.proto` for sealed delivery, `relay.proto` for the relay and
-approvers). Field numbers and names are stable; add, don't change.
+approvers). Nothing is released yet, so the round 9 simplification removed
+methods; from the first release on, add and don't change.
 
 ## One seam, three parts
 
@@ -63,26 +64,24 @@ Round 8 adds the missing sealed-bundle upload and approved request bytes,
 binds denial replies, makes decision resends idempotent, and preserves the
 configurable phone delay. Existing protobuf field numbers are unchanged.
 
-Opus's revision and Astra's round 10 completions settle the three contract seams:
+Contract seams, as simplified after a fresh Astra review for Josh:
 
 1. Pairing: unknown TLS peers may only enrol or pair; each device computes the
    full fingerprint from a defined transcript; the first approver is committed by a
    signed confirmation; codes bind the approver keys being trusted too; adding
-   the phone binds the current signed machine roster in the new key set;
+   the phone binds the current signed configuration in the new key set;
    offline receivers walk a signed approver key chain (0005).
-2. Automatic approval: a separate Automatic key whose authority is an approver-
-   signed grant from the rule owner listing logins and machines; decisions say
-   which authority signed them, and receivers check the grant. The later
-   MacBook-shut step publishes the grant and encrypted logins in one atomic
-   snapshot (0005, 0006).
-3. Phone copy, for the later MacBook-shut step: login IDs stay the MacBook's, matched by Apple source
-   identity with a narrow fallback and review; one named rule owner publishes
-   rules and grants; other approvers fetch that signed index through `GetIndex`
-   (0006).
-
-Release 3 and 4 lanes can build from these contracts. Existing field numbers
-are unchanged; round 10 adds the missing pairing proofs, index and public-key
-lookups, and exact bytes for Automatic sealing and hashing.
+2. One signed configuration: logins and rules, enrolled machines and the
+   Automatic signing key, one revision, published in the same transaction that
+   records a rule change and revokes affected leases. Approving or revoking a
+   machine is a new configuration (0005).
+3. Automatic approval: the configuration's Automatic key signs only Automatic
+   logins for allowed machines; decisions say which authority signed them, and
+   receivers check the configuration (0005, 0006).
+4. Retries are recorded by the receiver in its own state file; the authority
+   only authorizes and delivers (0004).
+5. Bounded state: ended leases kept 7 days, receiver records 24 hours,
+   delivery payloads deleted when a lease ends, deadlines from a timer (0004).
 
 Device proofs remain necessary after implementation; compiler success is not
 that proof.

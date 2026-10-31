@@ -9,9 +9,9 @@ package agentkeyring.v1;
 
 option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1";
 
-// What the receiver gets from BeginOperation once requests travel through the
+// What the receiver gets from Deliver once requests travel through the
 // relay. Checked before opening: decision signature by a pinned approver key,
-// or a granted Automatic key, statement names this receiver and lease,
+// or the configuration's Automatic key, statement names this receiver and lease,
 // not_after in the future.
 message SealedDelivery {
   SignedDecision decision = 1;
@@ -104,11 +104,11 @@ message DecisionStatement {
   // SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
   bytes reply_sha256 = 10;
   // Who decided. HUMAN: signed by an approver key after Josh's biometric check.
-  // AUTOMATIC_RULE: signed by the Automatic key named in a current
-  // SignedAutomaticGrant (relay.proto); valid only for the logins and
-  // recipients that grant lists. Receivers check the grant before opening.
+  // AUTOMATIC_RULE: signed by the Automatic key named in the signed
+  // Configuration (relay.proto); valid only for logins whose rule is AUTOMATIC
+  // and machines with automatic_allowed there. Receivers check it before opening.
   DecisionAuthority authority = 11;
-  uint64 automatic_grant_revision = 12;  // Set only for AUTOMATIC_RULE.
+  uint64 configuration_revision = 12;  // Set only for AUTOMATIC_RULE.
 }
 
 enum DecisionAuthority {

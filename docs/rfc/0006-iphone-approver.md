@@ -148,8 +148,8 @@ Checks, in order:
 
 1. The phone signs only an escalated request it fetched from the relay over
    its pinned connection, and shows what it signs. Site, account and rule come
-   from the rule owner's signed login index, not a phone vault. For remote
-   requests it checks the signed enrolled-machine roster. For local requests
+   from the rule owner's signed configuration, not a phone vault. For remote
+   requests it checks the machine is in that configuration. For local requests
    it shows the source Mac's pinned label and checks the snapshot against the
    record; that local recipient is not a remotely enrolled receiver. The Mac
    still checks the exact digest against its retained request before delivery.
@@ -219,14 +219,14 @@ continue using the existing relay methods unchanged.
 
 ### Signing roles are enforced, not just labelled
 
-- MAC signs HUMAN decisions, enrolments and key-set changes. Only the named
-  MAC rule owner signs indexes, machine rosters and Automatic grants.
+- MAC signs HUMAN decisions and key-set changes. Only the named MAC rule
+  owner signs configurations (logins, rules, machines, the Automatic key).
 - PHONE signs `PhoneDecision`. It cannot enrol machines, change keys or rules,
-  or publish a grant. Plain denial and actions that take access away use its
+  or sign a configuration. Plain denial and actions that take access away use its
   pinned connection as above.
 - MAC_DELIVERY signs PHONE deliveries with a valid attached phone decision,
-  or AUTOMATIC_RULE decisions covered by a current grant. It never signs
-  HUMAN decisions, key sets, indexes, enrolments, rosters or grants. It has no
+  or AUTOMATIC_RULE decisions the current configuration allows. It never signs
+  HUMAN decisions, key sets or configurations. It has no
   separate TLS identity: it is a signing key used by the Mac connection.
   Adding or rotating it is a MAC-signed key-set update, not pairing another
   device; it needs no `PairApprover` request or comparison code.
@@ -245,8 +245,8 @@ meet this contract. Provision its replacement with
 flag, and publish it through a Touch ID signed key-set change. The Mac's TLS
 identity and non-secret saved connection state must also be available after
 login while the screen is locked. The human signing key keeps its biometric
-and unlocked requirements. Existing Automatic grants must name the replacement
-key before it can act under those grants.
+and unlocked requirements. The configuration must name the replacement key
+before it can sign Automatic decisions.
 
 The Mac's current vault uses the macOS file-based keychain, unlike the relay
 keys' data-protection keychain. Do not infer its behaviour from the similarly
@@ -255,7 +255,7 @@ change. Prove reading a dummy login, signing and delivering after the app
 restarts with the screen locked. The user must have logged in and the login
 keychain must be available; an explicitly locked keychain, logged-out session
 or sleeping Mac reports unavailable. Remove the blanket screen-lock rejection
-only where an otherwise valid phone decision or Automatic grant authorises
+only where an otherwise valid phone decision or the configuration authorises
 delivery. Never unlock the screen or ask for a second Mac biometric.
 See Apple's [keychain accessibility guidance](https://developer.apple.com/forums/thread/724013)
 and [After First Unlock](https://developer.apple.com/documentation/security/ksecattraccessibleafterfirstunlockthisdeviceonly).
@@ -320,21 +320,21 @@ authentication; no app can start or schedule it. The app merges additively and
 seals each login to a Face ID protected Secure Enclave key. Refresh is the same
 export; Apple offers no way to learn that a login changed.
 
-**Login IDs.** IDs stay the MacBook's. The MacBook's signed login index carries
+**Login IDs.** IDs stay the MacBook's. The MacBook's signed configuration carries
 the Apple item, account and exporter IDs for each login; the phone matches on
 those, falls back to saved sites plus account only when exactly one login
 matches on each side, and otherwise gives the item a new ID, starts it as Ask
 and shows it for review. A rule never moves on a guess.
 
 **Rule owner.** One device owns rules and login IDs, named in the approver key
-set. Only it publishes the login index and the Automatic grant; others fetch
-the newest signed index before deciding and always deny a login it marks
-Blocked. The MacBook stays the owner unless Josh moves it.
+set. Only it publishes the configuration; others fetch the newest one before
+deciding and always deny a login it marks Blocked. The MacBook stays the owner unless Josh moves it.
 
 **Automatic logins with the MacBook shut.** The rule owner seals Automatic
-logins to the relay's own key and signs a grant listing them and the machines
-allowed them, in one snapshot. The relay then approves those leases itself,
-and receivers check the grant. Anyone who controls the mini can read
+logins to the relay's own key and publishes them in the same
+`ConfigurationPublication` as the configuration that names the relay's keys
+and hashes the sealed logins. The relay then approves those leases itself,
+and receivers check the configuration. Anyone who controls the mini can read
 Automatic logins published this way.
 
 **Phone approves and seals.** The phone opens the login with Face ID, seals it
