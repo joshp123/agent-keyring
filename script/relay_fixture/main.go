@@ -404,6 +404,7 @@ func (p *proof) local() {
 func main() {
 	mode := flag.String("mode", "proof", "proof, phone, tailnet, or machine")
 	phoneBinary := flag.String("phone-binary", "", "Swift phone fixture for phone mode")
+	legacyPhoneBinary := flag.String("legacy-phone-binary", "", "Previous approval-only Swift fixture to prove replacement from its saved pairing")
 	address := flag.String("address", "127.0.0.1:0", "Relay address")
 	directory := flag.String("state", "", "Fixture directory")
 	relayBinary := flag.String("relay", "", "Relay binary for loopback proof")
@@ -446,7 +447,7 @@ func main() {
 	} else if *mode == "phone-copy" {
 		p.phoneCopyProof()
 	} else if *mode == "phone" {
-		p.phoneProof(*phoneBinary)
+		p.phoneProof(*phoneBinary, *legacyPhoneBinary)
 	} else if *mode == "tailnet" {
 		p.tailnet(*linuxHost, *remoteBinary)
 	} else {

@@ -7,6 +7,8 @@ on the Mac mini, headless over SSH. The iOS Release build also passed, with
 signing disabled. Nothing was installed or launched on the iPhone.
 
 This extends the [build 8 approval-only proof](iphone-relay-approver.md).
+The later [replacement proof](phone-pairing-replacement.md) covers upgrading
+an existing approval-only pairing through fresh keys and a new Mac comparison.
 The parent worktree was merged with main at `6676e59`, then integrated the
 contract `3146922` and relay changes `57bf9cd` and `9329354`.
 
