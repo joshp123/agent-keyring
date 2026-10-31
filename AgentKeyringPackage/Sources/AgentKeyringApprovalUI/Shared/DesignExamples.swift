@@ -33,10 +33,23 @@ public enum DesignExamples {
             login: RequestedLogin(site: "github.com", account: "deploy-bot"),
             agent: RequestingAgent(name: "Claude Code", machine: macBook.name, address: macBook.address,
                 folder: "~/code/agent-keyring"),
-            access: .program("gh"),
+            access: .program("gh auth login --with-token"),
             agentReason: "Signing the gh CLI in so I can open the release pull request you asked for.",
             askedAt: now.addingTimeInterval(-20),
             state: state ?? .waitingForYou(until: now.addingTimeInterval(280))
+        )
+    }
+
+    public static func agentProcessRead(now: Date = .now) -> AccessRequest {
+        AccessRequest(
+            id: "lease-read",
+            login: RequestedLogin(site: "router.home.arpa", account: "admin"),
+            agent: RequestingAgent(name: "Codex", machine: macBook.name, address: macBook.address,
+                folder: "~/code/nix"),
+            access: .agentProcess,
+            agentReason: "The router's admin page opens in my own browser, which Agent Keyring can't fill. Checking the WAN address you asked about.",
+            askedAt: now.addingTimeInterval(-15),
+            state: .waitingForYou(until: now.addingTimeInterval(585))
         )
     }
 
@@ -76,11 +89,12 @@ public enum DesignExamples {
                 agent: RequestingAgent(name: "Codex", machine: macBook.name, address: macBook.address),
                 access: .signIn,
                 agentReason: "Comparing reach on your last twelve posts before you publish the deer series.",
-                askedAt: ago(95), state: .denied(by: .iPhone, reply: "You're already signed in. Use the open tab."),
+                askedAt: ago(12), state: .denied(by: .iPhone, reply: "You're already signed in. Use the open tab.",
+                    askAgainAfter: ago(-18)),
                 events: [
-                    AccessRequestEvent(ago(95), "Codex asked on MacBook Pro"),
-                    AccessRequestEvent(ago(93), "Sent to this iPhone after 2 minutes"),
-                    AccessRequestEvent(ago(92), "You denied and replied"),
+                    AccessRequestEvent(ago(12), "Codex asked on MacBook Pro"),
+                    AccessRequestEvent(ago(10), "Sent to this iPhone after 2 minutes"),
+                    AccessRequestEvent(ago(9), "You denied and replied"),
                 ]),
             AccessRequest(
                 id: "h-example", login: RequestedLogin(site: "example.com", account: "test"),
@@ -100,6 +114,12 @@ public enum DesignExamples {
                 access: .signIn, agentReason: "Checking whether the withdrawal has been docketed.",
                 askedAt: ago(60 * 20), state: .unanswered,
                 events: [AccessRequestEvent(ago(60 * 20), "Nobody answered in 5 minutes")]),
+            AccessRequest(
+                id: "h-figma", login: RequestedLogin(site: "figma.com", account: "josh@example.com"),
+                agent: RequestingAgent(name: "Claude Code", machine: macBook.name, address: macBook.address),
+                access: .signIn, agentReason: "Exporting the logo frames you asked for.",
+                askedAt: ago(60 * 21), state: .cancelled,
+                events: [AccessRequestEvent(ago(60 * 21), "Claude Code asked, then found it was already signed in")]),
             AccessRequest(
                 id: "h-hilton", login: RequestedLogin(site: "hilton.com", account: "josh@example.com"),
                 agent: RequestingAgent(name: "Claude Code", machine: macBook.name, address: macBook.address),

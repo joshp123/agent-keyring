@@ -8,16 +8,16 @@ The Mac does three things: lets you answer a request with Touch ID when you're a
 
 ## Approval panel
 
-A request that asks you appears first on the Mac, as a small panel at the top right, under the menu bar, on the screen with the pointer. It shows the same things as the iPhone, in the same order: the question with the site largest, the facts Agent Keyring saw, and the agent's claim, labelled as such.
+A request that asks you appears first on the Mac, as a small borderless panel at the top right, under the menu bar, on the screen with the pointer. It shows the same things as the iPhone, in the same order: the question with the site largest, the facts Agent Keyring saw (machine, access, and the command for a program), and what came from the agent (name, reason, folder), labelled as such.
 
 - **Approve** (green, Touch ID glyph) and **Deny** (red), equal width. **Deny and reply…** under Deny; "1 more waiting" on the right when requests queue.
-- **Touch ID is the approval.** The panel runs Touch ID as it opens, so touching the sensor approves; clicking Approve does the same and also offers the Apple Watch. One action, not "click, then touch". While it waits the button reads "Touch the sensor".
+- **Touch ID is the approval.** Where the backend allows it, the panel shows the live Touch ID glyph ("Touch ID to approve") and starts Touch ID as it opens, so touching the sensor approves with no click; Deny stops it. Otherwise Approve is a button that brings up the system Touch ID or Apple Watch prompt. The screenshots show the button form, because the Mac mini has no Touch ID.
 - **It never takes focus by itself.** Josh: half of Apple Watch prompts hit while he's typing. The panel is non-activating and has no keyboard shortcuts, so typing into another app can't approve or deny anything. It takes the keyboard only when you click into the reply box.
 - **Deny and reply…** swaps the buttons for a reply box with **Cancel** and **Deny and send**; Return sends.
 - **After an answer:** the same sentences as the iPhone ("Approved. Codex can use it until 01:07, or until it says it's done.") and **Close**. If Touch ID fails: "Touch ID didn't confirm. Nothing was shared."
 - If you don't answer, the request goes to the iPhone after the delay set there (default 2 minutes), and the panel stays until either answers.
 
-Screens: `screens/mac/approval-*.png`, `approvalReply-*.png`, `approvalApproved-*.png`, `approvalDenied-*.png`.
+Screens: `screens/mac/approval-*.png`, `approvalReply-*.png`, `approvalApproved-*.png`, `approvalDenied-*.png`, `approvalAgentProcess-*.png`.
 
 ## Menu bar
 
@@ -28,7 +28,7 @@ Clicking it opens a small window:
 - **Waiting for you:** site, agent and machine, time left, **Review** (opens the panel).
 - **In use now:** site, agent and machine, minutes left, **End** in red.
 - "No agent is using a login now." when both are empty.
-- **Recent:** the last four answers, with time, site, agent and the outcome word.
+- **Recent:** the last four answers, with time, site, agent and the outcome word. Right-click a denial that is still holding off new requests to **Let it ask again**.
 - Footer: "522 logins · imported 3 days ago", **Rules…**, and a ··· menu with Open Agent Keyring, Check for Updates… and Quit.
 
 Nothing else. Josh, July: "too many options".
@@ -46,17 +46,14 @@ A window with a sidebar and a table.
   - Blocked: "Agents can't use these, and you aren't asked."
 - **Table:** Login, Account, Rule, Last used. Sortable, searchable from the toolbar.
 - **Changing a rule:** the Rule cell is a menu, so you change it where you read it. For several logins, select them and use **Set Rule** in the toolbar or the right-click menu.
+- **Confirming:** on first use, or when the saved rules can't be checked, a band across the top says "Confirm your rules", sums them up ("34 logins: 18 Ask, 9 Automatic, 7 Blocked.") and has **Confirm with Touch ID**. Agents get nothing, and the table is locked, until you confirm.
 
 A rule is a property of the login, so it is a column, not a folder you move logins between. That is the "Move credential" confusion from July.
 
-Screens: `rules-*.png`, `rulesAll-*.png`.
+Screens: `rules-*.png`, `rulesAll-*.png`, `rulesConfirm-*.png`.
 
 ## Built and not built
 
-The views are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Mac`, fed by mock data. The screenshots come from the design gallery (`Tools/AgentKeyringDesignGallery`), which shows the real views on the Mac mini.
+The views are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Mac`, behind the four backend protocols in RFC 0007, and fed by mock data. The screenshots come from the design gallery (`Tools/AgentKeyringDesignGallery`), which shows the real views on the Mac mini.
 
-The Mac app itself still uses its old menu, rules window and the plain system Touch ID prompt. Wiring the new views in is the next step, and it depends on the lease work happening in parallel:
-
-- **Panel:** the approval coordinator creates a `MacApprovalModel` per request and shows it with `MacApprovalPanelController`; the backend runs Touch ID through `LAAuthenticationView` so the sensor alone approves. Whether Touch ID runs in a non-activating panel without bringing the app forward needs proving on the MacBook.
-- **Menu bar:** a `MacMenuBarBackend` over the lease store.
-- **Rules:** a `LoginRulesBackend` over `CredentialAccessController`, keeping its "Confirm your access rules" step, which the new window needs a banner for.
+The Mac app itself still uses its old menu, rules window and plain system Touch ID prompt. Wiring the new views in is RFC 0007's U2 (approval panel) and U3 (menu bar and rules), as adapters over the release 2 lease store and the existing access-rules controller. RFC 0007 lists what the lease store still needs to supply.

@@ -38,7 +38,8 @@ public struct AccessRequestHeadline: View {
     }
 }
 
-/// Label and value on one baseline grid. Only facts Agent Keyring saw itself.
+/// Label and value on one baseline grid. Only facts Agent Keyring saw itself:
+/// the machine the request came from and what the approval would allow.
 public struct AccessRequestFacts: View {
     let request: AccessRequest
 
@@ -48,12 +49,11 @@ public struct AccessRequestFacts: View {
 
     public var body: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
-            FactRow(label: AccessRequestCopy.agentLabel, value: request.agent.name, emphasised: true)
             FactRow(label: AccessRequestCopy.machineLabel, value: AccessRequestCopy.machine(request.agent))
-            if let folder = request.agent.folder {
-                FactRow(label: AccessRequestCopy.folderLabel, value: folder, monospaced: true)
+            FactRow(label: AccessRequestCopy.accessLabel, value: AccessRequestCopy.access(request))
+            if case let .program(command) = request.access {
+                FactRow(label: AccessRequestCopy.commandLabel, value: command, monospaced: true)
             }
-            FactRow(label: AccessRequestCopy.accessLabel, value: AccessRequestCopy.access(request.access))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -62,7 +62,6 @@ public struct AccessRequestFacts: View {
 private struct FactRow: View {
     let label: String
     let value: String
-    var emphasised = false
     var monospaced = false
 
     var body: some View {
@@ -72,17 +71,19 @@ private struct FactRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: KeyringMetric.factLabelWidth, alignment: .leading)
             Text(value)
-                .font(monospaced ? .callout.monospaced() : .body.weight(emphasised ? .semibold : .regular))
-                .lineLimit(1)
+                .font(monospaced ? .callout.monospaced() : .body)
+                .lineLimit(2)
                 .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
     }
 }
 
-/// What the agent wrote, set apart by a rule on its leading edge and labelled
-/// as the agent's words, so it never reads like something Keyring checked.
+/// Everything the agent told Agent Keyring about itself: its reason, quoted
+/// behind a rule, and the folder it says it is in. Labelled as the agent's,
+/// so none of it reads like something Keyring checked.
 public struct AgentClaim: View {
     let request: AccessRequest
     let lineLimit: Int?
@@ -102,10 +103,19 @@ public struct AgentClaim: View {
                     .fill(.tertiary)
                     .frame(width: 3)
                     .accessibilityHidden(true)
-                Text("“\(request.agentReason)”")
-                    .font(.body)
-                    .lineLimit(lineLimit)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("“\(request.agentReason)”")
+                        .font(.body)
+                        .lineLimit(lineLimit)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let folder = request.agent.folder {
+                        Text(AccessRequestCopy.claimFolder(folder))
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
             }
             Text(AccessRequestCopy.claimFootnote)
                 .font(.footnote)

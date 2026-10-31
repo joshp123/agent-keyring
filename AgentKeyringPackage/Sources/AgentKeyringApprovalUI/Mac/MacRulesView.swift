@@ -87,39 +87,47 @@ private struct RulesTable: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let confirmation = model.confirmation {
+                ConfirmRulesBanner(confirmation: confirmation, isConfirming: model.isConfirming) {
+                    Task { await model.confirmRules() }
+                }
+                Divider()
+            }
             RulesHeader(filter: model.filter, shown: model.visibleRows.count)
             Divider()
             Table(model.visibleRows, selection: $model.selection, sortOrder: $model.sortOrder) {
                 TableColumn("Login", value: \.site) { row in
                     Text(row.site).fontWeight(.medium)
                 }
-                .width(min: 180, ideal: 240)
+                .width(min: 150, ideal: 180)
 
                 TableColumn("Account", value: \.account) { row in
                     Text(row.account).foregroundStyle(.secondary)
                 }
-                .width(min: 140, ideal: 200)
+                .width(min: 120, ideal: 160)
 
                 TableColumn("Rule") { row in
                     RulePicker(rule: row.rule) { rule in
                         Task { await model.setRule(rule, for: [row.id]) }
                     }
                 }
-                .width(min: 120, ideal: 130, max: 160)
+                .width(min: 110, ideal: 120, max: 160)
 
                 TableColumn("Last used") { row in
                     Text(row.lastUsed.map { $0.formatted(.relative(presentation: .named)) } ?? "Never")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
-                .width(min: 90, ideal: 110)
+                .width(min: 90, ideal: 100)
             }
             .contextMenu(forSelectionType: UUID.self) { ids in
                 SetRuleMenuItems(count: ids.count) { rule in
                     Task { await model.setRule(rule, for: ids) }
                 }
             }
+            .disabled(model.confirmation != nil)
         }
+        .task { await model.followUpdates() }
         .toolbar {
             ToolbarItem {
                 Menu {
@@ -171,6 +179,37 @@ private struct SetRuleMenuItems: View {
                 Button(rule.name, systemImage: rule.symbol) { change(rule) }
             }
         }
+    }
+}
+
+/// Shown until Josh confirms: what the rules add up to, and one button.
+private struct ConfirmRulesBanner: View {
+    let confirmation: RulesConfirmation
+    let isConfirming: Bool
+    let confirm: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(RulesCopy.confirmTitle)
+                    .font(.headline)
+                Text(confirmation.summary)
+                Text(confirmation.savedRulesWereUnreadable
+                    ? RulesCopy.confirmBodyAfterUnreadableRules : RulesCopy.confirmBody)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+            Spacer()
+            Button(action: confirm) {
+                Label(RulesCopy.confirmButton, systemImage: "touchid")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(KeyringColour.signal)
+            .controlSize(.large)
+            .disabled(isConfirming)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 }
 

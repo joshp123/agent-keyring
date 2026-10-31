@@ -25,6 +25,7 @@ public struct PhoneRootView: View {
                 }
         }
         .tint(KeyringColour.signal)
+        .task { await model.followUpdates() }
         .sheet(item: presentedRequest) { request in
             PhoneRequestView(model: model, requestID: request.id)
         }

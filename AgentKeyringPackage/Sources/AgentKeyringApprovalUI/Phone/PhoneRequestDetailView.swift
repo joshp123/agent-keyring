@@ -19,6 +19,15 @@ struct PhoneRequestDetailView: View {
                     Button(AccessRequestCopy.endNow) { Task { await model.endAccess(request.id) } }
                         .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 44))
                 }
+                if case let .denied(_, _, askAgainAfter?) = request.state, request.state.isHoldingOffNewRequests(now: .now) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(AccessRequestCopy.askAgainUntil(askAgainAfter))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Button(AccessRequestCopy.letAskAgain) { Task { await model.allowAskingAgain(request.id) } }
+                            .buttonStyle(.quiet(height: 44))
+                    }
+                }
                 Hairline()
                 AccessRequestFacts(request: request)
                 Hairline()
@@ -46,7 +55,7 @@ private struct OutcomeLine: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(AccessRequestCopy.outcome(request) ?? "")
                     .font(.body.weight(.semibold))
-                if case let .denied(_, reply?) = request.state {
+                if case let .denied(_, reply?, _) = request.state {
                     Text("You replied: “\(reply)”")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

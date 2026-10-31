@@ -11,6 +11,7 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
     case nothingWaiting
     case request
     case requestForProgram
+    case requestForAgentProcess
     case reply
     case sending
     case approved
@@ -53,6 +54,10 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             let program = DesignExamples.ghProgram(now: now)
             requests = [program] + history
             presented = program.id
+        case .requestForAgentProcess:
+            let read = DesignExamples.agentProcessRead(now: now)
+            requests = [read] + history
+            presented = read.id
         case .reply:
             presented = github.id
             replying = true
@@ -64,7 +69,8 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             requests[0].state = .approved(by: .iPhone, until: now.addingTimeInterval(30 * 60))
             presented = github.id
         case .denied:
-            requests[0].state = .denied(by: .iPhone, reply: "Don't sign in. The invoice is already in my email, use that.")
+            requests[0].state = .denied(by: .iPhone, reply: "Don't sign in. The invoice is already in my email, use that.",
+                askAgainAfter: now.addingTimeInterval(30 * 60))
             presented = github.id
         case .unanswered:
             requests[0].state = .unanswered
@@ -82,14 +88,14 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             showingSettings = true
         }
 
-        let model = PhoneKeyringModel(
-            backend: DesignPhoneBackend(now: now),
+        let snapshot = PhoneKeyringSnapshot(
             requests: requests,
             passwords: passwords,
             connection: connection,
             settings: PhoneSettings(askPhoneAfter: .seconds(120), notificationsAllowed: true,
                 keyFingerprint: "7F3A 91C2 0B4E D8A5 6C17 E902 44BB 13F0")
         )
+        let model = PhoneKeyringModel(backend: DesignPhoneBackend(snapshot: snapshot), initial: snapshot)
         model.presentedRequestID = presented
         model.isReplying = replying
         model.replyDraft = reply
@@ -110,9 +116,16 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
 /// Answers instantly and pretends every network call works.
 @MainActor
 final class DesignPhoneBackend: PhoneKeyringBackend {
-    private let now: Date
+    private let snapshot: PhoneKeyringSnapshot
 
-    init(now: Date) { self.now = now }
+    init(snapshot: PhoneKeyringSnapshot) { self.snapshot = snapshot }
+
+    func updates() -> AsyncStream<PhoneKeyringSnapshot> {
+        AsyncStream { continuation in
+            continuation.yield(snapshot)
+            continuation.finish()
+        }
+    }
 
     func approve(requestID: String) async throws -> AccessRequestState {
         try await Task.sleep(for: .milliseconds(600))
@@ -121,11 +134,17 @@ final class DesignPhoneBackend: PhoneKeyringBackend {
 
     func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         try await Task.sleep(for: .milliseconds(400))
-        return .denied(by: .iPhone, reply: reply)
+        return .denied(by: .iPhone, reply: reply, askAgainAfter: .now.addingTimeInterval(30 * 60))
     }
 
     func endAccess(requestID: String) async throws -> AccessRequestState {
         .ended(at: .now)
+    }
+
+    func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
+        guard case let .denied(by, reply, _)? = snapshot.requests.first(where: { $0.id == requestID })?.state
+        else { return .ended(at: .now) }
+        return .denied(by: by, reply: reply, askAgainAfter: nil)
     }
 
     func openPasswordsForImport() {}

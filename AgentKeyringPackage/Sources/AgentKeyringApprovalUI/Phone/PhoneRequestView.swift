@@ -139,7 +139,7 @@ private struct PhoneAnswerArea: View {
                 Text(AccessRequestCopy.outcome(request) ?? "")
                     .font(.body.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
-                if case let .denied(_, reply?) = request.state {
+                if case let .denied(_, reply?, _) = request.state {
                     Text("You replied: “\(reply)”")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

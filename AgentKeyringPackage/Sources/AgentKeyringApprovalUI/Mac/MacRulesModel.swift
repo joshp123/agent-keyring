@@ -28,16 +28,47 @@ public enum LoginRuleFilter: Hashable, Sendable {
     case rule(LoginRule)
 }
 
+/// Nothing is shared until Josh confirms the rules with Touch ID: on first
+/// use, after an import adds logins, or when the saved rules can't be verified.
+public struct RulesConfirmation: Hashable, Sendable {
+    /// For example "542 logins: 470 Ask, 60 Automatic, 12 Blocked."
+    public var summary: String
+    /// The signed rules file couldn't be verified, so confirming saves the
+    /// rules shown and the iPhone must be paired again.
+    public var savedRulesWereUnreadable: Bool
+
+    public init(summary: String, savedRulesWereUnreadable: Bool) {
+        self.summary = summary
+        self.savedRulesWereUnreadable = savedRulesWereUnreadable
+    }
+}
+
+public struct LoginRulesSnapshot: Hashable, Sendable {
+    public var rows: [LoginRuleRow]
+    public var confirmation: RulesConfirmation?
+
+    public init(rows: [LoginRuleRow], confirmation: RulesConfirmation?) {
+        self.rows = rows
+        self.confirmation = confirmation
+    }
+}
+
 /// Saving rules needs Josh's confirmation (Touch ID) and can fail.
 @MainActor
 public protocol LoginRulesBackend: AnyObject {
+    /// The current logins and rules first, then each time they change.
+    func updates() -> AsyncStream<LoginRulesSnapshot>
     func setRule(_ rule: LoginRule, for loginIDs: Set<UUID>) async throws
+    /// Runs Touch ID and saves the rules as shown.
+    func confirmRules() async throws
 }
 
 @MainActor
 @Observable
 public final class MacRulesModel {
     public private(set) var rows: [LoginRuleRow]
+    public private(set) var confirmation: RulesConfirmation?
+    public private(set) var isConfirming = false
     public var filter: LoginRuleFilter = .rule(.ask)
     public var searchText = ""
     public var selection = Set<UUID>()
@@ -47,9 +78,29 @@ public final class MacRulesModel {
 
     private let backend: any LoginRulesBackend
 
-    public init(rows: [LoginRuleRow], backend: any LoginRulesBackend) {
-        self.rows = rows
+    public init(backend: any LoginRulesBackend, initial: LoginRulesSnapshot) {
+        self.rows = initial.rows
+        self.confirmation = initial.confirmation
         self.backend = backend
+    }
+
+    /// Follows the backend while the window is open. Call from `.task`.
+    public func followUpdates() async {
+        for await snapshot in backend.updates() {
+            rows = snapshot.rows
+            confirmation = snapshot.confirmation
+        }
+    }
+
+    public func confirmRules() async {
+        isConfirming = true
+        defer { isConfirming = false }
+        do {
+            try await backend.confirmRules()
+            confirmation = nil
+        } catch {
+            failure = "Rules weren't confirmed: \(error.localizedDescription)"
+        }
     }
 
     public func count(_ filter: LoginRuleFilter) -> Int {

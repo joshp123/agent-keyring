@@ -23,8 +23,8 @@ USER = "josh"
 PASSWORD_FIELD = (960, 980)  # the mini's 1920x1080 lock screen
 REMOTE_DIR = "/tmp/agent-keyring-design-gallery"
 MARGIN = 28  # room for the window shadow
-SCREENS = ["approval", "approvalReply", "approvalApproved", "approvalDenied",
-           "menuBar", "menuBarQuiet", "rules", "rulesAll"]
+SCREENS = ["approval", "approvalReply", "approvalApproved", "approvalDenied", "approvalAgentProcess",
+           "menuBar", "menuBarQuiet", "rules", "rulesAll", "rulesConfirm"]
 
 
 def ssh(command):

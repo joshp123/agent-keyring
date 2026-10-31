@@ -62,7 +62,7 @@ public func outcomeColour(_ state: AccessRequestState) -> Color? {
     case .approved, .released: KeyringColour.approveText
     case .denied, .blockedByRule: KeyringColour.denyText
     case .waitingForYou, .sendingAnswer: KeyringColour.signal
-    case .unanswered, .expired, .ended: nil
+    case .unanswered, .cancelled, .expired, .ended: nil
     }
 }
 
@@ -72,7 +72,7 @@ public func outcomeSymbol(_ state: AccessRequestState) -> String {
     case .approved, .released: "checkmark.circle.fill"
     case .denied, .blockedByRule: "xmark.circle.fill"
     case .waitingForYou, .sendingAnswer: "clock"
-    case .unanswered, .expired, .ended: "clock.badge.xmark"
+    case .unanswered, .cancelled, .expired, .ended: "clock.badge.xmark"
     }
 }
 

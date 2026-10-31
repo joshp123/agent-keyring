@@ -43,3 +43,12 @@ public enum LoginRule: String, CaseIterable, Hashable, Sendable {
         }
     }
 }
+
+/// The words on the rules window that aren't a rule's own.
+public enum RulesCopy {
+    public static let confirmTitle = "Confirm your rules"
+    public static let confirmBody = "Agents get nothing until you confirm the rules below."
+    public static let confirmBodyAfterUnreadableRules =
+        "The saved rules couldn't be checked. Confirming saves the rules below, and your iPhone must be paired again."
+    public static let confirmButton = "Confirm with Touch ID"
+}

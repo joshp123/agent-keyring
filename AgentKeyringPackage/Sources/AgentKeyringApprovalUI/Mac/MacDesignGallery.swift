@@ -5,6 +5,7 @@
 
 #if os(macOS)
 import AppKit
+import LocalAuthentication
 import SwiftUI
 
 public enum MacDesignScreen: String, CaseIterable, Sendable {
@@ -12,10 +13,12 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case approvalReply
     case approvalApproved
     case approvalDenied
+    case approvalAgentProcess
     case menuBar
     case menuBarQuiet
     case rules
     case rulesAll
+    case rulesConfirm
 }
 
 @MainActor
@@ -31,11 +34,11 @@ public final class MacDesignGallery {
     public func show() {
         showBackdrop()
         switch screen {
-        case .approval, .approvalReply, .approvalApproved, .approvalDenied:
+        case .approval, .approvalReply, .approvalApproved, .approvalDenied, .approvalAgentProcess:
             showApprovalPanel()
         case .menuBar, .menuBarQuiet:
             showMenuBar()
-        case .rules, .rulesAll:
+        case .rules, .rulesAll, .rulesConfirm:
             showRules()
         }
     }
@@ -55,14 +58,17 @@ public final class MacDesignGallery {
     }
 
     private func showApprovalPanel() {
-        var request = DesignExamples.githubSignIn(now: now)
+        var request = screen == .approvalAgentProcess
+            ? DesignExamples.agentProcessRead(now: now) : DesignExamples.githubSignIn(now: now)
         let reply = "Don't sign in. The invoice is already in my email, use that."
         switch screen {
         case .approvalApproved: request.state = .approved(by: .mac, until: now.addingTimeInterval(30 * 60))
-        case .approvalDenied: request.state = .denied(by: .mac, reply: reply)
+        case .approvalDenied:
+            request.state = .denied(by: .mac, reply: reply, askAgainAfter: now.addingTimeInterval(30 * 60))
         default: break
         }
-        let model = MacApprovalModel(request: request, moreWaiting: 1, backend: DesignMacBackend())
+        let model = MacApprovalModel(request: request, moreWaiting: screen == .approval ? 1 : 0,
+            backend: DesignMacBackend(request: request))
         if screen == .approvalReply {
             model.isReplying = true
             model.replyDraft = reply
@@ -78,32 +84,11 @@ public final class MacDesignGallery {
         let requests = screen == .menuBarQuiet
             ? history.filter { !$0.state.isInUse }
             : [DesignExamples.githubSignIn(now: now)] + history
-        let model = MacMenuBarModel(requests: requests,
-            passwords: (522, now.addingTimeInterval(-3 * 86_400)), backend: DesignMacBackend())
-        let hosting = NSHostingView(rootView: MacMenuBarView(model: model))
-        let panel = KeyringPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered, defer: false)
+        let snapshot = MacMenuBarSnapshot(requests: requests,
+            passwords: ImportedPasswords(count: 542, importedAt: now.addingTimeInterval(-3 * 86_400)))
+        let model = MacMenuBarModel(backend: DesignMacBackend(menuBar: snapshot), initial: snapshot)
         // Drawn like a menu bar extra window: material, rounded, under the bar.
-        let effect = NSVisualEffectView()
-        effect.material = .menu
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 12
-        effect.layer?.masksToBounds = true
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: effect.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
-        ])
-        panel.contentView = effect
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-        panel.level = .statusBar
-        panel.setContentSize(hosting.fittingSize)
+        let panel = KeyringPanel.floating(MacMenuBarView(model: model))
         if let visible = NSScreen.main?.visibleFrame {
             panel.setFrameTopLeftPoint(NSPoint(x: visible.maxX - panel.frame.width - 12, y: visible.maxY - 6))
         }
@@ -113,18 +98,26 @@ public final class MacDesignGallery {
     }
 
     private func showRules() {
-        let model = MacRulesModel(rows: DesignRules.rows(now: now), backend: DesignMacBackend())
-        if screen == .rulesAll {
+        let rows = DesignRules.rows(now: now)
+        let confirmation = screen == .rulesConfirm
+            ? RulesConfirmation(summary: "34 logins: 18 Ask, 9 Automatic, 7 Blocked.", savedRulesWereUnreadable: false)
+            : nil
+        let snapshot = LoginRulesSnapshot(rows: rows, confirmation: confirmation)
+        let model = MacRulesModel(backend: DesignMacBackend(rules: snapshot), initial: snapshot)
+        if screen != .rules {
             model.filter = .all
         } else {
             model.selection = Set(model.visibleRows.prefix(3).dropFirst().map(\.id))
         }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 620),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 790, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
         window.title = "Rules"
         window.contentView = NSHostingView(rootView: MacRulesView(model: model))
-        window.center()
+        // Top left, clear of the middle of the screen, where system alerts appear.
+        if let visible = NSScreen.main?.visibleFrame {
+            window.setFrameTopLeftPoint(NSPoint(x: visible.minX + 24, y: visible.maxY - 24))
+        }
         window.level = .floating
         window.makeKeyAndOrderFront(nil)
         windows.append(window)
@@ -146,16 +139,47 @@ public final class MacDesignGallery {
     }
 }
 
+/// Answers instantly and pretends everything works. Each stream yields the
+/// one snapshot it was given.
 @MainActor
 final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesBackend {
+    private let request: AccessRequest?
+    private let menuBar: MacMenuBarSnapshot?
+    private let rules: LoginRulesSnapshot?
+
+    init(request: AccessRequest? = nil, menuBar: MacMenuBarSnapshot? = nil, rules: LoginRulesSnapshot? = nil) {
+        self.request = request
+        self.menuBar = menuBar
+        self.rules = rules
+    }
+
+    private static func once<Value: Sendable>(_ value: Value?) -> AsyncStream<Value> {
+        AsyncStream { continuation in
+            if let value { continuation.yield(value) }
+            continuation.finish()
+        }
+    }
+
+    func updates(requestID: String) -> AsyncStream<AccessRequest> { Self.once(request) }
+    // The mini has no Touch ID, so the gallery shows the button form of Approve.
+    func embeddedTouchIDContext(requestID: String) -> LAContext? { nil }
+    func updates() -> AsyncStream<MacMenuBarSnapshot> { Self.once(menuBar) }
+    func updates() -> AsyncStream<LoginRulesSnapshot> { Self.once(rules) }
+
     func approve(requestID: String) async throws -> AccessRequestState {
         try await Task.sleep(for: .milliseconds(700))
         return .approved(by: .mac, until: .now.addingTimeInterval(RequestedAccess.longestLease))
     }
 
     func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
-        .denied(by: .mac, reply: reply)
+        .denied(by: .mac, reply: reply, askAgainAfter: .now.addingTimeInterval(30 * 60))
     }
+
+    func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
+        .denied(by: .mac, reply: nil, askAgainAfter: nil)
+    }
+
+    func confirmRules() async throws {}
 
     func endAccess(requestID: String) async throws -> AccessRequestState {
         .ended(at: .now)

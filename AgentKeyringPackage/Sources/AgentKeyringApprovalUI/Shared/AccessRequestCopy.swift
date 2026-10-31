@@ -12,7 +12,8 @@ public enum AccessRequestCopy {
     public static func headlineLead(_ request: AccessRequest) -> String {
         switch request.access {
         case .signIn: "\(request.agent.name) wants to sign in to"
-        case let .program(program): "\(request.agent.name) wants to give \(program) the password for"
+        case let .program(command): "\(request.agent.name) wants to give \(programName(command)) the password for"
+        case .agentProcess: "\(request.agent.name) wants the password itself for"
         }
     }
 
@@ -22,20 +23,26 @@ public enum AccessRequestCopy {
 
     // MARK: Facts Agent Keyring observed
 
-    public static let agentLabel = "Agent"
     public static let machineLabel = "Machine"
-    public static let folderLabel = "Folder"
     public static let accessLabel = "Access"
+    public static let commandLabel = "Command"
 
     public static func machine(_ agent: RequestingAgent) -> String {
         "\(agent.machine) · \(agent.address)"
     }
 
-    public static func access(_ access: RequestedAccess) -> String {
-        switch access {
+    public static func access(_ request: AccessRequest) -> String {
+        switch request.access {
         case .signIn: "Sign-in only, up to 30 min"
-        case let .program(program): "Password to \(program), up to 30 min"
+        case let .program(command): "Password to \(programName(command)), up to 30 min"
+        case .agentProcess: "Password to \(request.agent.name)'s own code, up to 30 min"
         }
+    }
+
+    /// "gh" from "gh auth login --with-token" or "/usr/local/bin/gh auth …".
+    public static func programName(_ command: String) -> String {
+        let executable = command.split(separator: " ").first.map(String.init) ?? command
+        return executable.split(separator: "/").last.map(String.init) ?? executable
     }
 
     // MARK: The agent's claim
@@ -44,7 +51,12 @@ public enum AccessRequestCopy {
         "\(agent.name) says"
     }
 
-    public static let claimFootnote = "Written by the agent. Agent Keyring can't check it."
+    public static func claimFolder(_ folder: String) -> String {
+        "Working in \(folder)"
+    }
+
+    /// Covers the agent's name, folder and reason: all come from the agent.
+    public static let claimFootnote = "From the agent. Agent Keyring can't check it."
 
     // MARK: Answering
 
@@ -56,6 +68,10 @@ public enum AccessRequestCopy {
     public static let denyAndSend = "Deny and send"
     public static let sending = "Sending…"
     public static let endNow = "End now"
+    public static func askAgainUntil(_ date: Date) -> String {
+        "New requests from this machine are held off until \(clock(date))."
+    }
+    public static let letAskAgain = "Let it ask again"
 
     // MARK: States
 
@@ -85,10 +101,12 @@ public enum AccessRequestCopy {
             return "Approved by rule. \(agent) can use it until \(clock(until))."
         case let .approved(_, until):
             return "Approved. \(agent) can use it until \(clock(until)), or until it says it's done."
-        case let .denied(_, reply):
+        case let .denied(_, reply, _):
             return reply == nil ? "Denied. \(agent) was told." : "Denied. \(agent) got your reply."
         case .unanswered:
             return "Nobody answered, so \(agent) stopped waiting."
+        case .cancelled:
+            return "\(agent) stopped asking before you answered."
         case let .expired(at):
             return "Ended at \(clock(at)) after 30 minutes. \(agent) has to ask again."
         case let .released(at):
@@ -109,6 +127,7 @@ public enum AccessRequestCopy {
         case .approved: "In use"
         case .denied: "Denied"
         case .unanswered: "Unanswered"
+        case .cancelled: "Withdrawn"
         case .expired: "Expired"
         case .released: "Done"
         case .ended: "Ended"

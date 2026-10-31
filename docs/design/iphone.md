@@ -34,12 +34,12 @@ Screens: `screens/phone/home-*.png`, `nothingWaiting-*.png`.
 The screen a notification opens. Top to bottom:
 
 1. **Waiting for you** and a countdown ("4:10 left"), in blue.
-2. **The question.** "Codex wants to sign in to", then **github.com** in the largest type on the screen, then "as josh@example.com". For a program: "Claude Code wants to give gh the password for".
-3. **Facts Agent Keyring saw.** Agent, Machine (name and tailnet address), Folder, Access ("Sign-in only, up to 30 min" or "Password to gh, up to 30 min").
-4. **The agent's claim.** "Codex says", its sentence in quotes behind a rule, and "Written by the agent. Agent Keyring can't check it."
+2. **The question.** "Codex wants to sign in to", then **github.com** in the largest type on the screen, then "as josh@example.com". For a program: "Claude Code wants to give gh the password for". When the value goes to the agent's own code: "Codex wants the password itself for".
+3. **Facts Agent Keyring saw.** Machine (name and tailnet address) and Access ("Sign-in only, up to 30 min", "Password to gh, up to 30 min" or "Password to Codex's own code, up to 30 min"). For a program, the exact command too.
+4. **What came from the agent.** "Codex says", its reason in quotes behind a rule, "Working in ~/code/invoices", and "From the agent. Agent Keyring can't check it." The agent's name and folder come from the requesting process, which can say anything, so they sit here rather than in the facts.
 5. **Answers,** pinned under your thumb: **Deny** (red) and **Approve** with the Face ID glyph (green), equal width. Under them, **Deny and reply…** in red.
 
-Screens: `request-*.png`, `requestForProgram-*.png`.
+Screens: `request-*.png`, `requestForProgram-*.png`, `requestForAgentProcess-*.png`.
 
 ### Deny and reply
 
@@ -57,9 +57,10 @@ The buttons become one sentence with a symbol, and **Done**:
 | Approved | "Approved. Codex can use it until 01:53, or until it says it's done." Plus **End now**. |
 | Denied | "Denied. Codex got your reply." and "You replied: “…”". Without a reply: "Denied. Codex was told." |
 | Unanswered | "Nobody answered, so Codex stopped waiting." |
+| Withdrawn | "Codex stopped asking before you answered." |
 | Expired (lease) | "Ended at 02:14 after 30 minutes. Codex has to ask again." |
 | Done | "Codex finished with it at 01:20." |
-| Ended | "You ended it at 01:31." |
+| Ended | "You ended it at 01:31." Also used when you block the login or the machine. |
 | Blocked | "Blocked by this login's rule. You weren't asked." |
 
 If the answer can't be sent: an alert, "Your answer didn't reach Agent Keyring. Try again.", and the request goes back to waiting.
@@ -71,6 +72,8 @@ Screens: `sending-*.png`, `approved-*.png`, `denied-*.png`, `unanswered-*.png`.
 The same question, facts and claim, the outcome sentence, and **What happened**: a timed list such as "Codex asked on Mac mini", "Sent to this iPhone after 2 minutes", "You approved with Face ID", "Filled the one-time code". **End now** while it is in use.
 
 Screens: `inUseDetail-*.png`, `historyDetail-*.png`.
+
+After a denial, Agent Keyring refuses new requests for that login from that machine for 30 minutes, so an agent can't wear you down by asking again. The past request says so ("New requests from this machine are held off until 06:44.") with **Let it ask again**, for when you change your mind.
 
 ### Unreachable
 
@@ -113,4 +116,4 @@ Not built yet; release 4 adds it with the push channel.
 
 ## Built and not built
 
-The screens are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone`, fed by `PhoneKeyringModel`. Until release 4 they run on mock data; launch with `-designScenario <name>` to open any state. Without a scenario the app opens on the import screen, which is true today: the phone holds no passwords yet. The existing CloudKit notification actions and pairing code are untouched and still compiled.
+The screens are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone`, fed by `PhoneKeyringModel`, which follows `PhoneKeyringBackend`'s update stream. Until release 4 they run on mock data; launch with `-designScenario <name>` to open any state. Without a scenario the app opens on the import screen, which is true today: the phone holds no passwords yet. The existing CloudKit notification actions and pairing code are untouched and still compiled.

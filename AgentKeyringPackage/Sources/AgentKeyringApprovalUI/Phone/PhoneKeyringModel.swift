@@ -33,13 +33,34 @@ public struct PhoneSettings: Hashable, Sendable {
     }
 }
 
+/// Everything the phone shows that comes from outside it, at one moment.
+public struct PhoneKeyringSnapshot: Hashable, Sendable {
+    /// Waiting, in use and recent requests, in any order.
+    public var requests: [AccessRequest]
+    public var passwords: PasswordsOnPhone
+    public var connection: ServiceConnection
+    public var settings: PhoneSettings
+
+    public init(requests: [AccessRequest], passwords: PasswordsOnPhone, connection: ServiceConnection,
+        settings: PhoneSettings) {
+        self.requests = requests
+        self.passwords = passwords
+        self.connection = connection
+        self.settings = settings
+    }
+}
+
 /// Everything the iPhone app needs from the outside world.
 @MainActor
 public protocol PhoneKeyringBackend: AnyObject {
+    /// The current snapshot first, then one each time anything changes.
+    func updates() -> AsyncStream<PhoneKeyringSnapshot>
     /// Asks for Face ID, signs the answer and sends it. Returns the new state.
     func approve(requestID: String) async throws -> AccessRequestState
     func deny(requestID: String, reply: String?) async throws -> AccessRequestState
     func endAccess(requestID: String) async throws -> AccessRequestState
+    /// Clears a denial's hold-off, so this machine may ask for the login again.
+    func allowAskingAgain(requestID: String) async throws -> AccessRequestState
     /// Opens Apple Passwords on its export screen.
     func openPasswordsForImport()
     func setAskPhoneAfter(_ delay: Duration) async throws
@@ -65,18 +86,34 @@ public final class PhoneKeyringModel {
     private let backend: any PhoneKeyringBackend
     private var dictationTask: Task<Void, Never>?
 
-    public init(
-        backend: any PhoneKeyringBackend,
-        requests: [AccessRequest],
-        passwords: PasswordsOnPhone,
-        connection: ServiceConnection,
-        settings: PhoneSettings
-    ) {
+    public init(backend: any PhoneKeyringBackend, initial: PhoneKeyringSnapshot) {
         self.backend = backend
-        self.requests = requests
-        self.passwords = passwords
-        self.connection = connection
-        self.settings = settings
+        self.requests = initial.requests
+        self.passwords = initial.passwords
+        self.connection = initial.connection
+        self.settings = initial.settings
+    }
+
+    /// Follows the backend until the view goes away. Call from `.task`.
+    public func followUpdates() async {
+        for await snapshot in backend.updates() {
+            apply(snapshot)
+        }
+    }
+
+    private func apply(_ snapshot: PhoneKeyringSnapshot) {
+        // An answer on its way stays on screen until the backend reports the outcome.
+        let sending = Dictionary(uniqueKeysWithValues: requests.compactMap { request in
+            if case .sendingAnswer = request.state { (request.id, request.state) } else { nil }
+        })
+        requests = snapshot.requests.map { request in
+            var request = request
+            if request.state.isWaitingForYou, let state = sending[request.id] { request.state = state }
+            return request
+        }
+        passwords = snapshot.passwords
+        connection = snapshot.connection
+        settings = snapshot.settings
     }
 
     public var waiting: [AccessRequest] { requests.filter(\.state.isWaitingForYou) }
@@ -106,6 +143,11 @@ public final class PhoneKeyringModel {
     public func endAccess(_ id: String) async {
         do { update(id, to: try await backend.endAccess(requestID: id)) }
         catch { failure = "Couldn't end it. Agent Keyring will end it at the deadline anyway." }
+    }
+
+    public func allowAskingAgain(_ id: String) async {
+        do { update(id, to: try await backend.allowAskingAgain(requestID: id)) }
+        catch { failure = "Couldn't change that. Agent Keyring isn't reachable." }
     }
 
     public func importPasswords() {

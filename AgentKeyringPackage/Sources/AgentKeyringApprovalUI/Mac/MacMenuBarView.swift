@@ -8,16 +8,42 @@
 import Observation
 import SwiftUI
 
+public struct ImportedPasswords: Hashable, Sendable {
+    public var count: Int
+    public var importedAt: Date
+
+    public init(count: Int, importedAt: Date) {
+        self.count = count
+        self.importedAt = importedAt
+    }
+}
+
+public struct MacMenuBarSnapshot: Hashable, Sendable {
+    /// Waiting, in use and recent requests, in any order.
+    public var requests: [AccessRequest]
+    public var passwords: ImportedPasswords?
+
+    public init(requests: [AccessRequest], passwords: ImportedPasswords?) {
+        self.requests = requests
+        self.passwords = passwords
+    }
+}
+
 @MainActor
 public protocol MacMenuBarBackend: AnyObject {
+    /// The current snapshot first, then one each time anything changes.
+    func updates() -> AsyncStream<MacMenuBarSnapshot>
+    /// Josh ends an agent's access early. The lease becomes REVOKED.
     func endAccess(requestID: String) async throws -> AccessRequestState
+    /// Clears a denial's hold-off, so that machine may ask for the login again.
+    func allowAskingAgain(requestID: String) async throws -> AccessRequestState
 }
 
 @MainActor
 @Observable
 public final class MacMenuBarModel {
-    public var requests: [AccessRequest]
-    public var passwords: (count: Int, importedAt: Date)?
+    public private(set) var requests: [AccessRequest]
+    public private(set) var passwords: ImportedPasswords?
     public var review: (String) -> Void = { _ in }
     public var openRules: () -> Void = {}
     public var openAgentKeyring: () -> Void = {}
@@ -26,10 +52,19 @@ public final class MacMenuBarModel {
 
     private let backend: any MacMenuBarBackend
 
-    public init(requests: [AccessRequest], passwords: (count: Int, importedAt: Date)?, backend: any MacMenuBarBackend) {
-        self.requests = requests
-        self.passwords = passwords
+    public init(backend: any MacMenuBarBackend, initial: MacMenuBarSnapshot) {
+        self.requests = initial.requests
+        self.passwords = initial.passwords
         self.backend = backend
+    }
+
+    /// Follows the backend for as long as the app runs. Start it once at launch,
+    /// not from the window, because the menu bar icon shows the waiting count.
+    public func followUpdates() async {
+        for await snapshot in backend.updates() {
+            requests = snapshot.requests
+            passwords = snapshot.passwords
+        }
     }
 
     public var waiting: [AccessRequest] { requests.filter(\.state.isWaitingForYou) }
@@ -40,9 +75,17 @@ public final class MacMenuBarModel {
     }
 
     public func endAccess(_ id: String) async {
-        guard let index = requests.firstIndex(where: { $0.id == id }),
-            let state = try? await backend.endAccess(requestID: id)
-        else { return }
+        guard let state = try? await backend.endAccess(requestID: id) else { return }
+        update(id, to: state)
+    }
+
+    public func allowAskingAgain(_ id: String) async {
+        guard let state = try? await backend.allowAskingAgain(requestID: id) else { return }
+        update(id, to: state)
+    }
+
+    private func update(_ id: String, to state: AccessRequestState) {
+        guard let index = requests.firstIndex(where: { $0.id == id }) else { return }
         requests[index].state = state
     }
 }
@@ -100,7 +143,7 @@ public struct MacMenuBarView: View {
             if !model.recent.isEmpty {
                 MenuSection(title: "Recent") {
                     ForEach(model.recent) { request in
-                        RecentMenuRow(request: request)
+                        RecentMenuRow(request: request) { Task { await model.allowAskingAgain(request.id) } }
                     }
                 }
             }
@@ -219,6 +262,7 @@ private struct InUseMenuRow: View {
 
 private struct RecentMenuRow: View {
     let request: AccessRequest
+    let allowAskingAgain: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -239,6 +283,12 @@ private struct RecentMenuRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 3)
+        .contentShape(.rect)
+        .contextMenu {
+            if request.state.isHoldingOffNewRequests(now: .now) {
+                Button(AccessRequestCopy.letAskAgain, action: allowAskingAgain)
+            }
+        }
     }
 }
 #endif

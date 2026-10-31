@@ -22,7 +22,7 @@ fi
 
 SCENARIOS=("$@")
 if [[ ${#SCENARIOS[@]} -eq 0 ]]; then
-  SCENARIOS=(request requestForProgram reply sending approved denied unanswered
+  SCENARIOS=(request requestForProgram requestForAgentProcess reply sending approved denied unanswered
     home nothingWaiting inUseDetail historyDetail unreachable importNeeded importing settings)
 fi
 
