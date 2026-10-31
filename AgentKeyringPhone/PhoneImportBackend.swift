@@ -46,6 +46,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
     }
 
     func start() {
+        pushToken = nil; registeredPushToken = nil
         if approverUpdates == nil {
             approverUpdates = Task { [weak self] in
                 guard let stream = self?.approver.changes() else { return }
