@@ -1,6 +1,6 @@
 ---
 written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
-status: agreed for implementation; U1 to U3 built, U2 awaiting its MacBook check; designs remain a placeholder for Josh's review
+status: agreed for implementation; U1 to U4 built, U2 and U4 awaiting device checks; designs remain a placeholder for Josh's review
 depends_on: 0004; 0005 and 0006 for remote and phone states
 related: docs/design/, AgentKeyringPackage/Sources/AgentKeyringApprovalUI
 ---
@@ -119,7 +119,7 @@ which of his agents is asking; the claim block says where it came from.
 | U1 | Opus | Merge `AgentKeyringApprovalUI` from the design branch into main behind the four protocols, with mock backends kept for the design gallery | Done: main builds (package, Mac app, iPhone app); every state renders from the real views (`docs/design/screens/`) |
 | U2 | Opus | `MacApprovalBackend` over the release 2 lease store and Touch ID; panel supplies context while macOS performs biometric authorization | Built (`LeaseApprovalBackend`, `LeaseApprovalPresenter`); proof is the MacBook check below |
 | U3 | Opus | `MacMenuBarBackend` and `LoginRulesBackend` | Built (`LeaseMenuBarBackend`, `AccessRulesBackend`, `RulesWindow`); proof is the same check, plus the Mac UI tests |
-| U4 | Opus | Remote request and enrolment states on the Mac (release 3) | Josh can tell a remote request from a local one, and compares the enrolment code on screen |
+| U4 | Opus | Remote request and enrolment states on the Mac (release 3) | Built over `RelayApprover`; proof is the release 3 MacBook check below |
 | U5 | Opus | `PhoneKeyringBackend` over the phone vault and relay (release 4), Lock Screen notification | Every designed phone state renders from real requests |
 
 ## Human proofs
@@ -155,6 +155,57 @@ which of his agents is asking; the claim block says where it came from.
   `leaseMenuBar` screens map store-shaped lease records through
   `LeaseScreenMapping` (`docs/design/screens/mac/lease*.png`). The installed
   app with a live store is the morning check.
+
+## How U4 is built
+
+- **Remote at a glance.** A request knows whether it came from this Mac
+  (`RequestingAgent.isLocal`). A remote one names the machine in the question
+  ("Codex on Mac mini wants to sign in to"); lists say "This Mac" or the
+  machine's name. A reply to a remote agent is signed, so "Deny and send"
+  shows Touch ID; a plain Deny needs none. An answer still in the outbox says
+  so under the outcome.
+- **Comparing a code.** `FingerprintGrid` lays the eight groups out as two
+  rows of four on every screen (Mac panel, Machines window, iPhone), so Josh
+  compares the same positions on both. All eight must match; there is no
+  shorter or picture form. "They match" approves with Touch ID.
+- **Panels.** `ApprovalPresenter` shows one floating panel at a time:
+  devices joining first, since someone is waiting at the other device, then
+  requests from this Mac and through the relay, oldest first.
+- **Backends.** `RelayScreenMapping` is the only code that reads relay
+  records. `RelayApprovalBackend` (approve, deny, the panel's Touch ID
+  context), `RelayEnrolmentBackend` (`approveEnrolment`,
+  `confirmApproverPairing`, `denyEnrolment`) and `RelayMachinesBackend`
+  (`beginPairing`, `confirmPairing`, `publishCurrentRules`, `revokeMachine`)
+  wrap `RelayApprover`. The menu bar backend adds remote requests and leases;
+  End calls `revokeLease`, "Let it ask again" calls `clearDenial` with the
+  lease's recipient.
+- **Machines window.** Relay setup, connection and outbox, rule changes not
+  yet sent, devices waiting to join, machines that can ask (Remove), and
+  devices that can approve. Opened from the menu bar's More menu.
+- **iPhone pairing.** Home says "Not paired yet" with Pair; Settings has
+  "Pair with your Mac" and "Rules · Checked 11 minutes ago". The pairing
+  screen takes the relay address (prefilled `mac-mini:17443`), shows the code
+  in the same layout, and finishes by itself after the Mac approves.
+
+Still to bind when they reach main: "Doesn't match" for an iPhone joining
+(`dismissApproverPairing`) and for the first relay setup (`abandonPairing`).
+Until then the iPhone case shows that refusing isn't in the build yet, and
+relay setup starts again with Connect.
+
+**Address check.** The Swift `RelayEndpoint` (phone and Mac) accepts only a
+`100.64/10` address, the tailnet IPv6 prefix or a `.ts.net` name, so the
+prefilled `mac-mini:17443` is refused until it also accepts a single-label
+tailnet name, as the Go client now does.
+
+### Release 3 check on the MacBook
+
+1. Run `agent-keyring enrol --name "build server"` on another machine. The
+   Mac panel shows it with its code; compare all eight groups with the code
+   the command printed, and touch "They match".
+2. Ask an agent there to sign in somewhere. The panel reads "Codex on build
+   server wants to sign in to"; one touch approves.
+3. Open the menu bar: the lease is under "In use now" with the machine's
+   name; End it.
 
 ## Morning check: one look, one touch
 
