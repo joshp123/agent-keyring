@@ -11,7 +11,8 @@ import SwiftUI
 public enum RelayLink: Hashable, Sendable {
     case notSetUp
     case connecting(address: String)
-    /// First setup: the code this Mac computed, to compare with the relay's log.
+    /// First setup: the code this Mac computed, to compare with the relay's
+    /// code that setup brings over SSH.
     case comparing(code: String, address: String)
     case connected(address: String)
     case offline(address: String)
@@ -46,20 +47,20 @@ public struct MachinesSnapshot: Hashable, Sendable {
     public var relay: RelayLink
     /// Signed answers saved on this Mac, waiting for the relay.
     public var queuedAnswers: Int
-    /// Rule changes signed here but not yet published to the relay.
-    public var rulesNotSent: Bool
+    /// A confirmed change to rules or machines the relay hasn't acknowledged yet.
+    public var isApplying: Bool
     public var waiting: [DeviceEnrolment]
     public var machines: [EnrolledMachine]
     public var approvers: [ApproverDevice]
     /// How long a request waits here before the Mac asks the iPhone (RFC 0006).
     public var askPhoneAfter: Duration
 
-    public init(relay: RelayLink, queuedAnswers: Int = 0, rulesNotSent: Bool = false,
+    public init(relay: RelayLink, queuedAnswers: Int = 0, isApplying: Bool = false,
         waiting: [DeviceEnrolment] = [], machines: [EnrolledMachine] = [], approvers: [ApproverDevice] = [],
         askPhoneAfter: Duration = .seconds(120)) {
         self.relay = relay
         self.queuedAnswers = queuedAnswers
-        self.rulesNotSent = rulesNotSent
+        self.isApplying = isApplying
         self.waiting = waiting
         self.machines = machines
         self.approvers = approvers
@@ -76,8 +77,6 @@ public protocol MacMachinesBackend: AnyObject {
     func confirmRelay(comparedCode: String) async throws
     /// Abandons an unconfirmed first setup. Fails once it has been confirmed.
     func cancelRelaySetup() throws
-    /// Publishes changed rules to the relay, with Touch ID.
-    func sendRules() async throws
     /// Removes a machine's right to ask, with Touch ID.
     func remove(machineID: String) async throws
     func setAskPhoneAfter(_ delay: Duration)
@@ -127,10 +126,6 @@ public final class MacMachinesModel {
         await run("The setup couldn't be cancelled.") { try backend.cancelRelaySetup() }
     }
 
-    public func sendRules() async {
-        await run("The rules weren't sent. Try again.") { try await backend.sendRules() }
-    }
-
     public func remove(_ machineID: String) async {
         await run("The machine wasn't removed. Try again.") { try await backend.remove(machineID: machineID) }
     }
@@ -163,19 +158,9 @@ public struct MacMachinesView: View {
 
     public var body: some View {
         Form {
-            Section(SetupCopy.relayHeading) { relay }
-
-            if model.snapshot.rulesNotSent {
-                Section {
-                    HStack {
-                        Text(SetupCopy.rulesNotSent)
-                        Spacer()
-                        Button { Task { await model.sendRules() } } label: {
-                            Label(SetupCopy.sendRules, systemImage: "touchid")
-                        }
-                        .disabled(model.isWorking)
-                    }
-                }
+            Section(SetupCopy.relayHeading) {
+                relay
+                if model.snapshot.isApplying { ApplyingLine() }
             }
 
             if !model.snapshot.waiting.isEmpty {
@@ -325,6 +310,16 @@ private struct MachineLabel: View {
             }
         } icon: {
             Image(systemName: symbol).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Shown in the Machines and rules windows until the relay acknowledges a change.
+struct ApplyingLine: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(SetupCopy.applying).foregroundStyle(.secondary)
         }
     }
 }

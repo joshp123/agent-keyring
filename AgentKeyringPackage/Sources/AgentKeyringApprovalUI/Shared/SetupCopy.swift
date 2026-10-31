@@ -70,8 +70,8 @@ public enum SetupCopy {
         count == 1 ? "1 answer waits to send." : "\(count) answers wait to send."
     }
 
-    public static let rulesNotSent = "Rule changes haven't reached the relay, so other machines still see the old ones."
-    public static let sendRules = "Send with Touch ID"
+    /// RFC 0005, "Applying a change": shown until the relay acknowledges.
+    public static let applying = "Applying changes…"
     public static let waitingToJoin = "Waiting to join"
     public static let machinesThatCanAsk = "Machines that can ask"
     public static let noMachines = "No other machine can ask yet. Run agent-keyring enrol on it to start."

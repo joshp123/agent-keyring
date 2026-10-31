@@ -27,16 +27,14 @@ public struct MacMenuBarSnapshot: Hashable, Sendable {
     /// Nil until the relay is set up (release 3).
     public var relay: RelayLink?
     public var queuedAnswers: Int
-    public var rulesNotSent: Bool
 
     public init(requests: [AccessRequest], passwords: ImportedPasswords?, enrolments: [DeviceEnrolment] = [],
-        relay: RelayLink? = nil, queuedAnswers: Int = 0, rulesNotSent: Bool = false) {
+        relay: RelayLink? = nil, queuedAnswers: Int = 0) {
         self.requests = requests
         self.passwords = passwords
         self.enrolments = enrolments
         self.relay = relay
         self.queuedAnswers = queuedAnswers
-        self.rulesNotSent = rulesNotSent
     }
 }
 
@@ -58,7 +56,6 @@ public final class MacMenuBarModel {
     public private(set) var enrolments: [DeviceEnrolment]
     public private(set) var relay: RelayLink?
     public private(set) var queuedAnswers: Int
-    public private(set) var rulesNotSent: Bool
     public var review: (String) -> Void = { _ in }
     public var reviewEnrolment: (String) -> Void = { _ in }
     public var openMachines: () -> Void = {}
@@ -75,7 +72,6 @@ public final class MacMenuBarModel {
         self.enrolments = initial.enrolments
         self.relay = initial.relay
         self.queuedAnswers = initial.queuedAnswers
-        self.rulesNotSent = initial.rulesNotSent
         self.backend = backend
     }
 
@@ -84,11 +80,9 @@ public final class MacMenuBarModel {
 
     /// One line when the relay needs attention; nil when all is well.
     public var relayAttention: String? {
-        if case let .offline(address) = relay {
-            return SetupCopy.relayOffline(address)
-                + (queuedAnswers > 0 ? " " + SetupCopy.queuedAnswers(queuedAnswers) : "")
-        }
-        return rulesNotSent ? SetupCopy.rulesNotSent : nil
+        guard case let .offline(address) = relay else { return nil }
+        return SetupCopy.relayOffline(address)
+            + (queuedAnswers > 0 ? " " + SetupCopy.queuedAnswers(queuedAnswers) : "")
     }
 
     /// Follows the backend for as long as the app runs. Start it once at launch,
@@ -100,7 +94,6 @@ public final class MacMenuBarModel {
             enrolments = snapshot.enrolments
             relay = snapshot.relay
             queuedAnswers = snapshot.queuedAnswers
-            rulesNotSent = snapshot.rulesNotSent
         }
     }
 

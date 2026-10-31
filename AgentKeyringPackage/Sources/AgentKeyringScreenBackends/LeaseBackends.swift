@@ -92,8 +92,7 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
             enrolments: relay.enrolments.map(RelayScreenMapping.enrolment)
                 + relay.approverPairings.map(RelayScreenMapping.enrolment),
             relay: RelayScreenMapping.relayLink(relay),
-            queuedAnswers: relay.queuedAnswerCount,
-            rulesNotSent: relay.needsPublication)
+            queuedAnswers: relay.queuedAnswerCount)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {
@@ -145,7 +144,8 @@ public final class AccessRulesBackend: LoginRulesBackend {
             LoginRuleRow(id: row.id, site: row.website.isEmpty ? row.title : row.website, account: row.account,
                 rule: LoginRule(row.policy), lastUsed: lastApproved[row.id.uuidString])
         }
-        return LoginRulesSnapshot(rows: rows, confirmation: confirmation(rows))
+        return LoginRulesSnapshot(rows: rows, confirmation: confirmation(rows),
+            isApplying: model.relayApprover.needsPublication)
     }
 
     public func updates() -> AsyncStream<LoginRulesSnapshot> {

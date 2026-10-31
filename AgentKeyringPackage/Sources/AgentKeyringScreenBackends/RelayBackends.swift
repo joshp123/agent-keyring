@@ -209,7 +209,7 @@ public final class RelayMachinesBackend: MacMachinesBackend {
         return MachinesSnapshot(
             relay: RelayScreenMapping.relayLink(update),
             queuedAnswers: update.queuedAnswerCount,
-            rulesNotSent: update.needsPublication,
+            isApplying: update.needsPublication,
             waiting: update.enrolments.map(RelayScreenMapping.enrolment)
                 + update.approverPairings.map(RelayScreenMapping.enrolment),
             machines: update.machines.map {
@@ -234,10 +234,6 @@ public final class RelayMachinesBackend: MacMachinesBackend {
 
     public func cancelRelaySetup() throws {
         try screenErrors { try relay.abandonPairing() }
-    }
-
-    public func sendRules() async throws {
-        try await screenErrors { try await relay.publishCurrentRules(context: LAContext()) }
     }
 
     public func remove(machineID: String) async throws {

@@ -21,6 +21,7 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case rules
     case rulesAll
     case rulesConfirm
+    case rulesApplying
     case enrolment
     case enrolmentIPhone
     case enrolmentJoined
@@ -53,7 +54,7 @@ public final class MacDesignGallery {
             showApprovalPanel()
         case .menuBar, .menuBarQuiet:
             showMenuBar()
-        case .rules, .rulesAll, .rulesConfirm:
+        case .rules, .rulesAll, .rulesConfirm, .rulesApplying:
             showRules()
         case .enrolment, .enrolmentIPhone, .enrolmentJoined:
             showEnrolment()
@@ -123,7 +124,7 @@ public final class MacDesignGallery {
         case .machinesComparing:
             MachinesSnapshot(relay: .comparing(code: "C3E1 5A90 7B24 0DF8 916C 2E47 B8A3 54D0", address: "mac-mini:17443"))
         default:
-            MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0, rulesNotSent: true,
+            MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0, isApplying: true,
                 waiting: [DesignExamples.machineEnrolment(now: now)],
                 machines: [
                     EnrolledMachine(id: "m-mini", name: "Mac mini", tailnetNode: "mac-mini", automaticAllowed: true),
@@ -179,7 +180,7 @@ public final class MacDesignGallery {
         let confirmation = screen == .rulesConfirm
             ? RulesConfirmation(summary: "34 logins: 18 Ask, 9 Automatic, 7 Blocked.", savedRulesWereUnreadable: false)
             : nil
-        let snapshot = LoginRulesSnapshot(rows: rows, confirmation: confirmation)
+        let snapshot = LoginRulesSnapshot(rows: rows, confirmation: confirmation, isApplying: screen == .rulesApplying)
         let model = MacRulesModel(backend: DesignMacBackend(rules: snapshot), initial: snapshot)
         if screen != .rules {
             model.filter = .all
@@ -232,7 +233,6 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
     func connect(host: String, port: UInt16) async throws {}
     func confirmRelay(comparedCode: String) async throws {}
     func cancelRelaySetup() throws {}
-    func sendRules() async throws {}
     func remove(machineID: String) async throws {}
     func setAskPhoneAfter(_ delay: Duration) {}
 
