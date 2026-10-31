@@ -26,8 +26,10 @@ approval made by another device while this Mac was offline. Reports update
 display state and close answered prompts; they never authorize a delivery.
 
 - `beginPairing(RelayEndpoint)` observes the relay's TLS key during first setup.
-  The endpoint requires a Tailscale address/name. Loopback is an explicit proof
-  option. The Mac refuses first setup if the relay already has an approver.
+  Host names are accepted. Before sending a request, the connected peer's
+  resolved address must be in `100.64.0.0/10` or `fd7a:115c:a1e0::/48`.
+  Loopback is an explicit proof option, persisted with the endpoint. The Mac
+  refuses first setup if the relay already has an approver.
 - `confirmPairing(comparedFingerprint:context:)` requires the full eight groups,
   compared with the relay's log. It signs and queues both the confirmation and
   initial key set. An identical retry reuses the saved answer.
