@@ -126,5 +126,8 @@ func (p *proof) connectionDenialProof() {
 	require(good(p.approver.call(p.decision(p.nextRequest(), false))).GetDecision().Accepted, "fresh request could not be approved")
 	require(good(p.client.call(beginRequest(fresh.LeaseId, "after-approval"))).GetClient().GetBeginOperation().GetSealed() != nil, "new approval did not permit begin")
 	good(p.client.call(endRequest(fresh.LeaseId)))
+	p.publishIndex(pb.AccessRule_ACCESS_RULE_BLOCKED)
+	good(p.approver.call(clear))
+	require(good(p.client.call(leaseRequest("blocked-after-clear", "blocked-after-clear-task", p.enrolled.RecipientId))).GetClient().GetLease().State == pb.LeaseState_LEASE_STATE_DENIED, "clear bypassed Blocked policy")
 	fmt.Println("PASS approver-only ClearDenial, scoped and idempotent, durable across restart; fresh request needs approval")
 }
