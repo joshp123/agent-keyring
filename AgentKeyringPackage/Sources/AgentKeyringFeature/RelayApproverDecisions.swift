@@ -168,7 +168,7 @@ extension RelayApprover {
     }
 
     func canApproveAutomatically(_ record: Agentkeyring_V1_RequestRecord, vault: RelayApproverVault) -> Bool {
-        guard state.publicationDigest == publicationDigest(vault, machines: state.machines),
+        guard (try? requiresPublicationConfirmation(vault)) == false,
             let loginID = UUID(uuidString: record.loginID), vault.policies[loginID, default: .ask] == .allowAutomatically,
             let configuration = try? currentConfiguration(),
             let signer = try? keys().1,

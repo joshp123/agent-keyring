@@ -1,51 +1,39 @@
 ---
-written_by: ai (Claude Opus 5.5, 2026-10-12), from the entitlements and code on main
+written_by: ai (gpt-6.1-sol, 2026-10-31), from the current entitlements and call paths
 ---
 
-# What Agent Keyring is allowed to do, and why
-
-Each part asks for the least it needs. This lists every permission, what it lets that part do, what it is used for, and what it cannot do.
+# What Agent Keyring is allowed to do
 
 ## On the Mac
 
-| Part | Permission | Used for | Cannot |
-| --- | --- | --- | --- |
-| Agent Keyring app | App Sandbox | Keeps the app inside its own container. | Read your files, other apps' data or the network beyond what is listed here. |
-| | AutoFill credential provider | Lets Apple Passwords hand Agent Keyring your logins when *you* run File → Export All Items to App. | Start an export. Only you can, in Apple Passwords, with Touch ID. |
-| | Keychain (its own items only) | Holds the key that encrypts its copy of your logins, the Secure Enclave key that signs your rules, and the rules' fingerprint. | Read other apps' keychain items or your iCloud Keychain. |
-| | iCloud (CloudKit, private database) | Sends approval requests to your iPhone and reads its answers. Site and account are encrypted. | Read any other iCloud data. |
-| | Notifications | The weekly "your copy is out of date" reminder. | — |
-| Fill helper (inside the app) | Accessibility, shown as "Agent Keyring" in System Settings | Reads which browser is in front, the page address and the focused field, then types the login into that field. | Anything for apps other than the verified browsers listed below. It only accepts commands from the Agent Keyring app itself; macOS checks the app's signature on every connection. |
-| `agent-keyring` command | None | Passes requests to the app and prints results. | See or store passwords, except values a program asked for with `acquire`, which it pipes on and which expire after 5 minutes. |
+| Part | Permission | Used for |
+| --- | --- | --- |
+| Agent Keyring app | App Sandbox | Keeps its encrypted mirror, rules and task history in its own container. |
+| | AutoFill credential provider | Receives the logins you export from Apple Passwords. It cannot start an export or read Apple Passwords directly. |
+| | Its own Keychain items | Holds the mirror encryption key, Secure Enclave signing keys and checkpoints for rules and leases. These items do not synchronize with iCloud. |
+| | Incoming and outgoing network access | Serves local agents over `agent.sock` and connects to the paired relay. The app checks that the relay connection uses a tailnet address before sending data. |
+| | Notifications | Offers a reminder when the mirrored copy is out of date. |
+| `agent-keyring` command | No macOS privacy permission | Requests a lease and sends approved values to a program's stdin, a private process pipe or a Chrome debugging connection. |
 
-**Accessibility, plainly.** Accessibility is a strong macOS permission. A program that has it can read other apps' windows and type into them, and in principle that includes Apple Passwords. Agent Keyring's helper does far less:
+**Agent Keyring does not request Accessibility permission.** Browser filling uses the CLI's Chrome debugging connection. It does not inspect the frontmost app or post keyboard events. Accessibility labels in Agent Keyring's own windows remain available to assistive tools.
 
-- It acts only when the Agent Keyring app asks it to fill.
-- It acts only on the browser in front, after checking that browser's code signature (Safari, Chrome, Claude, Codex, Arc, Brave, Edge). It never touches Apple Passwords or any other app.
-- It types only into a field on a page that belongs to the saved site, and only while the screen is unlocked.
-
-Even with Accessibility, nothing can export your passwords without your Touch ID: Apple Passwords demands it for every export.
-
-The real exposure is this. If someone replaced the Agent Keyring app with a malicious build signed by your developer certificate, that build would inherit the permission. Keep your developer signing key where agents cannot use it.
-
-Agents that use computer-use tools, such as Claude or Codex, hold their own, separate Accessibility permission. Agent Keyring does not change what they can do.
+Other agents' computer-use permissions are separate from Agent Keyring. A process receiving a credential can retain it; a lease limits future deliveries, not an existing website session or a copied password. The CLI's browser and destination checks do not create a security boundary against another process running as the same user.
 
 ## On the iPhone
 
-| Permission | Used for |
+| Permission or key | Used for |
 | --- | --- |
-| Camera | Scanning the pairing code on the Mac, once. |
-| Notifications, time-sensitive | Showing approval requests even during Focus. |
-| iCloud (CloudKit, private database) | Receiving requests and sending your signed answers. |
-| Secure Enclave key | Signing each answer. The key never leaves the phone, so a stolen answer cannot be reused for another request. |
+| Face ID and a Secure Enclave key | Authorizes and signs an approval or a denial containing a reply. |
+| Notifications | Shows requests forwarded through the relay. Delivery requires the relay's push configuration. |
+| Network access | Connects to the paired relay over the tailnet. |
 
-The iPhone never receives passwords.
+The relay approval flow can use the iPhone without importing passwords there: the Mac sends the approved credential from its mirror. The current Mac and phone approval flow does not use iCloud or a camera for pairing.
 
-## What only you can do
+## When approval is needed
 
-- **Exporting from Apple Passwords** (File → Export All Items to App → Agent Keyring) needs your Touch ID in Apple Passwords.
-- **Changing access rules, pairing or removing an iPhone** needs your Touch ID in Agent Keyring.
-- **Granting Accessibility** happens in System Settings.
-- **Approving a request** needs your Touch ID or Apple Watch on the Mac, or Face ID and a tap on the iPhone.
+- Apple Passwords authorizes an export before handing selected logins to Agent Keyring.
+- Ask logins require approval for the task. Automatic logins do not prompt.
+- Confirming rules and pairing an approving device require owner authentication. A password-only refresh does not change the approved rules or require another confirmation.
+- A denial without a reply needs no biometric check. A reply is an instruction to the agent and requires a signed, authenticated answer.
 
-No agent can do these for you through Agent Keyring.
+Agent Keyring never needs Accessibility permission to perform these steps.

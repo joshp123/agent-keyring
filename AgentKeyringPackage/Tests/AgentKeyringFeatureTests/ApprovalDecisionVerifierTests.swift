@@ -5,6 +5,7 @@ import Synchronization
 import Testing
 @testable import AgentKeyringFeature
 
+@MainActor
 @Suite("Paired-device approval verification")
 struct ApprovalDecisionVerifierTests {
     @Test("Every decision and action verifies once with a real paired P-256 key",
@@ -175,8 +176,9 @@ struct ApprovalDecisionVerifierTests {
     }
 }
 
+@MainActor
 struct PhoneApprovalFixture {
-    static let now = Date(timeIntervalSince1970: 1_800_000_000)
+    nonisolated static let now = Date(timeIntervalSince1970: 1_800_000_000)
     let root: URL
     let signer: CryptoKitRulesTestSigner
     let phoneKey = P256.Signing.PrivateKey()

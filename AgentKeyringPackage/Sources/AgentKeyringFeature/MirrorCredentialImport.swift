@@ -121,30 +121,16 @@ extension MirrorAppModel {
             return
         }
 
+        let generation: MirrorGeneration
         do {
             let previousGeneration = try await store.loadCurrent()
             let importBatch = mapper.map(exportedData, scope: .unknown)
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
-            let generation = try merger.merge(previous: previousGeneration, importBatch: importBatch)
+            generation = try merger.merge(previous: previousGeneration, importBatch: importBatch)
             credentialExchangeLogger.info("Merge completed with \(generation.items.count, privacy: .public) items")
             try await store.save(generation)
-            staleLogins.clear()
-            let visibleGeneration = generationIncludingExample(generation) ?? generation
-            leaseLogins = visibleGeneration.metadata.candidates
-            await accessControl.refresh(from: visibleGeneration)
-            try await refreshLeasePolicy()
-            relayApprover.noteRulesChanged()
-            credentialExchangeLogger.info(
-                "Saved encrypted mirror with \(generation.items.count, privacy: .public) items"
-            )
-            status = visibleGeneration.safeStatus
-            notice = MirrorNotice(
-                kind: .information,
-                text:
-                    "Import complete. Exported logins have been updated."
-            )
         } catch {
             let nsError = error as NSError
             credentialExchangeLogger.error(
@@ -156,6 +142,30 @@ extension MirrorAppModel {
                     ? "Passwords transferred the credentials, but the encrypted mirror could not be updated. Your existing mirror was not changed."
                     : "Passwords transferred the credentials, but Agent Keyring could not create the encrypted mirror."
             )
+            return
+        }
+
+        credentialExchangeLogger.info("Saved encrypted mirror with \(generation.items.count, privacy: .public) items")
+        staleLogins.clear()
+        let visibleGeneration = generationIncludingExample(generation) ?? generation
+        status = visibleGeneration.safeStatus
+        leaseLogins = visibleGeneration.metadata.candidates
+        await accessControl.refresh(from: visibleGeneration)
+        do {
+            try await refreshLeasePolicy()
+            relayApprover.noteRulesChanged()
+            notice = MirrorNotice(kind: .information,
+                text: "Import complete. Exported logins have been updated.")
+        } catch {
+            let error = error as NSError
+            credentialExchangeLogger.error(
+                "Mirror saved; access rules could not be applied [\(error.domain, privacy: .public)/\(error.code, privacy: .public)]"
+            )
+            let nextStep = leaseStore.needsHistoryReset
+                ? "Reset task history in Agent Keyring to restore agent access."
+                : "Confirm your access rules in Agent Keyring before agents use them."
+            notice = MirrorNotice(kind: .warning,
+                text: "Import complete. Your logins were saved. \(nextStep)")
         }
     }
 }

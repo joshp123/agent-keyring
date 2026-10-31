@@ -38,7 +38,6 @@ public final class MirrorAppModel {
     public internal(set) var providerState = ProviderEnablementState.unknown
     public internal(set) var notice: MirrorNotice?
     public let accessControl: CredentialAccessController
-    public let fillAccessibility: FillAccessibilityOnboarding
 
     let staleLogins: PossiblyStaleLogins
     public var syncReminders: MirrorSyncReminders?
@@ -73,7 +72,6 @@ public final class MirrorAppModel {
         authorizer: any CredentialReleaseAuthorizing = LocalCredentialReleaseAuthorizer(),
         bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
         accessControl: CredentialAccessController = CredentialAccessController(),
-        fillAccessibility: FillAccessibilityOnboarding = FillAccessibilityOnboarding(),
         leaseStore: CredentialLeaseStore = CredentialLeaseStore(),
         settings: UserDefaults = .standard
     ) {
@@ -85,7 +83,6 @@ public final class MirrorAppModel {
         self.authorizer = authorizer
         self.bridge = bridge
         self.accessControl = accessControl
-        self.fillAccessibility = fillAccessibility
         self.settings = settings
         let routingSettings = ApprovalRoutingSettings(defaults: settings)
         self.approvalRoutingSettings = routingSettings

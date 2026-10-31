@@ -76,7 +76,7 @@ extension RelayApprover {
         try await signer.authorize(context: context, reason: "Pair Agent Keyring with the relay after comparing the full fingerprint")
         let currentVault = try await credentialSource()
         try Task.checkCancellation()
-        guard publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
+        guard try publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
             throw LeaseFailure(.conflict, "The logins changed while pairing. Confirm the current rules first.")
         }
         guard pairingAttemptID == attemptID, state.pairing?.transcript == pending.transcript, state.keySet == nil else {
