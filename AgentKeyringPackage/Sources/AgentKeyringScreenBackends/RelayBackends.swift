@@ -184,8 +184,9 @@ public final class RelayEnrolmentBackend: MacEnrolmentBackend {
 
     public func refuse(enrolmentID: String) async throws {
         if relay.pendingApproverPairings.contains(where: { $0.id == enrolmentID }) {
-            // Binds to RelayApprover.dismissApproverPairing once it is on main.
-            throw ScreenFailure(message: "Refusing an iPhone isn't in this build yet. Don't approve it; it won't be added.")
+            // Local and durable: no relay call, no Touch ID.
+            try screenErrors { try relay.dismissApproverPairing(enrolmentID) }
+            return
         }
         try await screenErrors { try await relay.denyEnrolment(enrolmentID, context: LAContext()) }
     }
@@ -228,9 +229,8 @@ public final class RelayMachinesBackend: MacMachinesBackend {
         try await screenErrors { try await relay.confirmPairing(comparedFingerprint: comparedCode, context: LAContext()) }
     }
 
-    public func cancelRelaySetup() {
-        // Binds to RelayApprover.abandonPairing once it is on main. Until then
-        // nothing is confirmed without Touch ID, and Connect starts again.
+    public func cancelRelaySetup() throws {
+        try screenErrors { try relay.abandonPairing() }
     }
 
     public func sendRules() async throws {
@@ -252,6 +252,12 @@ public struct ScreenFailure: LocalizedError {
 @MainActor
 func screenErrors(_ action: () async throws -> Void) async throws {
     do { try await action() }
+    catch let failure as LeaseFailure { throw ScreenFailure(message: failure.message) }
+}
+
+@MainActor
+func screenErrors(_ action: () throws -> Void) throws {
+    do { try action() }
     catch let failure as LeaseFailure { throw ScreenFailure(message: failure.message) }
 }
 #endif

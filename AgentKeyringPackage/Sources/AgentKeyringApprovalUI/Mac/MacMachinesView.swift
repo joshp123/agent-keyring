@@ -70,7 +70,8 @@ public protocol MacMachinesBackend: AnyObject {
     func connect(host: String, port: UInt16) async throws
     /// Josh compared the relay's code; Touch ID confirms.
     func confirmRelay(comparedCode: String) async throws
-    func cancelRelaySetup()
+    /// Abandons an unconfirmed first setup. Fails once it has been confirmed.
+    func cancelRelaySetup() throws
     /// Publishes changed rules to the relay, with Touch ID.
     func sendRules() async throws
     /// Removes a machine's right to ask, with Touch ID.
@@ -117,7 +118,9 @@ public final class MacMachinesModel {
         await run(SetupCopy.joiningFailed) { try await backend.confirmRelay(comparedCode: code) }
     }
 
-    public func cancelRelaySetup() { backend.cancelRelaySetup() }
+    public func cancelRelaySetup() async {
+        await run("The setup couldn't be cancelled.") { try backend.cancelRelaySetup() }
+    }
 
     public func sendRules() async {
         await run("The rules weren't sent. Try again.") { try await backend.sendRules() }
@@ -167,7 +170,9 @@ public struct MacMachinesView: View {
                 Section(SetupCopy.waitingToJoin) {
                     ForEach(model.snapshot.waiting) { enrolment in
                         HStack {
-                            MachineLabel(name: enrolment.name, detail: SetupCopy.tailnetNode(enrolment.tailnetNode),
+                            MachineLabel(name: enrolment.name,
+                                detail: enrolment.tailnetNode.isEmpty
+                                    ? "Wants to approve requests" : SetupCopy.tailnetNode(enrolment.tailnetNode),
                                 symbol: enrolment.kind == .machine ? "desktopcomputer" : "iphone")
                             Spacer()
                             Button(SetupCopy.review) { model.review(enrolment.id) }
@@ -250,7 +255,7 @@ public struct MacMachinesView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    Button(SetupCopy.doesNotMatch) { model.cancelRelaySetup() }
+                    Button(SetupCopy.doesNotMatch) { Task { await model.cancelRelaySetup() } }
                         .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 32))
                     Button { Task { await model.confirmRelay() } } label: {
                         Label(SetupCopy.theyMatch, systemImage: "touchid")

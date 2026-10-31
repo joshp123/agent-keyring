@@ -231,7 +231,7 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
     func updates() -> AsyncStream<MachinesSnapshot> { Self.once(machines) }
     func connect(host: String, port: UInt16) async throws {}
     func confirmRelay(comparedCode: String) async throws {}
-    func cancelRelaySetup() {}
+    func cancelRelaySetup() throws {}
     func sendRules() async throws {}
     func remove(machineID: String) async throws {}
 
