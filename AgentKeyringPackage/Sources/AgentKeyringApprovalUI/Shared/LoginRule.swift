@@ -56,5 +56,7 @@ public enum RulesCopy {
     /// first relay setup. The rules on this Mac are fine and in use.
     public static let confirmForOtherMachinesBody =
         "Your other machines don't have these logins and rules yet. Confirm to send them. Nothing is wrong, and agents on this Mac already use them."
+    public static let otherMachinesNeedRulesTitle = "Confirm rules for other machines"
+    public static let otherMachinesNeedRulesDetail = "They can't use your latest logins and rules yet."
     public static let confirmButton = "Confirm with Touch ID"
 }

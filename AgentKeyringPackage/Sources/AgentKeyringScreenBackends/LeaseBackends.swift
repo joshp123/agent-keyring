@@ -93,7 +93,9 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
                 + relay.approverPairings.map(RelayScreenMapping.enrolment),
             relay: RelayScreenMapping.relayLink(relay),
             queuedAnswers: relay.queuedAnswerCount,
-            taskHistoryNeedsReset: model.leaseStore.needsHistoryReset)
+            taskHistoryNeedsReset: model.leaseStore.needsHistoryReset,
+            otherMachinesNeedRules: relay.connection != .notPaired
+                && model.accessControl.needsRelayPublicationConfirmation && !model.accessControl.needsConfirmation)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {

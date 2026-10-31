@@ -164,6 +164,7 @@ public final class MacDesignGallery {
             snapshot.enrolments = [DesignExamples.machineEnrolment(now: now)]
             snapshot.relay = .offline(address: "mac-mini:17443")
             snapshot.queuedAnswers = 1
+            snapshot.otherMachinesNeedRules = true
         }
         let model = MacMenuBarModel(backend: DesignMacBackend(menuBar: snapshot), initial: snapshot)
         // Drawn like a menu bar extra window: material, rounded, under the bar.
