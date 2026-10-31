@@ -21,7 +21,7 @@ struct PhoneSettingsView: View {
                 } header: {
                     Text("Passwords on this iPhone")
                 } footer: {
-                    Text("After you add or change a password, export again: in the Passwords app, tap ··· then Export Data to Another App, and choose Agent Keyring.")
+                    Text("After you add or change a password, export it again: in the Passwords app, tap ··· then Export Data to Another App, and choose Agent Keyring. Logins you leave out are kept.")
                 }
 
                 Section {
@@ -65,7 +65,7 @@ struct PhoneSettingsView: View {
     @ViewBuilder private var passwordsRow: some View {
         switch model.passwords {
         case let .imported(count, at):
-            LabeledContent("\(count) logins", value: "Imported \(at.formatted(.relative(presentation: .named)))")
+            LabeledContent("\(count) logins on this iPhone", value: "Updated \(at.formatted(.relative(presentation: .named)))")
         case let .importing(received):
             LabeledContent("Importing", value: "\(received) so far")
         case .notImported:
