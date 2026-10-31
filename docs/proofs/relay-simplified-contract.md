@@ -62,3 +62,19 @@ are stand-ins for the client lane's real CLI proof, not relay authorization.
 The integrated Swift phone proof belongs to the phone lane. Physical Face ID,
 Apple push delivery and the production service/device checks remain outside
 these dummy-data proofs.
+
+On 31 October the normal, non-overlay builds passed after integrating the
+completed Go client lane. `go vet` and Darwin/Linux builds passed over
+`./cmd/... ./internal/... ./script/... ./gen/...`. The relay, PHONE and real
+remote CLI proofs all passed. The latter exercised all four Automatic
+configuration modes above.
+
+A fresh real-tailnet run also passed: the Mac mini hosted a temporary relay,
+mini-server-1 enrolled through a signed configuration, the same Linux TLS keys
+were refused from the MacBook's different Tailscale node, and configuration
+removal revoked the Linux client. The temporary listener was stopped afterward.
+
+Repository-wide `go build ./...` and `go vet ./...` still found removed-operation
+API references in `developer/authority-proof` and `developer/mac-approver-proof`,
+which belong to the parallel Mac adaptation lane; those files were left with
+that owner.
