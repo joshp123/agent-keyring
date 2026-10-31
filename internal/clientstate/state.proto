@@ -1,0 +1,30 @@
+// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+syntax = "proto3";
+package agentkeyring.clientstate;
+import "agentkeyring/v1/agentkeyring.proto";
+import "agentkeyring/v1/relay.proto";
+option go_package = "github.com/joshp123/agent-keyring/internal/clientstate";
+// Local receiver storage, never a relay wire contract. PrivateKeys is stored
+// separately in an owner-only file on macOS and Linux.
+message PrivateKeys {
+  bytes certificate_pem = 1;
+  bytes tls_key_pem = 2;
+  bytes receiver_private_key = 3;
+}
+message State {
+  string relay_address = 1;
+  bytes relay_spki = 2;
+  string recipient_id = 3;
+  string receiver_key_id = 4;
+  agentkeyring.v1.SignedApproverKeySet approvers = 5;
+  agentkeyring.v1.SignedAutomaticGrant automatic_grant = 6;
+  bool automatic_allowed = 7;
+  repeated ExpectedRequest requests = 8;
+  agentkeyring.v1.SignedIndex index = 9;
+  reserved 10;
+  string machine_label = 11;
+}
+message ExpectedRequest {
+  agentkeyring.v1.RequestLeaseRequest scope = 1;
+  string lease_id = 2;
+}
