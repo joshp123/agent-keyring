@@ -210,6 +210,15 @@ public nonisolated struct Agentkeyring_V1_ApproverWork: Sendable {
     set {item = .localLeaseAction(newValue)}
   }
 
+  /// To its destination phone only.
+  public var copyUpdate: Agentkeyring_V1_SignedCopyUpdate {
+    get {
+      if case .copyUpdate(let v)? = item {return v}
+      return Agentkeyring_V1_SignedCopyUpdate()
+    }
+    set {item = .copyUpdate(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Item: Equatable, Sendable {
@@ -224,6 +233,8 @@ public nonisolated struct Agentkeyring_V1_ApproverWork: Sendable {
     case phoneDecision(Agentkeyring_V1_SignedPhoneDecision)
     /// To the owning MacBook only.
     case localLeaseAction(Agentkeyring_V1_LocalLeaseAction)
+    /// To its destination phone only.
+    case copyUpdate(Agentkeyring_V1_SignedCopyUpdate)
 
   }
 
@@ -511,6 +522,11 @@ public nonisolated struct Agentkeyring_V1_ApproverKey: Sendable {
   /// rule-owner key. Other unspecified keys must be paired with an explicit role.
   public var role: Agentkeyring_V1_ApproverRole = .unspecified
 
+  /// PHONE only: Face ID protected P-256 X9.63 key agreement public key.
+  /// Optional for approval-only phones. Its copy destination ID is lowercase
+  /// hex SHA256 over these exact bytes. Bound into the pairing transcript.
+  public var encryptionPublicKey: Data = Data()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -691,6 +707,8 @@ public nonisolated struct Agentkeyring_V1_ApproverKeyChain: Sendable {
 /// receiver public key, current ApproverKeySet bytes.
 /// Pair: domain "agentkeyring.pair.v1\0", relay TLS SPKI, new approver TLS SPKI,
 /// new approver signing key, current ApproverKeySet bytes (empty on first pair).
+/// If encryption_public_key is nonempty, append it as one more length-prefixed
+/// component after key_set. Empty leaves the original transcript unchanged.
 /// Each new device uses its own keys and the relay TLS key it observed; the
 /// existing approver uses its pinned relay key and locally pinned key-set bytes.
 /// The candidate key set from EnrolStatus is not trusted until codes match and
@@ -917,6 +935,16 @@ public nonisolated struct Agentkeyring_V1_CopyUpdate: Sendable {
 }
 
 public nonisolated struct Agentkeyring_V1_GetAutomaticKeysRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_GetCopyUpdateRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1284,6 +1312,14 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     set {request = .publishCopyUpdate(newValue)}
   }
 
+  public var getCopyUpdate: Agentkeyring_V1_GetCopyUpdateRequest {
+    get {
+      if case .getCopyUpdate(let v)? = request {return v}
+      return Agentkeyring_V1_GetCopyUpdateRequest()
+    }
+    set {request = .getCopyUpdate(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Request: Equatable, Sendable {
@@ -1308,6 +1344,7 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     case answerFromPhone(Agentkeyring_V1_SignedPhoneDecision)
     case updateLocalPhoneLease(Agentkeyring_V1_LocalPhoneLeaseUpdate)
     case publishCopyUpdate(Agentkeyring_V1_SignedCopyUpdate)
+    case getCopyUpdate(Agentkeyring_V1_GetCopyUpdateRequest)
 
   }
 
@@ -1420,6 +1457,14 @@ public nonisolated struct Agentkeyring_V1_RelayWireResponse: @unchecked Sendable
     set {_uniqueStorage()._response = .lease(newValue)}
   }
 
+  public var copyUpdate: Agentkeyring_V1_SignedCopyUpdate {
+    get {
+      if case .copyUpdate(let v)? = _storage._response {return v}
+      return Agentkeyring_V1_SignedCopyUpdate()
+    }
+    set {_uniqueStorage()._response = .copyUpdate(newValue)}
+  }
+
   public var endOfStream: Bool {
     get {_storage._endOfStream}
     set {_uniqueStorage()._endOfStream = newValue}
@@ -1440,6 +1485,7 @@ public nonisolated struct Agentkeyring_V1_RelayWireResponse: @unchecked Sendable
     case configuration(Agentkeyring_V1_SignedConfiguration)
     case automaticKeys(Agentkeyring_V1_AutomaticKeys)
     case lease(Agentkeyring_V1_Lease)
+    case copyUpdate(Agentkeyring_V1_SignedCopyUpdate)
 
   }
 
@@ -1492,7 +1538,7 @@ nonisolated extension Agentkeyring_V1_WatchWorkRequest: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApproverWork"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{1}enrolment\0\u{3}cancelled_request_digest_hex\0\u{1}pairing\0\u{1}lease\0\u{3}phone_decision\0\u{3}local_lease_action\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{1}enrolment\0\u{3}cancelled_request_digest_hex\0\u{1}pairing\0\u{1}lease\0\u{3}phone_decision\0\u{3}local_lease_action\0\u{3}copy_update\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1586,6 +1632,19 @@ nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, Swift
           self.item = .localLeaseAction(v)
         }
       }()
+      case 8: try {
+        var v: Agentkeyring_V1_SignedCopyUpdate?
+        var hadOneofValue = false
+        if let current = self.item {
+          hadOneofValue = true
+          if case .copyUpdate(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.item = .copyUpdate(v)
+        }
+      }()
       default: break
       }
     }
@@ -1624,6 +1683,10 @@ nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, Swift
     case .localLeaseAction?: try {
       guard case .localLeaseAction(let v)? = self.item else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+    }()
+    case .copyUpdate?: try {
+      guard case .copyUpdate(let v)? = self.item else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
     }()
     case nil: break
     }
@@ -2090,7 +2153,7 @@ nonisolated extension Agentkeyring_V1_EnrolmentAck: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentkeyring_V1_ApproverKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApproverKey"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}key_id\0\u{3}public_key\0\u{1}label\0\u{3}tls_public_key\0\u{1}role\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}key_id\0\u{3}public_key\0\u{1}label\0\u{3}tls_public_key\0\u{1}role\0\u{3}encryption_public_key\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2103,6 +2166,7 @@ nonisolated extension Agentkeyring_V1_ApproverKey: SwiftProtobuf.Message, SwiftP
       case 3: try { try decoder.decodeSingularStringField(value: &self.label) }()
       case 4: try { try decoder.decodeSingularBytesField(value: &self.tlsPublicKey) }()
       case 5: try { try decoder.decodeSingularEnumField(value: &self.role) }()
+      case 6: try { try decoder.decodeSingularBytesField(value: &self.encryptionPublicKey) }()
       default: break
       }
     }
@@ -2124,6 +2188,9 @@ nonisolated extension Agentkeyring_V1_ApproverKey: SwiftProtobuf.Message, SwiftP
     if self.role != .unspecified {
       try visitor.visitSingularEnumField(value: self.role, fieldNumber: 5)
     }
+    if !self.encryptionPublicKey.isEmpty {
+      try visitor.visitSingularBytesField(value: self.encryptionPublicKey, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2133,6 +2200,7 @@ nonisolated extension Agentkeyring_V1_ApproverKey: SwiftProtobuf.Message, SwiftP
     if lhs.label != rhs.label {return false}
     if lhs.tlsPublicKey != rhs.tlsPublicKey {return false}
     if lhs.role != rhs.role {return false}
+    if lhs.encryptionPublicKey != rhs.encryptionPublicKey {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2904,6 +2972,25 @@ nonisolated extension Agentkeyring_V1_GetAutomaticKeysRequest: SwiftProtobuf.Mes
   }
 }
 
+nonisolated extension Agentkeyring_V1_GetCopyUpdateRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetCopyUpdateRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_GetCopyUpdateRequest, rhs: Agentkeyring_V1_GetCopyUpdateRequest) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Agentkeyring_V1_AutomaticKeys: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AutomaticKeys"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}signing_public_key\0\u{3}signing_key_id\0\u{3}encryption_public_key\0\u{3}encryption_key_id\0")
@@ -3277,7 +3364,7 @@ nonisolated extension Agentkeyring_V1_PublishAck: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayWireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}publish_configuration\0\u{3}dismiss_enrolment\0\u{3}get_configuration\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{4}\u{2}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{4}\u{6}get_automatic_keys\0\u{3}clear_denial\0\u{3}revoke_lease\0\u{3}escalate_to_phone\0\u{3}answer_from_phone\0\u{3}update_local_phone_lease\0\u{3}publish_copy_update\0\u{c}\u{a}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c}\u{11}\u{1}\u{c}\u{12}\u{1}\u{c}\u{13}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}publish_configuration\0\u{3}dismiss_enrolment\0\u{3}get_configuration\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{4}\u{2}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{4}\u{6}get_automatic_keys\0\u{3}clear_denial\0\u{3}revoke_lease\0\u{3}escalate_to_phone\0\u{3}answer_from_phone\0\u{3}update_local_phone_lease\0\u{3}publish_copy_update\0\u{3}get_copy_update\0\u{c}\u{a}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c}\u{11}\u{1}\u{c}\u{12}\u{1}\u{c}\u{13}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3545,6 +3632,19 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
           self.request = .publishCopyUpdate(v)
         }
       }()
+      case 27: try {
+        var v: Agentkeyring_V1_GetCopyUpdateRequest?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .getCopyUpdate(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .getCopyUpdate(v)
+        }
+      }()
       default: break
       }
     }
@@ -3636,6 +3736,10 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
       guard case .publishCopyUpdate(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 26)
     }()
+    case .getCopyUpdate?: try {
+      guard case .getCopyUpdate(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 27)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -3650,7 +3754,7 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayWireResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{1}work\0\u{1}decision\0\u{1}enrolment\0\u{1}publish\0\u{3}enrol_status\0\u{1}error\0\u{3}end_of_stream\0\u{4}\u{2}approver_keys\0\u{3}approver_key_chain\0\u{1}configuration\0\u{4}\u{3}automatic_keys\0\u{1}lease\0\u{c}\u{9}\u{1}\u{c}\u{d}\u{1}\u{c}\u{e}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{1}work\0\u{1}decision\0\u{1}enrolment\0\u{1}publish\0\u{3}enrol_status\0\u{1}error\0\u{3}end_of_stream\0\u{4}\u{2}approver_keys\0\u{3}approver_key_chain\0\u{1}configuration\0\u{4}\u{3}automatic_keys\0\u{1}lease\0\u{3}copy_update\0\u{c}\u{9}\u{1}\u{c}\u{d}\u{1}\u{c}\u{e}\u{1}")
 
   fileprivate class _StorageClass {
     var _response: Agentkeyring_V1_RelayWireResponse.OneOf_Response?
@@ -3842,6 +3946,19 @@ nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, 
             _storage._response = .lease(v)
           }
         }()
+        case 17: try {
+          var v: Agentkeyring_V1_SignedCopyUpdate?
+          var hadOneofValue = false
+          if let current = _storage._response {
+            hadOneofValue = true
+            if case .copyUpdate(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._response = .copyUpdate(v)
+          }
+        }()
         default: break
         }
       }
@@ -3908,6 +4025,10 @@ nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, 
       case .lease?: try {
         guard case .lease(let v)? = _storage._response else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 16)
+      }()
+      case .copyUpdate?: try {
+        guard case .copyUpdate(let v)? = _storage._response else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 17)
       }()
       default: break
       }

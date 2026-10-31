@@ -33,6 +33,8 @@ service Approvals {
   // RFC 0008: a full replacement of the destination's login copy, signed by
   // the background MAC_DELIVERY key. Password-only refreshes need no Touch ID.
   rpc PublishCopyUpdate(SignedCopyUpdate) returns (PublishAck);
+  // A pinned phone fetches only its own opaque copy. Missing returns NOT_FOUND.
+  rpc GetCopyUpdate(GetCopyUpdateRequest) returns (SignedCopyUpdate);
   // Josh pressed "Doesn't match" or dismissed a pending enrolment. Grants
   // nothing, so unsigned; accepted only from a pinned approver connection.
   rpc DismissEnrolment(DismissEnrolmentRequest) returns (PublishAck);
@@ -103,6 +105,7 @@ message ApproverWork {
     Lease lease = 5;
     SignedPhoneDecision phone_decision = 6;  // To the MacBook only.
     LocalLeaseAction local_lease_action = 7; // To the owning MacBook only.
+    SignedCopyUpdate copy_update = 8; // To its destination phone only.
   }
 }
 
@@ -219,6 +222,10 @@ message ApproverKey {
   // A legacy unspecified role is accepted only for the already pinned Mac
   // rule-owner key. Other unspecified keys must be paired with an explicit role.
   ApproverRole role = 5;
+  // PHONE only: Face ID protected P-256 X9.63 key agreement public key.
+  // Optional for approval-only phones. Its copy destination ID is lowercase
+  // hex SHA256 over these exact bytes. Bound into the pairing transcript.
+  bytes encryption_public_key = 6;
 }
 
 enum ApproverRole {
@@ -300,6 +307,8 @@ message ApproverKeyChain {
 // receiver public key, current ApproverKeySet bytes.
 // Pair: domain "agentkeyring.pair.v1\0", relay TLS SPKI, new approver TLS SPKI,
 // new approver signing key, current ApproverKeySet bytes (empty on first pair).
+// If encryption_public_key is nonempty, append it as one more length-prefixed
+// component after key_set. Empty leaves the original transcript unchanged.
 // Each new device uses its own keys and the relay TLS key it observed; the
 // existing approver uses its pinned relay key and locally pinned key-set bytes.
 // The candidate key set from EnrolStatus is not trusted until codes match and
@@ -391,6 +400,7 @@ message CopyUpdate {
 }
 
 message GetAutomaticKeysRequest {}
+message GetCopyUpdateRequest {}
 
 message AutomaticKeys {
   bytes signing_public_key = 1;     // P-256 X9.63.
@@ -478,6 +488,7 @@ message RelayWireRequest {
     SignedPhoneDecision answer_from_phone = 24;
     LocalPhoneLeaseUpdate update_local_phone_lease = 25;
     SignedCopyUpdate publish_copy_update = 26;
+    GetCopyUpdateRequest get_copy_update = 27;
   }
   reserved 10, 15, 16, 17, 18, 19;
 }
@@ -496,6 +507,7 @@ message RelayWireResponse {
     SignedConfiguration configuration = 12;
     AutomaticKeys automatic_keys = 15;
     Lease lease = 16;
+    SignedCopyUpdate copy_update = 17;
   }
   bool end_of_stream = 8;
   reserved 9, 13, 14;
