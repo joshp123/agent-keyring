@@ -3,6 +3,7 @@ import Foundation
 
 /// Compatibility with the original pairing screen. All new operations use the
 /// Face ID protected v2 key; the biometric-free legacy key is never loaded.
+@MainActor
 struct EnclaveSigningKey {
     let publicKey: Data
 
