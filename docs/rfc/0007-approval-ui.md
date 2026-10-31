@@ -29,7 +29,7 @@ still require a view-model and view change.
 | `MacApprovalModel` | `MacApprovalBackend` | Release 2: the Mac app's lease store. Release 3: also requests arriving from the relay |
 | `MacMenuBarModel` | `MacMenuBarBackend` | Lease store (waiting, in use, recent) |
 | `MacRulesModel` | `LoginRulesBackend` | Existing `CredentialAccessController`, keeping its "confirm your access rules" step |
-| `PhoneKeyringModel` | `PhoneKeyringBackend` | Release 4: phone vault and relay connection |
+| `PhoneKeyringModel` | `PhoneKeyringBackend` | Release 4: relay, signed login metadata and phone signing key; no vault dependency |
 
 Every protocol has the same shape: a stream of updates (the current value
 first, then each change), plus one async call per thing Josh can do. Views
@@ -78,7 +78,7 @@ sources only:
 
 | Shown | Source | Shown as |
 | --- | --- | --- |
-| Site and account | The approver's own vault record for `login_id` | Fact |
+| Site and account | Mac: its vault record; approval-only phone: the rule owner's signed login index for `login_id` | Fact |
 | Machine | Approver's own approved enrolment record, or local peer | Enrolled identity, in the facts list |
 | Tailnet address | Relay's connection lookup | Address reported by the relay, not independent identity proof; shown next to the machine |
 | Purpose and limit ("Sign-in only, up to 30 min", "Password to gh, up to 30 min", "Password to Codex's own code, up to 30 min") | Lease purpose and program | Requested operation, not a guarantee of how a program uses the password |
@@ -110,13 +110,20 @@ which of his agents is asking; the claim block says where it came from.
   assumed one: Sending until the authority acknowledges, then Approved, Denied,
   Unanswered or a transport failure. An accepted resend is already sent; a
   request answered elsewhere or expired must not invite another approval.
-- The phone delay ("Ask iPhone after", 30 seconds to 10 minutes, default 2
+- The phone delay ("Ask iPhone after", 30 seconds to 9 minutes, default 2
   minutes) is a Mac setting, because the Mac decides when to ask the phone
   (RFC 0006). The phone's Settings screen shows it but does not change it.
   A locked Mac asks the phone at once. A quick answer at the Mac means no
   phone notification. The agent sees the real pending state.
 - The phone screens work with no passwords on the phone. The import screen
   belongs to the later MacBook-shut step and must not block approving.
+  Import status is separate from the request screen: a failed refresh cannot
+  hide Home, pairing, pending requests, history or existing usable logins.
+  Settings reports the real notification permission and registration result,
+  never a successful placeholder. No Lock Screen promise before setup works.
+- A phone answer accepted by the relay says "Waiting for your Mac" until the
+  owning authority reports the actual outcome. A local End or Let it ask again
+  action remains sending until the Mac acknowledges it (RFC 0006).
 - 24-hour times. Interrupt Josh only when his answer is needed.
 
 ## Build slices
@@ -190,6 +197,9 @@ which of his agents is asking; the claim block says where it came from.
 - **Machines window.** Relay setup, connection and outbox, rule changes not
   yet sent, devices waiting to join, machines that can ask (Remove), and
   devices that can approve. Opened from the menu bar's More menu.
+  First setup brings Josh the independently obtained relay code over the
+  existing trusted SSH path (RFC 0005); the screen refers to that setup code,
+  never asks him to open service logs. Code comparison and Touch ID remain.
 - **iPhone pairing.** Home says "Not paired yet" with Pair; Settings has
   "Pair with your Mac" and "Rules · Checked 11 minutes ago". The pairing
   screen takes the relay address (prefilled `mac-mini:17443`), shows the code

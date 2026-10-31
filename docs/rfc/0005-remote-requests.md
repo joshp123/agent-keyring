@@ -170,7 +170,8 @@ A home outage stops remote requests. That is the limit of one always-on host.
 - Existing local agents on the MacBook keep the local socket. Nothing changes
   for them.
 - The relay starts empty. Josh pairs the MacBook with it once (`PairApprover`:
-  the relay logs a code, the Mac app shows the same code, Touch ID), then
+  setup brings him the relay's independently obtained code, the Mac app shows
+  its code, Touch ID), then
   enrols each remote machine. Limit: whoever controls the mini at that moment
   could pair a different approver first. That approver holds no passwords, and
   the MacBook would refuse to pair with a relay that already has one, so the
@@ -206,7 +207,12 @@ These close the three gaps Astra found. Messages are in `relay.proto` and
   for device setup, not ordinary approvals. An unexpected set change restarts
   the pending comparison.
 - *First approver.* `PairApprover` records a pending pairing. The relay prints
-  its code in its own log. Josh compares it with the Mac app's code and approves
+  its code in its own log. Setup tooling reads the code for that pending
+  pairing through the mini's existing trusted SSH connection (checking the
+  known host key), and presents it to Josh. He does not find or read a service
+  log. The Mac screen says to compare with the code brought by setup. Do not
+  replace this independent path with a code fetched over the unpaired relay
+  connection. Josh compares it with the Mac app's code and approves
   with Touch ID; the Mac app then signs a `PairingConfirmation` over the
   transcript hash with its new approver key. Its `initial_key_set` is a signed
   revision 1 containing just that key as rule owner and the same transcript
@@ -242,7 +248,8 @@ These close the three gaps Astra found. Messages are in `relay.proto` and
 - *Approver key changes.* The relay keeps every `SignedApproverKeySet`.
   `GetApproverKeyChain` returns all of them after a given revision, so a
   receiver that was offline walks the chain from a key it pinned, each step
-  signed by a key in the previous set.
+  signed by a MAC key in the previous set. Release 4's PHONE and MAC_DELIVERY
+  keys cannot change the trusted key set (RFC 0006).
 
 **Automatic approval.**
 
@@ -279,8 +286,10 @@ authority, never an approver key with the check turned off.
   change. Receivers learn owner changes through the signed approver key chain.
 
 What still needs the device: whether an Apple Watch tap satisfies the approver
-key, and that a Secure Enclave key without a biometric flag signs while the Mac
-is unlocked and refuses while it is locked.
+key, and that the replacement delivery key works with the screen locked after
+login, including after restarting the app (RFC 0006). The human key still needs
+biometric authorisation. The old expectation that the delivery key refuses
+while locked is superseded by phone-approved background delivery.
 
 The lease store, wire framing, bundle sealing and opening, and screens can be
 built now. Pairing and Automatic code follow the contracts above.

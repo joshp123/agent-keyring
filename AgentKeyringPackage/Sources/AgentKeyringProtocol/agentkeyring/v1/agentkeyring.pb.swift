@@ -756,7 +756,7 @@ public nonisolated struct Agentkeyring_V1_Lease: @unchecked Sendable {
     set {_uniqueStorage()._endedAtUnixSeconds = newValue}
   }
 
-  /// Relay only: the HUMAN-signed denial and the exact request bytes, with no
+  /// Relay only: a HUMAN or fully verified PHONE denial and exact request bytes, with no
   /// bundle, when a remote denial carries a reply. The receiver verifies them
   /// like an approval before it shows `reply`; otherwise it shows no reply.
   public var signedDenial: Agentkeyring_V1_SealedDelivery {

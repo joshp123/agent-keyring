@@ -62,6 +62,10 @@ service Approvals {
   // ApproverWork.phone_decision. The relay stores it until the MacBook
   // acknowledges by delivering or denying; an exact resend is acknowledged.
   rpc AnswerFromPhone(SignedPhoneDecision) returns (DecisionAck);
+  // The owning Mac reports the outcome of a local lease that it escalated.
+  // Display/acknowledgement only: never creates a remotely usable lease or
+  // bundle. Accepted only from the same pinned MAC connection as escalation.
+  rpc UpdateLocalPhoneLease(LocalPhoneLeaseUpdate) returns (DecisionAck);
 }
 
 // Served by the relay to a machine that is not yet enrolled. Reachable only
@@ -69,7 +73,8 @@ service Approvals {
 service Enrolment {
   // Streams PENDING, then APPROVED with the approver keys to pin, or DENIED.
   rpc Enrol(EnrolRequest) returns (stream EnrolStatus);
-  // Starts a pending pairing. First approver: compare with the relay log and
+  // Starts a pending pairing. First approver: setup brings the relay's code
+  // over an independently trusted path (e.g. existing SSH), then compare and
   // ConfirmPairing. Later: compare with a pinned approver, which commits the
   // addition through PublishApproverKeys. Neither path activates on request.
   rpc PairApprover(PairApproverRequest) returns (stream EnrolStatus);
@@ -100,6 +105,7 @@ message ApproverWork {
     // backlog, then each change, so approvers can show what is in use.
     Lease lease = 5;
     SignedPhoneDecision phone_decision = 6;  // To the MacBook only.
+    LocalLeaseAction local_lease_action = 7; // To the owning MacBook only.
   }
 }
 
@@ -108,6 +114,12 @@ message ApproverWork {
 // against its own state, never the relay's.
 message PendingRequest {
   bytes record = 1;             // Serialized RequestRecord.
+  // Phone work only, after escalation. The relay derives this from the
+  // escalating MAC's pinned connection. The phone uses the pinned MAC label.
+  string source_mac_key_id = 2;
+  // Present only for a local Mac lease. It is a display copy, not a receiver
+  // enrolment. Fields must agree with record. Metadata comes from SignedIndex.
+  Lease local_lease = 3;
 }
 
 message RequestRecord {
@@ -224,7 +236,9 @@ message ApproverKey {
   bytes public_key = 2;          // P-256 X9.63, signing.
   string label = 3;              // "Josh's MacBook Pro", "Josh's iPhone".
   bytes tls_public_key = 4;      // SPKI DER; authenticated alongside signing key.
-  // Key sets published before this field existed contain only MAC keys.
+  // MAC_DELIVERY has no TLS identity of its own: tls_public_key is empty.
+  // A legacy unspecified role is accepted only for the already pinned Mac
+  // rule-owner key. Other unspecified keys must be paired with an explicit role.
   ApproverRole role = 5;
 }
 
@@ -245,9 +259,27 @@ enum ApproverRole {
 message PhoneEscalation {
   string lease_id = 1;
   bytes record = 2;
+  // Present for a local lease: snapshot from the Mac's existing lease store.
+  // Absent for a remote lease whose identical record is already at the relay.
+  Lease local_lease = 3;
 }
 
-// Receivers accept a new approver key set only if a currently pinned key
+message LocalPhoneLeaseUpdate {
+  bytes request_digest = 1;
+  Lease lease = 2;              // Actual state committed by the owning Mac.
+}
+
+// Reuse the phone's existing RevokeLease/ClearDenial calls. For a local lease
+// the relay queues this work until the Mac reports the resulting state through
+// UpdateLocalPhoneLease. A relay acknowledgement alone does not end access.
+message LocalLeaseAction {
+  oneof action {
+    LeaseReference revoke_lease = 1;
+    ClearDenialRequest clear_denial = 2;
+  }
+}
+
+// Receivers accept a new approver key set only if a currently pinned MAC key
 // signed it and its revision is higher. This is how the iPhone is added in
 // release 4 without re-enrolling every machine.
 message SignedApproverKeySet {
@@ -494,6 +526,7 @@ message RelayWireRequest {
     LeaseReference revoke_lease = 22;
     PhoneEscalation escalate_to_phone = 23;
     SignedPhoneDecision answer_from_phone = 24;
+    LocalPhoneLeaseUpdate update_local_phone_lease = 25;
   }
 }
 

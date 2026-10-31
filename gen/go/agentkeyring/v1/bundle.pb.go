@@ -34,11 +34,14 @@ const (
 	DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE DecisionAuthority = 2
 	// DENY with an empty reply only. Sent unsigned over the approver's pinned
 	// connection, so a plain Deny needs no biometric check. It grants nothing.
-	// A denial with a reply must be HUMAN; receivers show a reply only then.
+	// A denial with a reply must be HUMAN or PHONE with the required signatures.
 	DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION DecisionAuthority = 3
 	// Josh answered on his iPhone. Signed by the MacBook's delivery key (role
 	// MAC_DELIVERY) and carrying SignedDecision.phone_decision. Receivers check
-	// both signatures, the same request_digest and the same not_after.
+	// both signatures and equal request_digest, lease_id, choice, approval/
+	// decision time, not_after and reply_sha256 (RFC 0006). The outer reply must
+	// equal the phone's reply. A plain unsigned phone denial uses
+	// APPROVER_CONNECTION instead. PHONE never authorizes key or rule changes.
 	DecisionAuthority_DECISION_AUTHORITY_PHONE DecisionAuthority = 4
 )
 
@@ -515,6 +518,8 @@ func (x *SignedDecision) GetPhoneDecision() *SignedPhoneDecision {
 }
 
 // Signed on the iPhone after Face ID, over the exact `decision` bytes.
+// Exception: a plain DENY has an empty signature and reply; the relay accepts
+// it only from that paired phone's pinned connection. It grants nothing.
 // The MacBook, which holds the passwords, delivers only what this allows.
 type SignedPhoneDecision struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

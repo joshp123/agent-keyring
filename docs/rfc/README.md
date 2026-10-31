@@ -13,7 +13,7 @@ Face ID on his iPhone.
 | --- | --- | --- |
 | [0004](0004-credential-leases.md) | Task leases, the CLI, receivers, the bundled skill | 2 |
 | [0005](0005-remote-requests.md) | Always-on relay on the Mac mini, enrolling agent machines, sealed delivery | 3 |
-| [0006](0006-iphone-approver.md) | iPhone import, Secure Enclave keys, approval, recovery | 4 |
+| [0006](0006-iphone-approver.md) | Phone approval without a phone vault; the awake Mac delivers | 4 |
 | [0007](0007-approval-ui.md) | Approval screens on the Mac and iPhone | 2 to 4 |
 | 0002, 0003 | Earlier drafts; superseded where 0004 to 0006 say so | |
 
@@ -42,7 +42,7 @@ it, release it. Behind that, three parts change independently:
 | 2 | One approval per task, Go CLI, Chromium receiver, bundled skill, Mac approval panel | One Touch ID session |
 | 3 | Agents on other machines through the mini; MacBook approves | Pairing and enrolment codes, one Touch ID session |
 | 4 | Approve on the iPhone when away from the MacBook; the MacBook keeps the passwords and delivers | Creating a free Apple push key; one device session |
-| Later | Answering with the MacBook shut: an optional copy on the iPhone | Two settings (below) |
+| Next result | Answering with the MacBook shut: prove the phone copy independently of approval-only use | Phone import/device proof and two settings below |
 
 ## Slices
 
@@ -54,7 +54,7 @@ the way a person would use it.
 | --- | --- | --- |
 | 2 | R2.0 additive merge and import logging port; R2.1 toolchain; R2.2 lease store; R2.3 socket cut-over; R2.4 Go CLI; R2.5 Chromium receiver; R2.6 skill and install; U1 to U3 screens | RFC 0004 reviewed with round 7 corrections; implementation can proceed |
 | 3 | R3.1 relay core; R3.2 enrolment; R3.3 client relay transport; R3.4 Mac approver; R3.5 deployment; U4 | Contracts agreed with round 10 completions; all implementation lanes can start |
-| 4 | R4.1 phone key and pairing; R4.2 Mac escalation; R4.3 relay push; R4.4 phone answer; R4.5 Mac delivery under a phone decision; R4.6 receiver checks; R4.7 screens; R4.8 remove the iCloud channel and microphone button | R4.1, R4.3 and R4.7 now; R4.5 after R4.2 and R4.4 |
+| 4 | R4.1 phone key and pairing; R4.2 Mac escalation and local state reporting; R4.3 relay push; R4.4 phone answer; R4.5 delivery while the Mac screen is locked; R4.6 receiver checks; R4.7 screens; R4.8 remove the iCloud channel and microphone button | Build against the round 15 contracts now; physical notification proof needs the push key |
 
 ## Review result and remaining engineering work
 
@@ -86,6 +86,14 @@ lookups, and exact bytes for Automatic sealing and hashing.
 
 Device proofs remain necessary after implementation; compiler success is not
 that proof.
+
+Round 15 makes the approval-only path buildable: local requests keep one
+authority on the Mac and report outcomes to the phone; signed phone consent
+preserves its original deadline; delivery keys cannot sign changes to rules or
+trusted keys. Phone import never gates approval. First relay setup brings Josh
+the independent comparison code rather than sending him to service logs.
+Direct APNs remains the notification path; RFC 0006 records why the existing
+CloudKit entitlement is not evidence of a ready alternative.
 
 Main's app version is 0.2.0; release 2 must ship above the installed 0.2.4.
 Releases are built and notarised with `script/build_release.sh` on the current
