@@ -14,7 +14,11 @@ import (
 )
 
 func chooseAuthority(ctx context.Context) (authority.Client, error) {
-	local := authority.Client{Socket: socketPath()}
+	store, err := clientstate.Default()
+	if err != nil {
+		return authority.Client{}, err
+	}
+	local := authority.Client{Socket: socketPath(), State: store}
 	if os.Getenv("AGENT_KEYRING_SOCKET") != "" {
 		return local, nil
 	}
@@ -31,10 +35,6 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 			local.Start = startApp
 			return local, nil
 		}
-	}
-	store, err := clientstate.Default()
-	if err != nil {
-		return authority.Client{}, err
 	}
 	state, err := store.Load(ctx)
 	if err != nil {

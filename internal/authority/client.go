@@ -11,6 +11,7 @@ import (
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
+	"github.com/joshp123/agent-keyring/internal/clientstate"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -20,8 +21,9 @@ type Client struct {
 	Socket     string
 	Start      func(context.Context) error
 	Exchange   func(context.Context, *pb.WireRequest, func(*pb.WireResponse) bool) error
-	OpenValues func(context.Context, *pb.Lease, *pb.BeginOperationResponse) (*pb.CredentialValues, []string, error)
+	OpenValues func(context.Context, *pb.Lease, *pb.Delivery) (*pb.CredentialValues, []string, error)
 	Remote     bool
+	State      clientstate.Store
 }
 
 func WriteFrame(w io.Writer, message proto.Message) error {
@@ -132,34 +134,13 @@ func (c Client) Lease(ctx context.Context, id string) (*pb.Lease, error) {
 	}
 	return r.GetLease(), nil
 }
-func (c Client) Begin(ctx context.Context, r *pb.BeginOperationRequest) (*pb.BeginOperationResponse, error) {
-	v, e := c.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_BeginOperation{BeginOperation: r}})
-	if e != nil {
-		return nil, e
-	}
-	if v.GetBeginOperation() == nil {
-		return nil, errors.New("Agent Keyring did not return an operation.")
-	}
-	return v.GetBeginOperation(), nil
-}
-func (c Client) Finish(ctx context.Context, r *pb.FinishOperationRequest) error {
-	v, e := c.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_FinishOperation{FinishOperation: r}})
-	if e != nil {
-		return e
-	}
-	if v.GetOperation() == nil {
-		return errors.New("Agent Keyring did not confirm the operation result.")
-	}
-	return nil
-}
-
-func (c Client) Operation(ctx context.Context, lease string, digest []byte, key string) (*pb.OperationRecord, error) {
-	response, err := c.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_GetOperation{GetOperation: &pb.GetOperationRequest{LeaseId: lease, OperationDigest: digest, RequestId: key}}})
+func (c Client) Deliver(ctx context.Context, request *pb.DeliverRequest) (*pb.Delivery, error) {
+	response, err := c.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_Deliver{Deliver: request}})
 	if err != nil {
 		return nil, err
 	}
-	if response.GetGetOperation_() == nil {
-		return nil, errors.New("Agent Keyring did not return an operation lookup.")
+	if response.GetDelivery() == nil {
+		return nil, errors.New("Agent Keyring did not return a delivery.")
 	}
-	return response.GetGetOperation_().Operation, nil
+	return response.GetDelivery(), nil
 }
