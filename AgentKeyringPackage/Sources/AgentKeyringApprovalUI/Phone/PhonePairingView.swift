@@ -12,7 +12,7 @@ import SwiftUI
 struct PhonePairingView: View {
     let model: PhoneKeyringModel
     @Environment(\.dismiss) private var dismiss
-    @State private var address = ""
+    @State private var address = SetupCopy.defaultRelayAddress
     @FocusState private var addressFocused: Bool
 
     var body: some View {
@@ -64,7 +64,7 @@ struct PhonePairingView: View {
             Text(SetupCopy.relayAddress)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-            TextField("mac-mini:17443", text: $address)
+            TextField(SetupCopy.relayAddressExample, text: $address)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
@@ -73,6 +73,9 @@ struct PhonePairingView: View {
                 .padding(12)
                 .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 12, style: .continuous))
                 .onSubmit(pair)
+            Text(SetupCopy.relayAddressHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
         Button(failure == nil ? SetupCopy.pairButton : SetupCopy.tryAgain, action: pair)
             .buttonStyle(DecisionButtonStyle(colour: KeyringColour.signal))
@@ -106,7 +109,7 @@ struct PhonePairingView: View {
             .buttonStyle(.quiet())
     }
 
-    /// "mac-mini:17443" into host and port.
+    /// "mac-mini.example.ts.net:17443" into host and port.
     private var endpoint: PhoneRelayEndpoint? {
         let parts = address.trimmingCharacters(in: .whitespaces).split(separator: ":")
         guard parts.count == 2, !parts[0].isEmpty, let port = UInt16(parts[1]) else { return nil }

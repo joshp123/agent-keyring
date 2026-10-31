@@ -53,6 +53,10 @@ public enum SetupCopy {
     public static let relayHeading = "Relay"
     public static let relayNotSetUp = "Agents on other machines ask through the relay on your Mac mini. Set it up once."
     public static let relayAddress = "Relay address"
+    /// The relay listens on port 17443 on the Mac mini, so this is usually right as it is.
+    public static let defaultRelayAddress = "mac-mini:17443"
+    public static let relayAddressExample = "mac-mini:17443"
+    public static let relayAddressHint = "The relay's Tailscale name and port."
     public static let connect = "Connect"
     public static let compareWithRelayLog = "Compare with the code the relay printed in its log:"
 
