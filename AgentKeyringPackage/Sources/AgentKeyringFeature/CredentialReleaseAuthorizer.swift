@@ -9,6 +9,7 @@ private let credentialAuthorizationLogger = Logger(
 )
 
 public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
+    public let leaseDescription: String?
     public let destination: String
     public let account: String
     public let field: AgentCredentialField
@@ -26,8 +27,10 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
         expirationSeconds: Int? = 30,
         fillsFocusedField: Bool = false,
         authorizationDeadline: Date = Date().addingTimeInterval(AgentBridgeRequest.lifetimeSeconds),
-        isPossiblyStale: Bool = false
+        isPossiblyStale: Bool = false,
+        leaseDescription: String? = nil
     ) {
+        self.leaseDescription = leaseDescription
         self.destination = destination
         self.account = account
         self.field = field
@@ -39,6 +42,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
     }
 
     public var localizedReason: String {
+        if let leaseDescription { return "\(account) on \(destination). \(leaseDescription)" }
         let value =
             switch field {
             case .username: "username"
@@ -115,13 +119,23 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
     public init() {}
 
     public func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
+        try await authorize(request, context: LAContext(), activateApplication: true, onPromptStarted: onPromptStarted)
+    }
+
+    public func authorize(_ request: CredentialReleaseAuthorizationRequest, context: LAContext,
+        onPromptStarted: @escaping () -> Void) async throws {
+        try await authorize(request, context: context, activateApplication: false, onPromptStarted: onPromptStarted)
+    }
+
+    private func authorize(_ request: CredentialReleaseAuthorizationRequest, context: LAContext,
+        activateApplication: Bool, onPromptStarted: @escaping () -> Void) async throws {
+        try Task.checkCancellation()
         guard request.authorizationDeadline > Date() else {
             throw CredentialReleaseAuthorizationError.expired
         }
-        let context = LAContext()
         context.touchIDAuthenticationAllowableReuseDuration = 0
         context.localizedFallbackTitle = ""
-        context.localizedCancelTitle = "Don't allow"
+        context.localizedCancelTitle = "Cancel"
         let policy = LAPolicy.deviceOwnerAuthenticationWithBiometricsOrCompanion
         var evaluationError: NSError?
 
@@ -150,20 +164,24 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
             if activeContext === context { activeContext = nil }
         }
 
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        if activateApplication { NSApplication.shared.activate(ignoringOtherApps: true) }
+        let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
         do {
             onPromptStarted()
-            guard
-                try await context.evaluatePolicy(
-                    policy,
-                    localizedReason: request.localizedReason
-                )
-            else {
+            let confirmed = try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                return try await context.evaluatePolicy(policy, localizedReason: request.localizedReason)
+            } onCancel: {
+                Task { @MainActor in cancelEvaluation() }
+            }
+            try Task.checkCancellation()
+            guard confirmed else {
                 throw CredentialReleaseAuthorizationError.notVerified
             }
         } catch let error as CredentialReleaseAuthorizationError {
             throw error
         } catch {
+            if Task.isCancelled { throw CancellationError() }
             let nsError = error as NSError
             credentialAuthorizationLogger.error(
                 "Approval evaluation failed: domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)"

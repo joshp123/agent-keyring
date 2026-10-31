@@ -1,3 +1,5 @@
+import AgentKeyringProtocol
+import SwiftProtobuf
 import Darwin
 import Foundation
 import OSLog
@@ -8,8 +10,13 @@ private let socketLogger = Logger(subsystem: "com.agentkeyring.app", category: "
 public struct AgentBridgePeer: Sendable {
     public let processIdentifier: pid_t
     public let auditToken: Data
+    public let userID: uid_t
 
     fileprivate init(socket: Int32) throws {
+        var uid: uid_t = 0
+        var gid: gid_t = 0
+        guard getpeereid(socket, &uid, &gid) == 0, uid == getuid() else { throw socketFailure() }
+        userID = uid
         var pid: pid_t = 0
         var pidSize = socklen_t(MemoryLayout<pid_t>.size)
         var token = audit_token_t()
@@ -43,11 +50,6 @@ private func withSocketAddress<T>(_ url: URL, _ body: (UnsafePointer<sockaddr>, 
     }
 }
 
-private enum AgentSocketEvent: Codable, Sendable {
-    case progress(AgentApprovalProgress)
-    case response(AgentBridgeResponse)
-}
-
 /// A blocking reader runs on a Dispatch worker; the app's main actor never waits on socket I/O.
 private final class AgentSocketConnection: @unchecked Sendable {
     let descriptor: Int32
@@ -62,30 +64,43 @@ private final class AgentSocketConnection: @unchecked Sendable {
     deinit { Darwin.close(descriptor) }
     func disconnect() { shutdown(descriptor, SHUT_RDWR) }
 
-    func send<Value: Encodable>(_ value: Value) throws {
-        let data = try JSONEncoder().encode(value)
-        guard data.count <= 1_048_576 else { throw AgentBridgeFailure(.invalidRequest, "The socket message is too large.") }
-        var length = UInt32(data.count).bigEndian
-        let header = withUnsafeBytes(of: &length) { Data($0) }
-        try write(header + data)
-    }
-
-    func publish(_ event: AgentSocketEvent, final: Bool = false) {
+    func publish(_ response: Agentkeyring_V1_WireResponse) {
         writer.async {
-            defer { if final { self.disconnect() } }
-            do { try self.send(event) }
-            catch {
-                socketLogger.debug("Agent socket reply unavailable: \(String(describing: error), privacy: .private)")
-                self.disconnect()
-            }
+            defer { if response.endOfStream { self.disconnect() } }
+            do { try self.sendFrame(response.serializedData()) }
+            catch { self.disconnect() }
         }
     }
 
-    func receive<Value: Decodable>(_ type: Value.Type) throws -> Value {
+    private func sendFrame(_ data: Data) throws {
+        guard !data.isEmpty, data.count <= 1_048_576 else { throw socketFailure() }
+        var length = UInt32(data.count).bigEndian
+        try write(withUnsafeBytes(of: &length) { Data($0) } + data)
+    }
+
+    func receiveRequest() throws -> Agentkeyring_V1_WireRequest? {
         let header = try read(count: 4)
         let length = header.withUnsafeBytes { UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self)) }
-        guard length > 0, length <= 1_048_576 else { throw AgentBridgeFailure(.invalidRequest, "Invalid socket message length.") }
-        return try JSONDecoder().decode(type, from: read(count: Int(length)))
+        guard length > 0, length <= 1_048_576 else { throw socketFailure() }
+        let data = try read(count: Int(length))
+        if data.first == UInt8(ascii: "{") {
+            // One migration reply for the installed JSON client. No legacy action
+            // is executed, including acquire/fill/status.
+            let request = try? JSONDecoder().decode(AgentBridgeRequest.self, from: data)
+            let response = AgentBridgeResponse(id: request?.id ?? UUID(), ok: false,
+                error: .invalidRequest, message: "Agent Keyring now uses task leases. Use agent-keyring lease LOGIN --task TASK --reason REASON with the bundled CLI.")
+            enum LegacyEvent: Encodable { case response(AgentBridgeResponse) }
+            try sendFrame(JSONEncoder().encode(LegacyEvent.response(response)))
+            disconnect()
+            return nil
+        }
+        return try Agentkeyring_V1_WireRequest(serializedBytes: data)
+    }
+
+    func waitForDisconnect() {
+        var byte: UInt8 = 0
+        while Darwin.read(descriptor, &byte, 1) < 0 && errno == EINTR { }
+        disconnect()
     }
 
     private func read(count: Int) throws -> Data {
@@ -125,8 +140,8 @@ private final class AgentSocketConnection: @unchecked Sendable {
 }
 
 public final class AgentBridgeServer: @unchecked Sendable {
-    public typealias Handler = @MainActor @Sendable (AgentBridgeRequest, AgentBridgePeer,
-        @escaping (AgentApprovalProgress) -> Void) async throws -> AgentBridgeResponse
+    public typealias Handler = @MainActor @Sendable (Agentkeyring_V1_WireRequest, AgentBridgePeer,
+        @escaping @Sendable (Agentkeyring_V1_WireResponse) -> Void) async -> Void
     private let source: DispatchSourceRead
     private let socketURL: URL
 
@@ -165,18 +180,16 @@ public final class AgentBridgeServer: @unchecked Sendable {
                         // Limit an incomplete initial request to the request lifetime.
                         var timeout = timeval(tv_sec: 600, tv_usec: 0)
                         setsockopt(accepted, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-                        let request = try connection.receive(AgentBridgeRequest.self)
-                        Task { @MainActor in
-                            do {
-                                let response = try await handler(request, peer) { progress in
-                                    connection.publish(.progress(progress))
-                                }
-                                connection.publish(.response(response), final: true)
-                            } catch {
-                                socketLogger.error("Agent socket handler failed: \(String(describing: error), privacy: .private)")
-                                connection.disconnect()
-                            }
+                        guard let request = try connection.receiveRequest() else { return }
+                        // Watch is independent of the requesting process lifetime.
+                        // Disconnect cancels only this observer, never its lease.
+                        var noTimeout = timeval(tv_sec: 0, tv_usec: 0)
+                        setsockopt(accepted, SOL_SOCKET, SO_RCVTIMEO, &noTimeout, socklen_t(MemoryLayout<timeval>.size))
+                        let handling = Task { @MainActor in
+                            await handler(request, peer) { response in connection.publish(response) }
                         }
+                        connection.waitForDisconnect()
+                        handling.cancel()
                     } catch {
                         socketLogger.debug("Agent socket request unreadable: \(String(describing: error), privacy: .private)")
                         connection.disconnect()
@@ -189,79 +202,5 @@ public final class AgentBridgeServer: @unchecked Sendable {
     deinit {
         source.cancel()
         unlink(socketURL.path)
-    }
-}
-
-public struct AgentBridgeClient: Sendable {
-    public let bridge: AgentBridgeDirectory
-    public init(bridge: AgentBridgeDirectory = AgentBridgeDirectory()) { self.bridge = bridge }
-
-    @MainActor
-    public func send(_ request: AgentBridgeRequest, waitUntil: Date? = nil,
-        onStatus: (AgentBridgeWaitStatus) -> Void = { _ in },
-        launch: @Sendable (UUID) async throws -> Void) async throws -> AgentBridgeResponse {
-        let deadline = min(request.expiresAt, waitUntil ?? request.expiresAt)
-        var connection = try? AgentSocketConnection.connect(to: bridge.socketURL)
-        if connection == nil {
-            try await launch(request.id)
-            // Startup only: replies and progress are delivered by the socket, never polled.
-            let startupDeadline = min(deadline, Date().addingTimeInterval(10))
-            while connection == nil, Date() < startupDeadline {
-                try Task.checkCancellation()
-                connection = try? AgentSocketConnection.connect(to: bridge.socketURL)
-                if connection == nil { try await Task.sleep(for: .milliseconds(50)) }
-            }
-        }
-        guard let connection else { throw socketFailure() }
-        defer { connection.disconnect() }
-        try connection.send(request)
-        enum Event: Sendable { case message(AgentSocketEvent), failed(AgentBridgeFailure), tick, deadline }
-        let (events, continuation) = AsyncStream<Event>.makeStream()
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                while true {
-                    let message = try connection.receive(AgentSocketEvent.self)
-                    continuation.yield(.message(message))
-                    if case .response = message { break }
-                }
-            } catch let error as AgentBridgeFailure { continuation.yield(.failed(error)) }
-            catch { continuation.yield(.failed(AgentBridgeFailure(.invalidRequest, "The app returned an invalid socket message."))) }
-        }
-        let ticker = Task {
-            do {
-                while !Task.isCancelled {
-                    try await Task.sleep(for: .seconds(30))
-                    continuation.yield(.tick)
-                }
-            } catch { }
-        }
-        let expiry = Task {
-            do {
-                try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
-                continuation.yield(.deadline)
-            } catch { }
-        }
-        defer { ticker.cancel(); expiry.cancel(); continuation.finish() }
-        var lastProgress: AgentApprovalProgress?
-        for await event in events {
-            try Task.checkCancellation()
-            switch event {
-            case let .message(.progress(progress)):
-                if progress != lastProgress { onStatus(.progress(progress)); lastProgress = progress }
-            case let .message(.response(response)):
-                guard response.id == request.id, response.version == request.version else {
-                    throw AgentBridgeFailure(.invalidRequest, "The app returned an invalid receipt.")
-                }
-                return response
-            case .tick:
-                if let lastProgress { onStatus(.stillWaiting(progress: lastProgress)) }
-            case let .failed(error): throw error
-            case .deadline:
-                if Date() >= request.expiresAt { throw AgentBridgeFailure(.requestExpired, "The request expired with no answer.") }
-                return AgentBridgeResponse(id: request.id, ok: false, error: .approvalPending,
-                    approvalProgress: lastProgress ?? AgentApprovalProgress(waitingSince: request.createdAt, phase: .awaitingApproval))
-            }
-        }
-        throw CancellationError()
     }
 }

@@ -1,28 +1,79 @@
-import AppKit
+import AgentKeyringProtocol
 import Foundation
+import LocalAuthentication
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
     public func endAllGrants() {
-        grants.endAll()
+        do { for lease in leaseStore.leases where !lease.state.isTerminal { try leaseStore.revoke(lease.leaseID) } }
+        catch { notice = MirrorNotice(kind: .error, text: "The leases could not be ended.") }
     }
 
-    func authorizeCredentialRelease(
-        _ approval: CredentialReleaseAuthorizationRequest,
-        agentRequest: AgentBridgeRequest,
-        onPromptStarted: @escaping () -> Void
-    ) async throws {
-        let fillDestination = agentRequest.action == .fill ? NSWorkspace.shared.frontmostApplication : nil
-        try await authorizer.authorize(approval, onPromptStarted: onPromptStarted)
-        if let fillDestination,
-            NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
-            fillDestination.activate(options: [])
-            let deadline = Date().addingTimeInterval(1)
-            while NSWorkspace.shared.frontmostApplication?.processIdentifier != fillDestination.processIdentifier,
-                Date() < deadline {
-                try await Task.sleep(for: .milliseconds(20))
-            }
+    /// U2 supplies its own panel and calls this on Approve. It can turn off the
+    /// transitional system prompt with automaticallyPromptForLeases = false.
+    @discardableResult
+    public func approveLeaseWithTouchID(_ leaseID: String) async throws -> Agentkeyring_V1_Lease {
+        try await approveLease(leaseID) { [authorizer] approval in
+            try await authorizer.authorize(approval, onPromptStarted: {})
         }
     }
 
+    /// The panel owns this context and displays its biometric controls. The
+    /// authority evaluates that exact context without activating another UI.
+    @discardableResult
+    public func approveLeaseWithTouchID(_ leaseID: String, context: LAContext) async throws -> Agentkeyring_V1_Lease {
+        let panelAuthorizer = LocalCredentialReleaseAuthorizer()
+        return try await approveLease(leaseID) { approval in
+            try await panelAuthorizer.authorize(approval, context: context, onPromptStarted: {})
+        }
+    }
+
+    private func approveLease(_ leaseID: String,
+        authorize: (CredentialReleaseAuthorizationRequest) async throws -> Void) async throws -> Agentkeyring_V1_Lease {
+        guard !isApprovingLease else { throw LeaseFailure(.conflict, "An approval is already in progress on this Mac.") }
+        isApprovingLease = true
+        defer { isApprovingLease = false }
+        try await refreshLeasePolicy()
+        try Task.checkCancellation()
+        let lease = try leaseStore.get(leaseID)
+        guard lease.state == .pending else { return lease }
+        guard let login = leaseLogins.first(where: { $0.id.uuidString == lease.loginID }) else {
+            throw LeaseFailure(.notFound, "The login is no longer available.")
+        }
+        let purpose: String = switch lease.purpose {
+        case .browserSignIn: "Browser sign-in for this task, up to 30 minutes"
+        case .program: "Give the password to \(lease.program.executable) for this task, up to 30 minutes"
+        case .agentProcess: "Give the password to the agent's own code for this task, up to 30 minutes"
+        default: ""
+        }
+        let approval = CredentialReleaseAuthorizationRequest(destination: login.origins.first ?? login.title,
+            account: login.username ?? login.title, field: .password, credentialTitle: login.title,
+            expirationSeconds: 1800, authorizationDeadline: Date(timeIntervalSince1970: TimeInterval(lease.pendingUntilUnixSeconds)),
+            leaseDescription: purpose + ". Agent's reason: “\(lease.reason)”")
+        try await authorize(approval)
+        try Task.checkCancellation()
+        // Re-read signed rules after the suspension and reject a late answer.
+        try await refreshLeasePolicy()
+        try Task.checkCancellation()
+        return try leaseStore.approve(leaseID)
+    }
+
+    @discardableResult
+    public func denyLease(_ leaseID: String, reply: String = "") throws -> Agentkeyring_V1_Lease {
+        try leaseStore.deny(leaseID, reply: reply)
+    }
+
+    func startPendingMacApprovals() {
+        guard automaticallyPromptForLeases, macApprovalTask == nil else { return }
+        macApprovalTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.macApprovalTask = nil }
+            while self.automaticallyPromptForLeases,
+                let lease = self.leaseStore.waitingRequests.last(where: { !self.attemptedMacApprovals.contains($0.leaseID) }) {
+                self.attemptedMacApprovals.insert(lease.leaseID)
+                do { try await self.approveLeaseWithTouchID(lease.leaseID) }
+                catch { self.notice = MirrorNotice(kind: .information, text: "Approval could not finish. The request is still available in Agent Keyring.") }
+            }
+        }
+    }
 }
