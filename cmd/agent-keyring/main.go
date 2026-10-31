@@ -18,7 +18,7 @@ import (
 	"github.com/joshp123/agent-keyring/internal/receiver"
 )
 
-const help = `Agent Keyring — use a saved login for one task.
+const help = `Agent Keyring: use a saved login for one task.
 
   find SITE                  Find login IDs (example.com is enough)
   lease LOGIN --task TASK --reason REASON
@@ -251,7 +251,7 @@ func run(ctx context.Context, args []string) (int, error) {
 			return 1, errors.New("Agent Keyring did not return a lease.")
 		}
 		if lease.TaskRef != a.options["task"] || lease.Reason != a.options["reason"] {
-			fmt.Fprintln(os.Stderr, "Joined the existing lease:", safe(lease.TaskRef), "—", safe(lease.Reason))
+			fmt.Fprintf(os.Stderr, "Joined the existing lease for task %s: %s\n", safe(lease.TaskRef), safe(lease.Reason))
 		}
 		if a.flags["no-wait"] {
 			if lease.State != pb.LeaseState_LEASE_STATE_ACTIVE && lease.State != pb.LeaseState_LEASE_STATE_PENDING {

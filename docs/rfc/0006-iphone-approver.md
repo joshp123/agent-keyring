@@ -1,6 +1,6 @@
 ---
 written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
-status: reviewed; independent phone work can build; identity/rule handover and authority choice remain open
+status: agreed by Opus and Astra for implementation, with round 10 contract completions; device proofs and Josh's cutover choices pending
 depends_on: 0004, 0005
 related: 0007 (approval UI); docs/rfc/README.md has the build plan
 ---
@@ -61,11 +61,13 @@ and its limits are below; development can continue without changing that setting
    authentication; no app can start or schedule it.
 2. Agent Keyring receives the token, calls `importCredentials(token:)`, maps
    logins and code seeds, and merges them additively (the release 2 merge): a
-   selected export updates and adds; items missing from it stay; a full export
-   shows removals for Josh to confirm.
+   selected export updates and adds; items missing from it stay. Apple does not
+   identify export scope in the payload, so missing items are never treated as
+   removals without an explicit full-export review.
 3. Each login is sealed to the phone's own Secure Enclave key-agreement key and
    stored in the app's container. Passkeys are not imported, as today.
-4. The phone publishes a signed login index to the relay, so agents can `find`.
+4. If the phone is the rule owner it publishes the signed login index. Until
+   cutover it follows the Mac's index and keeps unmatched imports for review.
 
 Refresh is the same export. There is no continuous sync: Apple offers no API to
 read Passwords or learn that a login changed. The app shows the import age on
@@ -108,27 +110,54 @@ cannot show Face ID, so it cannot use these keys.
 
 ### Adding the iPhone to an existing setup
 
-The MacBook is already a pinned approver (RFC 0005). Pairing the iPhone with
-the MacBook by code lets the MacBook sign a new approver key set that includes
-the phone. Receivers accept it because a key they pinned signed it. The phone
-fetches the enrolled machines with the MacBook's signed approvals and trusts
-those, so no machine needs re-enrolling.
+The MacBook is already a pinned approver (RFC 0005). The phone's `PairApprover`
+request reaches the Mac through `ApproverWork.pairing`. Comparing the code
+binds the phone's keys and the existing approver key set; Touch ID lets the
+MacBook sign the new set including the phone. Receivers accept it because a
+key they pinned signed it. The phone fetches the signed current machine roster
+through `GetEnrolmentSet`, so no machine needs re-enrolling.
 
-Before R4.2 publishes an index or R4.5 joins the live setup, define the login-ID
-mapping and rule handover. `SnapshotMerger` currently assigns a fresh UUID when
-there is no previous local match. Independent Mac and iPhone imports therefore
-do not automatically produce the same login IDs. The same code on both devices
-does not fix this. Match using the Apple source identity where stable, preserve
-existing public IDs through an authenticated mapping, and surface ambiguous
-matches without guessing or transferring Automatic rules.
+The signed `ApproverKeySet` names the current enrolment-set revision and digest
+(RFC 0005, "Pairing"), so the phone takes exactly the MacBook's current list,
+revocations included. Old individual enrolment approvals cannot replace it.
 
-The authority choice also needs one rule-owner contract: which device's rules
-and index are current, how revisions are compared, and what a stale device may
-approve. Two independent publishers must not overwrite each other's index or
-turn a phone's Blocked login back into Automatic. During development keep the
-Mac's working setup and the phone fixture setup separate. If Josh selects two
-live copies, settle their synchronization before cutover; do not infer consent
-from the recommendation for option A.
+### Login IDs
+
+Login IDs stay the ones the MacBook already uses; leases, rules and history
+refer to them. The phone keeps them as follows.
+
+1. The MacBook's signed `LoginIndex` carries a `LoginSource` for each login:
+   the Apple item, account and exporter IDs its importer already records.
+2. On import, the phone matches each item by that source identity and takes
+   the existing login ID.
+3. If the source identity does not match (for example if Apple gives the same
+   item a different ID on each device), the phone falls back to saved sites
+   plus account, but only when exactly one login matches on each side.
+4. Anything else gets a new ID, starts as Ask, and appears in the review screen.
+   A rule never moves to a login on a guess, and Automatic never transfers to
+   an unmatched or ambiguous login.
+
+Device proof: export the same items on the MacBook and the iPhone and record
+how many match by source identity, by the fallback, and not at all.
+
+### Rule owner
+
+Exactly one approver owns the rules and login IDs at a time. The current
+`ApproverKeySet` names it (`rule_owner_key_id`).
+
+- Only the owner publishes the `LoginIndex` and the `AutomaticGrant`. The relay
+  accepts each only from the owner, at a higher revision.
+- Other approvers fetch the owner's signed index with `GetIndex` before
+  deciding, retain the highest valid revision and reject different bytes at
+  the same revision. They always deny a login that index marks Blocked.
+- Limit: the relay could withhold a newer index, so a device that has not seen
+  a rule change may still approve under the previous rule. Its decision is
+  limited to Ask logins it holds, and the screen shows when its rules were
+  last updated.
+- The MacBook is the owner through release 4 development. Moving ownership to
+  the iPhone is part of the cutover Josh chooses (decision 1). Until then the
+  Mac's live setup and the phone's fixture setup stay separate, and no second
+  live copy is activated by default.
 
 ### Losing the phone
 
@@ -150,11 +179,37 @@ enrols again by code. No backup system is added.
 ### Automatic logins
 
 Automatic means no prompt. To approve without the MacBook or the iPhone
-present, the relay needs to open those logins itself, so the phone publishes
-them sealed to the relay's own key, code seeds included. Stated plainly:
-anyone who controls the mini can read Automatic logins, and moving a login back
-to Ask does not recall a copy already published. Changing a login to Automatic
-says so on the screen.
+present, the relay needs to open those logins itself.
+
+- The relay holds two keys of its own: an HPKE encryption key and an Automatic
+  signing key. The rule owner fetches their public parts with `GetAutomaticKeys`
+  over its pinned relay connection. Publishing explicitly delegates Automatic
+  access to those keys; the relay chooses no Ask authority through this call.
+  The owner seals the Automatic logins to the encryption key, code seeds
+  included, then signs a `SignedAutomaticGrant` naming both keys, the logins,
+  the allowed machines and each sealed login's hash. It uploads that grant
+  inside `AutomaticSet` through `PublishAutomatic`.
+- That upload is one complete snapshot. The relay checks the owner's signature,
+  revision, login IDs and hashes, opens every listed login, then commits the
+  grant and replacement set together. An exact resend is acknowledged; changed
+  bytes at the same revision or a lower revision are refused. Release 4 does
+  not activate a grant through `PublishAutomaticGrant` before its matching
+  ciphertext arrives; that method is the release 3 grant-only path.
+- `SealedAutomaticLogin` defines the HPKE context and the grant defines the
+  hash encoding, so Swift and Go produce the same bytes. Login IDs must be
+  unique and match in the grant, sealed list and opened contents. An empty
+  snapshot removes all Automatic access. A later snapshot omits removed logins.
+- The relay approves a new lease for a listed login and machine without a
+  prompt, seals the bundle to the receiver and signs the decision with
+  `authority = AUTOMATIC_RULE`. Receivers check the grant (RFC 0005), so the
+  relay cannot approve anything outside it.
+- Publishing happens after an import or rule change, when Josh is present and
+  the owner's key can sign.
+
+Stated plainly: anyone who controls the mini can read Automatic logins, and
+moving a login back to Ask does not recall a copy already published; the next
+grant revision stops new approvals and revokes its leases as in RFC 0004.
+Changing a login to Automatic says so on the screen.
 
 ## Protections and their limits
 
@@ -192,7 +247,8 @@ says so on the screen.
 Prioritize R4.1's real-device proof because import is a dependency, while R4.2,
 R4.3 and the screens can be built with clearly marked fixtures in parallel.
 Josh's absence blocks the physical proof, not the independent implementation.
-R4.5 and R4.6 also need the outstanding contracts in RFC 0005 before activation.
+R4.5 and R4.6 follow the pairing and Automatic contracts in RFC 0005 and the
+login-ID and rule-owner sections above.
 
 ## Human proofs for release 4
 

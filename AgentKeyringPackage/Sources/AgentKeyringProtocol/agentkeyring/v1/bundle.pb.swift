@@ -10,7 +10,8 @@
 
 // Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Approver-to-receiver delivery, RFC 0005 and RFC 0006. The relay on the mini
-// stores and forwards these but cannot open a bundle or forge a decision.
+// stores and forwards Ask deliveries without opening them. Automatic decisions
+// use the explicitly delegated authority in relay.proto.
 
 #if canImport(FoundationEssentials)
 import FoundationEssentials
@@ -27,6 +28,44 @@ import SwiftProtobuf
 fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
+}
+
+public nonisolated enum Agentkeyring_V1_DecisionAuthority: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case human // = 1
+  case automaticRule // = 2
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .human
+    case 2: self = .automaticRule
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .human: return 1
+    case .automaticRule: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Agentkeyring_V1_DecisionAuthority] = [
+    .unspecified,
+    .human,
+    .automaticRule,
+  ]
+
 }
 
 public nonisolated enum Agentkeyring_V1_DecisionChoice: SwiftProtobuf.Enum, Swift.CaseIterable {
@@ -71,7 +110,8 @@ public nonisolated enum Agentkeyring_V1_DecisionChoice: SwiftProtobuf.Enum, Swif
 
 /// What the receiver gets from BeginOperation once requests travel through the
 /// relay. Checked before opening: decision signature by a pinned approver key,
-/// statement names this receiver and lease, not_after in the future.
+/// or a granted Automatic key, statement names this receiver and lease,
+/// not_after in the future.
 public nonisolated struct Agentkeyring_V1_SealedDelivery: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -112,7 +152,8 @@ public nonisolated struct Agentkeyring_V1_SealedDelivery: Sendable {
 /// AES-256-GCM, sealed to the receiver's enrolled public key.
 /// info = "agentkeyring.bundle.v1"; aad = request_digest.
 /// P-256 so CryptoKit and the iPhone's Secure Enclave can take part.
-/// Plaintext is a serialized BundleContents.
+/// Plaintext is a serialized BundleContents. SealedAutomaticLogin in relay.proto
+/// reuses this envelope with its own plaintext, info and aad.
 public nonisolated struct Agentkeyring_V1_SealedBundle: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -238,6 +279,15 @@ public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
   /// SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
   public var replySha256: Data = Data()
 
+  /// Who decided. HUMAN: signed by an approver key after Josh's biometric check.
+  /// AUTOMATIC_RULE: signed by the Automatic key named in a current
+  /// SignedAutomaticGrant (relay.proto); valid only for the logins and
+  /// recipients that grant lists. Receivers check the grant before opening.
+  public var authority: Agentkeyring_V1_DecisionAuthority = .unspecified
+
+  /// Set only for AUTOMATIC_RULE.
+  public var automaticGrantRevision: UInt64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -246,6 +296,10 @@ public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate nonisolated let _protobuf_package = "agentkeyring.v1"
+
+nonisolated extension Agentkeyring_V1_DecisionAuthority: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0DECISION_AUTHORITY_UNSPECIFIED\0\u{1}DECISION_AUTHORITY_HUMAN\0\u{1}DECISION_AUTHORITY_AUTOMATIC_RULE\0")
+}
 
 nonisolated extension Agentkeyring_V1_DecisionChoice: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0DECISION_CHOICE_UNSPECIFIED\0\u{1}DECISION_CHOICE_APPROVE\0\u{1}DECISION_CHOICE_DENY\0")
@@ -491,7 +545,7 @@ nonisolated extension Agentkeyring_V1_SignedDecision: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DecisionStatement"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_digest\0\u{1}choice\0\u{3}approved_at_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}recipient_id\0\u{3}receiver_key_id\0\u{3}bundle_ciphertext_sha256\0\u{3}lease_id\0\u{3}reply_sha256\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_digest\0\u{1}choice\0\u{3}approved_at_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}recipient_id\0\u{3}receiver_key_id\0\u{3}bundle_ciphertext_sha256\0\u{3}lease_id\0\u{3}reply_sha256\0\u{1}authority\0\u{3}automatic_grant_revision\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -509,6 +563,8 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
       case 8: try { try decoder.decodeSingularBytesField(value: &self.bundleCiphertextSha256) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
       case 10: try { try decoder.decodeSingularBytesField(value: &self.replySha256) }()
+      case 11: try { try decoder.decodeSingularEnumField(value: &self.authority) }()
+      case 12: try { try decoder.decodeSingularUInt64Field(value: &self.automaticGrantRevision) }()
       default: break
       }
     }
@@ -545,6 +601,12 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
     if !self.replySha256.isEmpty {
       try visitor.visitSingularBytesField(value: self.replySha256, fieldNumber: 10)
     }
+    if self.authority != .unspecified {
+      try visitor.visitSingularEnumField(value: self.authority, fieldNumber: 11)
+    }
+    if self.automaticGrantRevision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.automaticGrantRevision, fieldNumber: 12)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -559,6 +621,8 @@ nonisolated extension Agentkeyring_V1_DecisionStatement: SwiftProtobuf.Message, 
     if lhs.bundleCiphertextSha256 != rhs.bundleCiphertextSha256 {return false}
     if lhs.leaseID != rhs.leaseID {return false}
     if lhs.replySha256 != rhs.replySha256 {return false}
+    if lhs.authority != rhs.authority {return false}
+    if lhs.automaticGrantRevision != rhs.automaticGrantRevision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

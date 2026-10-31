@@ -51,8 +51,8 @@ the way a person would use it.
 | Release | Slices | Can start |
 | --- | --- | --- |
 | 2 | R2.0 additive merge and import logging port; R2.1 toolchain; R2.2 lease store; R2.3 socket cut-over; R2.4 Go CLI; R2.5 Chromium receiver; R2.6 skill and install; U1 to U3 screens | RFC 0004 reviewed with round 7 corrections; implementation can proceed |
-| 3 | R3.1 relay core; R3.2 enrolment; R3.3 client relay transport; R3.4 Mac approver; R3.5 deployment; U4 | Store, framing and bundle implementation can start; finish the pairing and Automatic contracts in 0005 before their dependent code |
-| 4 | R4.1 phone import; R4.2 phone vault; R4.3 phone approver; R4.4 push; R4.5 approver key set; R4.6 Automatic publishing; U5; R4.8 cutover | Import, vault and screens can build with fixtures now; key/rule handover and Automatic need the contracts below; physical proof and cutover wait for Josh |
+| 3 | R3.1 relay core; R3.2 enrolment; R3.3 client relay transport; R3.4 Mac approver; R3.5 deployment; U4 | Contracts agreed with round 10 completions; all implementation lanes can start |
+| 4 | R4.1 phone import; R4.2 phone vault; R4.3 phone approver; R4.4 push; R4.5 approver key set; R4.6 Automatic publishing; U5; R4.8 cutover | Contracts agreed with round 10 completions; build with fixtures now; physical proof and cutover wait for Josh |
 
 ## Review result and remaining engineering work
 
@@ -61,20 +61,28 @@ Round 8 adds the missing sealed-bundle upload and approved request bytes,
 binds denial replies, makes decision resends idempotent, and preserves the
 configurable phone delay. Existing protobuf field numbers are unchanged.
 
-Three contract seams still need Opus/Astra agreement before their dependent
-implementation, rather than each build agent inventing a different answer:
+Opus's revision and Astra's round 10 completions settle the three contract seams:
 
-1. Pairing: bootstrap TLS permissions, independently checked codes, human
-   confirmation and current approver/enrolment transfer (0005).
-2. Unattended Automatic access: a signing/decryption path that works without
-   biometrics and cannot be mistaken for Ask authority, with exact signed
-   publication bytes (0005/0006).
-3. Phone handover: shared login IDs, rule/index ownership and stale-device
-   behavior under Josh's eventual desktop-authority choice (0006).
+1. Pairing: unknown TLS peers may only enrol or pair; each device computes the
+   full fingerprint from a defined transcript; the first approver is committed by a
+   signed confirmation; codes bind the approver keys being trusted too; adding
+   the phone binds the current signed machine roster in the new key set;
+   offline receivers walk a signed approver key chain (0005).
+2. Automatic approval: a separate Automatic key whose authority is an approver-
+   signed grant from the rule owner listing logins and machines; decisions say
+   which authority signed them, and receivers check the grant. Release 4
+   publishes the grant and encrypted logins in one atomic snapshot (0005, 0006).
+3. Phone handover: login IDs stay the MacBook's, matched by Apple source
+   identity with a narrow fallback and review; one named rule owner publishes
+   rules and grants; other approvers fetch that signed index through `GetIndex`
+   (0006).
 
-These do not block independent import, storage, transport or UI work. They are
-engineering work for the collaborators, not extra questions for Josh. Device
-proofs remain necessary after implementation; compiler success is not that proof.
+Release 3 and 4 lanes can build from these contracts. Existing field numbers
+are unchanged; round 10 adds the missing pairing proofs, index and public-key
+lookups, and exact bytes for Automatic sealing and hashing.
+
+Device proofs remain necessary after implementation; compiler success is not
+that proof.
 
 Main's app version is 0.2.0; release 2 must ship above the installed 0.2.4.
 Releases are built and notarised with `script/build_release.sh` on the current

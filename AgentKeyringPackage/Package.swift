@@ -5,11 +5,12 @@ import PackageDescription
 
 let package = Package(
     name: "AgentKeyringFeature",
-    platforms: [.macOS(.v26), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "AgentKeyringProtocol", targets: ["AgentKeyringProtocol"]),
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
         .library(name: "AgentKeyringFillerSupport", targets: ["AgentKeyringFillerSupport"]),
+        .library(name: "AgentKeyringApprovalUI", targets: ["AgentKeyringApprovalUI"]),
         .library(name: "AgentKeyringTestSupport", targets: ["AgentKeyringTestSupport"]),
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
@@ -33,6 +34,13 @@ let package = Package(
         .target(name: "AgentKeyringProtocol", dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")]),
         .target(name: "AgentKeyringApprovalCore"),
         .target(name: "AgentKeyringFillerSupport"),
+        // The iPhone and Mac approval screens, fed by plain values. No networking or vault code.
+        .target(name: "AgentKeyringApprovalUI"),
+        .executableTarget(
+            name: "AgentKeyringDesignGallery",
+            dependencies: ["AgentKeyringApprovalUI"],
+            path: "Tools/AgentKeyringDesignGallery"
+        ),
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(

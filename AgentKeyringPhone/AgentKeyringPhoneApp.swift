@@ -1,4 +1,5 @@
 import AgentKeyringApprovalCore
+import AgentKeyringApprovalUI
 import CloudKit
 import SwiftUI
 import UIKit
@@ -8,17 +9,33 @@ import UserNotifications
 struct AgentKeyringPhoneApp: App {
     @UIApplicationDelegateAdaptor(PhoneAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
+    private let designScenario = PhoneDesignScenario.fromLaunchArguments()
+    // Mock data until release 4 brings the real backend. Without a design
+    // scenario the phone holds no passwords yet, so it opens on the import screen.
+    @State private var keyringModel: PhoneKeyringModel
+
+    init() {
+        let model = (PhoneDesignScenario.fromLaunchArguments() ?? .importNeeded).makeModel()
+        _keyringModel = State(initialValue: model)
+    }
 
     var body: some Scene {
         WindowGroup {
-            PhoneApprovalView(model: .shared)
-                .task { await PhoneApprovalModel.shared.prepare() }
+            PhoneRootView(model: keyringModel, openRequestID: designScenario?.pushedRequestID)
+                .task { await prepareApprovalChannel() }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
-                        Task { await PhoneApprovalModel.shared.prepare() }
+                        Task { await prepareApprovalChannel() }
                     }
                 }
         }
+    }
+
+    /// The CloudKit channel needs the signed app's entitlements, which a
+    /// design-scenario simulator build doesn't have.
+    private func prepareApprovalChannel() async {
+        guard designScenario == nil else { return }
+        await PhoneApprovalModel.shared.prepare()
     }
 }
 
