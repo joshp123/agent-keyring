@@ -52,12 +52,6 @@ public struct RelayTLSIdentity: @unchecked Sendable {
         return try Self(privateKey: saved.privateKey, certificate: saved.certificate)
     }
 
-    @MainActor public static func replace(service: String) throws {
-        let key = P256.Signing.PrivateKey()
-        let saved = Saved(privateKey: key.x963Representation, certificate: try certificate(key))
-        try RelayKeychain(service: service).write(PropertyListEncoder().encode(saved), account: "tls")
-    }
-
     /// Also used by the dummy-only process fixture with an isolated software key.
     public init(privateKey: Data, certificate: Data) throws {
         let attributes: [String: Any] = [kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
