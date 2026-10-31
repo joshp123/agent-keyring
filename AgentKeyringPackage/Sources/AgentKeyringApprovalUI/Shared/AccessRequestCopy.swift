@@ -87,6 +87,7 @@ public enum AccessRequestCopy {
     // MARK: States
 
     public static let waitingForYou = "Waiting for you"
+    public static let waitingForMac = "Waiting for your Mac"
 
     public static func remaining(until deadline: Date, now: Date) -> String {
         let seconds = max(0, Int(deadline.timeIntervalSince(now).rounded(.up)))
@@ -108,6 +109,11 @@ public enum AccessRequestCopy {
             return "Approving…"
         case .sendingAnswer(.deny):
             return "Denying…"
+        case .waitingForMac(.approve, _):
+            return "You approved. Waiting for your Mac to deliver it."
+        case let .waitingForMac(.deny, reply):
+            return reply == nil ? "You denied. Waiting for your Mac to tell \(agent)."
+                : "You denied. Waiting for your Mac to pass your reply to \(agent)."
         case let .approved(.automaticRule, until):
             return "Approved by rule. \(agent) can use it until \(clock(until))."
         case let .approved(_, until):
@@ -134,6 +140,7 @@ public enum AccessRequestCopy {
         switch state {
         case .waitingForYou: "Waiting"
         case .sendingAnswer: "Sending"
+        case .waitingForMac: "Waiting for your Mac"
         case .approved(.automaticRule, _): "Automatic"
         case .approved: "In use"
         case .denied: "Denied"

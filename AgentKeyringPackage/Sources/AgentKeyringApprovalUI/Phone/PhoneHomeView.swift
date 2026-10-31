@@ -80,9 +80,9 @@ struct PhoneHomeView: View {
                 Section { UnreachableNotice(service: service, since: since) }
             }
 
-            if !model.waiting.isEmpty {
+            if !(model.waiting.isEmpty && model.waitingForMac.isEmpty) {
                 Section {
-                    ForEach(model.waiting) { request in
+                    ForEach(model.waiting + model.waitingForMac) { request in
                         Button { model.presentedRequestID = request.id } label: {
                             WaitingRow(request: request)
                         }
@@ -101,7 +101,7 @@ struct PhoneHomeView: View {
                 } header: { SectionHeading("In use now") }
             }
 
-            if model.waiting.isEmpty && model.inUse.isEmpty {
+            if model.waiting.isEmpty && model.waitingForMac.isEmpty && model.inUse.isEmpty {
                 Section { NothingWaiting() }
             }
 
@@ -158,6 +158,10 @@ private struct WaitingRow: View {
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(KeyringColour.signal)
                 }
+            } else if request.state.isWaitingForMac {
+                Text(AccessRequestCopy.waitingForMac)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
         }
