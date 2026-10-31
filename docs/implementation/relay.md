@@ -117,6 +117,12 @@ its exact decision and request bytes, with no bundle. Plain Deny leaves this
 unset. A new request suppressed by an earlier denial has no copied reply or
 proof: the earlier signature names the earlier lease.
 
+`ClearDenial(recipient_id, login_id)` is unsigned and accepted only from a
+pinned approver connection. It clears all suppression deadlines for that pair,
+including suppressed follow-up requests, without changing any denied decision
+or signed reply. It is idempotent and durable. A fresh request must still get
+its own decision; retrying an old request ID still returns its denied lease.
+
 `BeginOperation` returns the bundle separately in `SealedDelivery`, omitting
 its duplicate upload attachment from the signed decision. It returns the exact
 approved request record. A known operation key returns `already_started` and
@@ -158,7 +164,8 @@ Uncertain operation retry, next-step delivery, WatchLease reconnect, a short
 signed expiry, resend after expiry, cancellation, policy revocation, denial
 suppression, Automatic grants and machine opt-in, wrong recipient, signed
 roster revocation, added approver pairing, key-chain fetch, connection-authenticated
-plain denial restrictions and signed denial reply proofs in all lease responses. It retains the
+plain denial restrictions, signed denial reply proofs in all lease responses,
+and scoped ClearDenial across a restart, followed by a new approval. It retains the
 fixture directory it prints for inspection. It does not touch installed apps.
 
 The real-tailnet enrolment proof needs the relay already running with a fresh

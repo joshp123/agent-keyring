@@ -41,6 +41,9 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	case *pb.RelayWireRequest_DecideEnrolment:
 		err := s.decideEnrolment(tx, request.DecideEnrolment)
 		return enrolAck(), false, err
+	case *pb.RelayWireRequest_ClearDenial:
+		err := s.clearDenial(tx, request.ClearDenial)
+		return publishAck(), false, err
 	case *pb.RelayWireRequest_PublishIndex:
 		err := s.publishIndex(tx, request.PublishIndex)
 		return publishAck(), false, err
@@ -94,6 +97,24 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	default:
 		return nil, false, invalid("Select a supported relay method.")
 	}
+}
+func (s *Server) clearDenial(tx *sql.Tx, request *pb.ClearDenialRequest) error {
+	if request.RecipientId == "" || request.LoginId == "" {
+		return invalid("Recipient and login are required.")
+	}
+	leases, err := allLeases(tx)
+	if err != nil {
+		return err
+	}
+	for _, lease := range leases {
+		if lease.State == pb.LeaseState_LEASE_STATE_DENIED && lease.GetRecipient().GetRecipientId() == request.RecipientId && lease.LoginId == request.LoginId && lease.RetryNotBeforeUnixSeconds != 0 {
+			lease.RetryNotBeforeUnixSeconds = 0
+			if err := saveLease(tx, lease); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 func workResponse(work *pb.ApproverWork) *pb.RelayWireResponse {
 	return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Work{Work: work}}
