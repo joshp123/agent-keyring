@@ -20,8 +20,11 @@ public enum RelayCrypto {
         return bytes
     }
 
-    public static func pairTranscript(relaySPKI: Data, approverSPKI: Data, signingKey: Data, keySet: Data) -> Data {
-        transcript([Data("agentkeyring.pair.v1\0".utf8), relaySPKI, approverSPKI, signingKey, keySet])
+    public static func pairTranscript(relaySPKI: Data, approverSPKI: Data, signingKey: Data, keySet: Data,
+        encryptionKey: Data = Data()) -> Data {
+        var parts = [Data("agentkeyring.pair.v1\0".utf8), relaySPKI, approverSPKI, signingKey, keySet]
+        if !encryptionKey.isEmpty { parts.append(encryptionKey) }
+        return transcript(parts)
     }
 
     public static func enrolTranscript(relaySPKI: Data, clientSPKI: Data, receiverKey: Data, keySet: Data) -> Data {

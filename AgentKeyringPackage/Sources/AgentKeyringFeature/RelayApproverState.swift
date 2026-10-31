@@ -250,7 +250,8 @@ public final class RelayApprover {
                 let pin = state.relaySPKI, let current = approverKeySet else { return nil }
             return RelayApproverPairing(id: id, label: request.key.label,
                 fingerprint: RelayCrypto.fingerprint(RelayCrypto.pairTranscript(relaySPKI: pin,
-                    approverSPKI: request.tlsPublicKey, signingKey: request.key.publicKey, keySet: current.keySet)),
+                    approverSPKI: request.tlsPublicKey, signingKey: request.key.publicKey, keySet: current.keySet,
+                    encryptionKey: request.key.encryptionPublicKey)),
                 answerIsQueued: state.outbox.contains { $0.id == "approver-pairing:" + id })
         }.sorted { $0.id < $1.id }
         requests = state.requests.compactMap { digest, saved in
