@@ -43,7 +43,7 @@ Screens: `request-*.png`, `requestForProgram-*.png`, `requestForAgentProcess-*.p
 
 ### Deny and reply
 
-Tapping **Deny and reply…** swaps the two buttons for a reply box, in place, so the request stays in view. The box has a blue microphone button for dictation; the keyboard's own dictation works too. Buttons: **Cancel** and **Deny and send**. The reply reaches the agent with the denial.
+Tapping **Deny and reply…** swaps the two buttons for a reply box, in place, so the request stays in view. Type, or use the keyboard's own dictation key. Buttons: **Cancel** and **Deny and send**. The reply reaches the agent with the denial.
 
 Screen: `reply-*.png`.
 

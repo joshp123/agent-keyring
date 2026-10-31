@@ -40,7 +40,7 @@ never poll and never build a lease.
 | `MacApprovalBackend` | `updates(requestID:)`: one request until it is final | `approve`, `deny(reply:)`, `embeddedTouchIDContext` |
 | `MacMenuBarBackend` | `updates()`: all requests plus the import count and date | `endAccess`, `allowAskingAgain` |
 | `LoginRulesBackend` | `updates()`: logins with rules, plus a pending confirmation | `setRule`, `confirmRules` |
-| `PhoneKeyringBackend` | `updates()`: requests, passwords, connection, settings | `approve`, `deny`, `endAccess`, `allowAskingAgain`, `openPasswordsForImport`, `setAskPhoneAfter`, `dictation` |
+| `PhoneKeyringBackend` | `updates()`: requests, passwords, connection, settings | `approve`, `deny`, `endAccess`, `allowAskingAgain`, `openPasswordsForImport`, `setAskPhoneAfter` |
 
 `embeddedTouchIDContext` returns the `LAContext` that `approve` will evaluate.
 The panel shows it with `LAAuthenticationView`, starts the evaluation as it
@@ -98,7 +98,7 @@ which of his agents is asking; the claim block says where it came from.
 ## Rules carried over from the designs and Josh's steering
 
 - Site is the headline; Deny and Approve are equal size, red and green; reply
-  is a kind of denial, with dictation.
+  is a kind of denial; the keyboard's own dictation is enough.
 - No risk badges, warning flags or verified-agent marks.
 - The Mac panel never takes keyboard focus by itself, so typing elsewhere cannot
   answer it. Unproved: whether Touch ID can run from a non-activating panel
@@ -126,7 +126,7 @@ which of his agents is asking; the claim block says where it came from.
 
 - **Device: MacBook, Josh present.** Approve with one touch while typing in
   another app; nothing typed reaches the panel; a failed touch shares nothing.
-- **Device: iPhone.** One Face ID approves; Deny and reply with dictation
+- **Device: iPhone.** One Face ID approves; Deny and reply, typed or with keyboard dictation,
   reaches the agent; an unreachable relay shows the retrying banner.
 - **Rendered check.** Screenshots of every state from the real views, light and
   dark, after U2 and U5. Josh reviews those, not mocks.

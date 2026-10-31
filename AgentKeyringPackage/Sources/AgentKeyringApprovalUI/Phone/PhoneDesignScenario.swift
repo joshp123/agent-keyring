@@ -185,21 +185,4 @@ final class DesignPhoneBackend: PhoneKeyringBackend {
     func openPasswordsForImport() {}
 
     func setAskPhoneAfter(_ delay: Duration) async throws {}
-
-    func dictation() -> AsyncThrowingStream<String, any Error> {
-        let words = "Stop. Use the invoice in my email instead.".split(separator: " ")
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                var transcript = ""
-                for word in words {
-                    try? await Task.sleep(for: .milliseconds(250))
-                    if Task.isCancelled { break }
-                    transcript += (transcript.isEmpty ? "" : " ") + word
-                    continuation.yield(transcript)
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
 }
