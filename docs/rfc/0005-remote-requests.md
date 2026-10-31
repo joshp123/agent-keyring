@@ -106,6 +106,9 @@ from software administering that same machine.
    that signature checks. The relay returns that signed denial and the exact
    request bytes in `Lease.signed_denial`, with no bundle, and the receiver
    verifies them the same way as an approval.
+   Josh's "let it ask again" sends `ClearDenial` over the same pinned
+   connection, unsigned for the same reason: it lets a machine ask, and each
+   new request still needs its own decision.
 5. **Fill.** The receiver's `BeginOperation` records the operation at the relay
    and returns the `SealedDelivery`, including the exact approved request bytes.
    The receiver checks their digest and scope against the request it retained
