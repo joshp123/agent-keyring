@@ -122,6 +122,20 @@ pinned approver connection. It clears all suppression deadlines for that pair,
 including suppressed follow-up requests, without changing any denied decision
 or signed reply. It is idempotent and durable. A fresh request must still get
 its own decision; retrying an old request ID still returns its denied lease.
+Clearing suppression does not change Blocked policy.
+
+`WatchWork` also emits `ApproverWork.lease`: current pending and active leases
+on connection, followed by changed snapshots, including terminal transitions
+for leases already shown. A reconnect rebuilds the current pending/active view.
+The existing pending-request records and cancellation notices remain separate
+work items. Lease snapshots carry signed denial reply proofs when applicable.
+
+`RevokeLease(lease_id)` is unsigned and accepted only from a pinned approver
+connection. It atomically persists REVOKED before acknowledging. Terminal
+leases return unchanged, including on retries and after restart. A late
+approval cannot reactivate a revoked pending lease; an exact resend of a
+previously accepted approval returns its current revoked state. No further
+bundle is delivered. The response uses top-level `RelayWireResponse.lease`.
 
 `BeginOperation` returns the bundle separately in `SealedDelivery`, omitting
 its duplicate upload attachment from the signed decision. It returns the exact
@@ -165,7 +179,11 @@ signed expiry, resend after expiry, cancellation, policy revocation, denial
 suppression, Automatic grants and machine opt-in, wrong recipient, signed
 roster revocation, added approver pairing, key-chain fetch, connection-authenticated
 plain denial restrictions, signed denial reply proofs in all lease responses,
-and scoped ClearDenial across a restart, followed by a new approval. It retains the
+scoped ClearDenial across a restart, followed by a new approval, and Blocked
+policy after clearing suppression. It checks approver lease backlog, updates,
+expiry, denial proofs and reconnect, then revokes pending and active leases,
+including late approvals and exact accepted-decision resends before and after
+restart. It retains the
 fixture directory it prints for inspection. It does not touch installed apps.
 
 The real-tailnet enrolment proof needs the relay already running with a fresh
