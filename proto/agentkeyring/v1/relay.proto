@@ -29,6 +29,11 @@ service Approvals {
   // RFC 0006: Automatic logins sealed to the relay's own key. Optional.
   rpc PublishAutomatic(AutomaticSet) returns (PublishAck);
   rpc RegisterPush(PushRegistration) returns (PublishAck);
+  // A pinned approver adds or removes approvers (release 4 adds the iPhone).
+  rpc PublishApproverKeys(SignedApproverKeySet) returns (PublishAck);
+  // Enrolment records with the signed decisions that approved them, so a new
+  // approver can trust machines another pinned approver already enrolled.
+  rpc ListEnrolments(ListEnrolmentsRequest) returns (ListEnrolmentsResponse);
 }
 
 // Served by the relay to a machine that is not yet enrolled. Reachable only
@@ -36,6 +41,13 @@ service Approvals {
 service Enrolment {
   // Streams PENDING, then APPROVED with the approver keys to pin, or DENIED.
   rpc Enrol(EnrolRequest) returns (stream EnrolStatus);
+  // First approver only, while the relay has none. The relay shows a code in
+  // its own log; the approver shows the same code. Later approvers are added
+  // by PublishApproverKeys.
+  rpc PairApprover(PairApproverRequest) returns (stream EnrolStatus);
+  // Enrolled clients: the newest approver key set, checked against the pinned
+  // chain before use.
+  rpc GetApproverKeys(GetApproverKeysRequest) returns (SignedApproverKeySet);
 }
 
 message WatchWorkRequest {
@@ -213,6 +225,24 @@ message AutomaticLoginContents {
   string totp_algorithm = 8;     // "SHA1", "SHA256", "SHA512".
 }
 
+message PairApproverRequest {
+  ApproverKey key = 1;
+  bytes tls_public_key = 2;
+}
+
+message GetApproverKeysRequest {}
+
+message ListEnrolmentsRequest {}
+
+message ListEnrolmentsResponse {
+  repeated ApprovedEnrolment enrolments = 1;
+}
+
+message ApprovedEnrolment {
+  bytes record = 1;                 // Serialized EnrolmentRecord.
+  SignedEnrolmentDecision decision = 2;
+}
+
 message PushRegistration {
   string approver_key_id = 1;
   bytes apns_device_token = 2;
@@ -234,6 +264,10 @@ message RelayWireRequest {
     AutomaticSet publish_automatic = 6;
     PushRegistration register_push = 7;
     EnrolRequest enrol = 8;
+    SignedApproverKeySet publish_approver_keys = 9;
+    ListEnrolmentsRequest list_enrolments = 10;
+    PairApproverRequest pair_approver = 11;
+    GetApproverKeysRequest get_approver_keys = 12;
   }
 }
 
@@ -246,6 +280,8 @@ message RelayWireResponse {
     PublishAck publish = 5;
     EnrolStatus enrol_status = 6;
     RpcError error = 7;
+    ListEnrolmentsResponse enrolments = 9;
+    SignedApproverKeySet approver_keys = 10;
   }
   bool end_of_stream = 8;
 }

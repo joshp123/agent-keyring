@@ -226,24 +226,24 @@ and a retry is a new process with no memory, so a receipt would be lost exactly
 when it matters and the retry would submit again. Receipts therefore live with
 the lease at the authority, on disk, and the receiver keeps no state.
 
-- An operation's identity is its digest: lease, target tab and frame, the
-  document loader ID the receiver reads from the browser just before acting,
-  each field binding and selector, and the submit control. The receiver computes
-  it. Agents do not invent operation IDs, though an integration may pass one.
-- `BeginOperation` with a new digest records Started **before** returning any
-  value, then the receiver fills and calls `FinishOperation`.
-- The same digest again returns the recorded outcome, or Uncertain if none was
+- An operation's digest covers the action, not the moment: lease, kind, target
+  tab and frame, each field binding and selector, the submit control, and for
+  programs the field. It deliberately leaves out the document loader ID, so a
+  submit that navigated before its reply was lost cannot turn a retry into a
+  new action. The receiver computes the digest; it never includes values.
+- The retry key is `request_id` if an integration passes one, otherwise the
+  digest. Same key with a different digest, kind or fields is a conflict.
+- `BeginOperation` with a new key durably records Started **before** returning
+  any value, then the receiver acts and calls `FinishOperation`.
+- The same key again returns the recorded outcome, or Uncertain if none was
   recorded (receiver crashed, timed out or lost its reply). No value is returned
-  and nothing is submitted twice. This covers a retried `fill` after any
-  restart of receiver or authority.
-- Repeating the same step on the same unchanged document after inspecting it,
-  for example after the site showed "wrong password" without navigating, needs
-  `fill --again`. That adds a fresh nonce, so it is a new operation. The skill
-  says to inspect first.
-- A new page has a new loader ID, so the next sign-in step is a new operation
-  without any flag.
-- `exec` and `read` are always new operations; the CLI is the parent of the
-  child and knows whether it ran. The record still marks them Started first.
+  and nothing is done twice, after any restart of receiver or authority.
+- The next sign-in step, such as a code field, has different bindings, so it is
+  a new operation without any flag.
+- Repeating the same step deliberately, for example after the site showed
+  "wrong password", needs `--again` on `fill` or `exec`. That makes a fresh
+  key. The skill says to inspect the page first.
+- `read` makes a fresh key per invocation; the agent asked for the value again.
 - Serialize overlapping operations on one target, not all uses of the same
   saved login. Records live as long as their lease record. This is
   conservative retry handling, not exactly-once execution.
@@ -412,10 +412,10 @@ fake authority, and R2.7 against mock backends can start at once.
 ## Review disposition
 
 Astra agrees with implementing the local lease/CLI and explicit receiver shapes
-above. Opus concurs, with two simplifications made on 31 Oct: frame and document
+above. Opus concurs, with one simplification made on 31 Oct: frame and document
 IDs are optional for agents, because the receiver checks the real origin on every
-fill anyway, and fill receipts stay in memory, because a restart already reports
-an unknown result as Uncertain. The remaining disagreements with the original
+fill anyway. (An earlier simplification kept operation receipts in receiver
+memory; revision 2 below replaces it.) The remaining disagreements with the original
 draft were resolved here: whole-chat task defaults, stdout mixed with progress,
 unspecified program delivery, implicit form discovery, window-as-element targets,
 and treating a remote receiver as the authority's local browser.
