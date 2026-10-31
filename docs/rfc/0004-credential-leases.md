@@ -1,6 +1,6 @@
 ---
 written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
-status: agreed for implementation (revision 2, 31 Oct, Opus; Astra review pending on the revision)
+status: revision 2 reviewed by Astra, 31 Oct; corrections below ready for Opus concurrence
 supersedes: request and fill interface portions of RFC 0002
 related: 0005 (remote requests), 0006 (iPhone authority), 0007 (approval UI); docs/rfc/README.md has the build plan
 ---
@@ -80,24 +80,30 @@ with vault/service privileges. It returns exit status and safe outcome text,
 not child stdout/stderr, because arbitrary children can print their input.
 Do not silently turn failed browser filling into program delivery.
 
-Some agent browsers have no receiver yet, most importantly Codex's in-app
-browser, which agents drive through a JavaScript REPL. Removing every value
-route would break the sign-ins Josh relies on today and get Keyring bypassed.
-One explicit route stays for them:
+Some agent browsers have no receiver yet. One explicit value route stays for
+agent runtimes that permit credential entry through their own code, preserving
+the existing capability under a lease:
 
 ```sh
 lease=$(agent-keyring lease LOGIN --task "$task" --for agent-process \
-  --reason "Sign in to NS in Codex's browser, which has no receiver")
-agent-keyring read "$lease" --field password   # value on stdout, for the agent's own code
+  --reason "Sign in using my runtime's permitted credential-entry tool")
+# The runtime's code spawns `agent-keyring read LEASE --field password`,
+# consumes its stdout privately and passes it directly to that permitted tool.
+# Do not run `read` as a standalone model-visible shell tool call.
 ```
 
-`read` prints only to a pipe or file, never a terminal, and the skill tells the
-agent to pass it straight into its browser tool's input call without echoing
-it. The approval says plainly "Give the password to Codex's own code". This is
+`read` refuses a terminal; a pipe alone does not make output private, because
+ordinary shell tools capture stdout for the model. The skill identifies this
+route as value delivery to the agent's code, with no echo or transcript output.
+It is usable only where the harness permits that input path; it does not bypass
+a browser tool's restrictions. The approval says plainly "Give the password
+to the agent's own code". This is
 today's retained-buffer route under a lease, with no protection claim: the
 model's code holds the value. It replaces the named-pasteboard `acquire`,
 `read` and `clear` commands and the hidden `agent-browser-plugin`. It is
-removed for a browser as soon as a receiver is proved for it.
+replaced by the receiver in the skill when that integration is proved. Codex's
+in-app browser is not claimed supported merely because its REPL can spawn a
+process. Its permitted credential-entry integration still needs proof.
 
 ## Lease state and retries
 
@@ -180,10 +186,15 @@ security principal. Separate task IDs prevent accidental mixing; they do not
 isolate hostile same-user processes. Do not invent verified agent identities
 from process names. A lease ID alone grants no access across principals.
 
-The receiver checks that the caller is permitted to use the lease and that the
-lease names this receiver and the requested purpose. It obtains values through
-the authority's internal authorized delivery path. There is no public
-`OpenSecret`, caller-chosen decryption key, or credential value in these messages.
+The authority checks the authenticated caller, lease recipient, active state,
+current policy, and operation kind before `BeginOperation` returns anything.
+Fill requires browser purpose, ExecuteProgram requires program purpose, and Read
+requires agent-process purpose. Fields must be known, nonempty, nonduplicated and
+available; ExecuteProgram and Read select exactly one. An unavailable field
+fails the whole delivery without starting an operation or asking again. Only
+requested fields are returned. The browser and command checks are in the client;
+they are not a separate trust boundary from same-user software. There is no
+caller-chosen decryption key.
 A remote receiver needs the separately specified authenticated delivery channel;
 a mutable broker's claim that a lease is approved will not suffice.
 
@@ -202,8 +213,7 @@ The model chooses which account and controls to use. The receiver:
 2. Resolves each plain CSS selector to exactly one appropriate editable element
    in that frame, and the submit selector to a suitable control. Password bindings
    require a password input; they cannot target an ordinary chat/search field.
-   It validates
-   all targets before obtaining values. Unknown fields, missing/ambiguous
+   It validates all targets before obtaining values. Unknown fields, missing/ambiguous
    elements and unsupported targets fail without a new approval prompt.
 3. Fills the supplied bindings, obtains a current TOTP code when requested
    (never the seed), submits that sign-in step, and clears inserted values that
@@ -226,13 +236,19 @@ and a retry is a new process with no memory, so a receipt would be lost exactly
 when it matters and the retry would submit again. Receipts therefore live with
 the lease at the authority, on disk, and the receiver keeps no state.
 
-- An operation's digest covers the action, not the moment: lease, kind, target
-  tab and frame, each field binding and selector, the submit control, and for
-  programs the field. It deliberately leaves out the document loader ID, so a
+- An operation's digest covers the action, not the moment: lease, kind, validated
+  browser instance, target tab and requested frame (empty means main), each field
+  binding and selector, the submit control, and for programs the lease-bound
+  command and selected field. Include an explicitly supplied document
+  precondition, but leave out the current loader ID discovered by the receiver, so a
   submit that navigated before its reply was lost cannot turn a retry into a
-  new action. The receiver computes the digest; it never includes values.
+  new action. The receiver sorts bindings by field and hashes an unambiguous
+  length-prefixed encoding; it never includes values. Origin and document checks
+  still run before any new fill.
 - The retry key is `request_id` if an integration passes one, otherwise the
   digest. Same key with a different digest, kind or fields is a conflict.
+  Retain the chosen key through transport retries. `--again` and an explicit
+  operation ID cannot be combined.
 - `BeginOperation` with a new key durably records Started **before** returning
   any value, then the receiver acts and calls `FinishOperation`.
 - The same key again returns the recorded outcome, or Uncertain if none was
@@ -240,12 +256,25 @@ the lease at the authority, on disk, and the receiver keeps no state.
   and nothing is done twice, after any restart of receiver or authority.
 - The next sign-in step, such as a code field, has different bindings, so it is
   a new operation without any flag.
-- Repeating the same step deliberately, for example after the site showed
-  "wrong password", needs `--again` on `fill` or `exec`. That makes a fresh
-  key. The skill says to inspect the page first.
-- `read` makes a fresh key per invocation; the agent asked for the value again.
-- Serialize overlapping operations on one target, not all uses of the same
-  saved login. Records live as long as their lease record. This is
+- Repeating the same step deliberately, even on a new page, needs `--again` on
+  `fill` or `exec`. That makes a fresh key after inspecting the result. A page
+  change is not evidence that the preceding command failed. A fresh CLI process
+  likewise cannot know whether its predecessor launched a child. Store the exit
+  code with an Exited outcome so retries can return the original result.
+- `read` makes a fresh key per explicit invocation; the agent asked for the
+  value again. Transport retries keep that key; an uncertain delivery returns
+  no value. Another explicit read under the active lease can retrieve it again,
+  including a fresh TOTP, without another approval.
+- Finish authenticates the same recipient and lease, requires an existing
+  operation and the outcome for its kind, and writes its result once. Matching
+  repeats return that record; contradictory finishes conflict. A finish may
+  record an already-started action after lease expiry/release, but grants no
+  further use. Unknown outcomes remain Uncertain, never inferred success.
+- Serialize browser operations with a local OS file lock for the validated
+  browser instance and tab, shared by the short-lived CLI processes. After
+  obtaining it, revalidate the target and begin the operation. A crash releases
+  the lock; the authority's receipt still prevents replay. Do not serialize all
+  uses of one login. Records live as long as their lease record. This is
   conservative retry handling, not exactly-once execution.
 
 ## Receiver evidence and release scope
@@ -305,9 +334,11 @@ The skill is short and operational: discover/select the account; establish the
 current task; request once; wait on the same reference; inspect the page and pass
 exact targets; reuse the lease through retries and OTP; release when done.
 Explain denied/expired/uncertain states, actual supported receivers, and the
-separate program purpose. SMS/email codes come from the agent's existing
-authorized tools. It never recommends printing a secret, broadening access rules,
-changing browsers silently, or invoking program delivery after browser refusal.
+separate program and agent-process purposes. SMS/email codes come from the agent's
+existing authorized tools. It distinguishes a private value pipe from tool output
+visible to the model. It never recommends displaying a secret, broadening access
+rules, changing browsers silently, or changing delivery purpose to get around a
+refusal. An approved browser lease cannot be used with `read` or `exec`.
 The old plaintext-returning agent-browser plugin is not the new Fill interface.
 
 Code enforces identity, policy, lifetimes, target validity and delivery. The model
@@ -327,6 +358,11 @@ No method-name strings or multiplexing. Invalid/unknown enum values and missing
 required oneof variants are rejected, not interpreted as defaults. Safe typed
 errors are available on every method.
 
+The authority socket handles Find/Request/Get/Watch/End/Begin/Finish only.
+Fill/ExecuteProgram describe local client operations; their existing wire fields
+remain assigned to that role and the authority rejects them. It never executes
+a browser or program target named in a socket request.
+
 Release 2 uses a user-restricted Unix socket. The Go CLI is a new implementation;
 the current bundled CLI is Swift, so packaging must deliberately select the new
 binary rather than accidentally leave the old one installed. Network transport,
@@ -342,9 +378,12 @@ and a later code step. Check the authenticated website result, release, expiry,
 fresh Automatic/Ask behavior, and a denial reply.
 
 Also exercise separate tasks, conflicting retry IDs, wrong recipient/purpose,
-target navigation, a lost submit result, receiver/authority restart and a program
+target navigation, a lost submit result after navigation, receiver/authority
+restart, a lost child-exit result and a program
 that deliberately echoes its fixture input. None may trigger an unrequested
-approval or leak that fixture through Keyring's output.
+approval or leak that fixture through Fill/ExecuteProgram output. Check `read`
+separately with a private consumer: only its explicitly requested pipe receives
+the fixture, never diagnostics or the model-facing transcript.
 
 `script/check_login_artifacts.py` checks selected text artifacts for fixture
 values and some encodings. It does not prove absence from all transcripts,
@@ -390,7 +429,7 @@ in parallel.
 | R2.2 | Authority lease store in the Mac app: records on disk, request joining, deadlines, denial suppression, revocation on rule change, operation records | Leases survive an app restart without a second prompt or a reset clock |
 | R2.3 | Socket cut-over to protobuf framing with Begin/FinishOperation | Old JSON clients get a clear error; the Go CLI round-trips every method |
 | R2.4 | Go CLI: `find`, `lease`, `status`, `release`, `exec`, `read`, `skill`, `install`, human output, stdout carries only the lease ID or the value | A shell agent completes a program login and an agent-process login with one Touch ID |
-| R2.5 | Chromium receiver in the Go CLI: endpoint check, origin check, element checks, fill, submit, clear, digest | Dummy and real low-value logins on the mini's debug-port Chrome, including a two-step code login and a repeated `fill` that returns Uncertain |
+| R2.5 | Chromium receiver in the Go CLI: endpoint check, origin check, element checks, fill, submit, clear, digest | Dummy and real low-value logins on the mini's debug-port Chrome, including a two-step code login; retries return the recorded result or Uncertain without a second submit, including after navigation |
 | R2.6 | Skill text and install | A fresh Codex and Claude session follow it unaided to a signed-in site |
 | R2.7 | Mac approval panel and menu bar (RFC 0007) | Josh approves at the MacBook with one touch while typing elsewhere, and nothing is approved by typing |
 
@@ -402,8 +441,8 @@ fake authority, and R2.7 against mock backends can start at once.
 - **Visible-browser fill on the Mac (Safari, real-profile Chrome, Claude's
   pane).** The existing global-keystroke filler is not exact-element filling.
   A proof per browser decides whether an exact-element Accessibility receiver
-  is possible; Cua's notes say WebKit ignores AXValue writes. Until then these
-  browsers use the agent-process route, stated as such.
+  is possible; Cua's notes say WebKit ignores AXValue writes. An agent-process
+  route is available only where the harness permits it and it has been proved.
 - **Codex's in-app browser.** No supported receiver path exists. Its
   `browserAuth` capability hands sign-in to Josh or 1Password. The dependency
   is OpenAI opening that to other password managers.
@@ -426,6 +465,13 @@ digests, because the receiver is a short-lived process; the agent-process
 purpose keeps today's working route for browsers without a receiver, under a
 lease and labelled honestly; `BeginOperation`/`FinishOperation` name the
 internal delivery path the first draft left implicit.
+
+Astra's round 7 corrections: keep retry identity stable across navigation and
+CLI restart; make deliberate repeats explicit; retain program exit status;
+specify Begin/Finish checks and cross-process tab serialization; and distinguish
+the explicit value route from proven browser support. These correct the existing
+operating path without adding product scope. With them, Astra agrees to
+implementation; Opus can concur before starting the build lanes.
 
 Still unproved: production browser endpoint binding, exact AX filling, actual
 harness coverage, and the final phone/Touch ID authority arrangement. These are
