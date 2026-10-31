@@ -14,6 +14,8 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case approvalApproved
     case approvalDenied
     case approvalAgentProcess
+    case approvalLocal
+    case approvalQueued
     case menuBar
     case menuBarQuiet
     case rules
@@ -39,7 +41,8 @@ public final class MacDesignGallery {
     public func show() {
         showBackdrop()
         switch screen {
-        case .approval, .approvalReply, .approvalApproved, .approvalDenied, .approvalAgentProcess:
+        case .approval, .approvalReply, .approvalApproved, .approvalDenied, .approvalAgentProcess, .approvalLocal,
+            .approvalQueued:
             showApprovalPanel()
         case .menuBar, .menuBarQuiet:
             showMenuBar()
@@ -65,10 +68,14 @@ public final class MacDesignGallery {
     private func showApprovalPanel() {
         let waiting = requests?.filter(\.state.isWaitingForYou).sorted { $0.askedAt < $1.askedAt }
         var request = waiting?.first ?? (screen == .approvalAgentProcess
-            ? DesignExamples.agentProcessRead(now: now) : DesignExamples.githubSignIn(now: now))
+            ? DesignExamples.agentProcessRead(now: now)
+            : screen == .approvalLocal ? DesignExamples.localSignIn(now: now) : DesignExamples.githubSignIn(now: now))
         let reply = "Don't sign in. The invoice is already in my email, use that."
         switch screen {
         case .approvalApproved: request.state = .approved(by: .mac, until: now.addingTimeInterval(30 * 60))
+        case .approvalQueued:
+            request.state = .approved(by: .mac, until: now.addingTimeInterval(30 * 60))
+            request.answerIsQueued = true
         case .approvalDenied:
             request.state = .denied(by: .mac, reply: reply, askAgainAfter: now.addingTimeInterval(30 * 60))
         default: break

@@ -213,7 +213,7 @@ private struct WaitingMenuRow: View {
             Circle().fill(KeyringColour.signal).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 1) {
                 Text(request.login.site).font(.body.weight(.semibold))
-                Text("\(request.agent.name) · \(request.agent.machine)")
+                Text("\(request.agent.name) · \(AccessRequestCopy.origin(request.agent))")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -242,7 +242,7 @@ private struct InUseMenuRow: View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(request.login.site).font(.body)
-                Text("\(request.agent.name) · \(request.agent.machine)")
+                Text("\(request.agent.name) · \(AccessRequestCopy.origin(request.agent))")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

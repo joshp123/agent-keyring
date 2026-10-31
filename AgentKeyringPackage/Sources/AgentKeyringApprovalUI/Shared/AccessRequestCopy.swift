@@ -8,12 +8,15 @@ import Foundation
 public enum AccessRequestCopy {
     // MARK: The question
 
-    /// The line above the site: "Codex wants to sign in to".
+    /// The line above the site: "Codex wants to sign in to" for an agent on
+    /// this Mac, "Codex on Mac mini wants to sign in to" for one elsewhere, so
+    /// a remote request reads differently at a glance.
     public static func headlineLead(_ request: AccessRequest) -> String {
-        switch request.access {
-        case .signIn: "\(request.agent.name) wants to sign in to"
-        case let .program(command): "\(request.agent.name) wants to give \(programName(command)) the password for"
-        case .agentProcess: "\(request.agent.name) wants the password itself for"
+        let who = request.agent.isLocal ? request.agent.name : "\(request.agent.name) on \(request.agent.machine)"
+        return switch request.access {
+        case .signIn: "\(who) wants to sign in to"
+        case let .program(command): "\(who) wants to give \(programName(command)) the password for"
+        case .agentProcess: "\(who) wants the password itself for"
         }
     }
 
@@ -28,8 +31,16 @@ public enum AccessRequestCopy {
     public static let commandLabel = "Command"
 
     public static func machine(_ agent: RequestingAgent) -> String {
-        "\(agent.machine) · \(agent.address)"
+        agent.isLocal ? "This Mac" : "\(agent.machine) · \(agent.address)"
     }
+
+    /// Where a request came from, in lists: "This Mac" or the machine's name.
+    public static func origin(_ agent: RequestingAgent) -> String {
+        agent.isLocal ? "This Mac" : agent.machine
+    }
+
+    /// Under the outcome while an answer waits to reach the relay.
+    public static let answerQueued = "Saved. It reaches the relay as soon as the relay is back."
 
     public static func access(_ request: AccessRequest) -> String {
         switch request.access {

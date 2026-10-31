@@ -27,6 +27,19 @@ public enum DesignExamples {
         )
     }
 
+    /// A request from an agent on the Mac showing it, not through the relay.
+    public static func localSignIn(now: Date = .now) -> AccessRequest {
+        AccessRequest(
+            id: "lease-local",
+            login: RequestedLogin(site: "kpn.com", account: "josh@example.com"),
+            agent: RequestingAgent(name: "Claude Code", machine: macBook.name, address: "", folder: "~/Documents/roaming",
+                isLocal: true),
+            access: .signIn,
+            agentReason: "Downloading September's roaming charges so you can dispute them.",
+            askedAt: now.addingTimeInterval(-12),
+            state: .waitingForYou(until: now.addingTimeInterval(588)))
+    }
+
     public static func ghProgram(now: Date = .now, state: AccessRequestState? = nil) -> AccessRequest {
         AccessRequest(
             id: "lease-gh-cli",

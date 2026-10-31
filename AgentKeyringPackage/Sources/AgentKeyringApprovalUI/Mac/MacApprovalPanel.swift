@@ -227,8 +227,15 @@ public struct MacApprovalPanelView: View {
             Button("Cancel") { model.isReplying = false }
                 .buttonStyle(.quiet(height: 36))
                 .frame(maxWidth: 110)
-            Button(AccessRequestCopy.denyAndSend) { Task { await model.deny() } }
-                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
+            // A reply to an agent on another machine is signed, so it takes Touch ID.
+            Button { Task { await model.deny() } } label: {
+                if model.request.agent.isLocal {
+                    Text(AccessRequestCopy.denyAndSend)
+                } else {
+                    Label(AccessRequestCopy.denyAndSend, systemImage: "touchid")
+                }
+            }
+            .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
         }
     }
 
@@ -243,6 +250,11 @@ public struct MacApprovalPanelView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if case let .denied(_, reply?, _) = model.request.state {
                     Text("You replied: “\(reply)”")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                if model.request.answerIsQueued {
+                    Text(AccessRequestCopy.answerQueued)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
