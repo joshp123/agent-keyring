@@ -12,6 +12,7 @@ public struct RelayApproverPairing: Identifiable, Sendable {
 
 extension RelayApprover {
     func receiveApproverPairing(_ request: Agentkeyring_V1_PairApproverRequest) throws {
+        guard state.dismissedApproverPairingIDs?.contains(request.key.keyID) != true else { return }
         let current = try Agentkeyring_V1_ApproverKeySet(serializedBytes: currentKeySet().keySet)
         guard !request.key.keyID.isEmpty, !request.key.label.isEmpty,
             request.tlsPublicKey == request.key.tlsPublicKey else {
@@ -28,6 +29,20 @@ extension RelayApprover {
         var next = state
         if next.pendingApprovers == nil { next.pendingApprovers = [:] }
         next.pendingApprovers![request.key.keyID] = bytes
+        try commit(next)
+    }
+
+    public func dismissApproverPairing(_ id: String) throws {
+        try load()
+        if state.dismissedApproverPairingIDs?.contains(id) == true { return }
+        guard state.pendingApprovers?[id] != nil else { throw LeaseFailure(.notFound, "No approver is waiting for that comparison.") }
+        guard !state.outbox.contains(where: { $0.id == "approver-pairing:" + id }) else {
+            throw LeaseFailure(.conflict, "This approver pairing has already been confirmed.")
+        }
+        var next = state
+        if next.dismissedApproverPairingIDs == nil { next.dismissedApproverPairingIDs = [] }
+        next.dismissedApproverPairingIDs!.insert(id)
+        next.pendingApprovers?.removeValue(forKey: id)
         try commit(next)
     }
 

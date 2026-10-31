@@ -97,6 +97,7 @@ struct RelayApproverState: Codable {
     var approvedEnrolments: [String: Data] = [:]
     var pendingEnrolments: [String: Data] = [:]
     var pendingApprovers: [String: Data]?
+    var dismissedApproverPairingIDs: Set<String>?
     var requests: [String: RelaySavedRequest] = [:]
     var leaseReports: [String: RelaySavedLeaseReport]?
     var outbox: [RelayQueuedCommand] = []
