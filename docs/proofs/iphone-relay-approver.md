@@ -88,6 +88,21 @@ WhenUnlockedThisDeviceOnly Keychain items. The production app has no software
 replacement for the enclave/Face ID keys. Stage logs contain counts and error
 domain/code, never passwords, code seeds, replies or login metadata.
 
+## Resolved relay address
+
+The phone accepts a host name such as `mac-mini`. When Network.framework reports
+the TLS connection ready, the actual remote IP must be in `100.64.0.0/10` or
+`fd7a:115c:a1e0::/48`. Missing/unresolved addresses, public addresses and LAN
+addresses are refused. The transport checks again before sending a framed
+request. The DNS name and certificate pin alone cannot bypass this check.
+Loopback is available only with the fixture's explicit proof override, which
+survives fixture restart. Older saved endpoints default to no loopback override.
+
+The mini proof resolves `localhost` against the real relay: the normal endpoint
+is refused after TLS readiness and before a request; the explicit proof endpoint
+then pairs and completes the entire approval/restart proof through that name.
+The proof output is `resolved-peer-proof.log` alongside the other private receipts.
+
 ## System proof on the Mac mini
 
 The fixture invokes the production phone core, vault, TLS, HPKE, signature and
