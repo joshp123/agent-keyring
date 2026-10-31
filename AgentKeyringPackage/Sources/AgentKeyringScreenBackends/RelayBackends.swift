@@ -209,7 +209,7 @@ public final class RelayMachinesBackend: MacMachinesBackend {
         return MachinesSnapshot(
             relay: RelayScreenMapping.relayLink(update),
             queuedAnswers: update.queuedAnswerCount,
-            isApplying: update.needsPublication,
+            isApplying: update.isApplying,
             waiting: update.enrolments.map(RelayScreenMapping.enrolment)
                 + update.approverPairings.map(RelayScreenMapping.enrolment),
             machines: update.machines.map {

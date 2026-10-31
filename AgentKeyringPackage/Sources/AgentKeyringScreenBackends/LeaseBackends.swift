@@ -146,7 +146,7 @@ public final class AccessRulesBackend: LoginRulesBackend {
                 rule: LoginRule(row.policy), lastUsed: lastApproved[row.id.uuidString])
         }
         return LoginRulesSnapshot(rows: rows, confirmation: confirmation(rows),
-            isApplying: model.relayApprover.needsPublication)
+            isApplying: model.relayApprover.isApplying)
     }
 
     public func updates() -> AsyncStream<LoginRulesSnapshot> {
