@@ -111,6 +111,15 @@ extension PhoneRelayApprover {
                     try mergeLease(ack.lease, into: &next)
                     // accepted means the relay retained the answer. Only the Mac's
                     // actual lease update may turn PENDING into ACTIVE or DENIED.
+                case let (.decide(decision), .decision(ack)):
+                    let statement = try Agentkeyring_V1_DecisionStatement(serializedBytes: decision.statement)
+                    let id = RelayCrypto.hex(statement.requestDigest)
+                    guard let saved = next.requests[id] else { throw RelayFailure(.notFound, "The queued delivery has no saved request.") }
+                    let record = try Agentkeyring_V1_RequestRecord(serializedBytes: saved.record)
+                    try validateLease(ack.lease, record: record)
+                    guard ack.lease.state != .pending else { throw RelayFailure(.unavailable, "The relay has not committed an answer.") }
+                    next.requests[id]!.acknowledged = true
+                    try mergeLease(ack.lease, into: &next)
                 case let (.clearDenial_p(clear), .publish(ack)):
                     guard ack.accepted else { throw RelayFailure(.conflict, "The relay did not clear the denial.") }
                     for (id, saved) in next.requests {

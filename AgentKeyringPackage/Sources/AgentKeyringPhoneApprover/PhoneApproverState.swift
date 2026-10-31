@@ -36,6 +36,8 @@ struct PhoneSavedRequest: Codable {
     let sourceMacKeyID: String
     let isLocal: Bool
     var decision: Data?
+    var deliveryDecision: Data?
+    var hasAnswer: Bool { decision != nil || deliveryDecision != nil }
     var acknowledged = false
 }
 
