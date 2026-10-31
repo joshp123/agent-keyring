@@ -13,11 +13,11 @@ public struct SystemCredentialImporter: CredentialImporting {
     }
 }
 
-struct CredentialImportFailure: Equatable, Sendable {
-    let diagnostic: String
-    let message: String
+public struct CredentialImportFailure: Equatable, Sendable {
+    public let diagnostic: String
+    public let message: String
 
-    init(error: any Error, hadExistingMirror: Bool) {
+    public init(error: any Error, hadExistingMirror: Bool) {
         let nsError = error as NSError
         diagnostic = Self.diagnosticChain(startingAt: nsError)
 
