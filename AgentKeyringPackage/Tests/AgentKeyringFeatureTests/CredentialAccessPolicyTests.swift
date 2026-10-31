@@ -5,6 +5,7 @@ import Foundation
 import Testing
 @testable import AgentKeyringFeature
 
+@MainActor
 @Suite("Credential access policies")
 struct CredentialAccessPolicyTests {
     @MainActor
@@ -298,6 +299,7 @@ struct CredentialAccessPolicyTests {
 
 }
 
+@MainActor
 private struct Fixture {
     let signer = FakeAccessRulesSigner()
     let directoryURL = FileManager.default.temporaryDirectory
