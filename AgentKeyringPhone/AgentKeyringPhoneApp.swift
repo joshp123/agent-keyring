@@ -1,5 +1,6 @@
 import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
+import AuthenticationServices
 import CloudKit
 import SwiftUI
 import UIKit
@@ -8,34 +9,30 @@ import UserNotifications
 @main
 struct AgentKeyringPhoneApp: App {
     @UIApplicationDelegateAdaptor(PhoneAppDelegate.self) private var appDelegate
-    @Environment(\.scenePhase) private var scenePhase
     private let designScenario = PhoneDesignScenario.fromLaunchArguments()
-    // Mock data until release 4 brings the real backend. Without a design
-    // scenario the phone holds no passwords yet, so it opens on the import screen.
+    private let importBackend: PhoneImportBackend?
     @State private var keyringModel: PhoneKeyringModel
 
     init() {
-        let model = (PhoneDesignScenario.fromLaunchArguments() ?? .importNeeded).makeModel()
+        let model: PhoneKeyringModel
+        if let scenario = PhoneDesignScenario.fromLaunchArguments() {
+            importBackend = nil
+            model = scenario.makeModel()
+        } else {
+            let backend = PhoneImportBackend()
+            importBackend = backend
+            model = PhoneKeyringModel(backend: backend, initial: backend.snapshot)
+        }
         _keyringModel = State(initialValue: model)
     }
 
     var body: some Scene {
         WindowGroup {
             PhoneRootView(model: keyringModel, openRequestID: designScenario?.pushedRequestID)
-                .task { await prepareApprovalChannel() }
-                .onChange(of: scenePhase) { _, phase in
-                    if phase == .active {
-                        Task { await prepareApprovalChannel() }
-                    }
+                .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
+                    importBackend?.receive(activity)
                 }
         }
-    }
-
-    /// The CloudKit channel needs the signed app's entitlements, which a
-    /// design-scenario simulator build doesn't have.
-    private func prepareApprovalChannel() async {
-        guard designScenario == nil else { return }
-        await PhoneApprovalModel.shared.prepare()
     }
 }
 
