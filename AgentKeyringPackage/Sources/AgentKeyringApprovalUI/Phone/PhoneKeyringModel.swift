@@ -25,11 +25,13 @@ public struct PhoneSettings: Hashable, Sendable {
     public var askPhoneAfter: Duration
     public var notificationsAllowed: Bool
     public var keyFingerprint: String
+    public var rulesUpdatedAt: Date?
 
-    public init(askPhoneAfter: Duration, notificationsAllowed: Bool, keyFingerprint: String) {
+    public init(askPhoneAfter: Duration, notificationsAllowed: Bool, keyFingerprint: String, rulesUpdatedAt: Date? = nil) {
         self.askPhoneAfter = askPhoneAfter
         self.notificationsAllowed = notificationsAllowed
         self.keyFingerprint = keyFingerprint
+        self.rulesUpdatedAt = rulesUpdatedAt
     }
 }
 
@@ -40,13 +42,15 @@ public struct PhoneKeyringSnapshot: Hashable, Sendable {
     public var passwords: PasswordsOnPhone
     public var connection: ServiceConnection
     public var settings: PhoneSettings
+    public var pairing: PhonePairingState
 
     public init(requests: [AccessRequest], passwords: PasswordsOnPhone, connection: ServiceConnection,
-        settings: PhoneSettings) {
+        settings: PhoneSettings, pairing: PhonePairingState = .notPaired) {
         self.requests = requests
         self.passwords = passwords
         self.connection = connection
         self.settings = settings
+        self.pairing = pairing
     }
 }
 
@@ -55,13 +59,15 @@ public struct PhoneKeyringSnapshot: Hashable, Sendable {
 public protocol PhoneKeyringBackend: AnyObject {
     /// The current snapshot first, then one each time anything changes.
     func updates() -> AsyncStream<PhoneKeyringSnapshot>
+    func beginPairing(endpoint: PhoneRelayEndpoint) async throws
+    func cancelPairing()
     /// Asks for Face ID, signs the answer and sends it. Returns the new state.
     func approve(requestID: String) async throws -> AccessRequestState
     func deny(requestID: String, reply: String?) async throws -> AccessRequestState
     func endAccess(requestID: String) async throws -> AccessRequestState
     /// Clears a denial's hold-off, so this machine may ask for the login again.
     func allowAskingAgain(requestID: String) async throws -> AccessRequestState
-    /// Opens Apple Passwords on its export screen.
+    /// Asks iOS to allow exports to Agent Keyring; the export starts in Passwords.
     func openPasswordsForImport()
     func setAskPhoneAfter(_ delay: Duration) async throws
     /// Live transcript of Josh speaking, until the stream is cancelled.
@@ -75,6 +81,7 @@ public final class PhoneKeyringModel {
     public private(set) var passwords: PasswordsOnPhone
     public private(set) var connection: ServiceConnection
     public private(set) var settings: PhoneSettings
+    public private(set) var pairing: PhonePairingState
     /// The request on screen. Set when Josh taps a notification.
     public var presentedRequestID: String?
     public var isShowingSettings = false
@@ -92,6 +99,7 @@ public final class PhoneKeyringModel {
         self.passwords = initial.passwords
         self.connection = initial.connection
         self.settings = initial.settings
+        self.pairing = initial.pairing
     }
 
     /// Follows the backend until the view goes away. Call from `.task`.
@@ -114,6 +122,7 @@ public final class PhoneKeyringModel {
         passwords = snapshot.passwords
         connection = snapshot.connection
         settings = snapshot.settings
+        pairing = snapshot.pairing
     }
 
     public var waiting: [AccessRequest] { requests.filter(\.state.isWaitingForYou) }
@@ -149,6 +158,13 @@ public final class PhoneKeyringModel {
         do { update(id, to: try await backend.allowAskingAgain(requestID: id)) }
         catch { failure = "Couldn't change that. Agent Keyring isn't reachable." }
     }
+
+    public func beginPairing(endpoint: PhoneRelayEndpoint) async {
+        do { try await backend.beginPairing(endpoint: endpoint) }
+        catch { failure = "Couldn’t start pairing. Check the relay address and Tailscale." }
+    }
+
+    public func cancelPairing() { backend.cancelPairing() }
 
     public func importPasswords() {
         backend.openPasswordsForImport()
@@ -201,4 +217,24 @@ public final class PhoneKeyringModel {
         guard let index = requests.firstIndex(where: { $0.id == id }) else { return }
         requests[index].state = state
     }
+}
+
+/// Pairing screens consume these plain values; TLS validation stays in the backend.
+public struct PhoneRelayEndpoint: Hashable, Sendable {
+    public var host: String
+    public var port: UInt16
+    public init(host: String, port: UInt16) { self.host = host; self.port = port }
+}
+
+public enum PhonePairingState: Hashable, Sendable {
+    case notPaired
+    case connecting
+    case comparing(fingerprint: String, relayAddress: String)
+    case paired
+    case failed(String)
+}
+
+public extension PhoneKeyringBackend {
+    func beginPairing(endpoint: PhoneRelayEndpoint) async throws { throw CocoaError(.featureUnsupported) }
+    func cancelPairing() { }
 }
