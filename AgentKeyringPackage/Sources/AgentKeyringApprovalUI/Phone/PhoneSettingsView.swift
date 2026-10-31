@@ -11,8 +11,6 @@ struct PhoneSettingsView: View {
     let model: PhoneKeyringModel
     @Environment(\.dismiss) private var dismiss
 
-    private static let delays: [Duration] = [.seconds(30), .seconds(60), .seconds(120), .seconds(300), .seconds(600)]
-
     var body: some View {
         NavigationStack {
             Form {
@@ -33,19 +31,17 @@ struct PhoneSettingsView: View {
                     if let rulesUpdatedAt = model.settings.rulesUpdatedAt {
                         LabeledContent("Rules", value: "Checked \(rulesUpdatedAt.formatted(.relative(presentation: .named)))")
                     }
-                    Picker("Ask this iPhone after", selection: askAfter) {
-                        ForEach(Self.delays, id: \.self) { delay in
-                            Text(delayText(delay)).tag(delay)
-                        }
+                    if let delay = model.settings.askPhoneAfter {
+                        LabeledContent(SetupCopy.macAsksPhoneAfter, value: SetupCopy.delay(delay))
                     }
                 } header: {
                     Text("Requests")
                 } footer: {
-                    Text("A request shows on your Mac first. If you don't answer there, it comes here after this delay.")
+                    Text(SetupCopy.phoneDelayFooter)
                 }
 
                 Section {
-                    LabeledContent("Notifications", value: model.settings.notificationsAllowed ? "On" : "Off")
+                    LabeledContent("Notifications", value: SetupCopy.notifications(model.settings.notifications))
                     LabeledContent("Key") {
                         Text(model.settings.keyFingerprint)
                             .font(.footnote.monospaced())
@@ -96,14 +92,5 @@ struct PhoneSettingsView: View {
         }
     }
 
-    private var askAfter: Binding<Duration> {
-        Binding(get: { model.settings.askPhoneAfter },
-            set: { delay in Task { await model.setAskPhoneAfter(delay) } })
-    }
-
-    private func delayText(_ delay: Duration) -> String {
-        let seconds = Int(delay.components.seconds)
-        return seconds < 60 ? "\(seconds) seconds" : seconds == 60 ? "1 minute" : "\(seconds / 60) minutes"
-    }
 }
 #endif
