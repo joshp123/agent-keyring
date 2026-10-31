@@ -79,6 +79,8 @@ public enum AccessRequestCopy {
     public static let denyAndSend = "Deny and send"
     public static let sending = "Sending…"
     public static let endNow = "End now"
+    public static let ending = "Ending…"
+    public static let askingAgainPending = "Telling your Mac…"
     public static func askAgainUntil(_ date: Date) -> String {
         "New requests from this machine are held off until \(clock(date))."
     }

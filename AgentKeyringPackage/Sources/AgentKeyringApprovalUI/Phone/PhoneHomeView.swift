@@ -95,7 +95,9 @@ struct PhoneHomeView: View {
                 Section {
                     ForEach(model.inUse) { request in
                         NavigationLink(value: request.id) {
-                            InUseRow(request: request) { Task { await model.endAccess(request.id) } }
+                            InUseRow(request: request, isEnding: model.ending.contains(request.id)) {
+                                Task { await model.endAccess(request.id) }
+                            }
                         }
                     }
                 } header: { SectionHeading("In use now") }
@@ -175,6 +177,7 @@ private struct WaitingRow: View {
 
 private struct InUseRow: View {
     let request: AccessRequest
+    let isEnding: Bool
     let end: () -> Void
 
     var body: some View {
@@ -192,10 +195,16 @@ private struct InUseRow: View {
                 }
             }
             Spacer()
-            Button(AccessRequestCopy.endNow, action: end)
-                .buttonStyle(.borderless)
-                .font(.body.weight(.medium))
-                .foregroundStyle(KeyringColour.denyText)
+            if isEnding {
+                Text(AccessRequestCopy.ending)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button(AccessRequestCopy.endNow, action: end)
+                    .buttonStyle(.borderless)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(KeyringColour.denyText)
+            }
         }
         .padding(.vertical, 4)
     }

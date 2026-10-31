@@ -154,7 +154,10 @@ private struct PhoneAnswerArea: View {
         }
         HStack(spacing: 12) {
             if request.state.isInUse {
-                Button(AccessRequestCopy.endNow) { Task { await model.endAccess(request.id) } }
+                Button(model.ending.contains(request.id) ? AccessRequestCopy.ending : AccessRequestCopy.endNow) {
+                    Task { await model.endAccess(request.id) }
+                }
+                .disabled(model.ending.contains(request.id))
                     .buttonStyle(.quiet(text: KeyringColour.denyText))
             }
             Button("Done", action: close)
