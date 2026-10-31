@@ -4,6 +4,7 @@ import Foundation
 import Testing
 @testable import AgentKeyringFeature
 
+@MainActor
 @Suite("Paired devices in the signed rules store")
 struct PairedApprovalDeviceTests {
     @Test("Pairing and removal sign the same store, preserve rules, and survive reopening")
@@ -76,7 +77,7 @@ struct PairedApprovalDeviceTests {
         }
         // The existing rule-confirmation path cannot quietly pair the attacker's key.
         let snapshot = try await fixture.store.snapshotForConfirmation()
-        #expect(snapshot.resetsUnreadableRules)
+        #expect(snapshot.reason == .unverified)
         await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.save([loginID: .allowAutomatically]) }
         await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.addPairedDevice(fixture.device) }
         await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey) }
@@ -119,7 +120,7 @@ struct PairedApprovalDeviceTests {
         try JSONSerialization.data(withJSONObject: contents, options: [.sortedKeys]).write(to: fixture.fileURL)
         await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.save([:]) }
         let snapshot = try await fixture.store.snapshotForConfirmation()
-        #expect(snapshot.resetsUnreadableRules)
+        #expect(snapshot.reason == .unverified)
         try await fixture.store.save(snapshot, reason: "confirm test rules")
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
         #expect(fixture.signer.signingReason == "confirm test rules. Your iPhone must be paired again.")
@@ -132,7 +133,7 @@ struct PairedApprovalDeviceTests {
         try await fixture.pair()
         let snapshot = try await fixture.store.snapshotForConfirmation()
         try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey)
-        #expect(!snapshot.resetsUnreadableRules)
+        #expect(snapshot.reason != .unverified)
         try await fixture.store.save(snapshot, reason: "confirm test rules")
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
     }

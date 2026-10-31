@@ -107,7 +107,6 @@ struct RelayApproverState: Codable {
     var outbox: [RelayQueuedCommand] = []
     var configuration: Data?
     var acknowledgedConfigurationRevision: UInt64?
-    var publicationDigest: Data?
     var suppressions: [String: Int64] = [:]
 }
 

@@ -42,7 +42,7 @@ extension RelayApprover {
             do {
                 let vault = try await self.credentialSource()
                 guard generation == self.rulesCheckGeneration else { return }
-                let changed = self.state.publicationDigest != self.publicationDigest(vault, machines: self.state.machines)
+                let changed = try self.requiresPublicationConfirmation(vault)
                 self.rulesDifferFromConfiguration = changed
                 if changed { self.errorMessage = "Confirm your current rules to apply them to other machines." }
                 self.rulesAreBeingChecked = false
@@ -59,33 +59,34 @@ extension RelayApprover {
         } catch { report(error) }
     }
 
-    func publicationDigest(_ vault: RelayApproverVault, machines: [String: Data]) -> Data {
-        var parts = [Data(vault.generation.id.uuidString.utf8)]
-        for item in vault.generation.items.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            parts += [Data(item.id.uuidString.utf8), Data(vault.policies[item.id, default: .ask].rawValue.utf8)]
-        }
-        for id in machines.keys.sorted() { parts += [Data(id.utf8), machines[id]!] }
-        return RelayCrypto.hash(RelayCrypto.transcript(parts))
+    func requiresPublicationConfirmation(_ vault: RelayApproverVault) throws -> Bool {
+        guard let published = try currentConfiguration() else { return true }
+        return try publicationDigest(published) != publicationDigest(vault, machines: state.machines)
     }
 
-    func preparePublication(next: inout RelayApproverState, vault: RelayApproverVault, context: LAContext) throws {
-        let signer = try keys().1
-        let ownerID = RelayCrypto.keyID(signer.publicKey)
-        guard let keySet = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
-        let current = try Agentkeyring_V1_ApproverKeySet(serializedBytes: Agentkeyring_V1_SignedApproverKeySet(serializedBytes: keySet).keySet)
-        guard current.ruleOwnerKeyID == ownerID else { throw LeaseFailure(.permissionDenied, "Only the current rule owner can publish rules.") }
-        try includeDeliveryKey(next: &next, context: context)
+    func publicationDigest(_ vault: RelayApproverVault, machines: [String: Data]) throws -> Data {
+        try publicationDigest(configurationContents(vault, machines: machines))
+    }
+
+    func publicationDigest(_ configuration: Agentkeyring_V1_Configuration) throws -> Data {
+        // Compare the signed authorization contents, excluding publication time,
+        // revision and the keys which the pairing/delivery paths check separately.
+        var contents = Agentkeyring_V1_Configuration()
+        contents.logins = configuration.logins.sorted { $0.loginID < $1.loginID }
+        for index in contents.logins.indices { contents.logins[index].sites.sort() }
+        contents.sources = configuration.sources.sorted { $0.loginID < $1.loginID }
+        contents.machines = configuration.machines.sorted { $0.recipientID < $1.recipientID }
+        return RelayCrypto.hash(try contents.serializedData())
+    }
+
+    func configurationContents(_ vault: RelayApproverVault, machines: [String: Data]) throws -> Agentkeyring_V1_Configuration {
         var configuration = Agentkeyring_V1_Configuration()
-        configuration.domain = "agentkeyring.configuration.v1"
-        configuration.revision = try currentConfiguration()?.revision ?? 0
-        configuration.revision += 1
-        configuration.mirrorRefreshedUnixSeconds = Int64(vault.generation.sourceExportedAt.timeIntervalSince1970)
         for item in vault.generation.items.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             let candidate = CredentialResolver().candidate(for: item)
             var login = Agentkeyring_V1_Login()
             login.loginID = item.id.uuidString
             login.title = item.title
-            login.sites = item.origins
+            login.sites = item.origins.sorted()
             login.account = candidate.username ?? ""
             login.hasOneTimeCode_p = candidate.availableFields.contains(.totp)
             switch vault.policies[item.id, default: .ask] {
@@ -101,7 +102,21 @@ extension RelayApprover {
             source.exporterIdentifier = item.sourceIdentity.exporterIdentifier
             configuration.sources.append(source)
         }
-        configuration.machines = try next.machines.keys.sorted().map { try Agentkeyring_V1_EnrolledMachine(serializedBytes: next.machines[$0]!) }
+        configuration.machines = try machines.keys.sorted().map { try Agentkeyring_V1_EnrolledMachine(serializedBytes: machines[$0]!) }
+        return configuration
+    }
+
+    func preparePublication(next: inout RelayApproverState, vault: RelayApproverVault, context: LAContext) throws {
+        let signer = try keys().1
+        let ownerID = RelayCrypto.keyID(signer.publicKey)
+        guard let keySet = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
+        let current = try Agentkeyring_V1_ApproverKeySet(serializedBytes: Agentkeyring_V1_SignedApproverKeySet(serializedBytes: keySet).keySet)
+        guard current.ruleOwnerKeyID == ownerID else { throw LeaseFailure(.permissionDenied, "Only the current rule owner can publish rules.") }
+        try includeDeliveryKey(next: &next, context: context)
+        var configuration = try configurationContents(vault, machines: next.machines)
+        configuration.domain = "agentkeyring.configuration.v1"
+        configuration.revision = (try currentConfiguration()?.revision ?? 0) + 1
+        configuration.mirrorRefreshedUnixSeconds = Int64(vault.generation.sourceExportedAt.timeIntervalSince1970)
         configuration.automaticSigningPublicKey = signer.automaticPublicKey
         configuration.automaticKeyID = RelayCrypto.keyID(signer.automaticPublicKey)
         var signed = Agentkeyring_V1_SignedConfiguration()
@@ -109,7 +124,6 @@ extension RelayApprover {
         signed.signature = try signer.sign(signed.configuration, context: context, automatic: false)
         signed.approverKeyID = ownerID
         next.configuration = try signed.serializedData()
-        next.publicationDigest = publicationDigest(vault, machines: next.machines)
         try revokeAffectedRequests(&next, configuration: configuration)
         var command = Agentkeyring_V1_RelayWireRequest()
         command.publishConfiguration.configuration = signed

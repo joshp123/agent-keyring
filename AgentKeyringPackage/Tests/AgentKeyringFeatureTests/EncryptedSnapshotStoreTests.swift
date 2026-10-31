@@ -4,6 +4,39 @@ import Testing
 
 @Suite("Encrypted snapshot storage")
 struct EncryptedSnapshotStoreTests {
+    @Test("A cleanup failure cannot turn a committed save into an import failure", arguments: ["listing", "removal"])
+    func cleanupFailureAfterCommit(failure: String) async throws {
+        let directory = temporaryDirectory()
+        let generations = directory.appendingPathComponent("generations")
+        let store = EncryptedSnapshotStore(directoryURL: directory,
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x2A, count: 32)))
+        let first = generation(password: "before")
+        let second = generation(password: "after", previousID: first.id)
+        try await store.save(first)
+        let oldPayload = await store.generationFileURL(for: first.id)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: generations.path)
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: oldPayload.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        if failure == "listing" {
+            // New payloads can be written, but enumerating old generations fails.
+            try FileManager.default.setAttributes([.posixPermissions: 0o300], ofItemAtPath: generations.path)
+        } else {
+            try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: oldPayload.path)
+        }
+
+        try await store.save(second)
+        #expect(try await store.loadCurrent() == second)
+        #expect(try await store.loadCurrentMetadata() == second.metadata)
+        #expect(FileManager.default.fileExists(atPath: oldPayload.path))
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: generations.path)
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: oldPayload.path)
+        try await store.save(generation(password: "next", previousID: second.id))
+        #expect(!FileManager.default.fileExists(atPath: oldPayload.path))
+    }
+
     @Test("A successful save prunes previous encrypted generations")
     func immutableGenerations() async throws {
         let directory = temporaryDirectory()

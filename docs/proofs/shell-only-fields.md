@@ -81,7 +81,7 @@ nix shell 'github:NixOS/nixpkgs/fe13242281a67641c0102cdb1087f0ebe586c7df#go' \
   -c go build -o build/cli/lease-fixture ./script/lease_fixture
 python3 -u -B script/prove_fields.py \
   --cli build/cli/macos/agent-keyring --fixture build/cli/lease-fixture \
-  --codex /Users/josh/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex
+  --codex $HOME/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex
 ```
 
 Without `--codex`, this runs only the helper and two-step CLI proof. Every
