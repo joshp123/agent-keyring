@@ -17,16 +17,12 @@ import (
 
 func (p *proof) swiftReplacementProof(phone *phoneProcess, oldKey *pb.ApproverKey, oldSigner *ecdsa.PrivateKey, directory, port string) (*phoneProcess, *pb.ApproverKey) {
 	require(len(oldKey.EncryptionPublicKey) == 0, "replacement did not start with an old approval-only pairing")
-	oldPeer := wireClient{address: p.address, certificate: identity(directory), pin: p.approver.pin}
+	retainedTLSPeer := wireClient{address: p.address, certificate: identity(directory), pin: p.approver.pin}
 	oldSealing, err := os.ReadFile(filepath.Join(directory, "sealing.raw"))
 	must(err)
 	countPath := filepath.Join(directory, "authorization-count")
 	before, err := os.ReadFile(countPath)
 	must(err)
-	replacementTLS := identity(filepath.Join(directory, "replacement-tls"))
-	tlsKey := replacementTLS.PrivateKey.(*ecdsa.PrivateKey)
-	must(os.WriteFile(filepath.Join(directory, "replacement-tls-cert.der"), replacementTLS.Certificate[0], 0600))
-	must(os.WriteFile(filepath.Join(directory, "replacement-tls-private.x963"), append(public(tlsKey), tlsKey.D.FillBytes(make([]byte, 32))...), 0600))
 	comparison := phone.command("replace-pairing")
 	require(strings.HasPrefix(comparison, "PAIR\t"), "old paired phone could not start replacement")
 	require(phone.command("requests") == "REQUESTS\t", "old requests survived replacement")
@@ -34,7 +30,7 @@ func (p *proof) swiftReplacementProof(phone *phoneProcess, oldKey *pb.ApproverKe
 	for pair == nil || pair.Key.KeyId == oldKey.KeyId {
 		pair = good(receive(p.work)).GetWork().GetPairing()
 	}
-	require(pair.Key.KeyId != oldKey.KeyId && !bytes.Equal(pair.TlsPublicKey, oldKey.TlsPublicKey) && len(pair.Key.EncryptionPublicKey) == 65, "replacement reused a signing or TLS key, or has no copy key")
+	require(pair.Key.KeyId != oldKey.KeyId && bytes.Equal(pair.TlsPublicKey, oldKey.TlsPublicKey) && len(pair.Key.EncryptionPublicKey) == 65, "replacement reused a signing key, changed TLS identity, or has no copy key")
 	newSealing, err := os.ReadFile(filepath.Join(directory, "sealing.raw"))
 	must(err)
 	require(!bytes.Equal(newSealing, oldSealing), "replacement reused the sealing key")
@@ -66,17 +62,17 @@ func (p *proof) swiftReplacementProof(phone *phoneProcess, oldKey *pb.ApproverKe
 	must(err)
 	require(bytes.Equal(before, after), "replacement requested phone authorization")
 	fetch := &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetCopyUpdate{GetCopyUpdate: &pb.GetCopyUpdateRequest{}}}
-	require(oldPeer.call(fetch).GetError() != nil, "retired phone can still fetch copies")
-	require(oldPeer.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_RegisterPush{RegisterPush: &pb.PushRegistration{ApproverKeyId: oldKey.KeyId, ApnsDeviceToken: []byte("retired-token")}}}).GetError() != nil, "retired phone can still register push")
+	require(retainedTLSPeer.call(fetch).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_NOT_FOUND, "retained TLS did not resolve to the new phone's empty copy destination")
+	require(retainedTLSPeer.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_RegisterPush{RegisterPush: &pb.PushRegistration{ApproverKeyId: oldKey.KeyId, ApnsDeviceToken: []byte("retired-token")}}}).GetError() != nil, "retired phone key ID can still register push")
 	lease := good(p.client.call(leaseRequest("retired-phone", "retired-phone", p.enrolled.RecipientId))).GetClient().GetLease()
 	record := p.phoneRequest(lease.LeaseId)
 	good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_EscalateToPhone{EscalateToPhone: &pb.PhoneEscalation{LeaseId: lease.LeaseId, Record: record}}}))
 	oldDecision := p.directPhoneDecision(record, oldKey, oldSigner, nil)
-	require(oldPeer.call(oldDecision).GetError() != nil, "retired phone can still decide")
+	require(retainedTLSPeer.call(oldDecision).GetError() != nil, "retired phone signing key can still decide")
 	id := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", record))
 	phone.wait("requests", id+"=waitingForYou")
 	require(strings.Contains(phone.command("deny\t"+id), "denied"), "fresh phone could not deny")
 	phone.command("clear\t" + id)
-	fmt.Println("PASS old approval-only Swift pairing upgrades through fresh signing/TLS/sealing keys and matching comparison; cancel/reopen recovers; Mac-signed replacement retires old copy/push/decision access")
+	fmt.Println("PASS old approval-only Swift pairing upgrades through fresh signing/sealing keys with retained TLS and matching comparison; cancel/reopen recovers; retired signer and push key ID refused")
 	return phone, pair.Key
 }

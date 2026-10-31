@@ -18,7 +18,8 @@ pairing screen. There is no endpoint argument and no new pairing state.
 This is an explicit action: normal `beginPairing(endpoint:)` still refuses an
 already paired phone. Replacement discards the old local requests, history,
 copy and outbox. It keeps the relay pin and the old phone key ID, records that
-new keys are needed, and creates fresh signing, TLS and sealing keys. That
+new keys are needed, and creates fresh signing and sealing keys. The TLS key
+stays the same so the Mac can identify exactly which PHONE to replace. That
 receipt is durable before any old key is removed. A failed reset can retry;
 it never restores the retired local identity. Cancel and reopen retain the
 fresh keys and comparison receipt.
@@ -30,12 +31,13 @@ No old key gains an encryption key, and no role or wire message changes.
 Keychain items remain non-synchronizable and device-only. Push registration is
 renewed for the new identity after pairing.
 
-The current Mac `confirmApproverPairing` adds a phone but does not expose an
-old-phone replacement action. That integration gap was reported to the
-orchestrator; this lane leaves the Mac and the views untouched. The proof's
-Mac substitute uses the existing signed `PublishApproverKeys` operation to
-remove the old phone and add the new one in a single publication. Actual Mac
-Touch ID and the Settings control remain integration/device checks.
+The Mac lane's `a13435a` replaces the PHONE with the matching TLS key under
+the existing comparison and Touch ID, preserving other phones even when their
+names match. It publishes removal and addition in one signed key set. This
+phone lane leaves Mac code and views untouched. The proof below substitutes
+Mac signing through the existing `PublishApproverKeys` operation; the joint
+actual-Mac proof is recorded separately by the Mac lane. Actual Touch ID and
+the Settings control remain device/interface checks.
 
 ## Headless operating proof
 
@@ -48,12 +50,13 @@ The full existing Swift phone proof runs from that pairing, including
 approval-only delivery. The replacement phase then checks:
 
 - The new backend action works while paired and drops old local requests.
-- Signing, TLS and sealing keys all change. Go and Swift compare identical
-  encryption-key-bound transcripts.
+- Signing and sealing keys change; the TLS key stays identical. Go and Swift
+  compare identical encryption-key-bound transcripts.
 - Cancel, process restart and re-entry keep the fresh comparison and keys.
 - The Mac-signed replacement is accepted without phone authorization.
-- The retired TLS identity cannot fetch copies, register push or submit a
-  decision. The fresh phone can answer.
+- The retained TLS connection identifies the new phone and its empty copy
+  destination. The retired key ID cannot register push or sign a decision.
+  The fresh phone can answer. TLS transport access intentionally remains.
 - A current copy reaches the fresh phone without authorization. One software
   authorization opens it and signs HUMAN delivery; the real Go receiver opens
   the current password and verification code.
@@ -69,7 +72,7 @@ Build the legacy fixture in an isolated directory from `6e09b58`, and the
 current fixture and relay from this checkout, then run:
 
 ```sh
-/tmp/phone-upgrade-fixture --mode phone --relay /tmp/phone-upgrade-relay \
+/tmp/phone-retained-tls-fixture --mode phone --relay /tmp/phone-retained-tls-relay \
   --phone-binary "$PWD/AgentKeyringPackage/.build/debug/agent-keyring-phone-fixture" \
   --legacy-phone-binary /PATH/TO/LEGACY/AgentKeyringPackage/.build/debug/agent-keyring-phone-fixture
 ```
@@ -81,11 +84,13 @@ The mini used its existing Nix Go toolchain. The fixture chooses an ephemeral
 loopback port, with the explicit proof transport override; no service or
 screen was used.
 
-Logs are in the main checkout at `.private/proofs/r8-phone-replacement/`:
-`phone-upgrade-joint.log`, `phone-upgrade-swift-build.log`,
-`phone-upgrade-legacy-build.log`, `phone-upgrade-ios-summary.log` and the full
-`phone-upgrade-ios-build.log`, which ends in BUILD SUCCEEDED. The retained
-`phone-upgrade-first-fixture-failure.log` shows why the legacy binary must
+Current logs are in the main checkout at `.private/proofs/r9-phone-retained-tls/`:
+`phone-retained-tls-joint.log`, `phone-retained-tls-swift-build.log`,
+`phone-retained-tls-ios-summary.log` and the full
+`phone-retained-tls-ios-build.log`, which ends in BUILD SUCCEEDED.
+The earlier `.private/proofs/r8-phone-replacement/` logs used TLS rotation
+and are superseded for this seam. That directory retains the legacy build
+log and `phone-upgrade-first-fixture-failure.log`, which shows why the legacy binary must
 finish its initial pairing before the upgrade: restarting the new binary
 mid-comparison adds an encryption key to the old request and is refused.
 
