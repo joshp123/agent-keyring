@@ -54,6 +54,8 @@ fi
 /bin/echo "$SOURCE_COMMIT" > "$BUILD_DIR/source-commit.txt"
 /bin/echo "$BUILD_NUMBER" > "$BUILD_DIR/build-number.txt"
 
+"$ROOT_DIR/script/build_cli.sh"
+
 /usr/bin/xcodebuild \
   -workspace "$ROOT_DIR/AgentKeyring.xcworkspace" \
   -scheme AgentKeyring \

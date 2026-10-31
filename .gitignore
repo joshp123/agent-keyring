@@ -67,3 +67,6 @@ fastlane/test_output
 
 # devenv
 .devenv/
+
+# Portable CLI
+build/
