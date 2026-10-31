@@ -34,4 +34,29 @@ public enum RelayLoginBundle {
         }
         return contents
     }
+    public static func contents(copy: Agentkeyring_V1_AutomaticLoginContents, leaseID: String,
+                                approvedAt: Int64, notAfter: Int64) throws -> Agentkeyring_V1_BundleContents {
+        var contents = Agentkeyring_V1_BundleContents()
+        contents.leaseID = leaseID; contents.loginID = copy.loginID; contents.sites = copy.sites
+        contents.username = copy.username; contents.password = copy.password
+        contents.notAfterUnixSeconds = notAfter
+        if !copy.totpSeed.isEmpty {
+            guard let period = UInt16(exactly: copy.totpPeriodSeconds), period > 0,
+                  let digits = UInt16(exactly: copy.totpDigits),
+                  let algorithm = MirrorTOTPAlgorithm(rawValue: copy.totpAlgorithm.lowercased()) else {
+                throw TOTPGeneratorError.invalidConfiguration
+            }
+            var start = approvedAt / Int64(period) * Int64(period)
+            while start < notAfter {
+                var timed = Agentkeyring_V1_TimedCode()
+                timed.validFromUnixSeconds = start
+                timed.validUntilUnixSeconds = min(start + Int64(period), notAfter)
+                timed.code = try TOTPGenerator().code(secret: copy.totpSeed, period: period, digits: digits,
+                    algorithm: algorithm, at: Date(timeIntervalSince1970: Double(start)))
+                contents.oneTimeCodes.append(timed); start += Int64(period)
+            }
+        }
+        return contents
+    }
+
 }

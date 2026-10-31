@@ -19,6 +19,10 @@ extension PhoneRelayApprover {
                 throw RelayFailure(.permissionDenied, "The approver identity is invalid.")
             }
             _ = try P256.Signing.PublicKey(x963Representation: key.publicKey)
+            if !key.encryptionPublicKey.isEmpty {
+                guard key.role == .phone else { throw RelayFailure(.permissionDenied, "Only a phone may have a copy key.") }
+                _ = try P256.KeyAgreement.PublicKey(x963Representation: key.encryptionPublicKey)
+            }
         }
         return set
     }
@@ -59,6 +63,7 @@ extension PhoneRelayApprover {
         request.pairApprover.key.tlsPublicKey = identity.publicKeySPKI
         request.pairApprover.key.label = "Josh's iPhone"
         request.pairApprover.key.role = .phone
+        request.pairApprover.key.encryptionPublicKey = try keys.encryptionPublicKey()
         request.pairApprover.tlsPublicKey = identity.publicKeySPKI
         let connection = try await RelayTransport(endpoint: endpoint, identity: identity, pin: nil).open(request)
         do {
@@ -77,7 +82,7 @@ extension PhoneRelayApprover {
             }
             _ = try parsedKeys(status.approverKeySet)
             let transcript = RelayCrypto.pairTranscript(relaySPKI: connection.peerSPKI, approverSPKI: identity.publicKeySPKI,
-                                                        signingKey: publicKey, keySet: status.approverKeySet.keySet)
+                                                        signingKey: publicKey, keySet: status.approverKeySet.keySet, encryptionKey: request.pairApprover.key.encryptionPublicKey)
             let pending = PhonePendingPair(endpoint: endpoint, relaySPKI: connection.peerSPKI,
                                            previousKeySet: try status.approverKeySet.serializedData(), transcript: transcript)
             var next = state; next.pendingPair = pending; try commit(next)
@@ -133,7 +138,7 @@ extension PhoneRelayApprover {
         guard state.pendingPair?.transcript == pending.transcript,
               nextSet.revision > previous.revision, nextSet.ruleOwnerKeyID == previous.ruleOwnerKeyID,
               nextSet.pairingTranscriptSha256 == RelayCrypto.hash(pending.transcript),
-              nextSet.keys.contains(where: { $0.role == .phone && $0.keyID == RelayCrypto.keyID(ownKey) && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) }),
+              nextSet.keys.contains(where: { $0.role == .phone && $0.keyID == RelayCrypto.keyID(ownKey) && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) && $0.encryptionPublicKey == (try? keys.encryptionPublicKey()) }),
               nextSet.configurationRevision > 0, nextSet.configurationSha256.count == 32 else {
             throw RelayFailure(.permissionDenied, "The Mac's signed pairing does not match this phone's comparison.")
         }
@@ -207,7 +212,7 @@ extension PhoneRelayApprover {
             current = signed; set = candidate
         }
         let ownKey = try keys.signingPublicKey()
-        guard set.keys.contains(where: { $0.role == .phone && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) }) else {
+        guard set.keys.contains(where: { $0.role == .phone && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) && ($0.encryptionPublicKey.isEmpty || $0.encryptionPublicKey == (try? keys.encryptionPublicKey())) }) else {
             throw RelayFailure(.permissionDenied, "This iPhone is no longer an approver.")
         }
         request = .init(); request.getConfiguration = .init()
@@ -225,6 +230,13 @@ extension PhoneRelayApprover {
         try Task.checkCancellation()
         var next = state; next.keySet = try current.serializedData()
         next.configuration = try configuration.serializedData(); next.rulesUpdatedAt = Date()
+        if let bytes = next.copy?.signedUpdate {
+            let copy = try Agentkeyring_V1_SignedCopyUpdate(serializedBytes: bytes)
+            let update = try Agentkeyring_V1_CopyUpdate(serializedBytes: copy.update)
+            if update.configurationRevision != parsed.revision || !set.keys.contains(where: { $0.keyID == copy.signerKeyID && $0.role == .macDelivery }) {
+                next.copy?.signedUpdate = nil
+            }
+        }
         try commit(next)
         logger.notice("Verified approver chain and rule owner's configuration; revision=\(parsed.revision, privacy: .public) logins=\(parsed.logins.count, privacy: .public) machines=\(parsed.machines.count, privacy: .public)")
     }

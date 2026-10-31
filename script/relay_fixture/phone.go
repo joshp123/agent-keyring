@@ -1,6 +1,6 @@
 // Written by AI on 2026.10.31 by model gpt-6.1-sol.
 // Full phone core against the real relay. Software keys stand in for Face ID;
-// the Mac fixture owns the dummy login. No phone import or vault is created.
+// the Mac fixture supplies dummy logins, then signed encrypted copies.
 package main
 
 import (
@@ -220,7 +220,7 @@ func (p *proof) phoneProof(binary string) {
 		pair = good(receive(p.work)).GetWork().GetPairing()
 	}
 	require(pair.Key.Role == pb.ApproverRole_APPROVER_ROLE_PHONE, "phone paired with the wrong authority")
-	transcript := relaycrypto.PairTranscript(p.approver.pin, pair.TlsPublicKey, pair.Key.PublicKey, p.keys.KeySet)
+	transcript := relaycrypto.PairTranscript(p.approver.pin, pair.TlsPublicKey, pair.Key.PublicKey, p.keys.KeySet, pair.Key.EncryptionPublicKey)
 	require(comparison == "PAIR\t"+relaycrypto.Fingerprint(transcript), "Swift and Go pairing comparisons differ")
 	deliverySigner := signingKey()
 	deliveryKey := &pb.ApproverKey{KeyId: hex.EncodeToString(relaycrypto.Hash(public(deliverySigner))), PublicKey: public(deliverySigner), Label: "Fixture Mac delivery", Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY}
@@ -329,24 +329,7 @@ func (p *proof) phoneProof(binary string) {
 		digest := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", raw))
 		escalate(raw, nil)
 		phone.wait("requests", digest+"=waitingForYou")
-		require(strings.Contains(phone.command("deny\t"+digest+"\t"+reply), "waitingForMac"), "denial did not wait for Mac")
-		denial := p.receivePhoneAnswer()
-		if reply == "" {
-			require(len(denial.Signature) == 0, "plain denial was signed")
-		} else {
-			must(relaycrypto.Verify(pair.Key.PublicKey, denial.Decision, denial.Signature))
-		}
-		if reply != "" {
-			require(strings.Contains(phone.command("requests"), reply), "waiting state lost the reply")
-		}
-		if reply != "" {
-			phone.stop()
-		}
-		delivered := p.deliverPhone(raw, denial, deliverySigner)
-		require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: delivered}})).GetDecision().Accepted, "Mac denial refused")
-		if reply != "" {
-			phone = startPhone(binary, directory)
-		}
+		require(strings.Contains(phone.command("deny\t"+digest+"\t"+reply), "denied"), "remote denial did not commit directly")
 		phone.wait("requests", digest+"=denied")
 		result := good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: l.LeaseId}}}))).GetClient().GetLease()
 		require(result.State == pb.LeaseState_LEASE_STATE_DENIED && result.Reply == reply && result.ApprovedBy == pb.ApprovedBy_APPROVED_BY_IPHONE, "receiver lost the denial reply or phone attribution")
@@ -355,7 +338,7 @@ func (p *proof) phoneProof(binary string) {
 	count, err = os.ReadFile(countPath)
 	must(err)
 	require(string(count) == "2", "plain denial prompted or signed reply did not")
-	fmt.Println("PASS unsigned plain denial; signed reply kept while waiting; Mac denial while phone closed fetched on reopen; scoped clear")
+	fmt.Println("PASS remote plain denial and signed reply commit directly without a copy or Mac delivery; scoped clear")
 
 	// A local Mac recipient has never enrolled as a remote receiver.
 	now := time.Now().Unix()
@@ -448,11 +431,13 @@ func (p *proof) phoneProof(binary string) {
 	p.start()
 	p.work = p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: p.key.KeyId}}})
 	phone = startPhone(binary, directory)
-	require(strings.Contains(phone.command("deny\t"+configurationRequestID+"\t"), "waitingForMac"), "phone did not recover with the highest valid configuration")
-	configurationAnswer := p.receivePhoneAnswer()
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: p.deliverPhone(configurationRecord, configurationAnswer, deliverySigner)}})).GetDecision().Accepted, "configuration proof denial refused")
+	require(strings.Contains(phone.command("deny\t"+configurationRequestID+"\t"), "denied"), "phone did not recover with the highest valid configuration")
 	phone.wait("requests", configurationRequestID+"=denied")
 	fmt.Println("PASS Swift phone retains highest configuration across restart; downgrade, same-revision replacement, PHONE signer and invalid owner signature refused before authorization; valid configuration recovers")
+	phone.command("clear\t" + configurationRequestID)
+	p.configuration = nextConfiguration
+	p.signedConfiguration = latestConfiguration
+	phone = p.swiftCopyProof(phone, pair.Key, deliverySigner, network, directory)
 	fmt.Println("Phone fixture state:", p.directory)
 }
 

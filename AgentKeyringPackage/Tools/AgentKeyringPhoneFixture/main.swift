@@ -10,12 +10,29 @@ import LocalAuthentication
 final class FixtureKeys: PhoneApproverKeys {
     let directory: URL
     let signer: P256.Signing.PrivateKey
+    let sealer: P256.KeyAgreement.PrivateKey
+    var authorizedContext: LAContext?
     init(_ directory: URL) throws {
         self.directory = directory
+        let url = directory.appending(path: "sealing.raw")
+        if FileManager.default.fileExists(atPath: url.path) {
+            sealer = try P256.KeyAgreement.PrivateKey(rawRepresentation: Data(contentsOf: url))
+        } else {
+            sealer = P256.KeyAgreement.PrivateKey()
+            try sealer.rawRepresentation.write(to: url, options: .atomic)
+        }
         signer = try P256.Signing.PrivateKey(rawRepresentation: Data(contentsOf: directory.appending(path: "signing.raw")))
     }
     func signingPublicKey() throws -> Data { signer.publicKey.x963Representation }
+    func encryptionPublicKey() throws -> Data { sealer.publicKey.x963Representation }
+    func openCopy(encapsulatedKey: Data, ciphertext: Data, associatedData: Data, context: LAContext) throws -> Data {
+        precondition(authorizedContext === context)
+        var recipient = try HPKE.Recipient(privateKey: sealer, ciphersuite: .P256_SHA256_AES_GCM_256,
+                                           info: Data("agentkeyring.login-copy.v1".utf8), encapsulatedKey: encapsulatedKey)
+        return try recipient.open(ciphertext, authenticating: associatedData)
+    }
     func authorize(_ context: LAContext, reason: String) async throws {
+        authorizedContext = context
         let url = directory.appending(path: "authorization-count")
         let count = (try? String(contentsOf: url, encoding: .utf8)).flatMap(Int.init) ?? 0
         try Data(String(count + 1).utf8).write(to: url, options: .atomic)
@@ -23,7 +40,10 @@ final class FixtureKeys: PhoneApproverKeys {
             try await Task.sleep(for: .milliseconds(50))
         }
     }
-    func sign(_ bytes: Data, context: LAContext) throws -> Data { try signer.signature(for: bytes).derRepresentation }
+    func sign(_ bytes: Data, context: LAContext) throws -> Data {
+        precondition(authorizedContext === context)
+        return try signer.signature(for: bytes).derRepresentation
+    }
 }
 
 func output(_ line: String) { FileHandle.standardOutput.write(Data((line + "\n").utf8)) }

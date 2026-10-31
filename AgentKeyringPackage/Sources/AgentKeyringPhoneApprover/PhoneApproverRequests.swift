@@ -70,7 +70,7 @@ extension PhoneRelayApprover {
     }
 
     func pendingScope(_ id: String, approving: Bool) throws -> (Agentkeyring_V1_RequestRecord, Agentkeyring_V1_EnrolledMachine, Agentkeyring_V1_Login) {
-        guard let saved = state.requests[id], saved.decision == nil else { throw RelayFailure(.conflict, "This request already has an answer.") }
+        guard let saved = state.requests[id], !saved.hasAnswer else { throw RelayFailure(.conflict, "This request already has an answer.") }
         let lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
         let record = try Agentkeyring_V1_RequestRecord(serializedBytes: saved.record)
         guard lease.state == .pending, record.pendingUntilUnixSeconds > Self.now else { throw RelayFailure(.conflict, "This request has ended.") }
@@ -93,10 +93,11 @@ extension PhoneRelayApprover {
 
     public func approve(_ id: String) async throws -> AccessRequestState {
         try load()
-        if state.requests[id]?.decision != nil { await flushOutbox(); return try requestState(id) }
+        if state.requests[id]?.hasAnswer == true { await flushOutbox(); return try requestState(id) }
         guard !authorizing else { throw RelayFailure(.conflict, "An approval is already in progress.") }
         authorizing = true; defer { authorizing = false }
         try await refreshAuthority()
+        await refreshCopy()
         let (record, machine, _) = try pendingScope(id, approving: true)
         let context = LAContext(); defer { context.invalidate() }
         logger.notice("Requesting Face ID for explicit approval")
@@ -104,6 +105,7 @@ extension PhoneRelayApprover {
         try Task.checkCancellation()
         logger.notice("Face ID authorized; signing phone answer")
         // After Face ID there are no network calls before durable enqueue.
+        if let saved = state.requests[id], try Agentkeyring_V1_Lease(serializedBytes: saved.lease).state != .pending { return try requestState(id) }
         guard record == (try pendingScope(id, approving: true)).0 else { throw RelayFailure(.conflict, "The request changed.") }
         try queueDecision(id, approve: true, reply: "", context: context)
         await flushOutbox()
@@ -112,7 +114,7 @@ extension PhoneRelayApprover {
 
     public func deny(_ id: String, reply: String?) async throws -> AccessRequestState {
         try load()
-        if state.requests[id]?.decision != nil { await flushOutbox(); return try requestState(id) }
+        if state.requests[id]?.hasAnswer == true { await flushOutbox(); return try requestState(id) }
         let reply = reply?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !authorizing else { throw RelayFailure(.conflict, "An approval is already in progress.") }
         authorizing = true; defer { authorizing = false }
@@ -130,7 +132,19 @@ extension PhoneRelayApprover {
     }
 
     func queueDecision(_ id: String, approve: Bool, reply: String, context: LAContext?) throws {
-        let (record, _, _) = try pendingScope(id, approving: approve)
+        let (record, machine, login) = try pendingScope(id, approving: approve)
+        if state.requests[id]?.isLocal == false {
+            if !approve {
+                try queueDirectDecision(id, record: record, machine: machine, contents: nil, reply: reply, context: context)
+                return
+            }
+            if let copy = try currentCopy(record.loginID) {
+                guard let context else { throw RelayFailure(.permissionDenied, "Face ID is required.") }
+                let contents = try openCopy(copy, login: login, context: context)
+                try queueDirectDecision(id, record: record, machine: machine, contents: contents, reply: reply, context: context)
+                return
+            }
+        }
         var statement = Agentkeyring_V1_PhoneDecision()
         statement.domain = "agentkeyring.phonedecision.v1"
         statement.requestDigest = RelayCrypto.digest("agentkeyring.request.v1", state.requests[id]!.record)
@@ -184,7 +198,7 @@ extension PhoneRelayApprover {
                                  agent: RequestingAgent(name: record.agentLabel, machine: machine.machineLabel, address: record.tailscaleAddress),
                                  access: purpose, agentReason: record.reason, askedAt: Date(timeIntervalSince1970: Double(record.createdUnixSeconds)),
                                  state: try screenState(saved), events: [AccessRequestEvent(Date(timeIntervalSince1970: Double(lease.requestedAtUnixSeconds)), "Request received")],
-                                 answerIsQueued: saved.decision != nil && !saved.acknowledged && lease.state == .pending)
+                                 answerIsQueued: saved.hasAnswer && !saved.acknowledged && lease.state == .pending)
         }
         let localLeaseIDs = Set(try state.requests.values.map { try Agentkeyring_V1_RequestRecord(serializedBytes: $0.record).leaseID })
         let remote = try state.remoteLeases.values.compactMap { bytes -> AccessRequest? in
@@ -204,11 +218,19 @@ extension PhoneRelayApprover {
 
     func screenState(_ saved: PhoneSavedRequest) throws -> AccessRequestState {
         let lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
+        if let bytes = saved.deliveryDecision, lease.state == .pending {
+            let decision = try Agentkeyring_V1_SignedDecision(serializedBytes: bytes)
+            let statement = try Agentkeyring_V1_DecisionStatement(serializedBytes: decision.statement)
+            return .sendingAnswer(statement.choice == .approve ? .approve : .deny)
+        }
         if let bytes = saved.decision, lease.state == .pending {
             let signed = try Agentkeyring_V1_SignedPhoneDecision(serializedBytes: bytes)
             let statement = try Agentkeyring_V1_PhoneDecision(serializedBytes: signed.decision)
             let choice: AnswerChoice = statement.choice == .approve ? .approve : .deny
             return saved.acknowledged ? .waitingForMac(choice, reply: signed.reply.isEmpty ? nil : signed.reply) : .sendingAnswer(choice)
+        }
+        if saved.deliveryDecision != nil {
+            return screenState(lease, verifiedReply: nil)
         }
         return screenState(lease, verifiedReply: saved.decision.flatMap { try? Agentkeyring_V1_SignedPhoneDecision(serializedBytes: $0).reply })
     }
