@@ -144,6 +144,11 @@ private struct PhoneAnswerArea: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                if request.answerIsQueued {
+                    Text(AccessRequestCopy.answerQueued)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

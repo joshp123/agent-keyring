@@ -23,6 +23,13 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
     case importNeeded
     case importing
     case settings
+    case settingsNotPaired
+    case homeNotPaired
+    case pairing
+    case pairingConnecting
+    case pairingComparing
+    case pairingPaired
+    case pairingFailed
 
     public static func fromLaunchArguments(_ arguments: [String] = ProcessInfo.processInfo.arguments) -> Self? {
         guard let index = arguments.firstIndex(of: "-designScenario"), arguments.indices.contains(index + 1)
@@ -42,6 +49,7 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
         var replying = false
         var reply = ""
         var showingSettings = false
+        var pairing = PhonePairingState.paired
 
         switch self {
         case .home, .inUseDetail, .historyDetail:
@@ -86,6 +94,23 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             passwords = .importing(received: 318)
         case .settings:
             showingSettings = true
+        case .settingsNotPaired:
+            showingSettings = true
+            pairing = .notPaired
+        case .homeNotPaired:
+            requests = history.filter { !$0.state.isInUse }
+            pairing = .notPaired
+        case .pairing:
+            pairing = .notPaired
+        case .pairingConnecting:
+            pairing = .connecting
+        case .pairingComparing:
+            pairing = .comparing(fingerprint: DesignExamples.iPhoneEnrolment(now: now).code,
+                relayAddress: "mac-mini:17443")
+        case .pairingPaired:
+            pairing = .paired
+        case .pairingFailed:
+            pairing = .failed("Couldn't reach mac-mini:17443. Check that Tailscale is on.")
         }
 
         let snapshot = PhoneKeyringSnapshot(
@@ -93,7 +118,9 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             passwords: passwords,
             connection: connection,
             settings: PhoneSettings(askPhoneAfter: .seconds(120), notificationsAllowed: true,
-                keyFingerprint: "7F3A 91C2 0B4E D8A5 6C17 E902 44BB 13F0")
+                keyFingerprint: "7F3A 91C2 0B4E D8A5 6C17 E902 44BB 13F0",
+                rulesUpdatedAt: now.addingTimeInterval(-11 * 60)),
+            pairing: pairing
         )
         let model = PhoneKeyringModel(backend: DesignPhoneBackend(snapshot: snapshot), initial: snapshot)
         model.presentedRequestID = presented
@@ -101,6 +128,14 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
         model.replyDraft = reply
         model.isShowingSettings = showingSettings
         return model
+    }
+
+    /// The pairing screens open as a sheet over the home list.
+    public var opensPairing: Bool {
+        switch self {
+        case .pairing, .pairingConnecting, .pairingComparing, .pairingPaired, .pairingFailed: true
+        default: false
+        }
     }
 
     /// The screen this scenario opens, beyond the home list.
