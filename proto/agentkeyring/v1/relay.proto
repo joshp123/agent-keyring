@@ -48,6 +48,10 @@ service Approvals {
   // Public keys only, over the pinned relay connection. Publishing a grant
   // delegates to these keys; fetching them grants no authority.
   rpc GetAutomaticKeys(GetAutomaticKeysRequest) returns (AutomaticKeys);
+  // Lets a recipient ask again for a login before a denial's 30-minute
+  // suppression ends (RFC 0004). It grants nothing by itself, so it needs no
+  // signature; accepted only from a pinned approver connection.
+  rpc ClearDenial(ClearDenialRequest) returns (PublishAck);
 }
 
 // Served by the relay to a machine that is not yet enrolled. Reachable only
@@ -420,6 +424,11 @@ message PushRegistration {
   optional uint32 escalation_delay_seconds = 4;
 }
 
+message ClearDenialRequest {
+  string recipient_id = 1;
+  string login_id = 2;
+}
+
 message PublishAck {
   bool accepted = 1;
   string detail = 2;
@@ -447,6 +456,7 @@ message RelayWireRequest {
     GetAutomaticGrantRequest get_automatic_grant = 18;
     GetIndexRequest get_index = 19;
     GetAutomaticKeysRequest get_automatic_keys = 20;
+    ClearDenialRequest clear_denial = 21;
   }
 }
 

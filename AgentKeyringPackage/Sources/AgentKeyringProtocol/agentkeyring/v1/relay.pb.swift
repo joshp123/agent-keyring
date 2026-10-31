@@ -1054,6 +1054,20 @@ public nonisolated struct Agentkeyring_V1_PushRegistration: Sendable {
   fileprivate var _escalationDelaySeconds: UInt32? = nil
 }
 
+public nonisolated struct Agentkeyring_V1_ClearDenialRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var recipientID: String = String()
+
+  public var loginID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentkeyring_V1_PublishAck: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1236,6 +1250,14 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     set {request = .getAutomaticKeys(newValue)}
   }
 
+  public var clearDenial_p: Agentkeyring_V1_ClearDenialRequest {
+    get {
+      if case .clearDenial_p(let v)? = request {return v}
+      return Agentkeyring_V1_ClearDenialRequest()
+    }
+    set {request = .clearDenial_p(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Request: Equatable, Sendable {
@@ -1260,6 +1282,7 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     case getAutomaticGrant(Agentkeyring_V1_GetAutomaticGrantRequest)
     case getIndex(Agentkeyring_V1_GetIndexRequest)
     case getAutomaticKeys(Agentkeyring_V1_GetAutomaticKeysRequest)
+    case clearDenial_p(Agentkeyring_V1_ClearDenialRequest)
 
   }
 
@@ -3223,6 +3246,41 @@ nonisolated extension Agentkeyring_V1_PushRegistration: SwiftProtobuf.Message, S
   }
 }
 
+nonisolated extension Agentkeyring_V1_ClearDenialRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ClearDenialRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}recipient_id\0\u{3}login_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.recipientID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.loginID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.recipientID.isEmpty {
+      try visitor.visitSingularStringField(value: self.recipientID, fieldNumber: 1)
+    }
+    if !self.loginID.isEmpty {
+      try visitor.visitSingularStringField(value: self.loginID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_ClearDenialRequest, rhs: Agentkeyring_V1_ClearDenialRequest) -> Bool {
+    if lhs.recipientID != rhs.recipientID {return false}
+    if lhs.loginID != rhs.loginID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Agentkeyring_V1_PublishAck: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PublishAck"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{1}detail\0")
@@ -3260,7 +3318,7 @@ nonisolated extension Agentkeyring_V1_PublishAck: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayWireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}decide_enrolment\0\u{3}publish_index\0\u{3}publish_automatic\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{3}list_enrolments\0\u{3}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{3}publish_enrolment_set\0\u{3}get_enrolment_set\0\u{3}publish_automatic_grant\0\u{3}get_automatic_grant\0\u{3}get_index\0\u{3}get_automatic_keys\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}decide_enrolment\0\u{3}publish_index\0\u{3}publish_automatic\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{3}list_enrolments\0\u{3}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{3}publish_enrolment_set\0\u{3}get_enrolment_set\0\u{3}publish_automatic_grant\0\u{3}get_automatic_grant\0\u{3}get_index\0\u{3}get_automatic_keys\0\u{3}clear_denial\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3528,6 +3586,19 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
           self.request = .getAutomaticKeys(v)
         }
       }()
+      case 21: try {
+        var v: Agentkeyring_V1_ClearDenialRequest?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .clearDenial_p(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .clearDenial_p(v)
+        }
+      }()
       default: break
       }
     }
@@ -3618,6 +3689,10 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
     case .getAutomaticKeys?: try {
       guard case .getAutomaticKeys(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
+    }()
+    case .clearDenial_p?: try {
+      guard case .clearDenial_p(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 21)
     }()
     case nil: break
     }
