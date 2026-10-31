@@ -53,7 +53,7 @@ extension RelayApprover {
         lease.taskRef = record.taskRef
         lease.purpose = record.purpose
         lease.reason = record.reason
-        lease.requestedAtUnixSeconds = Self.now
+        lease.requestedAtUnixSeconds = record.createdUnixSeconds
         lease.pendingUntilUnixSeconds = min(record.pendingUntilUnixSeconds, Self.now + 600)
         lease.recipient.recipientID = machine.recipientID
         lease.recipient.machineLabel = machine.machineLabel
@@ -64,7 +64,7 @@ extension RelayApprover {
         if lease.state == .unanswered { lease.endedAtUnixSeconds = Self.now }
         var next = state
         next.requests[id] = RelaySavedRequest(record: bytes, lease: try lease.serializedData(), title: item.title,
-            account: candidate.username ?? "", machine: machineBytes)
+            account: candidate.username ?? "", machine: machineBytes, phoneDue: min(record.pendingUntilUnixSeconds - 1, record.createdUnixSeconds + Int64(min(540, max(30, phoneDelay())))))
         try commit(next)
         try await decideByRule(id)
     }
@@ -82,7 +82,7 @@ extension RelayApprover {
         if vault.policies[scope.item.id, default: .ask] == .block
             || state.suppressions[suppressionKey(scope.record), default: 0] > Self.now {
             try queueDecision(id, approve: false, reply: "", automatic: false, context: nil, vault: vault, suppress: false)
-        } else if canApproveAutomatically(scope.record, vault: vault), !lockState.isLocked {
+        } else if canApproveAutomatically(scope.record, vault: vault) {
             try queueDecision(id, approve: true, reply: "", automatic: true, context: nil, vault: vault, suppress: false)
         }
     }
@@ -168,26 +168,27 @@ extension RelayApprover {
     }
 
     func canApproveAutomatically(_ record: Agentkeyring_V1_RequestRecord, vault: RelayApproverVault) -> Bool {
-        guard state.publicationDigest == publicationDigest(vault, machines: state.machines),
+        guard (try? requiresPublicationConfirmation(vault)) == false,
             let loginID = UUID(uuidString: record.loginID), vault.policies[loginID, default: .ask] == .allowAutomatically,
-            let bytes = state.automaticGrant,
-            let signed = try? Agentkeyring_V1_SignedAutomaticGrant(serializedBytes: bytes),
-            let grant = try? Agentkeyring_V1_AutomaticGrant(serializedBytes: signed.grant),
+            let configuration = try? currentConfiguration(),
             let signer = try? keys().1,
-            grant.automaticSigningPublicKey == signer.automaticPublicKey,
-            grant.loginIds.contains(record.loginID), grant.recipientIds.contains(record.recipientID),
-            let machineBytes = state.machines[record.recipientID],
-            let machine = try? Agentkeyring_V1_EnrolledMachine(serializedBytes: machineBytes), machine.automaticAllowed else { return false }
+            configuration.automaticSigningPublicKey == signer.automaticPublicKey,
+            configuration.automaticKeyID == RelayCrypto.keyID(signer.automaticPublicKey),
+            configuration.logins.contains(where: { $0.loginID == record.loginID && $0.rule == .automatic }),
+            configuration.machines.contains(where: { $0.recipientID == record.recipientID && $0.automaticAllowed }),
+            let set = try? Agentkeyring_V1_ApproverKeySet(serializedBytes: currentKeySet().keySet),
+            set.keys.contains(where: { $0.keyID == configuration.automaticKeyID && $0.role == .macDelivery }) else { return false }
         return true
     }
 
     func queueDecision(_ id: String, approve: Bool, reply: String, automatic: Bool, context: LAContext?,
-        vault: RelayApproverVault?, suppress: Bool) throws {
+        vault: RelayApproverVault?, suppress: Bool, phone: Agentkeyring_V1_SignedPhoneDecision? = nil) throws {
         if state.requests[id]?.decision != nil { return }
         let scope = try pendingRequest(id)
+        let phoneContents = try phone.map { try Agentkeyring_V1_PhoneDecision(serializedBytes: $0.decision) }
         if approve {
             guard let vault, let item = vault.generation.items.first(where: { $0.id == UUID(uuidString: scope.record.loginID) }),
-                vault.policies[item.id, default: .ask] != .block, !lockState.isLocked else { throw LeaseFailure(.permissionDenied, "This login is blocked or the Mac is locked.") }
+                vault.policies[item.id, default: .ask] != .block, (automatic || phone != nil || !lockState.isLocked) else { throw LeaseFailure(.permissionDenied, "This login is blocked or the Mac is locked.") }
             if automatic {
                 guard canApproveAutomatically(scope.record, vault: vault) else { throw LeaseFailure(.permissionDenied, "The current rules do not grant Automatic access to this machine.") }
             }
@@ -197,19 +198,20 @@ extension RelayApprover {
         statement.domain = "agentkeyring.decision.v1"
         statement.requestDigest = RelayCrypto.digest("agentkeyring.request.v1", state.requests[id]!.record)
         statement.choice = approve ? .approve : .deny
-        statement.approvedAtUnixSeconds = Self.now
-        statement.notAfterUnixSeconds = approve ? statement.approvedAtUnixSeconds + 1800 : 0
+        statement.approvedAtUnixSeconds = phoneContents?.decidedUnixSeconds ?? Self.now
+        statement.notAfterUnixSeconds = phoneContents?.notAfterUnixSeconds ?? (approve ? statement.approvedAtUnixSeconds + 1800 : 0)
         statement.recipientID = scope.record.recipientID
         statement.receiverKeyID = scope.machine.receiverKeyID
         statement.leaseID = scope.record.leaseID
         statement.replySha256 = RelayCrypto.hash(Data(reply.utf8))
-        statement.authority = automatic ? .automaticRule : ((!approve && reply.isEmpty) ? .approverConnection : .human)
+        statement.authority = (!approve && reply.isEmpty && (phone == nil || phone!.signature.isEmpty)) ? .approverConnection
+            : (phone != nil ? .phone : (automatic ? .automaticRule : .human))
         if automatic {
-            let signed = try Agentkeyring_V1_SignedAutomaticGrant(serializedBytes: state.automaticGrant!)
-            statement.automaticGrantRevision = try Agentkeyring_V1_AutomaticGrant(serializedBytes: signed.grant).revision
+            statement.configurationRevision = try currentConfiguration()!.revision
         }
         var decision = Agentkeyring_V1_SignedDecision()
-        decision.approverKeyID = RelayCrypto.keyID(automatic ? signer.automaticPublicKey : signer.publicKey)
+        decision.approverKeyID = RelayCrypto.keyID((automatic || phone != nil) ? signer.automaticPublicKey : signer.publicKey)
+        if let phone, statement.authority == .phone { decision.phoneDecision = phone }
         decision.reply = reply
         if approve {
             let item = try pendingScope(id, vault: vault!).item
@@ -220,7 +222,7 @@ extension RelayApprover {
         }
         decision.statement = try statement.serializedData()
         if statement.authority != .approverConnection {
-            decision.signature = try signer.sign(decision.statement, context: context, automatic: automatic)
+            decision.signature = try signer.sign(decision.statement, context: context, automatic: automatic || phone != nil)
         }
         var next = state
         next.requests[id]!.decision = try decision.serializedData()

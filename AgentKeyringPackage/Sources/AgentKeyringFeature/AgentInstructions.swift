@@ -1,6 +1,6 @@
-/// The one line agents should carry in AGENTS.md or CLAUDE.md. The app's setup
-/// panel and `agent-keyring install` both show exactly this.
+/// The one line agents should carry in AGENTS.md or CLAUDE.md, shown in the
+/// app's setup panel. It points at the bundled skill, which holds the details.
 public enum AgentInstructions {
     public static let snippet =
-        "Use agent-keyring for logins and secrets: it fills sign-in forms without showing you the value. See `agent-keyring --help`."
+        "For website logins and two-factor codes saved in Apple Passwords, use agent-keyring. Run `agent-keyring skill` first, and never ask the user to type a password."
 }

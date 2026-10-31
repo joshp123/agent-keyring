@@ -279,21 +279,9 @@ func Fill(ctx context.Context, client authority.Client, lease *pb.Lease, request
 		return fillResult(4, err.Error())
 	}
 	defer d.connection.CloseNow()
-	var info struct {
-		Info struct {
-			Type string `json:"type"`
-		} `json:"targetInfo"`
-	}
-	if err = d.call(ctx, "Target.getTargetInfo", map[string]any{"targetId": target.TargetId}, &info); err != nil || info.Info.Type != "page" {
-		return fillResult(4, "The selected tab is not a browser page.")
-	}
-	var attached struct {
-		Session string `json:"sessionId"`
-	}
-	if err = d.call(ctx, "Target.attachToTarget", map[string]any{"targetId": target.TargetId, "flatten": true}, &attached); err != nil {
+	if err = d.attachPage(ctx, target.TargetId); err != nil {
 		return fillResult(4, err.Error())
 	}
-	d.session = attached.Session
 	f, err := d.frame(ctx, target.FrameId)
 	if err != nil {
 		return fillResult(4, err.Error())

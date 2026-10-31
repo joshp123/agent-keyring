@@ -93,7 +93,9 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
                 + relay.approverPairings.map(RelayScreenMapping.enrolment),
             relay: RelayScreenMapping.relayLink(relay),
             queuedAnswers: relay.queuedAnswerCount,
-            rulesNotSent: relay.needsPublication)
+            taskHistoryNeedsReset: model.leaseStore.needsHistoryReset,
+            otherMachinesNeedRules: relay.connection != .notPaired
+                && model.accessControl.needsRelayPublicationConfirmation && !model.accessControl.needsConfirmation)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {
@@ -145,7 +147,8 @@ public final class AccessRulesBackend: LoginRulesBackend {
             LoginRuleRow(id: row.id, site: row.website.isEmpty ? row.title : row.website, account: row.account,
                 rule: LoginRule(row.policy), lastUsed: lastApproved[row.id.uuidString])
         }
-        return LoginRulesSnapshot(rows: rows, confirmation: confirmation(rows))
+        return LoginRulesSnapshot(rows: rows, confirmation: confirmation(rows),
+            isApplying: model.relayApprover.isApplying)
     }
 
     public func updates() -> AsyncStream<LoginRulesSnapshot> {
@@ -160,18 +163,34 @@ public final class AccessRulesBackend: LoginRulesBackend {
 
     public func confirmRules() async throws {
         await controller.confirmRules()
-        if controller.needsConfirmation { throw RulesFailure(message: controller.errorMessage ?? "Touch ID didn't confirm.") }
+        // Done only when neither this Mac's rules nor the relay's copy waits for Josh.
+        if controller.needsConfirmation || controller.needsRelayPublicationConfirmation {
+            throw RulesFailure(message: controller.errorMessage ?? "Touch ID didn't confirm.")
+        }
     }
 
     private func confirmation(_ rows: [LoginRuleRow]) -> RulesConfirmation? {
-        guard controller.needsConfirmation, controller.hasLoadedLoginList else { return nil }
+        guard controller.needsConfirmation || controller.needsRelayPublicationConfirmation,
+            controller.hasLoadedLoginList else { return nil }
         func count(_ rule: LoginRule) -> Int { rows.lazy.filter { $0.rule == rule }.count }
         var summary = "\(rows.count) logins: \(count(.ask)) Ask, \(count(.automatic)) Automatic, \(count(.blocked)) Blocked."
+        if !controller.needsConfirmation {
+            return RulesConfirmation(summary: summary, savedRulesWereUnreadable: false,
+                explanation: RulesCopy.confirmForOtherMachinesBody)
+        }
         if controller.pendingPhoneBlockCount > 0 {
             summary += " \(controller.pendingPhoneBlockCount) blocked from your iPhone."
         }
+        var explanation = switch controller.confirmationReason {
+        case .firstUse: RulesCopy.confirmBody
+        case .upgrade: RulesCopy.confirmUpgradeBody
+        case .unverified: RulesCopy.confirmBodyAfterUnreadableRules
+        }
+        if controller.confirmationRequiresPhonePairingAgain {
+            explanation += " Your previously paired iPhone must be paired again."
+        }
         return RulesConfirmation(summary: summary,
-            savedRulesWereUnreadable: controller.confirmationResetsUnreadableRules)
+            savedRulesWereUnreadable: controller.confirmationResetsUnreadableRules, explanation: explanation)
     }
 }
 

@@ -18,6 +18,9 @@ extension RelayApprover {
             request.tlsPublicKey == request.key.tlsPublicKey else {
             throw LeaseFailure(.invalidArgument, "The new approver's signing and TLS keys are incomplete.")
         }
+        guard request.key.role == .phone, request.key.keyID == RelayCrypto.keyID(request.key.publicKey) else {
+            throw LeaseFailure(.permissionDenied, "Only an explicitly identified phone may join as an approver.")
+        }
         _ = try P256.Signing.PublicKey(x963Representation: request.key.publicKey)
         _ = try P256.Signing.PublicKey(derRepresentation: request.tlsPublicKey)
         if let existing = current.keys.first(where: { $0.keyID == request.key.keyID }) {
@@ -29,6 +32,8 @@ extension RelayApprover {
         var next = state
         if next.pendingApprovers == nil { next.pendingApprovers = [:] }
         next.pendingApprovers![request.key.keyID] = bytes
+        if next.pendingApproverCreated == nil { next.pendingApproverCreated = [:] }
+        next.pendingApproverCreated![request.key.keyID] = Self.now
         try commit(next)
     }
 
@@ -60,7 +65,7 @@ extension RelayApprover {
             if previousSet.keys.contains(where: { $0.keyID == id }) { return }
             throw LeaseFailure(.notFound, "No approver is waiting for that comparison.")
         }
-        guard let rosterBytes = state.enrolmentSet else {
+        guard let configurationBytes = state.configuration else {
             throw LeaseFailure(.unavailable, "Publish your current rules and machines before pairing another approver.")
         }
         let request = try Agentkeyring_V1_PairApproverRequest(serializedBytes: bytes)
@@ -74,16 +79,16 @@ extension RelayApprover {
         let signer = try keys().1
         try await signer.authorize(context: context, reason: "Allow \(request.key.label) to approve Agent Keyring requests after comparing its full fingerprint")
         try Task.checkCancellation()
-        guard try currentKeySet() == previous, state.enrolmentSet == rosterBytes, state.pendingApprovers?[id] == bytes else {
+        guard try currentKeySet() == previous, state.configuration == configurationBytes, state.pendingApprovers?[id] == bytes else {
             throw LeaseFailure(.conflict, "The approver or machine list changed. Compare the current fingerprint.")
         }
-        let roster = try Agentkeyring_V1_SignedEnrolmentSet(serializedBytes: rosterBytes)
-        let rosterContents = try Agentkeyring_V1_EnrolmentSet(serializedBytes: roster.enrolmentSet)
+        let signedConfiguration = try Agentkeyring_V1_SignedConfiguration(serializedBytes: configurationBytes)
+        let configuration = try Agentkeyring_V1_Configuration(serializedBytes: signedConfiguration.configuration)
         var nextSet = previousSet
         nextSet.revision += 1
         nextSet.keys.append(request.key)
-        nextSet.enrolmentSetRevision = rosterContents.revision
-        nextSet.enrolmentSetSha256 = RelayCrypto.hash(roster.enrolmentSet)
+        nextSet.configurationRevision = configuration.revision
+        nextSet.configurationSha256 = RelayCrypto.hash(signedConfiguration.configuration)
         nextSet.pairingTranscriptSha256 = RelayCrypto.hash(transcript)
         var signed = Agentkeyring_V1_SignedApproverKeySet()
         signed.keySet = try nextSet.serializedData()

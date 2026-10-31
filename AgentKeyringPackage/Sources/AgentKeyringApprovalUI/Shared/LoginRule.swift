@@ -49,6 +49,14 @@ public enum RulesCopy {
     public static let confirmTitle = "Confirm your rules"
     public static let confirmBody = "Agents get nothing until you confirm the rules below."
     public static let confirmBodyAfterUnreadableRules =
-        "The saved rules couldn't be checked. Confirming saves the rules below, and your iPhone must be paired again."
+        "The saved rules couldn't be checked. Review and confirm the rules below before agents can use logins."
+    public static let confirmUpgradeBody =
+        "Your logins and rules have been kept. Confirm them once to finish updating Agent Keyring."
+    /// Only the relay's copy is behind, for example after an import or the
+    /// first relay setup. The rules on this Mac are fine and in use.
+    public static let confirmForOtherMachinesBody =
+        "Your other machines don't have these logins and rules yet. Confirm to send them. Nothing is wrong, and agents on this Mac already use them."
+    public static let otherMachinesNeedRulesTitle = "Confirm rules for other machines"
+    public static let otherMachinesNeedRulesDetail = "They can't use your latest logins and rules yet."
     public static let confirmButton = "Confirm with Touch ID"
 }

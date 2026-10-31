@@ -14,42 +14,34 @@ public struct ContentView: View {
     }
 
     public var body: some View {
-        ZStack {
-            windowGradient
-
-            VStack(spacing: 18) {
-                MirrorStatusPanel(
-                    status: model.status,
-                    isLoading: model.isLoading,
-                    isImporting: model.isImporting,
-                    providerState: model.providerState,
-                    notice: model.notice,
-                    enableProvider: model.requestProviderEnablement,
-                    openPasswords: model.openPasswords,
-                    manageAccess: { openWindow(id: "access") }
-                )
-                Toggle("Show example.com login", isOn: Binding(
-                    get: { model.includeExampleCredential },
-                    set: { enabled in
-                        Task { await model.setIncludeExampleCredential(enabled) }
-                    }
-                ))
-                .toggleStyle(.checkbox)
-                IPhoneDevicesView(controller: model.accessControl)
-                if model.accessControl.hasPairedApprovalDevice {
-                    HStack {
-                        @Bindable var routingSettings = model.approvalRoutingSettings
-                        Text("Ask on iPhone after")
-                        TextField("Seconds", value: $routingSettings.phoneDelaySeconds, format: .number)
-                            .frame(width: 60)
-                        Text("seconds")
-                    }
-                }
+        VStack(spacing: 18) {
+            if model.leaseStore.needsHistoryReset {
+                LeaseHistoryRecoveryView(model: model)
             }
-            .padding(24)
+            MirrorStatusPanel(
+                status: model.status,
+                isLoading: model.isLoading,
+                isImporting: model.isImporting,
+                providerState: model.providerState,
+                notice: model.notice,
+                enableProvider: model.requestProviderEnablement,
+                openPasswords: model.openPasswords,
+                manageAccess: { openWindow(id: "access") }
+            )
+            Toggle("Show example.com login", isOn: Binding(
+                get: { model.includeExampleCredential },
+                set: { enabled in
+                    Task { await model.setIncludeExampleCredential(enabled) }
+                }
+            ))
+            .toggleStyle(.checkbox)
+
         }
+        .padding(24)
         .frame(width: 720)
         .frame(minHeight: 440)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(windowGradient)
         .tint(.teal)
         .containerBackground(windowGradient, for: .window)
         .task { await model.loadStatus() }
@@ -78,5 +70,35 @@ public struct ContentView: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
+    }
+}
+
+@available(macOS 26.0, *)
+private struct LeaseHistoryRecoveryView: View {
+    let model: MirrorAppModel
+    @State private var isResetting = false
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Task history could not be opened", systemImage: "exclamationmark.circle")
+                .font(.headline)
+            Text("Reset it to let agents ask again. This ends previous task access on this Mac. Your saved logins and access rules are kept.")
+                .font(.callout)
+            if let failure { Text(failure).font(.callout).foregroundStyle(.red) }
+            Button("Reset task history…") {
+                Task {
+                    isResetting = true
+                    defer { isResetting = false }
+                    do { try await model.resetLeaseHistory() }
+                    catch { failure = "Task history wasn't reset: \(error.localizedDescription)" }
+                }
+            }
+            .disabled(isResetting)
+            .accessibilityIdentifier("reset-task-history")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(.regularMaterial, in: .rect(cornerRadius: 16))
     }
 }

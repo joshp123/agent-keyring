@@ -21,6 +21,8 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case rules
     case rulesAll
     case rulesConfirm
+    case rulesConfirmOtherMachines
+    case rulesApplying
     case enrolment
     case enrolmentIPhone
     case enrolmentJoined
@@ -53,7 +55,7 @@ public final class MacDesignGallery {
             showApprovalPanel()
         case .menuBar, .menuBarQuiet:
             showMenuBar()
-        case .rules, .rulesAll, .rulesConfirm:
+        case .rules, .rulesAll, .rulesConfirm, .rulesConfirmOtherMachines, .rulesApplying:
             showRules()
         case .enrolment, .enrolmentIPhone, .enrolmentJoined:
             showEnrolment()
@@ -123,7 +125,7 @@ public final class MacDesignGallery {
         case .machinesComparing:
             MachinesSnapshot(relay: .comparing(code: "C3E1 5A90 7B24 0DF8 916C 2E47 B8A3 54D0", address: "mac-mini:17443"))
         default:
-            MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0, rulesNotSent: true,
+            MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0, isApplying: true,
                 waiting: [DesignExamples.machineEnrolment(now: now)],
                 machines: [
                     EnrolledMachine(id: "m-mini", name: "Mac mini", tailnetNode: "mac-mini", automaticAllowed: true),
@@ -135,7 +137,7 @@ public final class MacDesignGallery {
         }
         let model = MacMachinesModel(backend: DesignMacBackend(machines: snapshot), initial: snapshot)
         if screen == .machinesSetUp { model.addressDraft = "mac-mini:17443" }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines ? 640 : 420),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines ? 720 : 420),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Machines"
         window.contentView = NSHostingView(rootView: MacMachinesView(model: model))
@@ -162,6 +164,7 @@ public final class MacDesignGallery {
             snapshot.enrolments = [DesignExamples.machineEnrolment(now: now)]
             snapshot.relay = .offline(address: "mac-mini:17443")
             snapshot.queuedAnswers = 1
+            snapshot.otherMachinesNeedRules = true
         }
         let model = MacMenuBarModel(backend: DesignMacBackend(menuBar: snapshot), initial: snapshot)
         // Drawn like a menu bar extra window: material, rounded, under the bar.
@@ -176,10 +179,14 @@ public final class MacDesignGallery {
 
     private func showRules() {
         let rows = DesignRules.rows(now: now)
-        let confirmation = screen == .rulesConfirm
-            ? RulesConfirmation(summary: "34 logins: 18 Ask, 9 Automatic, 7 Blocked.", savedRulesWereUnreadable: false)
-            : nil
-        let snapshot = LoginRulesSnapshot(rows: rows, confirmation: confirmation)
+        let summary = "34 logins: 18 Ask, 9 Automatic, 7 Blocked."
+        let confirmation: RulesConfirmation? = switch screen {
+        case .rulesConfirm: RulesConfirmation(summary: summary, savedRulesWereUnreadable: false)
+        case .rulesConfirmOtherMachines: RulesConfirmation(summary: summary, savedRulesWereUnreadable: false,
+            explanation: RulesCopy.confirmForOtherMachinesBody)
+        default: nil
+        }
+        let snapshot = LoginRulesSnapshot(rows: rows, confirmation: confirmation, isApplying: screen == .rulesApplying)
         let model = MacRulesModel(backend: DesignMacBackend(rules: snapshot), initial: snapshot)
         if screen != .rules {
             model.filter = .all
@@ -232,8 +239,8 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
     func connect(host: String, port: UInt16) async throws {}
     func confirmRelay(comparedCode: String) async throws {}
     func cancelRelaySetup() throws {}
-    func sendRules() async throws {}
     func remove(machineID: String) async throws {}
+    func setAskPhoneAfter(_ delay: Duration) {}
 
     private let request: AccessRequest?
     private let menuBar: MacMenuBarSnapshot?

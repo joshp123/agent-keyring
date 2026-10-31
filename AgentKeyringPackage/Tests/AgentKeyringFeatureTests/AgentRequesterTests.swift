@@ -33,31 +33,4 @@ struct AgentRequesterAttributionTests {
         #expect(requester.session == nil)
     }
 
-    @Test("Phone records contain signed harness attribution, with host details only in activity", arguments: ["pid", "seconds", "microseconds", "folder"])
-    func signedAttribution(changedField: String) throws {
-        let request = try ApprovalRequest(agentDisplayLabel: syntheticRequester.displayLabel, site: "example.com",
-            account: "fixture", field: .password, action: .fill, requesterContext: syntheticRequester.approvalContext)
-        let record = ApprovalCloudRecords.request(request)
-        let fields = try #require(ApprovalCloudRecords.signedFields(from: record))
-        #expect(fields == request.signedFields)
-        #expect(fields.notificationTitle.contains("Fixture agent"))
-        #expect(fields.notificationBody.contains("/tmp"))
-        #expect(!fields.notificationBody.contains(syntheticRequester.machineName))
-        #expect(!fields.notificationBody.contains(syntheticRequester.networkAddress!))
-        #expect(record.encryptedValues["machineName"] == nil && record.encryptedValues["networkAddress"] == nil)
-        let session = try #require(syntheticRequester.session)
-        let changedSession = HarnessSession(processIdentifier: session.processIdentifier + (changedField == "pid" ? 1 : 0),
-            processStartTime: HarnessProcessStartTime(seconds: session.processStartTime.seconds + (changedField == "seconds" ? 1 : 0),
-                microseconds: session.processStartTime.microseconds + (changedField == "microseconds" ? 1 : 0)))
-        let changed = ApprovalSignedFields(requestID: fields.requestID, agentDisplayLabel: fields.agentDisplayLabel,
-            site: fields.site, account: fields.account, field: fields.field, action: fields.action,
-            oneTimeValue: fields.oneTimeValue, expiresAt: fields.expiresAt,
-            requesterContext: ApprovalRequesterContext(session: changedSession,
-                workingDirectory: changedField == "folder" ? "/elsewhere" : "/tmp"))
-        #expect(fields.canonicalBytes(for: .approve) != changed.canonicalBytes(for: .approve))
-        let activity = AgentRequestActivity(requestID: request.id, action: .fill, requester: syntheticRequester,
-            completedAt: Date(), succeeded: true, error: nil)
-        #expect(activity.requester.machineName == "Fixture Mac")
-        #expect(activity.requester.networkAddress == "192.0.2.1")
-    }
 }

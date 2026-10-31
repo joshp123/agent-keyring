@@ -8,11 +8,16 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+import time
 from prove_cli import Browser, CHROME, wait_for
 from test_login_server import LoginServer
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--cli', required=True)
+parser.add_argument('--task', default='mac-remote-browser')
+parser.add_argument('--hold-before-fill', type=Path)
+parser.add_argument('--hold-before-release', type=Path)
+parser.add_argument('--signed-in-marker', type=Path)
 args = parser.parse_args()
 server = LoginServer(8443, example_login=True)
 server.example_login = False
@@ -21,7 +26,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 browser = chrome = None
 
 def run(*arguments):
-    result = subprocess.run([args.cli, *arguments], capture_output=True, timeout=40)
+    result = subprocess.run([args.cli, *arguments], capture_output=True, timeout=120)
     assert b'example-password' not in result.stdout + result.stderr
     assert b'12345678901234567890' not in result.stdout + result.stderr
     assert result.returncode == 0, result.stderr.decode()
@@ -37,7 +42,12 @@ try:
     endpoint = 'http://127.0.0.1:' + (profile / 'DevToolsActivePort').read_text().splitlines()[0]
     browser = Browser(endpoint, server.origin + '/login')
     browser.wait("!!document.querySelector('#password')")
-    lease = run('lease', '00000000-0000-0000-0000-000000000301', '--task', 'mac-remote-browser', '--reason', 'Dummy two-step sign-in')
+    lease = run('lease', '00000000-0000-0000-0000-000000000301', '--task', args.task, '--reason', 'Dummy two-step sign-in')
+    if args.hold_before_fill:
+        deadline = time.monotonic() + 120
+        while args.hold_before_fill.exists():
+            assert time.monotonic() < deadline, 'Proof did not release browser fill'
+            time.sleep(.05)
     fill = ['fill', lease, '--browser', endpoint, '--tab', browser.tab]
     password = [*fill, '--username', '#username', '--password', '#password', '--submit', '#sign-in', '--operation', 'password']
     run(*password)
@@ -47,6 +57,13 @@ try:
     run(*fill, '--code', '#verification-code', '--submit', '#verify', '--operation', 'code')
     browser.wait("!!document.querySelector('#authenticated')")
     assert server.results['verification_accepted'] == 1
+    if args.signed_in_marker:
+        args.signed_in_marker.write_text('Password and TOTP accepted; one password POST on retry.')
+    if args.hold_before_release:
+        deadline = time.monotonic() + 120
+        while args.hold_before_release.exists():
+            assert time.monotonic() < deadline, 'Proof did not release the signed-in browser'
+            time.sleep(.05)
     run('release', lease)
     print('PASS actual CLI, Swift approver and real relay: Chrome password then TOTP sign-in; retry submitted once')
 finally:

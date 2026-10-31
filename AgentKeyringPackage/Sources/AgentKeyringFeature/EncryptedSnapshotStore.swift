@@ -182,12 +182,18 @@ public actor EncryptedSnapshotStore {
 
         let pointerURL = directoryURL.appendingPathComponent("current", isDirectory: false)
         try Data(generation.id.uuidString.utf8).write(to: pointerURL, options: [.atomic])
-        let generationsURL = directoryURL.appendingPathComponent("generations", isDirectory: true)
-        for fileURL in try fileManager.contentsOfDirectory(at: generationsURL, includingPropertiesForKeys: nil) {
-            guard ["mirror", "metadata"].contains(fileURL.pathExtension),
-                let storedID = UUID(uuidString: fileURL.deletingPathExtension().lastPathComponent),
-                storedID != generation.id else { continue }
-            try fileManager.removeItem(at: fileURL)
+        do {
+            let generationsURL = directoryURL.appendingPathComponent("generations", isDirectory: true)
+            for fileURL in try fileManager.contentsOfDirectory(at: generationsURL, includingPropertiesForKeys: nil) {
+                guard ["mirror", "metadata"].contains(fileURL.pathExtension),
+                    let storedID = UUID(uuidString: fileURL.deletingPathExtension().lastPathComponent),
+                    storedID != generation.id else { continue }
+                try fileManager.removeItem(at: fileURL)
+            }
+        } catch {
+            let error = error as NSError
+            Logger(subsystem: "com.agentkeyring.app", category: "MirrorStorage")
+                .error("Mirror saved; old snapshot cleanup failed [\(error.domain, privacy: .public)/\(error.code, privacy: .public)]. Cleanup will retry on the next save.")
         }
     }
 

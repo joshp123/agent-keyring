@@ -2,6 +2,10 @@
 
 # Mac relay approver system proof
 
+Historical release-3 proof, before the simplified Configuration/Deliver contract.
+See [the current Mac adaptation record](mac-simplified-configuration-and-phone.md)
+for current checks and remaining device work.
+
 Run on the physical Mac mini with dummy example.com credentials. The Swift
 fixture uses the production relay transport, TLS identity, HPKE, decision
 checks, persisted state and outbox. It substitutes a software signing key and

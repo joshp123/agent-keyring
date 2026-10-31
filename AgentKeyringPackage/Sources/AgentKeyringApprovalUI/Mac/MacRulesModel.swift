@@ -36,20 +36,26 @@ public struct RulesConfirmation: Hashable, Sendable {
     /// The signed rules file couldn't be verified, so confirming saves the
     /// rules shown and the iPhone must be paired again.
     public var savedRulesWereUnreadable: Bool
+    public var explanation: String
 
-    public init(summary: String, savedRulesWereUnreadable: Bool) {
+    public init(summary: String, savedRulesWereUnreadable: Bool, explanation: String? = nil) {
         self.summary = summary
         self.savedRulesWereUnreadable = savedRulesWereUnreadable
+        self.explanation = explanation ?? (savedRulesWereUnreadable
+            ? RulesCopy.confirmBodyAfterUnreadableRules : RulesCopy.confirmBody)
     }
 }
 
 public struct LoginRulesSnapshot: Hashable, Sendable {
     public var rows: [LoginRuleRow]
     public var confirmation: RulesConfirmation?
+    /// A confirmed change the relay hasn't acknowledged yet.
+    public var isApplying: Bool
 
-    public init(rows: [LoginRuleRow], confirmation: RulesConfirmation?) {
+    public init(rows: [LoginRuleRow], confirmation: RulesConfirmation?, isApplying: Bool = false) {
         self.rows = rows
         self.confirmation = confirmation
+        self.isApplying = isApplying
     }
 }
 
@@ -68,6 +74,7 @@ public protocol LoginRulesBackend: AnyObject {
 public final class MacRulesModel {
     public private(set) var rows: [LoginRuleRow]
     public private(set) var confirmation: RulesConfirmation?
+    public private(set) var isApplying: Bool
     public private(set) var isConfirming = false
     public var filter: LoginRuleFilter = .rule(.ask)
     public var searchText = ""
@@ -81,6 +88,7 @@ public final class MacRulesModel {
     public init(backend: any LoginRulesBackend, initial: LoginRulesSnapshot) {
         self.rows = initial.rows
         self.confirmation = initial.confirmation
+        self.isApplying = initial.isApplying
         self.backend = backend
     }
 
@@ -89,6 +97,7 @@ public final class MacRulesModel {
         for await snapshot in backend.updates() {
             rows = snapshot.rows
             confirmation = snapshot.confirmation
+            isApplying = snapshot.isApplying
         }
     }
 

@@ -18,8 +18,8 @@ final class PhoneImportBackend: PhoneKeyringBackend {
     private var registeredPushToken: Data?
 
     private(set) var snapshot = PhoneKeyringSnapshot(
-        requests: [], passwords: .notImported, connection: .notPaired,
-        settings: PhoneSettings(askPhoneAfter: nil, notifications: .notSetUp, keyFingerprint: "Not set up")
+        requests: [], connection: .notPaired,
+        settings: PhoneSettings(notifications: .notSetUp, keyFingerprint: "Not set up")
     ) {
         didSet { for continuation in subscribers.values { continuation.yield(snapshot) } }
     }
@@ -39,10 +39,6 @@ final class PhoneImportBackend: PhoneKeyringBackend {
                 Task { @MainActor in self?.subscribers.removeValue(forKey: id) }
             }
         }
-    }
-
-    func openPasswordsForImport() {
-        snapshot.passwords = .importFailed("Password import is not available in this release. This iPhone approves requests using the passwords kept on your Mac.")
     }
 
     func start() {

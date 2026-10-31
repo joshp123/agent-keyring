@@ -27,16 +27,21 @@ public struct MacMenuBarSnapshot: Hashable, Sendable {
     /// Nil until the relay is set up (release 3).
     public var relay: RelayLink?
     public var queuedAnswers: Int
-    public var rulesNotSent: Bool
+    public var taskHistoryNeedsReset: Bool
+    /// The relay is paired and its copy of the logins and rules waits for
+    /// Josh to confirm; the rules on this Mac are fine.
+    public var otherMachinesNeedRules: Bool
 
     public init(requests: [AccessRequest], passwords: ImportedPasswords?, enrolments: [DeviceEnrolment] = [],
-        relay: RelayLink? = nil, queuedAnswers: Int = 0, rulesNotSent: Bool = false) {
+        relay: RelayLink? = nil, queuedAnswers: Int = 0, taskHistoryNeedsReset: Bool = false,
+        otherMachinesNeedRules: Bool = false) {
         self.requests = requests
         self.passwords = passwords
         self.enrolments = enrolments
         self.relay = relay
         self.queuedAnswers = queuedAnswers
-        self.rulesNotSent = rulesNotSent
+        self.taskHistoryNeedsReset = taskHistoryNeedsReset
+        self.otherMachinesNeedRules = otherMachinesNeedRules
     }
 }
 
@@ -58,7 +63,8 @@ public final class MacMenuBarModel {
     public private(set) var enrolments: [DeviceEnrolment]
     public private(set) var relay: RelayLink?
     public private(set) var queuedAnswers: Int
-    public private(set) var rulesNotSent: Bool
+    public private(set) var taskHistoryNeedsReset: Bool
+    public private(set) var otherMachinesNeedRules: Bool
     public var review: (String) -> Void = { _ in }
     public var reviewEnrolment: (String) -> Void = { _ in }
     public var openMachines: () -> Void = {}
@@ -75,20 +81,20 @@ public final class MacMenuBarModel {
         self.enrolments = initial.enrolments
         self.relay = initial.relay
         self.queuedAnswers = initial.queuedAnswers
-        self.rulesNotSent = initial.rulesNotSent
+        self.taskHistoryNeedsReset = initial.taskHistoryNeedsReset
+        self.otherMachinesNeedRules = initial.otherMachinesNeedRules
         self.backend = backend
     }
 
     /// Everything that needs Josh: waiting requests and devices waiting to join.
-    public var attentionCount: Int { waiting.count + enrolments.count }
+    public var attentionCount: Int { waiting.count + enrolments.count + (taskHistoryNeedsReset ? 1 : 0)
+        + (otherMachinesNeedRules ? 1 : 0) }
 
     /// One line when the relay needs attention; nil when all is well.
     public var relayAttention: String? {
-        if case let .offline(address) = relay {
-            return SetupCopy.relayOffline(address)
-                + (queuedAnswers > 0 ? " " + SetupCopy.queuedAnswers(queuedAnswers) : "")
-        }
-        return rulesNotSent ? SetupCopy.rulesNotSent : nil
+        guard case let .offline(address) = relay else { return nil }
+        return SetupCopy.relayOffline(address)
+            + (queuedAnswers > 0 ? " " + SetupCopy.queuedAnswers(queuedAnswers) : "")
     }
 
     /// Follows the backend for as long as the app runs. Start it once at launch,
@@ -100,7 +106,8 @@ public final class MacMenuBarModel {
             enrolments = snapshot.enrolments
             relay = snapshot.relay
             queuedAnswers = snapshot.queuedAnswers
-            rulesNotSent = snapshot.rulesNotSent
+            taskHistoryNeedsReset = snapshot.taskHistoryNeedsReset
+            otherMachinesNeedRules = snapshot.otherMachinesNeedRules
         }
     }
 
@@ -156,8 +163,21 @@ public struct MacMenuBarView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if model.attentionCount > 0 {
+            if model.taskHistoryNeedsReset {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Task history needs attention").font(.headline)
+                    Text("Task access on this Mac is stopped. Your logins and rules are kept.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Reset task history…", action: model.openAgentKeyring)
+                }
+                .padding(14)
+            }
+            if !model.waiting.isEmpty || !model.enrolments.isEmpty || model.otherMachinesNeedRules {
                 MenuSection(title: "Waiting for you") {
+                    if model.otherMachinesNeedRules {
+                        OtherMachinesRulesRow(review: model.openRules)
+                    }
                     ForEach(model.enrolments) { enrolment in
                         JoiningMenuRow(enrolment: enrolment) { model.reviewEnrolment(enrolment.id) }
                     }
@@ -301,6 +321,31 @@ private struct JoiningMenuRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(enrolment.name).font(.body.weight(.semibold))
                 Text(enrolment.kind == .machine ? "Wants to ask for logins" : "Wants to approve requests")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(SetupCopy.review, action: review)
+                .buttonStyle(.borderedProminent)
+                .tint(KeyringColour.signal)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+}
+
+/// The rules window opens on its confirmation band.
+private struct OtherMachinesRulesRow: View {
+    let review: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "slider.horizontal.3")
+                .foregroundStyle(KeyringColour.signal)
+                .frame(width: 8)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(RulesCopy.otherMachinesNeedRulesTitle).font(.body.weight(.semibold))
+                Text(RulesCopy.otherMachinesNeedRulesDetail)
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

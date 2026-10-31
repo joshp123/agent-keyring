@@ -15,6 +15,7 @@ Face ID on his iPhone.
 | [0005](0005-remote-requests.md) | Always-on relay on the Mac mini, enrolling agent machines, sealed delivery | 3 |
 | [0006](0006-iphone-approver.md) | Phone approval without a phone vault; the awake Mac delivers | 4 |
 | [0007](0007-approval-ui.md) | Approval screens on the Mac and iPhone | 2 to 4 |
+| [0008](0008-macbook-shut.md) | Logins with the MacBook shut: Automatic from the mini, Ask from the iPhone | Next |
 | 0002, 0003 | Earlier drafts; superseded where 0004 to 0006 say so | |
 
 Contracts: `proto/agentkeyring/v1/` (`agentkeyring.proto` for agents and
