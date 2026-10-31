@@ -32,6 +32,7 @@ final class FixtureSigner: RelayApproverSigning {
         saved.authorizations += 1
         try persistence.save(PropertyListEncoder().encode(saved))
         print("AUTHORIZED\t\(saved.authorizations)")
+        print("REASON\t\(reason)")
         fflush(stdout)
     }
     func sign(_ bytes: Data, context: LAContext?, automatic: Bool) throws -> Data {
@@ -191,7 +192,9 @@ struct RelayApproverFixture {
             print("SETUP\t\(update.pairing != nil)\t\(update.approverPairings.map(\.id).joined(separator: ","))")
             if let pairing = update.pairing { print("PAIR\t\(pairing.fingerprint)") }
             for enrolment in update.enrolments { print("ENROL\t\(enrolment.id)\t\(enrolment.fingerprint)") }
-            for pairing in update.approverPairings { print("APPROVER\t\(pairing.id)\t\(pairing.fingerprint)") }
+            for pairing in update.approverPairings {
+                print("APPROVER\t\(pairing.id)\t\(pairing.fingerprint)\t\(pairing.replacesPhoneKeyID ?? "")\t\(pairing.replacesPhoneLabel ?? "")")
+            }
             for request in update.requests {
                 print("REQUEST\t\(request.id)\t\(request.lease.leaseID)\t\(request.lease.state.rawValue)\t\(request.answerIsQueued)\t\(request.lease.notAfterUnixSeconds)\t\(request.lease.retryNotBeforeUnixSeconds)")
             }
@@ -282,6 +285,7 @@ struct RelayApproverFixture {
                         for queued in outbox {
                             guard let bytes = queued["bytes"] as? Data else { continue }
                             let command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: bytes)
+                            print("SAVED\t\(queued["id"] as! String)\t\(RelayCrypto.hex(RelayCrypto.hash(bytes)))")
                             if case let .publishCopyUpdate(signed) = command.request {
                                 let update = try Agentkeyring_V1_CopyUpdate(serializedBytes: signed.update)
                                 print("COPY\t\(update.destinationKeyID):\(update.revision)\t\(RelayCrypto.hex(bytes))")
