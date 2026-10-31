@@ -55,6 +55,51 @@ public enum RelayCrypto {
         return bundle
     }
 
+    static func loginCopyContents(item: MirrorItem) throws -> Agentkeyring_V1_AutomaticLoginContents {
+        let resolver = CredentialResolver()
+        let candidate = resolver.candidate(for: item)
+        var contents = Agentkeyring_V1_AutomaticLoginContents()
+        contents.loginID = item.id.uuidString
+        contents.sites = item.origins.sorted()
+        contents.username = candidate.username ?? ""
+        if candidate.availableFields.contains(.password) { contents.password = try resolver.value(in: item, field: .password) }
+        if candidate.availableFields.contains(.totp) {
+            for credential in item.credentials {
+                if case let .totp(secret, period, digits, _, algorithm, _) = credential {
+                    contents.totpSeed = secret
+                    contents.totpPeriodSeconds = Int32(period)
+                    contents.totpDigits = Int32(digits)
+                    contents.totpAlgorithm = algorithm.rawValue.uppercased()
+                }
+            }
+        }
+        return contents
+    }
+
+    static func sealLoginCopy(_ contents: Agentkeyring_V1_AutomaticLoginContents, receiverKey: Data,
+        configurationRevision: UInt64, revision: UInt64) throws -> Agentkeyring_V1_SealedAutomaticLogin {
+        let key = try P256.KeyAgreement.PublicKey(x963Representation: receiverKey)
+        var sender = try HPKE.Sender(recipientKey: key, ciphersuite: .P256_SHA256_AES_GCM_256,
+            info: Data("agentkeyring.login-copy.v1".utf8))
+        let destination = keyID(receiverKey)
+        var length = UInt32(destination.utf8.count).bigEndian
+        var configurationRevision = configurationRevision.bigEndian
+        var revision = revision.bigEndian
+        var aad = withUnsafeBytes(of: &length) { Data($0) }
+        aad.append(Data(destination.utf8))
+        withUnsafeBytes(of: &configurationRevision) { aad.append(contentsOf: $0) }
+        withUnsafeBytes(of: &revision) { aad.append(contentsOf: $0) }
+        aad.append(Data(contents.loginID.utf8))
+        var plaintext = try contents.serializedData()
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        var login = Agentkeyring_V1_SealedAutomaticLogin()
+        login.loginID = contents.loginID
+        login.sealed.encapsulatedKey = sender.encapsulatedKey
+        login.sealed.ciphertext = try sender.seal(plaintext, authenticating: aad)
+        login.sealed.receiverKeyID = destination
+        return login
+    }
+
     static func bundle(item: MirrorItem, leaseID: String, approvedAt: Int64, notAfter: Int64) throws -> Agentkeyring_V1_BundleContents {
         let resolver = CredentialResolver()
         let candidate = resolver.candidate(for: item)

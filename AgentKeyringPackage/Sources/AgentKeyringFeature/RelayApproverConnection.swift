@@ -157,6 +157,8 @@ extension RelayApprover {
                 case let (.publishConfiguration(publication), .publish(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
                     next.acknowledgedConfigurationRevision = try Agentkeyring_V1_Configuration(serializedBytes: publication.configuration.configuration).revision
+                case let (.publishCopyUpdate, .publish(ack)):
+                    guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
                 case let (.updateLocalPhoneLease(update), .decision(ack)):
                     guard ack.lease.leaseID == update.lease.leaseID else { throw LeaseFailure(.conflict, "The relay acknowledged another local lease.") }
                 case let (.dismissEnrolment, .enrolment(ack)):
