@@ -79,6 +79,8 @@ public enum AccessRequestCopy {
     public static let denyAndSend = "Deny and send"
     public static let sending = "Sending…"
     public static let endNow = "End now"
+    public static let ending = "Ending…"
+    public static let askingAgainPending = "Telling your Mac…"
     public static func askAgainUntil(_ date: Date) -> String {
         "New requests from this machine are held off until \(clock(date))."
     }
@@ -116,10 +118,11 @@ public enum AccessRequestCopy {
                 : "You denied. Waiting for your Mac to pass your reply to \(agent)."
         case let .approved(.automaticRule, until):
             return "Approved by rule. \(agent) can use it until \(clock(until))."
-        case let .approved(_, until):
-            return "Approved. \(agent) can use it until \(clock(until)), or until it says it's done."
-        case let .denied(_, reply, _):
-            return reply == nil ? "Denied. \(agent) was told." : "Denied. \(agent) got your reply."
+        case let .approved(surface, until):
+            return "Approved\(elsewhere(surface)). \(agent) can use it until \(clock(until)), or until it says it's done."
+        case let .denied(surface, reply, _):
+            return reply == nil ? "Denied\(elsewhere(surface)). \(agent) was told."
+                : "Denied\(elsewhere(surface)). \(agent) got your reply."
         case .unanswered:
             return "Nobody answered, so \(agent) stopped waiting."
         case .cancelled:
@@ -151,6 +154,16 @@ public enum AccessRequestCopy {
         case .ended: "Ended"
         case .blockedByRule: "Blocked"
         }
+    }
+
+    /// " on your Mac" on the iPhone, " on your iPhone" on the Mac, so an
+    /// answer from the other device reads as such. Empty for this device.
+    public static func elsewhere(_ surface: ApprovalSurface) -> String {
+        #if os(iOS)
+        surface == .mac ? " on your Mac" : ""
+        #else
+        surface == .iPhone ? " on your iPhone" : ""
+        #endif
     }
 
     public static func surface(_ surface: ApprovalSurface) -> String {
