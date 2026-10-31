@@ -269,9 +269,9 @@ public struct MacMachinesView: View {
             }
         case let .comparing(code, address):
             VStack(alignment: .leading, spacing: 10) {
-                Text(SetupCopy.compareWithRelayLog)
+                Text(SetupCopy.compareWithSetupCode)
                     .font(.headline)
-                Text(address)
+                Text("\(SetupCopy.setupCodeSource) Relay: \(address).")
                     .foregroundStyle(.secondary)
                 FingerprintGrid(code)
                     .frame(maxWidth: .infinity)

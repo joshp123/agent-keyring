@@ -58,7 +58,10 @@ public enum SetupCopy {
     public static let relayAddressExample = "mac-mini:17443"
     public static let relayAddressHint = "The relay's Tailscale name and port."
     public static let connect = "Connect"
-    public static let compareWithRelayLog = "Compare with the code the relay printed in its log:"
+    /// RFC 0005, "First approver": setup reads the relay's code over the mini's
+    /// trusted SSH connection and brings it to Josh; he never opens a log.
+    public static let compareWithSetupCode = "Compare with the relay's code from setup:"
+    public static let setupCodeSource = "Setup reads it on your Mac mini and shows it to you."
 
     public static func relayConnected(_ address: String) -> String { "Connected to \(address)" }
     public static func relayOffline(_ address: String) -> String { "Can't reach \(address). Retrying." }
