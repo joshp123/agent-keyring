@@ -179,9 +179,15 @@ func (p *proof) deliverPhone(record []byte, phone *pb.SignedPhoneDecision, deliv
 	return decision
 }
 
-func phoneDeliveryRequest(leaseID string) *pb.RelayWireRequest {
-	return clientRequest(&pb.WireRequest{Request: &pb.WireRequest_Deliver{Deliver: &pb.DeliverRequest{LeaseId: leaseID,
-		Kind: pb.OperationKind_OPERATION_KIND_FILL, Fields: []pb.CredentialField{pb.CredentialField_CREDENTIAL_FIELD_PASSWORD}}}})
+func (p *proof) phoneRequest(leaseID string) []byte {
+	for {
+		raw := p.nextRequest()
+		record := new(pb.RequestRecord)
+		must(proto.Unmarshal(raw, record))
+		if record.LeaseId == leaseID {
+			return raw
+		}
+	}
 }
 
 func (p *proof) phoneProof(binary string) {
@@ -241,7 +247,7 @@ func (p *proof) phoneProof(binary string) {
 	p.keys = initialKeys
 	receiver := p.receiverClient(lease, leaseCommand.GetClient().GetRequestLease())
 	p.keys = next
-	record := p.nextRequest()
+	record := p.phoneRequest(lease.LeaseId)
 	id := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", record))
 	require(!strings.Contains(phone.command("requests"), id), "un-escalated request reached the phone")
 	escalate(record, nil)
@@ -319,7 +325,7 @@ func (p *proof) phoneProof(binary string) {
 
 	for index, reply := range []string{"", "Use the test account instead"} {
 		l := good(p.client.call(leaseRequest("deny-"+strconv.Itoa(index), "deny-task-"+strconv.Itoa(index), p.enrolled.RecipientId))).GetClient().GetLease()
-		raw := p.nextRequest()
+		raw := p.phoneRequest(l.LeaseId)
 		digest := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", raw))
 		escalate(raw, nil)
 		phone.wait("requests", digest+"=waitingForYou")
@@ -400,8 +406,8 @@ func (p *proof) phoneProof(binary string) {
 	nextConfigurationBytes := encoded(nextConfiguration)
 	latestConfiguration := &pb.SignedConfiguration{Configuration: nextConfigurationBytes, Signature: sign(p.signer, nextConfigurationBytes), ApproverKeyId: p.key.KeyId}
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishConfiguration{PublishConfiguration: &pb.ConfigurationPublication{Configuration: latestConfiguration}}})).GetPublish().Accepted, "configuration advance refused")
-	good(p.client.call(leaseRequest("configuration-check", "configuration-task", p.enrolled.RecipientId)))
-	configurationRecord := p.nextRequest()
+	configurationLease := good(p.client.call(leaseRequest("configuration-check", "configuration-task", p.enrolled.RecipientId))).GetClient().GetLease()
+	configurationRecord := p.phoneRequest(configurationLease.LeaseId)
 	configurationRequestID := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", configurationRecord))
 	escalate(configurationRecord, nil)
 	phone.wait("requests", configurationRequestID+"=waitingForYou")
