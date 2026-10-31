@@ -237,7 +237,7 @@ public final class MirrorAppModel {
 
         do {
             let previousGeneration = try await store.loadCurrent()
-            let importBatch = mapper.map(exportedData, scope: .full)
+            let importBatch = mapper.map(exportedData, scope: .unknown)
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
@@ -261,7 +261,7 @@ public final class MirrorAppModel {
             notice = MirrorNotice(
                 kind: .information,
                 text:
-                    "Import complete. Agent Keyring’s encrypted copy now matches this Passwords export."
+                    "Import complete. Exported logins have been updated."
             )
         } catch {
             let nsError = error as NSError

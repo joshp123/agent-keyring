@@ -32,7 +32,9 @@ public struct SnapshotMerger: Sendable {
         var changedItems: [MirrorItemChange] = []
         var mergedItems: [MirrorItem] = []
 
-        for importedItem in importBatch.items {
+        let orderedIncoming = importBatch.items.filter { previousBySource[$0.sourceIdentity] != nil }
+            + importBatch.items.filter { previousBySource[$0.sourceIdentity] == nil }
+        for importedItem in orderedIncoming {
             let previousItem = try match(
                 importedItem,
                 previousBySource: previousBySource,
@@ -65,14 +67,8 @@ public struct SnapshotMerger: Sendable {
         }
 
         let unmatchedPrevious = previousItems.filter { !matchedPreviousIDs.contains($0.id) }
-        let removedItemIDs: [UUID]
-        switch importBatch.scope {
-        case .full:
-            removedItemIDs = unmatchedPrevious.map(\.id)
-        case .selected:
-            removedItemIDs = []
-            mergedItems.append(contentsOf: unmatchedPrevious)
-        }
+        let removedItemIDs: [UUID] = []
+        mergedItems.append(contentsOf: unmatchedPrevious)
 
         let byUUID: (UUID, UUID) -> Bool = { $0.uuidString < $1.uuidString }
         let delta = MirrorDelta(
@@ -91,6 +87,7 @@ public struct SnapshotMerger: Sendable {
             exporterDisplayName: importBatch.exporterDisplayName,
             items: mergedItems.sorted { $0.id.uuidString < $1.id.uuidString },
             delta: delta,
+            missingItemIDs: unmatchedPrevious.map(\.id).sorted { $0.uuidString < $1.uuidString },
             skippedCredentialCount: importBatch.skippedCredentialCount,
             skippedCredentialSummary: importBatch.skippedCredentialSummary
         )
