@@ -1020,8 +1020,12 @@ type Lease struct {
 	// (zero until then). For display; deadlines come from the fields above.
 	RequestedAtUnixSeconds int64 `protobuf:"varint,17,opt,name=requested_at_unix_seconds,json=requestedAtUnixSeconds,proto3" json:"requested_at_unix_seconds,omitempty"`
 	EndedAtUnixSeconds     int64 `protobuf:"varint,18,opt,name=ended_at_unix_seconds,json=endedAtUnixSeconds,proto3" json:"ended_at_unix_seconds,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Relay only: the HUMAN-signed denial and the exact request bytes, with no
+	// bundle, when a remote denial carries a reply. The receiver verifies them
+	// like an approval before it shows `reply`; otherwise it shows no reply.
+	SignedDenial  *SealedDelivery `protobuf:"bytes,19,opt,name=signed_denial,json=signedDenial,proto3" json:"signed_denial,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Lease) Reset() {
@@ -1178,6 +1182,13 @@ func (x *Lease) GetEndedAtUnixSeconds() int64 {
 		return x.EndedAtUnixSeconds
 	}
 	return 0
+}
+
+func (x *Lease) GetSignedDenial() *SealedDelivery {
+	if x != nil {
+		return x.SignedDenial
+	}
+	return nil
 }
 
 type FillRequest struct {
@@ -2758,7 +2769,7 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\aprogram\x18\x06 \x01(\v2\x1f.agentkeyring.v1.ProgramCommandR\aprogram\x12!\n" +
 	"\frecipient_id\x18\a \x01(\tR\vrecipientId\"+\n" +
 	"\x0eLeaseReference\x12\x19\n" +
-	"\blease_id\x18\x01 \x01(\tR\aleaseId\"\xb4\x06\n" +
+	"\blease_id\x18\x01 \x01(\tR\aleaseId\"\xfa\x06\n" +
 	"\x05Lease\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12\x19\n" +
 	"\blogin_id\x18\x02 \x01(\tR\aloginId\x12\x19\n" +
@@ -2779,7 +2790,8 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\x06reason\x18\x0f \x01(\tR\x06reason\x127\n" +
 	"\x18approved_at_unix_seconds\x18\x10 \x01(\x03R\x15approvedAtUnixSeconds\x129\n" +
 	"\x19requested_at_unix_seconds\x18\x11 \x01(\x03R\x16requestedAtUnixSeconds\x121\n" +
-	"\x15ended_at_unix_seconds\x18\x12 \x01(\x03R\x12endedAtUnixSeconds\"\xf2\x01\n" +
+	"\x15ended_at_unix_seconds\x18\x12 \x01(\x03R\x12endedAtUnixSeconds\x12D\n" +
+	"\rsigned_denial\x18\x13 \x01(\v2\x1f.agentkeyring.v1.SealedDeliveryR\fsignedDenial\"\xf2\x01\n" +
 	"\vFillRequest\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12/\n" +
 	"\x06target\x18\x02 \x01(\v2\x17.agentkeyring.v1.TargetR\x06target\x12!\n" +
@@ -3031,69 +3043,70 @@ var file_agentkeyring_v1_agentkeyring_proto_depIdxs = []int32{
 	3,  // 6: agentkeyring.v1.Lease.approved_by:type_name -> agentkeyring.v1.ApprovedBy
 	12, // 7: agentkeyring.v1.Lease.recipient:type_name -> agentkeyring.v1.Recipient
 	13, // 8: agentkeyring.v1.Lease.program:type_name -> agentkeyring.v1.ProgramCommand
-	18, // 9: agentkeyring.v1.FillRequest.target:type_name -> agentkeyring.v1.Target
-	20, // 10: agentkeyring.v1.FillRequest.fields:type_name -> agentkeyring.v1.FieldBinding
-	19, // 11: agentkeyring.v1.Target.chromium:type_name -> agentkeyring.v1.ChromiumTarget
-	4,  // 12: agentkeyring.v1.FieldBinding.field:type_name -> agentkeyring.v1.CredentialField
-	5,  // 13: agentkeyring.v1.FillResult.outcome:type_name -> agentkeyring.v1.FillOutcome
-	4,  // 14: agentkeyring.v1.FillResult.fields_filled:type_name -> agentkeyring.v1.CredentialField
-	4,  // 15: agentkeyring.v1.ExecuteProgramRequest.field:type_name -> agentkeyring.v1.CredentialField
-	6,  // 16: agentkeyring.v1.ExecuteProgramResult.outcome:type_name -> agentkeyring.v1.ProgramOutcome
-	7,  // 17: agentkeyring.v1.BeginOperationRequest.kind:type_name -> agentkeyring.v1.OperationKind
-	4,  // 18: agentkeyring.v1.BeginOperationRequest.fields:type_name -> agentkeyring.v1.CredentialField
-	28, // 19: agentkeyring.v1.BeginOperationResponse.values:type_name -> agentkeyring.v1.CredentialValues
-	34, // 20: agentkeyring.v1.BeginOperationResponse.sealed:type_name -> agentkeyring.v1.SealedDelivery
-	30, // 21: agentkeyring.v1.BeginOperationResponse.already_started:type_name -> agentkeyring.v1.OperationRecord
-	30, // 22: agentkeyring.v1.GetOperationResponse.operation:type_name -> agentkeyring.v1.OperationRecord
-	5,  // 23: agentkeyring.v1.FinishOperationRequest.fill:type_name -> agentkeyring.v1.FillOutcome
-	6,  // 24: agentkeyring.v1.FinishOperationRequest.program:type_name -> agentkeyring.v1.ProgramOutcome
-	7,  // 25: agentkeyring.v1.OperationRecord.kind:type_name -> agentkeyring.v1.OperationKind
-	5,  // 26: agentkeyring.v1.OperationRecord.fill:type_name -> agentkeyring.v1.FillOutcome
-	6,  // 27: agentkeyring.v1.OperationRecord.program:type_name -> agentkeyring.v1.ProgramOutcome
-	9,  // 28: agentkeyring.v1.WireRequest.find_logins:type_name -> agentkeyring.v1.FindLoginsRequest
-	14, // 29: agentkeyring.v1.WireRequest.request_lease:type_name -> agentkeyring.v1.RequestLeaseRequest
-	15, // 30: agentkeyring.v1.WireRequest.get_lease:type_name -> agentkeyring.v1.LeaseReference
-	15, // 31: agentkeyring.v1.WireRequest.watch_lease:type_name -> agentkeyring.v1.LeaseReference
-	15, // 32: agentkeyring.v1.WireRequest.end_lease:type_name -> agentkeyring.v1.LeaseReference
-	17, // 33: agentkeyring.v1.WireRequest.fill:type_name -> agentkeyring.v1.FillRequest
-	22, // 34: agentkeyring.v1.WireRequest.execute_program:type_name -> agentkeyring.v1.ExecuteProgramRequest
-	24, // 35: agentkeyring.v1.WireRequest.begin_operation:type_name -> agentkeyring.v1.BeginOperationRequest
-	29, // 36: agentkeyring.v1.WireRequest.finish_operation:type_name -> agentkeyring.v1.FinishOperationRequest
-	26, // 37: agentkeyring.v1.WireRequest.get_operation:type_name -> agentkeyring.v1.GetOperationRequest
-	10, // 38: agentkeyring.v1.WireResponse.logins:type_name -> agentkeyring.v1.FindLoginsResponse
-	16, // 39: agentkeyring.v1.WireResponse.lease:type_name -> agentkeyring.v1.Lease
-	21, // 40: agentkeyring.v1.WireResponse.fill:type_name -> agentkeyring.v1.FillResult
-	23, // 41: agentkeyring.v1.WireResponse.execute_program:type_name -> agentkeyring.v1.ExecuteProgramResult
-	33, // 42: agentkeyring.v1.WireResponse.error:type_name -> agentkeyring.v1.RpcError
-	25, // 43: agentkeyring.v1.WireResponse.begin_operation:type_name -> agentkeyring.v1.BeginOperationResponse
-	30, // 44: agentkeyring.v1.WireResponse.operation:type_name -> agentkeyring.v1.OperationRecord
-	27, // 45: agentkeyring.v1.WireResponse.get_operation:type_name -> agentkeyring.v1.GetOperationResponse
-	8,  // 46: agentkeyring.v1.RpcError.code:type_name -> agentkeyring.v1.RpcErrorCode
-	9,  // 47: agentkeyring.v1.AgentKeyring.FindLogins:input_type -> agentkeyring.v1.FindLoginsRequest
-	14, // 48: agentkeyring.v1.AgentKeyring.RequestLease:input_type -> agentkeyring.v1.RequestLeaseRequest
-	15, // 49: agentkeyring.v1.AgentKeyring.GetLease:input_type -> agentkeyring.v1.LeaseReference
-	15, // 50: agentkeyring.v1.AgentKeyring.WatchLease:input_type -> agentkeyring.v1.LeaseReference
-	15, // 51: agentkeyring.v1.AgentKeyring.EndLease:input_type -> agentkeyring.v1.LeaseReference
-	24, // 52: agentkeyring.v1.AgentKeyring.BeginOperation:input_type -> agentkeyring.v1.BeginOperationRequest
-	29, // 53: agentkeyring.v1.AgentKeyring.FinishOperation:input_type -> agentkeyring.v1.FinishOperationRequest
-	26, // 54: agentkeyring.v1.AgentKeyring.GetOperation:input_type -> agentkeyring.v1.GetOperationRequest
-	17, // 55: agentkeyring.v1.CredentialReceiver.Fill:input_type -> agentkeyring.v1.FillRequest
-	22, // 56: agentkeyring.v1.CredentialReceiver.ExecuteProgram:input_type -> agentkeyring.v1.ExecuteProgramRequest
-	10, // 57: agentkeyring.v1.AgentKeyring.FindLogins:output_type -> agentkeyring.v1.FindLoginsResponse
-	16, // 58: agentkeyring.v1.AgentKeyring.RequestLease:output_type -> agentkeyring.v1.Lease
-	16, // 59: agentkeyring.v1.AgentKeyring.GetLease:output_type -> agentkeyring.v1.Lease
-	16, // 60: agentkeyring.v1.AgentKeyring.WatchLease:output_type -> agentkeyring.v1.Lease
-	16, // 61: agentkeyring.v1.AgentKeyring.EndLease:output_type -> agentkeyring.v1.Lease
-	25, // 62: agentkeyring.v1.AgentKeyring.BeginOperation:output_type -> agentkeyring.v1.BeginOperationResponse
-	30, // 63: agentkeyring.v1.AgentKeyring.FinishOperation:output_type -> agentkeyring.v1.OperationRecord
-	27, // 64: agentkeyring.v1.AgentKeyring.GetOperation:output_type -> agentkeyring.v1.GetOperationResponse
-	21, // 65: agentkeyring.v1.CredentialReceiver.Fill:output_type -> agentkeyring.v1.FillResult
-	23, // 66: agentkeyring.v1.CredentialReceiver.ExecuteProgram:output_type -> agentkeyring.v1.ExecuteProgramResult
-	57, // [57:67] is the sub-list for method output_type
-	47, // [47:57] is the sub-list for method input_type
-	47, // [47:47] is the sub-list for extension type_name
-	47, // [47:47] is the sub-list for extension extendee
-	0,  // [0:47] is the sub-list for field type_name
+	34, // 9: agentkeyring.v1.Lease.signed_denial:type_name -> agentkeyring.v1.SealedDelivery
+	18, // 10: agentkeyring.v1.FillRequest.target:type_name -> agentkeyring.v1.Target
+	20, // 11: agentkeyring.v1.FillRequest.fields:type_name -> agentkeyring.v1.FieldBinding
+	19, // 12: agentkeyring.v1.Target.chromium:type_name -> agentkeyring.v1.ChromiumTarget
+	4,  // 13: agentkeyring.v1.FieldBinding.field:type_name -> agentkeyring.v1.CredentialField
+	5,  // 14: agentkeyring.v1.FillResult.outcome:type_name -> agentkeyring.v1.FillOutcome
+	4,  // 15: agentkeyring.v1.FillResult.fields_filled:type_name -> agentkeyring.v1.CredentialField
+	4,  // 16: agentkeyring.v1.ExecuteProgramRequest.field:type_name -> agentkeyring.v1.CredentialField
+	6,  // 17: agentkeyring.v1.ExecuteProgramResult.outcome:type_name -> agentkeyring.v1.ProgramOutcome
+	7,  // 18: agentkeyring.v1.BeginOperationRequest.kind:type_name -> agentkeyring.v1.OperationKind
+	4,  // 19: agentkeyring.v1.BeginOperationRequest.fields:type_name -> agentkeyring.v1.CredentialField
+	28, // 20: agentkeyring.v1.BeginOperationResponse.values:type_name -> agentkeyring.v1.CredentialValues
+	34, // 21: agentkeyring.v1.BeginOperationResponse.sealed:type_name -> agentkeyring.v1.SealedDelivery
+	30, // 22: agentkeyring.v1.BeginOperationResponse.already_started:type_name -> agentkeyring.v1.OperationRecord
+	30, // 23: agentkeyring.v1.GetOperationResponse.operation:type_name -> agentkeyring.v1.OperationRecord
+	5,  // 24: agentkeyring.v1.FinishOperationRequest.fill:type_name -> agentkeyring.v1.FillOutcome
+	6,  // 25: agentkeyring.v1.FinishOperationRequest.program:type_name -> agentkeyring.v1.ProgramOutcome
+	7,  // 26: agentkeyring.v1.OperationRecord.kind:type_name -> agentkeyring.v1.OperationKind
+	5,  // 27: agentkeyring.v1.OperationRecord.fill:type_name -> agentkeyring.v1.FillOutcome
+	6,  // 28: agentkeyring.v1.OperationRecord.program:type_name -> agentkeyring.v1.ProgramOutcome
+	9,  // 29: agentkeyring.v1.WireRequest.find_logins:type_name -> agentkeyring.v1.FindLoginsRequest
+	14, // 30: agentkeyring.v1.WireRequest.request_lease:type_name -> agentkeyring.v1.RequestLeaseRequest
+	15, // 31: agentkeyring.v1.WireRequest.get_lease:type_name -> agentkeyring.v1.LeaseReference
+	15, // 32: agentkeyring.v1.WireRequest.watch_lease:type_name -> agentkeyring.v1.LeaseReference
+	15, // 33: agentkeyring.v1.WireRequest.end_lease:type_name -> agentkeyring.v1.LeaseReference
+	17, // 34: agentkeyring.v1.WireRequest.fill:type_name -> agentkeyring.v1.FillRequest
+	22, // 35: agentkeyring.v1.WireRequest.execute_program:type_name -> agentkeyring.v1.ExecuteProgramRequest
+	24, // 36: agentkeyring.v1.WireRequest.begin_operation:type_name -> agentkeyring.v1.BeginOperationRequest
+	29, // 37: agentkeyring.v1.WireRequest.finish_operation:type_name -> agentkeyring.v1.FinishOperationRequest
+	26, // 38: agentkeyring.v1.WireRequest.get_operation:type_name -> agentkeyring.v1.GetOperationRequest
+	10, // 39: agentkeyring.v1.WireResponse.logins:type_name -> agentkeyring.v1.FindLoginsResponse
+	16, // 40: agentkeyring.v1.WireResponse.lease:type_name -> agentkeyring.v1.Lease
+	21, // 41: agentkeyring.v1.WireResponse.fill:type_name -> agentkeyring.v1.FillResult
+	23, // 42: agentkeyring.v1.WireResponse.execute_program:type_name -> agentkeyring.v1.ExecuteProgramResult
+	33, // 43: agentkeyring.v1.WireResponse.error:type_name -> agentkeyring.v1.RpcError
+	25, // 44: agentkeyring.v1.WireResponse.begin_operation:type_name -> agentkeyring.v1.BeginOperationResponse
+	30, // 45: agentkeyring.v1.WireResponse.operation:type_name -> agentkeyring.v1.OperationRecord
+	27, // 46: agentkeyring.v1.WireResponse.get_operation:type_name -> agentkeyring.v1.GetOperationResponse
+	8,  // 47: agentkeyring.v1.RpcError.code:type_name -> agentkeyring.v1.RpcErrorCode
+	9,  // 48: agentkeyring.v1.AgentKeyring.FindLogins:input_type -> agentkeyring.v1.FindLoginsRequest
+	14, // 49: agentkeyring.v1.AgentKeyring.RequestLease:input_type -> agentkeyring.v1.RequestLeaseRequest
+	15, // 50: agentkeyring.v1.AgentKeyring.GetLease:input_type -> agentkeyring.v1.LeaseReference
+	15, // 51: agentkeyring.v1.AgentKeyring.WatchLease:input_type -> agentkeyring.v1.LeaseReference
+	15, // 52: agentkeyring.v1.AgentKeyring.EndLease:input_type -> agentkeyring.v1.LeaseReference
+	24, // 53: agentkeyring.v1.AgentKeyring.BeginOperation:input_type -> agentkeyring.v1.BeginOperationRequest
+	29, // 54: agentkeyring.v1.AgentKeyring.FinishOperation:input_type -> agentkeyring.v1.FinishOperationRequest
+	26, // 55: agentkeyring.v1.AgentKeyring.GetOperation:input_type -> agentkeyring.v1.GetOperationRequest
+	17, // 56: agentkeyring.v1.CredentialReceiver.Fill:input_type -> agentkeyring.v1.FillRequest
+	22, // 57: agentkeyring.v1.CredentialReceiver.ExecuteProgram:input_type -> agentkeyring.v1.ExecuteProgramRequest
+	10, // 58: agentkeyring.v1.AgentKeyring.FindLogins:output_type -> agentkeyring.v1.FindLoginsResponse
+	16, // 59: agentkeyring.v1.AgentKeyring.RequestLease:output_type -> agentkeyring.v1.Lease
+	16, // 60: agentkeyring.v1.AgentKeyring.GetLease:output_type -> agentkeyring.v1.Lease
+	16, // 61: agentkeyring.v1.AgentKeyring.WatchLease:output_type -> agentkeyring.v1.Lease
+	16, // 62: agentkeyring.v1.AgentKeyring.EndLease:output_type -> agentkeyring.v1.Lease
+	25, // 63: agentkeyring.v1.AgentKeyring.BeginOperation:output_type -> agentkeyring.v1.BeginOperationResponse
+	30, // 64: agentkeyring.v1.AgentKeyring.FinishOperation:output_type -> agentkeyring.v1.OperationRecord
+	27, // 65: agentkeyring.v1.AgentKeyring.GetOperation:output_type -> agentkeyring.v1.GetOperationResponse
+	21, // 66: agentkeyring.v1.CredentialReceiver.Fill:output_type -> agentkeyring.v1.FillResult
+	23, // 67: agentkeyring.v1.CredentialReceiver.ExecuteProgram:output_type -> agentkeyring.v1.ExecuteProgramResult
+	58, // [58:68] is the sub-list for method output_type
+	48, // [48:58] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v1_agentkeyring_proto_init() }
