@@ -27,7 +27,11 @@ final class PhoneImportBackend: PhoneKeyringBackend {
     init() {
         approver = PhoneRelayApprover(directory: URL.applicationSupportDirectory.appending(path: "PhoneApprover", directoryHint: .isDirectory),
                                       keys: PhoneEnclaveKeys(),
-                                      identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.phone-v2") })
+                                      identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.phone-v2") },
+                                      replaceIdentity: {
+                                          try PhoneEnclaveKeys().replace()
+                                          try RelayTLSIdentity.replace(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.phone-v2")
+                                      })
     }
 
     func updates() -> AsyncStream<PhoneKeyringSnapshot> {
@@ -73,6 +77,10 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         try await approver.beginPairing(endpoint: RelayEndpoint(host: endpoint.host, port: endpoint.port))
     }
     func cancelPairing() { approver.cancelPairing() }
+    func beginReplacementPairing() async throws {
+        registeredPushToken = nil
+        try await approver.beginReplacementPairing()
+    }
     func approve(requestID: String) async throws -> AccessRequestState { try await approver.approve(requestID) }
     func deny(requestID: String, reply: String?) async throws -> AccessRequestState { try await approver.deny(requestID, reply: reply) }
     func endAccess(requestID: String) async throws -> AccessRequestState {
