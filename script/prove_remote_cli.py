@@ -23,7 +23,7 @@ parser.add_argument('--interruptions', action='store_true', help='Send Go preemp
 args = parser.parse_args()
 root = Path(tempfile.mkdtemp(prefix='keyring-remote-cli-'))
 state = root / 'receiver'
-env = dict(os.environ, AGENT_KEYRING_STATE_DIR=str(state))
+env = dict(os.environ, AGENT_KEYRING_STATE_DIR=str(state), HOME=str(root / "home"))
 env.pop('AGENT_KEYRING_SOCKET', None)
 log = (root / 'fixture.log').open('w+')
 server = browser = chrome = None
@@ -90,15 +90,17 @@ try:
     compared = re.search(rb'(?:[0-9A-F]{4} ){7}[0-9A-F]{4}', enrol.stderr).group().decode()
     assert 'COMPARE ' + compared in (root / 'fixture.log').read_text()
     assert (state / 'keys.pb').stat().st_mode & 0o777 == 0o600
-    print('PASS enrol: locally computed eight-group fingerprint; signed approval; private key storage')
+    print('PASS enrol: locally computed eight-group fingerprint; owner-signed enrolment configuration; private key storage')
     assert b'dummy' in run('find', 'example.com').stdout
-    print('PASS signed login index')
+    print('PASS signed login configuration')
     child = root / 'login.py'
     child.write_text('import pathlib,sys\nvalue=sys.stdin.read()\nassert value=="keyring-r3-dummy-password"\np=pathlib.Path(sys.argv[1]);p.write_text(p.read_text()+"1" if p.exists() else "1")\nprint(value)\n')
     marker = root / 'signed-in'
     lease = run('lease', 'dummy', '--task', 'program', '--reason', 'Dummy program login', '--for', 'program', '--', sys.executable, str(child), str(marker)).stdout.decode().strip()
     assert run('exec', lease, '--field', 'password', '--operation', 'login').stdout == b''
     assert run('exec', lease, '--field', 'password', '--operation', 'login').stdout == b''
+    conflict = run('exec', lease, '--field', 'username', '--operation', 'login', code=1)
+    assert b'different action' in conflict.stderr and conflict.stdout == b''
     assert marker.read_text() == '1'
     assert run('release', lease).stdout == b''
     print('PASS program sign-in: echo suppressed, cross-process retry did not rerun, explicit release')
@@ -144,6 +146,8 @@ try:
         browser.wait("!!document.querySelector('#verification-code')")
         run(*password, '--operation', 'password')
         assert server.results['password_posts'] == 1
+        conflict = run(*fill, '--password', '#changed-selector', '--submit', '#sign-in', '--operation', 'password', code=1)
+        assert b'different action' in conflict.stderr and conflict.stdout == b''
         run(*fill, '--code', '#verification-code', '--submit', '#verify', '--operation', 'code')
         browser.wait("!!document.querySelector('#authenticated')")
         assert server.results['verification_accepted'] == 1
@@ -164,9 +168,17 @@ try:
         assert b'Unsigned relay instruction' not in status and b'Tampered reply' not in status
     print('PASS denial history: show only verified HUMAN reply; hide changed, unsigned and bundle-bearing replies')
     mode('automatic')
-    auto = run('lease', 'dummy', '--task', 'automatic', '--reason', 'Dummy Automatic grant', '--for', 'agent-process').stdout.decode().strip()
+    auto = run('lease', 'dummy', '--task', 'automatic', '--reason', 'Dummy Automatic login', '--for', 'agent-process').stdout.decode().strip()
     assert run('read', auto, '--field', 'password', private=True).stdout == b'keyring-r3-dummy-password'
-    print('PASS Automatic signing key with current owner grant and signed enrolment permission')
+    print('PASS Automatic signing key, login rule and machine permission in the owner-signed configuration')
+    mode('automatic-newer-configuration')
+    assert run('read', auto, '--field', 'password', private=True).stdout == b'keyring-r3-dummy-password'
+    print('PASS newer configuration preserves the existing Automatic decision')
+    for withdrawn in ('rule', 'permission', 'key'):
+        mode('automatic-' + withdrawn + '-withdrawn')
+        refused = run('read', auto, '--field', 'password', code=1)
+        assert refused.stdout == b'' and b'current configuration does not allow' in refused.stderr
+        print('PASS Automatic ' + withdrawn + ' withdrawal refuses the old decision')
     mode('rotated')
     assert run('read', lease, '--field', 'password', private=True).stdout == b'keyring-r3-dummy-password'
     print('PASS signed approver key update from pinned predecessor, new process accepts new signer')

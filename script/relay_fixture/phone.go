@@ -192,10 +192,6 @@ func (p *proof) phoneProof(binary string) {
 	defer func() { p.work.Close() }()
 	p.enrol()
 	initialKeys := p.keys
-	configuration := good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfiguration{GetConfiguration: &pb.GetConfigurationRequest{}}})).GetConfiguration()
-	require(configuration != nil, "configuration unavailable after enrolment")
-	parsedConfiguration := new(pb.Configuration)
-	must(proto.Unmarshal(configuration.Configuration, parsedConfiguration))
 	directory := filepath.Join(p.directory, "phone")
 	must(os.MkdirAll(directory, 0700))
 	certificate := identity(directory)
@@ -223,7 +219,7 @@ func (p *proof) phoneProof(binary string) {
 	deliverySigner := signingKey()
 	deliveryKey := &pb.ApproverKey{KeyId: hex.EncodeToString(relaycrypto.Hash(public(deliverySigner))), PublicKey: public(deliverySigner), Label: "Fixture Mac delivery", Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY}
 	nextBytes := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 2, Keys: []*pb.ApproverKey{p.key, pair.Key, deliveryKey},
-		RuleOwnerKeyId: p.key.KeyId, ConfigurationRevision: parsedConfiguration.Revision, ConfigurationSha256: relaycrypto.Hash(configuration.Configuration), PairingTranscriptSha256: relaycrypto.Hash(transcript)})
+		RuleOwnerKeyId: p.key.KeyId, ConfigurationRevision: p.configuration.Revision, ConfigurationSha256: relaycrypto.Hash(p.signedConfiguration.Configuration), PairingTranscriptSha256: relaycrypto.Hash(transcript)})
 	next := &pb.SignedApproverKeySet{KeySet: nextBytes, Signature: sign(p.signer, nextBytes), SignerKeyId: p.key.KeyId}
 	phone.stop()
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}})).GetPublish().Accepted, "phone addition refused")
@@ -310,16 +306,16 @@ func (p *proof) phoneProof(binary string) {
 	decision := p.deliverPhone(record, answer, deliverySigner)
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: decision}})).GetDecision().Accepted, "Mac delivery refused")
 	phone.wait("requests", id+"=approved")
-	delivery := good(p.client.call(phoneDeliveryRequest(lease.LeaseId))).GetClient().GetDelivery()
-	require(delivery.GetSealed() != nil && proto.Equal(delivery.GetSealed().Decision.PhoneDecision, answer), "delivery lost the phone signature")
-	values, _, err := receiver.OpenValues(context.Background(), lease, delivery)
+	begin := good(p.client.call(deliverRequest(lease.LeaseId, "phone-operation"))).GetClient().GetDelivery()
+	require(begin.GetSealed() != nil && proto.Equal(begin.GetSealed().Decision.PhoneDecision, answer), "delivery lost the phone signature")
+	values, _, err := receiver.OpenValues(context.Background(), lease, begin)
 	must(err)
 	require(values.Password == "fixture-password-for-relay-system-proof", "Mac delivered the wrong login")
 	values.Password = ""
 	fmt.Println("PASS real Go receiver advanced the pinned key set, verified Swift phone consent and opened the Mac's dummy login")
 
 	require(strings.Contains(phone.command("end\t"+id), "ended"), "phone remote revocation failed")
-	require(p.client.call(phoneDeliveryRequest(lease.LeaseId)).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "revoked lease delivered")
+	require(p.client.call(deliverRequest(lease.LeaseId, "after-phone-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "revoked lease delivered")
 
 	for index, reply := range []string{"", "Use the test account instead"} {
 		l := good(p.client.call(leaseRequest("deny-"+strconv.Itoa(index), "deny-task-"+strconv.Itoa(index), p.enrolled.RecipientId))).GetClient().GetLease()
@@ -399,7 +395,7 @@ func (p *proof) phoneProof(binary string) {
 	// Advance the configuration, then simulate a relay restored from stale or
 	// altered state. The real relay serves it; the production Swift phone must
 	// preserve its highest valid revision and refuse before authentication.
-	nextConfiguration := proto.Clone(parsedConfiguration).(*pb.Configuration)
+	nextConfiguration := proto.Clone(p.configuration).(*pb.Configuration)
 	nextConfiguration.Revision++
 	nextConfigurationBytes := encoded(nextConfiguration)
 	latestConfiguration := &pb.SignedConfiguration{Configuration: nextConfigurationBytes, Signature: sign(p.signer, nextConfigurationBytes), ApproverKeyId: p.key.KeyId}
@@ -413,7 +409,7 @@ func (p *proof) phoneProof(binary string) {
 	altered.Logins[0].Title = "Changed at the same revision"
 	alteredBytes := encoded(altered)
 	cases := []*pb.SignedConfiguration{
-		configuration,
+		p.signedConfiguration,
 		{Configuration: alteredBytes, Signature: sign(p.signer, alteredBytes), ApproverKeyId: p.key.KeyId},
 		{Configuration: nextConfigurationBytes, Signature: sign(phoneSigner, nextConfigurationBytes), ApproverKeyId: pair.Key.KeyId},
 		{Configuration: nextConfigurationBytes, Signature: sign(phoneSigner, nextConfigurationBytes), ApproverKeyId: p.key.KeyId},

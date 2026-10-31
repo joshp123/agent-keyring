@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +41,9 @@ func must(err error) {
 }
 
 type fixture struct {
-	site string
+	site                  string
+	configurationRevision uint64
+	lastConfiguration     []byte
 	sync.Mutex
 	directory, sealer       string
 	tlsSPKI                 []byte
@@ -49,7 +52,6 @@ type fixture struct {
 	peers                   map[string]*pb.EnrolmentRecord
 	requests                map[string][]byte
 	leases                  map[string]*pb.Lease
-	operations              map[string]*pb.OperationRecord
 }
 
 func (f *fixture) external(arguments ...string) error {
@@ -94,13 +96,44 @@ func (f *fixture) write(conn net.Conn, message *pb.RelayWireResponse) {
 func clientReply(response *pb.WireResponse) *pb.RelayWireResponse {
 	return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Client{Client: response}}
 }
-func (f *fixture) grant() *pb.SignedAutomaticGrant {
-	grant := &pb.AutomaticGrant{Domain: "agentkeyring.automatic.v1", Revision: 1, AutomaticSigningPublicKey: keyInfo("automatic", f.automatic).PublicKey, AutomaticKeyId: "automatic", LoginIds: []string{"dummy"}}
-	for _, peer := range f.peers {
-		grant.RecipientIds = append(grant.RecipientIds, peer.RecipientId)
+func (f *fixture) configuration() *pb.SignedConfiguration {
+	rule := pb.AccessRule_ACCESS_RULE_ASK
+	if strings.HasPrefix(f.mode(), "automatic") {
+		rule = pb.AccessRule_ACCESS_RULE_AUTOMATIC
 	}
-	data := encoded(grant)
-	return &pb.SignedAutomaticGrant{Grant: data, Signature: f.sign(f.signer, data), ApproverKeyId: "approver"}
+	config := &pb.Configuration{Domain: "agentkeyring.configuration.v1", Revision: 0, Logins: []*pb.Login{{LoginId: "dummy", Title: "Dummy login", Sites: []string{f.site}, Account: "dummy@example.com", Rule: rule, HasOneTimeCode: true}}, AutomaticKeyId: "automatic", AutomaticSigningPublicKey: keyInfo("automatic", f.automatic).PublicKey}
+	for _, peer := range f.peers {
+		config.Machines = append(config.Machines, &pb.EnrolledMachine{RecipientId: peer.RecipientId, MachineLabel: peer.MachineLabel, ClientLabel: peer.ClientLabel, TailscaleNodeId: peer.TailscaleNodeId, TlsPublicKey: peer.TlsPublicKey, ReceiverPublicKey: peer.ReceiverPublicKey, ReceiverKeyId: peer.ReceiverKeyId, AutomaticAllowed: true})
+	}
+	slices.SortFunc(config.Machines, func(a, b *pb.EnrolledMachine) int { return strings.Compare(a.RecipientId, b.RecipientId) })
+	switch f.mode() {
+	case "automatic-rule-withdrawn":
+		config.Logins[0].Rule = pb.AccessRule_ACCESS_RULE_ASK
+	case "automatic-permission-withdrawn":
+		for _, machine := range config.Machines {
+			machine.AutomaticAllowed = false
+		}
+	case "automatic-key-withdrawn":
+		config.AutomaticKeyId = "retired"
+		config.AutomaticSigningPublicKey = keyInfo("next", f.next).PublicKey
+	case "automatic-newer-configuration":
+		config.MirrorRefreshedUnixSeconds = 1
+	}
+	unsigned := encoded(config)
+	if !bytes.Equal(unsigned, f.lastConfiguration) {
+		f.configurationRevision++
+		f.lastConfiguration = unsigned
+	}
+	if strings.HasPrefix(f.mode(), "automatic-") && f.configurationRevision < 2 {
+		f.configurationRevision = 2
+	}
+	config.Revision = f.configurationRevision
+	data := encoded(config)
+	id, key := "approver", f.signer
+	if f.mode() == "rotated" {
+		id, key = "next", f.next
+	}
+	return &pb.SignedConfiguration{Configuration: data, Signature: f.sign(key, data), ApproverKeyId: id}
 }
 func (f *fixture) seal(record *pb.RequestRecord) *pb.SealedDelivery {
 	mode := f.mode()
@@ -137,11 +170,11 @@ func (f *fixture) seal(record *pb.RequestRecord) *pb.SealedDelivery {
 		key = f.next
 		keyID = "next"
 	}
-	if mode == "automatic" {
+	if strings.HasPrefix(mode, "automatic") {
 		key = f.automatic
 		keyID = "automatic"
 		statement.Authority = pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE
-		statement.AutomaticGrantRevision = 1
+		statement.ConfigurationRevision = 1
 	}
 	if mode == "unknown-signer" {
 		keyID = "untrusted"
@@ -205,11 +238,10 @@ func (f *fixture) serve(conn net.Conn) {
 		fmt.Println("COMPARE", relaycrypto.Fingerprint(relaycrypto.EnrolTranscript(f.tlsSPKI, req.TlsPublicKey, req.ReceiverPublicKey, f.sets[0].KeySet)))
 		pending := &pb.RelayWireResponse{Response: &pb.RelayWireResponse_EnrolStatus{EnrolStatus: &pb.EnrolStatus{State: pb.EnrolState_ENROL_STATE_PENDING, ApproverKeySet: f.sets[0]}}}
 		must(authority.WriteFrame(conn, pending))
-		statement := encoded(&pb.EnrolmentStatement{Domain: "agentkeyring.enrolment.v1", EnrolmentDigest: relaycrypto.Digest("agentkeyring.enrolment.v1", encoded(record)), Choice: pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE, AutomaticAllowed: true, DecidedUnixSeconds: time.Now().Unix()})
 		f.peers[record.RecipientId] = record
-		status := &pb.EnrolStatus{State: pb.EnrolState_ENROL_STATE_APPROVED, ApproverKeySet: f.sets[0], RecipientId: record.RecipientId, EnrolmentRecord: encoded(record), Decision: &pb.SignedEnrolmentDecision{Statement: statement, Signature: f.sign(f.signer, statement), ApproverKeyId: "approver"}}
+		status := &pb.EnrolStatus{State: pb.EnrolState_ENROL_STATE_APPROVED, ApproverKeySet: f.sets[0], RecipientId: record.RecipientId, Configuration: f.configuration()}
 		if f.mode() == "unsigned-enrol" {
-			status.Decision = nil
+			status.Configuration = nil
 		}
 		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_EnrolStatus{EnrolStatus: status}})
 	case request.GetGetApproverKeyChain() != nil:
@@ -230,11 +262,8 @@ func (f *fixture) serve(conn net.Conn) {
 			chain.KeySets = append(chain.KeySets, signed)
 		}
 		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ApproverKeyChain{ApproverKeyChain: chain}})
-	case request.GetGetAutomaticGrant() != nil:
-		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_AutomaticGrant{AutomaticGrant: f.grant()}})
-	case request.GetGetIndex() != nil:
-		index := encoded(&pb.LoginIndex{Revision: 1, Logins: []*pb.Login{{LoginId: "dummy", Title: "Dummy login", Sites: []string{f.site}, Account: "dummy@example.com", Rule: pb.AccessRule_ACCESS_RULE_ASK, HasOneTimeCode: true}}})
-		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Index{Index: &pb.SignedIndex{Index: index, ApproverKeyId: "approver", Signature: f.sign(f.signer, index)}}})
+	case request.GetGetConfiguration() != nil:
+		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Configuration{Configuration: f.configuration()}})
 	case request.GetClient() != nil:
 		r := request.GetClient()
 		var response *pb.WireResponse
@@ -243,7 +272,7 @@ func (f *fixture) serve(conn net.Conn) {
 			req := r.GetRequestLease()
 			leaseID := req.RequestId
 			if f.leases[leaseID] == nil {
-				record := &pb.RequestRecord{LeaseId: leaseID, RequestId: req.RequestId, LoginId: req.LoginId, TaskRef: req.TaskRef, Reason: req.Reason, Purpose: req.Purpose, Program: req.Program, RecipientId: req.RecipientId, Automatic: f.mode() == "automatic"}
+				record := &pb.RequestRecord{LeaseId: leaseID, RequestId: req.RequestId, LoginId: req.LoginId, TaskRef: req.TaskRef, Reason: req.Reason, Purpose: req.Purpose, Program: req.Program, RecipientId: req.RecipientId, Automatic: strings.HasPrefix(f.mode(), "automatic")}
 				f.requests[leaseID] = encoded(record)
 				f.leases[leaseID] = &pb.Lease{LeaseId: leaseID, LoginId: req.LoginId, TaskRef: req.TaskRef, Reason: req.Reason, Purpose: req.Purpose, Program: req.Program, Recipient: &pb.Recipient{RecipientId: req.RecipientId}, State: pb.LeaseState_LEASE_STATE_ACTIVE, NotAfterUnixSeconds: time.Now().Unix() + 1700}
 			}
@@ -273,36 +302,10 @@ func (f *fixture) serve(conn net.Conn) {
 			lease := f.leases[r.GetEndLease().LeaseId]
 			lease.State = pb.LeaseState_LEASE_STATE_RELEASED
 			response = &pb.WireResponse{Response: &pb.WireResponse_Lease{Lease: lease}}
-		case r.GetBeginOperation() != nil:
-			begin := r.GetBeginOperation()
-			key := begin.LeaseId + ":" + begin.RequestId
-			if previous := f.operations[key]; previous != nil {
-				response = &pb.WireResponse{Response: &pb.WireResponse_BeginOperation{BeginOperation: &pb.BeginOperationResponse{Result: &pb.BeginOperationResponse_AlreadyStarted{AlreadyStarted: previous}}}}
-			} else {
-				record := new(pb.RequestRecord)
-				must(proto.Unmarshal(f.requests[begin.LeaseId], record))
-				operation := &pb.OperationRecord{OperationId: key}
-				f.operations[key] = operation
-				response = &pb.WireResponse{Response: &pb.WireResponse_BeginOperation{BeginOperation: &pb.BeginOperationResponse{OperationId: key, Result: &pb.BeginOperationResponse_Sealed{Sealed: f.seal(record)}}}}
-			}
-		case r.GetFinishOperation() != nil:
-			finish := r.GetFinishOperation()
-			record := f.operations[finish.OperationId]
-			if finish.GetFill() != 0 {
-				record.Outcome = &pb.OperationRecord_Fill{Fill: finish.GetFill()}
-			}
-			if finish.GetProgram() != 0 {
-				record.Outcome = &pb.OperationRecord_Program{Program: finish.GetProgram()}
-				record.ExitCode = finish.ExitCode
-			}
-			if finish.GetReadDelivered() {
-				record.Outcome = &pb.OperationRecord_ReadDelivered{ReadDelivered: true}
-			}
-			response = &pb.WireResponse{Response: &pb.WireResponse_Operation{Operation: record}}
-		case r.GetGetOperation() != nil:
-			lookup := r.GetGetOperation()
-			record := f.operations[lookup.LeaseId+":"+lookup.RequestId]
-			response = &pb.WireResponse{Response: &pb.WireResponse_GetOperation_{GetOperation_: &pb.GetOperationResponse{Operation: record}}}
+		case r.GetDeliver() != nil:
+			record := new(pb.RequestRecord)
+			must(proto.Unmarshal(f.requests[r.GetDeliver().LeaseId], record))
+			response = &pb.WireResponse{Response: &pb.WireResponse_Delivery{Delivery: &pb.Delivery{Result: &pb.Delivery_Sealed{Sealed: f.seal(record)}}}}
 		}
 		if response == nil {
 			panic(errors.New("unsupported fixture call"))
@@ -326,7 +329,7 @@ func main() {
 	must(err)
 	automatic, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	must(err)
-	f := &fixture{directory: *directory, sealer: *sealer, site: *site, signer: signer, next: next, automatic: automatic, peers: map[string]*pb.EnrolmentRecord{}, requests: map[string][]byte{}, leases: map[string]*pb.Lease{}, operations: map[string]*pb.OperationRecord{}}
+	f := &fixture{directory: *directory, sealer: *sealer, site: *site, signer: signer, next: next, automatic: automatic, peers: map[string]*pb.EnrolmentRecord{}, requests: map[string][]byte{}, leases: map[string]*pb.Lease{}}
 	for i, key := range []*ecdsa.PrivateKey{signer, next} {
 		id := "approver"
 		if i == 1 {

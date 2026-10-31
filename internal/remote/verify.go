@@ -8,7 +8,6 @@ import (
 	"crypto/hpke"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
@@ -68,53 +67,54 @@ func advanceKeys(state *clientstate.State, chain *pb.ApproverKeyChain) error {
 	}
 	return nil
 }
-func verifyGrant(state *clientstate.State, signed *pb.SignedAutomaticGrant) (*pb.AutomaticGrant, error) {
+func verifyConfiguration(state *clientstate.State, signed *pb.SignedConfiguration) (*pb.Configuration, error) {
 	set, err := keySet(state.Approvers)
 	if err != nil {
 		return nil, err
 	}
 	if signed == nil || signed.ApproverKeyId != set.RuleOwnerKeyId {
-		return nil, errors.New("The Automatic grant is not signed by the current rule owner.")
+		return nil, errors.New("The configuration is not signed by the current rule owner.")
 	}
 	key, err := relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
 	if err != nil {
 		return nil, err
 	}
-	if relaycrypto.Verify(key, signed.Grant, signed.Signature) != nil {
-		return nil, errors.New("The Automatic grant's signature is invalid.")
+	if relaycrypto.Verify(key, signed.Configuration, signed.Signature) != nil {
+		return nil, errors.New("The configuration's signature is invalid.")
 	}
-	grant := new(pb.AutomaticGrant)
-	if proto.Unmarshal(signed.Grant, grant) != nil || grant.Domain != "agentkeyring.automatic.v1" || grant.Revision == 0 {
-		return nil, errors.New("The Automatic grant is invalid.")
+	configuration := new(pb.Configuration)
+	if proto.Unmarshal(signed.Configuration, configuration) != nil || configuration.Domain != "agentkeyring.configuration.v1" || configuration.Revision == 0 {
+		return nil, errors.New("The signed configuration is invalid.")
 	}
-	delivery, err := relaycrypto.KeyForRole(set, grant.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
-	if err != nil || !bytes.Equal(delivery, grant.AutomaticSigningPublicKey) {
-		return nil, errors.New("Automatic grant must name a current Mac delivery key.")
+	if state.Configuration != nil {
+		previous := new(pb.Configuration)
+		if proto.Unmarshal(state.Configuration.Configuration, previous) != nil {
+			return nil, errors.New("The saved configuration is invalid.")
+		}
+		if configuration.Revision < previous.Revision {
+			return nil, errors.New("The relay returned an older configuration.")
+		}
+		if configuration.Revision == previous.Revision && (!bytes.Equal(signed.Configuration, state.Configuration.Configuration) || signed.ApproverKeyId != state.Configuration.ApproverKeyId) {
+			return nil, errors.New("The relay changed the configuration without advancing its revision.")
+		}
 	}
-	if _, err = relaycrypto.PublicKey(grant.AutomaticSigningPublicKey); err != nil {
-		return nil, err
-	}
-	return grant, nil
+	return configuration, nil
 }
-func acceptGrant(state *clientstate.State, signed *pb.SignedAutomaticGrant) error {
-	grant, err := verifyGrant(state, signed)
-	if err != nil {
-		return err
-	}
-	if previous := state.AutomaticGrant; previous != nil {
-		old := new(pb.AutomaticGrant)
-		if proto.Unmarshal(previous.Grant, old) != nil {
-			return errors.New("The saved Automatic grant is invalid.")
-		}
-		if grant.Revision < old.Revision {
-			return errors.New("The relay returned an older Automatic grant.")
-		}
-		if grant.Revision == old.Revision && (!bytes.Equal(signed.Grant, previous.Grant) || signed.ApproverKeyId != previous.ApproverKeyId) {
-			return errors.New("The relay changed an Automatic grant without advancing its revision.")
+func machine(configuration *pb.Configuration, recipient string) *pb.EnrolledMachine {
+	for _, enrolled := range configuration.Machines {
+		if enrolled.RecipientId == recipient {
+			return enrolled
 		}
 	}
-	state.AutomaticGrant = proto.Clone(signed).(*pb.SignedAutomaticGrant)
 	return nil
+}
+func automaticLogin(configuration *pb.Configuration, loginID string) bool {
+	for _, login := range configuration.Logins {
+		if login.LoginId == loginID {
+			return login.Rule == pb.AccessRule_ACCESS_RULE_AUTOMATIC
+		}
+	}
+	return false
 }
 func expected(state *clientstate.State, lease string) (*pb.RequestLeaseRequest, error) {
 	for _, saved := range state.Requests {
@@ -126,14 +126,6 @@ func expected(state *clientstate.State, lease string) (*pb.RequestLeaseRequest, 
 }
 func scopeMatches(request *pb.RequestLeaseRequest, record *pb.RequestRecord) bool {
 	return request.LoginId == record.LoginId && request.TaskRef == record.TaskRef && request.Purpose == record.Purpose && request.Reason == record.Reason && request.RecipientId == record.RecipientId && proto.Equal(request.Program, record.Program)
-}
-func contains(values []string, value string) bool {
-	for _, v := range values {
-		if v == value {
-			return true
-		}
-	}
-	return false
 }
 func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDelivery) (*pb.BundleContents, error) {
 	if delivery == nil || delivery.Decision == nil || delivery.Bundle == nil {
@@ -147,7 +139,7 @@ func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDeli
 		return nil, errors.New("The delivery has an invalid decision statement.")
 	}
 	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE {
-		if err := c.refreshGrant(ctx); err != nil {
+		if err := c.refreshConfiguration(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -185,8 +177,8 @@ func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDeli
 	var key []byte
 	switch statement.Authority {
 	case pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN:
-		if statement.AutomaticGrantRevision != 0 {
-			return nil, errors.New("A human decision incorrectly names an Automatic grant.")
+		if statement.ConfigurationRevision != 0 {
+			return nil, errors.New("A human decision incorrectly names a configuration revision.")
 		}
 		key, err = relaycrypto.KeyForRole(set, delivery.Decision.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
 	case pb.DecisionAuthority_DECISION_AUTHORITY_PHONE:
@@ -198,14 +190,16 @@ func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDeli
 		}
 		key, err = relaycrypto.KeyForRole(set, delivery.Decision.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
 	case pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE:
-		var grant *pb.AutomaticGrant
-		grant, err = verifyGrant(state, state.AutomaticGrant)
+		var configuration *pb.Configuration
+		configuration, err = verifyConfiguration(state, state.Configuration)
 		if err == nil {
-			if !state.AutomaticAllowed || !record.Automatic || grant.Revision != statement.AutomaticGrantRevision || grant.AutomaticKeyId != delivery.Decision.ApproverKeyId || !contains(grant.LoginIds, record.LoginId) || !contains(grant.RecipientIds, state.RecipientId) {
-				return nil, errors.New("The Automatic grant does not approve this login for this machine.")
+			enrolled := machine(configuration, state.RecipientId)
+			if statement.ConfigurationRevision == 0 || configuration.Revision < statement.ConfigurationRevision || !record.Automatic || configuration.AutomaticKeyId != delivery.Decision.ApproverKeyId || !automaticLogin(configuration, record.LoginId) || enrolled == nil || !enrolled.AutomaticAllowed || enrolled.ReceiverKeyId != state.ReceiverKeyId {
+				return nil, errors.New("The current configuration does not allow this Automatic login for this machine.")
 			}
-			key = grant.AutomaticSigningPublicKey
+			key = configuration.AutomaticSigningPublicKey
 		}
+
 	default:
 		return nil, errors.New("The delivery has no recognised approval authority.")
 	}
@@ -274,7 +268,7 @@ func clearBundle(bundle *pb.BundleContents) {
 		code.Code = ""
 	}
 }
-func (c *Client) OpenValues(ctx context.Context, lease *pb.Lease, response *pb.BeginOperationResponse) (*pb.CredentialValues, []string, error) {
+func (c *Client) OpenValues(ctx context.Context, lease *pb.Lease, response *pb.Delivery) (*pb.CredentialValues, []string, error) {
 	bundle, err := c.open(ctx, lease.LeaseId, response.GetSealed())
 	if err != nil {
 		return nil, nil, err
@@ -291,40 +285,6 @@ func (c *Client) OpenValues(ctx context.Context, lease *pb.Lease, response *pb.B
 		}
 	}
 	return values, bundle.Sites, nil
-}
-func verifyIndex(state *clientstate.State, signed *pb.SignedIndex) (*pb.LoginIndex, error) {
-	set, err := keySet(state.Approvers)
-	if err != nil {
-		return nil, err
-	}
-	if signed == nil || signed.ApproverKeyId != set.RuleOwnerKeyId {
-		return nil, errors.New("The login index is not signed by the current rule owner.")
-	}
-	key, err := relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
-	if err != nil {
-		return nil, err
-	}
-	if relaycrypto.Verify(key, signed.Index, signed.Signature) != nil {
-		return nil, errors.New("The login index's signature is invalid.")
-	}
-	index := new(pb.LoginIndex)
-	if proto.Unmarshal(signed.Index, index) != nil || index.Revision == 0 {
-		return nil, errors.New("The signed login index is invalid.")
-	}
-	if state.Index != nil {
-		previous := new(pb.LoginIndex)
-		if proto.Unmarshal(state.Index.Index, previous) != nil {
-			return nil, errors.New("The saved login index is invalid.")
-		}
-		if index.Revision < previous.Revision {
-			return nil, errors.New("The relay returned an older login index.")
-		}
-		if index.Revision == previous.Revision && (!bytes.Equal(signed.Index, state.Index.Index) || signed.ApproverKeyId != state.Index.ApproverKeyId) {
-			return nil, fmt.Errorf("The relay changed the login index without advancing its revision.")
-		}
-	}
-	state.Index = proto.Clone(signed).(*pb.SignedIndex)
-	return index, nil
 }
 
 // An invalid or missing denial signature grants nothing and shows no reply.
@@ -346,7 +306,7 @@ func denialReply(state *clientstate.State, lease *pb.Lease) string {
 	if err != nil {
 		return ""
 	}
-	if statement.Domain != "agentkeyring.decision.v1" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || (statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN && statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_PHONE) || statement.AutomaticGrantRevision != 0 || len(statement.BundleCiphertextSha256) != 0 {
+	if statement.Domain != "agentkeyring.decision.v1" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || (statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN && statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_PHONE) || statement.ConfigurationRevision != 0 || len(statement.BundleCiphertextSha256) != 0 {
 		return ""
 	}
 	if statement.LeaseId != lease.LeaseId || record.LeaseId != lease.LeaseId || statement.RecipientId != state.RecipientId || statement.ReceiverKeyId != state.ReceiverKeyId || !scopeMatches(scope, record) {
