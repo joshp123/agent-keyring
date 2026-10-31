@@ -5,6 +5,7 @@ let package = Package(
     name: "AgentKeyringFeature",
     platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
+        .executable(name: "agent-keyring-phone-fixture", targets: ["AgentKeyringPhoneFixture"]),
         .library(name: "AgentKeyringRelaySupport", targets: ["AgentKeyringRelaySupport"]),
         .library(name: "AgentKeyringPhoneApprover", targets: ["AgentKeyringPhoneApprover"]),
         .library(name: "AgentKeyringPhoneVault", targets: ["AgentKeyringPhoneVault"]),
@@ -22,6 +23,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-protobuf.git", exact: "1.38.1")
     ],
     targets: [
+        .executableTarget(name: "AgentKeyringPhoneFixture", dependencies: ["AgentKeyringPhoneApprover"], path: "Tools/AgentKeyringPhoneFixture"),
         .target(name: "AgentKeyringRelaySupport", dependencies: ["AgentKeyringProtocol", "AgentKeyringCredentialImport"]),
         .target(name: "AgentKeyringPhoneApprover", dependencies: ["AgentKeyringRelaySupport", "AgentKeyringPhoneVault", "AgentKeyringApprovalUI"]),
         .target(name: "AgentKeyringPhoneVault", dependencies: ["AgentKeyringCredentialImport", "AgentKeyringProtocol"]),
