@@ -40,7 +40,7 @@ never poll and never build a lease.
 | `MacApprovalBackend` | `updates(requestID:)`: one request until it is final | `approve`, `deny(reply:)`, `embeddedTouchIDContext` |
 | `MacMenuBarBackend` | `updates()`: all requests plus the import count and date | `endAccess`, `allowAskingAgain` |
 | `LoginRulesBackend` | `updates()`: logins with rules, plus a pending confirmation | `setRule`, `confirmRules` |
-| `PhoneKeyringBackend` | `updates()`: requests, passwords, connection, settings | `approve`, `deny`, `endAccess`, `allowAskingAgain`, `openPasswordsForImport`, `setAskPhoneAfter`, `dictation` |
+| `PhoneKeyringBackend` | `updates()`: requests, connection, pairing; passwords only in the later MacBook-shut step | `approve`, `deny(reply:)`, `endAccess`, `allowAskingAgain`, `pair`; `openPasswordsForImport` only in the later step |
 
 `embeddedTouchIDContext` returns the `LAContext` that `approve` will evaluate.
 The panel shows it with `LAAuthenticationView`, starts the evaluation as it
@@ -98,7 +98,9 @@ which of his agents is asking; the claim block says where it came from.
 ## Rules carried over from the designs and Josh's steering
 
 - Site is the headline; Deny and Approve are equal size, red and green; reply
-  is a kind of denial, with dictation.
+  is a kind of denial. The reply box is an ordinary text field: the iOS
+  keyboard's own dictation covers speaking, so there is no custom microphone
+  button and no microphone or speech permission.
 - No risk badges, warning flags or verified-agent marks.
 - The Mac panel never takes keyboard focus by itself, so typing elsewhere cannot
   answer it. Unproved: whether Touch ID can run from a non-activating panel
@@ -108,8 +110,13 @@ which of his agents is asking; the claim block says where it came from.
   assumed one: Sending until the authority acknowledges, then Approved, Denied,
   Unanswered or a transport failure. An accepted resend is already sent; a
   request answered elsewhere or expired must not invite another approval.
-- Keep the configurable phone escalation delay and show its real pending state
-  to the agent. A quick answer at the Mac cancels the phone notification.
+- The phone delay ("Ask iPhone after", 30 seconds to 10 minutes, default 2
+  minutes) is a Mac setting, because the Mac decides when to ask the phone
+  (RFC 0006). The phone's Settings screen shows it but does not change it.
+  A locked Mac asks the phone at once. A quick answer at the Mac means no
+  phone notification. The agent sees the real pending state.
+- The phone screens work with no passwords on the phone. The import screen
+  belongs to the later MacBook-shut step and must not block approving.
 - 24-hour times. Interrupt Josh only when his answer is needed.
 
 ## Build slices
@@ -120,14 +127,15 @@ which of his agents is asking; the claim block says where it came from.
 | U2 | Opus | `MacApprovalBackend` over the release 2 lease store and Touch ID; panel supplies context while macOS performs biometric authorization | Built (`LeaseApprovalBackend`, `LeaseApprovalPresenter`); proof is the MacBook check below |
 | U3 | Opus | `MacMenuBarBackend` and `LoginRulesBackend` | Built (`LeaseMenuBarBackend`, `AccessRulesBackend`, `RulesWindow`); proof is the same check, plus the Mac UI tests |
 | U4 | Opus | Remote request and enrolment states on the Mac (release 3) | Built over `RelayApprover`; proof is the release 3 MacBook check below |
-| U5 | Opus | `PhoneKeyringBackend` over the phone vault and relay (release 4), Lock Screen notification | Every designed phone state renders from real requests |
+| U5 | Opus | `PhoneKeyringBackend` over the relay (release 4): pairing, waiting requests, answer, outcome, in use; opens on Home, not on the import screen; reply box without the custom microphone | Every designed state renders from real requests, with no passwords on the phone |
 
 ## Human proofs
 
 - **Device: MacBook, Josh present.** Approve with one touch while typing in
   another app; nothing typed reaches the panel; a failed touch shares nothing.
-- **Device: iPhone.** One Face ID approves; Deny and reply with dictation
-  reaches the agent; an unreachable relay shows the retrying banner.
+- **Device: iPhone.** One Face ID approves; Deny with a reply spoken through
+  the keyboard's dictation reaches the agent; an unreachable relay shows the
+  retrying banner.
 - **Rendered check.** Screenshots of every state from the real views, light and
   dark, after U2 and U5. Josh reviews those, not mocks.
 

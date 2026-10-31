@@ -56,6 +56,12 @@ service Approvals {
   // delivery is made. It grants nothing, so it needs no signature; accepted
   // only from a pinned approver connection.
   rpc RevokeLease(LeaseReference) returns (Lease);
+  // MacBook to relay: wake the iPhone for this request (RFC 0006).
+  rpc EscalateToPhone(PhoneEscalation) returns (PublishAck);
+  // iPhone to relay: Josh's signed answer, forwarded to the MacBook as
+  // ApproverWork.phone_decision. The relay stores it until the MacBook
+  // acknowledges by delivering or denying; an exact resend is acknowledged.
+  rpc AnswerFromPhone(SignedPhoneDecision) returns (DecisionAck);
 }
 
 // Served by the relay to a machine that is not yet enrolled. Reachable only
@@ -93,6 +99,7 @@ message ApproverWork {
     // A remote lease's current state: every pending or active lease in the
     // backlog, then each change, so approvers can show what is in use.
     Lease lease = 5;
+    SignedPhoneDecision phone_decision = 6;  // To the MacBook only.
   }
 }
 
@@ -217,6 +224,27 @@ message ApproverKey {
   bytes public_key = 2;          // P-256 X9.63, signing.
   string label = 3;              // "Josh's MacBook Pro", "Josh's iPhone".
   bytes tls_public_key = 4;      // SPKI DER; authenticated alongside signing key.
+  // Key sets published before this field existed contain only MAC keys.
+  ApproverRole role = 5;
+}
+
+enum ApproverRole {
+  APPROVER_ROLE_UNSPECIFIED = 0;
+  APPROVER_ROLE_MAC = 1;          // MacBook, Touch ID on every signature.
+  APPROVER_ROLE_PHONE = 2;        // iPhone, Face ID on every signature.
+  // MacBook key with no biometric check, usable while the Mac is awake, even
+  // with the screen locked. Signs only AUTOMATIC_RULE decisions under a grant
+  // and PHONE decisions carrying a valid phone decision. Never HUMAN.
+  APPROVER_ROLE_MAC_DELIVERY = 3;
+}
+
+// The MacBook asks the relay to wake the iPhone for a request it has not
+// answered: after Josh's delay, or at once if the Mac's screen is locked.
+// For a remote lease the relay already has the record; for a request from an
+// agent on the MacBook itself, `record` carries the RequestRecord bytes.
+message PhoneEscalation {
+  string lease_id = 1;
+  bytes record = 2;
 }
 
 // Receivers accept a new approver key set only if a currently pinned key
@@ -425,9 +453,8 @@ message PushRegistration {
   string approver_key_id = 1;
   bytes apns_device_token = 2;
   bool apns_production = 3;      // Must match how the app was signed.
-  // Persisted preference, strictly below the ten-minute pending deadline.
-  // Absence preserves the existing setting; new setups default to 120 seconds.
-  // Zero explicitly requests immediate notification.
+  // Unused from release 4: the MacBook runs the delay before escalating
+  // (RFC 0006). Kept so the field number is not reused.
   optional uint32 escalation_delay_seconds = 4;
 }
 
@@ -465,6 +492,8 @@ message RelayWireRequest {
     GetAutomaticKeysRequest get_automatic_keys = 20;
     ClearDenialRequest clear_denial = 21;
     LeaseReference revoke_lease = 22;
+    PhoneEscalation escalate_to_phone = 23;
+    SignedPhoneDecision answer_from_phone = 24;
   }
 }
 

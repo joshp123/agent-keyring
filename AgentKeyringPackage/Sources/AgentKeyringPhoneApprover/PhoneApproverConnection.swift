@@ -55,6 +55,7 @@ extension PhoneRelayApprover {
                         case let .cancelledRequestDigestHex(id): try self.cancelRequest(id)
                         case let .lease(lease): try self.receiveLease(lease)
                         case .pairing, .enrolment: break // The Mac owns enrolment during release 4 development.
+                        case .phoneDecision: break // Sent only to the MacBook (RFC 0006).
                         case nil: throw RelayFailure(.invalidArgument, "The relay sent empty work.")
                         }
                         if response.endOfStream { throw RelayFailure(.unavailable, "The relay ended the work stream.") }
