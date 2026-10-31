@@ -14,12 +14,14 @@ import (
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
+	"github.com/joshp123/agent-keyring/internal/apns"
 	"github.com/joshp123/agent-keyring/internal/authority"
 	"github.com/joshp123/agent-keyring/internal/relaycrypto"
 	"google.golang.org/protobuf/proto"
 )
 
 type Server struct {
+	Push        *apns.Sender
 	Store       *Store
 	Certificate tls.Certificate
 	Lookup      NodeLookup
@@ -41,6 +43,10 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	stop := context.AfterFunc(ctx, func() { listener.Close() })
 	defer stop()
 	var active sync.WaitGroup
+	if s.Push != nil {
+		active.Add(1)
+		go func() { defer active.Done(); s.sendPushes(ctx) }()
+	}
 	defer active.Wait()
 	for {
 		conn, err := listener.Accept()

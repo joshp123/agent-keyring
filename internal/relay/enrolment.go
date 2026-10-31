@@ -214,6 +214,9 @@ func (s *Server) confirm(tx *sql.Tx, p peer, r *pb.SignedPairingConfirmation) (*
 	if err := relaycrypto.Verify(pair.Key.PublicKey, initial.KeySet, initial.Signature); err != nil {
 		return nil, denied("Invalid key-set signature.")
 	}
+	if err := relaycrypto.ValidateRoles(keys, keys.RuleOwnerKeyId); err != nil {
+		return nil, denied(err.Error())
+	}
 	if err := put(tx, "current", "keys", initial); err != nil {
 		return nil, err
 	}

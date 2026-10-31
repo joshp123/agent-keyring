@@ -75,14 +75,14 @@ func (f *fixture) sign(key *ecdsa.PrivateKey, statement []byte) []byte {
 	return signature
 }
 func keyInfo(id string, key *ecdsa.PrivateKey) *pb.ApproverKey {
-	return &pb.ApproverKey{KeyId: id, PublicKey: elliptic.Marshal(elliptic.P256(), key.X, key.Y)}
+	return &pb.ApproverKey{Role: pb.ApproverRole_APPROVER_ROLE_MAC, KeyId: id, PublicKey: elliptic.Marshal(elliptic.P256(), key.X, key.Y)}
 }
 func (f *fixture) mode() string {
 	data, _ := os.ReadFile(filepath.Join(f.directory, "mode"))
 	return strings.TrimSpace(string(data))
 }
 func (f *fixture) currentSet() *pb.SignedApproverKeySet {
-	if f.mode() == "rotated" || f.mode() == "bad-chain" {
+	if f.mode() == "rotated" || f.mode() == "bad-chain" || f.mode() == "phone-chain" || f.mode() == "delivery-chain" {
 		return f.sets[1]
 	}
 	return f.sets[0]
@@ -219,6 +219,14 @@ func (f *fixture) serve(conn net.Conn) {
 			if f.mode() == "bad-chain" {
 				signed.Signature[0] ^= 1
 			}
+			if f.mode() == "phone-chain" {
+				signed.SignerKeyId = "phone"
+				signed.Signature = f.sign(f.next, signed.KeySet)
+			}
+			if f.mode() == "delivery-chain" {
+				signed.SignerKeyId = "automatic"
+				signed.Signature = f.sign(f.automatic, signed.KeySet)
+			}
 			chain.KeySets = append(chain.KeySets, signed)
 		}
 		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ApproverKeyChain{ApproverKeyChain: chain}})
@@ -324,7 +332,7 @@ func main() {
 		if i == 1 {
 			id = "next"
 		}
-		set := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: uint64(i + 1), Keys: []*pb.ApproverKey{keyInfo(id, key)}, RuleOwnerKeyId: id})
+		set := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: uint64(i + 1), Keys: []*pb.ApproverKey{keyInfo(id, key), {KeyId: "phone", PublicKey: keyInfo("phone", next).PublicKey, Role: pb.ApproverRole_APPROVER_ROLE_PHONE}, {KeyId: "automatic", PublicKey: keyInfo("automatic", automatic).PublicKey, Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY}}, RuleOwnerKeyId: id})
 		f.sets = append(f.sets, &pb.SignedApproverKeySet{KeySet: set, SignerKeyId: "approver", Signature: f.sign(signer, set)})
 	}
 	cert, key, err := relaycrypto.NewIdentity("dummy relay")

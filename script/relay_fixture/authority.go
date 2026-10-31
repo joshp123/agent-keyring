@@ -29,6 +29,13 @@ func (p *proof) automaticDecision(record []byte, key *ecdsa.PrivateKey, revision
 func (p *proof) delegationProof() {
 	automatic := signingKey()
 	firstClient := p.client
+	keys := new(pb.ApproverKeySet)
+	must(proto.Unmarshal(p.keys.KeySet, keys))
+	keys.Revision++
+	keys.Keys = append(keys.Keys, &pb.ApproverKey{KeyId: "fixture-automatic", PublicKey: public(automatic), Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY})
+	raw := encoded(keys)
+	p.keys = &pb.SignedApproverKeySet{KeySet: raw, Signature: sign(p.signer, raw), SignerKeyId: p.key.KeyId}
+	good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: p.keys}}))
 	p.publishIndex(pb.AccessRule_ACCESS_RULE_AUTOMATIC)
 	p.grant(automatic, 1, []string{p.enrolled.RecipientId})
 	refused := good(p.client.call(leaseRequest("auto-refused", "task-auto-refused", p.enrolled.RecipientId))).GetClient().GetLease()
@@ -56,17 +63,17 @@ func (p *proof) delegationProof() {
 	spki, err := relaycrypto.CertificateSPKI(nextClient.certificate)
 	must(err)
 	nextSigner := signingKey()
-	nextKey := &pb.ApproverKey{KeyId: "fixture-second-approver", Label: "Fixture second approver", TlsPublicKey: spki, PublicKey: public(nextSigner)}
+	nextKey := &pb.ApproverKey{KeyId: "fixture-second-approver", Label: "Fixture second approver", Role: pb.ApproverRole_APPROVER_ROLE_MAC, TlsPublicKey: spki, PublicKey: public(nextSigner)}
 	pending := nextClient.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PairApprover{PairApprover: &pb.PairApproverRequest{Key: nextKey, TlsPublicKey: spki}}})
 	defer pending.Close()
 	require(good(receive(pending)).GetEnrolStatus().State == pb.EnrolState_ENROL_STATE_PENDING, "added approver activated without confirmation")
-	nextBytes := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 2, Keys: []*pb.ApproverKey{p.key, nextKey}, RuleOwnerKeyId: p.key.KeyId, EnrolmentSetRevision: 1, EnrolmentSetSha256: relaycrypto.Hash(rosterBytes), PairingTranscriptSha256: relaycrypto.Hash(relaycrypto.PairTranscript(p.approver.pin, spki, nextKey.PublicKey, p.keys.KeySet))})
+	nextBytes := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 3, Keys: []*pb.ApproverKey{p.key, nextKey, keys.Keys[1]}, RuleOwnerKeyId: p.key.KeyId, EnrolmentSetRevision: 1, EnrolmentSetSha256: relaycrypto.Hash(rosterBytes), PairingTranscriptSha256: relaycrypto.Hash(relaycrypto.PairTranscript(p.approver.pin, spki, nextKey.PublicKey, p.keys.KeySet))})
 	next := &pb.SignedApproverKeySet{KeySet: nextBytes, Signature: sign(p.signer, nextBytes), SignerKeyId: p.key.KeyId}
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}})).GetPublish().Accepted, "added signed approver set refused")
 	require(good(receive(pending)).GetEnrolStatus().State == pb.EnrolState_ENROL_STATE_APPROVED, "pairing stream missed signed key update")
-	keys := good(p.client.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetApproverKeyChain{GetApproverKeyChain: &pb.GetApproverKeyChainRequest{FromRevision: 1}}})).GetApproverKeyChain().KeySets
-	require(len(keys) == 1 && proto.Equal(keys[0], next), "offline receiver could not fetch exact key chain")
-	must(relaycrypto.Verify(p.key.PublicKey, keys[0].KeySet, keys[0].Signature))
+	chainKeys := good(p.client.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetApproverKeyChain{GetApproverKeyChain: &pb.GetApproverKeyChainRequest{FromRevision: 2}}})).GetApproverKeyChain().KeySets
+	require(len(chainKeys) == 1 && proto.Equal(chainKeys[0], next), "offline receiver could not fetch exact key chain")
+	must(relaycrypto.Verify(p.key.PublicKey, chainKeys[0].KeySet, chainKeys[0].Signature))
 	require(good(nextClient.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetIndex{GetIndex: &pb.GetIndexRequest{}}})).GetIndex() != nil, "new pinned approver cannot fetch index")
 	p.keys = next
 	fmt.Println("PASS", "signed roster revocation, second approver pairing and offline receiver key chain")

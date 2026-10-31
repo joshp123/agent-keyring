@@ -117,6 +117,8 @@ try:
         'bad-enc': 'encapsulated key',
         'bundle-login': 'opened login does not match',
         'bad-chain': 'key chain has an invalid signature',
+        'phone-chain': 'required approver role',
+        'delivery-chain': 'required approver role',
     }
     for fault, expected in failures.items():
         mode(fault)

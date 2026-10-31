@@ -420,7 +420,7 @@ func acceptEnrolment(ctx context.Context, store clientstate.Store, status *pb.En
 	if proto.Unmarshal(signed.Statement, statement) != nil || statement.Domain != "agentkeyring.enrolment.v1" || statement.Choice != pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE || !bytesEqual(statement.EnrolmentDigest, relaycrypto.Digest("agentkeyring.enrolment.v1", status.EnrolmentRecord)) {
 		return errors.New("The signed enrolment decision does not approve this machine.")
 	}
-	key, err := signingKey(set, signed.ApproverKeyId)
+	key, err := relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
 	if err != nil {
 		return err
 	}

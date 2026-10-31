@@ -46,6 +46,8 @@ func OpenStore(directory string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS pairings(id TEXT PRIMARY KEY,node TEXT NOT NULL,request BLOB NOT NULL,keyset BLOB NOT NULL,created INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS leases(id TEXT PRIMARY KEY,recipient TEXT NOT NULL,request BLOB NOT NULL,lease BLOB NOT NULL,decision BLOB,bundle BLOB);
  CREATE TABLE IF NOT EXISTS aliases(recipient TEXT NOT NULL,id TEXT NOT NULL,lease TEXT NOT NULL,request BLOB NOT NULL,PRIMARY KEY(recipient,id));
+ CREATE TABLE IF NOT EXISTS phone_escalations(lease TEXT PRIMARY KEY,owner TEXT NOT NULL,record BLOB NOT NULL,local_lease BLOB,answer BLOB);
+ CREATE TABLE IF NOT EXISTS push_attempts(lease TEXT NOT NULL,phone TEXT NOT NULL,sent INTEGER NOT NULL DEFAULT 0,retry_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(lease,phone));
  CREATE TABLE IF NOT EXISTS operations(lease TEXT NOT NULL,retry TEXT NOT NULL,request BLOB NOT NULL,record BLOB NOT NULL,PRIMARY KEY(lease,retry));`)
 	if err != nil {
 		db.Close()

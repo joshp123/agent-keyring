@@ -450,7 +450,7 @@ func attachSignedDenial(tx *sql.Tx, lease *pb.Lease) error {
 	if err := proto.Unmarshal(decision.Statement, statement); err != nil {
 		return err
 	}
-	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN && statement.Choice == pb.DecisionChoice_DECISION_CHOICE_DENY && decision.Reply != "" {
+	if (statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN || statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_PHONE) && statement.Choice == pb.DecisionChoice_DECISION_CHOICE_DENY && decision.Reply != "" {
 		decision.Bundle = nil
 		lease.SignedDenial = &pb.SealedDelivery{Decision: decision, RequestRecord: record}
 	}
