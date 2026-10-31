@@ -161,7 +161,10 @@ public final class AccessRulesBackend: LoginRulesBackend {
 
     public func confirmRules() async throws {
         await controller.confirmRules()
-        if controller.needsConfirmation { throw RulesFailure(message: controller.errorMessage ?? "Touch ID didn't confirm.") }
+        // Done only when neither this Mac's rules nor the relay's copy waits for Josh.
+        if controller.needsConfirmation || controller.needsRelayPublicationConfirmation {
+            throw RulesFailure(message: controller.errorMessage ?? "Touch ID didn't confirm.")
+        }
     }
 
     private func confirmation(_ rows: [LoginRuleRow]) -> RulesConfirmation? {
