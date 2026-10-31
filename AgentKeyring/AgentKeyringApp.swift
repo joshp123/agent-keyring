@@ -229,8 +229,8 @@ struct AgentKeyringApp: App {
             }
         }
 
-        Window("Access Rules", id: "access") {
-            AccessControlView(controller: appDelegate.model.accessControl)
+        Window("Rules", id: "access") {
+            RulesWindow(model: appDelegate.model)
                 .task { await appDelegate.loadAccessRules() }
         }
         .windowResizability(.contentSize)
