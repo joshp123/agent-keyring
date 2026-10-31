@@ -427,7 +427,7 @@ func (s *Server) publishConfiguration(tx *sql.Tx, publication *pb.ConfigurationP
 	if proto.Unmarshal(r.Configuration, next) != nil || next.Domain != "agentkeyring.configuration.v1" || next.Revision == 0 {
 		return invalid("Invalid configuration.")
 	}
-	if len(publication.AutomaticLogins) != 0 || len(next.SealedAutomaticLoginSha256) != 0 || len(next.RelayEncryptionPublicKey) != 0 {
+	if len(next.RelayEncryptionPublicKey) != 0 {
 		return invalid("Relay-held Automatic logins are not available in this release.")
 	}
 	oldSigned, old, err := configuration(tx)

@@ -30,15 +30,18 @@ service Approvals {
   // The relay commits it and revokes affected leases in one transaction
   // (RFC 0005, "Configuration"). An exact resend is acknowledged.
   rpc PublishConfiguration(ConfigurationPublication) returns (PublishAck);
+  // RFC 0008: a full replacement of the destination's login copy, signed by
+  // the background MAC_DELIVERY key. Password-only refreshes need no Touch ID.
+  rpc PublishCopyUpdate(SignedCopyUpdate) returns (PublishAck);
   // Josh pressed "Doesn't match" or dismissed a pending enrolment. Grants
   // nothing, so unsigned; accepted only from a pinned approver connection.
   rpc DismissEnrolment(DismissEnrolmentRequest) returns (PublishAck);
   rpc RegisterPush(PushRegistration) returns (PublishAck);
   // A pinned approver adds or removes approvers (release 4 adds the iPhone).
   rpc PublishApproverKeys(SignedApproverKeySet) returns (PublishAck);
-  // Later MacBook-shut step. Public keys only, over the pinned relay
-  // connection. A configuration naming them delegates Automatic approval;
-  // fetching them grants no authority.
+  // Public keys only, also available before pairing. Fetch over the same
+  // observed/pinned relay identity used for the pairing comparison. A signed
+  // configuration naming these keys delegates Automatic approval.
   rpc GetAutomaticKeys(GetAutomaticKeysRequest) returns (AutomaticKeys);
   // Lets a recipient ask again for a login before a denial's 30-minute
   // suppression ends (RFC 0004). It grants nothing by itself, so it needs no
@@ -170,6 +173,9 @@ message EnrolStatus {
   // machine with exactly this client's keys, signed by the rule owner in field 6.
   SignedConfiguration configuration = 7;
   reserved 8;
+  // PairApprover: public relay keys over the very same TLS connection whose
+  // SPKI the pairing transcript authenticates. Available before confirmation.
+  AutomaticKeys automatic_keys = 9;
 }
 
 enum EnrolState {
@@ -221,7 +227,8 @@ enum ApproverRole {
   APPROVER_ROLE_PHONE = 2;        // iPhone, Face ID on every signature.
   // MacBook key with no biometric check, usable while the Mac is awake, even
   // with the screen locked. Signs only AUTOMATIC_RULE decisions under the configuration
-  // and PHONE decisions carrying a valid phone decision. Never HUMAN.
+  // and PHONE decisions carrying a valid phone decision, and login copy updates
+  // within the current configuration (RFC 0008). Never HUMAN.
   APPROVER_ROLE_MAC_DELIVERY = 3;
 }
 
@@ -348,24 +355,39 @@ message Configuration {
   int64 mirror_refreshed_unix_seconds = 5;
   repeated EnrolledMachine machines = 6;
   // The key that may sign AUTOMATIC_RULE decisions, only for logins whose rule
-  // is AUTOMATIC and machines with automatic_allowed. The MacBook's delivery
-  // key until the later MacBook-shut step moves it to the relay.
+  // is AUTOMATIC and machines with automatic_allowed. The relay's key for
+  // unattended remote delivery; the Mac delivery key for older configurations.
   bytes automatic_signing_public_key = 7;
   string automatic_key_id = 8;
-  // Later MacBook-shut step only: the relay's encryption key and one hash per
-  // sealed Automatic login in ConfigurationPublication, in that order. Hash the
-  // concatenation of login_id UTF-8, encapsulated_key, ciphertext and
-  // receiver_key_id UTF-8, each with a uint32 big-endian length prefix.
+  // Relay's HPKE encryption public key, obtained through GetAutomaticKeys.
   bytes relay_encryption_public_key = 9;
-  repeated bytes sealed_automatic_login_sha256 = 10;
+  reserved 10; // Copies now have their own background signature and revision.
 }
 
-// What PublishConfiguration carries: the signed configuration and, only in the
-// later MacBook-shut step, the Automatic logins sealed to the relay. One
-// message, so the relay never holds one without the other.
+// Configuration and copy updates are distinct: only a policy change needs
+// Josh's biometric check. Committing a configuration atomically prunes copies
+// and revokes leases no longer allowed, before acknowledging the publication.
 message ConfigurationPublication {
   SignedConfiguration configuration = 1;
-  repeated SealedAutomaticLogin automatic_logins = 2;
+  reserved 2;
+}
+
+message SignedCopyUpdate {
+  bytes update = 1;              // Exact serialized CopyUpdate bytes.
+  bytes signature = 2;           // ECDSA P-256 / SHA-256 DER, over update.
+  string signer_key_id = 3;       // A current MAC_DELIVERY key.
+}
+
+// Full replacement, including an empty list to clear the destination's copy.
+// Revision increases per destination across configuration revisions. An exact
+// same-revision resend is acknowledged while its configuration is current;
+// different bytes at the same revision and all older revisions are refused.
+message CopyUpdate {
+  string domain = 1;             // "agentkeyring.copy-update.v1".
+  string destination_key_id = 2;  // AutomaticKeys.encryption_key_id for the mini.
+  uint64 configuration_revision = 3;
+  uint64 revision = 4;
+  repeated SealedAutomaticLogin logins = 5;
 }
 
 message GetAutomaticKeysRequest {}
@@ -389,8 +411,10 @@ message LoginSource {
 
 message SealedAutomaticLogin {
   string login_id = 1;
-  // Same HPKE suite as SealedBundle; info = "agentkeyring.automatic-login.v1";
-  // aad = uint64 big-endian Configuration.revision || login_id UTF-8.
+  // Same HPKE suite as SealedBundle; info = "agentkeyring.login-copy.v1".
+  // AAD = uint32 BE byte-length of destination_key_id UTF-8 || destination_key_id
+  // UTF-8 || uint64 BE configuration_revision || uint64 BE revision || login_id
+  // UTF-8. SealedBundle.receiver_key_id equals destination_key_id.
   // Plaintext: AutomaticLoginContents, whose login_id must match this one.
   SealedBundle sealed = 2;
 }
@@ -453,6 +477,7 @@ message RelayWireRequest {
     PhoneEscalation escalate_to_phone = 23;
     SignedPhoneDecision answer_from_phone = 24;
     LocalPhoneLeaseUpdate update_local_phone_lease = 25;
+    SignedCopyUpdate publish_copy_update = 26;
   }
   reserved 10, 15, 16, 17, 18, 19;
 }
