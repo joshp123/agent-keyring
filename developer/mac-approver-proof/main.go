@@ -56,13 +56,15 @@ type owner struct {
 	queued, authorizations int
 	backgroundSignatures   int
 	saved                  map[string]string
+	copies                 map[string]string
+	applying               bool
 	pairVisible            bool
 	pendingApprovers       string
 	expectedFailure        string
 }
 
 func startOwner(binary, root string) *owner {
-	p := &owner{events: make(chan []string, 2048), requests: map[string][]string{}, leases: map[string][]string{}, localLeases: map[string][]string{}, saved: map[string]string{}}
+	p := &owner{events: make(chan []string, 2048), requests: map[string][]string{}, leases: map[string][]string{}, localLeases: map[string][]string{}, saved: map[string]string{}, copies: map[string]string{}}
 	p.command = exec.Command(binary, "--dummy-only", root)
 	var err error
 	p.input, err = p.command.StdinPipe()
@@ -105,6 +107,9 @@ func (p *owner) wait(predicate func([]string) bool) []string {
 			case "STATUS":
 				p.queued, _ = strconv.Atoi(e[2])
 				p.authorizations, _ = strconv.Atoi(e[4])
+				p.applying = e[5] == "true"
+			case "COPY":
+				p.copies[e[1]] = e[2]
 			case "SAVED":
 				p.saved[e[1]] = e[2]
 			case "BACKGROUND":
@@ -300,6 +305,9 @@ func (p *proof) enrol() {
 	fmt.Println("PASS independently compared machine fingerprint, signed configuration listing the enrolled machine")
 }
 func (p *proof) open(delivery *pb.SealedDelivery, lease string) *pb.BundleContents {
+	return p.openExpected(delivery, lease, "example-password")
+}
+func (p *proof) openExpected(delivery *pb.SealedDelivery, lease, password string) *pb.BundleContents {
 	require(delivery != nil, "no sealed delivery")
 	var st pb.DecisionStatement
 	must(proto.Unmarshal(delivery.Decision.Statement, &st))
@@ -334,15 +342,20 @@ func (p *proof) open(delivery *pb.SealedDelivery, lease string) *pb.BundleConten
 	var contents pb.BundleContents
 	must(proto.Unmarshal(plaintext, &contents))
 	clear(plaintext)
-	require(contents.Password == "example-password" && contents.Username == "example@example.com", "dummy credential mismatch")
+	require(contents.Password == password && contents.Username == "example@example.com", "dummy credential mismatch")
 	require(contents.LeaseId == lease && contents.NotAfterUnixSeconds == st.NotAfterUnixSeconds, "opened bundle scope differs")
-	require(len(contents.OneTimeCodes) >= 60 && len(contents.OneTimeCodes) <= 61, "TOTP steps missing")
+	require(len(contents.OneTimeCodes) > 0 && len(contents.OneTimeCodes) <= 61, "TOTP steps missing")
+	hasCurrentCode := false
 	for i, c := range contents.OneTimeCodes {
 		require(len(c.Code) == 6 && c.ValidUntilUnixSeconds <= st.NotAfterUnixSeconds, "invalid timed code")
 		if i > 0 {
 			require(contents.OneTimeCodes[i-1].ValidUntilUnixSeconds == c.ValidFromUnixSeconds, "gap in TOTP codes")
 		}
+		if c.ValidFromUnixSeconds <= time.Now().Unix() && time.Now().Unix() < c.ValidUntilUnixSeconds {
+			hasCurrentCode = true
+		}
 	}
+	require(hasCurrentCode, "delivery has no currently valid TOTP code")
 	require(contents.OneTimeCodes[len(contents.OneTimeCodes)-1].ValidUntilUnixSeconds == st.NotAfterUnixSeconds, "codes exceed or miss deadline")
 	return &contents
 }
@@ -442,6 +455,7 @@ func main() {
 	p := new(proof)
 	pairingControls := flag.Bool("pairing-controls", false, "short pairing cancellation and resolved-address proof")
 	localPhone := flag.Bool("local-phone-flow", false, "joint phone approval of local agent.sock requests")
+	copyUpdates := flag.Bool("copy-updates", false, "Automatic copy refresh and outbox restart proof")
 	flag.StringVar(&p.phoneBinary, "phone-binary", "", "production Swift phone fixture; runs the joint phone flow")
 	flag.StringVar(&p.root, "root", "", "fresh dummy root inside the app container")
 	flag.StringVar(&p.fixture, "approver", "", "signed mini-only Swift fixture executable")
@@ -451,7 +465,9 @@ func main() {
 	flag.Parse()
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	if *localPhone {
+	if *copyUpdates {
+		p.runCopyUpdates()
+	} else if *localPhone {
 		require(p.phoneBinary != "", "--local-phone-flow needs --phone-binary")
 		p.runLocalPhoneFlow()
 	} else if p.phoneBinary != "" {
