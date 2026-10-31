@@ -423,7 +423,7 @@ func main() {
 		return
 	}
 	p := &proof{address: *address, directory: *directory, relayBinary: *relayBinary}
-	if *mode == "proof" || *mode == "phone" || *mode == "phone-approval" || *mode == "idle" {
+	if *mode == "proof" || *mode == "phone" || *mode == "phone-approval" || *mode == "phone-copy" || *mode == "idle" {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		must(err)
 		p.address = listener.Addr().String()
@@ -443,6 +443,8 @@ func main() {
 		p.idleProof()
 	} else if *mode == "phone-approval" {
 		p.phoneApprovalProof()
+	} else if *mode == "phone-copy" {
+		p.phoneCopyProof()
 	} else if *mode == "phone" {
 		p.phoneProof(*phoneBinary)
 	} else if *mode == "tailnet" {
