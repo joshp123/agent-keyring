@@ -52,6 +52,10 @@ service Approvals {
   // suppression ends (RFC 0004). It grants nothing by itself, so it needs no
   // signature; accepted only from a pinned approver connection.
   rpc ClearDenial(ClearDenialRequest) returns (PublishAck);
+  // Josh ends a remote lease early: it becomes REVOKED and no further
+  // delivery is made. It grants nothing, so it needs no signature; accepted
+  // only from a pinned approver connection.
+  rpc RevokeLease(LeaseReference) returns (Lease);
 }
 
 // Served by the relay to a machine that is not yet enrolled. Reachable only
@@ -86,6 +90,9 @@ message ApproverWork {
     PendingEnrolment enrolment = 2;
     string cancelled_request_digest_hex = 3;
     PairApproverRequest pairing = 4;
+    // A remote lease's current state: every pending or active lease in the
+    // backlog, then each change, so approvers can show what is in use.
+    Lease lease = 5;
   }
 }
 
@@ -457,6 +464,7 @@ message RelayWireRequest {
     GetIndexRequest get_index = 19;
     GetAutomaticKeysRequest get_automatic_keys = 20;
     ClearDenialRequest clear_denial = 21;
+    LeaseReference revoke_lease = 22;
   }
 }
 
@@ -476,6 +484,7 @@ message RelayWireResponse {
     SignedAutomaticGrant automatic_grant = 13;
     SignedIndex index = 14;
     AutomaticKeys automatic_keys = 15;
+    Lease lease = 16;
   }
   bool end_of_stream = 8;
 }
