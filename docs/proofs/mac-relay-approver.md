@@ -162,3 +162,27 @@ without interaction need the real MacBook. Also check locked-session refusal
 and Watch behavior. The physical iPhone pairing screen and cellular approval
 belong to the phone/device proof. No new certificate, profile, installation or
 release was performed here.
+
+## Pairing cancellation and resolved-address proof
+
+The short `--pairing-controls` run passed on the mini after the U4 binding
+changes. It uses the same fixture and real relay, without the CLI/browser run.
+Build `developer/mac-approver-proof` and `cmd/agent-keyring-relay` as above.
+Set `AGENT_KEYRING_PROOF_TAILNET_HOST` to the mini's own MagicDNS name at
+runtime (for example, read `Self.DNSName` from `tailscale status --json`), then
+add `--pairing-controls` to the driver command with a fresh root.
+
+- A hostname resolving to the mini's Tailscale address reaches comparison.
+  A TLS listener on its LAN address and one on default loopback both observe
+  connection closure with zero protobuf bytes. The explicit proof-loopback
+  option works and remains enabled after fixture restart.
+- Abandoning an unconfirmed setup clears its comparison and leaves it
+  unpaired after restart. Starting again then completes first pairing.
+- A dismissed phone-pairing ID stays absent when the relay replays its backlog
+  after reconnect and after restart. A second pending phone pairing still
+  appears. Trying to confirm the dismissed ID fails, with no authorization
+  and no queued confirmation.
+
+The MacBook resolves the short name `mac-mini` over MagicDNS; the mini itself
+resolves that short name to its LAN address. The latter route is correctly
+refused. No private tailnet DNS name is stored in the repository.
