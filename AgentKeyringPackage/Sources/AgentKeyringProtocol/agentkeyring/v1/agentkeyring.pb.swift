@@ -10,9 +10,10 @@
 
 // Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
 // Local contract for RFC 0004. Remote enrolment, sealed bundles and approvers
-// are in relay.proto (RFCs 0005 and 0006). Agent-facing messages contain no
-// passwords, OTP codes or seeds; only BeginOperationResponse carries values, to
-// the receiver. Find includes account metadata. Transport authentication
+// are in relay.proto (RFCs 0005 and 0006). Lease and operation results contain no
+// passwords, OTP codes or seeds. BeginOperationResponse carries values to the
+// client; the explicit agent-process `read` route outputs its selected value.
+// Find includes account metadata. Transport authentication
 // establishes the caller; task_ref, recipient labels and reasons do not.
 
 #if canImport(FoundationEssentials)
@@ -766,13 +767,16 @@ public nonisolated struct Agentkeyring_V1_FillRequest: Sendable {
   /// Clears the value of `target`. Subsequent reads from it will return its default value.
   public mutating func clearTarget() {self._target = nil}
 
-  /// Optional. Empty: the receiver derives the operation digest (RFC 0004,
-  /// "Operations and retries"). Records live with the lease at the authority, so
+  /// Optional retry key, passed as BeginOperationRequest.request_id. Empty:
+  /// derive it from the action digest, excluding the current document loader ID
+  /// so navigation after a lost reply cannot silently make a retry a new action.
+  /// Records live with the lease at the authority, so
   /// an operation with no recorded result is UNCERTAIN after any restart, never
   /// an automatic second submit.
   public var operationID: String = String()
 
-  /// Perform the same step again on an unchanged document after inspecting it.
+  /// Deliberately repeat the same step after inspection, even on a new document.
+  /// Generates a fresh retry key; cannot be combined with operation_id.
   public var again: Bool = false
 
   public var fields: [Agentkeyring_V1_FieldBinding] = []
@@ -876,11 +880,13 @@ public nonisolated struct Agentkeyring_V1_ExecuteProgramRequest: Sendable {
 
   public var leaseID: String = String()
 
-  /// Same retry/crash rules as Fill.
+  /// Same retry key and crash rules as Fill.
   public var operationID: String = String()
 
-  /// Command comes from the approved lease; cannot be substituted at execution.
   public var field: Agentkeyring_V1_CredentialField = .unspecified
+
+  /// Deliberate repeat; excludes operation_id.
+  public var again: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -921,12 +927,18 @@ public nonisolated struct Agentkeyring_V1_BeginOperationRequest: Sendable {
 
   public var leaseID: String = String()
 
-  /// SHA-256 of the operation's identity, computed by the receiver.
+  /// SHA-256 of the canonical action, computed by the receiver (RFC 0004).
+  /// No credential values or current observed document loader ID.
   public var operationDigest: Data = Data()
 
   public var kind: Agentkeyring_V1_OperationKind = .unspecified
 
   public var fields: [Agentkeyring_V1_CredentialField] = []
+
+  /// Scoped to authenticated recipient + lease. Empty uses the digest as key.
+  /// Same key with changed digest, kind or fields is CONFLICT. A matching retry
+  /// returns already_started, never values, even after receiver/authority restart.
+  public var requestID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -959,7 +971,7 @@ public nonisolated struct Agentkeyring_V1_BeginOperationResponse: Sendable {
     set {result = .sealed(newValue)}
   }
 
-  /// This digest was already started: no values, nothing to perform.
+  /// This request was already started: no values, nothing to perform.
   public var alreadyStarted: Agentkeyring_V1_OperationRecord {
     get {
       if case .alreadyStarted(let v)? = result {return v}
@@ -978,7 +990,7 @@ public nonisolated struct Agentkeyring_V1_BeginOperationResponse: Sendable {
     /// Release 3 onwards: sealed to the enrolled receiver, with the approver's
     /// signed decision so the receiver can check who approved what (bundle.proto).
     case sealed(Agentkeyring_V1_SealedDelivery)
-    /// This digest was already started: no values, nothing to perform.
+    /// This request was already started: no values, nothing to perform.
     case alreadyStarted(Agentkeyring_V1_OperationRecord)
 
   }
@@ -1038,6 +1050,16 @@ public nonisolated struct Agentkeyring_V1_FinishOperationRequest: Sendable {
     set {outcome = .readDelivered(newValue)}
   }
 
+  /// Present exactly for PROGRAM_OUTCOME_EXITED; retained for command retries.
+  public var exitCode: Int32 {
+    get {_exitCode ?? 0}
+    set {_exitCode = newValue}
+  }
+  /// Returns true if `exitCode` has been explicitly set.
+  public var hasExitCode: Bool {self._exitCode != nil}
+  /// Clears the value of `exitCode`. Subsequent reads from it will return its default value.
+  public mutating func clearExitCode() {self._exitCode = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Outcome: Equatable, Sendable {
@@ -1048,6 +1070,8 @@ public nonisolated struct Agentkeyring_V1_FinishOperationRequest: Sendable {
   }
 
   public init() {}
+
+  fileprivate var _exitCode: Int32? = nil
 }
 
 public nonisolated struct Agentkeyring_V1_OperationRecord: Sendable {
@@ -1088,6 +1112,15 @@ public nonisolated struct Agentkeyring_V1_OperationRecord: Sendable {
     set {outcome = .readDelivered(newValue)}
   }
 
+  public var exitCode: Int32 {
+    get {_exitCode ?? 0}
+    set {_exitCode = newValue}
+  }
+  /// Returns true if `exitCode` has been explicitly set.
+  public var hasExitCode: Bool {self._exitCode != nil}
+  /// Clears the value of `exitCode`. Subsequent reads from it will return its default value.
+  public mutating func clearExitCode() {self._exitCode = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   /// Unset while started with no recorded result: callers treat it as UNCERTAIN.
@@ -1099,6 +1132,8 @@ public nonisolated struct Agentkeyring_V1_OperationRecord: Sendable {
   }
 
   public init() {}
+
+  fileprivate var _exitCode: Int32? = nil
 }
 
 /// Local wire mapping, not gRPC: one RPC per connection. Each frame is a
@@ -2031,7 +2066,7 @@ nonisolated extension Agentkeyring_V1_FillResult: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Agentkeyring_V1_ExecuteProgramRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ExecuteProgramRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_id\0\u{1}field\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_id\0\u{1}field\0\u{1}again\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2042,6 +2077,7 @@ nonisolated extension Agentkeyring_V1_ExecuteProgramRequest: SwiftProtobuf.Messa
       case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.operationID) }()
       case 3: try { try decoder.decodeSingularEnumField(value: &self.field) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.again) }()
       default: break
       }
     }
@@ -2057,6 +2093,9 @@ nonisolated extension Agentkeyring_V1_ExecuteProgramRequest: SwiftProtobuf.Messa
     if self.field != .unspecified {
       try visitor.visitSingularEnumField(value: self.field, fieldNumber: 3)
     }
+    if self.again != false {
+      try visitor.visitSingularBoolField(value: self.again, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2064,6 +2103,7 @@ nonisolated extension Agentkeyring_V1_ExecuteProgramRequest: SwiftProtobuf.Messa
     if lhs.leaseID != rhs.leaseID {return false}
     if lhs.operationID != rhs.operationID {return false}
     if lhs.field != rhs.field {return false}
+    if lhs.again != rhs.again {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2115,7 +2155,7 @@ nonisolated extension Agentkeyring_V1_ExecuteProgramResult: SwiftProtobuf.Messag
 
 nonisolated extension Agentkeyring_V1_BeginOperationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".BeginOperationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_digest\0\u{1}kind\0\u{1}fields\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_digest\0\u{1}kind\0\u{1}fields\0\u{3}request_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2127,6 +2167,7 @@ nonisolated extension Agentkeyring_V1_BeginOperationRequest: SwiftProtobuf.Messa
       case 2: try { try decoder.decodeSingularBytesField(value: &self.operationDigest) }()
       case 3: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
       case 4: try { try decoder.decodeRepeatedEnumField(value: &self.fields) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
       default: break
       }
     }
@@ -2145,6 +2186,9 @@ nonisolated extension Agentkeyring_V1_BeginOperationRequest: SwiftProtobuf.Messa
     if !self.fields.isEmpty {
       try visitor.visitPackedEnumField(value: self.fields, fieldNumber: 4)
     }
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2153,6 +2197,7 @@ nonisolated extension Agentkeyring_V1_BeginOperationRequest: SwiftProtobuf.Messa
     if lhs.operationDigest != rhs.operationDigest {return false}
     if lhs.kind != rhs.kind {return false}
     if lhs.fields != rhs.fields {return false}
+    if lhs.requestID != rhs.requestID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2289,7 +2334,7 @@ nonisolated extension Agentkeyring_V1_CredentialValues: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_FinishOperationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinishOperationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_id\0\u{1}fill\0\u{1}program\0\u{3}read_delivered\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_id\0\u{1}fill\0\u{1}program\0\u{3}read_delivered\0\u{3}exit_code\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2323,6 +2368,7 @@ nonisolated extension Agentkeyring_V1_FinishOperationRequest: SwiftProtobuf.Mess
           self.outcome = .readDelivered(v)
         }
       }()
+      case 6: try { try decoder.decodeSingularInt32Field(value: &self._exitCode) }()
       default: break
       }
     }
@@ -2354,6 +2400,9 @@ nonisolated extension Agentkeyring_V1_FinishOperationRequest: SwiftProtobuf.Mess
     }()
     case nil: break
     }
+    try { if let v = self._exitCode {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 6)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2361,6 +2410,7 @@ nonisolated extension Agentkeyring_V1_FinishOperationRequest: SwiftProtobuf.Mess
     if lhs.leaseID != rhs.leaseID {return false}
     if lhs.operationID != rhs.operationID {return false}
     if lhs.outcome != rhs.outcome {return false}
+    if lhs._exitCode != rhs._exitCode {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2368,7 +2418,7 @@ nonisolated extension Agentkeyring_V1_FinishOperationRequest: SwiftProtobuf.Mess
 
 nonisolated extension Agentkeyring_V1_OperationRecord: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".OperationRecord"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}operation_id\0\u{1}kind\0\u{3}started_unix_seconds\0\u{1}fill\0\u{1}program\0\u{3}read_delivered\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}operation_id\0\u{1}kind\0\u{3}started_unix_seconds\0\u{1}fill\0\u{1}program\0\u{3}read_delivered\0\u{3}exit_code\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2403,6 +2453,7 @@ nonisolated extension Agentkeyring_V1_OperationRecord: SwiftProtobuf.Message, Sw
           self.outcome = .readDelivered(v)
         }
       }()
+      case 7: try { try decoder.decodeSingularInt32Field(value: &self._exitCode) }()
       default: break
       }
     }
@@ -2437,6 +2488,9 @@ nonisolated extension Agentkeyring_V1_OperationRecord: SwiftProtobuf.Message, Sw
     }()
     case nil: break
     }
+    try { if let v = self._exitCode {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 7)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2445,6 +2499,7 @@ nonisolated extension Agentkeyring_V1_OperationRecord: SwiftProtobuf.Message, Sw
     if lhs.kind != rhs.kind {return false}
     if lhs.startedUnixSeconds != rhs.startedUnixSeconds {return false}
     if lhs.outcome != rhs.outcome {return false}
+    if lhs._exitCode != rhs._exitCode {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
