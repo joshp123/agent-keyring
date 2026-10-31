@@ -54,6 +54,6 @@ Screens: `rules-*.png`, `rulesAll-*.png`, `rulesConfirm-*.png`.
 
 ## Built and not built
 
-The views are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Mac`, behind the four backend protocols in RFC 0007, and fed by mock data. The screenshots come from the design gallery (`Tools/AgentKeyringDesignGallery`), which shows the real views on the Mac mini.
+The views are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Mac`. Since release 2, the Mac app uses all three: the panel answers lease requests in place of the system Touch ID prompt, the menu bar window follows the lease store, and the rules window wraps the existing access-rules controller. RFC 0007 says how, and lists the one-look, one-touch check that proves the panel on the MacBook.
 
-The Mac app itself still uses its old menu, rules window and plain system Touch ID prompt. Wiring the new views in is RFC 0007's U2 (approval panel) and U3 (menu bar and rules), as adapters over the release 2 lease store and the existing access-rules controller. RFC 0007 lists what the lease store still needs to supply.
+Screenshots come from the design gallery (`Tools/AgentKeyringDesignGallery`) on the Mac mini. Most use mock data; `lease*.png` are mapped from lease records through the same adapter the app uses.

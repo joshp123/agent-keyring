@@ -15,7 +15,9 @@ import (
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/authority"
+	"github.com/joshp123/agent-keyring/internal/clientstate"
 	"github.com/joshp123/agent-keyring/internal/receiver"
+	"github.com/joshp123/agent-keyring/internal/remote"
 )
 
 const help = `Agent Keyring: use a saved login for one task.
@@ -32,6 +34,8 @@ const help = `Agent Keyring: use a saved login for one task.
   release LEASE             End permission when the task is done
   skill                     Print the bundled agent instructions
   install                   Link the command and skills for Codex and Claude
+  enrol --name NAME --relay HOST:PORT
+                            Enrol this machine with your approving device
 
 A lease ends on release or 30 minutes after approval. Reuse it through retries
 and two-factor steps. Automatic logins approve without asking.
@@ -51,6 +55,8 @@ Find prints a table. Status without --wait prints readable state.
 Exit status: 0 succeeded; 1 refused, unavailable or uncertain; 2 incorrect usage.
 exec returns the approved child's exit status when it exits normally.
 Environment: AGENT_KEYRING_SOCKET overrides the local authority socket.
+             AGENT_KEYRING_RELAY selects the enrolled relay (and supplies enrol's address).
+             AGENT_KEYRING_STATE_DIR overrides this machine's private state directory.
 Run any command with --help for this guide.
 `
 
@@ -80,7 +86,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "for", "request", "field", "browser", "tab", "username", "password", "code", "submit", "frame", "document", "operation":
+		case "task", "reason", "for", "request", "field", "browser", "tab", "username", "password", "code", "submit", "frame", "document", "operation", "name", "relay":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -157,9 +163,46 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, integration(command)
 	}
-	client := authority.Client{Socket: socketPath()}
-	if os.Getenv("AGENT_KEYRING_SOCKET") == "" {
-		client.Start = startApp
+	if command == "enrol" {
+		if err = a.check("name relay", ""); err != nil {
+			return 2, err
+		}
+		if len(a.positionals) > 0 || len(a.program) > 0 {
+			return 2, errors.New("enrol takes --name NAME and --relay HOST:PORT, without positional arguments.")
+		}
+		if strings.TrimSpace(a.options["name"]) == "" {
+			return 2, errors.New("Give this machine a name with --name NAME.")
+		}
+		store, e := clientstate.Default()
+		if e != nil {
+			return 1, e
+		}
+		address := a.options["relay"]
+		if address == "" {
+			address = os.Getenv("AGENT_KEYRING_RELAY")
+		}
+		if address == "" {
+			state, e := store.Load(ctx)
+			if e != nil {
+				return 1, e
+			}
+			address = state.RelayAddress
+			if address == "" {
+				return 2, errors.New("Supply --relay HOST:PORT to enrol this machine.")
+			}
+		}
+		if err = remote.ValidateAddress(address); err != nil {
+			return 2, err
+		}
+		return 0, remote.Enrol(ctx, store, address, a.options["name"], os.Stderr)
+	}
+	if !strings.Contains(" find lease status release read exec fill ", " "+command+" ") {
+		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
+	}
+	client, connectionError := chooseAuthority(ctx)
+	if connectionError != nil {
+		// Usage errors remain useful on machines that have not enrolled yet.
+		client.Exchange = func(context.Context, *pb.WireRequest, func(*pb.WireResponse) bool) error { return connectionError }
 	}
 	if command == "find" {
 		if err = a.check("", ""); err != nil {

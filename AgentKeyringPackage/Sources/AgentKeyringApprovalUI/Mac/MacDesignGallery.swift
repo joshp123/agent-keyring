@@ -24,11 +24,16 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
 @MainActor
 public final class MacDesignGallery {
     private let screen: MacDesignScreen
+    private let requests: [AccessRequest]?
     private var windows: [NSWindow] = []
     private let now = Date.now
 
-    public init(screen: MacDesignScreen) {
+    /// - Parameter requests: shown instead of the mock examples, for example
+    ///   requests mapped from real lease records. The approval panel shows the
+    ///   oldest waiting one.
+    public init(screen: MacDesignScreen, requests: [AccessRequest]? = nil) {
         self.screen = screen
+        self.requests = requests
     }
 
     public func show() {
@@ -58,8 +63,9 @@ public final class MacDesignGallery {
     }
 
     private func showApprovalPanel() {
-        var request = screen == .approvalAgentProcess
-            ? DesignExamples.agentProcessRead(now: now) : DesignExamples.githubSignIn(now: now)
+        let waiting = requests?.filter(\.state.isWaitingForYou).sorted { $0.askedAt < $1.askedAt }
+        var request = waiting?.first ?? (screen == .approvalAgentProcess
+            ? DesignExamples.agentProcessRead(now: now) : DesignExamples.githubSignIn(now: now))
         let reply = "Don't sign in. The invoice is already in my email, use that."
         switch screen {
         case .approvalApproved: request.state = .approved(by: .mac, until: now.addingTimeInterval(30 * 60))
@@ -67,7 +73,8 @@ public final class MacDesignGallery {
             request.state = .denied(by: .mac, reply: reply, askAgainAfter: now.addingTimeInterval(30 * 60))
         default: break
         }
-        let model = MacApprovalModel(request: request, moreWaiting: screen == .approval ? 1 : 0,
+        let model = MacApprovalModel(request: request,
+            moreWaiting: waiting.map { $0.count - 1 } ?? (screen == .approval ? 1 : 0),
             backend: DesignMacBackend(request: request))
         if screen == .approvalReply {
             model.isReplying = true
@@ -81,9 +88,9 @@ public final class MacDesignGallery {
 
     private func showMenuBar() {
         let history = DesignExamples.history(now: now)
-        let requests = screen == .menuBarQuiet
+        let requests = self.requests ?? (screen == .menuBarQuiet
             ? history.filter { !$0.state.isInUse }
-            : [DesignExamples.githubSignIn(now: now)] + history
+            : [DesignExamples.githubSignIn(now: now)] + history)
         let snapshot = MacMenuBarSnapshot(requests: requests,
             passwords: ImportedPasswords(count: 542, importedAt: now.addingTimeInterval(-3 * 86_400)))
         let model = MacMenuBarModel(backend: DesignMacBackend(menuBar: snapshot), initial: snapshot)

@@ -247,7 +247,7 @@ private struct PasswordsFooter: View {
     let importedAt: Date
 
     var body: some View {
-        Text("\(count) logins · imported \(importedAt.formatted(.relative(presentation: .named)))")
+        Text("\(count) logins on this iPhone · updated \(importedAt.formatted(.relative(presentation: .named)))")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
