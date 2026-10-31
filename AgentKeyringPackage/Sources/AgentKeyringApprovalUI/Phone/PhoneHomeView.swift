@@ -61,14 +61,10 @@ struct PhoneHomeView: View {
     let pair: () -> Void
 
     var body: some View {
-        Group {
-            switch model.passwords {
-            case .notImported, .importing, .importFailed:
-                PhoneImportView(model: model)
-            case .imported:
-                requestList.navigationTitle("Agent Keyring")
-            }
-        }
+        // Always the requests. Passwords on the phone are optional (RFC 0006),
+        // so their state never replaces this list; it lives in Settings.
+        requestList
+        .navigationTitle("Agent Keyring")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Settings", systemImage: "gearshape") { model.isShowingSettings = true }
@@ -115,11 +111,6 @@ struct PhoneHomeView: View {
                         NavigationLink(value: request.id) { HistoryRow(request: request) }
                     }
                 } header: { SectionHeading(day.title) }
-            }
-
-            if case let .imported(count, at) = model.passwords {
-                Section { PasswordsFooter(count: count, importedAt: at) }
-                    .listSectionSeparator(.hidden)
             }
         }
         .listStyle(.plain)
@@ -282,16 +273,4 @@ private struct UnreachableNotice: View {
     }
 }
 
-private struct PasswordsFooter: View {
-    let count: Int
-    let importedAt: Date
-
-    var body: some View {
-        Text("\(count) logins on this iPhone · updated \(importedAt.formatted(.relative(presentation: .named)))")
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
-    }
-}
 #endif
