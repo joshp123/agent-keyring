@@ -92,7 +92,8 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
             enrolments: relay.enrolments.map(RelayScreenMapping.enrolment)
                 + relay.approverPairings.map(RelayScreenMapping.enrolment),
             relay: RelayScreenMapping.relayLink(relay),
-            queuedAnswers: relay.queuedAnswerCount)
+            queuedAnswers: relay.queuedAnswerCount,
+            taskHistoryNeedsReset: model.leaseStore.needsHistoryReset)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {
@@ -170,8 +171,16 @@ public final class AccessRulesBackend: LoginRulesBackend {
         if controller.pendingPhoneBlockCount > 0 {
             summary += " \(controller.pendingPhoneBlockCount) blocked from your iPhone."
         }
+        var explanation = switch controller.confirmationReason {
+        case .firstUse: RulesCopy.confirmBody
+        case .upgrade: RulesCopy.confirmUpgradeBody
+        case .unverified: RulesCopy.confirmBodyAfterUnreadableRules
+        }
+        if controller.confirmationRequiresPhonePairingAgain {
+            explanation += " Your previously paired iPhone must be paired again."
+        }
         return RulesConfirmation(summary: summary,
-            savedRulesWereUnreadable: controller.confirmationResetsUnreadableRules)
+            savedRulesWereUnreadable: controller.confirmationResetsUnreadableRules, explanation: explanation)
     }
 }
 

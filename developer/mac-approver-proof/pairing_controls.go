@@ -82,7 +82,7 @@ func (p *proof) pendingPhone() (*tls.Conn, string, string) {
 	must(err)
 	id := fmt.Sprintf("%x", relaycrypto.Hash(public))
 	conn := phone.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PairApprover{PairApprover: &pb.PairApproverRequest{
-		Key: &pb.ApproverKey{KeyId: id, Label: "Dummy phone comparison", PublicKey: public, TlsPublicKey: spki}, TlsPublicKey: spki,
+		Key: &pb.ApproverKey{KeyId: id, Label: "Dummy phone comparison", Role: pb.ApproverRole_APPROVER_ROLE_PHONE, PublicKey: public, TlsPublicKey: spki}, TlsPublicKey: spki,
 	}}})
 	status := receive(conn).GetEnrolStatus()
 	require(status.State == pb.EnrolState_ENROL_STATE_PENDING, "phone pairing activated without confirmation")

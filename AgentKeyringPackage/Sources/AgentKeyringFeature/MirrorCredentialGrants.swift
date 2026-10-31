@@ -4,6 +4,22 @@ import LocalAuthentication
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
+    public func resetLeaseHistory() async throws {
+        guard leaseStore.needsHistoryReset else { return }
+        let context = LAContext()
+        defer { context.invalidate() }
+        let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
+        let confirmed = try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await context.evaluatePolicy(.deviceOwnerAuthentication,
+                localizedReason: "reset Agent Keyring's task history on this Mac and end its previous task access. Your logins and rules will be kept")
+        } onCancel: { Task { @MainActor in cancelEvaluation() } }
+        try Task.checkCancellation()
+        guard confirmed else { throw CancellationError() }
+        try leaseStore.resetHistoryAfterOwnerConfirmation()
+        await loadStatus()
+    }
+
     public func endAllGrants() {
         do { for lease in leaseStore.leases where !lease.state.isTerminal { try leaseStore.revoke(lease.leaseID) } }
         catch { notice = MirrorNotice(kind: .error, text: "The leases could not be ended.") }

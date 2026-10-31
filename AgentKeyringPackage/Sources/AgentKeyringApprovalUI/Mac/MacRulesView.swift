@@ -196,8 +196,7 @@ private struct ConfirmRulesBanner: View {
                 Text(RulesCopy.confirmTitle)
                     .font(.headline)
                 Text(confirmation.summary)
-                Text(confirmation.savedRulesWereUnreadable
-                    ? RulesCopy.confirmBodyAfterUnreadableRules : RulesCopy.confirmBody)
+                Text(confirmation.explanation)
                     .foregroundStyle(.secondary)
             }
             .font(.callout)

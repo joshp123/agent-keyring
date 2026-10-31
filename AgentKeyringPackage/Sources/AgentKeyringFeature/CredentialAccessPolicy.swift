@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Observation
 import OSLog
 
@@ -42,9 +43,16 @@ public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
     }
 }
 
+public enum AccessRulesConfirmationReason: Equatable, Sendable {
+    case firstUse
+    case upgrade
+    case unverified
+}
+
 public struct AccessRulesConfirmationSnapshot: Sendable {
     let policies: [UUID: CredentialAccessPolicy]
-    let resetsUnreadableRules: Bool
+    let reason: AccessRulesConfirmationReason
+    let requiresPhonePairingAgain: Bool
 }
 
 @MainActor
@@ -70,10 +78,16 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     public private(set) var needsConfirmation = true
     public private(set) var isSavingRules = false
     public private(set) var confirmationResetsUnreadableRules = false
+    public private(set) var confirmationReason: AccessRulesConfirmationReason = .firstUse
+    public private(set) var confirmationRequiresPhonePairingAgain = false
     public private(set) var hasLoadedLoginList = false
-    public var canConfirmRules: Bool { needsConfirmation && hasLoadedLoginList && !isSavingRules }
+    public internal(set) var needsRelayPublicationConfirmation = false
+    public var canConfirmRules: Bool { (needsConfirmation || needsRelayPublicationConfirmation) && hasLoadedLoginList && !isSavingRules }
     public var confirmationSummary: String {
-        "\(count(for: .allowAutomatically)) allowed automatically, \(count(for: .block)) blocked, \(count(for: .ask)) ask each time"
+        let automaticCount = rows.filter { $0.policy == .allowAutomatically }.count
+        let blockedCount = rows.filter { $0.policy == .block }.count
+        let askCount = rows.filter { $0.policy == .ask }.count
+        return "\(automaticCount) allowed automatically, \(blockedCount) blocked, \(askCount) ask each time"
     }
 
     private var pendingPhoneBlocks: Set<UUID> = []
@@ -96,16 +110,16 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         }
     }
 
-    public func pairedDevicePublicKeys() async throws -> [Data] {
-        try await store.pairedDevicePublicKeys()
+    func connectAuthority(_ authority: CredentialLeaseStore,
+        authorize: @escaping @MainActor (LAContext, String) async throws -> Void,
+        commit: @escaping @MainActor ([UUID: CredentialAccessPolicy], CredentialLeaseStore.SavedRules, LAContext) async throws -> Void) {
+        store.authority = authority
+        store.authorizeSave = authorize
+        store.commitSave = commit
     }
 
-    public func confirmPairing(_ session: IPhonePairingSession, confirmationCode: String) async throws {
-        guard !isSavingRules else { throw AccessRulesSaveInProgress() }
-        isSavingRules = true
-        defer { isSavingRules = false }
-        try await session.confirm(in: store, confirmationCode: confirmationCode)
-        try await reloadRules()
+    public func pairedDevicePublicKeys() async throws -> [Data] {
+        try await store.pairedDevicePublicKeys()
     }
 
     public func removePairedApprovalDevice(publicKey: Data) async throws {
@@ -231,11 +245,13 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     public func confirmRules() async {
-        guard canConfirmRules, let snapshot = confirmationSnapshot else { return }
+        guard canConfirmRules else { return }
+        let snapshot = confirmationSnapshot ?? AccessRulesConfirmationSnapshot(policies: policies,
+            reason: .firstUse, requiresPhonePairingAgain: false)
         var confirmedPolicies = snapshot.policies
         for id in pendingPhoneBlocks where snapshot.policies[id] == nil { confirmedPolicies[id] = .block }
         let confirmedSnapshot = AccessRulesConfirmationSnapshot(policies: confirmedPolicies,
-            resetsUnreadableRules: snapshot.resetsUnreadableRules)
+            reason: snapshot.reason, requiresPhonePairingAgain: snapshot.requiresPhonePairingAgain)
         let reason = "confirm your Agent Keyring access rules: \(confirmationSummary)"
         isSavingRules = true
         defer { isSavingRules = false }
@@ -245,8 +261,9 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
             confirmationSnapshot = nil
             try await reloadRules()
         } catch {
-            needsConfirmation = true
-            errorMessage = "Access rules could not be confirmed. Nothing will be released."
+            if confirmationSnapshot != nil { needsConfirmation = true }
+            errorMessage = needsConfirmation ? "Access rules could not be confirmed. Nothing will be released."
+                : "The update for your other machines could not be confirmed. Your rules on this Mac are kept."
         }
     }
 
@@ -261,6 +278,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
             hasPairedApprovalDevice = !pairedApprovalDevices.isEmpty
             needsConfirmation = false
             confirmationResetsUnreadableRules = false
+            confirmationRequiresPhonePairingAgain = false
             errorMessage = nil
         } catch {
             needsConfirmation = true
@@ -268,7 +286,9 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
                 let snapshot = try await store.snapshotForConfirmation()
                 confirmationSnapshot = snapshot
                 policies = snapshot.policies
-                confirmationResetsUnreadableRules = snapshot.resetsUnreadableRules
+                confirmationReason = snapshot.reason
+                confirmationResetsUnreadableRules = snapshot.reason == .unverified
+                confirmationRequiresPhonePairingAgain = snapshot.requiresPhonePairingAgain
             }
             updateRowPolicies()
             throw error

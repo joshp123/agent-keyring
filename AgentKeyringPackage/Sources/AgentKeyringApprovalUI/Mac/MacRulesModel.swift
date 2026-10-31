@@ -36,10 +36,13 @@ public struct RulesConfirmation: Hashable, Sendable {
     /// The signed rules file couldn't be verified, so confirming saves the
     /// rules shown and the iPhone must be paired again.
     public var savedRulesWereUnreadable: Bool
+    public var explanation: String
 
-    public init(summary: String, savedRulesWereUnreadable: Bool) {
+    public init(summary: String, savedRulesWereUnreadable: Bool, explanation: String? = nil) {
         self.summary = summary
         self.savedRulesWereUnreadable = savedRulesWereUnreadable
+        self.explanation = explanation ?? (savedRulesWereUnreadable
+            ? RulesCopy.confirmBodyAfterUnreadableRules : RulesCopy.confirmBody)
     }
 }
 

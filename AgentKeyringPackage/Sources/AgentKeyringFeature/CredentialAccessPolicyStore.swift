@@ -1,12 +1,13 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LocalAuthentication
 import OSLog
 import Security
 
 private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", category: "AccessRules")
 
-public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
+@MainActor public final class CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     private struct Record: Codable, Equatable {
         let credentialID: UUID
         let policy: CredentialAccessPolicy
@@ -28,6 +29,9 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     public var signatureURL: URL { fileURL.appendingPathExtension("signature") }
     private let fileManager: FileManager
     private let signer: any AccessRulesSigning
+    var authority: CredentialLeaseStore?
+    var authorizeSave: (@MainActor (LAContext, String) async throws -> Void)?
+    var commitSave: (@MainActor ([UUID: CredentialAccessPolicy], CredentialLeaseStore.SavedRules, LAContext) async throws -> Void)?
 
     private enum PairedDeviceChange {
         case add(PairedApprovalDevice)
@@ -44,7 +48,7 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
         self.signer = signer
     }
 
-    public static func defaultFileURL(fileManager: FileManager = .default) -> URL {
+    nonisolated public static func defaultFileURL(fileManager: FileManager = .default) -> URL {
         let applicationSupport =
             fileManager.urls(
                 for: .applicationSupportDirectory,
@@ -71,6 +75,8 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     }
 
     private func loadVerifiedContents() throws -> FileContents {
+        try authority?.load()
+        if let saved = authority?.savedRules { return try decodeContents(saved.bytes) }
         let bytes: Data
         let signature: Data
         do {
@@ -117,15 +123,23 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     }
 
     public func snapshotForConfirmation() throws -> AccessRulesConfirmationSnapshot {
-        let resetsUnreadableRules = (try? loadVerifiedContents()) == nil
-        let policies: [UUID: CredentialAccessPolicy]
+        let contents: FileContents?
         do {
             try validateOwnedRegularFile(fileURL)
-            policies = try decodeContents(Data(contentsOf: fileURL)).policies
+            contents = try decodeContents(Data(contentsOf: fileURL))
         } catch {
-            policies = [:]
+            contents = nil
         }
-        return AccessRulesConfirmationSnapshot(policies: policies, resetsUnreadableRules: resetsUnreadableRules)
+        let reason: AccessRulesConfirmationReason
+        if !fileManager.fileExists(atPath: fileURL.path), !fileManager.fileExists(atPath: signatureURL.path) {
+            reason = .firstUse
+        } else if contents?.version == 1, !fileManager.fileExists(atPath: signatureURL.path) {
+            reason = .upgrade
+        } else {
+            reason = .unverified
+        }
+        return AccessRulesConfirmationSnapshot(policies: contents?.policies ?? [:], reason: reason,
+            requiresPhonePairingAgain: contents?.devices.isEmpty == false)
     }
 
     private static func encodedContents(_ policies: [UUID: CredentialAccessPolicy], devices: [PairedApprovalDevice]) throws -> Data {
@@ -211,7 +225,8 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
             for id in pendingBlocks { savedPolicies[id] = .block }
         }
         let bytes = try Self.encodedContents(savedPolicies, devices: devices)
-        let signingReason = contents == nil ? reason + ". Your iPhone must be paired again." : reason
+        let signingReason = confirming && (try? snapshotForConfirmation().requiresPhonePairingAgain) == true
+            ? reason + ". Your previously paired iPhone must be paired again." : reason
         let directoryURL = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
             at: directoryURL,
@@ -226,22 +241,24 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
         if fileManager.fileExists(atPath: fileURL.path) {
             try validateOwnedRegularFile(fileURL)
         }
-        let signature = try await signer.sign(bytes, reason: signingReason)
-        if fileManager.fileExists(atPath: signatureURL.path) {
-            try validateOwnedRegularFile(signatureURL)
+        let context = LAContext()
+        defer { context.invalidate() }
+        try await authorizeSave?(context, signingReason)
+        let signature = try await signer.sign(bytes, reason: signingReason, context: context)
+        try await commitSave?(savedPolicies, CredentialLeaseStore.SavedRules(bytes: bytes, signature: signature), context)
+        do {
+            if fileManager.fileExists(atPath: signatureURL.path) { try validateOwnedRegularFile(signatureURL) }
+            try bytes.write(to: fileURL, options: [.atomic])
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            try signature.write(to: signatureURL, options: [.atomic])
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: signatureURL.path)
+            try pendingBlocksFile.save(try pendingBlocksFile.load().subtracting(pendingBlocks))
+        } catch {
+            // Once the authority transaction commits, these files are only an
+            // upgrade compatibility copy. Their failure cannot undo the rules.
+            guard commitSave != nil else { throw error }
+            accessRulesStoreLogger.error("Could not refresh the compatibility copy of the saved rules: \(error.localizedDescription, privacy: .public)")
         }
-        try bytes.write(to: fileURL, options: [.atomic])
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: fileURL.path
-        )
-        try signature.write(to: signatureURL, options: [.atomic])
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: signatureURL.path
-        )
-        // Retain blocks that arrived while Touch ID was waiting.
-        try pendingBlocksFile.save(try pendingBlocksFile.load().subtracting(pendingBlocks))
     }
 
     private func validateOwnedRegularFile(_ url: URL) throws {

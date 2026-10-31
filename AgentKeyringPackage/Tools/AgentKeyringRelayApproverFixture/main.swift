@@ -63,9 +63,13 @@ struct UnlockedFixture: CredentialSessionLockState { var isLocked: Bool { false 
 
 @main
 struct RelayApproverFixture {
-    @MainActor static func main() async throws {
+    @MainActor static func main() async {
+        do { try await run() }
+        catch { fputs("Fixture unavailable: \(error.localizedDescription)\n", stderr); exit(1) }
+    }
+    @MainActor static func run() async throws {
         guard CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--dummy-only" else {
-            fatalError("Use --dummy-only ISOLATED_DIRECTORY")
+            throw LeaseFailure(.invalidArgument, "Use --dummy-only ISOLATED_DIRECTORY")
         }
         let root = URL(fileURLWithPath: CommandLine.arguments[2])
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -74,7 +78,10 @@ struct RelayApproverFixture {
         let identity = try RelayTLSIdentity.loadOrCreate(service: "com.agentkeyring.relay-proof.tls." + root.lastPathComponent)
         let persistence = LeasePersistence(directory: root.appendingPathComponent("approver"),
             checkpointService: "com.agentkeyring.relay-proof.authority." + root.lastPathComponent)
-        let approver = RelayApprover(persistence: persistence, identity: identity, signer: signer,
+        let authorityPersistence = LeasePersistence(directory: root.appendingPathComponent("authority"),
+            checkpointService: "com.agentkeyring.relay-proof.unified-authority." + root.lastPathComponent)
+        let leases = CredentialLeaseStore(persistence: authorityPersistence)
+        let approver = RelayApprover(persistence: persistence, leaseStore: leases, identity: identity, signer: signer,
             lockState: UnlockedFixture(), credentialSource: { vault.read() })
         try approver.load()
         approver.start()
@@ -89,7 +96,7 @@ struct RelayApproverFixture {
             for lease in update.leases {
                 print("LEASE\t\(lease.id)\t\(lease.lease.state.rawValue)\t\(lease.endIsQueued)")
             }
-            print("STATUS\t\(update.connection)\t\(update.queuedAnswerCount)\t\(update.needsPublication)\t\(signer.saved.authorizations)")
+            print("STATUS\t\(update.connection)\t\(update.queuedAnswerCount)\t\(update.needsPublication)\t\(signer.saved.authorizations)\t\(update.isApplying)")
             fflush(stdout)
         }
         let updates = Task { for await update in approver.changes() { show(update) } }
@@ -123,12 +130,12 @@ struct RelayApproverFixture {
                 case "rule":
                     vault.rule = parts[1] == "auto" ? .allowAutomatically : parts[1] == "block" ? .block : .ask
                     try vault.rule.rawValue.write(to: root.appendingPathComponent("fixture-rule"), atomically: true, encoding: .utf8)
-                    approver.noteRulesChanged()
+                    try await approver.publishCurrentRules()
                 case "status": show(approver.update)
                 case "saved":
-                    let bytes = try persistence.load()!
+                    let bytes = try authorityPersistence.load()!
                     let plist = try PropertyListSerialization.propertyList(from: bytes, format: nil) as! [String: Any]
-                    if let requests = plist["requests"] as? [String: [String: Any]] {
+                    if let relay = plist["relay"] as? [String: Any], let requests = relay["requests"] as? [String: [String: Any]] {
                         for (id, saved) in requests {
                             if let data = saved["decision"] as? Data { print("SAVED\t\(id)\t\(RelayCrypto.hex(RelayCrypto.hash(data)))") }
                         }

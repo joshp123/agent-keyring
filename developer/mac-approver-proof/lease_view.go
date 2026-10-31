@@ -6,7 +6,6 @@ import (
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/authority"
-	"github.com/joshp123/agent-keyring/internal/relaycrypto"
 )
 
 func (p *proof) endRemoteLease(id string) {
@@ -27,8 +26,8 @@ func (p *proof) endRemoteLease(id string) {
 	p.owner.wait(func(e []string) bool { return e[0] == "LEASE" && e[1] == id && e[2] == "6" && e[3] == "false" })
 	p.owner.status()
 	require(p.owner.authorizations == before, "End requested another authorization")
-	conn := p.receiver.open(request(&pb.WireRequest{Request: &pb.WireRequest_BeginOperation{BeginOperation: &pb.BeginOperationRequest{
-		LeaseId: id, RequestId: "after-owner-ended", OperationDigest: relaycrypto.Hash([]byte("after-owner-ended")), Kind: pb.OperationKind_OPERATION_KIND_FILL,
+	conn := p.receiver.open(request(&pb.WireRequest{Request: &pb.WireRequest_Deliver{Deliver: &pb.DeliverRequest{
+		LeaseId: id, Kind: pb.OperationKind_OPERATION_KIND_FILL,
 		Fields: []pb.CredentialField{pb.CredentialField_CREDENTIAL_FIELD_PASSWORD},
 	}}}))
 	response := new(pb.RelayWireResponse)
