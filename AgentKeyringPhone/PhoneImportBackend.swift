@@ -23,7 +23,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
 
     private(set) var snapshot = PhoneKeyringSnapshot(
         requests: [], passwords: .notImported, connection: .notPaired,
-        settings: PhoneSettings(askPhoneAfter: .seconds(120), notificationsAllowed: false, keyFingerprint: "Not set up")
+        settings: PhoneSettings(askPhoneAfter: nil, notifications: .notSetUp, keyFingerprint: "Not set up")
     ) {
         didSet { for continuation in subscribers.values { continuation.yield(snapshot) } }
     }
@@ -157,7 +157,6 @@ final class PhoneImportBackend: PhoneKeyringBackend {
             snapshot.requests = try approver.requests()
             snapshot.connection = approver.connection
             snapshot.pairing = approver.pairing
-            snapshot.settings.askPhoneAfter = approver.askPhoneAfter
             snapshot.settings.keyFingerprint = approver.keyFingerprint
             snapshot.settings.rulesUpdatedAt = approver.vault.rulesUpdatedAt
         } catch { logFailure(error, stage: "Read approver state") }

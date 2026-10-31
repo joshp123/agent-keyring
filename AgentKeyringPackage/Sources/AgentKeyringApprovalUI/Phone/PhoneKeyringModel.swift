@@ -20,16 +20,29 @@ public enum ServiceConnection: Hashable, Sendable {
     case notPaired
 }
 
+/// Whether a waiting request can reach Josh without him opening the app.
+public enum PhoneNotifications: Hashable, Sendable {
+    /// Push isn't working yet: no push key, or not registered with the relay.
+    case notSetUp
+    /// iOS notifications are turned off for Agent Keyring.
+    case off
+    /// Registered with the relay; a waiting request notifies this iPhone.
+    case on
+}
+
 public struct PhoneSettings: Hashable, Sendable {
-    /// How long a request waits on the Mac before it comes to this iPhone.
-    public var askPhoneAfter: Duration
-    public var notificationsAllowed: Bool
+    /// The Mac's setting: how long a request waits there before it comes to
+    /// this iPhone. Read-only here; nil until the Mac's value is known.
+    public var askPhoneAfter: Duration?
+    /// The real permission and registration result, never a placeholder.
+    public var notifications: PhoneNotifications
     public var keyFingerprint: String
     public var rulesUpdatedAt: Date?
 
-    public init(askPhoneAfter: Duration, notificationsAllowed: Bool, keyFingerprint: String, rulesUpdatedAt: Date? = nil) {
+    public init(askPhoneAfter: Duration?, notifications: PhoneNotifications, keyFingerprint: String,
+        rulesUpdatedAt: Date? = nil) {
         self.askPhoneAfter = askPhoneAfter
-        self.notificationsAllowed = notificationsAllowed
+        self.notifications = notifications
         self.keyFingerprint = keyFingerprint
         self.rulesUpdatedAt = rulesUpdatedAt
     }
@@ -69,7 +82,6 @@ public protocol PhoneKeyringBackend: AnyObject {
     func allowAskingAgain(requestID: String) async throws -> AccessRequestState
     /// Asks iOS to allow exports to Agent Keyring; the export starts in Passwords.
     func openPasswordsForImport()
-    func setAskPhoneAfter(_ delay: Duration) async throws
 }
 
 @MainActor
@@ -165,16 +177,6 @@ public final class PhoneKeyringModel {
 
     public func importPasswords() {
         backend.openPasswordsForImport()
-    }
-
-    public func setAskPhoneAfter(_ delay: Duration) async {
-        let previous = settings.askPhoneAfter
-        settings.askPhoneAfter = delay
-        do { try await backend.setAskPhoneAfter(delay) }
-        catch {
-            settings.askPhoneAfter = previous
-            failure = "Couldn't save that. Agent Keyring isn't reachable."
-        }
     }
 
     public func dismissFailure() { failure = nil }

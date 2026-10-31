@@ -102,7 +102,10 @@ struct PhoneHomeView: View {
             }
 
             if model.waiting.isEmpty && model.waitingForMac.isEmpty && model.inUse.isEmpty {
-                Section { NothingWaiting() }
+                // Unpaired, the notice above already says why nothing arrives.
+                if model.pairing == .paired {
+                    Section { NothingWaiting(notifications: model.settings.notifications) }
+                }
             }
 
             ForEach(historyDays, id: \.title) { day in
@@ -220,11 +223,13 @@ private struct HistoryRow: View {
 }
 
 private struct NothingWaiting: View {
+    let notifications: PhoneNotifications
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Nothing waiting")
                 .font(.title3.weight(.semibold))
-            Text("When an agent asks for a login and you're away from your Mac, it appears here and on your Lock Screen.")
+            Text(SetupCopy.nothingWaiting(notifications))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
