@@ -23,6 +23,12 @@ extension RelayApprover {
         }
         _ = try P256.Signing.PublicKey(x963Representation: request.key.publicKey)
         _ = try P256.Signing.PublicKey(derRepresentation: request.tlsPublicKey)
+        if !request.key.encryptionPublicKey.isEmpty {
+            guard request.key.encryptionPublicKey.count == 65 else {
+                throw LeaseFailure(.invalidArgument, "The phone's login-copy key must be a P-256 X9.63 public key.")
+            }
+            _ = try P256.KeyAgreement.PublicKey(x963Representation: request.key.encryptionPublicKey)
+        }
         if let existing = current.keys.first(where: { $0.keyID == request.key.keyID }) {
             guard existing == request.key else { throw LeaseFailure(.conflict, "An existing approver's keys changed.") }
             return
@@ -70,7 +76,7 @@ extension RelayApprover {
         }
         let request = try Agentkeyring_V1_PairApproverRequest(serializedBytes: bytes)
         let transcript = RelayCrypto.pairTranscript(relaySPKI: state.relaySPKI!, approverSPKI: request.tlsPublicKey,
-            signingKey: request.key.publicKey, keySet: previous.keySet)
+            signingKey: request.key.publicKey, keySet: previous.keySet, encryptionKey: request.key.encryptionPublicKey)
         guard comparedFingerprint == RelayCrypto.fingerprint(transcript) else {
             throw LeaseFailure(.invalidArgument, "Compare every fingerprint group with the new approving device.")
         }
@@ -78,6 +84,7 @@ extension RelayApprover {
         defer { authorizationID = nil }
         let signer = try keys().1
         try await signer.authorize(context: context, reason: "Allow \(request.key.label) to approve Agent Keyring requests after comparing its full fingerprint")
+        let vault = request.key.encryptionPublicKey.isEmpty ? nil : try await credentialSource()
         try Task.checkCancellation()
         guard try currentKeySet() == previous, state.configuration == configurationBytes, state.pendingApprovers?[id] == bytes else {
             throw LeaseFailure(.conflict, "The approver or machine list changed. Compare the current fingerprint.")
@@ -98,6 +105,10 @@ extension RelayApprover {
         command.publishApproverKeys = signed
         var next = state
         try enqueue(command, id: queuedID, into: &next)
+        if let vault, try !requiresPublicationConfirmation(vault) {
+            try prepareLoginCopy(next: &next, vault: vault, configuration: configuration,
+                receiverKey: request.key.encryptionPublicKey, rule: .ask, policy: .ask)
+        }
         try commit(next)
         await flushOutbox()
     }

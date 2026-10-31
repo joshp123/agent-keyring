@@ -456,6 +456,7 @@ func main() {
 	pairingControls := flag.Bool("pairing-controls", false, "short pairing cancellation and resolved-address proof")
 	localPhone := flag.Bool("local-phone-flow", false, "joint phone approval of local agent.sock requests")
 	copyUpdates := flag.Bool("copy-updates", false, "Automatic copy refresh and outbox restart proof")
+	phoneCopies := flag.Bool("phone-copy-updates", false, "Ask-only phone copy import and outbox restart proof")
 	flag.StringVar(&p.phoneBinary, "phone-binary", "", "production Swift phone fixture; runs the joint phone flow")
 	flag.StringVar(&p.root, "root", "", "fresh dummy root inside the app container")
 	flag.StringVar(&p.fixture, "approver", "", "signed mini-only Swift fixture executable")
@@ -465,7 +466,9 @@ func main() {
 	flag.Parse()
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	if *copyUpdates {
+	if *phoneCopies {
+		p.runPhoneCopyUpdates()
+	} else if *copyUpdates {
 		p.runCopyUpdates()
 	} else if *localPhone {
 		require(p.phoneBinary != "", "--local-phone-flow needs --phone-binary")

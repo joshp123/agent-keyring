@@ -225,8 +225,14 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
             for id in pendingBlocks { savedPolicies[id] = .block }
         }
         let bytes = try Self.encodedContents(savedPolicies, devices: devices)
-        let signingReason = confirming && (try? snapshotForConfirmation().requiresPhonePairingAgain) == true
-            ? reason + ". Your previously paired iPhone must be paired again." : reason
+        var signingReason = reason
+        if authority?.relayState.keySet != nil,
+            savedPolicies.contains(where: { $0.value == .allowAutomatically && contents?.policies[$0.key] != .allowAutomatically }) {
+            signingReason += ". Automatic logins are also stored on your Mac mini, where anyone with admin access, including agents, can read them."
+        }
+        if confirming && (try? snapshotForConfirmation().requiresPhonePairingAgain) == true {
+            signingReason += ". Your previously paired iPhone must be paired again."
+        }
         let directoryURL = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
             at: directoryURL,

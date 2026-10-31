@@ -49,7 +49,7 @@ extension RelayApprover {
                 if changed { self.errorMessage = "Confirm your current rules to apply them to other machines." }
                 if !changed, let configuration = try self.currentConfiguration() {
                     var next = self.state
-                    try self.prepareAutomaticCopy(next: &next, vault: vault, configuration: configuration)
+                    try self.prepareLoginCopies(next: &next, vault: vault, configuration: configuration)
                     if next.outbox.count != self.state.outbox.count { try self.commit(next) }
                 }
                 self.rulesAreBeingChecked = false
@@ -143,7 +143,7 @@ extension RelayApprover {
         var command = Agentkeyring_V1_RelayWireRequest()
         command.publishConfiguration.configuration = signed
         try enqueue(command, id: "configuration:\(configuration.revision)", into: &next)
-        try prepareAutomaticCopy(next: &next, vault: vault, configuration: configuration)
+        try prepareLoginCopies(next: &next, vault: vault, configuration: configuration)
     }
 
     func includeDeliveryKey(next: inout RelayApproverState, context: LAContext) throws {
