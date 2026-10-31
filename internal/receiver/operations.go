@@ -72,17 +72,33 @@ func ClearValues(values *pb.CredentialValues) {
 		values.OneTimeCode = ""
 	}
 }
-func Delivered(response *pb.BeginOperationResponse) (*pb.CredentialValues, error) {
+func Delivered(ctx context.Context, client authority.Client, lease *pb.Lease, response *pb.BeginOperationResponse, fields []pb.CredentialField) (*pb.CredentialValues, []string, error) {
+	if response.OperationId == "" {
+		return nil, nil, errors.New("Agent Keyring returned no operation reference.")
+	}
 	if response.GetSealed() != nil {
-		return nil, errors.New("This CLI cannot open remote deliveries yet.")
+		if client.OpenValues == nil {
+			return nil, nil, errors.New("This local connection returned an unexpected sealed delivery.")
+		}
+		values, sites, err := client.OpenValues(ctx, lease, response)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, field := range fields {
+			if Value(values, field) == "" {
+				ClearValues(values)
+				return nil, nil, errors.New("The approved delivery has no current value for the requested field.")
+			}
+		}
+		return values, sites, nil
+	}
+	if client.Remote {
+		return nil, nil, errors.New("The relay returned unsealed credentials. No value was used.")
 	}
 	if response.GetValues() == nil {
-		return nil, errors.New("The earlier attempt is uncertain. Inspect its result before deliberately repeating it with --again.")
+		return nil, nil, errors.New("The earlier attempt is uncertain. Inspect its result before deliberately repeating it with --again.")
 	}
-	if response.OperationId == "" {
-		return nil, errors.New("Agent Keyring returned no operation reference.")
-	}
-	return response.GetValues(), nil
+	return response.GetValues(), lease.Sites, nil
 }
 
 func Execute(ctx context.Context, client authority.Client, lease *pb.Lease, field pb.CredentialField, key string) (int, error) {
@@ -102,7 +118,7 @@ func Execute(ctx context.Context, client authority.Client, lease *pb.Lease, fiel
 		}
 		return 1, errors.New("The earlier program attempt may have started. Inspect its result before using --again.")
 	}
-	values, err := Delivered(response)
+	values, _, err := Delivered(ctx, client, lease, response, []pb.CredentialField{field})
 	if err != nil {
 		return 1, err
 	}
@@ -146,7 +162,7 @@ func Read(ctx context.Context, client authority.Client, lease *pb.Lease, field p
 	if err != nil {
 		return err
 	}
-	values, err := Delivered(response)
+	values, _, err := Delivered(ctx, client, lease, response, []pb.CredentialField{field})
 	if err != nil {
 		return err
 	}
