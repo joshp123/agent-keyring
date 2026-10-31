@@ -42,7 +42,7 @@ struct AgentKeyringMenu: View {
         ForEach(model.leaseStore.activeLeases, id: \.leaseID) { lease in
             Menu("\(lease.sites.first ?? "Login") · \(lease.taskRef) · until \(Self.expirationTimeFormat.string(from: Date(timeIntervalSince1970: TimeInterval(lease.notAfterUnixSeconds))))") {
                 Button("End") {
-                    do { try model.leaseStore.end(lease.leaseID) }
+                    do { try model.leaseStore.revoke(lease.leaseID) }
                     catch { NSLog("Could not end lease: %@", String(describing: error)) }
                 }
             }

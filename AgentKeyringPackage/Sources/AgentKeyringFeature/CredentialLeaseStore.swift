@@ -245,6 +245,16 @@ public final class CredentialLeaseStore {
         return lease
     }
 
+    /// Josh ended access. This is distinct from the agent finishing its task.
+    @discardableResult public func revoke(_ leaseID: String) throws -> Agentkeyring_V1_Lease {
+        var lease = try get(leaseID)
+        guard !lease.state.isTerminal else { return lease }
+        lease.state = .revoked
+        lease.statusLines = ["You ended access to this login."]
+        try saveLease(lease)
+        return lease
+    }
+
     /// A new import may narrow destinations, never broaden an existing lease.
     public func reconcile(logins: [CredentialCandidate], policies: [UUID: CredentialAccessPolicy], rulesConfirmed: Bool) throws {
         try load()

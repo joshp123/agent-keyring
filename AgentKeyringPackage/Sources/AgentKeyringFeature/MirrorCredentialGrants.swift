@@ -4,7 +4,7 @@ import Foundation
 @available(macOS 26.0, *)
 extension MirrorAppModel {
     public func endAllGrants() {
-        do { for lease in leaseStore.leases where !lease.state.isTerminal { try leaseStore.end(lease.leaseID) } }
+        do { for lease in leaseStore.leases where !lease.state.isTerminal { try leaseStore.revoke(lease.leaseID) } }
         catch { notice = MirrorNotice(kind: .error, text: "The leases could not be ended.") }
     }
 
