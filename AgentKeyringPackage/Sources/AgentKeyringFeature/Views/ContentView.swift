@@ -36,15 +36,6 @@ public struct ContentView: View {
                 ))
                 .toggleStyle(.checkbox)
                 IPhoneDevicesView(controller: model.accessControl)
-                if model.accessControl.hasPairedApprovalDevice {
-                    HStack {
-                        @Bindable var routingSettings = model.approvalRoutingSettings
-                        Text("Ask on iPhone after")
-                        TextField("Seconds", value: $routingSettings.phoneDelaySeconds, format: .number)
-                            .frame(width: 60)
-                        Text("seconds")
-                    }
-                }
             }
             .padding(24)
         }

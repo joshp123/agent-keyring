@@ -234,6 +234,7 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
     func cancelRelaySetup() throws {}
     func sendRules() async throws {}
     func remove(machineID: String) async throws {}
+    func setAskPhoneAfter(_ delay: Duration) {}
 
     private let request: AccessRequest?
     private let menuBar: MacMenuBarSnapshot?
