@@ -66,6 +66,18 @@ public enum DesignExamples {
         )
     }
 
+    public static let setupCode = "7F3A 91C2 0B4E D8A5 6C17 E902 44BB 13F0"
+
+    public static func machineEnrolment(now: Date = .now) -> DeviceEnrolment {
+        DeviceEnrolment(id: "enrol-build", kind: .machine, name: "build server", tailnetNode: "mini-server-1",
+            code: setupCode, askedAt: now.addingTimeInterval(-20))
+    }
+
+    public static func iPhoneEnrolment(now: Date = .now) -> DeviceEnrolment {
+        DeviceEnrolment(id: "enrol-iphone", kind: .approver, name: "Josh's iPhone", tailnetNode: "iphone-15",
+            code: "A04C 7E19 33D2 9B60 0F8E C51A 6D27 E4B3", askedAt: now.addingTimeInterval(-8))
+    }
+
     /// Everything that happened recently, newest first, in a mix of outcomes.
     public static func history(now: Date = .now) -> [AccessRequest] {
         func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }

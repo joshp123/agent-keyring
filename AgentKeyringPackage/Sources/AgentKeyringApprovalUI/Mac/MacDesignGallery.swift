@@ -21,6 +21,9 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case rules
     case rulesAll
     case rulesConfirm
+    case enrolment
+    case enrolmentIPhone
+    case enrolmentJoined
 }
 
 @MainActor
@@ -48,6 +51,8 @@ public final class MacDesignGallery {
             showMenuBar()
         case .rules, .rulesAll, .rulesConfirm:
             showRules()
+        case .enrolment, .enrolmentIPhone, .enrolmentJoined:
+            showEnrolment()
         }
     }
 
@@ -90,6 +95,17 @@ public final class MacDesignGallery {
         let controller = MacApprovalPanelController()
         controller.show(model)
         retained.append(controller)
+        if let panel = NSApplication.shared.windows.last(where: { $0 is NSPanel }) { report(panel) }
+    }
+
+    private func showEnrolment() {
+        let enrolment = screen == .enrolmentIPhone
+            ? DesignExamples.iPhoneEnrolment(now: now) : DesignExamples.machineEnrolment(now: now)
+        let model = MacEnrolmentModel(enrolment: enrolment, backend: DesignMacBackend(enrolment: enrolment))
+        let controller = MacApprovalPanelController()
+        controller.show(model)
+        retained.append(controller)
+        if screen == .enrolmentJoined { Task { await model.approve() } }
         if let panel = NSApplication.shared.windows.last(where: { $0 is NSPanel }) { report(panel) }
     }
 
@@ -156,16 +172,30 @@ public final class MacDesignGallery {
 /// Answers instantly and pretends everything works. Each stream yields the
 /// one snapshot it was given.
 @MainActor
-final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesBackend {
+final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesBackend, MacEnrolmentBackend {
     private let request: AccessRequest?
     private let menuBar: MacMenuBarSnapshot?
     private let rules: LoginRulesSnapshot?
+    private let enrolment: DeviceEnrolment?
 
-    init(request: AccessRequest? = nil, menuBar: MacMenuBarSnapshot? = nil, rules: LoginRulesSnapshot? = nil) {
+    init(request: AccessRequest? = nil, menuBar: MacMenuBarSnapshot? = nil, rules: LoginRulesSnapshot? = nil,
+        enrolment: DeviceEnrolment? = nil) {
         self.request = request
         self.menuBar = menuBar
         self.rules = rules
+        self.enrolment = enrolment
     }
+
+    func updates(enrolmentID: String) -> AsyncStream<DeviceEnrolment?> {
+        let enrolment = enrolment
+        return AsyncStream { continuation in
+            continuation.yield(enrolment)
+            continuation.finish()
+        }
+    }
+
+    func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool) async throws {}
+    func refuse(enrolmentID: String) async throws {}
 
     private static func once<Value: Sendable>(_ value: Value?) -> AsyncStream<Value> {
         AsyncStream { continuation in

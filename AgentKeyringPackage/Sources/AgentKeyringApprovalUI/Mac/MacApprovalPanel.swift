@@ -321,15 +321,19 @@ public final class MacApprovalPanelController {
     public init() {}
 
     public func show(_ model: MacApprovalModel) {
+        showPanel(MacApprovalPanelView(model: model))
+        model.close = { [weak self] in self?.close() }
+    }
+
+    func showPanel(_ content: some View) {
         close()
-        let panel = KeyringPanel.floating(MacApprovalPanelView(model: model))
+        let panel = KeyringPanel.floating(content)
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         if let visible = screen?.visibleFrame {
             panel.setFrameTopLeftPoint(NSPoint(x: visible.maxX - panel.frame.width - 12, y: visible.maxY - 8))
         }
         panel.orderFrontRegardless()
         self.panel = panel
-        model.close = { [weak self] in self?.close() }
     }
 
     public func close() {
