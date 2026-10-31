@@ -1,14 +1,12 @@
 // Written by AI on 2026.10.31 by model gpt-6.1-sol.
-// Full phone core against the real relay. Keys, biometric authorization and
-// Passwords input here are explicitly dummy substitutes, never device proof.
+// Full phone core against the real relay. Software keys stand in for Face ID;
+// the Mac fixture owns the dummy login. No phone import or vault is created.
 package main
 
 import (
 	"bufio"
-	"bytes"
-	"crypto/ecdh"
+	"context"
 	"crypto/ecdsa"
-	"crypto/hpke"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -80,7 +78,7 @@ func (p *phoneProcess) wait(command, contains string) string {
 // This fixture's Go TLS 1.3 server sends five encrypted handshake records
 // (extensions, certificate request, certificate, certificate verify, finished).
 // Drop subsequent encrypted replies while forwarding the client's request.
-// The receiver independently observes the committed ACTIVE lease before the
+// The Mac independently receives the committed phone answer before the
 // connection is cut. This establishes a lost ack, not merely a failed send.
 type phoneNetwork struct {
 	sync.Mutex
@@ -151,13 +149,42 @@ func (n *phoneNetwork) down() {
 	n.connections = nil
 }
 
+func (p *proof) receivePhoneAnswer() *pb.SignedPhoneDecision {
+	for {
+		work := good(receive(p.work)).GetWork()
+		if work.GetPhoneDecision() != nil {
+			return work.GetPhoneDecision()
+		}
+	}
+}
+
+// The Mac substitute owns the dummy password. The Swift phone receives only
+// the signed index and request; it never creates a vault or imports a login.
+func (p *proof) deliverPhone(record []byte, phone *pb.SignedPhoneDecision, deliveryKey *ecdsa.PrivateKey) *pb.SignedDecision {
+	decision := p.phoneDelivery(record, phone, deliveryKey).GetDecide()
+	decision.ApproverKeyId = hex.EncodeToString(relaycrypto.Hash(public(deliveryKey)))
+	answer := new(pb.PhoneDecision)
+	must(proto.Unmarshal(phone.Decision, answer))
+	if answer.Choice == pb.DecisionChoice_DECISION_CHOICE_DENY && phone.Reply == "" {
+		statement := new(pb.DecisionStatement)
+		must(proto.Unmarshal(decision.Statement, statement))
+		statement.Authority = pb.DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION
+		decision.Statement = encoded(statement)
+		decision.Signature = nil
+		decision.PhoneDecision = nil
+		decision.ApproverKeyId = p.key.KeyId
+	}
+	return decision
+}
+
 func (p *proof) phoneProof(binary string) {
 	require(binary != "", "--phone-binary required")
 	p.start()
 	defer p.stop()
 	p.pair()
-	defer p.work.Close()
+	defer func() { p.work.Close() }()
 	p.enrol()
+	initialKeys := p.keys
 	machine := &pb.EnrolledMachine{RecipientId: p.enrolled.RecipientId, MachineLabel: p.enrolled.MachineLabel,
 		ClientLabel: p.enrolled.ClientLabel, TailscaleNodeId: p.enrolled.TailscaleNodeId, TlsPublicKey: p.enrolled.TlsPublicKey,
 		ReceiverPublicKey: p.enrolled.ReceiverPublicKey, ReceiverKeyId: p.enrolled.ReceiverKeyId}
@@ -170,9 +197,8 @@ func (p *proof) phoneProof(binary string) {
 	tlsKey := certificate.PrivateKey.(*ecdsa.PrivateKey)
 	must(os.WriteFile(filepath.Join(directory, "tls-cert.der"), certificate.Certificate[0], 0600))
 	must(os.WriteFile(filepath.Join(directory, "tls-private.x963"), append(public(tlsKey), tlsKey.D.FillBytes(make([]byte, 32))...), 0600))
-	phoneSigner, agreement := signingKey(), signingKey()
+	phoneSigner := signingKey()
 	must(os.WriteFile(filepath.Join(directory, "signing.raw"), phoneSigner.D.FillBytes(make([]byte, 32)), 0600))
-	must(os.WriteFile(filepath.Join(directory, "agreement.raw"), agreement.D.FillBytes(make([]byte, 32)), 0600))
 	network := &phoneNetwork{target: p.address, address: "127.0.0.1:0"}
 	network.up()
 	defer network.down()
@@ -180,41 +206,58 @@ func (p *proof) phoneProof(binary string) {
 	must(err)
 	phone := startPhone(binary, directory)
 	require(strings.HasPrefix(phone.command("probe-non-tailnet\t"+port), "REFUSED"), "phone accepted a resolved non-tailnet peer")
-	fmt.Println("PASS resolved non-tailnet peer refused before a request; hostname pairing uses the explicit loopback proof override")
+	fmt.Println("PASS resolved non-tailnet peer refused before a request")
 	comparison := phone.command("pair\t" + port)
 	var pair *pb.PairApproverRequest
 	for pair == nil {
 		pair = good(receive(p.work)).GetWork().GetPairing()
 	}
+	require(pair.Key.Role == pb.ApproverRole_APPROVER_ROLE_PHONE, "phone paired with the wrong authority")
 	transcript := relaycrypto.PairTranscript(p.approver.pin, pair.TlsPublicKey, pair.Key.PublicKey, p.keys.KeySet)
 	require(comparison == "PAIR\t"+relaycrypto.Fingerprint(transcript), "Swift and Go pairing comparisons differ")
-	nextBytes := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 2, Keys: []*pb.ApproverKey{p.key, pair.Key},
+	deliverySigner := signingKey()
+	deliveryKey := &pb.ApproverKey{KeyId: hex.EncodeToString(relaycrypto.Hash(public(deliverySigner))), PublicKey: public(deliverySigner), Label: "Fixture Mac delivery", Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY}
+	nextBytes := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 2, Keys: []*pb.ApproverKey{p.key, pair.Key, deliveryKey},
 		RuleOwnerKeyId: p.key.KeyId, EnrolmentSetRevision: 1, EnrolmentSetSha256: relaycrypto.Hash(rosterBytes), PairingTranscriptSha256: relaycrypto.Hash(transcript)})
 	next := &pb.SignedApproverKeySet{KeySet: nextBytes, Signature: sign(p.signer, nextBytes), SignerKeyId: p.key.KeyId}
-	// Close before the Mac signs: the next open must verify its saved comparison,
-	// rather than trust the relay's already-approved flag.
 	phone.stop()
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}})).GetPublish().Accepted, "phone addition refused")
+	p.keys = next
 	phone = startPhone(binary, directory)
 	phone.wait("status", "paired")
-	fmt.Println("PASS phone compared the exact transcript, verified the Mac-signed addition and adopted the existing receiver")
+	_, err = os.Stat(filepath.Join(directory, "vault"))
+	require(os.IsNotExist(err), "fixture created a phone vault")
+	fmt.Println("PASS PHONE role pairing, exact transcript, saved comparison recovery and existing roster, with no phone vault")
 
-	lease := good(p.client.call(leaseRequest("phone-1", "phone-task-1", p.enrolled.RecipientId))).GetClient().GetLease()
+	escalate := func(record []byte, local *pb.Lease) {
+		r := new(pb.RequestRecord)
+		must(proto.Unmarshal(record, r))
+		ack := good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_EscalateToPhone{EscalateToPhone: &pb.PhoneEscalation{LeaseId: r.LeaseId, Record: record, LocalLease: local}}})).GetPublish()
+		require(ack.Accepted, "escalation refused")
+	}
+	leaseCommand := leaseRequest("phone-1", "phone-task-1", p.enrolled.RecipientId)
+	lease := good(p.client.call(leaseCommand)).GetClient().GetLease()
+	p.keys = initialKeys
+	receiver := p.receiverClient(lease, leaseCommand.GetClient().GetRequestLease())
+	p.keys = next
 	record := p.nextRequest()
 	id := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", record))
+	require(!strings.Contains(phone.command("requests"), id), "un-escalated request reached the phone")
+	escalate(record, nil)
 	phone.wait("requests", id+"=waitingForYou")
-	// Stop and reopen while the request is pending: WatchWork must replay it.
 	phone.stop()
 	phone = startPhone(binary, directory)
 	phone.wait("requests", id+"=waitingForYou")
-	fmt.Println("PASS pending request survived phone process restart and backlog replay")
+	fmt.Println("PASS only escalated requests arrive; pending request fetched on reopen without an import")
+
 	hold := filepath.Join(directory, "hold-authorization")
 	must(os.WriteFile(hold, []byte("hold"), 0600))
 	phone.send("approve\t" + id)
 	countPath := filepath.Join(directory, "authorization-count")
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		if count, _ := os.ReadFile(countPath); string(count) == "1" {
+		count, _ := os.ReadFile(countPath)
+		if string(count) == "1" {
 			break
 		}
 		require(time.Now().Before(deadline), "phone did not authorize")
@@ -223,96 +266,124 @@ func (p *proof) phoneProof(binary string) {
 	network.Lock()
 	network.loseReply = true
 	network.Unlock()
-	// Fixture control file only; no user file or production data is removed.
 	must(os.Rename(hold, hold+".released"))
+	answer := p.receivePhoneAnswer()
+	must(relaycrypto.Verify(pair.Key.PublicKey, answer.Decision, answer.Signature))
+	require(good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: lease.LeaseId}}}))).GetClient().GetLease().State == pb.LeaseState_LEASE_STATE_PENDING, "relay acknowledgement prematurely approved the lease")
+	// The Mac has received the exact signed answer, but deliberately does not
+	// deliver yet. Cut the reply, then restart both processes before retrying.
 	for {
-		current := good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: lease.LeaseId}}}))).GetClient().GetLease()
-		if current.State == pb.LeaseState_LEASE_STATE_ACTIVE {
+		network.Lock()
+		dropped := network.dropped
+		network.Unlock()
+		if dropped > 0 {
 			break
 		}
-		require(time.Now().Before(deadline), "phone answer never committed at relay")
-		time.Sleep(50 * time.Millisecond)
+		require(time.Now().Before(deadline), "proxy dropped no replies")
+		time.Sleep(10 * time.Millisecond)
 	}
 	network.down()
-	require(strings.Contains(phone.line(), "sendingAnswer"), "phone received an acknowledgement during the lost-ack proof")
-	network.Lock()
-	dropped := network.dropped
-	network.Unlock()
-	require(dropped > 0, "proxy dropped no encrypted replies")
+	require(strings.Contains(phone.line(), "sendingAnswer"), "phone received the acknowledgement")
 	phone.stop()
 	p.work.Close()
 	p.stop()
 	p.start()
+	p.work = p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: p.key.KeyId}}})
+	replayed := p.receivePhoneAnswer()
+	require(proto.Equal(answer, replayed), "relay did not replay the exact phone decision")
 	network.Lock()
 	network.loseReply = false
 	network.Unlock()
 	network.up()
 	phone = startPhone(binary, directory)
 	defer phone.stop()
-	phone.wait("requests", id+"=approved")
+	phone.wait("requests", id+"=waitingForMac")
 	count, err := os.ReadFile(countPath)
 	must(err)
 	require(string(count) == "1", "recovery asked for authorization twice")
-	fmt.Println("PASS lost acknowledgement after relay commit, relay and phone restart, same queued answer delivered with one authorization")
-	delivery := good(p.client.call(beginRequest(lease.LeaseId, "phone-operation"))).GetClient().GetBeginOperation().GetSealed()
-	require(delivery != nil, "approved phone lease did not deliver")
-	statement := new(pb.DecisionStatement)
-	must(proto.Unmarshal(delivery.Decision.Statement, statement))
-	must(relaycrypto.Verify(pair.Key.PublicKey, delivery.Decision.Statement, delivery.Decision.Signature))
-	require(bytes.Equal(statement.RequestDigest, relaycrypto.Digest("agentkeyring.request.v1", record)), "signed request digest differs")
-	receiver, err := ecdh.P256().NewPrivateKey(p.receiver.D.FillBytes(make([]byte, 32)))
+	fmt.Println("PASS lost acknowledgement, phone and relay restart, exact answer retry, one authorization, waiting for Mac")
+	decision := p.deliverPhone(record, answer, deliverySigner)
+	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: decision}})).GetDecision().Accepted, "Mac delivery refused")
+	phone.wait("requests", id+"=approved")
+	begin := good(p.client.call(beginRequest(lease.LeaseId, "phone-operation"))).GetClient().GetBeginOperation()
+	require(begin.GetSealed() != nil && proto.Equal(begin.GetSealed().Decision.PhoneDecision, answer), "delivery lost the phone signature")
+	values, _, err := receiver.OpenValues(context.Background(), lease, begin)
 	must(err)
-	private, err := hpke.NewDHKEMPrivateKey(receiver)
-	must(err)
-	opener, err := hpke.NewRecipient(delivery.Bundle.EncapsulatedKey, private, hpke.HKDFSHA256(), hpke.AES256GCM(), []byte("agentkeyring.bundle.v1"))
-	must(err)
-	cleartext, err := opener.Open(statement.RequestDigest, delivery.Bundle.Ciphertext)
-	must(err)
-	contents := new(pb.BundleContents)
-	must(proto.Unmarshal(cleartext, contents))
-	clear(cleartext)
-	require(contents.LoginId == "fixture-login" && contents.LeaseId == lease.LeaseId && contents.Password == "phone-fixture-password" && contents.Username == "fixture" && len(contents.OneTimeCodes) >= 60, "phone bundle contents or authoritative IDs differ")
-	fmt.Println("PASS Go receiver verified the phone signature and opened CryptoKit HPKE username, password and timed codes")
-	require(strings.Contains(phone.command("end\t"+id), "ended"), "phone early revocation failed")
-	require(p.client.call(beginRequest(lease.LeaseId, "after-phone-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "phone-revoked lease delivered again")
-	require(strings.Contains(phone.command("end\t"+id), "ended"), "phone repeated revocation failed")
-	fmt.Println("PASS phone End Access confirmed by relay; repeated revoke is harmless and receiver can no longer deliver")
-	// A new task must still require its own answer. Plain denial is unsigned;
-	// a reply must be signed and ask the software biometric stand-in once.
-	p.work = p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: p.key.KeyId}}})
-	require(phone.command("stop") == "STOPPED", "phone did not stop")
-	macLease := good(p.client.call(leaseRequest("mac-already-active", "mac-task", p.enrolled.RecipientId))).GetClient().GetLease()
-	macRecord := p.nextRequest()
-	require(good(p.approver.call(p.decision(macRecord, false))).GetDecision().Accepted, "Mac fixture approval failed")
-	require(phone.command("start") == "STARTED", "phone did not reconnect")
-	remoteID := "lease:" + macLease.LeaseId
-	phone.wait("requests", remoteID+"=approved")
-	require(strings.Contains(phone.command("end\t"+remoteID), "ended"), "phone could not end an existing Mac approval")
-	require(p.client.call(beginRequest(macLease.LeaseId, "after-remote-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "existing Mac approval delivered after phone revoke")
-	count, err = os.ReadFile(countPath)
-	must(err)
-	require(string(count) == "1", "listing or revoking a Mac approval asked for authorization")
-	fmt.Println("PASS phone fetched an already-active Mac approval on reconnect and ended it without authorization")
-	for _, reply := range []string{"", "Use the test account instead"} {
-		index := strconv.Itoa(len(reply))
-		l := good(p.client.call(leaseRequest("deny-"+index, "deny-task-"+index, p.enrolled.RecipientId))).GetClient().GetLease()
+	require(values.Password == "fixture-password-for-relay-system-proof", "Mac delivered the wrong login")
+	values.Password = ""
+	fmt.Println("PASS real Go receiver advanced the pinned key set, verified Swift phone consent and opened the Mac's dummy login")
+
+	require(strings.Contains(phone.command("end\t"+id), "ended"), "phone remote revocation failed")
+	require(p.client.call(beginRequest(lease.LeaseId, "after-phone-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "revoked lease delivered")
+
+	for index, reply := range []string{"", "Use the test account instead"} {
+		l := good(p.client.call(leaseRequest("deny-"+strconv.Itoa(index), "deny-task-"+strconv.Itoa(index), p.enrolled.RecipientId))).GetClient().GetLease()
 		raw := p.nextRequest()
 		digest := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", raw))
+		escalate(raw, nil)
 		phone.wait("requests", digest+"=waitingForYou")
-		require(strings.Contains(phone.command("deny\t"+digest+"\t"+reply), "denied"), "phone denial failed")
-		result := good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: l.LeaseId}}}))).GetClient().GetLease()
-		require(result.State == pb.LeaseState_LEASE_STATE_DENIED && result.Reply == reply, "receiver did not get denial")
+		require(strings.Contains(phone.command("deny\t"+digest+"\t"+reply), "waitingForMac"), "denial did not wait for Mac")
+		denial := p.receivePhoneAnswer()
 		if reply == "" {
-			require(result.SignedDenial == nil, "plain denial was signed")
+			require(len(denial.Signature) == 0, "plain denial was signed")
 		} else {
-			require(result.SignedDenial != nil, "reply denial lacks signature")
-			must(relaycrypto.Verify(pair.Key.PublicKey, result.SignedDenial.Decision.Statement, result.SignedDenial.Decision.Signature))
+			must(relaycrypto.Verify(pair.Key.PublicKey, denial.Decision, denial.Signature))
 		}
+		if reply != "" {
+			require(strings.Contains(phone.command("requests"), reply), "waiting state lost the reply")
+		}
+		delivered := p.deliverPhone(raw, denial, deliverySigner)
+		require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: delivered}})).GetDecision().Accepted, "Mac denial refused")
+		phone.wait("requests", digest+"=denied")
+		result := good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: l.LeaseId}}}))).GetClient().GetLease()
+		require(result.State == pb.LeaseState_LEASE_STATE_DENIED && result.Reply == reply, "receiver lost the denial reply")
 		require(strings.HasPrefix(phone.command("clear\t"+digest), "CLEARED"), "phone could not clear denial")
 	}
 	count, err = os.ReadFile(countPath)
 	must(err)
-	require(string(count) == "2", "plain denial asked for authorization or reply did not")
-	fmt.Println("PASS plain Deny without authorization, signed reply with authorization, and scoped ClearDenial")
+	require(string(count) == "2", "plain denial prompted or signed reply did not")
+	fmt.Println("PASS unsigned plain denial; signed reply kept while waiting; actual Mac denial and scoped clear")
+
+	// A local Mac recipient has never enrolled as a remote receiver.
+	now := time.Now().Unix()
+	localRecord := &pb.RequestRecord{LeaseId: "local-fixture-lease", RequestId: "local-fixture-request", LoginId: "fixture-login", RecipientId: "local-Mac-only",
+		TaskRef: "local-fixture-task", Purpose: pb.Purpose_PURPOSE_BROWSER_SIGN_IN, Reason: "Local system proof", AgentLabel: "Fixture agent", CreatedUnixSeconds: now, PendingUntilUnixSeconds: now + 600}
+	local := &pb.Lease{LeaseId: localRecord.LeaseId, LoginId: localRecord.LoginId, Recipient: &pb.Recipient{RecipientId: localRecord.RecipientId}, TaskRef: localRecord.TaskRef,
+		Purpose: localRecord.Purpose, Reason: localRecord.Reason, Sites: []string{"https://example.com"}, State: pb.LeaseState_LEASE_STATE_PENDING, RequestedAtUnixSeconds: now, PendingUntilUnixSeconds: now + 600}
+	localBytes := encoded(localRecord)
+	localDigest := relaycrypto.Digest("agentkeyring.request.v1", localBytes)
+	localID := hex.EncodeToString(localDigest)
+	escalate(localBytes, local)
+	phone.wait("requests", localID+"=waitingForYou")
+	require(strings.Contains(phone.command("approve\t"+localID), "waitingForMac"), "local approval did not wait for Mac")
+	localAnswer := p.receivePhoneAnswer()
+	localDecision := new(pb.PhoneDecision)
+	must(proto.Unmarshal(localAnswer.Decision, localDecision))
+	local.State = pb.LeaseState_LEASE_STATE_ACTIVE
+	local.ApprovedBy = pb.ApprovedBy_APPROVED_BY_IPHONE
+	local.ApprovedAtUnixSeconds = localDecision.DecidedUnixSeconds
+	local.NotAfterUnixSeconds = localDecision.NotAfterUnixSeconds
+	updateLocal := func() {
+		require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_UpdateLocalPhoneLease{UpdateLocalPhoneLease: &pb.LocalPhoneLeaseUpdate{RequestDigest: localDigest, Lease: local}}})).GetDecision().Accepted, "local state report refused")
+	}
+	updateLocal()
+	phone.wait("requests", localID+"=approved")
+	require(strings.Contains(phone.command("end\t"+localID), "approved"), "phone claimed local access ended before the Mac confirmed")
+	for {
+		work := good(receive(p.work)).GetWork()
+		if work.GetLocalLeaseAction().GetRevokeLease().GetLeaseId() == local.LeaseId {
+			break
+		}
+	}
+	local.State = pb.LeaseState_LEASE_STATE_REVOKED
+	local.EndedAtUnixSeconds = time.Now().Unix()
+	updateLocal()
+	phone.wait("requests", localID+"=ended")
+	count, err = os.ReadFile(countPath)
+	must(err)
+	require(string(count) == "3", "local action prompted more than once")
+	_, err = os.Stat(filepath.Join(directory, "vault"))
+	require(os.IsNotExist(err), "phone used a vault")
+	fmt.Println("PASS local request without receiver enrolment, actual Mac outcome, End waits for Mac confirmation; no phone vault")
 	fmt.Println("Phone fixture state:", p.directory)
 }
