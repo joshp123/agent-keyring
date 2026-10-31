@@ -122,6 +122,19 @@ extension PhoneRelayApprover {
         }
     }
 
+    public func registerPush(token: Data, production: Bool) async throws {
+        guard !token.isEmpty else { throw RelayFailure(.invalidArgument, "The notification token is empty.") }
+        var command = Agentkeyring_V1_RelayWireRequest()
+        command.registerPush.approverKeyID = RelayCrypto.keyID(try keys.signingPublicKey())
+        command.registerPush.apnsDeviceToken = token
+        command.registerPush.apnsProduction = production
+        let response = try await transport().call(command)
+        guard case let .publish(ack) = response.response, ack.accepted else {
+            throw RelayFailure(.unavailable, "The relay did not register this iPhone for notifications.")
+        }
+        logger.notice("Registered notification token; production=\(production, privacy: .public)")
+    }
+
     func expireRequests() throws {
         let previous = lastDeadlineCheck
         lastDeadlineCheck = Self.now
