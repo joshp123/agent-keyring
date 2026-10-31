@@ -443,6 +443,7 @@ func acceptEnrolment(ctx context.Context, store clientstate.Store, status *pb.En
 		state.RelaySpki = append([]byte(nil), relaySPKI...)
 		state.RecipientId = enrolled.RecipientId
 		state.ReceiverKeyId = receiverID
+		state.LocalAuthority = nil
 		return nil
 	})
 }
