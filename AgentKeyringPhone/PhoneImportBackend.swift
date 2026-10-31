@@ -5,6 +5,8 @@ import AgentKeyringRelaySupport
 import AuthenticationServices
 import Foundation
 import OSLog
+import UIKit
+import UserNotifications
 
 private let phoneImportLogger = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Import")
 
@@ -19,6 +21,9 @@ final class PhoneImportBackend: PhoneKeyringBackend {
     private var pendingTokens: [UUID] = []
     private var importTask: Task<Void, Never>?
     private var openingPasswords = false
+    private var notificationTask: Task<Void, Never>?
+    private var pushToken: Data?
+    private var registeredPushToken: Data?
     private var lastProviderEnablementRequest: Date?
 
     private(set) var snapshot = PhoneKeyringSnapshot(
@@ -146,6 +151,7 @@ final class PhoneImportBackend: PhoneKeyringBackend {
             }
         }
         approver.reconnect()
+        refreshNotifications()
     }
 
     func stop() {
@@ -156,9 +162,11 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         do {
             snapshot.requests = try approver.requests()
             snapshot.connection = approver.connection
+            let wasPaired = snapshot.pairing == .paired
             snapshot.pairing = approver.pairing
             snapshot.settings.keyFingerprint = approver.keyFingerprint
             snapshot.settings.rulesUpdatedAt = approver.rulesUpdatedAt
+            if !wasPaired && snapshot.pairing == .paired { refreshNotifications() }
         } catch { logFailure(error, stage: "Read approver state") }
     }
 
@@ -172,6 +180,44 @@ final class PhoneImportBackend: PhoneKeyringBackend {
         try await approver.endAccess(requestID)
     }
     func allowAskingAgain(requestID: String) async throws -> AccessRequestState { try await approver.clearDenial(requestID) }
+
+    func receivedPushToken(_ token: Data) {
+        pushToken = token
+        refreshNotifications()
+    }
+
+    func pushRegistrationFailed(_ error: Error) {
+        logFailure(error, stage: "Apple notification registration")
+    }
+
+    private func refreshNotifications() {
+        guard snapshot.pairing == .paired, notificationTask == nil else { return }
+        notificationTask = Task { [weak self] in
+            guard let self else { return }
+            defer { notificationTask = nil }
+            let center = UNUserNotificationCenter.current()
+            var settings = await center.notificationSettings()
+            if settings.authorizationStatus == .notDetermined {
+                do { _ = try await center.requestAuthorization(options: [.alert, .sound, .badge]) }
+                catch { logFailure(error, stage: "Notification permission") }
+                settings = await center.notificationSettings()
+            }
+            let allowed = [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus)
+            snapshot.settings.notifications = allowed ? .notSetUp : .off
+            guard allowed else { return }
+            if pushToken == nil { UIApplication.shared.registerForRemoteNotifications(); return }
+            guard let token = pushToken, registeredPushToken != token else { return }
+            guard let environment = Bundle.main.object(forInfoDictionaryKey: "AgentKeyringAPNSEnvironment") as? String,
+                  ["development", "production"].contains(environment) else {
+                phoneImportLogger.error("The build has no matching notification environment")
+                return
+            }
+            do {
+                try await approver.registerPush(token: token, production: environment == "production")
+                registeredPushToken = token
+            } catch { logFailure(error, stage: "Relay notification registration") }
+        }
+    }
 
     private func logFailure(_ error: any Error, stage: String) {
         let failure = CredentialImportFailure(error: error, hadExistingMirror: false)

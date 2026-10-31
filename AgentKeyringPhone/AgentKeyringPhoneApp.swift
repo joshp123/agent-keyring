@@ -34,7 +34,11 @@ struct AgentKeyringPhoneApp: App {
                     if phase == .active { importBackend?.start() }
                     else if phase == .background { importBackend?.stop() }
                 }
-                .task { appDelegate.wake = { importBackend?.start() } }
+                .task {
+                    appDelegate.wake = { importBackend?.start() }
+                    appDelegate.receivedToken = { importBackend?.receivedPushToken($0) }
+                    appDelegate.registrationFailed = { importBackend?.pushRegistrationFailed($0) }
+                }
                 .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
                     importBackend?.receive(activity)
                 }
@@ -45,6 +49,8 @@ struct AgentKeyringPhoneApp: App {
 @MainActor
 final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     var wake: (() -> Void)?
+    var receivedToken: ((Data) -> Void)?
+    var registrationFailed: ((Error) -> Void)?
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
@@ -55,6 +61,14 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         return true
     }
 
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        receivedToken?(deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        registrationFailed?(error)
+    }
+
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            didReceive response: UNNotificationResponse) async {
         await MainActor.run { wake?() }
@@ -62,6 +76,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        await MainActor.run { wake?() }
+        return [.banner, .list, .sound]
     }
 }
