@@ -30,7 +30,6 @@ final class PhoneImportBackend: PhoneKeyringBackend {
                                       identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.phone-v2") },
                                       replaceIdentity: {
                                           try PhoneEnclaveKeys().replace()
-                                          try RelayTLSIdentity.replace(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.phone-v2")
                                       })
     }
 

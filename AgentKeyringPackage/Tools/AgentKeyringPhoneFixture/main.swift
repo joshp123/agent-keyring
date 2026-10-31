@@ -61,15 +61,10 @@ struct PhoneFixture {
         guard arguments.count == 3, arguments[1] == "--dummy-state" else { fatalError("Use --dummy-state DIRECTORY") }
         let directory = URL(filePath: arguments[2], directoryHint: .isDirectory)
         let keys = try FixtureKeys(directory)
-        var identity = try RelayTLSIdentity(privateKey: Data(contentsOf: directory.appending(path: "tls-private.x963")),
+        let identity = try RelayTLSIdentity(privateKey: Data(contentsOf: directory.appending(path: "tls-private.x963")),
                                             certificate: Data(contentsOf: directory.appending(path: "tls-cert.der")))
         let approver = PhoneRelayApprover(directory: directory.appending(path: "approver"), keys: keys, identity: { identity }, replaceIdentity: {
             try keys.replace()
-            let privateKey = try Data(contentsOf: directory.appending(path: "replacement-tls-private.x963"))
-            let certificate = try Data(contentsOf: directory.appending(path: "replacement-tls-cert.der"))
-            identity = try RelayTLSIdentity(privateKey: privateKey, certificate: certificate)
-            try privateKey.write(to: directory.appending(path: "tls-private.x963"), options: .atomic)
-            try certificate.write(to: directory.appending(path: "tls-cert.der"), options: .atomic)
         })
         try approver.load(); approver.start()
         output("READY")
