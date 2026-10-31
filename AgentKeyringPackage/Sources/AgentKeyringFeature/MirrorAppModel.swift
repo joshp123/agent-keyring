@@ -93,6 +93,7 @@ public final class MirrorAppModel {
             guard let self else { throw CancellationError() }
             try self.relayApprover.load()
             if self.relayApprover.state.keySet != nil {
+                try await self.relayApprover.prepareForPublication()
                 try await self.relayApprover.keys().1.authorize(context: context, reason: reason)
             }
         }, commit: { [weak self] policies, rules, context in

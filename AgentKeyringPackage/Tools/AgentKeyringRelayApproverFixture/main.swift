@@ -2,7 +2,9 @@
 // Dummy-only owner controls for the production Mac approver and its real TLS,
 // HPKE, persisted outbox and Keychain checkpoint. Never bundled with the app.
 import AgentKeyringFeature
+import AgentKeyringProtocol
 import AgentKeyringTestSupport
+import AuthenticationServices
 import CryptoKit
 import Foundation
 import LocalAuthentication
@@ -64,7 +66,24 @@ final class FixtureVault {
             scope: .full, exporterIdentifier: "com.agentkeyring.example", exporterDisplayName: "Synthetic proof",
             items: [item], skippedCredentialCount: 0)
     }
-    func read() -> RelayApproverVault { RelayApproverVault(generation: generation(), policies: [MirrorItem.exampleCredentialID: rule]) }
+}
+
+actor FixtureRefreshImporter: CredentialImporting {
+    var password = "example-password"
+    func setPassword(_ password: String) { self.password = password }
+    func importCredentials(token: UUID) async throws -> ASExportedCredentialData {
+        let item = ASImportableItem(id: Data("example.com".utf8), created: Date(timeIntervalSince1970: 1),
+            lastModified: Date(), title: "example.com",
+            scope: ASImportableCredentialScope(urls: [URL(string: "https://example.com")!, URL(string: "http://127.0.0.1:8443")!]),
+            credentials: [.basicAuthentication(ASImportableCredential.BasicAuthentication(
+                userName: ASImportableEditableField(id: nil, fieldType: .string, value: "example@example.com"),
+                password: ASImportableEditableField(id: nil, fieldType: .concealedString, value: password))),
+                .totp(ASImportableCredential.TOTP(secret: Data("12345678901234567890".utf8), period: 30,
+                    digits: 6, userName: nil, algorithm: .sha1, issuer: "Synthetic proof"))])
+        return ASExportedCredentialData(accounts: [ASImportableAccount(id: Data("example@example.com".utf8),
+            userName: "", email: "", collections: [], items: [item])], formatVersion: .v1,
+            exporterRelyingPartyIdentifier: "com.agentkeyring.example", exporterDisplayName: "Synthetic proof", timestamp: Date())
+    }
 }
 
 @MainActor
@@ -136,21 +155,25 @@ struct RelayApproverFixture {
         let authorityPersistence = LeasePersistence(directory: root.appendingPathComponent("authority"),
             checkpointService: "com.agentkeyring.relay-proof.unified-authority." + root.lastPathComponent)
         let leases = CredentialLeaseStore(persistence: authorityPersistence)
+        let mirror = EncryptedSnapshotStore(directoryURL: root.appendingPathComponent("local-vault"),
+            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x36, count: 32)))
+        if try await mirror.loadCurrent() == nil { try await mirror.save(vault.generation()) }
         let approver = RelayApprover(persistence: persistence, leaseStore: leases, phoneDelay: { 30 }, identity: identity, signer: signer,
-            lockState: lockState, credentialSource: { vault.read() })
+            lockState: lockState, credentialSource: {
+                guard let generation = try await mirror.loadCurrent() else { throw LeaseFailure(.notFound, "Missing dummy mirror") }
+                return RelayApproverVault(generation: generation, policies: [MirrorItem.exampleCredentialID: vault.rule])
+            })
         let ruleFile = root.appendingPathComponent("local-rules.json")
         let ruleSigner = FakeAccessRulesSigner(signedBytes: try? Data(contentsOf: ruleFile))
         let rules = CredentialAccessPolicyStore(fileURL: ruleFile, signer: ruleSigner)
         if !FileManager.default.fileExists(atPath: ruleFile.path) {
             try await confirmInitialAccessRules(in: rules, policies: [MirrorItem.exampleCredentialID: .ask])
         }
-        let mirror = EncryptedSnapshotStore(directoryURL: root.appendingPathComponent("local-vault"),
-            keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x36, count: 32)))
-        if try await mirror.loadCurrent() == nil { try await mirror.save(vault.generation()) }
         let settings = UserDefaults(suiteName: "com.agentkeyring.relay-proof." + root.lastPathComponent)!
         settings.set(false, forKey: "includeExampleCredential")
         settings.set(30, forKey: "phoneApprovalDelaySeconds")
-        let model = MirrorAppModel(store: mirror, authorizer: NoNativeApproval(),
+        let importer = FixtureRefreshImporter()
+        let model = MirrorAppModel(store: mirror, credentialImporter: importer, authorizer: NoNativeApproval(),
             bridge: AgentBridgeDirectory(rootURL: root), accessControl: CredentialAccessController(store: rules),
             leaseStore: leases, settings: settings)
         model.automaticallyPromptForLeases = false
@@ -221,10 +244,34 @@ struct RelayApproverFixture {
                     vault.rule = parts[1] == "auto" ? .allowAutomatically : parts[1] == "block" ? .block : .ask
                     try vault.rule.rawValue.write(to: root.appendingPathComponent("fixture-rule"), atomically: true, encoding: .utf8)
                     try await approver.publishCurrentRules()
+                case "refresh":
+                    let previous = try await mirror.loadCurrent()!.id
+                    await importer.setPassword(parts[1])
+                    let activity = NSUserActivity(activityType: ASCredentialExchangeActivity)
+                    activity.userInfo = [ASCredentialImportToken: UUID()]
+                    model.receive(activity)
+                    let deadline = Date().addingTimeInterval(10)
+                    while try await mirror.loadCurrent()?.id == previous || model.isImporting {
+                        guard Date() < deadline else { throw LeaseFailure(.unavailable, "Dummy import did not finish.") }
+                        try await Task.sleep(for: .milliseconds(20))
+                    }
+                    guard model.notice?.kind == .information else {
+                        throw LeaseFailure(.unavailable, model.notice?.text ?? "Dummy import has no result.")
+                    }
                 case "status": show(approver.update)
                 case "saved":
                     let bytes = try authorityPersistence.load()!
                     let plist = try PropertyListSerialization.propertyList(from: bytes, format: nil) as! [String: Any]
+                    if let relay = plist["relay"] as? [String: Any], let outbox = relay["outbox"] as? [[String: Any]] {
+                        for queued in outbox {
+                            guard let bytes = queued["bytes"] as? Data else { continue }
+                            let command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: bytes)
+                            if case let .publishCopyUpdate(signed) = command.request {
+                                let update = try Agentkeyring_V1_CopyUpdate(serializedBytes: signed.update)
+                                print("COPY\t\(update.revision)\t\(RelayCrypto.hex(bytes))")
+                            }
+                        }
+                    }
                     if let relay = plist["relay"] as? [String: Any], let requests = relay["requests"] as? [String: [String: Any]] {
                         for (id, saved) in requests {
                             if let data = saved["decision"] as? Data { print("SAVED\t\(id)\t\(RelayCrypto.hex(RelayCrypto.hash(data)))") }

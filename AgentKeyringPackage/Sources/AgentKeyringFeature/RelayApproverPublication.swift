@@ -6,6 +6,7 @@ extension RelayApprover {
     public func publishCurrentRules(context: LAContext = LAContext()) async throws {
         try load()
         _ = try currentKeySet()
+        try await prepareForPublication()
         try claimAuthorization("publication")
         defer { authorizationID = nil }
         try await keys().1.authorize(context: context, reason: "Apply your Agent Keyring rules and allowed machines")
@@ -40,11 +41,17 @@ extension RelayApprover {
         Task { [weak self] in
             guard let self else { return }
             do {
+                try await self.prepareForPublication()
                 let vault = try await self.credentialSource()
                 guard generation == self.rulesCheckGeneration else { return }
                 let changed = try self.requiresPublicationConfirmation(vault)
                 self.rulesDifferFromConfiguration = changed
                 if changed { self.errorMessage = "Confirm your current rules to apply them to other machines." }
+                if !changed, let configuration = try self.currentConfiguration() {
+                    var next = self.state
+                    try self.prepareAutomaticCopy(next: &next, vault: vault, configuration: configuration)
+                    if next.outbox.count != self.state.outbox.count { try self.commit(next) }
+                }
                 self.rulesAreBeingChecked = false
                 for id in self.state.requests.keys.sorted() { try self.decideByRule(id, vault: vault) }
                 self.publish()
@@ -61,6 +68,12 @@ extension RelayApprover {
 
     func requiresPublicationConfirmation(_ vault: RelayApproverVault) throws -> Bool {
         guard let published = try currentConfiguration() else { return true }
+        if state.automaticKeys != nil {
+            let keys = try automaticKeys(in: state)
+            if published.automaticSigningPublicKey != keys.signingPublicKey
+                || published.automaticKeyID != keys.signingKeyID
+                || published.relayEncryptionPublicKey != keys.encryptionPublicKey { return true }
+        }
         return try publicationDigest(published) != publicationDigest(vault, machines: state.machines)
     }
 
@@ -117,8 +130,10 @@ extension RelayApprover {
         configuration.domain = "agentkeyring.configuration.v1"
         configuration.revision = (try currentConfiguration()?.revision ?? 0) + 1
         configuration.mirrorRefreshedUnixSeconds = Int64(vault.generation.sourceExportedAt.timeIntervalSince1970)
-        configuration.automaticSigningPublicKey = signer.automaticPublicKey
-        configuration.automaticKeyID = RelayCrypto.keyID(signer.automaticPublicKey)
+        let relayKeys = try automaticKeys(in: next)
+        configuration.automaticSigningPublicKey = relayKeys.signingPublicKey
+        configuration.automaticKeyID = relayKeys.signingKeyID
+        configuration.relayEncryptionPublicKey = relayKeys.encryptionPublicKey
         var signed = Agentkeyring_V1_SignedConfiguration()
         signed.configuration = try configuration.serializedData()
         signed.signature = try signer.sign(signed.configuration, context: context, automatic: false)
@@ -128,6 +143,7 @@ extension RelayApprover {
         var command = Agentkeyring_V1_RelayWireRequest()
         command.publishConfiguration.configuration = signed
         try enqueue(command, id: "configuration:\(configuration.revision)", into: &next)
+        try prepareAutomaticCopy(next: &next, vault: vault, configuration: configuration)
     }
 
     func includeDeliveryKey(next: inout RelayApproverState, context: LAContext) throws {
