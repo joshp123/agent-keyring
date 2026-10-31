@@ -37,7 +37,7 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "AgentKeyringFeature",
-            dependencies: ["AgentKeyringFillerSupport", "AgentKeyringApprovalCore"]
+            dependencies: ["AgentKeyringProtocol", "AgentKeyringFillerSupport", "AgentKeyringApprovalCore"]
         ),
         .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),
         .executableTarget(
