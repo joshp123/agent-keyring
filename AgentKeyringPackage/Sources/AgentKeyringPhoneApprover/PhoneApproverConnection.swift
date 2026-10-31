@@ -36,6 +36,7 @@ extension PhoneRelayApprover {
                 var stream: RelayConnection?
                 do {
                     try await self.refreshAuthority()
+                    await self.refreshCopy()
                     try Task.checkCancellation()
                     var request = Agentkeyring_V1_RelayWireRequest()
                     request.watchWork.approverKeyID = RelayCrypto.keyID(try self.keys.signingPublicKey())
@@ -54,6 +55,11 @@ extension PhoneRelayApprover {
                             } catch { self.fail(error, stage: "Check pending request") }
                         case .cancelledRequestDigestHex: break // The following Lease carries the actual Mac outcome.
                         case let .lease(lease): try self.receiveLease(lease)
+                        case let .copyUpdate(update):
+                            do {
+                                try await self.refreshAuthority()
+                                try self.receiveCopy(update)
+                            } catch { self.fail(error, stage: "Check login copy") }
                         case .pairing, .enrolment: break // The Mac owns enrolment during release 4 development.
                         case .phoneDecision, .localLeaseAction: break // Sent only to the MacBook (RFC 0006).
                         case nil: throw RelayFailure(.invalidArgument, "The relay sent empty work.")

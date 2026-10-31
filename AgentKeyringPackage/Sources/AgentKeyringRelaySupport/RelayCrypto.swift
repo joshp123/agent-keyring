@@ -20,8 +20,10 @@ public enum RelayCrypto {
         return bytes
     }
 
-    public static func pairTranscript(relaySPKI: Data, approverSPKI: Data, signingKey: Data, keySet: Data) -> Data {
-        transcript([Data("agentkeyring.pair.v1\0".utf8), relaySPKI, approverSPKI, signingKey, keySet])
+    public static func pairTranscript(relaySPKI: Data, approverSPKI: Data, signingKey: Data, keySet: Data, encryptionKey: Data = Data()) -> Data {
+        var parts = [Data("agentkeyring.pair.v1\0".utf8), relaySPKI, approverSPKI, signingKey, keySet]
+        if !encryptionKey.isEmpty { parts.append(encryptionKey) }
+        return transcript(parts)
     }
 
     public static func enrolTranscript(relaySPKI: Data, clientSPKI: Data, receiverKey: Data, keySet: Data) -> Data {
@@ -53,6 +55,18 @@ public enum RelayCrypto {
         bundle.ciphertext = try sender.seal(plaintext, authenticating: requestDigest)
         bundle.receiverKeyID = keyID(receiverKey)
         return bundle
+    }
+
+    public static func loginCopyAssociatedData(destination: String, configurationRevision: UInt64, revision: UInt64, loginID: String) -> Data {
+        var length = UInt32(destination.utf8.count).bigEndian
+        var configurationRevision = configurationRevision.bigEndian
+        var revision = revision.bigEndian
+        var data = withUnsafeBytes(of: &length) { Data($0) }
+        data.append(Data(destination.utf8))
+        withUnsafeBytes(of: &configurationRevision) { data.append(contentsOf: $0) }
+        withUnsafeBytes(of: &revision) { data.append(contentsOf: $0) }
+        data.append(Data(loginID.utf8))
+        return data
     }
 
 }

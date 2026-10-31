@@ -8,6 +8,8 @@ import OSLog
 @MainActor
 public protocol PhoneApproverKeys {
     func signingPublicKey() throws -> Data
+    func encryptionPublicKey() throws -> Data
+    func openCopy(encapsulatedKey: Data, ciphertext: Data, associatedData: Data, context: LAContext) throws -> Data
     func authorize(_ context: LAContext, reason: String) async throws
     func sign(_ bytes: Data, context: LAContext) throws -> Data
 }
@@ -45,6 +47,7 @@ struct PhoneApproverState: Codable {
     var pairingWanted = false
     var keySet: Data?
     var configuration: Data?
+    var copy: PhoneSavedCopy?
     var requests: [String: PhoneSavedRequest] = [:]
     var outbox: [Data] = []
     var remoteLeases: [String: Data] = [:]
