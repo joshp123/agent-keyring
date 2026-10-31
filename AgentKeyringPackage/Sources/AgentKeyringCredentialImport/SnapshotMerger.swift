@@ -24,31 +24,20 @@ public struct SnapshotMerger: Sendable {
             uniqueKeysWithValues: previousItems.map {
                 ($0.sourceIdentity, $0)
             })
-        let previousByNaturalKey = Dictionary(grouping: previousItems, by: naturalKey)
-        let incomingByNaturalKey = Dictionary(grouping: importBatch.items, by: naturalKey)
-
         var matchedPreviousIDs = Set<UUID>()
         var mergedItems: [MirrorItem] = []
 
-        let orderedIncoming = importBatch.items.filter { previousBySource[$0.sourceIdentity] != nil }
-            + importBatch.items.filter { previousBySource[$0.sourceIdentity] == nil }
-        for importedItem in orderedIncoming {
-            let previousItem = try match(
-                importedItem,
-                previousBySource: previousBySource,
-                previousByNaturalKey: previousByNaturalKey,
-                incomingByNaturalKey: incomingByNaturalKey,
-                alreadyMatched: matchedPreviousIDs
-            )
-
-            guard let previousItem else {
+        for importedItem in importBatch.items {
+            guard let previousItem = previousBySource[importedItem.sourceIdentity] else {
                 let newItem = importedItem.replacingID(idFactory())
                 mergedItems.append(newItem)
                 continue
             }
 
             matchedPreviousIDs.insert(previousItem.id)
-            let updatedItem = importedItem.replacingID(previousItem.id)
+            let sameAuthorization = accountNames(in: importedItem) == accountNames(in: previousItem)
+                && Set(importedItem.origins) == Set(previousItem.origins)
+            let updatedItem = importedItem.replacingID(sameAuthorization ? previousItem.id : idFactory())
             mergedItems.append(updatedItem)
         }
 
@@ -77,63 +66,15 @@ public struct SnapshotMerger: Sendable {
         }
     }
 
-    private func match(
-        _ importedItem: MirrorItem,
-        previousBySource: [MirrorSourceIdentity: MirrorItem],
-        previousByNaturalKey: [String?: [MirrorItem]],
-        incomingByNaturalKey: [String?: [MirrorItem]],
-        alreadyMatched: Set<UUID>
-    ) throws -> MirrorItem? {
-        if let directMatch = previousBySource[importedItem.sourceIdentity] {
-            guard !alreadyMatched.contains(directMatch.id) else {
-                throw MirrorError.ambiguousMatch
-            }
-            return directMatch
-        }
-
-        guard
-            let key = naturalKey(importedItem),
-            let previousMatches = previousByNaturalKey[key],
-            let incomingMatches = incomingByNaturalKey[key]
-        else {
-            return nil
-        }
-        guard previousMatches.count == 1, incomingMatches.count == 1 else {
-            return nil
-        }
-        guard let fallbackMatch = previousMatches.first, !alreadyMatched.contains(fallbackMatch.id)
-        else {
-            return nil
-        }
-        return fallbackMatch
-    }
-
-    private func naturalKey(_ item: MirrorItem) -> String? {
-        let canonicalOrigins = item.origins
-            .compactMap { URL(string: $0) }
-            .compactMap { url -> String? in
-                guard let host = url.host?.lowercased() else { return nil }
-                let scheme = url.scheme?.lowercased() ?? "https"
-                let port = url.port ?? (scheme == "https" ? 443 : 80)
-                return "\(scheme)://\(host):\(port)"
-            }
-            .sorted()
-
-        let userName = item.credentials.lazy.compactMap { credential -> String? in
+    private func accountNames(in item: MirrorItem) -> Set<String> {
+        Set(item.credentials.compactMap { credential -> String? in
             switch credential {
             case let .password(userName, _):
                 userName
             case let .totp(_, _, _, userName, _, _):
                 userName
             }
-        }.first?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
-
-        guard let origin = canonicalOrigins.first, let userName, !userName.isEmpty else {
-            return nil
-        }
-        return "\(origin)|\(userName)"
+        })
     }
 
 }

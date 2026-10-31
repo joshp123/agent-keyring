@@ -1,7 +1,9 @@
 import Foundation
 import Testing
+import AgentKeyringTestSupport
 @testable import AgentKeyringFeature
 
+@MainActor
 @Suite("Snapshot merging")
 struct SnapshotMergerTests {
     private let fixedNow = Date(timeIntervalSince1970: 2_000)
@@ -32,7 +34,7 @@ struct SnapshotMergerTests {
     }
 
     @Test("A changed password replaces the previous value even when its timestamp is unchanged")
-    func passwordChangeWithUnchangedTimestamp() throws {
+    func passwordChangeWithUnchangedTimestamp() async throws {
         let first = try merger().merge(
             previous: nil,
             importBatch: batch(items: [item(index: 1, password: "before")])
@@ -43,21 +45,59 @@ struct SnapshotMergerTests {
         )
 
         #expect(second.items.first?.credentials == [.password(userName: "agent@example.com", password: "after")])
+        #expect(second.items.first?.id == first.items.first?.id)
+        try await checkRuleAfterImport(first, second, expectedPolicy: .allowAutomatically)
     }
 
-    @Test("A unique natural key preserves identity when a source ID changes")
-    func naturalKeyFallback() throws {
+    @Test("Different source identities stay separate and start on Ask", arguments: ["exporter", "account", "item"])
+    func distinctSourceIdentity(component: String) async throws {
         let first = try merger().merge(
             previous: nil,
             importBatch: batch(items: [item(index: 1)])
         )
-        let changedSource = item(index: 99)
+        let changedSource = item(index: component == "item" ? 99 : 1,
+            exporter: component == "exporter" ? "other.exporter" : "com.apple.Passwords",
+            account: component == "account" ? "other-account" : "account")
         let second = try merger().merge(
             previous: first,
             importBatch: batch(items: [changedSource])
         )
 
-        #expect(second.items.first?.id == first.items.first?.id)
+        #expect(second.items.count == 2)
+        #expect(second.items.contains(first.items[0]))
+        try await checkRuleAfterImport(first, second, expectedPolicy: .ask)
+    }
+
+    @Test("Case-distinct account names on the same Apple item cannot inherit Automatic")
+    func changedAccount() async throws {
+        let first = try merger().merge(previous: nil,
+            importBatch: batch(items: [item(index: 1, username: "CaseSensitive")]))
+        let second = try merger().merge(previous: first,
+            importBatch: batch(items: [item(index: 1, username: "casesensitive")]))
+        #expect(second.items.count == 1)
+        #expect(second.items[0].id != first.items[0].id)
+        try await checkRuleAfterImport(first, second, expectedPolicy: .ask)
+    }
+
+    @Test("Changing a secondary destination on the same Apple item cannot inherit Automatic")
+    func changedSecondaryDestination() async throws {
+        let first = try merger().merge(previous: nil, importBatch: batch(items: [item(index: 1,
+            origins: ["https://example.com", "https://z.example.com"])]))
+        let second = try merger().merge(previous: first, importBatch: batch(items: [item(index: 1,
+            origins: ["https://example.com", "https://other.example.net"])]))
+        #expect(second.items.count == 1)
+        #expect(second.items[0].id != first.items[0].id)
+        try await checkRuleAfterImport(first, second, expectedPolicy: .ask)
+    }
+
+    @Test("Reordering the same destinations during a password refresh keeps Automatic")
+    func reorderedDestinations() async throws {
+        let first = try merger().merge(previous: nil, importBatch: batch(items: [item(index: 1,
+            origins: ["https://example.com", "https://z.example.com"])]))
+        let second = try merger().merge(previous: first, importBatch: batch(items: [item(index: 1,
+            password: "new-password", origins: ["https://z.example.com", "https://example.com"])]))
+        #expect(second.items[0].id == first.items[0].id)
+        try await checkRuleAfterImport(first, second, expectedPolicy: .allowAutomatically)
     }
 
     @Test("Duplicate accounts keep distinct source identities without rejecting the import")
@@ -83,6 +123,26 @@ struct SnapshotMergerTests {
         SnapshotMerger(now: { fixedNow })
     }
 
+    private func checkRuleAfterImport(_ first: MirrorGeneration, _ second: MirrorGeneration,
+        expectedPolicy: CredentialAccessPolicy) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("rules.json"),
+            signer: FakeAccessRulesSigner())
+        try await confirmInitialAccessRules(in: store, policies: [first.items[0].id: .allowAutomatically])
+        let controller = CredentialAccessController(store: store)
+        await controller.refresh(from: first)
+        #expect(controller.releaseDecision(for: first.items[0].id, field: .password) == .release)
+        await controller.refresh(from: second)
+        try await controller.ensureRulesConfirmed()
+        for item in second.items {
+            let expected = item.id == first.items[0].id ? CredentialAccessPolicy.allowAutomatically : expectedPolicy
+            #expect(controller.policy(for: item.id) == expected)
+            #expect(controller.releaseDecision(for: item.id, field: .password)
+                == (expected == .allowAutomatically ? .release : .requestAuthorization))
+        }
+    }
+
     private func batch(items: [MirrorItem]) -> MirrorImportBatch {
         MirrorImportBatch(
             scope: .full,
@@ -97,19 +157,23 @@ struct SnapshotMergerTests {
     private func item(
         index: Int,
         password: String = "secret",
+        username: String = "agent@example.com",
+        origins: [String] = ["https://example.com/login"],
+        exporter: String = "com.apple.Passwords",
+        account: String = "account",
         lastModifiedAt: Date = Date(timeIntervalSince1970: 100)
     ) -> MirrorItem {
         MirrorItem(
             id: UUID(),
             sourceIdentity: MirrorSourceIdentity(
-                exporterIdentifier: "com.apple.Passwords",
-                accountID: Data("account".utf8),
+                exporterIdentifier: exporter,
+                accountID: Data(account.utf8),
                 itemID: Data("item-\(index)".utf8)
             ),
             lastModifiedAt: lastModifiedAt,
             title: "Example",
-            origins: ["https://example.com/login"],
-            credentials: [.password(userName: "agent@example.com", password: password)]
+            origins: origins,
+            credentials: [.password(userName: username, password: password)]
         )
     }
 }
