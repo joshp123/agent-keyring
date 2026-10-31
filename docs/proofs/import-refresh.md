@@ -27,6 +27,8 @@ The committed tests independently check:
 - A different exporter, Apple account ID or Apple item ID creates a new Ask login
   and retains the original login and its Automatic rule.
 - A case-distinct username on the same source item gets a new login ID and Ask.
+- Swapping the account names attached to password and TOTP records also gets a
+  new ID and Ask; a combined set of names must not hide that account change.
 - A changed secondary destination on the same source item gets a new ID and Ask.
 - A password-only refresh keeps the login ID and Automatic, even with an unchanged
   modification timestamp. Reordering the same destinations also keeps the rule.
@@ -58,9 +60,12 @@ DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
   --filter 'SnapshotMergerTests|EncryptedSnapshotStoreTests|MirrorImportFailureTests'
 ```
 
-The mini passed all 17 tests in the three suites, including both publication cases.
+The mini passed all 18 tests in the three suites, including both publication cases
+and the additional password/TOTP account-role check. That additional check was
+observed failing before its fix.
 Original logs are retained locally under `.private/proofs/round8/`:
-`import-tests.log`, `publication-tests.log` and `reproducer.log`.
+`import-tests.log`, `publication-tests.log`, `final-import-tests.log`,
+`account-roles-before.log` and `reproducer.log`.
 
 ## Removing the unused keystroke filler
 
@@ -70,8 +75,9 @@ receiver, which uses Chrome's debugging connection. The old XPC client, native
 keystroke service, Accessibility onboarding and their support module/tests were
 removed. SwiftUI accessibility labels and the live Go receiver were not changed.
 
-A fresh, unsigned Release app built on the mini from `1169be0`, using the isolated
-identifier `com.example.keyringround8.AgentKeyring`. It was never launched.
+A fresh, unsigned Release app built on the mini, then rebuilt after the account-role
+fix in `f6cba10`, using the isolated identifier
+`com.example.keyringround8.AgentKeyring`. It was never launched.
 The build used `mobilebuildmcp macos build`, the normal workspace and scheme,
 an isolated derived-data directory, `CODE_SIGNING_ALLOWED=NO` and
 `AGENT_KEYRING_BUNDLE_ID_PREFIX=com.example.keyringround8`.
@@ -85,5 +91,9 @@ SHA-256 matched the binary built from this tree:
 872b127b5869e2fed60a3dd6dd033f4095535610a68b8f9ebd0648dce306e269
 ```
 
-`app-build.log` is retained beside the import logs. This proves compilation and
-the shipped code/bundle contents; it is not a new GUI or Apple export acceptance run.
+`app-build.log`, `app-build-full.log` and `bundle-inspection.log` are retained beside
+the import logs. This proves compilation and the shipped code/bundle contents;
+it is not a new GUI or Apple export acceptance run.
+
+The isolated mini build, source and tool workspace were moved to Trash after saving
+the logs. The installed 0.4.0 app and its registered extension were left in place.
