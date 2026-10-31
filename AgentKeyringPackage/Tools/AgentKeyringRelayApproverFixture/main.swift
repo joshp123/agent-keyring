@@ -5,10 +5,11 @@ import AgentKeyringFeature
 import CryptoKit
 import Foundation
 import LocalAuthentication
+import Security
 
 @MainActor
 final class FixtureSigner: RelayApproverSigning {
-    struct Saved: Codable { var human: Data; var automatic: Data; var authorizations: Int }
+    struct Saved: Codable { var human: Data; var automatic: Data; var authorizations: Int; var backgroundSignatures: Int? }
     let persistence: LeasePersistence
     var saved: Saved
     var publicKey: Data { try! P256.Signing.PrivateKey(rawRepresentation: saved.human).publicKey.x963Representation }
@@ -32,6 +33,10 @@ final class FixtureSigner: RelayApproverSigning {
     }
     func sign(_ bytes: Data, context: LAContext?, automatic: Bool) throws -> Data {
         if !automatic && context == nil { throw CredentialReleaseAuthorizationError.notVerified }
+        if automatic {
+            saved.backgroundSignatures = (saved.backgroundSignatures ?? 0) + 1
+            try persistence.save(PropertyListEncoder().encode(saved))
+        }
         return try P256.Signing.PrivateKey(rawRepresentation: automatic ? saved.automatic : saved.human).signature(for: bytes).derRepresentation
     }
 }
@@ -59,7 +64,26 @@ final class FixtureVault {
             items: [item], skippedCredentialCount: 0), policies: [item.id: rule])
     }
 }
-struct UnlockedFixture: CredentialSessionLockState { var isLocked: Bool { false } }
+@MainActor
+final class FixtureSessionLockState: CredentialSessionLockState {
+    private let file: URL
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+    private(set) var isLocked: Bool
+    var changes: AsyncStream<Void> { stream }
+
+    init(root: URL) {
+        file = root.appendingPathComponent("fixture-locked")
+        isLocked = (try? String(contentsOf: file, encoding: .utf8)) == "true"
+        (stream, continuation) = AsyncStream<Void>.makeStream()
+    }
+
+    func setLocked(_ locked: Bool) throws {
+        try String(locked).write(to: file, atomically: true, encoding: .utf8)
+        isLocked = locked
+        continuation.yield(())
+    }
+}
 
 @main
 struct RelayApproverFixture {
@@ -68,21 +92,41 @@ struct RelayApproverFixture {
         catch { fputs("Fixture unavailable: \(error.localizedDescription)\n", stderr); exit(1) }
     }
     @MainActor static func run() async throws {
-        guard CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--dummy-only" else {
-            throw LeaseFailure(.invalidArgument, "Use --dummy-only ISOLATED_DIRECTORY")
+        guard CommandLine.arguments.count == 3,
+            ["--dummy-only", "--erase-dummy-checkpoints"].contains(CommandLine.arguments[1]) else {
+            throw LeaseFailure(.invalidArgument, "Use --dummy-only ISOLATED_DIRECTORY or --erase-dummy-checkpoints ISOLATED_DIRECTORY")
         }
         let root = URL(fileURLWithPath: CommandLine.arguments[2])
+        if CommandLine.arguments[1] == "--erase-dummy-checkpoints" {
+            guard root.lastPathComponent.hasPrefix("relay-proof-") else {
+                throw LeaseFailure(.invalidArgument, "Checkpoint cleanup requires a relay-proof- directory name.")
+            }
+            let context = LAContext()
+            context.interactionNotAllowed = true
+            for name in ["signing", "tls", "authority", "unified-authority"] {
+                let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrService as String: "com.agentkeyring.relay-proof.\(name)." + root.lastPathComponent,
+                    kSecAttrAccount as String: name == "tls" ? "tls" : "committed-snapshot",
+                    kSecUseDataProtectionKeychain as String: true, kSecAttrSynchronizable as String: false,
+                    kSecUseAuthenticationContext as String: context]
+                let status = SecItemDelete(query as CFDictionary)
+                guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
+                print("ERASED\t\(name)\t\(status)")
+            }
+            return
+        }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let signer = try FixtureSigner(root: root)
         let vault = FixtureVault(root: root)
+        let lockState = FixtureSessionLockState(root: root)
         let identity = try RelayTLSIdentity.loadOrCreate(service: "com.agentkeyring.relay-proof.tls." + root.lastPathComponent)
         let persistence = LeasePersistence(directory: root.appendingPathComponent("approver"),
             checkpointService: "com.agentkeyring.relay-proof.authority." + root.lastPathComponent)
         let authorityPersistence = LeasePersistence(directory: root.appendingPathComponent("authority"),
             checkpointService: "com.agentkeyring.relay-proof.unified-authority." + root.lastPathComponent)
         let leases = CredentialLeaseStore(persistence: authorityPersistence)
-        let approver = RelayApprover(persistence: persistence, leaseStore: leases, identity: identity, signer: signer,
-            lockState: UnlockedFixture(), credentialSource: { vault.read() })
+        let approver = RelayApprover(persistence: persistence, leaseStore: leases, phoneDelay: { 30 }, identity: identity, signer: signer,
+            lockState: lockState, credentialSource: { vault.read() })
         try approver.load()
         approver.start()
         func show(_ update: RelayApproverUpdate) {
@@ -97,6 +141,8 @@ struct RelayApproverFixture {
                 print("LEASE\t\(lease.id)\t\(lease.lease.state.rawValue)\t\(lease.endIsQueued)")
             }
             print("STATUS\t\(update.connection)\t\(update.queuedAnswerCount)\t\(update.needsPublication)\t\(signer.saved.authorizations)\t\(update.isApplying)")
+            print("BACKGROUND\t\(signer.saved.backgroundSignatures ?? 0)")
+            if let error = update.errorMessage { print("DETAIL\t\(error)") }
             fflush(stdout)
         }
         let updates = Task { for await update in approver.changes() { show(update) } }
@@ -118,6 +164,7 @@ struct RelayApproverFixture {
                 case "abandon": try approver.abandonPairing()
                 case "dismiss-approver": try approver.dismissApproverPairing(parts[1])
                 case "reconnect": approver.reconnect()
+                case "lock": try lockState.setLocked(parts[1] == "true")
                 case "confirm": try await approver.confirmPairing(comparedFingerprint: parts[1])
                 case "enrol": try await approver.approveEnrolment(parts[1], comparedFingerprint: parts[2], automaticAllowed: parts[3] == "true")
                 case "confirm-approver": try await approver.confirmApproverPairing(parts[1], comparedFingerprint: parts[2])

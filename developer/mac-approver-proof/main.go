@@ -53,6 +53,7 @@ type owner struct {
 	requests               map[string][]string
 	leases                 map[string][]string
 	queued, authorizations int
+	backgroundSignatures   int
 	saved                  map[string]string
 	pairVisible            bool
 	pendingApprovers       string
@@ -103,6 +104,8 @@ func (p *owner) wait(predicate func([]string) bool) []string {
 				p.authorizations, _ = strconv.Atoi(e[4])
 			case "SAVED":
 				p.saved[e[1]] = e[2]
+			case "BACKGROUND":
+				p.backgroundSignatures, _ = strconv.Atoi(e[1])
 			case "FAILED":
 				if e[1] != p.expectedFailure {
 					panic(strings.Join(e, " "))
@@ -212,6 +215,7 @@ func identity() tls.Certificate {
 type proof struct {
 	root, relayBinary, fixture       string
 	cli, cliRecipient, browserScript string
+	phoneBinary, approverPort        string
 	relay                            *exec.Cmd
 	log                              *os.File
 	owner                            *owner
@@ -248,7 +252,11 @@ func (p *proof) stopRelay() {
 	}
 }
 func (p *proof) pair() {
-	p.owner.action("pair", "17445")
+	port := p.approverPort
+	if port == "" {
+		port = "17445"
+	}
+	p.owner.action("pair", port)
 	if p.owner.pair == "" {
 		p.owner.wait(func(e []string) bool { return e[0] == "PAIR" })
 	}
@@ -430,6 +438,7 @@ func (p *proof) run() {
 func main() {
 	p := new(proof)
 	pairingControls := flag.Bool("pairing-controls", false, "short pairing cancellation and resolved-address proof")
+	flag.StringVar(&p.phoneBinary, "phone-binary", "", "production Swift phone fixture; runs the joint phone flow")
 	flag.StringVar(&p.root, "root", "", "fresh dummy root inside the app container")
 	flag.StringVar(&p.fixture, "approver", "", "signed mini-only Swift fixture executable")
 	flag.StringVar(&p.relayBinary, "relay", "", "relay executable")
@@ -438,7 +447,9 @@ func main() {
 	flag.Parse()
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	if *pairingControls {
+	if p.phoneBinary != "" {
+		p.runPhoneFlow()
+	} else if *pairingControls {
 		p.runPairingControls()
 	} else {
 		p.run()
