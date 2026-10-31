@@ -296,7 +296,7 @@ func (p *proof) phoneProof(binary string) {
 	network.Unlock()
 	network.up()
 	phone = startPhone(binary, directory)
-	defer phone.stop()
+	defer func() { phone.stop() }()
 	phone.wait("requests", id+"=waitingForMac")
 	count, err := os.ReadFile(countPath)
 	must(err)
@@ -332,8 +332,14 @@ func (p *proof) phoneProof(binary string) {
 		if reply != "" {
 			require(strings.Contains(phone.command("requests"), reply), "waiting state lost the reply")
 		}
+		if reply != "" {
+			phone.stop()
+		}
 		delivered := p.deliverPhone(raw, denial, deliverySigner)
 		require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: delivered}})).GetDecision().Accepted, "Mac denial refused")
+		if reply != "" {
+			phone = startPhone(binary, directory)
+		}
 		phone.wait("requests", digest+"=denied")
 		result := good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: l.LeaseId}}}))).GetClient().GetLease()
 		require(result.State == pb.LeaseState_LEASE_STATE_DENIED && result.Reply == reply, "receiver lost the denial reply")
@@ -342,7 +348,7 @@ func (p *proof) phoneProof(binary string) {
 	count, err = os.ReadFile(countPath)
 	must(err)
 	require(string(count) == "2", "plain denial prompted or signed reply did not")
-	fmt.Println("PASS unsigned plain denial; signed reply kept while waiting; actual Mac denial and scoped clear")
+	fmt.Println("PASS unsigned plain denial; signed reply kept while waiting; Mac denial while phone closed fetched on reopen; scoped clear")
 
 	// A local Mac recipient has never enrolled as a remote receiver.
 	now := time.Now().Unix()

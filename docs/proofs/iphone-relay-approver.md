@@ -89,13 +89,17 @@ Passed:
   the dummy login. The phone displays the actual approval. End Access prevents
   another delivery.
 - Plain Deny needs no authorization; a typed reply adds one signature and
-  remains visible while waiting. The actual Mac denial and scoped clear arrive.
+  remains visible while waiting. Close the phone after its answer is
+  acknowledged; a Mac denial committed while it is closed arrives on reopening,
+  with the reply intact and no second authorization. Scoped clear then works.
 - A local request needs no remote receiver enrolment. Its approval uses one
   authorization; End remains active until the Mac reports REVOKED.
 
 The run exposed and fixed a relay race: a phone that had seen PendingRequest
 could miss its terminal Lease if the outcome arrived before the initial lease
-snapshot. The relay now sends terminal updates for an observed request.
+snapshot. A fresh stream could also omit a denial committed while the phone
+was closed. The relay now replays the latest state of each escalation on open
+and sends each subsequent change, including terminal outcomes.
 
 A full Swift package build and a fresh iOS Simulator SDK app build passed on
 the mini after cleanup. The resulting app embeds only the credential-provider
