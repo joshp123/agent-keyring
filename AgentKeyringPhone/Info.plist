@@ -10,9 +10,5 @@
     <string>Use Face ID to open a saved login and approve an agent’s request.</string>
     <key>NSCameraUsageDescription</key>
     <string>Scan the one-time QR code on your Mac to pair this iPhone for login approvals.</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Use the microphone to dictate your reply to an agent.</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Turn your speech into a reply on this iPhone. Your voice stays on this iPhone.</string>
 </dict>
 </plist>
