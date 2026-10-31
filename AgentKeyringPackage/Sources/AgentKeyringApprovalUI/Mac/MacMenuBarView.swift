@@ -167,6 +167,7 @@ public struct MacMenuBarView: View {
                     Text("Task history needs attention").font(.headline)
                     Text("Task access on this Mac is stopped. Your logins and rules are kept.")
                         .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button("Reset task history…", action: model.openAgentKeyring)
                 }
                 .padding(14)

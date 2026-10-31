@@ -101,7 +101,11 @@ public final class MirrorAppModel {
                 try self.leaseStore.reconcile(logins: self.leaseLogins,
                     policies: Dictionary(uniqueKeysWithValues: self.leaseLogins.map { ($0.id, self.accessControl.policy(for: $0.id)) }),
                     rulesConfirmed: !self.accessControl.needsConfirmation)
-            } catch { self.notice = MirrorNotice(kind: .error, text: "Lease access could not be updated. New deliveries will check the saved rules.") }
+            } catch {
+                if !self.leaseStore.needsHistoryReset {
+                    self.notice = MirrorNotice(kind: .error, text: "Lease access could not be updated. New deliveries will check the saved rules.")
+                }
+            }
         }
     }
 
