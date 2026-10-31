@@ -11,6 +11,8 @@ Agent Keyring holds the user's saved logins. You lease one login for the task yo
 
 The values go into the sign-in form or the program, not into your output. Keep it that way: your conversation is stored, and the user is trusting the tool with their accounts.
 
+If your harness has its own secret prompt, such as T3 Code's `request_secret`, don't use it for a login the user has saved. It asks them to type the password, which is what this tool exists to avoid.
+
 ## The shape of every sign-in
 
 ```sh
@@ -26,7 +28,7 @@ agent-keyring release "$lease"
 
 ## Using the lease
 
-**Google Chrome on this Mac, reached over its debugging endpoint.** Other Chromium browsers aren't supported yet and say so. Inspect the page with your own browser tools, then pass the exact fields and the sign-in button:
+**Google Chrome on this Mac, reached over its debugging endpoint.** Other Chromium browsers aren't supported yet and say so. Inspect the page with your own browser tools. With only a shell, `agent-keyring fields --browser "$endpoint"` lists the tabs, and adding `--tab "$tab"` lists the page's visible fields and buttons with their selectors, never their values. Then pass the exact fields and the sign-in button:
 
 ```sh
 agent-keyring fill "$lease" --browser "$endpoint" --tab "$tab" \
