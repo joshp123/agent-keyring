@@ -31,6 +31,7 @@ type phoneProcess struct {
 	command *exec.Cmd
 	input   io.WriteCloser
 	lines   chan string
+	relay   client
 }
 
 func startPhone(binary, directory string) *phoneProcess {
@@ -102,6 +103,7 @@ func (p *proof) pairSwiftPhone() (*phoneProcess, string) {
 	public = elliptic.Marshal(elliptic.P256(), signer.X, signer.Y)
 	must(os.WriteFile(filepath.Join(directory, "signing.raw"), signer.D.FillBytes(make([]byte, 32)), 0600))
 	phone := startPhone(p.phoneBinary, directory)
+	phone.relay = client{address: "127.0.0.1:17445", cert: certificate}
 	comparison := phone.action("pair\t17445")
 	id := hex.EncodeToString(relaycrypto.Hash(public))
 	work := p.owner.wait(func(e []string) bool { return e[0] == "APPROVER" && e[1] == id })
@@ -126,18 +128,31 @@ func (p *proof) cliIdentity() client {
 }
 
 type browserSignIn struct {
-	command         *exec.Cmd
-	output          bytes.Buffer
-	hold, id, lease string
-	started         time.Time
+	command               *exec.Cmd
+	output                bytes.Buffer
+	hold, id, lease       string
+	holdRelease, signedIn string
+	started               time.Time
 }
 
 func (p *proof) startBrowserSignIn(task string) *browserSignIn {
+	return p.startBrowser(task, false)
+}
+func (p *proof) startBrowser(task string, local bool) *browserSignIn {
 	b := &browserSignIn{hold: filepath.Join(p.root, task+".hold"), started: time.Now()}
 	must(os.WriteFile(b.hold, []byte("Inspect the approved delivery before filling."), 0600))
 	b.command = p.cliCommand()
+	if local {
+		b.command = p.localCLICommand()
+	}
 	b.command.Path = "/usr/bin/python3"
 	b.command.Args = []string{"/usr/bin/python3", p.browserScript, "--cli", p.cli, "--task", task, "--hold-before-fill", b.hold}
+	if local {
+		b.holdRelease = filepath.Join(p.root, task+".release-hold")
+		b.signedIn = filepath.Join(p.root, task+".signed-in")
+		must(os.WriteFile(b.holdRelease, []byte("Phone ends the local lease before CLI release."), 0600))
+		b.command.Args = append(b.command.Args, "--hold-before-release", b.holdRelease, "--signed-in-marker", b.signedIn)
+	}
 	b.command.Stdout = &b.output
 	b.command.Stderr = &b.output
 	known := map[string]bool{}
@@ -145,12 +160,20 @@ func (p *proof) startBrowserSignIn(task string) *browserSignIn {
 		known[lease] = true
 	}
 	must(b.command.Start())
+	if local {
+		work := p.owner.wait(func(e []string) bool { return e[0] == "LOCAL" && e[2] == task && e[3] == "1" })
+		b.id, b.lease = work[4], work[1]
+		return b
+	}
 	work := p.owner.wait(func(e []string) bool { return e[0] == "REQUEST" && e[3] == "1" && !known[e[2]] })
 	b.id, b.lease = work[1], work[2]
 	return b
 }
 func (b *browserSignIn) finish() {
-	must(os.Rename(b.hold, b.hold+".released"))
+	b.allowFill()
+	if b.holdRelease != "" {
+		must(os.Rename(b.holdRelease, b.holdRelease+".released"))
+	}
 	err := b.command.Wait()
 	text := b.output.String()
 	require(!strings.Contains(text, "example-password"), "dummy password exposed by browser proof")
@@ -158,6 +181,12 @@ func (b *browserSignIn) finish() {
 		panic(text + err.Error())
 	}
 	fmt.Print(text)
+}
+func (b *browserSignIn) allowFill() {
+	if _, err := os.Stat(b.hold); os.IsNotExist(err) {
+		return
+	}
+	must(os.Rename(b.hold, b.hold+".released"))
 }
 func (b *browserSignIn) stop() {
 	if b.command.ProcessState == nil {

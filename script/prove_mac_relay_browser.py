@@ -16,6 +16,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--cli', required=True)
 parser.add_argument('--task', default='mac-remote-browser')
 parser.add_argument('--hold-before-fill', type=Path)
+parser.add_argument('--hold-before-release', type=Path)
+parser.add_argument('--signed-in-marker', type=Path)
 args = parser.parse_args()
 server = LoginServer(8443, example_login=True)
 server.example_login = False
@@ -55,6 +57,13 @@ try:
     run(*fill, '--code', '#verification-code', '--submit', '#verify', '--operation', 'code')
     browser.wait("!!document.querySelector('#authenticated')")
     assert server.results['verification_accepted'] == 1
+    if args.signed_in_marker:
+        args.signed_in_marker.write_text('Password and TOTP accepted; one password POST on retry.')
+    if args.hold_before_release:
+        deadline = time.monotonic() + 120
+        while args.hold_before_release.exists():
+            assert time.monotonic() < deadline, 'Proof did not release the signed-in browser'
+            time.sleep(.05)
     run('release', lease)
     print('PASS actual CLI, Swift approver and real relay: Chrome password then TOTP sign-in; retry submitted once')
 finally:

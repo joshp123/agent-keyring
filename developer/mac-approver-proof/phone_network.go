@@ -17,6 +17,7 @@ type approvalNetwork struct {
 	listener        net.Listener
 	connections     []net.Conn
 	loseReply       bool
+	pauseNewCalls   bool
 	dropped         int
 }
 
@@ -32,6 +33,13 @@ func (n *approvalNetwork) up() {
 			downstream, err := listener.Accept()
 			if err != nil {
 				return
+			}
+			n.Lock()
+			paused := n.pauseNewCalls
+			n.Unlock()
+			if paused {
+				downstream.Close()
+				continue
 			}
 			upstream, err := net.Dial("tcp", n.target)
 			must(err)
