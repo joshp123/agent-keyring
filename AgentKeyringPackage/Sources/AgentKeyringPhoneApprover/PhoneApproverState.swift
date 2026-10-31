@@ -38,17 +38,16 @@ struct PhoneSavedRequest: Codable {
 }
 
 struct PhoneApproverState: Codable {
-    var version = 2
+    var version = 3
     var endpoint: RelayEndpoint?
     var relaySPKI: Data?
     var pendingPair: PhonePendingPair?
     var pairingWanted = false
     var keySet: Data?
-    var roster: Data?
+    var configuration: Data?
     var requests: [String: PhoneSavedRequest] = [:]
     var outbox: [Data] = []
     var remoteLeases: [String: Data] = [:]
-    var signedIndex: Data?
     var rulesUpdatedAt: Date?
 }
 
@@ -83,10 +82,10 @@ public final class PhoneRelayApprover {
 
     public func load() throws {
         guard !loaded else { return }
-        let url = directory.appending(path: "phone-answers-v2.plist")
+        let url = directory.appending(path: "phone-answers-v3.plist")
         if FileManager.default.fileExists(atPath: url.path) {
             state = try PropertyListDecoder().decode(PhoneApproverState.self, from: Data(contentsOf: url))
-            guard state.version == 2 else { throw RelayFailure(.unavailable, "This phone state needs a newer Agent Keyring.") }
+            guard state.version == 3 else { throw RelayFailure(.unavailable, "This phone state needs a newer Agent Keyring.") }
         }
         loaded = true
         if state.keySet != nil { pairing = .paired }
@@ -101,9 +100,9 @@ public final class PhoneRelayApprover {
         let encoder = PropertyListEncoder(); encoder.outputFormat = .binary
         #if os(iOS)
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: directory.path)
-        try encoder.encode(next).write(to: directory.appending(path: "phone-answers-v2.plist"), options: [.atomic, .completeFileProtection])
+        try encoder.encode(next).write(to: directory.appending(path: "phone-answers-v3.plist"), options: [.atomic, .completeFileProtection])
         #else
-        try encoder.encode(next).write(to: directory.appending(path: "phone-answers-v2.plist"), options: .atomic)
+        try encoder.encode(next).write(to: directory.appending(path: "phone-answers-v3.plist"), options: .atomic)
         #endif
         state = next
         publish()
