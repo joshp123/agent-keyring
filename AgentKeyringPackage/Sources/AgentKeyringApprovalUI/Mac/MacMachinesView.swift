@@ -81,7 +81,7 @@ public protocol MacMachinesBackend: AnyObject {
 @Observable
 public final class MacMachinesModel {
     public private(set) var snapshot: MachinesSnapshot
-    public var addressDraft = ""
+    public var addressDraft = SetupCopy.defaultRelayAddress
     public private(set) var isWorking = false
     public private(set) var failure: String?
     /// Opens the enrolment panel for a waiting machine.
@@ -98,7 +98,7 @@ public final class MacMachinesModel {
         for await next in backend.updates() { snapshot = next }
     }
 
-    /// "mac-mini:17443" into host and port.
+    /// "mac-mini.example.ts.net:17443" into host and port.
     public var parsedAddress: (host: String, port: UInt16)? {
         let parts = addressDraft.trimmingCharacters(in: .whitespaces).split(separator: ":")
         guard parts.count == 2, !parts[0].isEmpty, let port = UInt16(parts[1]) else { return nil }
@@ -129,10 +129,13 @@ public final class MacMachinesModel {
 
     public func dismissFailure() { failure = nil }
 
+    /// Shows the backend's own explanation when it gives one.
     private func run(_ message: String, action: () async throws -> Void) async {
         isWorking = true
         defer { isWorking = false }
-        do { try await action() } catch { failure = message }
+        do { try await action() } catch {
+            failure = (error as? LocalizedError)?.errorDescription ?? message
+        }
     }
 }
 
@@ -221,10 +224,14 @@ public struct MacMachinesView: View {
             Text(SetupCopy.relayNotSetUp)
                 .foregroundStyle(.secondary)
             HStack {
-                TextField(SetupCopy.relayAddress, text: $model.addressDraft, prompt: Text("mac-mini:17443"))
+                TextField(SetupCopy.relayAddress, text: $model.addressDraft,
+                    prompt: Text(SetupCopy.relayAddressExample))
                 Button(SetupCopy.connect) { Task { await model.connect() } }
                     .disabled(model.parsedAddress == nil || model.isWorking)
             }
+            Text(SetupCopy.relayAddressHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         case let .connecting(address):
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
