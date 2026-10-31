@@ -49,11 +49,11 @@ func (s Store) lock(ctx context.Context) (func(), error) {
 	if err = privateInfo(info); err != nil {
 		return nil, err
 	}
-	fd, err := syscall.Open(filepath.Join(s.Directory, "state.lock"), syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	file, err := os.OpenFile(filepath.Join(s.Directory, "state.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return nil, err
 	}
-	file := os.NewFile(uintptr(fd), "state.lock")
+	fd := int(file.Fd())
 	info, err = file.Stat()
 	if err == nil {
 		err = privateInfo(info)
@@ -68,6 +68,9 @@ func (s Store) lock(ctx context.Context) (func(), error) {
 		err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
 			return func() { syscall.Flock(fd, syscall.LOCK_UN); file.Close() }, nil
+		}
+		if err == syscall.EINTR {
+			continue
 		}
 		if err != syscall.EWOULDBLOCK {
 			file.Close()
@@ -85,11 +88,10 @@ func (s Store) lock(ctx context.Context) (func(), error) {
 	}
 }
 func (s Store) read(name string, message proto.Message) error {
-	fd, err := syscall.Open(filepath.Join(s.Directory, name), syscall.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	file, err := os.OpenFile(filepath.Join(s.Directory, name), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
-	file := os.NewFile(uintptr(fd), name)
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {

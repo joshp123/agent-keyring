@@ -204,15 +204,18 @@ func tabLock(ctx context.Context, identity, tab string) (func(), error) {
 		return nil, errors.New("Cannot create the local browser lock directory.")
 	}
 	path := filepath.Join(directory, hex.EncodeToString(Digest(identity, tab))+".lock")
-	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return nil, errors.New("Cannot lock the selected browser tab.")
 	}
-	file := os.NewFile(uintptr(fd), path)
+	fd := int(file.Fd())
 	for {
 		err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
 			return func() { syscall.Flock(fd, syscall.LOCK_UN); file.Close() }, nil
+		}
+		if err == syscall.EINTR {
+			continue
 		}
 		if err != syscall.EWOULDBLOCK {
 			file.Close()
