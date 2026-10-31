@@ -52,9 +52,8 @@ The complete process proof passed on the mini:
   successful password operation caused one password POST. An SPA retained its
   form after submit; the inputs were empty after the receiver returned.
 
-The final file-storage binary passed this proof without a signed wrapper.
-Keychain experiments were discarded. Remote keys are owner-only files; this
-is not a Keychain protection claim. The state directory defaults to
+The final binary passed this proof with the existing helper packaging. Remote
+keys are owner-only files. The state directory defaults to
 `$XDG_STATE_HOME/agent-keyring` or `~/.local/state/agent-keyring`, mode 0700.
 `keys.pb` and `state.pb` are mode 0600. State includes pinned keys, signed grant
 and index revisions, and the request scope retained across CLI processes.
@@ -62,6 +61,7 @@ and index revisions, and the request scope retained across CLI processes.
 Run the fixture proof on the mini, from a checkout with the pinned Go:
 
 ```sh
+nix shell github:NixOS/nixpkgs/fe13242281a67641c0102cdb1087f0ebe586c7df#go
 ./script/build_cli.sh
 go build -o build/remote-fixture ./script/remote_fixture
 swiftc script/seal_dummy_bundle.swift -o build/seal-dummy-bundle
