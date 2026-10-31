@@ -26,11 +26,15 @@ struct AuthorityFixture {
     }
     @MainActor static func run() async throws {
         guard (2...3).contains(CommandLine.arguments.count),
-            CommandLine.arguments.count == 2 || CommandLine.arguments[2] == "--with-code" else {
-            throw LeaseFailure(.invalidArgument, "Supply an isolated directory and optional --with-code")
+            CommandLine.arguments.count == 2 || ["--with-code", "--erase-test-checkpoint"].contains(CommandLine.arguments[2]) else {
+            throw LeaseFailure(.invalidArgument, "Supply an isolated directory and optional --with-code or --erase-test-checkpoint")
         }
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
         let checkpointService = "com.agentkeyring.authority-fixture." + root.lastPathComponent
+        if CommandLine.arguments.last == "--erase-test-checkpoint" {
+            try eraseCheckpoint(service: checkpointService)
+            return
+        }
         let ruleFile = root.appendingPathComponent("rules.json")
         let signer = FakeAccessRulesSigner(signedBytes: try? Data(contentsOf: ruleFile))
         let rules = CredentialAccessPolicyStore(fileURL: ruleFile, signer: signer)
@@ -103,12 +107,7 @@ struct AuthorityFixture {
                     } catch is CancellationError {}
                 case "clear-denial": try model.leaseStore.clearDenial(loginID: MirrorItem.exampleCredentialID.uuidString)
                 case "erase-test-checkpoint-and-quit":
-                    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                        kSecAttrService as String: checkpointService, kSecAttrAccount as String: "committed-snapshot",
-                        kSecUseDataProtectionKeychain as String: true, kSecAttrSynchronizable as String: false]
-                    let status = SecItemDelete(query as CFDictionary)
-                    guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
-                    print("Removed this fixture's local checkpoint")
+                    try eraseCheckpoint(service: checkpointService)
                     return
                 case "quit": return
                 default: print("Unknown owner action")
@@ -117,5 +116,14 @@ struct AuthorityFixture {
             } catch { print("Owner action failed: \(error)") }
             fflush(stdout)
         }
+    }
+
+    @MainActor static func eraseCheckpoint(service: String) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: "committed-snapshot",
+            kSecUseDataProtectionKeychain as String: true, kSecAttrSynchronizable as String: false]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
+        print("Removed this fixture's local checkpoint")
     }
 }

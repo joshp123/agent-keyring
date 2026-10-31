@@ -23,6 +23,8 @@ struct UpgradeState {
         }
         let vault = EncryptedSnapshotStore()
         if CommandLine.arguments[1] == "--clear-test-keychain" {
+            let interaction = SecKeychainSetUserInteractionAllowed(false)
+            guard interaction == errSecSuccess else { throw KeychainError(status: interaction) }
             guard let generation = try await vault.loadCurrent(), generation.items.count == 1,
                 generation.items[0].id == MirrorItem.exampleCredentialID else {
                 throw CocoaError(.fileWriteNoPermission)
