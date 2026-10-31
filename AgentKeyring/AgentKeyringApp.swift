@@ -40,6 +40,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     private var syncTask: Task<Void, Never>?
     private let accessControlFixture: MirrorGeneration?
     private let fixturePolicyStore: CredentialAccessPolicyStore?
+    private(set) lazy var leaseApprovals = LeaseApprovalPresenter(model: model)
 
     override init() {
         let presentation = AgentKeyringPresentation()
@@ -82,6 +83,8 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before the socket opens, so no request reaches the old system prompt.
+        leaseApprovals.start()
         do { try model.startAgentListener() }
         catch { NSLog("Agent Keyring could not start the agent socket: %@", String(describing: error)) }
         if accessControlFixture == nil {

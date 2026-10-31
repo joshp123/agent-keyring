@@ -40,9 +40,13 @@ public final class LeaseApprovalBackend: MacApprovalBackend {
         })
     }
 
+    /// Nil when this Mac has no usable Touch ID sensor (a closed laptop, say):
+    /// the panel then offers the Approve button and the system prompt, which
+    /// can use an Apple Watch.
     public func embeddedTouchIDContext(requestID: String) -> LAContext? {
         if let context = contexts[requestID] { return context }
         let context = LAContext()
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else { return nil }
         context.touchIDAuthenticationAllowableReuseDuration = 0
         contexts[requestID] = context
         return context
