@@ -124,6 +124,14 @@ func (s *Server) pair(tx *sql.Tx, p peer, r *pb.PairApproverRequest, seen map[st
 	if _, err := relaycrypto.PublicKey(r.Key.PublicKey); err != nil {
 		return nil, false, invalid("Invalid approver signing key.")
 	}
+	if len(r.Key.EncryptionPublicKey) > 0 {
+		if r.Key.Role != pb.ApproverRole_APPROVER_ROLE_PHONE {
+			return nil, false, invalid("Only a phone may pair a copy encryption key.")
+		}
+		if _, err := relaycrypto.PublicKey(r.Key.EncryptionPublicKey); err != nil {
+			return nil, false, invalid("Invalid phone copy encryption key.")
+		}
+	}
 	signed, keys, err := currentKeys(tx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, false, err
@@ -143,7 +151,7 @@ func (s *Server) pair(tx *sql.Tx, p peer, r *pb.PairApproverRequest, seen map[st
 		requestBytes = marshal(r)
 		_, err = tx.Exec("INSERT INTO pairings(id,node,request,keyset,created,expires) VALUES(?,?,?,?,?,?)", r.Key.KeyId, node, requestBytes, comparedBytes, created, created+600)
 		relaySPKI, _ := relaycrypto.CertificateSPKI(s.Certificate)
-		s.Log.Info("compare pairing fingerprint on approver", "fingerprint", relaycrypto.Fingerprint(relaycrypto.PairTranscript(relaySPKI, p.spki, r.Key.PublicKey, comparedBytes)))
+		s.Log.Info("compare pairing fingerprint on approver", "fingerprint", relaycrypto.Fingerprint(relaycrypto.PairTranscript(relaySPKI, p.spki, r.Key.PublicKey, comparedBytes, r.Key.EncryptionPublicKey)))
 	}
 	if err != nil {
 		return nil, false, err
@@ -162,7 +170,7 @@ func (s *Server) pair(tx *sql.Tx, p peer, r *pb.PairApproverRequest, seen map[st
 			return nil, false, err
 		}
 		relaySPKI, _ := relaycrypto.CertificateSPKI(s.Certificate)
-		s.Log.Info("compare restarted pairing fingerprint on approver", "fingerprint", relaycrypto.Fingerprint(relaycrypto.PairTranscript(relaySPKI, p.spki, r.Key.PublicKey, comparedBytes)))
+		s.Log.Info("compare restarted pairing fingerprint on approver", "fingerprint", relaycrypto.Fingerprint(relaycrypto.PairTranscript(relaySPKI, p.spki, r.Key.PublicKey, comparedBytes, r.Key.EncryptionPublicKey)))
 	}
 	status := &pb.EnrolStatus{State: pb.EnrolState_ENROL_STATE_PENDING, ApproverKeySet: signed, ApproverKeys: keys.GetKeys()}
 	if key := keyByID(keys, r.Key.KeyId); key != nil && proto.Equal(key, r.Key) {
@@ -208,7 +216,7 @@ func (s *Server) confirm(tx *sql.Tx, p peer, r *pb.SignedPairingConfirmation) (*
 		return nil, invalid("Invalid pairing confirmation.")
 	}
 	relaySPKI, _ := relaycrypto.CertificateSPKI(s.Certificate)
-	digest := relaycrypto.Hash(relaycrypto.PairTranscript(relaySPKI, p.spki, pair.Key.PublicKey, compared))
+	digest := relaycrypto.Hash(relaycrypto.PairTranscript(relaySPKI, p.spki, pair.Key.PublicKey, compared, pair.Key.EncryptionPublicKey))
 	if confirmation.Domain != "agentkeyring.pairconfirm.v1" || !bytes.Equal(confirmation.TranscriptSha256, digest) || confirmation.ConfirmedUnixSeconds < created || confirmation.ConfirmedUnixSeconds > time.Now().Unix()+30 {
 		return nil, denied("Pairing confirmation does not match the compared transcript.")
 	}

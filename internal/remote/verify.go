@@ -180,7 +180,7 @@ func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDeli
 		if statement.ConfigurationRevision != 0 {
 			return nil, errors.New("A human decision incorrectly names a configuration revision.")
 		}
-		key, err = relaycrypto.KeyForRole(set, delivery.Decision.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
+		key, err = relaycrypto.HumanKey(set, delivery.Decision.ApproverKeyId)
 	case pb.DecisionAuthority_DECISION_AUTHORITY_PHONE:
 		if err = relaycrypto.VerifyPhoneDelivery(set, delivery.Decision, statement); err != nil {
 			return nil, err
@@ -326,7 +326,7 @@ func denialReply(state *clientstate.State, lease *pb.Lease) string {
 		}
 		key, err = relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
 	} else {
-		key, err = relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
+		key, err = relaycrypto.HumanKey(set, signed.ApproverKeyId)
 	}
 	if err != nil {
 		return ""
