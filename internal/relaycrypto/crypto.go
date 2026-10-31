@@ -31,8 +31,12 @@ func transcript(parts ...[]byte) []byte {
 func EnrolTranscript(relaySPKI, clientSPKI, receiverX963, exactKeySet []byte) []byte {
 	return transcript([]byte("agentkeyring.enrol.v1\x00"), relaySPKI, clientSPKI, receiverX963, exactKeySet)
 }
-func PairTranscript(relaySPKI, approverSPKI, signingX963, exactKeySet []byte) []byte {
-	return transcript([]byte("agentkeyring.pair.v1\x00"), relaySPKI, approverSPKI, signingX963, exactKeySet)
+func PairTranscript(relaySPKI, approverSPKI, signingX963, exactKeySet []byte, encryptionX963 ...[]byte) []byte {
+	parts := [][]byte{[]byte("agentkeyring.pair.v1\x00"), relaySPKI, approverSPKI, signingX963, exactKeySet}
+	if len(encryptionX963) > 0 && len(encryptionX963[0]) > 0 {
+		parts = append(parts, encryptionX963[0])
+	}
+	return transcript(parts...)
 }
 func Hash(data []byte) []byte { sum := sha256.Sum256(data); return sum[:] }
 func Digest(domain string, record []byte) []byte {

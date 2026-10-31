@@ -43,7 +43,8 @@ func (s *Server) publishCopyUpdate(tx *sql.Tx, signed *pb.SignedCopyUpdate) erro
 	if update.ConfigurationRevision != config.Revision || config.Revision == 0 {
 		return denied("Copy update must name the current configuration.")
 	}
-	if update.DestinationKeyId != s.automaticKeys().EncryptionKeyId || !s.delegatesAutomatic(config) {
+	phone := phoneCopyDestination(keys, update.DestinationKeyId)
+	if phone == nil && (update.DestinationKeyId != s.automaticKeys().EncryptionKeyId || !s.delegatesAutomatic(config)) {
 		return denied("Configuration does not authorize this relay copy destination.")
 	}
 	var previous string
@@ -57,6 +58,12 @@ func (s *Server) publishCopyUpdate(tx *sql.Tx, signed *pb.SignedCopyUpdate) erro
 			return nil
 		}
 		return conflict("Copy update revision did not increase.")
+	}
+	if phone != nil {
+		if err = storePhoneCopy(tx, signed, update, config); err != nil {
+			return err
+		}
+		return rememberCopyRevision(tx, update, signed.Update)
 	}
 	private, err := s.Store.automaticEncryption.ECDH()
 	if err != nil {
@@ -106,7 +113,7 @@ func (s *Server) publishCopyUpdate(tx *sql.Tx, signed *pb.SignedCopyUpdate) erro
 			return err
 		}
 	}
-	if _, err = tx.Exec("INSERT INTO copy_updates VALUES(?,?,?) ON CONFLICT(destination) DO UPDATE SET revision=excluded.revision,update_hash=excluded.update_hash", update.DestinationKeyId, revisionID(update.Revision), relaycrypto.Hash(signed.Update)); err != nil {
+	if err = rememberCopyRevision(tx, update, signed.Update); err != nil {
 		return err
 	}
 	leases, err := queryLeases(tx, "SELECT lease FROM leases WHERE deadline IS NOT NULL")
@@ -124,6 +131,11 @@ func (s *Server) publishCopyUpdate(tx *sql.Tx, signed *pb.SignedCopyUpdate) erro
 		}
 	}
 	return nil
+}
+
+func rememberCopyRevision(tx *sql.Tx, update *pb.CopyUpdate, raw []byte) error {
+	_, err := tx.Exec("INSERT INTO copy_updates VALUES(?,?,?) ON CONFLICT(destination) DO UPDATE SET revision=excluded.revision,update_hash=excluded.update_hash", update.DestinationKeyId, revisionID(update.Revision), relaycrypto.Hash(raw))
+	return err
 }
 
 func (s *Server) pruneAutomaticCopies(tx *sql.Tx, next *pb.Configuration) error {

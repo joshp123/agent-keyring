@@ -59,6 +59,9 @@ func (s *Server) maintenance() (time.Time, error) {
 	if err = s.expire(tx); err != nil {
 		return time.Time{}, err
 	}
+	if err = s.escalateOffline(tx); err != nil {
+		return time.Time{}, err
+	}
 	now := time.Now().Unix()
 	rows, err := tx.Query("SELECT owner,request,lease FROM local_leases WHERE deadline<=?", now)
 	if err != nil {
