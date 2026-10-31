@@ -6,11 +6,15 @@ import AgentKeyringFeature
 import AgentKeyringTestSupport
 import Foundation
 import LocalAuthentication
+import Security
 
 @MainActor
 final class FixtureApproval: CredentialReleaseAuthorizing {
+    var ownerApproved = false
     func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
-        throw CredentialReleaseAuthorizationError.unavailable
+        guard ownerApproved else { throw CredentialReleaseAuthorizationError.unavailable }
+        ownerApproved = false
+        onPromptStarted()
     }
 }
 
@@ -26,6 +30,7 @@ struct AuthorityFixture {
             throw LeaseFailure(.invalidArgument, "Supply an isolated directory and optional --with-code")
         }
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
+        let checkpointService = "com.agentkeyring.authority-fixture." + root.lastPathComponent
         let ruleFile = root.appendingPathComponent("rules.json")
         let signer = FakeAccessRulesSigner(signedBytes: try? Data(contentsOf: ruleFile))
         let rules = CredentialAccessPolicyStore(fileURL: ruleFile, signer: signer)
@@ -50,17 +55,18 @@ struct AuthorityFixture {
                 exporterIdentifier: "com.agentkeyring.example", exporterDisplayName: "Synthetic proof",
                 items: [item], skippedCredentialCount: 0))
         }
+        let approval = FixtureApproval()
         let model = MirrorAppModel(store: vault,
-            authorizer: FixtureApproval(), bridge: AgentBridgeDirectory(rootURL: root), accessControl: access,
+            authorizer: approval, bridge: AgentBridgeDirectory(rootURL: root), accessControl: access,
             leaseStore: CredentialLeaseStore(persistence: LeasePersistence(directory: root.appendingPathComponent("leases"),
-                checkpointService: "com.agentkeyring.authority-fixture." + root.lastPathComponent)), settings: settings)
+                checkpointService: checkpointService)), settings: settings)
         model.automaticallyPromptForLeases = false
         await model.loadStatus()
         try model.startAgentListener()
         print("Ready: \(root.appendingPathComponent("agent.sock").path)")
         fflush(stdout)
-        // Control input represents the owner's actions. It does not authenticate
-        // a biometric; the fixture refuses every production Touch ID request.
+        // Control input represents the owner's actions; it proves neither
+        // biometrics nor the app's approval panel. This tool is never bundled.
         let lines = AsyncStream<String> { continuation in
             DispatchQueue.global().async {
                 while let line = readLine() { continuation.yield(line) }
@@ -77,6 +83,10 @@ struct AuthorityFixture {
                     await access.setPolicy(rule, for: [MirrorItem.exampleCredentialID])
                 case "deny" where parts.count >= 2:
                     try model.denyLease(parts[1], reply: parts.count == 3 ? parts[2] : "")
+                case "approve" where parts.count == 2:
+                    approval.ownerApproved = true
+                    defer { approval.ownerApproved = false }
+                    try await model.approveLeaseWithTouchID(parts[1])
                 case "revoke" where parts.count == 2:
                     try model.leaseStore.revoke(parts[1])
                 case "failed-approval" where parts.count == 2:
@@ -92,6 +102,14 @@ struct AuthorityFixture {
                         throw LeaseFailure(.unavailable, "Cancelled fixture must never approve")
                     } catch is CancellationError {}
                 case "clear-denial": try model.leaseStore.clearDenial(loginID: MirrorItem.exampleCredentialID.uuidString)
+                case "erase-test-checkpoint-and-quit":
+                    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                        kSecAttrService as String: checkpointService, kSecAttrAccount as String: "committed-snapshot",
+                        kSecUseDataProtectionKeychain as String: true, kSecAttrSynchronizable as String: false]
+                    let status = SecItemDelete(query as CFDictionary)
+                    guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
+                    print("Removed this fixture's local checkpoint")
+                    return
                 case "quit": return
                 default: print("Unknown owner action")
                 }
