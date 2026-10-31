@@ -1,5 +1,6 @@
 import AgentKeyringProtocol
 import Foundation
+import LocalAuthentication
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
@@ -12,6 +13,23 @@ extension MirrorAppModel {
     /// transitional system prompt with automaticallyPromptForLeases = false.
     @discardableResult
     public func approveLeaseWithTouchID(_ leaseID: String) async throws -> Agentkeyring_V1_Lease {
+        try await approveLease(leaseID) { [authorizer] approval in
+            try await authorizer.authorize(approval, onPromptStarted: {})
+        }
+    }
+
+    /// The panel owns this context and displays its biometric controls. The
+    /// authority evaluates that exact context without activating another UI.
+    @discardableResult
+    public func approveLeaseWithTouchID(_ leaseID: String, context: LAContext) async throws -> Agentkeyring_V1_Lease {
+        let panelAuthorizer = LocalCredentialReleaseAuthorizer()
+        return try await approveLease(leaseID) { approval in
+            try await panelAuthorizer.authorize(approval, context: context, onPromptStarted: {})
+        }
+    }
+
+    private func approveLease(_ leaseID: String,
+        authorize: (CredentialReleaseAuthorizationRequest) async throws -> Void) async throws -> Agentkeyring_V1_Lease {
         guard !isApprovingLease else { throw LeaseFailure(.conflict, "An approval is already in progress on this Mac.") }
         isApprovingLease = true
         defer { isApprovingLease = false }
@@ -32,7 +50,7 @@ extension MirrorAppModel {
             account: login.username ?? login.title, field: .password, credentialTitle: login.title,
             expirationSeconds: 1800, authorizationDeadline: Date(timeIntervalSince1970: TimeInterval(lease.pendingUntilUnixSeconds)),
             leaseDescription: purpose + ". Agent's reason: “\(lease.reason)”")
-        try await authorizer.authorize(approval, onPromptStarted: {})
+        try await authorize(approval)
         try Task.checkCancellation()
         // Re-read signed rules after the suspension and reject a late answer.
         try await refreshLeasePolicy()
