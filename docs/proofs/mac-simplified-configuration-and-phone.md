@@ -2,6 +2,10 @@
 
 Written by AI on 2026.10.31 by model gpt-6.1-sol.
 
+Follow-up: [the joint Swift Mac/phone proof](mac-and-phone-joint.md) reruns the
+full relay driver and exercises actual phone approval and Mac delivery. It
+supersedes the relay-flow gap recorded below; hardware checks remain.
+
 ## Result and limits
 
 The actual Mac Release app builds on the physical mini. Its signed build
