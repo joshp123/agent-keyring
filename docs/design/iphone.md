@@ -83,7 +83,7 @@ Screen: `unreachable-*.png`.
 
 ### Import needed
 
-Before the first import there is nothing to approve, so this replaces Home. Title "Import passwords", one sentence on what the phone keeps, three numbered steps (Passwords, ··· then Export Data to Another App, choose Agent Keyring) and **Open Passwords**. While it runs: "Importing passwords", "318 logins so far. Keep Passwords open until it finishes."
+Before the first import there is nothing to approve, so this replaces Home. Title "Import passwords", one sentence on what the phone keeps, three numbered steps (allow exports, ··· then Export Data to Another App in Passwords, choose Agent Keyring) and **Allow Exports**, which makes Agent Keyring an export destination; iOS doesn't let an app open the export screen itself. While it runs: "Importing passwords", "318 logins so far. Keep Passwords open until it finishes."
 
 Apple only lets the Passwords app start an export, so the screen says exactly where to tap. The menu wording is to check on a real iOS 27 phone.
 

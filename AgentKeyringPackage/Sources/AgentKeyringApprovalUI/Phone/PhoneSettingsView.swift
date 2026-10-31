@@ -18,11 +18,10 @@ struct PhoneSettingsView: View {
             Form {
                 Section {
                     passwordsRow
-                    Button("Import again", action: model.importPasswords)
                 } header: {
                     Text("Passwords on this iPhone")
                 } footer: {
-                    Text("Import again after you add or change a password in Apple Passwords.")
+                    Text("After you add or change a password, export again: in the Passwords app, tap ··· then Export Data to Another App, and choose Agent Keyring.")
                 }
 
                 Section {

@@ -2,7 +2,7 @@
 //
 // Before the first import there is nothing to approve, so this replaces the
 // home screen. Apple only lets the Passwords app start an export, so the
-// screen says exactly where to tap.
+// screen says exactly where to tap there.
 
 #if os(iOS)
 import SwiftUI
@@ -44,23 +44,25 @@ struct PhoneImportView: View {
         case let .importFailed(reason):
             Text(reason).font(.body)
             steps
-            openPasswordsButton(title: "Try again in Passwords")
+            allowExportsButton
         default:
             steps
-            openPasswordsButton(title: "Open Passwords")
+            allowExportsButton
         }
     }
 
     private var steps: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 14, verticalSpacing: 14) {
-            Step(number: 1, text: "Open the Passwords app.")
-            Step(number: 2, text: "Tap ··· then Export Data to Another App.")
+            Step(number: 1, text: "Tap Allow Exports, so Passwords can export to Agent Keyring.")
+            Step(number: 2, text: "In the Passwords app, tap ··· then Export Data to Another App.")
             Step(number: 3, text: "Choose Agent Keyring and confirm with Face ID.")
         }
     }
 
-    private func openPasswordsButton(title: String) -> some View {
-        Button(title, action: model.importPasswords)
+    // iOS lets an app ask to become an export destination, not open the export
+    // screen in Passwords, so the button does only the first step.
+    private var allowExportsButton: some View {
+        Button("Allow Exports", action: model.importPasswords)
             .buttonStyle(DecisionButtonStyle(colour: KeyringColour.signal))
             .padding(.top, 6)
     }
