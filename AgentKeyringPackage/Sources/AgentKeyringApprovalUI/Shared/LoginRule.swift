@@ -49,6 +49,8 @@ public enum RulesCopy {
     public static let confirmTitle = "Confirm your rules"
     public static let confirmBody = "Agents get nothing until you confirm the rules below."
     public static let confirmBodyAfterUnreadableRules =
-        "The saved rules couldn't be checked. Confirming saves the rules below, and your iPhone must be paired again."
+        "The saved rules couldn't be checked. Review and confirm the rules below before agents can use logins."
+    public static let confirmUpgradeBody =
+        "Your logins and rules have been kept. Confirm them once to finish updating Agent Keyring."
     public static let confirmButton = "Confirm with Touch ID"
 }

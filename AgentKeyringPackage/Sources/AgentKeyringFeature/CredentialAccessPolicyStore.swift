@@ -117,15 +117,23 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
     }
 
     public func snapshotForConfirmation() throws -> AccessRulesConfirmationSnapshot {
-        let resetsUnreadableRules = (try? loadVerifiedContents()) == nil
-        let policies: [UUID: CredentialAccessPolicy]
+        let contents: FileContents?
         do {
             try validateOwnedRegularFile(fileURL)
-            policies = try decodeContents(Data(contentsOf: fileURL)).policies
+            contents = try decodeContents(Data(contentsOf: fileURL))
         } catch {
-            policies = [:]
+            contents = nil
         }
-        return AccessRulesConfirmationSnapshot(policies: policies, resetsUnreadableRules: resetsUnreadableRules)
+        let reason: AccessRulesConfirmationReason
+        if !fileManager.fileExists(atPath: fileURL.path), !fileManager.fileExists(atPath: signatureURL.path) {
+            reason = .firstUse
+        } else if contents?.version == 1, !fileManager.fileExists(atPath: signatureURL.path) {
+            reason = .upgrade
+        } else {
+            reason = .unverified
+        }
+        return AccessRulesConfirmationSnapshot(policies: contents?.policies ?? [:], reason: reason,
+            requiresPhonePairingAgain: contents?.devices.isEmpty == false)
     }
 
     private static func encodedContents(_ policies: [UUID: CredentialAccessPolicy], devices: [PairedApprovalDevice]) throws -> Data {
@@ -211,7 +219,8 @@ public actor CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
             for id in pendingBlocks { savedPolicies[id] = .block }
         }
         let bytes = try Self.encodedContents(savedPolicies, devices: devices)
-        let signingReason = contents == nil ? reason + ". Your iPhone must be paired again." : reason
+        let signingReason = confirming && (try? snapshotForConfirmation().requiresPhonePairingAgain) == true
+            ? reason + ". Your previously paired iPhone must be paired again." : reason
         let directoryURL = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
             at: directoryURL,
