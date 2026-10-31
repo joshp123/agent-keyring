@@ -5,7 +5,7 @@ import OSLog
 
 private let credentialExchangeLogger = Logger(
     subsystem: "com.agentkeyring.app",
-    category: "CredentialExchange"
+    category: "Import"
 )
 
 @available(macOS 26.0, *)
@@ -35,7 +35,7 @@ extension MirrorAppModel {
             return
         }
 
-        credentialExchangeLogger.info("Accepted credential import token")
+        credentialExchangeLogger.info("Import token present")
         Task { await importCredentials(token: token) }
     }
 
@@ -123,14 +123,12 @@ extension MirrorAppModel {
 
         do {
             let previousGeneration = try await store.loadCurrent()
-            let importBatch = mapper.map(exportedData, scope: .full)
+            let importBatch = mapper.map(exportedData, scope: .unknown)
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
-            let generation = try merger.merge(
-                previous: previousGeneration,
-                importBatch: importBatch
-            )
+            let generation = try merger.merge(previous: previousGeneration, importBatch: importBatch)
+            credentialExchangeLogger.info("Merge completed with \(generation.items.count, privacy: .public) items")
             try await store.save(generation)
             staleLogins.clear()
             let visibleGeneration = generationIncludingExample(generation) ?? generation
@@ -142,7 +140,7 @@ extension MirrorAppModel {
             notice = MirrorNotice(
                 kind: .information,
                 text:
-                    "Import complete. Agent Keyring’s encrypted copy now matches this Passwords export."
+                    "Import complete. Exported logins have been updated."
             )
         } catch {
             let nsError = error as NSError

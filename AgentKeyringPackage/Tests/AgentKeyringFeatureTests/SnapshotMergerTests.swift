@@ -16,7 +16,7 @@ struct SnapshotMergerTests {
         #expect(generation.items.count == 2)
     }
 
-    @Test("An item absent from the next full import is removed")
+    @Test("An item absent from a full import is retained for review")
     func fullImportRemoval() throws {
         let first = try merger().merge(
             previous: nil,
@@ -27,7 +27,8 @@ struct SnapshotMergerTests {
             importBatch: batch(items: [item(index: 2)])
         )
 
-        #expect(second.items.count == 1)
+        #expect(second.items.count == 2)
+        #expect(second.missingItemIDs == [first.items.first { $0.sourceIdentity == item(index: 1).sourceIdentity }!.id])
     }
 
     @Test("A changed password replaces the previous value even when its timestamp is unchanged")
@@ -68,8 +69,8 @@ struct SnapshotMergerTests {
         let ambiguous = batch(items: [item(index: 2), item(index: 3)])
 
         let second = try merger().merge(previous: first, importBatch: ambiguous)
-        #expect(second.items.count == 2)
-        #expect(Set(second.items.map(\.sourceIdentity)).count == 2)
+        #expect(second.items.count == 3)
+        #expect(Set(second.items.map(\.sourceIdentity)).count == 3)
         let third = try merger().merge(previous: second, importBatch: ambiguous)
         #expect(Set(third.items.map(\.id)) == Set(second.items.map(\.id)))
         let withOriginal = try merger().merge(previous: first,

@@ -2,6 +2,8 @@ import Foundation
 
 public enum MirrorImportScope: String, Codable, Equatable, Sendable {
     case full
+    case selected
+    case unknown
 }
 
 public struct MirrorSourceIdentity: Codable, Equatable, Hashable, Sendable {
@@ -156,6 +158,7 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
     public let exporterIdentifier: String
     public let exporterDisplayName: String
     public let items: [MirrorItem]
+    public let missingItemIDs: [UUID]?
     public let skippedCredentialCount: Int
     public let skippedCredentialSummary: MirrorSkippedCredentialSummary?
 
@@ -168,6 +171,7 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
         exporterIdentifier: String,
         exporterDisplayName: String,
         items: [MirrorItem],
+        missingItemIDs: [UUID]? = nil,
         skippedCredentialCount: Int,
         skippedCredentialSummary: MirrorSkippedCredentialSummary? = nil
     ) {
@@ -179,6 +183,7 @@ public struct MirrorGeneration: Codable, Equatable, Sendable {
         self.exporterIdentifier = exporterIdentifier
         self.exporterDisplayName = exporterDisplayName
         self.items = items
+        self.missingItemIDs = missingItemIDs
         self.skippedCredentialCount = skippedCredentialCount
         self.skippedCredentialSummary = skippedCredentialSummary
     }
