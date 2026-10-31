@@ -131,6 +131,7 @@ extension RelayApprover {
                 next.requests[id]!.lease = try lease.serializedData()
             }
         }
+        try clearReportedDenial(loginID: loginID, recipientID: recipientID, next: &next)
         var command = Agentkeyring_V1_RelayWireRequest()
         command.clearDenial_p.recipientID = recipientID
         command.clearDenial_p.loginID = loginID

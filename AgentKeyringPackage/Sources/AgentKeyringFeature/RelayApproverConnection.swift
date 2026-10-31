@@ -135,6 +135,10 @@ extension RelayApprover {
                     if queued.id.hasPrefix("approver-pairing:") {
                         next.pendingApprovers?.removeValue(forKey: String(queued.id.dropFirst("approver-pairing:".count)))
                     }
+                case let (.revokeLease(reference), .lease(lease)):
+                    guard lease.leaseID == reference.leaseID, Self.isTerminal(lease.state) else {
+                        throw LeaseFailure(.conflict, "The relay did not end the requested lease.")
+                    }
                 case let (.decideEnrolment, .enrolment(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
                 case let (.publishIndex, .publish(ack)), let (.publishEnrolmentSet, .publish(ack)), let (.publishAutomaticGrant, .publish(ack)), let (.clearDenial_p, .publish(ack)):
@@ -171,7 +175,7 @@ extension RelayApprover {
                 try commit(next)
             }
         case let .pairing(request): try receiveApproverPairing(request)
-        case .lease: break
+        case let .lease(lease): try await receiveLeaseReport(lease)
         case nil: throw LeaseFailure(.invalidArgument, "The relay sent empty work.")
         }
     }
@@ -189,6 +193,7 @@ extension RelayApprover {
             next.requests[id]!.lease = try lease.serializedData()
             changed = true
         }
+        if try expireLeaseReports(&next) { changed = true }
         if changed { try commit(next) }
     }
 

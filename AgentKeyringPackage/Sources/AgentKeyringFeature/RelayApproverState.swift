@@ -39,6 +39,15 @@ public struct RelayRemoteRequest: Identifiable, Sendable {
     public let answerIsQueued: Bool
 }
 
+public struct RelayRemoteLease: Identifiable, Sendable {
+    public var id: String { lease.leaseID }
+    public let lease: Agentkeyring_V1_Lease
+    public let loginTitle: String
+    public let account: String
+    public let machine: Agentkeyring_V1_EnrolledMachine
+    public let endIsQueued: Bool
+}
+
 public struct RelayApproverUpdate: Sendable {
     public let connection: RelayApproverConnectionState
     public let pairing: RelayPairingComparison?
@@ -46,6 +55,7 @@ public struct RelayApproverUpdate: Sendable {
     public let approverPairings: [RelayApproverPairing]
     public let approverKeySet: Agentkeyring_V1_SignedApproverKeySet?
     public let requests: [RelayRemoteRequest]
+    public let leases: [RelayRemoteLease]
     public let machines: [Agentkeyring_V1_EnrolledMachine]
     public let queuedAnswerCount: Int
     public let needsPublication: Bool
@@ -65,6 +75,12 @@ struct RelayQueuedCommand: Codable {
     var id: String
     var bytes: Data
 }
+struct RelaySavedLeaseReport: Codable {
+    var lease: Data
+    var title: String
+    var account: String
+    var machine: Data
+}
 struct RelayPendingPair: Codable {
     var endpoint: RelayEndpoint
     var relaySPKI: Data
@@ -82,6 +98,7 @@ struct RelayApproverState: Codable {
     var pendingEnrolments: [String: Data] = [:]
     var pendingApprovers: [String: Data]?
     var requests: [String: RelaySavedRequest] = [:]
+    var leaseReports: [String: RelaySavedLeaseReport]?
     var outbox: [RelayQueuedCommand] = []
     var index: Data?
     var automaticGrant: Data?
@@ -101,6 +118,7 @@ public final class RelayApprover {
     public private(set) var pendingApproverPairings: [RelayApproverPairing] = []
     public private(set) var approverKeySet: Agentkeyring_V1_SignedApproverKeySet?
     public private(set) var requests: [RelayRemoteRequest] = []
+    public private(set) var leases: [RelayRemoteLease] = []
     public private(set) var enrolledMachines: [Agentkeyring_V1_EnrolledMachine] = []
     public private(set) var queuedAnswerCount = 0
     public internal(set) var needsPublication = false
@@ -176,7 +194,7 @@ public final class RelayApprover {
     public var update: RelayApproverUpdate {
         RelayApproverUpdate(connection: connectionState, pairing: pairing, enrolments: pendingEnrolments,
             approverPairings: pendingApproverPairings, approverKeySet: approverKeySet,
-            requests: requests, machines: enrolledMachines, queuedAnswerCount: queuedAnswerCount,
+            requests: requests, leases: leases, machines: enrolledMachines, queuedAnswerCount: queuedAnswerCount,
             needsPublication: needsPublication, errorMessage: errorMessage)
     }
 
@@ -217,6 +235,17 @@ public final class RelayApprover {
             return RelayRemoteRequest(id: digest, record: record, lease: lease, loginTitle: saved.title,
                 account: saved.account, machine: machine, answerIsQueued: state.outbox.contains { $0.id == "decision:" + digest })
         }.sorted { $0.lease.requestedAtUnixSeconds > $1.lease.requestedAtUnixSeconds }
+        var displayedLeases = Dictionary(uniqueKeysWithValues: requests.map { request in (request.lease.leaseID,
+            RelayRemoteLease(lease: request.lease, loginTitle: request.loginTitle, account: request.account, machine: request.machine,
+                endIsQueued: state.outbox.contains { $0.id == "revoke-lease:" + request.lease.leaseID })) })
+        for (id, saved) in state.leaseReports ?? [:] {
+            guard let lease = try? Agentkeyring_V1_Lease(serializedBytes: saved.lease),
+                let machine = try? Agentkeyring_V1_EnrolledMachine(serializedBytes: saved.machine) else { continue }
+            if let local = displayedLeases[id], Self.isTerminal(local.lease.state), local.lease.state != .cancelled { continue }
+            displayedLeases[id] = RelayRemoteLease(lease: lease, loginTitle: saved.title, account: saved.account,
+                machine: machine, endIsQueued: state.outbox.contains { $0.id == "revoke-lease:" + id })
+        }
+        leases = displayedLeases.values.sorted { $0.lease.requestedAtUnixSeconds > $1.lease.requestedAtUnixSeconds }
         queuedAnswerCount = state.outbox.count
         for observer in observers.values { observer.yield(update) }
     }
