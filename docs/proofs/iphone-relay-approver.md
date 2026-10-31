@@ -133,6 +133,21 @@ These checks prove the protocol/storage/recovery path with fixtures, not Apple
 credential exchange, Secure Enclave enforcement, Face ID, mobile data or a real
 website sign-in.
 
+## Device installation
+
+Version 0.4.0, build 6 is installed on Josh's iPhone 17 Pro. CoreDevice's
+installed-app inventory independently confirmed the version and build after
+installation. The device build used the existing Apple Development identity
+and profiles for team 7M8BR7R488; strict verification of the app and embedded
+extensions passed. No certificate, profile or Apple account key was created,
+deleted or revoked.
+
+The phone was locked. Launch was refused with CoreDevice's `Locked` reason;
+no phone settings or other apps were changed. The installed build has the
+real import, vault and approver backend. The designer's pairing screen is
+still pending integration into a follow-up installation. Build, installation,
+inventory and launch receipts are in `.private/proofs/r43/` in the main checkout.
+
 ## Remaining device checks
 
 The pairing views are the designer's work. The Mac's added-approver action,
