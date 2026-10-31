@@ -37,6 +37,7 @@ public struct MacRulesView: View {
                     Label("Set rules with AI…", systemImage: "sparkles")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .accessibilityIdentifier("rules-assistant")
                 .buttonStyle(.borderless)
                 .padding(12)
             }
@@ -137,6 +138,7 @@ private struct RulesTable: View {
                 } label: {
                     Label("Set Rule", systemImage: "slider.horizontal.3")
                 }
+                .accessibilityIdentifier("set-rule")
                 .disabled(model.selection.isEmpty)
                 .help("Set the rule for the selected logins")
             }

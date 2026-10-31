@@ -1,6 +1,6 @@
 ---
 written_by: AI (Claude Opus 5.5 and GPT-6 Astra, 2026-10-31)
-status: agreed for implementation; U1 built; designs remain a placeholder for Josh's review
+status: agreed for implementation; U1 to U3 built, U2 awaiting its MacBook check; designs remain a placeholder for Josh's review
 depends_on: 0004; 0005 and 0006 for remote and phone states
 related: docs/design/, AgentKeyringPackage/Sources/AgentKeyringApprovalUI
 ---
@@ -117,8 +117,8 @@ which of his agents is asking; the claim block says where it came from.
 | Slice | Owner | What | Done when |
 | --- | --- | --- | --- |
 | U1 | Opus | Merge `AgentKeyringApprovalUI` from the design branch into main behind the four protocols, with mock backends kept for the design gallery | Done: main builds (package, Mac app, iPhone app); every state renders from the real views (`docs/design/screens/`) |
-| U2 | Opus | `MacApprovalBackend` over the release 2 lease store and Touch ID; panel supplies context while macOS performs biometric authorization | One touch approves a local request; Deny and reply returns the reply to the agent |
-| U3 | Opus | `MacMenuBarBackend` and `LoginRulesBackend` | Menu bar shows waiting and in-use leases with End; rules change in place and keep the confirm step |
+| U2 | Opus | `MacApprovalBackend` over the release 2 lease store and Touch ID; panel supplies context while macOS performs biometric authorization | Built (`LeaseApprovalBackend`, `LeaseApprovalPresenter`); proof is the MacBook check below |
+| U3 | Opus | `MacMenuBarBackend` and `LoginRulesBackend` | Built (`LeaseMenuBarBackend`, `AccessRulesBackend`, `RulesWindow`); proof is the same check, plus the Mac UI tests |
 | U4 | Opus | Remote request and enrolment states on the Mac (release 3) | Josh can tell a remote request from a local one, and compares the enrolment code on screen |
 | U5 | Opus | `PhoneKeyringBackend` over the phone vault and relay (release 4), Lock Screen notification | Every designed phone state renders from real requests |
 
@@ -131,51 +131,60 @@ which of his agents is asking; the claim block says where it came from.
 - **Rendered check.** Screenshots of every state from the real views, light and
   dark, after U2 and U5. Josh reviews those, not mocks.
 
-## What U2 and U3 need from the release 2 lease store
+## How U2 and U3 are built
 
-Checked against the store's code on branch `t3/persistent-credential-leases`
-(`CredentialLeaseStore`, `MirrorCredentialGrants`): `leaseStore.leases`,
-`waitingRequests`, `activeLeases`, `changes()` and `requester(for:)`;
-`approveLeaseWithTouchID(id)`, `denyLease(id, reply:)`, `leaseStore.end(id)`,
-`clearDenial(loginID:)`, and `automaticallyPromptForLeases = false` to retire
-the transitional system prompt. U2 and U3 are adapters over it:
+- **`AgentKeyringScreenBackends`** joins the lease store and access rules to
+  the screens. `LeaseScreenMapping` is the only code that reads `Lease`;
+  `LeaseApprovalBackend`, `LeaseMenuBarBackend` and `AccessRulesBackend` are
+  thin calls into `MirrorAppModel`, `CredentialLeaseStore` and
+  `CredentialAccessController`, observed with `Observations`.
+- **Approval (U2).** `LeaseApprovalPresenter` in the app turns off
+  `automaticallyPromptForLeases` before the socket opens, shows the panel for
+  the oldest waiting lease, shows each outcome for 2.5 seconds, then moves to
+  the next. With a usable Touch ID sensor the panel evaluates its own context
+  through `approveLeaseWithTouchID(id, context:)`; without one (a closed
+  laptop), Approve uses the system prompt, which can use an Apple Watch.
+  Switching requests cancels any pending touch, because the store allows one
+  approval in progress.
+- **Menu bar (U3).** A `.window` menu bar extra over `LeaseMenuBarBackend`,
+  followed from launch so the icon's waiting count is right. End revokes.
+- **Rules (U3).** `RulesWindow` shows `MacRulesView` over
+  `AccessRulesBackend`, with the existing AI assistant as a sheet. "Last
+  used" is the login's last approved lease. The old rules views are removed.
+- **Rendered from lease records.** The gallery's `leaseApproval` and
+  `leaseMenuBar` screens map store-shaped lease records through
+  `LeaseScreenMapping` (`docs/design/screens/mac/lease*.png`). The installed
+  app with a live store is the morning check.
 
-| Screen needs | From the store |
-| --- | --- |
-| `updates(requestID:)`, `updates()` | `changes()`, filtered and mapped with the tables above |
-| Agent name, folder, machine, address | `requester(for:)` |
-| `approve` | `approveLeaseWithTouchID(id)` |
-| `deny(reply:)` | `denyLease(id, reply:)` |
-| `endAccess` | `leaseStore.end(id)` (see gap 2) |
-| `allowAskingAgain` | `clearDenial(loginID:)` |
-| More waiting | `waitingRequests.count - 1` |
+## Morning check: one look, one touch
 
-Gaps to close in the store, smallest first:
+On the MacBook, with release 2 installed:
 
-1. **When it was asked and when it ended.** `Lease` has no request time and no
-   end time, and the store keeps neither. History rows and the menu bar show
-   both ("23:51 instagram.com", "finished at 01:20"). Keep them on the record
-   and add `requested_at_unix_seconds = 17` and `ended_at_unix_seconds = 18`
-   to `Lease`.
-2. **Josh ending access is not the agent releasing it.** `end(id)` turns an
-   active lease into RELEASED, so the screen would say "Codex finished with
-   it" when Josh ended it, and `endAllGrants` does the same. Add a
-   Josh-side `revoke(id)` that records REVOKED; keep `end` for the agent's
-   EndLease.
-3. **Touch ID without a click.** `approveLeaseWithTouchID(id)` runs the
-   system prompt through the authorizer, so approving takes a click and a
-   touch. Add `approveLeaseWithTouchID(id, context: LAContext)` that evaluates
-   the panel's context and invalidates it if its task is cancelled. Whether
-   this works from a non-activating panel is the MacBook device proof above.
-4. **A cancelled Touch ID is not a denial.** Today a user-cancel from the
-   authorizer denies the lease. With the embedded context, Deny cancels the
-   evaluation and then calls `denyLease(id, reply:)`; if the cancel has
-   already denied it, Josh's reply is lost. A cancelled evaluation should
-   leave the lease pending; only `denyLease` denies.
-5. **Denial hold-off scope.** RFC 0004 holds off one recipient and login;
-   `clearDenial(loginID:)` clears every recipient. Fine for release 2, which
-   has one recipient; take a recipient too before release 3.
+1. Ask any agent to lease the `example.com` login for a test task.
+2. Click into another app and keep typing.
+3. Look: the panel is at the top right with "Touch ID to approve", and
+   what you typed went to the other app.
+4. Touch the sensor: the panel says "Approved", the agent gets its lease,
+   and the panel closes by itself.
 
-The rules window (U3) does not use the lease store: its adapter wraps
-`CredentialAccessController` (`rows`, `setPolicy`, `needsConfirmation`,
-`confirmationSummary`, `confirmRules`).
+Then, optionally: ask again and use **Deny and reply…**; the agent should
+receive your reply. Open the menu bar to see the lease under "In use now"
+and End it. If the panel shows an Approve button instead of "Touch ID to
+approve", the Mac has no usable sensor at that moment; Approve then uses the
+system prompt.
+
+## What the store still lacks
+
+Everything RFC 0007 asked for in round 2 is in the store. Three small gaps
+remain:
+
+1. **"Let it ask again" doesn't clear the lease's hold-off time.**
+   `clearDenial(loginID:)` removes the suppression but leaves the denied
+   lease's `retry_not_before_unix_seconds`, so the menu bar keeps offering
+   "Let it ask again" until the 30 minutes pass. Zero it on that login's
+   denied leases when the suppression is cleared.
+2. **Blocked refusals aren't recorded.** A request for a Blocked login is
+   refused without a lease record, so Recent never shows "Blocked". Fine
+   to leave unless Josh wants to see refused attempts.
+3. **Local requests have no address.** Local leases show "MacBook Pro · this
+   Mac". Right for release 2; release 3 supplies the relay's address.

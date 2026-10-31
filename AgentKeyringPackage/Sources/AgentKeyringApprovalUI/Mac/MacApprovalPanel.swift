@@ -68,7 +68,8 @@ public final class MacApprovalModel {
         }
     }
 
-    private func stopWaitingForTouch() {
+    /// Stops waiting for a touch without answering. Call when the panel goes away.
+    public func stopWaitingForTouch() {
         touchWait?.cancel()
         touchWait = nil
     }

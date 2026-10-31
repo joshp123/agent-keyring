@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @available(macOS 26.0, *)
-struct CredentialPolicyAssistantView: View {
+public struct CredentialPolicyAssistantView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var responseText = ""
     @State private var promptText = ""
@@ -13,7 +13,7 @@ struct CredentialPolicyAssistantView: View {
     private let assistant = CredentialPolicyAssistant()
     private let initiallyShowsPrompt: Bool
 
-    init(
+    public init(
         controller: CredentialAccessController,
         initialResponse: String = "",
         initiallyShowsPrompt: Bool = false
@@ -32,7 +32,7 @@ struct CredentialPolicyAssistantView: View {
         _message = State(initialValue: initialReview == nil ? nil : .responseReady)
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             AssistantHeader()
             Divider()

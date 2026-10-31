@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
+import AgentKeyringApprovalUI
 import AgentKeyringFeature
 
 @MainActor
@@ -20,52 +21,46 @@ final class AgentKeyringPresentation {
 
 }
 
-struct AgentKeyringMenu: View {
+/// The menu bar window (RFC 0007, U3): the shared view, with actions that
+/// close the window before they open something else.
+struct AgentKeyringMenuWindow: View {
+    @Environment(\.dismiss) private var dismiss
     let presentation: AgentKeyringPresentation
-    let model: MirrorAppModel
-
-    private static let expirationTimeFormat: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
+    let menuBar: MacMenuBarModel
+    let leaseApprovals: LeaseApprovalPresenter
+    let checkForUpdates: () -> Void
 
     var body: some View {
-        Button("Open Agent Keyring") {
-            presentation.requestMainWindow()
-        }
-        .accessibilityIdentifier("open-agent-keyring")
-
-        Divider()
-
-        ForEach(model.leaseStore.activeLeases, id: \.leaseID) { lease in
-            Menu("\(lease.sites.first ?? "Login") · \(lease.taskRef) · until \(Self.expirationTimeFormat.string(from: Date(timeIntervalSince1970: TimeInterval(lease.notAfterUnixSeconds))))") {
-                Button("End") {
-                    do { try model.leaseStore.revoke(lease.leaseID) }
-                    catch { NSLog("Could not end lease: %@", String(describing: error)) }
+        MacMenuBarView(model: menuBar)
+            .onAppear {
+                menuBar.review = { leaseID in
+                    dismiss()
+                    leaseApprovals.present(leaseID: leaseID)
                 }
+                menuBar.openRules = {
+                    dismiss()
+                    presentation.requestAccessWindow()
+                }
+                menuBar.openAgentKeyring = {
+                    dismiss()
+                    presentation.requestMainWindow()
+                }
+                menuBar.checkForUpdates = {
+                    dismiss()
+                    checkForUpdates()
+                }
+                menuBar.quit = { NSApplication.shared.terminate(nil) }
             }
-        }
-        Button("End all leases", action: model.endAllGrants)
-            .accessibilityIdentifier("end-all-grants")
-
-        Divider()
-
-        Button("Quit Agent Keyring") {
-            NSApplication.shared.terminate(nil)
-        }
-        .accessibilityIdentifier("quit-agent-keyring")
     }
 }
 
 struct AgentKeyringMenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
     let presentation: AgentKeyringPresentation
+    let menuBar: MacMenuBarModel
 
     var body: some View {
-        Label("Agent Keyring", systemImage: "key.fill")
-            .accessibilityLabel("Agent Keyring")
+        MacMenuBarLabel(waitingCount: menuBar.waiting.count)
             .accessibilityIdentifier("agent-keyring-menu")
             .onChange(of: presentation.mainWindowRequest, initial: true) { _, request in
                 guard request > 0 else { return }

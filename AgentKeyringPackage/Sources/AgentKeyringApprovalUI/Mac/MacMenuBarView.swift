@@ -165,6 +165,7 @@ public struct MacMenuBarView: View {
             Spacer()
             Button("Rules…", action: model.openRules)
                 .controlSize(.small)
+                .accessibilityIdentifier("menu-rules")
             Menu {
                 Button("Open Agent Keyring", action: model.openAgentKeyring)
                 Button("Check for Updates…", action: model.checkForUpdates)
@@ -177,6 +178,8 @@ public struct MacMenuBarView: View {
             .menuIndicator(.hidden)
             .controlSize(.small)
             .fixedSize()
+            .accessibilityLabel("More")
+            .accessibilityIdentifier("menu-more")
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
