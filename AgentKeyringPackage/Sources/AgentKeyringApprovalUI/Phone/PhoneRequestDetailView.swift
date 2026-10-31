@@ -16,7 +16,10 @@ struct PhoneRequestDetailView: View {
                 AccessRequestHeadline(request: request, siteFont: .title)
                 OutcomeLine(request: request)
                 if request.state.isInUse {
-                    Button(AccessRequestCopy.endNow) { Task { await model.endAccess(request.id) } }
+                    Button(model.ending.contains(request.id) ? AccessRequestCopy.ending : AccessRequestCopy.endNow) {
+                        Task { await model.endAccess(request.id) }
+                    }
+                    .disabled(model.ending.contains(request.id))
                         .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 44))
                 }
                 if case let .denied(_, _, askAgainAfter?) = request.state, request.state.isHoldingOffNewRequests(now: .now) {
@@ -24,7 +27,9 @@ struct PhoneRequestDetailView: View {
                         Text(AccessRequestCopy.askAgainUntil(askAgainAfter))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Button(AccessRequestCopy.letAskAgain) { Task { await model.allowAskingAgain(request.id) } }
+                        Button(model.askingAgain.contains(request.id) ? AccessRequestCopy.askingAgainPending
+                            : AccessRequestCopy.letAskAgain) { Task { await model.allowAskingAgain(request.id) } }
+                            .disabled(model.askingAgain.contains(request.id))
                             .buttonStyle(.quiet(height: 44))
                     }
                 }

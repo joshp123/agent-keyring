@@ -131,6 +131,17 @@ public final class PhoneKeyringModel {
         connection = snapshot.connection
         settings = snapshot.settings
         pairing = snapshot.pairing
+        settlePendingActions()
+    }
+
+    /// End and Let it ask again stay "sending" until the Mac's own report
+    /// shows the change (RFC 0006); the phone never assumes it happened.
+    public private(set) var ending = Set<String>()
+    public private(set) var askingAgain = Set<String>()
+
+    private func settlePendingActions() {
+        ending = ending.filter { request(id: $0)?.state.isInUse == true }
+        askingAgain = askingAgain.filter { request(id: $0)?.state.isHoldingOffNewRequests(now: .now) == true }
     }
 
     public var waiting: [AccessRequest] { requests.filter(\.state.isWaitingForYou) }
@@ -159,13 +170,23 @@ public final class PhoneKeyringModel {
     }
 
     public func endAccess(_ id: String) async {
+        ending.insert(id)
         do { update(id, to: try await backend.endAccess(requestID: id)) }
-        catch { failure = "Couldn't end it. Agent Keyring will end it at the deadline anyway." }
+        catch {
+            ending.remove(id)
+            failure = "Couldn't end it. Agent Keyring will end it at the deadline anyway."
+        }
+        settlePendingActions()
     }
 
     public func allowAskingAgain(_ id: String) async {
+        askingAgain.insert(id)
         do { update(id, to: try await backend.allowAskingAgain(requestID: id)) }
-        catch { failure = "Couldn't change that. Agent Keyring isn't reachable." }
+        catch {
+            askingAgain.remove(id)
+            failure = "Couldn't change that. Agent Keyring isn't reachable."
+        }
+        settlePendingActions()
     }
 
     public func beginPairing(endpoint: PhoneRelayEndpoint) async {
