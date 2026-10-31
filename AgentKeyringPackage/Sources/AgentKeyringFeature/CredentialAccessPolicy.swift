@@ -81,7 +81,8 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     public private(set) var confirmationReason: AccessRulesConfirmationReason = .firstUse
     public private(set) var confirmationRequiresPhonePairingAgain = false
     public private(set) var hasLoadedLoginList = false
-    public var canConfirmRules: Bool { needsConfirmation && hasLoadedLoginList && !isSavingRules }
+    public internal(set) var needsRelayPublicationConfirmation = false
+    public var canConfirmRules: Bool { (needsConfirmation || needsRelayPublicationConfirmation) && hasLoadedLoginList && !isSavingRules }
     public var confirmationSummary: String {
         let automaticCount = rows.filter { $0.policy == .allowAutomatically }.count
         let blockedCount = rows.filter { $0.policy == .block }.count
@@ -244,7 +245,9 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     public func confirmRules() async {
-        guard canConfirmRules, let snapshot = confirmationSnapshot else { return }
+        guard canConfirmRules else { return }
+        let snapshot = confirmationSnapshot ?? AccessRulesConfirmationSnapshot(policies: policies,
+            reason: .firstUse, requiresPhonePairingAgain: false)
         var confirmedPolicies = snapshot.policies
         for id in pendingPhoneBlocks where snapshot.policies[id] == nil { confirmedPolicies[id] = .block }
         let confirmedSnapshot = AccessRulesConfirmationSnapshot(policies: confirmedPolicies,
@@ -258,8 +261,9 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
             confirmationSnapshot = nil
             try await reloadRules()
         } catch {
-            needsConfirmation = true
-            errorMessage = "Access rules could not be confirmed. Nothing will be released."
+            if confirmationSnapshot != nil { needsConfirmation = true }
+            errorMessage = needsConfirmation ? "Access rules could not be confirmed. Nothing will be released."
+                : "The update for your other machines could not be confirmed. Your rules on this Mac are kept."
         }
     }
 

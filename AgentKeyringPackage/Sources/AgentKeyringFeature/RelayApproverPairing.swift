@@ -72,8 +72,13 @@ extension RelayApprover {
         try claimAuthorization("pairing")
         defer { authorizationID = nil }
         let (identity, signer) = try keys()
+        let vault = try await credentialSource()
         try await signer.authorize(context: context, reason: "Pair Agent Keyring with the relay after comparing the full fingerprint")
+        let currentVault = try await credentialSource()
         try Task.checkCancellation()
+        guard publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
+            throw LeaseFailure(.conflict, "The logins changed while pairing. Confirm the current rules first.")
+        }
         guard pairingAttemptID == attemptID, state.pairing?.transcript == pending.transcript, state.keySet == nil else {
             throw LeaseFailure(.conflict, "Pairing changed. Compare the current fingerprint.")
         }
@@ -104,8 +109,10 @@ extension RelayApprover {
         wire.confirmPairing.initialKeySet.signerKeyID = key.keyID
         var next = state
         next.pairing!.confirmation = try wire.serializedData()
+        next.keySet = try wire.confirmPairing.initialKeySet.serializedData()
         try enqueue(wire, id: "pairing", into: &next)
-        try commit(next)
+        try preparePublication(next: &next, vault: currentVault, context: context)
+        try commit(next, vault: currentVault)
         start()
         await flushOutbox()
     }

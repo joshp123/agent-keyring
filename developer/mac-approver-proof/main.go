@@ -256,7 +256,6 @@ func (p *proof) pair() {
 	must(e)
 	require(bytes.Contains(log, []byte(p.owner.pair)), "Swift pairing fingerprint differs from Go relay log")
 	p.owner.action("confirm", p.owner.pair)
-	p.owner.action("publish")
 	p.owner.status()
 	require(p.owner.queued == 0, "setup publication not acknowledged")
 	fmt.Println("PASS Swift/Go full pairing fingerprint and human-signed initial key set")

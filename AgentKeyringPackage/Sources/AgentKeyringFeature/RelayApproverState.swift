@@ -147,6 +147,7 @@ public final class RelayApprover {
     var rulesCheckGeneration = 0
     var rulesAreBeingChecked = false
     var rulesDifferFromConfiguration = false
+    var publicationConfirmationChanged: (@MainActor (Bool) -> Void)?
     @ObservationIgnored var observers: [UUID: AsyncStream<RelayApproverUpdate>.Continuation] = [:]
 
     public init(persistence: LeasePersistence? = nil,
@@ -266,6 +267,7 @@ public final class RelayApprover {
         queuedAnswerCount = state.outbox.filter { !$0.id.hasPrefix("configuration:") }.count
         isApplying = state.outbox.contains { $0.id.hasPrefix("configuration:") }
         needsPublication = state.keySet != nil && (state.configuration == nil || rulesDifferFromConfiguration)
+        publicationConfirmationChanged?(needsPublication)
         for observer in observers.values { observer.yield(update) }
     }
 

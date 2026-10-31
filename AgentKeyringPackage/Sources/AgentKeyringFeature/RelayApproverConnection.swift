@@ -21,7 +21,7 @@ extension RelayApprover {
                 }
             }
         }
-        guard state.keySet != nil, workTask == nil else { return }
+        guard state.endpoint != nil, state.keySet != nil, workTask == nil else { return }
         noteRulesChanged()
         workTask = Task { [weak self] in
             var delay = 1
@@ -106,9 +106,8 @@ extension RelayApprover {
                     guard ack.accepted, let pending = state.pairing else { throw LeaseFailure(.conflict, ack.detail) }
                     next.endpoint = pending.endpoint
                     next.relaySPKI = pending.relaySPKI
-                    next.keySet = try confirmation.initialKeySet.serializedData()
+                    if next.keySet == nil { next.keySet = try confirmation.initialKeySet.serializedData() }
                     next.pairing = nil
-                    needsPublication = true
                 case let (.decide(decision), .decision(ack)):
                     let statement = try Agentkeyring_V1_DecisionStatement(serializedBytes: decision.statement)
                     let id = RelayCrypto.hex(statement.requestDigest)

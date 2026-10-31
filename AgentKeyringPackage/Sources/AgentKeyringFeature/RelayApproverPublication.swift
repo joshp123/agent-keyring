@@ -71,7 +71,8 @@ extension RelayApprover {
     func preparePublication(next: inout RelayApproverState, vault: RelayApproverVault, context: LAContext) throws {
         let signer = try keys().1
         let ownerID = RelayCrypto.keyID(signer.publicKey)
-        let current = try Agentkeyring_V1_ApproverKeySet(serializedBytes: currentKeySet().keySet)
+        guard let keySet = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
+        let current = try Agentkeyring_V1_ApproverKeySet(serializedBytes: Agentkeyring_V1_SignedApproverKeySet(serializedBytes: keySet).keySet)
         guard current.ruleOwnerKeyID == ownerID else { throw LeaseFailure(.permissionDenied, "Only the current rule owner can publish rules.") }
         try includeDeliveryKey(next: &next, context: context)
         var configuration = Agentkeyring_V1_Configuration()
@@ -117,7 +118,8 @@ extension RelayApprover {
 
     func includeDeliveryKey(next: inout RelayApproverState, context: LAContext) throws {
         let signer = try keys().1
-        var set = try Agentkeyring_V1_ApproverKeySet(serializedBytes: currentKeySet().keySet)
+        guard let keySet = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
+        var set = try Agentkeyring_V1_ApproverKeySet(serializedBytes: Agentkeyring_V1_SignedApproverKeySet(serializedBytes: keySet).keySet)
         let id = RelayCrypto.keyID(signer.automaticPublicKey)
         if set.keys.contains(where: { $0.keyID == id && $0.role == .macDelivery }) { return }
         set.keys.removeAll { $0.role == .macDelivery }

@@ -145,14 +145,6 @@ extension MirrorAppModel {
                 text:
                     "Import complete. Exported logins have been updated."
             )
-            do {
-                try relayApprover.load()
-                if relayApprover.state.keySet != nil { try await relayApprover.publishCurrentRules() }
-            } catch {
-                relayApprover.noteRulesChanged()
-                notice = MirrorNotice(kind: .information,
-                    text: "Logins updated on this Mac. Open Machines to confirm the update for your other machines.")
-            }
         } catch {
             let nsError = error as NSError
             credentialExchangeLogger.error(
