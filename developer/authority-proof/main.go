@@ -101,11 +101,8 @@ func get(id string) *pb.Lease {
 func end(id string) *pb.Lease {
 	return rpc(&pb.WireRequest{Request: &pb.WireRequest_EndLease{EndLease: &pb.LeaseReference{LeaseId: id}}}).GetLease()
 }
-func begin(id string, kind pb.OperationKind, fields ...pb.CredentialField) *pb.WireResponse {
-	return rpc(&pb.WireRequest{Request: &pb.WireRequest_BeginOperation{BeginOperation: &pb.BeginOperationRequest{LeaseId: id, Kind: kind, Fields: fields, OperationDigest: bytes.Repeat([]byte{42}, 32)}}})
-}
-func lookup(id string) *pb.GetOperationResponse {
-	return rpc(&pb.WireRequest{Request: &pb.WireRequest_GetOperation{GetOperation: &pb.GetOperationRequest{LeaseId: id, OperationDigest: bytes.Repeat([]byte{42}, 32)}}}).GetGetOperation_()
+func deliver(id string, kind pb.OperationKind, fields ...pb.CredentialField) *pb.WireResponse {
+	return rpc(&pb.WireRequest{Request: &pb.WireRequest_Deliver{Deliver: &pb.DeliverRequest{LeaseId: id, Kind: kind, Fields: fields}}})
 }
 func main() {
 	flag.StringVar(&authority, "authority", "", "Swift authority fixture executable")
@@ -130,57 +127,32 @@ func main() {
 	check(proto.Equal(active, joined), "concurrent task scope joins original record")
 	conflict := rpc(&pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: active.LoginId, TaskRef: "changed", RequestId: "request-1", Purpose: active.Purpose, Reason: active.Reason}}})
 	check(conflict.GetError().GetCode() == pb.RpcErrorCode_RPC_ERROR_CODE_CONFLICT, "request conflict")
-	check(lookup(active.LeaseId) != nil && lookup(active.LeaseId).GetOperation() == nil, "lookup starts nothing")
-	missing := begin(active.LeaseId, pb.OperationKind_OPERATION_KIND_READ, pb.CredentialField_CREDENTIAL_FIELD_ONE_TIME_CODE)
-	check(missing.GetError() != nil && lookup(active.LeaseId).GetOperation() == nil, "missing field starts nothing")
-	begun := begin(active.LeaseId, pb.OperationKind_OPERATION_KIND_READ, pb.CredentialField_CREDENTIAL_FIELD_PASSWORD).GetBeginOperation()
-	check(begun.GetValues().GetPassword() == "example-password" && begun.OperationId != "", "read values privately consumed")
+	missing := deliver(active.LeaseId, pb.OperationKind_OPERATION_KIND_READ, pb.CredentialField_CREDENTIAL_FIELD_ONE_TIME_CODE)
+	check(missing.GetError() != nil, "unavailable field refused")
+	delivered := deliver(active.LeaseId, pb.OperationKind_OPERATION_KIND_READ, pb.CredentialField_CREDENTIAL_FIELD_PASSWORD).GetDelivery()
+	check(delivered.GetValues().GetPassword() == "example-password", "read values privately consumed")
 	stop()
 	start()
 	check(proto.Equal(active, get(active.LeaseId)), "restart preserves lease and original deadline")
-	repeated := begin(active.LeaseId, pb.OperationKind_OPERATION_KIND_READ, pb.CredentialField_CREDENTIAL_FIELD_PASSWORD).GetBeginOperation()
-	check(repeated.GetValues() == nil && repeated.GetAlreadyStarted().OperationId == begun.OperationId && repeated.GetAlreadyStarted().Outcome == nil, "restart preserves Started; retry returns no values")
-	finish := &pb.FinishOperationRequest{LeaseId: active.LeaseId, OperationId: begun.OperationId, Outcome: &pb.FinishOperationRequest_ReadDelivered{ReadDelivered: true}}
-	finished := rpc(&pb.WireRequest{Request: &pb.WireRequest_FinishOperation{FinishOperation: finish}}).GetOperation()
-	check(finished.GetReadDelivered(), "finish read")
-	check(proto.Equal(finished, rpc(&pb.WireRequest{Request: &pb.WireRequest_FinishOperation{FinishOperation: finish}}).GetOperation()), "matching finish is idempotent")
-	finish.Outcome = &pb.FinishOperationRequest_ReadDelivered{ReadDelivered: false}
-	check(rpc(&pb.WireRequest{Request: &pb.WireRequest_FinishOperation{FinishOperation: finish}}).GetError().GetCode() == pb.RpcErrorCode_RPC_ERROR_CODE_CONFLICT, "contradictory finish conflicts")
-	check(lookup(active.LeaseId).GetOperation().GetReadDelivered(), "lookup returns receipt")
-	keyed := &pb.BeginOperationRequest{LeaseId: active.LeaseId, OperationDigest: bytes.Repeat([]byte{9}, 32), Kind: pb.OperationKind_OPERATION_KIND_READ, Fields: []pb.CredentialField{pb.CredentialField_CREDENTIAL_FIELD_USERNAME}, RequestId: "explicit-action"}
-	check(rpc(&pb.WireRequest{Request: &pb.WireRequest_BeginOperation{BeginOperation: keyed}}).GetBeginOperation().GetValues() != nil, "explicit operation key starts once")
-	keyed.OperationDigest = bytes.Repeat([]byte{8}, 32)
-	check(rpc(&pb.WireRequest{Request: &pb.WireRequest_GetOperation{GetOperation: &pb.GetOperationRequest{LeaseId: active.LeaseId, OperationDigest: keyed.OperationDigest, RequestId: keyed.RequestId}}}).GetError().GetCode() == pb.RpcErrorCode_RPC_ERROR_CODE_CONFLICT, "GetOperation key/digest conflict")
-	check(rpc(&pb.WireRequest{Request: &pb.WireRequest_BeginOperation{BeginOperation: keyed}}).GetError().GetCode() == pb.RpcErrorCode_RPC_ERROR_CODE_CONFLICT, "Begin retains atomic key/digest conflict")
+	repeated := deliver(active.LeaseId, pb.OperationKind_OPERATION_KIND_READ, pb.CredentialField_CREDENTIAL_FIELD_PASSWORD).GetDelivery()
+	check(proto.Equal(delivered, repeated), "delivery remains available under the same lease after restart")
 	if cli != "" {
 		proveCLI()
 	}
-	fmt.Println("PASS Automatic, joining, conflicts, unavailable fields, restart, Started/Finish/GetOperation replay")
+	fmt.Println("PASS Automatic, joining, conflicts, unavailable fields, restart and Deliver")
 	for _, purpose := range []pb.Purpose{pb.Purpose_PURPOSE_BROWSER_SIGN_IN, pb.Purpose_PURPOSE_PROGRAM} {
 		item := lease(fmt.Sprintf("purpose-%d", purpose), fmt.Sprintf("purpose-request-%d", purpose), purpose)
 		kind := pb.OperationKind_OPERATION_KIND_FILL
 		if purpose == pb.Purpose_PURPOSE_PROGRAM {
 			kind = pb.OperationKind_OPERATION_KIND_EXECUTE_PROGRAM
 		}
-		result := begin(item.LeaseId, kind, pb.CredentialField_CREDENTIAL_FIELD_PASSWORD).GetBeginOperation()
+		result := deliver(item.LeaseId, kind, pb.CredentialField_CREDENTIAL_FIELD_PASSWORD).GetDelivery()
 		check(result.GetValues() != nil, "purpose operation returns requested fields")
 		check(result.GetValues().Username == "" && result.GetValues().OneTimeCode == "", "only requested fields")
 		end(item.LeaseId)
-		finish := &pb.FinishOperationRequest{LeaseId: item.LeaseId, OperationId: result.OperationId}
-		if kind == pb.OperationKind_OPERATION_KIND_FILL {
-			finish.Outcome = &pb.FinishOperationRequest_Fill{Fill: pb.FillOutcome_FILL_OUTCOME_SUBMITTED}
-		} else {
-			code := int32(23)
-			finish.Outcome = &pb.FinishOperationRequest_Program{Program: pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED}
-			finish.ExitCode = &code
-		}
-		receipt := rpc(&pb.WireRequest{Request: &pb.WireRequest_FinishOperation{FinishOperation: finish}}).GetOperation()
-		check(receipt != nil, "finish after release")
-		if kind == pb.OperationKind_OPERATION_KIND_EXECUTE_PROGRAM {
-			check(receipt.GetExitCode() == 23, "exit code saved")
-		}
+		check(deliver(item.LeaseId, kind, pb.CredentialField_CREDENTIAL_FIELD_PASSWORD).GetError() != nil, "delivery after release refused")
 	}
-	wrong := begin(active.LeaseId, pb.OperationKind_OPERATION_KIND_FILL, pb.CredentialField_CREDENTIAL_FIELD_USERNAME)
+	wrong := deliver(active.LeaseId, pb.OperationKind_OPERATION_KIND_FILL, pb.CredentialField_CREDENTIAL_FIELD_USERNAME)
 	check(wrong.GetError() != nil, "wrong purpose refused")
 	owner("ask")
 	check(get(active.LeaseId).State == pb.LeaseState_LEASE_STATE_REVOKED, "Automatic to Ask revokes")
@@ -223,7 +195,7 @@ func main() {
 	owner("block")
 	check(get(blocked.LeaseId).State == pb.LeaseState_LEASE_STATE_REVOKED, "Blocked revokes")
 	check(lease("blocked-new", "block-2", pb.Purpose_PURPOSE_BROWSER_SIGN_IN).State == pb.LeaseState_LEASE_STATE_DENIED, "Blocked refuses fresh requests")
-	fmt.Println("PASS delivery purposes, finish after release, exit receipt, rule revocation, Ask restart, Watch, denial suppression and cancellation")
+	fmt.Println("PASS delivery purposes, release refusal, rule revocation, Ask restart, Watch, denial suppression and cancellation")
 	unknown := &pb.WireRequest{}
 	unknown.ProtoReflect().SetUnknown([]byte{0x58, 1})
 	for _, r := range []*pb.WireRequest{unknown, {Request: &pb.WireRequest_Fill{Fill: &pb.FillRequest{}}}, {Request: &pb.WireRequest_ExecuteProgram{ExecuteProgram: &pb.ExecuteProgramRequest{}}}} {
@@ -260,7 +232,7 @@ func main() {
 	rejectDiskState("older valid authority snapshots must not roll back the checkpoint")
 	writeSlots(committedSlots)
 	start()
-	check(lookup(active.LeaseId).GetOperation().GetReadDelivered(), "original checkpoint still restores its committed receipts")
+	check(get(active.LeaseId).State == pb.LeaseState_LEASE_STATE_REVOKED, "original checkpoint restores its committed lease history")
 	stop()
 	for i := 0; i < 2; i++ {
 		must(os.WriteFile(filepath.Join(root, "leases", fmt.Sprintf("authority-%d.plist", i)), []byte("untrusted changed authority"), 0600))
@@ -282,15 +254,20 @@ func writeSlots(slots [2][]byte) {
 	}
 }
 func rejectDiskState(message string) {
-	bad := exec.Command(authority, root)
-	bad.Stdin = bytes.NewReader(nil)
-	out, err := bad.CombinedOutput()
-	check(err != nil && !bytes.Contains(out, []byte("Ready:")), message)
+	start()
+	// Recovery keeps discovery available while all task access is stopped.
+	found := rpc(&pb.WireRequest{Request: &pb.WireRequest_FindLogins{FindLogins: &pb.FindLoginsRequest{Query: "example.com"}}})
+	check(len(found.GetLogins().GetLogins()) == 1, "history recovery preserves login discovery")
+	request := &pb.RequestLeaseRequest{LoginId: "00000000-0000-0000-0000-000000000301", TaskRef: "untrusted-history", RequestId: "untrusted-history", Purpose: pb.Purpose_PURPOSE_AGENT_PROCESS, Reason: "Check history recovery refuses access"}
+	refused := rpc(&pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: request}})
+	check(refused.GetError().GetCode() == pb.RpcErrorCode_RPC_ERROR_CODE_UNAVAILABLE, message)
+	check(bytes.Contains([]byte(refused.GetError().GetMessage()), []byte("Reset task history")), "history recovery names the owner action")
+	stop()
 }
 func proveCLI() {
 	run := func(args ...string) []byte {
 		command := exec.Command(cli, args...)
-		command.Env = append(os.Environ(), "AGENT_KEYRING_SOCKET="+socket)
+		command.Env = append(os.Environ(), "AGENT_KEYRING_SOCKET="+socket, "AGENT_KEYRING_STATE_DIR="+filepath.Join(root, "client-state"))
 		var diagnostics bytes.Buffer
 		command.Stderr = &diagnostics
 		out, err := command.Output()

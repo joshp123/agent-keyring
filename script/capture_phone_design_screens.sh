@@ -24,7 +24,7 @@ SCENARIOS=("$@")
 if [[ ${#SCENARIOS[@]} -eq 0 ]]; then
   SCENARIOS=(request requestForProgram requestForAgentProcess reply sending waitingForMac approved denied unanswered
     pairing pairingConnecting pairingComparing pairingPaired pairingFailed homeNotPaired settingsNotPaired
-    home nothingWaiting notificationsOn inUseDetail historyDetail unreachable importFailed settings real)
+    home nothingWaiting notificationsOn inUseDetail historyDetail unreachable settings real)
 fi
 
 xcodebuild -project "$ROOT_DIR/AgentKeyringPhone.xcodeproj" -scheme AgentKeyringPhone \

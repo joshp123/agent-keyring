@@ -78,12 +78,12 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         } else {
             self.accessControlFixture = nil
             self.fixturePolicyStore = nil
-            self.model = MirrorAppModel(phoneChannel: CloudKitIPhoneApprovalChannel())
+            self.model = MirrorAppModel()
         }
         #else
         self.accessControlFixture = nil
         self.fixturePolicyStore = nil
-        self.model = MirrorAppModel(phoneChannel: CloudKitIPhoneApprovalChannel())
+        self.model = MirrorAppModel()
         #endif
         super.init()
     }
@@ -230,7 +230,8 @@ struct AgentKeyringApp: App {
         }
 
         Window("Machines", id: "machines") {
-            MachinesWindow(relay: appDelegate.model.relayApprover, approvals: appDelegate.approvals)
+            MachinesWindow(relay: appDelegate.model.relayApprover, routing: appDelegate.model.approvalRoutingSettings,
+                approvals: appDelegate.approvals)
         }
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)

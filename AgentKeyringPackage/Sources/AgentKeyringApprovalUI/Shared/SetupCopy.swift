@@ -58,7 +58,10 @@ public enum SetupCopy {
     public static let relayAddressExample = "mac-mini:17443"
     public static let relayAddressHint = "The relay's Tailscale name and port."
     public static let connect = "Connect"
-    public static let compareWithRelayLog = "Compare with the code the relay printed in its log:"
+    /// RFC 0005, "First approver": setup reads the relay's code over the mini's
+    /// trusted SSH connection and brings it to Josh; he never opens a log.
+    public static let compareWithSetupCode = "Compare with the relay's code from setup:"
+    public static let setupCodeSource = "Setup reads it on your Mac mini and shows it to you."
 
     public static func relayConnected(_ address: String) -> String { "Connected to \(address)" }
     public static func relayOffline(_ address: String) -> String { "Can't reach \(address). Retrying." }
@@ -67,8 +70,8 @@ public enum SetupCopy {
         count == 1 ? "1 answer waits to send." : "\(count) answers wait to send."
     }
 
-    public static let rulesNotSent = "Rule changes haven't reached the relay, so other machines still see the old ones."
-    public static let sendRules = "Send with Touch ID"
+    /// RFC 0005, "Applying a change": shown until the relay acknowledges.
+    public static let applying = "Applying changes…"
     public static let waitingToJoin = "Waiting to join"
     public static let machinesThatCanAsk = "Machines that can ask"
     public static let noMachines = "No other machine can ask yet. Run agent-keyring enrol on it to start."
@@ -82,7 +85,6 @@ public enum SetupCopy {
 
     // MARK: When the Mac asks the iPhone
 
-    public static let macAsksPhoneAfter = "Your Mac asks this iPhone after"
     public static let phoneDelayFooter = "A request shows on your Mac first. If you don't answer there in time, or your Mac is locked, it comes here. The delay is set on your Mac."
     public static let askPhoneAfterOnMac = "Ask your iPhone after"
     public static let macDelayFooter = "If you don't answer on this Mac by then. When this Mac is locked, it asks your iPhone at once."
@@ -109,12 +111,6 @@ public enum SetupCopy {
         case .on: "On"
         }
     }
-
-    // MARK: Passwords on the iPhone (optional in release 4)
-
-    public static let phonePasswordsTitle = "Passwords on this iPhone"
-    public static let phonePasswordsFooter = "Not needed to approve. Your MacBook delivers logins; this iPhone only says yes or no."
-    public static let phonePasswordsPurpose = "Optional. Today your MacBook delivers every login, and this iPhone only approves. A later version uses passwords kept here when your MacBook is shut."
 
     // MARK: The iPhone's pairing
 

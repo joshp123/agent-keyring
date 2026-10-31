@@ -47,6 +47,7 @@ A window with a sidebar and a table.
 - **Table:** Login, Account, Rule, Last used. Sortable, searchable from the toolbar.
 - **Changing a rule:** the Rule cell is a menu, so you change it where you read it. For several logins, select them and use **Set Rule** in the toolbar or the right-click menu.
 - **Confirming:** on first use, or when the saved rules can't be checked, a band across the top says "Confirm your rules", sums them up ("34 logins: 18 Ask, 9 Automatic, 7 Blocked.") and has **Confirm with Touch ID**. Agents get nothing, and the table is locked, until you confirm.
+- **Applying:** after you change a rule, "Applying changes…" with a spinner sits on the title row until the relay acknowledges the change. It needs nothing from you: the Mac keeps sending it, across quits and network loss.
 
 A rule is a property of the login, so it is a column, not a folder you move logins between. That is the "Move credential" confusion from July.
 
@@ -56,10 +57,12 @@ Screens: `rules-*.png`, `rulesAll-*.png`, `rulesConfirm-*.png`.
 
 - **Remote requests** use the same panel, with the machine in the question: "Codex on Mac mini wants to sign in to". A local request stays "Codex wants to sign in to", and its Machine line reads "This Mac". Replying to a remote agent shows Touch ID on "Deny and send", because the reply is signed. If the relay is unreachable, an answer says "Saved. It reaches the relay as soon as the relay is back."
 - **A machine joining** (after `agent-keyring enrol` there) opens the panel with its name, the tailnet node the relay saw, and an eight-group code in two rows of four. "Doesn't match" refuses; "They match" approves with Touch ID. Automatic logins for it are off unless switched on. Your iPhone joining as an approver looks the same.
-- **Machines window**, from the menu bar's More menu: the relay link (set up once by comparing the relay's code), answers waiting to send, rule changes not yet sent, devices waiting to join, machines that can ask (each with Remove), and devices that can approve.
-- **Menu bar:** devices waiting to join appear under "Waiting for you" and count in the icon. One line appears when the relay is offline or rules haven't reached it.
+- **Machines window**, from the menu bar's More menu: the relay link, answers waiting to send, "Applying changes…" until the relay acknowledges a rule change or a machine you approved or removed, devices waiting to join, devices that can approve, and machines that can ask (each with Remove).
+- **First relay setup:** you enter the relay's address, then compare the eight-group code on screen with the relay's code that setup brings from the Mac mini over its trusted SSH connection: "Compare with the relay's code from setup:" and "Setup reads it on your Mac mini and shows it to you." You never open a service log. **Doesn't match** cancels; **They match** confirms with Touch ID.
+- **Ask your iPhone after:** under "Can approve requests", once an iPhone can approve. 30 seconds, 1, 2 (the default), 5 or 9 minutes. Footer: "If you don't answer on this Mac by then. When this Mac is locked, it asks your iPhone at once." The setting lives on this Mac; the phone settings point here.
+- **Menu bar:** devices waiting to join appear under "Waiting for you" and count in the icon. One line appears when the relay is offline. Applying stays out of the menu bar: it needs nothing from you.
 
-Screens: `approvalLocal-*.png`, `approvalQueued-*.png`, `enrolment*.png`, `machines*.png`, `menuBarRemote-*.png`.
+Screens: `approvalLocal-*.png`, `approvalQueued-*.png`, `enrolment*.png`, `machines*.png`, `rulesApplying-*.png`, `menuBarRemote-*.png`.
 
 ## Built and not built
 

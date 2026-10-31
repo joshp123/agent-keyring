@@ -14,6 +14,7 @@ extension RelayApprover {
         key.publicKey = signer.publicKey
         key.label = Host.current().localizedName ?? "This Mac"
         key.tlsPublicKey = identity.publicKeySPKI
+        key.role = .mac
         var request = Agentkeyring_V1_RelayWireRequest()
         request.pairApprover.key = key
         request.pairApprover.tlsPublicKey = identity.publicKeySPKI
@@ -71,8 +72,13 @@ extension RelayApprover {
         try claimAuthorization("pairing")
         defer { authorizationID = nil }
         let (identity, signer) = try keys()
+        let vault = try await credentialSource()
         try await signer.authorize(context: context, reason: "Pair Agent Keyring with the relay after comparing the full fingerprint")
+        let currentVault = try await credentialSource()
         try Task.checkCancellation()
+        guard publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
+            throw LeaseFailure(.conflict, "The logins changed while pairing. Confirm the current rules first.")
+        }
         guard pairingAttemptID == attemptID, state.pairing?.transcript == pending.transcript, state.keySet == nil else {
             throw LeaseFailure(.conflict, "Pairing changed. Compare the current fingerprint.")
         }
@@ -81,6 +87,7 @@ extension RelayApprover {
         key.publicKey = signer.publicKey
         key.label = Host.current().localizedName ?? "This Mac"
         key.tlsPublicKey = identity.publicKeySPKI
+        key.role = .mac
         var keySet = Agentkeyring_V1_ApproverKeySet()
         keySet.domain = "agentkeyring.approvers.v1"
         keySet.revision = 1
@@ -102,8 +109,10 @@ extension RelayApprover {
         wire.confirmPairing.initialKeySet.signerKeyID = key.keyID
         var next = state
         next.pairing!.confirmation = try wire.serializedData()
+        next.keySet = try wire.confirmPairing.initialKeySet.serializedData()
         try enqueue(wire, id: "pairing", into: &next)
-        try commit(next)
+        try preparePublication(next: &next, vault: currentVault, context: context)
+        try commit(next, vault: currentVault)
         start()
         await flushOutbox()
     }
@@ -112,7 +121,6 @@ extension RelayApprover {
         context: LAContext = LAContext()) async throws {
         try load()
         guard let bytes = state.pendingEnrolments[id] else {
-            if state.approvedEnrolments.values.contains(where: { (try? Agentkeyring_V1_ApprovedEnrolment(serializedBytes: $0)).map { RelayCrypto.hex(RelayCrypto.digest("agentkeyring.enrolment.v1", $0.record)) == id } ?? false }) { return }
             throw LeaseFailure(.notFound, "No such machine is waiting to enrol.")
         }
         let record = try validateEnrolment(bytes)
@@ -132,16 +140,6 @@ extension RelayApprover {
         guard try currentKeySet() == current, state.pendingEnrolments[id] == bytes else {
             throw LeaseFailure(.conflict, "The machine comparison changed. Compare the current fingerprint.")
         }
-        var statement = Agentkeyring_V1_EnrolmentStatement()
-        statement.domain = "agentkeyring.enrolment.v1"
-        statement.enrolmentDigest = RelayCrypto.digest("agentkeyring.enrolment.v1", bytes)
-        statement.choice = .approve
-        statement.automaticAllowed = automaticAllowed
-        statement.decidedUnixSeconds = Self.now
-        var signed = Agentkeyring_V1_SignedEnrolmentDecision()
-        signed.statement = try statement.serializedData()
-        signed.signature = try signer.sign(signed.statement, context: context, automatic: false)
-        signed.approverKeyID = RelayCrypto.keyID(signer.publicKey)
         var machine = Agentkeyring_V1_EnrolledMachine()
         machine.recipientID = record.recipientID
         machine.machineLabel = record.machineLabel
@@ -151,19 +149,11 @@ extension RelayApprover {
         machine.receiverPublicKey = record.receiverPublicKey
         machine.receiverKeyID = record.receiverKeyID
         machine.automaticAllowed = automaticAllowed
-        var approved = Agentkeyring_V1_ApprovedEnrolment()
-        approved.record = bytes
-        approved.decision = signed
         var next = state
         next.pendingEnrolments.removeValue(forKey: id)
         next.machines[record.recipientID] = try machine.serializedData()
-        next.approvedEnrolments[record.recipientID] = try approved.serializedData()
-        var command = Agentkeyring_V1_RelayWireRequest()
-        command.decideEnrolment = signed
-        try enqueue(command, id: "enrolment:" + id, into: &next)
-        // One biometric approval covers the roster, index and grant publication.
         try preparePublication(next: &next, vault: vault, context: context)
-        try commit(next)
+        try commit(next, vault: vault)
         needsPublication = false
         publish()
         await flushOutbox()
@@ -194,21 +184,8 @@ extension RelayApprover {
         try load()
         guard let bytes = state.pendingEnrolments[id] else { throw LeaseFailure(.notFound, "No such machine is waiting to enrol.") }
         let record = try validateEnrolment(bytes)
-        try claimAuthorization("deny-enrolment:" + id)
-        defer { authorizationID = nil }
-        let signer = try keys().1
-        try await signer.authorize(context: context, reason: "Deny enrolment of \(record.machineLabel)")
-        try Task.checkCancellation()
-        guard state.pendingEnrolments[id] == bytes else { throw LeaseFailure(.conflict, "This enrolment has changed.") }
-        var statement = Agentkeyring_V1_EnrolmentStatement()
-        statement.domain = "agentkeyring.enrolment.v1"
-        statement.enrolmentDigest = RelayCrypto.digest("agentkeyring.enrolment.v1", bytes)
-        statement.choice = .deny
-        statement.decidedUnixSeconds = Self.now
         var command = Agentkeyring_V1_RelayWireRequest()
-        command.decideEnrolment.statement = try statement.serializedData()
-        command.decideEnrolment.signature = try signer.sign(command.decideEnrolment.statement, context: context, automatic: false)
-        command.decideEnrolment.approverKeyID = RelayCrypto.keyID(signer.publicKey)
+        command.dismissEnrolment.recipientID = record.recipientID
         var next = state
         next.pendingEnrolments.removeValue(forKey: id)
         try enqueue(command, id: "enrolment:" + id, into: &next)
@@ -228,7 +205,6 @@ extension RelayApprover {
         guard state.machines[recipientID] == machineBytes else { throw LeaseFailure(.conflict, "This machine's enrolment changed.") }
         var next = state
         next.machines.removeValue(forKey: recipientID)
-        next.approvedEnrolments.removeValue(forKey: recipientID)
         for (id, saved) in next.requests {
             var lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
             if lease.recipient.recipientID == recipientID && (lease.state == .pending || lease.state == .active) {
@@ -239,7 +215,7 @@ extension RelayApprover {
             }
         }
         try preparePublication(next: &next, vault: vault, context: context)
-        try commit(next)
+        try commit(next, vault: vault)
         needsPublication = false
         publish()
         await flushOutbox()

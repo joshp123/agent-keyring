@@ -9,14 +9,14 @@ public final class ApprovalRoutingSettings {
     public var phoneDelaySeconds: Int {
         get { storedPhoneDelaySeconds }
         set {
-            storedPhoneDelaySeconds = min(Int(ApprovalRequest.lifetimeSeconds), max(1, newValue))
+            storedPhoneDelaySeconds = min(540, max(30, newValue))
             defaults.set(storedPhoneDelaySeconds, forKey: "phoneApprovalDelaySeconds")
         }
     }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        storedPhoneDelaySeconds = min(Int(ApprovalRequest.lifetimeSeconds),
-            max(1, defaults.object(forKey: "phoneApprovalDelaySeconds") as? Int ?? 120))
+        storedPhoneDelaySeconds = min(540,
+            max(30, defaults.object(forKey: "phoneApprovalDelaySeconds") as? Int ?? 120))
     }
 }

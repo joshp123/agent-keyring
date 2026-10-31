@@ -59,6 +59,7 @@ public struct RelayApproverUpdate: Sendable {
     public let machines: [Agentkeyring_V1_EnrolledMachine]
     public let queuedAnswerCount: Int
     public let needsPublication: Bool
+    public let isApplying: Bool
     public let errorMessage: String?
 }
 
@@ -70,10 +71,13 @@ struct RelaySavedRequest: Codable {
     var machine: Data
     var decision: Data?
     var acknowledged = false
+    var phoneDue: Int64?
+    var escalated: Bool?
 }
 struct RelayQueuedCommand: Codable {
     var id: String
     var bytes: Data
+    var attempted: Bool?
 }
 struct RelaySavedLeaseReport: Codable {
     var lease: Data
@@ -94,19 +98,15 @@ struct RelayApproverState: Codable {
     var pairing: RelayPendingPair?
     var keySet: Data?
     var machines: [String: Data] = [:]
-    var approvedEnrolments: [String: Data] = [:]
     var pendingEnrolments: [String: Data] = [:]
     var pendingApprovers: [String: Data]?
+    var pendingApproverCreated: [String: Int64]?
     var dismissedApproverPairingIDs: Set<String>?
     var requests: [String: RelaySavedRequest] = [:]
     var leaseReports: [String: RelaySavedLeaseReport]?
     var outbox: [RelayQueuedCommand] = []
-    var index: Data?
-    var automaticGrant: Data?
-    var enrolmentSet: Data?
-    var indexRevision: UInt64 = 0
-    var grantRevision: UInt64 = 0
-    var rosterRevision: UInt64 = 0
+    var configuration: Data?
+    var acknowledgedConfigurationRevision: UInt64?
     var publicationDigest: Data?
     var suppressions: [String: Int64] = [:]
 }
@@ -123,19 +123,22 @@ public final class RelayApprover {
     public private(set) var enrolledMachines: [Agentkeyring_V1_EnrolledMachine] = []
     public private(set) var queuedAnswerCount = 0
     public internal(set) var needsPublication = false
+    public private(set) var isApplying = false
     public internal(set) var errorMessage: String?
 
-    let persistence: LeasePersistence
+    let legacyPersistence: LeasePersistence?
+    let leaseStore: CredentialLeaseStore
     let credentialSource: @MainActor () async throws -> RelayApproverVault
     let suppliedIdentity: RelayTLSIdentity?
     let suppliedSigner: (any RelayApproverSigning)?
     let lockState: any CredentialSessionLockState
     var identity: RelayTLSIdentity?
     var signer: (any RelayApproverSigning)?
-    var state = RelayApproverState()
+    var state: RelayApproverState { leaseStore.relayState }
     var loaded = false
     var workTask: Task<Void, Never>?
     var outboxTask: Task<Void, Never>?
+    let phoneDelay: @MainActor () -> Int
     var pairConnection: RelayConnection?
     var pairingAttemptID = UUID()
     var sessionTask: Task<Void, Never>?
@@ -143,14 +146,19 @@ public final class RelayApprover {
     var authorizationID: String?
     var rulesCheckGeneration = 0
     var rulesAreBeingChecked = false
+    var rulesDifferFromConfiguration = false
+    var publicationConfirmationChanged: (@MainActor (Bool) -> Void)?
     @ObservationIgnored var observers: [UUID: AsyncStream<RelayApproverUpdate>.Continuation] = [:]
 
-    public init(persistence: LeasePersistence = LeasePersistence(directory: RelayApprover.defaultDirectory(),
-        checkpointService: "com.agentkeyring.relay-approver-checkpoint.v1"),
+    public init(persistence: LeasePersistence? = nil,
+        leaseStore: CredentialLeaseStore = CredentialLeaseStore(),
+        phoneDelay: @escaping @MainActor () -> Int = { 120 },
         identity: RelayTLSIdentity? = nil, signer: (any RelayApproverSigning)? = nil,
         lockState: any CredentialSessionLockState = SystemCredentialSessionLockState(),
         credentialSource: @escaping @MainActor () async throws -> RelayApproverVault) {
-        self.persistence = persistence
+        self.legacyPersistence = persistence ?? leaseStore.relayMigrationPersistence
+        self.leaseStore = leaseStore
+        self.phoneDelay = phoneDelay
         self.suppliedIdentity = identity
         self.suppliedSigner = signer
         self.lockState = lockState
@@ -163,9 +171,18 @@ public final class RelayApprover {
 
     public func load() throws {
         guard !loaded else { return }
-        if let bytes = try persistence.load() {
-            state = try PropertyListDecoder().decode(RelayApproverState.self, from: bytes)
-            guard state.version == 1 else { throw LeaseFailure(.unavailable, "This relay state needs a newer Agent Keyring.") }
+        try leaseStore.load()
+        if !leaseStore.hasRelayState, let bytes = try legacyPersistence?.load() {
+            var migrated = try PropertyListDecoder().decode(RelayApproverState.self, from: bytes)
+            guard migrated.version == 1 else { throw LeaseFailure(.unavailable, "This relay state needs a newer Agent Keyring.") }
+            migrated.outbox = try migrated.outbox.filter {
+                try Agentkeyring_V1_RelayWireRequest(serializedBytes: $0.bytes).request != nil
+            }
+            try leaseStore.saveRelayState(migrated)
+        }
+        leaseStore.onCommit = { [weak self] in
+            self?.publish()
+            self?.wakeOutbox()
         }
         loaded = true
         publish()
@@ -197,15 +214,14 @@ public final class RelayApprover {
         RelayApproverUpdate(connection: connectionState, pairing: pairing, enrolments: pendingEnrolments,
             approverPairings: pendingApproverPairings, approverKeySet: approverKeySet,
             requests: requests, leases: leases, machines: enrolledMachines, queuedAnswerCount: queuedAnswerCount,
-            needsPublication: needsPublication, errorMessage: errorMessage)
+            needsPublication: needsPublication, isApplying: isApplying, errorMessage: errorMessage)
     }
 
-    func commit(_ next: RelayApproverState) throws {
-        let encoder = PropertyListEncoder()
-        encoder.outputFormat = .binary
-        try persistence.save(encoder.encode(next))
-        state = next
+    func commit(_ next: RelayApproverState, vault: RelayApproverVault? = nil, rules: CredentialLeaseStore.SavedRules? = nil) throws {
+        try leaseStore.saveRelayState(next, vault: vault, rules: rules)
+        if vault != nil { rulesDifferFromConfiguration = false }
         publish()
+        wakeOutbox()
     }
 
     func publish() {
@@ -248,7 +264,10 @@ public final class RelayApprover {
                 machine: machine, endIsQueued: state.outbox.contains { $0.id == "revoke-lease:" + id })
         }
         leases = displayedLeases.values.sorted { $0.lease.requestedAtUnixSeconds > $1.lease.requestedAtUnixSeconds }
-        queuedAnswerCount = state.outbox.count
+        queuedAnswerCount = state.outbox.filter { !$0.id.hasPrefix("configuration:") }.count
+        isApplying = state.outbox.contains { $0.id.hasPrefix("configuration:") }
+        needsPublication = state.keySet != nil && (state.configuration == nil || rulesDifferFromConfiguration)
+        publicationConfirmationChanged?(needsPublication)
         for observer in observers.values { observer.yield(update) }
     }
 

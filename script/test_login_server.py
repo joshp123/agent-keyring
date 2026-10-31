@@ -40,13 +40,15 @@ def private_json(path, value):
 class LoginServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, port, example_login=False):
+    def __init__(self, port, example_login=False, example_with_code=False):
         super().__init__(("127.0.0.1", port), LoginHandler)
-        self.example_login = example_login
+        self.example_login = example_login and not example_with_code
         self.lock = threading.Lock()
         self.origin = f"http://127.0.0.1:{self.server_port}"
         self.started_at = int(time.time())
         self.totp_secret = secrets.token_bytes(20)
+        if example_with_code:
+            self.totp_secret = b"12345678901234567890"
         self.fixture = {
             "origin": self.origin,
             "item_id": "00000000-0000-0000-0000-000000000091",
@@ -239,13 +241,15 @@ def main():
     parser.add_argument("--directory", type=Path, help="New private fixture directory; defaults to a temporary directory")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--example", action="store_true", help="Use the built-in example login without a verification-code step")
+    parser.add_argument("--example-with-code", action="store_true", help="Use the synthetic example login and its fixed test TOTP seed")
     arguments = parser.parse_args()
     if arguments.directory:
         directory = arguments.directory.resolve()
         directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     else:
         directory = Path(tempfile.mkdtemp(prefix="agent-keyring-login-"))
-    server = LoginServer(arguments.port, example_login=arguments.example)
+    server = LoginServer(arguments.port, example_login=arguments.example or arguments.example_with_code,
+                         example_with_code=arguments.example_with_code)
     config_path = directory / "fixture.json"
     private_json(config_path, server.fixture)
     print(json.dumps({"origin": server.origin, "login_url": server.origin + "/login",

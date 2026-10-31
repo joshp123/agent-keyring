@@ -8,20 +8,11 @@ private let leaseLogger = Logger(subsystem: "com.agentkeyring.app", category: "C
 extension MirrorAppModel {
     public func startAgentListener() throws {
         guard agentListener == nil else { return }
-        try leaseStore.load()
+        do { try leaseStore.load() }
+        catch { leaseLogger.error("Task history needs owner recovery; the socket will report how to reset it.") }
         agentListener = try AgentBridgeServer(bridge: bridge) { [weak self] request, peer, reply in
             guard let self else { return }
             await self.handleLeaseRequest(request, peer: peer, reply: reply)
-        }
-        leaseMaintenance = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                    guard let self else { return }
-                    try self.leaseStore.expire()
-                } catch is CancellationError { return }
-                catch { leaseLogger.error("Lease deadline update failed; deliveries remain subject to their deadline.") }
-            }
         }
         Task { [weak self] in
             guard let self else { return }
@@ -70,7 +61,7 @@ extension MirrorAppModel {
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
-                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer)))
+                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer)), phoneDelaySeconds: approvalRoutingSettings.phoneDelaySeconds)
                 startPendingMacApprovals()
             case let .getLease(reference):
                 try await refreshLeasePolicy()
@@ -93,9 +84,9 @@ extension MirrorAppModel {
                 return
             case let .endLease(reference):
                 response.lease = try leaseStore.end(reference.leaseID)
-            case let .beginOperation(operation):
+            case let .deliver(operation):
                 // Load values before the final policy check. There is no await
-                // between checking current policy, committing Started and reply.
+                // between checking current policy, returning the values.
                 guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
                     throw LeaseFailure(.unavailable, "Import your logins from Apple Passwords first.")
                 }
@@ -103,14 +94,14 @@ extension MirrorAppModel {
                 guard currentMetadata?.id == generation.id else {
                     throw LeaseFailure(.unavailable, "The imported logins changed while preparing this operation. Retry the same operation.")
                 }
-                response.beginOperation = try leaseStore.begin(operation) { lease, fields in
+                response.delivery = try leaseStore.deliver(operation) { lease, fields in
                     guard let loginID = UUID(uuidString: lease.loginID),
                         let item = generation.items.first(where: { $0.id == loginID }) else {
                         throw LeaseFailure(.notFound, "The selected login is unavailable.")
                     }
                     let candidate = resolver.candidate(for: item)
                     guard fields.allSatisfy({ candidate.availableFields.contains($0.mirrorField) }) else {
-                        throw LeaseFailure(.invalidArgument, "The login does not have every requested field. No operation was started.")
+                        throw LeaseFailure(.invalidArgument, "The login does not have every requested field.")
                     }
                     var values = Agentkeyring_V1_CredentialValues()
                     for field in fields {
@@ -124,10 +115,8 @@ extension MirrorAppModel {
                     }
                     return values
                 }
-            case let .getOperation(operation): response.getOperation = try leaseStore.operation(operation)
-            case let .finishOperation(operation): response.operation = try leaseStore.finish(operation)
             case .fill, .executeProgram:
-                throw LeaseFailure(.invalidArgument, "Fill and ExecuteProgram run in the agent-keyring receiver. Use BeginOperation and FinishOperation on the authority socket.")
+                throw LeaseFailure(.invalidArgument, "Fill and ExecuteProgram run in the agent-keyring receiver. Use Deliver on the authority socket.")
             case nil: throw LeaseFailure(.invalidArgument, "Select an authority method.")
             }
             reply(response)
