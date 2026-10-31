@@ -247,12 +247,15 @@ public final class RelayApprover {
         approverKeySet = try? currentKeySet()
         pendingApproverPairings = (state.pendingApprovers ?? [:]).compactMap { id, bytes in
             guard let request = try? Agentkeyring_V1_PairApproverRequest(serializedBytes: bytes),
-                let pin = state.relaySPKI, let current = approverKeySet else { return nil }
+                let pin = state.relaySPKI, let current = approverKeySet,
+                let keySet = try? Agentkeyring_V1_ApproverKeySet(serializedBytes: current.keySet) else { return nil }
+            let replaced = phoneBeingReplaced(by: request, in: keySet)
             return RelayApproverPairing(id: id, label: request.key.label,
                 fingerprint: RelayCrypto.fingerprint(RelayCrypto.pairTranscript(relaySPKI: pin,
                     approverSPKI: request.tlsPublicKey, signingKey: request.key.publicKey, keySet: current.keySet,
                     encryptionKey: request.key.encryptionPublicKey)),
-                answerIsQueued: state.outbox.contains { $0.id == "approver-pairing:" + id })
+                answerIsQueued: state.outbox.contains { $0.id == "approver-pairing:" + id },
+                replacesPhoneKeyID: replaced?.keyID, replacesPhoneLabel: replaced?.label)
         }.sorted { $0.id < $1.id }
         requests = state.requests.compactMap { digest, saved in
             guard let record = try? Agentkeyring_V1_RequestRecord(serializedBytes: saved.record),

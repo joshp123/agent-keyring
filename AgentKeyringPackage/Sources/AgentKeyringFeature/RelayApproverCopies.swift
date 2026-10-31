@@ -50,13 +50,24 @@ extension RelayApprover {
             try prepareLoginCopy(next: &next, vault: vault, configuration: configuration,
                 receiverKey: keys.encryptionPublicKey, rule: .automatic, policy: .allowAutomatically)
         }
-        guard let bytes = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
-        let keySet = try Agentkeyring_V1_ApproverKeySet(serializedBytes:
-            Agentkeyring_V1_SignedApproverKeySet(serializedBytes: bytes).keySet)
+        let keySet = try copyApprovers(in: next)
         for phone in keySet.keys.filter({ $0.role == .phone && !$0.encryptionPublicKey.isEmpty }).sorted(by: { $0.keyID < $1.keyID }) {
             try prepareLoginCopy(next: &next, vault: vault, configuration: configuration,
                 receiverKey: phone.encryptionPublicKey, rule: .ask, policy: .ask)
         }
+    }
+
+    func copyApprovers(in next: RelayApproverState) throws -> Agentkeyring_V1_ApproverKeySet {
+        // A queued replacement precedes copies on the wire, even before its ACK.
+        for queued in next.outbox.reversed() {
+            let command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: queued.bytes)
+            if case let .publishApproverKeys(signed) = command.request {
+                return try Agentkeyring_V1_ApproverKeySet(serializedBytes: signed.keySet)
+            }
+        }
+        guard let bytes = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
+        return try Agentkeyring_V1_ApproverKeySet(serializedBytes:
+            Agentkeyring_V1_SignedApproverKeySet(serializedBytes: bytes).keySet)
     }
 
     func prepareLoginCopy(next: inout RelayApproverState, vault: RelayApproverVault,
@@ -66,9 +77,7 @@ extension RelayApprover {
         let previous = next.loginCopies?[destination]
         guard previous?.configurationRevision != configuration.revision || previous?.generationID != vault.generation.id else { return }
         let signer = try self.keys().1
-        guard let keySetBytes = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
-        let keySet = try Agentkeyring_V1_ApproverKeySet(serializedBytes:
-            Agentkeyring_V1_SignedApproverKeySet(serializedBytes: keySetBytes).keySet)
+        let keySet = try copyApprovers(in: next)
         let signerID = RelayCrypto.keyID(signer.automaticPublicKey)
         guard keySet.keys.contains(where: { $0.keyID == signerID && $0.role == .macDelivery }) else {
             throw LeaseFailure(.permissionDenied, "Confirm your rules to allow background login copies.")
