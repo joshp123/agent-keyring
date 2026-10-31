@@ -10,7 +10,9 @@ buildGoModule {
       ../go.mod
       ../go.sum
       ../cmd/agent-keyring-relay
+      ../internal/apns
       ../internal/authority
+      ../internal/clientstate
       ../internal/relay
       ../internal/relaycrypto
       ../gen/go

@@ -11,6 +11,8 @@ Agent Keyring holds the user's saved logins. You lease one login for the task yo
 
 The values go into the sign-in form or the program, not into your output. Keep it that way: your conversation is stored, and the user is trusting the tool with their accounts.
 
+If your harness has its own secret prompt, such as T3 Code's `request_secret`, don't use it for a login the user has saved. It asks them to type the password, which is what this tool exists to avoid.
+
 ## The shape of every sign-in
 
 ```sh
@@ -22,7 +24,7 @@ agent-keyring release "$lease"
 
 - **The task reference** names this job. Make one up when you start the job and keep it through every retry. A new job gets a new reference. Leases are per task, so a reused reference mixes jobs, and a fresh one for the same job asks the user again.
 - **The reason** is shown to the user when they are asked. Say what they asked you to do, plainly. It is labelled as your claim, so don't oversell it.
-- **`lease` waits** while the user is asked and prints only the lease ID. Status lines go to stderr; tell the user in your own words what you are waiting for, once. If your command is interrupted, rejoin the same request with `agent-keyring status LEASE --wait`. Running `lease` again for the same task joins the waiting request rather than asking twice, but don't make a habit of it.
+- **`lease` waits** while the user is asked, for up to ten minutes, and prints only the lease ID. Keep it running and keep working on the task: the user's answer comes back to this command, not to your conversation, so if you stop or end your turn while it waits, the answer reaches nobody. Agent Keyring already shows the user what you asked for; you don't need to tell them. If your tool stops the command early, rejoin the same request with `agent-keyring status LEASE --wait`. Never start a new lease for the same task to retry; that one joins the waiting request anyway.
 
 ## Using the lease
 

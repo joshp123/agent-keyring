@@ -197,9 +197,11 @@ public final class RelayEnrolmentBackend: MacEnrolmentBackend {
 @MainActor
 public final class RelayMachinesBackend: MacMachinesBackend {
     private let relay: RelayApprover
+    private let routing: ApprovalRoutingSettings
 
-    public init(relay: RelayApprover) {
+    public init(relay: RelayApprover, routing: ApprovalRoutingSettings) {
         self.relay = relay
+        self.routing = routing
     }
 
     public func snapshot() -> MachinesSnapshot {
@@ -207,14 +209,15 @@ public final class RelayMachinesBackend: MacMachinesBackend {
         return MachinesSnapshot(
             relay: RelayScreenMapping.relayLink(update),
             queuedAnswers: update.queuedAnswerCount,
-            rulesNotSent: update.needsPublication,
+            isApplying: update.isApplying,
             waiting: update.enrolments.map(RelayScreenMapping.enrolment)
                 + update.approverPairings.map(RelayScreenMapping.enrolment),
             machines: update.machines.map {
                 EnrolledMachine(id: $0.recipientID, name: $0.machineLabel, tailnetNode: $0.clientLabel,
                     automaticAllowed: $0.automaticAllowed)
             },
-            approvers: RelayScreenMapping.approvers(update))
+            approvers: RelayScreenMapping.approvers(update),
+            askPhoneAfter: .seconds(routing.phoneDelaySeconds))
     }
 
     public func updates() -> AsyncStream<MachinesSnapshot> {
@@ -233,12 +236,13 @@ public final class RelayMachinesBackend: MacMachinesBackend {
         try screenErrors { try relay.abandonPairing() }
     }
 
-    public func sendRules() async throws {
-        try await screenErrors { try await relay.publishCurrentRules(context: LAContext()) }
-    }
-
     public func remove(machineID: String) async throws {
         try await screenErrors { try await relay.revokeMachine(machineID, context: LAContext()) }
+    }
+
+    /// The Mac's escalation delay (RFC 0006), stored on this Mac.
+    public func setAskPhoneAfter(_ delay: Duration) {
+        routing.phoneDelaySeconds = Int(delay.components.seconds)
     }
 }
 

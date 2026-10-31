@@ -23,7 +23,7 @@ func (p *proof) addApprover() {
 	public := elliptic.Marshal(elliptic.P256(), signing.X, signing.Y)
 	spki, e := relaycrypto.CertificateSPKI(phone.cert)
 	must(e)
-	key := &pb.ApproverKey{KeyId: fmt.Sprintf("%x", relaycrypto.Hash(public)), PublicKey: public, TlsPublicKey: spki, Label: "Dummy phone approver"}
+	key := &pb.ApproverKey{KeyId: fmt.Sprintf("%x", relaycrypto.Hash(public)), PublicKey: public, TlsPublicKey: spki, Label: "Dummy phone approver", Role: pb.ApproverRole_APPROVER_ROLE_PHONE}
 	conn := phone.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PairApprover{PairApprover: &pb.PairApproverRequest{Key: key, TlsPublicKey: spki}}})
 	defer conn.Close()
 	pending := receive(conn).GetEnrolStatus()
@@ -51,11 +51,11 @@ func (p *proof) addApprover() {
 		}
 	}
 	require(found, "signed key set omitted phone keys")
-	roster := phone.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetEnrolmentSet{GetEnrolmentSet: &pb.GetEnrolmentSetRequest{}}}).GetEnrolmentSet()
-	var machines pb.EnrolmentSet
-	must(proto.Unmarshal(roster.EnrolmentSet, &machines))
-	require(machines.Revision == next.EnrolmentSetRevision && bytes.Equal(relaycrypto.Hash(roster.EnrolmentSet), next.EnrolmentSetSha256), "added key set did not bind exact published machine roster")
-	must(relaycrypto.Verify(previous.Keys[0].PublicKey, roster.EnrolmentSet, roster.Signature))
+	configuration := phone.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfiguration{GetConfiguration: &pb.GetConfigurationRequest{}}}).GetConfiguration()
+	var contents pb.Configuration
+	must(proto.Unmarshal(configuration.Configuration, &contents))
+	require(contents.Revision == next.ConfigurationRevision && bytes.Equal(relaycrypto.Hash(configuration.Configuration), next.ConfigurationSha256), "added key set did not bind the exact published configuration")
+	must(relaycrypto.Verify(previous.Keys[0].PublicKey, configuration.Configuration, configuration.Signature))
 	p.owner.status()
 	require(p.owner.authorizations == before+1, "adding approver needed another authorization")
 	if p.cli != "" {
@@ -66,7 +66,7 @@ func (p *proof) addApprover() {
 		must(proto.Unmarshal(data, &saved))
 		require(bytes.Equal(saved.Approvers.KeySet, approved.ApproverKeySet.KeySet), "real CLI failed to advance pinned approver chain")
 	}
-	fmt.Println("PASS added approver: independent fingerprint, one approval, signed next key set binds exact roster")
+	fmt.Println("PASS added approver: independent fingerprint, one approval, signed next key set binds exact configuration")
 	if p.cli != "" {
 		fmt.Println("PASS actual CLI advances its pinned approver chain")
 	}

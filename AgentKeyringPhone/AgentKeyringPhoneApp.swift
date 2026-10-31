@@ -1,5 +1,4 @@
 import AgentKeyringApprovalUI
-import AuthenticationServices
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -37,9 +36,6 @@ struct AgentKeyringPhoneApp: App {
                     appDelegate.receivedToken = { importBackend?.receivedPushToken($0) }
                     appDelegate.registrationFailed = { importBackend?.pushRegistrationFailed($0) }
                 }
-                .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
-                    importBackend?.receive(activity)
-                }
         }
     }
 }
@@ -68,11 +64,13 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            didReceive response: UNNotificationResponse) async {
+        PhonePushReceipt.record(response.notification)
         await MainActor.run { wake?() }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        PhonePushReceipt.record(notification)
         await MainActor.run { wake?() }
         return [.banner, .list, .sound]
     }

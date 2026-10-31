@@ -155,9 +155,6 @@ func (p *proof) phoneApprovalProof() {
 	defer p.work.Close()
 	p.enrol()
 	// Publish roster, pair a phone, then add the non-TLS delivery signing key.
-	machine := &pb.EnrolledMachine{RecipientId: p.enrolled.RecipientId, MachineLabel: p.enrolled.MachineLabel, ClientLabel: p.enrolled.ClientLabel, TailscaleNodeId: p.enrolled.TailscaleNodeId, TlsPublicKey: p.enrolled.TlsPublicKey, ReceiverPublicKey: p.enrolled.ReceiverPublicKey, ReceiverKeyId: p.enrolled.ReceiverKeyId}
-	roster := encoded(&pb.EnrolmentSet{Domain: "agentkeyring.enrolments.v1", Revision: 1, Machines: []*pb.EnrolledMachine{machine}})
-	good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishEnrolmentSet{PublishEnrolmentSet: &pb.SignedEnrolmentSet{EnrolmentSet: roster, Signature: sign(p.signer, roster), ApproverKeyId: p.key.KeyId}}}))
 	phone := wireClient{address: p.address, certificate: identity(filepath.Join(p.directory, "approval-phone")), pin: p.approver.pin}
 	phoneSigner := signingKey()
 	spki, err := relaycrypto.CertificateSPKI(phone.certificate)
@@ -168,7 +165,7 @@ func (p *proof) phoneApprovalProof() {
 	good(receive(pairing))
 	deliverySigner := signingKey()
 	deliveryKey := &pb.ApproverKey{KeyId: "fixture-delivery", PublicKey: public(deliverySigner), Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY}
-	next := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 2, Keys: []*pb.ApproverKey{p.key, phoneKey, deliveryKey}, RuleOwnerKeyId: p.key.KeyId, EnrolmentSetRevision: 1, EnrolmentSetSha256: relaycrypto.Hash(roster), PairingTranscriptSha256: relaycrypto.Hash(relaycrypto.PairTranscript(p.approver.pin, spki, phoneKey.PublicKey, p.keys.KeySet))})
+	next := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 2, Keys: []*pb.ApproverKey{p.key, phoneKey, deliveryKey}, RuleOwnerKeyId: p.key.KeyId, ConfigurationRevision: p.configuration.Revision, ConfigurationSha256: relaycrypto.Hash(p.signedConfiguration.Configuration), PairingTranscriptSha256: relaycrypto.Hash(relaycrypto.PairTranscript(p.approver.pin, spki, phoneKey.PublicKey, p.keys.KeySet))})
 	p.keys = &pb.SignedApproverKeySet{KeySet: next, Signature: sign(p.signer, next), SignerKeyId: p.key.KeyId}
 	good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: p.keys}}))
 	good(receive(pairing))
@@ -226,7 +223,7 @@ func (p *proof) phoneApprovalProof() {
 		require(p.approver.call(invalid).GetError() != nil, "non-Mac key signed a HUMAN decision")
 	}
 	require(good(p.approver.call(decision)).GetDecision().Accepted, "Mac phone delivery refused")
-	begin := good(p.client.call(beginRequest(lease.LeaseId, "phone-delivery"))).GetClient().GetBeginOperation()
+	begin := good(p.client.call(deliverRequest(lease.LeaseId, "phone-delivery"))).GetClient().GetDelivery()
 	receiver := p.receiverClient(lease, leaseReq.GetClient().GetRequestLease())
 	values, _, err := receiver.OpenValues(context.Background(), lease, begin)
 	must(err)
@@ -263,9 +260,9 @@ func (p *proof) receiverClient(lease *pb.Lease, scope *pb.RequestLeaseRequest) *
 	}))
 	return &remote.Client{Store: store, Keys: &clientstate.PrivateKeys{ReceiverPrivateKey: p.receiver.D.FillBytes(make([]byte, 32))}, Certificate: p.client.certificate}
 }
-func (p *proof) rejectPhoneTampering(receiver *remote.Client, lease *pb.Lease, begin *pb.BeginOperationResponse, key *ecdsa.PrivateKey) {
+func (p *proof) rejectPhoneTampering(receiver *remote.Client, lease *pb.Lease, begin *pb.Delivery, key *ecdsa.PrivateKey) {
 	for _, mode := range []string{"missing-phone", "invalid-phone-signature", "different-deadline", "different-digest", "different-time", "different-lease", "different-choice", "different-reply", "invalid-delivery-signature", "wrong-delivery-role"} {
-		altered := proto.Clone(begin).(*pb.BeginOperationResponse)
+		altered := proto.Clone(begin).(*pb.Delivery)
 		signed := altered.GetSealed().Decision
 		statement := new(pb.DecisionStatement)
 		must(proto.Unmarshal(signed.Statement, statement))
@@ -314,7 +311,7 @@ func (p *proof) localPhoneProof(phone wireClient, signer *ecdsa.PrivateKey, keyI
 	good(p.approver.call(escalation))
 	receipts := gateway.waitCount(2)
 	require(strings.HasPrefix(receipts[1].path, "/production/"), "production build used sandbox gateway")
-	require(p.client.call(beginRequest(local.LeaseId, "local-steal")).GetError() != nil, "local display copy allowed receiver delivery")
+	require(p.client.call(deliverRequest(local.LeaseId, "local-steal")).GetError() != nil, "local display copy allowed receiver delivery")
 	// A plain phone denial needs no signature, but only its pinned phone can send it.
 	answer := phoneAnswer(raw, signer, keyID, "", true)
 	require(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_AnswerFromPhone{AnswerFromPhone: answer}}).GetError() != nil, "Mac submitted phone answer")
@@ -438,7 +435,7 @@ func (p *proof) remotePhoneDenialProof(phone wireClient, key *ecdsa.PrivateKey, 
 	receiver := p.receiverClient(lease, request.GetClient().GetRequestLease())
 	denied, err := receiver.Authority().Lease(context.Background(), lease.LeaseId)
 	must(err)
-	require(denied.Reply == answer.Reply && denied.SignedDenial != nil, "real receiver did not verify both denial signatures")
+	require(denied.Reply == answer.Reply && denied.SignedDenial != nil && denied.ApprovedBy == pb.ApprovedBy_APPROVED_BY_IPHONE, "real receiver did not verify both denial signatures")
 	good(phone.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_ClearDenial{ClearDenial: &pb.ClearDenialRequest{RecipientId: p.enrolled.RecipientId, LoginId: lease.LoginId}}}))
 	fmt.Println("PASS signed phone denial reply passes through Mac and real receiver; invalid phone signature refused; ClearDenial preserves the denied lease")
 }
@@ -456,16 +453,20 @@ func (p *proof) phoneRemoteLeaseViewProof(phone wireClient, keyID string) {
 	}
 	watch := phone.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: keyID}}})
 	must(watch.SetReadDeadline(time.Now().Add(750 * time.Millisecond)))
-	response := new(pb.RelayWireResponse)
-	err := authority.ReadFrame(watch, response)
+	for {
+		response := new(pb.RelayWireResponse)
+		if authority.ReadFrame(watch, response) != nil {
+			break
+		}
+		require(response.GetWork().GetRequest() == nil && response.GetWork().GetLease().GetLeaseId() != lease.LeaseId, "phone received an un-escalated pending request")
+	}
 	watch.Close()
-	require(err != nil, "phone received an un-escalated pending request")
 	good(p.approver.call(p.decision(raw, false)))
 	watch = phone.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: keyID}}})
 	defer watch.Close()
 	nextLease(watch, lease.LeaseId, pb.LeaseState_LEASE_STATE_ACTIVE)
 	require(good(phone.call(revokeLeaseRequest(lease.LeaseId))).GetLease().State == pb.LeaseState_LEASE_STATE_REVOKED, "phone could not end Mac-approved remote lease")
 	nextLease(watch, lease.LeaseId, pb.LeaseState_LEASE_STATE_REVOKED)
-	require(p.client.call(beginRequest(lease.LeaseId, "after-phone-end")).GetError() != nil, "phone-ended Mac lease delivered")
+	require(p.client.call(deliverRequest(lease.LeaseId, "after-phone-end")).GetError() != nil, "phone-ended Mac lease delivered")
 	fmt.Println("PASS un-escalated pending requests stay on Mac; phone sees and ends active Mac-approved remote leases")
 }

@@ -5,60 +5,85 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/relaycrypto"
 	"google.golang.org/protobuf/proto"
 )
 
-func (p *proof) grant(key *ecdsa.PrivateKey, revision uint64, recipients []string) {
-	data := encoded(&pb.AutomaticGrant{Domain: "agentkeyring.automatic.v1", Revision: revision, AutomaticSigningPublicKey: public(key), AutomaticKeyId: "fixture-automatic", LoginIds: []string{"fixture-login"}, RecipientIds: recipients})
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishAutomaticGrant{PublishAutomaticGrant: &pb.SignedAutomaticGrant{Grant: data, Signature: sign(p.signer, data), ApproverKeyId: p.key.KeyId}}})).GetPublish().Accepted, "Automatic grant refused")
-}
 func (p *proof) automaticDecision(record []byte, key *ecdsa.PrivateKey, revision uint64) *pb.RelayWireRequest {
 	decision := p.decision(record, false)
 	statement := new(pb.DecisionStatement)
 	must(proto.Unmarshal(decision.GetDecide().Statement, statement))
 	statement.Authority = pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE
-	statement.AutomaticGrantRevision = revision
+	statement.ConfigurationRevision = revision
 	decision.GetDecide().Statement = encoded(statement)
-	decision.GetDecide().ApproverKeyId = "fixture-automatic"
+	decision.GetDecide().ApproverKeyId = p.configuration.AutomaticKeyId
 	decision.GetDecide().Signature = sign(key, decision.GetDecide().Statement)
 	return decision
 }
 func (p *proof) delegationProof() {
-	automatic := signingKey()
+	automatic, rotated := signingKey(), signingKey()
 	firstClient := p.client
 	keys := new(pb.ApproverKeySet)
 	must(proto.Unmarshal(p.keys.KeySet, keys))
 	keys.Revision++
-	keys.Keys = append(keys.Keys, &pb.ApproverKey{KeyId: "fixture-automatic", PublicKey: public(automatic), Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY})
+	keys.Keys = append(keys.Keys, &pb.ApproverKey{KeyId: "fixture-automatic", PublicKey: public(automatic), Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY}, &pb.ApproverKey{KeyId: "fixture-rotated", PublicKey: public(rotated), Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY})
 	raw := encoded(keys)
 	p.keys = &pb.SignedApproverKeySet{KeySet: raw, Signature: sign(p.signer, raw), SignerKeyId: p.key.KeyId}
 	good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: p.keys}}))
+	p.configuration.AutomaticKeyId, p.configuration.AutomaticSigningPublicKey = "fixture-automatic", public(automatic)
 	p.publishIndex(pb.AccessRule_ACCESS_RULE_AUTOMATIC)
-	p.grant(automatic, 1, []string{p.enrolled.RecipientId})
 	refused := good(p.client.call(leaseRequest("auto-refused", "task-auto-refused", p.enrolled.RecipientId))).GetClient().GetLease()
-	require(p.approver.call(p.automaticDecision(p.nextRequest(), automatic, 1)).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "Automatic grant bypassed machine default-off permission")
+	require(p.approver.call(p.automaticDecision(p.nextRequest(), automatic, p.configuration.Revision)).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "Automatic bypassed machine default-off permission")
 	good(p.client.call(endRequest(refused.LeaseId)))
 	p.client = wireClient{address: p.address, certificate: identity(filepath.Join(p.directory, "automatic-receiver")), pin: p.approver.pin}
 	p.enrol(true)
-	p.grant(automatic, 2, []string{p.enrolled.RecipientId})
-	lease := good(p.client.call(leaseRequest("auto-approved", "task-auto-approved", p.enrolled.RecipientId))).GetClient().GetLease()
-	decision := p.automaticDecision(p.nextRequest(), automatic, 2)
-	require(good(p.approver.call(decision)).GetDecision().Accepted, "valid Automatic decision refused")
-	require(good(p.client.call(beginRequest(lease.LeaseId, "auto-operation"))).GetClient().GetBeginOperation().GetSealed() != nil, "Automatic lease did not deliver")
-	require(firstClient.call(beginRequest(lease.LeaseId, "wrong-recipient")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "different enrolled machine used lease")
-	p.grant(automatic, 3, nil)
-	require(p.client.call(beginRequest(lease.LeaseId, "after-grant-change")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "changed Automatic grant did not revoke lease")
+	human := good(p.client.call(leaseRequest("human-automatic-rule", "human-automatic-rule-task", p.enrolled.RecipientId))).GetClient().GetLease()
+	good(p.approver.call(p.decision(p.nextRequest(), false)))
+	activate := func(id string) (*pb.Lease, *pb.RelayWireRequest) {
+		lease := good(p.client.call(leaseRequest(id, id, p.enrolled.RecipientId))).GetClient().GetLease()
+		decision := p.automaticDecision(p.nextRequest(), automatic, p.configuration.Revision)
+		require(good(p.approver.call(decision)).GetDecision().Accepted, "valid Automatic decision refused")
+		return lease, decision
+	}
+	lease, decision := activate("auto-approved")
+	p.configuration.MirrorRefreshedUnixSeconds = time.Now().Unix()
+	p.publishConfiguration()
+	require(good(p.client.call(deliverRequest(lease.LeaseId))).GetClient().GetDelivery().GetSealed() != nil, "unrelated configuration change revoked Automatic lease")
+	require(good(p.approver.call(decision)).GetDecision().Accepted, "unrelated revision lost decision retry")
+	require(firstClient.call(deliverRequest(lease.LeaseId)).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "different receiver used lease")
+	p.configuration.Machines[len(p.configuration.Machines)-1].AutomaticAllowed = false
+	p.publishConfiguration()
+	require(p.client.call(deliverRequest(lease.LeaseId)).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "removed Automatic permission did not revoke lease")
+	require(good(p.client.call(deliverRequest(human.LeaseId))).GetClient().GetDelivery().GetSealed() != nil, "Automatic permission change revoked HUMAN lease")
+	p.configuration.Machines[len(p.configuration.Machines)-1].AutomaticAllowed = true
+	p.publishConfiguration()
+	lease, _ = activate("auto-key-rotation")
+	p.configuration.AutomaticKeyId, p.configuration.AutomaticSigningPublicKey = "fixture-rotated", public(rotated)
+	p.publishConfiguration()
+	require(p.client.call(deliverRequest(lease.LeaseId)).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "retired Automatic key did not revoke lease")
+	p.configuration.AutomaticKeyId, p.configuration.AutomaticSigningPublicKey = "fixture-automatic", public(automatic)
+	p.publishConfiguration()
+	lease, _ = activate("auto-rule-change")
 	p.publishIndex(pb.AccessRule_ACCESS_RULE_ASK)
-	fmt.Println("PASS", "Automatic grant scope, machine opt-in, wrong recipient and grant revocation")
-	// Publish the current full signed roster and intentionally omit the first
-	// machine. A stale enrolment approval must never reactivate it.
-	rosterBytes := encoded(&pb.EnrolmentSet{Domain: "agentkeyring.enrolments.v1", Revision: 1, Machines: []*pb.EnrolledMachine{{RecipientId: p.enrolled.RecipientId, MachineLabel: p.enrolled.MachineLabel, ClientLabel: p.enrolled.ClientLabel, TailscaleNodeId: p.enrolled.TailscaleNodeId, TlsPublicKey: p.enrolled.TlsPublicKey, ReceiverPublicKey: p.enrolled.ReceiverPublicKey, ReceiverKeyId: p.enrolled.ReceiverKeyId, AutomaticAllowed: true}}})
-	roster := &pb.SignedEnrolmentSet{EnrolmentSet: rosterBytes, Signature: sign(p.signer, rosterBytes), ApproverKeyId: p.key.KeyId}
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishEnrolmentSet{PublishEnrolmentSet: roster}})).GetPublish().Accepted, "signed roster refused")
-	require(firstClient.call(find()).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "omission from roster did not revoke machine")
+	require(p.client.call(deliverRequest(lease.LeaseId)).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "Automatic to Ask did not revoke Automatic lease")
+	require(good(p.client.call(deliverRequest(human.LeaseId))).GetClient().GetDelivery().GetSealed() != nil, "Automatic to Ask revoked HUMAN lease")
+	good(p.client.call(endRequest(human.LeaseId)))
+	fmt.Println("PASS atomic configuration: unrelated revision preserves leases; permission, key and rule withdrawal revoke only affected leases")
+	// Removing a machine in the same snapshot changes both authentication and leases.
+	p.configuration.Machines = []*pb.EnrolledMachine{p.enrolledMachine(true)}
+	p.publishConfiguration()
+	require(firstClient.call(find()).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "configuration omission did not revoke machine")
+	publication := &pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishConfiguration{PublishConfiguration: &pb.ConfigurationPublication{Configuration: p.signedConfiguration}}}
+	good(p.approver.call(publication))
+	altered := proto.Clone(publication).(*pb.RelayWireRequest)
+	config := proto.Clone(p.configuration).(*pb.Configuration)
+	config.MirrorRefreshedUnixSeconds++
+	altered.GetPublishConfiguration().Configuration.Configuration = encoded(config)
+	altered.GetPublishConfiguration().Configuration.Signature = sign(p.signer, encoded(config))
+	require(p.approver.call(altered).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_CONFLICT, "same revision accepted different configuration")
 	nextClient := wireClient{address: p.address, certificate: identity(filepath.Join(p.directory, "second-approver")), pin: p.approver.pin}
 	spki, err := relaycrypto.CertificateSPKI(nextClient.certificate)
 	must(err)
@@ -67,16 +92,24 @@ func (p *proof) delegationProof() {
 	pending := nextClient.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PairApprover{PairApprover: &pb.PairApproverRequest{Key: nextKey, TlsPublicKey: spki}}})
 	defer pending.Close()
 	require(good(receive(pending)).GetEnrolStatus().State == pb.EnrolState_ENROL_STATE_PENDING, "added approver activated without confirmation")
-	nextBytes := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 3, Keys: []*pb.ApproverKey{p.key, nextKey, keys.Keys[1]}, RuleOwnerKeyId: p.key.KeyId, EnrolmentSetRevision: 1, EnrolmentSetSha256: relaycrypto.Hash(rosterBytes), PairingTranscriptSha256: relaycrypto.Hash(relaycrypto.PairTranscript(p.approver.pin, spki, nextKey.PublicKey, p.keys.KeySet))})
+	keys.Revision++
+	keys.Keys = append(keys.Keys, nextKey)
+	keys.ConfigurationRevision = p.configuration.Revision
+	keys.ConfigurationSha256 = relaycrypto.Hash(p.signedConfiguration.Configuration)
+	keys.PairingTranscriptSha256 = relaycrypto.Hash(relaycrypto.PairTranscript(p.approver.pin, spki, nextKey.PublicKey, p.keys.KeySet))
+	nextBytes := encoded(keys)
 	next := &pb.SignedApproverKeySet{KeySet: nextBytes, Signature: sign(p.signer, nextBytes), SignerKeyId: p.key.KeyId}
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}})).GetPublish().Accepted, "added signed approver set refused")
-	require(good(receive(pending)).GetEnrolStatus().State == pb.EnrolState_ENROL_STATE_APPROVED, "pairing stream missed signed key update")
-	chainKeys := good(p.client.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetApproverKeyChain{GetApproverKeyChain: &pb.GetApproverKeyChainRequest{FromRevision: 2}}})).GetApproverKeyChain().KeySets
-	require(len(chainKeys) == 1 && proto.Equal(chainKeys[0], next), "offline receiver could not fetch exact key chain")
-	must(relaycrypto.Verify(p.key.PublicKey, chainKeys[0].KeySet, chainKeys[0].Signature))
-	require(good(nextClient.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetIndex{GetIndex: &pb.GetIndexRequest{}}})).GetIndex() != nil, "new pinned approver cannot fetch index")
+	good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}}))
+	require(good(receive(pending)).GetEnrolStatus().State == pb.EnrolState_ENROL_STATE_APPROVED, "pair stream missed key update")
+	chain := good(p.client.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetApproverKeyChain{GetApproverKeyChain: &pb.GetApproverKeyChainRequest{FromRevision: 2}}})).GetApproverKeyChain().KeySets
+	require(len(chain) == 1 && proto.Equal(chain[0], next), "offline receiver lost exact key chain")
+	require(good(nextClient.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfiguration{GetConfiguration: &pb.GetConfigurationRequest{}}})).GetConfiguration() != nil, "paired approver cannot fetch configuration")
+	unauthorized := proto.Clone(publication).(*pb.RelayWireRequest)
+	config.Revision++
+	unauthorized.GetPublishConfiguration().Configuration = &pb.SignedConfiguration{Configuration: encoded(config), Signature: sign(nextSigner, encoded(config)), ApproverKeyId: nextKey.KeyId}
+	require(nextClient.call(unauthorized).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "non-owner changed configuration")
 	p.keys = next
-	fmt.Println("PASS", "signed roster revocation, second approver pairing and offline receiver key chain")
+	fmt.Println("PASS configuration resend, revision conflict, machine revocation, owner-only publication and configuration-bound second approver pairing")
 }
 
 func (p *proof) connectionDenialProof() {
@@ -129,9 +162,9 @@ func (p *proof) connectionDenialProof() {
 	require(old.State == pb.LeaseState_LEASE_STATE_DENIED && old.RetryNotBeforeUnixSeconds == 0, "clear rewrote denial or restart lost clearance")
 	fresh := good(p.client.call(leaseRequest("after-clear", "after-clear-task", p.enrolled.RecipientId))).GetClient().GetLease()
 	require(fresh.State == pb.LeaseState_LEASE_STATE_PENDING, "fresh request could not ask after clear")
-	require(p.client.call(beginRequest(fresh.LeaseId, "before-approval")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "clear granted access")
+	require(p.client.call(deliverRequest(fresh.LeaseId, "before-approval")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "clear granted access")
 	require(good(p.approver.call(p.decision(p.nextRequest(), false))).GetDecision().Accepted, "fresh request could not be approved")
-	require(good(p.client.call(beginRequest(fresh.LeaseId, "after-approval"))).GetClient().GetBeginOperation().GetSealed() != nil, "new approval did not permit begin")
+	require(good(p.client.call(deliverRequest(fresh.LeaseId, "after-approval"))).GetClient().GetDelivery().GetSealed() != nil, "new approval did not permit begin")
 	good(p.client.call(endRequest(fresh.LeaseId)))
 	p.publishIndex(pb.AccessRule_ACCESS_RULE_BLOCKED)
 	good(p.approver.call(clear))

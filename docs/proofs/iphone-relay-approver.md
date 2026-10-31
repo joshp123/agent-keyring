@@ -4,8 +4,9 @@ Written by AI on 2026.10.31 by model gpt-6.1-sol.
 
 The actual `PhoneRelayApprover` now signs answers; it does not open, seal or
 send credentials. Its package target no longer depends on the phone vault.
-The optional Passwords import remains separate and never gates pairing,
-requests or history. The Mac holds and delivers the password.
+The deferred phone vault, Passwords import and credential-provider extension
+have been deleted. The Mac shared importer remains. The Mac holds and delivers
+the password; phone pairing, requests and history need no phone import.
 
 The phone uses a fresh Secure Enclave signing account with
 `biometryCurrentSet` and `WhenUnlockedThisDeviceOnly`, a fresh non-synchronizable
@@ -25,10 +26,13 @@ and its permission strings are gone too. Opus's current views were untouched.
 Pairing retains `beginPairing(endpoint:)`, `cancelPairing()` and
 `PhonePairingState.comparing(fingerprint:relayAddress:)`. The candidate has role
 PHONE. The phone verifies the Mac signature, exact comparison transcript and
-bound signed machine roster. It accepts only the owner's signed login index;
-site, account and rule come from that index, without matching a phone import.
-Local requests use the trusted source Mac's label; remote requests use the
-signed enrolled-machine roster.
+bound signed configuration. `GetConfiguration` supplies the one snapshot of
+logins, rules and enrolled machines. The phone verifies its domain, rule-owner
+signature and revision, then atomically retains it with the verified key chain.
+It rejects a lower revision and different exact bytes at the same revision,
+including across restart. The old index and roster caches are gone; state v3
+starts a fresh pairing for this unreleased contract. Local requests use the
+trusted source Mac's label; remote requests use machines from the configuration.
 
 `approve` and `deny` return and stream:
 
@@ -45,22 +49,35 @@ local deadlines affect display without overwriting the Mac's stored state.
 End and Let it ask again retain the last actual local lease until the Mac's
 report arrives.
 
-`settings.rulesUpdatedAt` comes from a verified GetIndex receipt.
+`settings.rulesUpdatedAt` comes from a verified GetConfiguration receipt.
 `settings.askPhoneAfter` stays nil because this protocol does not expose the
 Mac's setting. Notification permission is requested after pairing. The OS
-push token is registered with the relay; one build setting controls both the
+push token is refreshed on open and registered with the relay; one build setting controls both the
 `aps-environment` entitlement and the registration's production flag.
-Settings show `.off` when iOS refuses permission and `.notSetUp` otherwise:
-token-storage acknowledgement alone does not prove that the relay has an
-Apple sender key. No live APNs notification was proved.
+Settings show `.on` only when iOS permission is granted and a remote relay
+notification has actually been observed. Otherwise they show `.notSetUp`.
+Foreground delivery, tapping a notification and the OS delivered-notification
+list all record that receipt locally; local and former CloudKit notifications
+do not count. A token registration acknowledgement never turns the setting on.
+No live APNs notification was proved.
 
 ## Joint system proof
 
-On the physical Darwin Mac mini with Xcode beta, the production Swift phone
-core ran against the current Go relay and real Go receiver. Software signing
-keys and an authorization counter replace device biometrics only in the CLI
-fixture. The fixture never creates a phone vault or imports a password. Its
-Mac substitute holds a dummy example.com login.
+The integrated one-configuration flow passed again on the physical Mac mini
+from published main `6e09b58e2a5e089169fc7895f6f4888273214756`, including the
+Mac lane's shared Swift changes and the designer's phone changes. It uses the
+actual Swift phone core, Go relay and Go receiver. No overlays or substitute
+phone implementation were used. Only the CLI fixture's biometric key is
+replaced with a software signer and authorization counter; the Mac substitute
+owns a dummy login. No source fixes were needed for this rerun.
+
+The earlier run exposed a fixture assumption: after reconnect, the Mac work stream
+may replay an earlier request before a newly created one. The fixture now selects
+the exact lease it requested. The full run then passed without changing the
+production phone, relay or receiver.
+
+The fixture never creates a phone vault or imports a password. Its Mac
+substitute holds a dummy example.com login.
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
@@ -94,28 +111,53 @@ Passed:
   with the reply intact and no second authorization. Scoped clear then works.
 - A local request needs no remote receiver enrolment. Its approval uses one
   authorization; End remains active until the Mac reports REVOKED.
+- After accepting a higher configuration revision, the phone and relay restart
+  with the relay's isolated fixture state replaced in turn by an older valid
+  configuration, changed bytes at the same revision, a PHONE-signed
+  configuration and an invalid rule-owner signature. Each is refused for the
+  expected reason before the authorization counter advances. Restoring the
+  highest valid configuration recovers the normal denial flow. The cached
+  original configuration stays at the lower revision; the advance is published
+  directly, so this checks a real downgrade.
 
-The run exposed and fixed a relay race: a phone that had seen PendingRequest
+The earlier approval-only run exposed and fixed a relay race: a phone that had seen PendingRequest
 could miss its terminal Lease if the outcome arrived before the initial lease
 snapshot. A fresh stream could also omit a denial committed while the phone
 was closed. The relay now replays the latest state of each escalation on open
 and sends each subsequent change, including terminal outcomes.
 
-A full Swift package build and a fresh iOS Simulator SDK app build passed on
-the mini after cleanup. The resulting app embeds only the credential-provider
-extension; its notification environment resolves to development. No unit tests
-ran and no simulator windows opened. Logs are preserved in the main checkout's
-`.private/proofs/r4-phone-approval/`.
+The latest Swift phone fixture build and full joint proof passed on the mini
+over SSH, without accessing its display. Logs are preserved in the main
+checkout's `.private/proofs/r4-phone-build8/`: `phone-build8-joint.log` and
+`phone-build8-swift-build.log`. The earlier simulator build and fixture failure
+remain under `.private/proofs/r4-phone-configuration/`.
 
 ## Device status
 
-No new build was installed: the orchestrator explicitly holds installation
-until the contract simplification lands. Build 7 remains on Josh's iPhone, per
-the orchestrator's installation report. No certificate or Apple account change
-was made.
+Version **0.4.0, build 8** was built in Release configuration from that exact
+published source, using command-line version overrides. It was installed on
+Josh's physical iPhone after CoreDevice reported it available. A fresh
+CoreDevice app inventory confirms version 0.4.0 and bundle version 8. The app
+was not launched and no phone settings were changed.
 
-After the hold is lifted, an agent should build and install with existing
-signing, then help Josh check one dummy request: pair by comparison and Mac
+Signing used the existing Apple Development identity and existing development
+profile, without provisioning-update or device-registration flags. The saved
+bundle passes strict signature verification, embeds no extensions, and has only
+the application/team identifiers, development APNs and development debugging
+entitlements. Its APNs registration setting also resolves to development.
+No certificate, key or Apple account change was made. The signed app is kept
+next to build 7 at `.private/builds/phone-0.4.0-8/AgentKeyringPhone.app` in the
+main checkout.
+
+The same proof directory contains `phone-build8-device-build.log`, the full
+`phone-build8-xcodebuild.log`, `phone-build8-signed-bundle.json`,
+`phone-build8-install.log` and `phone-build8-installed-app.json`. Two preliminary
+build refusals are retained there: Xcode rejected manually selecting its
+managed profile, then rejected a certificate fingerprint with automatic
+signing. The successful build used automatic signing with the existing Apple
+Development identity and no permission to update provisioning.
+
+The next device check uses one dummy request: pair by comparison and Mac
 Touch ID, approve over mobile data with one Face ID, and repeat with a network
 cut just after Face ID. Restoring the connection must deliver the same answer
 without another Face ID. Deny with a typed reply must reach the agent. These

@@ -6,8 +6,6 @@
     <string>$(AGENT_KEYRING_APNS_ENVIRONMENT)</string>
     <key>CFBundleDisplayName</key>
     <string>Agent Keyring</string>
-    <key>NSUserActivityTypes</key>
-    <array><string>ASCredentialExchangeActivity</string></array>
     <key>NSFaceIDUsageDescription</key>
     <string>Use Face ID to approve an agent’s request or sign your reply.</string>
 </dict>

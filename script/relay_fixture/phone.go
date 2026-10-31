@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/ecdsa"
+	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/relaycrypto"
 	"google.golang.org/protobuf/proto"
+	_ "modernc.org/sqlite"
 )
 
 type phoneProcess struct {
@@ -159,7 +161,7 @@ func (p *proof) receivePhoneAnswer() *pb.SignedPhoneDecision {
 }
 
 // The Mac substitute owns the dummy password. The Swift phone receives only
-// the signed index and request; it never creates a vault or imports a login.
+// the signed configuration and request; it never creates a vault or imports a login.
 func (p *proof) deliverPhone(record []byte, phone *pb.SignedPhoneDecision, deliveryKey *ecdsa.PrivateKey) *pb.SignedDecision {
 	decision := p.phoneDelivery(record, phone, deliveryKey).GetDecide()
 	decision.ApproverKeyId = hex.EncodeToString(relaycrypto.Hash(public(deliveryKey)))
@@ -177,6 +179,17 @@ func (p *proof) deliverPhone(record []byte, phone *pb.SignedPhoneDecision, deliv
 	return decision
 }
 
+func (p *proof) phoneRequest(leaseID string) []byte {
+	for {
+		raw := p.nextRequest()
+		record := new(pb.RequestRecord)
+		must(proto.Unmarshal(raw, record))
+		if record.LeaseId == leaseID {
+			return raw
+		}
+	}
+}
+
 func (p *proof) phoneProof(binary string) {
 	require(binary != "", "--phone-binary required")
 	p.start()
@@ -185,12 +198,6 @@ func (p *proof) phoneProof(binary string) {
 	defer func() { p.work.Close() }()
 	p.enrol()
 	initialKeys := p.keys
-	machine := &pb.EnrolledMachine{RecipientId: p.enrolled.RecipientId, MachineLabel: p.enrolled.MachineLabel,
-		ClientLabel: p.enrolled.ClientLabel, TailscaleNodeId: p.enrolled.TailscaleNodeId, TlsPublicKey: p.enrolled.TlsPublicKey,
-		ReceiverPublicKey: p.enrolled.ReceiverPublicKey, ReceiverKeyId: p.enrolled.ReceiverKeyId}
-	rosterBytes := encoded(&pb.EnrolmentSet{Domain: "agentkeyring.enrolments.v1", Revision: 1, Machines: []*pb.EnrolledMachine{machine}})
-	roster := &pb.SignedEnrolmentSet{EnrolmentSet: rosterBytes, Signature: sign(p.signer, rosterBytes), ApproverKeyId: p.key.KeyId}
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishEnrolmentSet{PublishEnrolmentSet: roster}})).GetPublish().Accepted, "roster refused")
 	directory := filepath.Join(p.directory, "phone")
 	must(os.MkdirAll(directory, 0700))
 	certificate := identity(directory)
@@ -218,7 +225,7 @@ func (p *proof) phoneProof(binary string) {
 	deliverySigner := signingKey()
 	deliveryKey := &pb.ApproverKey{KeyId: hex.EncodeToString(relaycrypto.Hash(public(deliverySigner))), PublicKey: public(deliverySigner), Label: "Fixture Mac delivery", Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY}
 	nextBytes := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 2, Keys: []*pb.ApproverKey{p.key, pair.Key, deliveryKey},
-		RuleOwnerKeyId: p.key.KeyId, EnrolmentSetRevision: 1, EnrolmentSetSha256: relaycrypto.Hash(rosterBytes), PairingTranscriptSha256: relaycrypto.Hash(transcript)})
+		RuleOwnerKeyId: p.key.KeyId, ConfigurationRevision: p.configuration.Revision, ConfigurationSha256: relaycrypto.Hash(p.signedConfiguration.Configuration), PairingTranscriptSha256: relaycrypto.Hash(transcript)})
 	next := &pb.SignedApproverKeySet{KeySet: nextBytes, Signature: sign(p.signer, nextBytes), SignerKeyId: p.key.KeyId}
 	phone.stop()
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}})).GetPublish().Accepted, "phone addition refused")
@@ -227,7 +234,7 @@ func (p *proof) phoneProof(binary string) {
 	phone.wait("status", "paired")
 	_, err = os.Stat(filepath.Join(directory, "vault"))
 	require(os.IsNotExist(err), "fixture created a phone vault")
-	fmt.Println("PASS PHONE role pairing, exact transcript, saved comparison recovery and existing roster, with no phone vault")
+	fmt.Println("PASS PHONE role pairing, exact transcript, saved comparison recovery and bound configuration, with no phone vault")
 
 	escalate := func(record []byte, local *pb.Lease) {
 		r := new(pb.RequestRecord)
@@ -240,7 +247,7 @@ func (p *proof) phoneProof(binary string) {
 	p.keys = initialKeys
 	receiver := p.receiverClient(lease, leaseCommand.GetClient().GetRequestLease())
 	p.keys = next
-	record := p.nextRequest()
+	record := p.phoneRequest(lease.LeaseId)
 	id := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", record))
 	require(!strings.Contains(phone.command("requests"), id), "un-escalated request reached the phone")
 	escalate(record, nil)
@@ -305,7 +312,7 @@ func (p *proof) phoneProof(binary string) {
 	decision := p.deliverPhone(record, answer, deliverySigner)
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: decision}})).GetDecision().Accepted, "Mac delivery refused")
 	phone.wait("requests", id+"=approved")
-	begin := good(p.client.call(beginRequest(lease.LeaseId, "phone-operation"))).GetClient().GetBeginOperation()
+	begin := good(p.client.call(deliverRequest(lease.LeaseId, "phone-operation"))).GetClient().GetDelivery()
 	require(begin.GetSealed() != nil && proto.Equal(begin.GetSealed().Decision.PhoneDecision, answer), "delivery lost the phone signature")
 	values, _, err := receiver.OpenValues(context.Background(), lease, begin)
 	must(err)
@@ -314,11 +321,11 @@ func (p *proof) phoneProof(binary string) {
 	fmt.Println("PASS real Go receiver advanced the pinned key set, verified Swift phone consent and opened the Mac's dummy login")
 
 	require(strings.Contains(phone.command("end\t"+id), "ended"), "phone remote revocation failed")
-	require(p.client.call(beginRequest(lease.LeaseId, "after-phone-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "revoked lease delivered")
+	require(p.client.call(deliverRequest(lease.LeaseId, "after-phone-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "revoked lease delivered")
 
 	for index, reply := range []string{"", "Use the test account instead"} {
 		l := good(p.client.call(leaseRequest("deny-"+strconv.Itoa(index), "deny-task-"+strconv.Itoa(index), p.enrolled.RecipientId))).GetClient().GetLease()
-		raw := p.nextRequest()
+		raw := p.phoneRequest(l.LeaseId)
 		digest := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", raw))
 		escalate(raw, nil)
 		phone.wait("requests", digest+"=waitingForYou")
@@ -342,7 +349,7 @@ func (p *proof) phoneProof(binary string) {
 		}
 		phone.wait("requests", digest+"=denied")
 		result := good(p.client.call(clientRequest(&pb.WireRequest{Request: &pb.WireRequest_GetLease{GetLease: &pb.LeaseReference{LeaseId: l.LeaseId}}}))).GetClient().GetLease()
-		require(result.State == pb.LeaseState_LEASE_STATE_DENIED && result.Reply == reply, "receiver lost the denial reply")
+		require(result.State == pb.LeaseState_LEASE_STATE_DENIED && result.Reply == reply && result.ApprovedBy == pb.ApprovedBy_APPROVED_BY_IPHONE, "receiver lost the denial reply or phone attribution")
 		require(strings.HasPrefix(phone.command("clear\t"+digest), "CLEARED"), "phone could not clear denial")
 	}
 	count, err = os.ReadFile(countPath)
@@ -391,5 +398,73 @@ func (p *proof) phoneProof(binary string) {
 	_, err = os.Stat(filepath.Join(directory, "vault"))
 	require(os.IsNotExist(err), "phone used a vault")
 	fmt.Println("PASS local request without receiver enrolment, actual Mac outcome, End waits for Mac confirmation; no phone vault")
+	// Advance the configuration, then simulate a relay restored from stale or
+	// altered state. The real relay serves it; the production Swift phone must
+	// preserve its highest valid revision and refuse before authentication.
+	nextConfiguration := proto.Clone(p.configuration).(*pb.Configuration)
+	nextConfiguration.Revision++
+	nextConfigurationBytes := encoded(nextConfiguration)
+	latestConfiguration := &pb.SignedConfiguration{Configuration: nextConfigurationBytes, Signature: sign(p.signer, nextConfigurationBytes), ApproverKeyId: p.key.KeyId}
+	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishConfiguration{PublishConfiguration: &pb.ConfigurationPublication{Configuration: latestConfiguration}}})).GetPublish().Accepted, "configuration advance refused")
+	configurationLease := good(p.client.call(leaseRequest("configuration-check", "configuration-task", p.enrolled.RecipientId))).GetClient().GetLease()
+	configurationRecord := p.phoneRequest(configurationLease.LeaseId)
+	configurationRequestID := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", configurationRecord))
+	escalate(configurationRecord, nil)
+	phone.wait("requests", configurationRequestID+"=waitingForYou")
+	altered := proto.Clone(nextConfiguration).(*pb.Configuration)
+	altered.Logins[0].Title = "Changed at the same revision"
+	alteredBytes := encoded(altered)
+	cases := []*pb.SignedConfiguration{
+		p.signedConfiguration,
+		{Configuration: alteredBytes, Signature: sign(p.signer, alteredBytes), ApproverKeyId: p.key.KeyId},
+		{Configuration: nextConfigurationBytes, Signature: sign(phoneSigner, nextConfigurationBytes), ApproverKeyId: pair.Key.KeyId},
+		{Configuration: nextConfigurationBytes, Signature: sign(phoneSigner, nextConfigurationBytes), ApproverKeyId: p.key.KeyId},
+	}
+	for index, candidate := range cases {
+		phone.stop()
+		p.work.Close()
+		p.stop()
+		replacePhoneProofConfiguration(p.directory, candidate)
+		p.start()
+		p.work = p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: p.key.KeyId}}})
+		phone = startPhone(binary, directory)
+		failure := phone.command("approve\t" + configurationRequestID)
+		expected := "The configuration rolled back or changed at the same revision."
+		if index == 2 {
+			expected = "Only the rule owner may sign the configuration."
+		}
+		if index == 3 {
+			expected = "The signed record does not match the trusted approvers."
+		}
+		require(strings.Contains(failure, expected), "phone failed for the wrong reason: "+failure)
+		count, err := os.ReadFile(countPath)
+		must(err)
+		require(string(count) == "3", "invalid configuration reached authentication")
+	}
+	phone.stop()
+	p.work.Close()
+	p.stop()
+	replacePhoneProofConfiguration(p.directory, latestConfiguration)
+	p.start()
+	p.work = p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: p.key.KeyId}}})
+	phone = startPhone(binary, directory)
+	require(strings.Contains(phone.command("deny\t"+configurationRequestID+"\t"), "waitingForMac"), "phone did not recover with the highest valid configuration")
+	configurationAnswer := p.receivePhoneAnswer()
+	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: p.deliverPhone(configurationRecord, configurationAnswer, deliverySigner)}})).GetDecision().Accepted, "configuration proof denial refused")
+	phone.wait("requests", configurationRequestID+"=denied")
+	fmt.Println("PASS Swift phone retains highest configuration across restart; downgrade, same-revision replacement, PHONE signer and invalid owner signature refused before authorization; valid configuration recovers")
 	fmt.Println("Phone fixture state:", p.directory)
+}
+
+// The relay is stopped. Replace only this fixture's configuration, preserving
+// the TLS identity, key chain and requests so the phone encounters stale data.
+func replacePhoneProofConfiguration(directory string, configuration *pb.SignedConfiguration) {
+	db, err := sql.Open("sqlite", filepath.Join(directory, "relay", "relay.sqlite"))
+	must(err)
+	defer db.Close()
+	result, err := db.Exec("UPDATE objects SET value=? WHERE kind='current' AND id='configuration'", encoded(configuration))
+	must(err)
+	count, err := result.RowsAffected()
+	must(err)
+	require(count == 1, "fixture configuration missing")
 }
