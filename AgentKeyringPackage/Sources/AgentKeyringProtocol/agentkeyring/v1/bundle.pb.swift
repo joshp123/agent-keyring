@@ -363,7 +363,9 @@ public nonisolated struct Agentkeyring_V1_DecisionStatement: Sendable {
   /// SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
   public var replySha256: Data = Data()
 
-  /// Who decided. HUMAN: signed by an approver key after Josh's biometric check.
+  /// Who decided. HUMAN: signed by a MAC or PHONE approver after Josh's biometric
+  /// check. A PHONE signs its own remote Ask delivery directly (RFC 0008), with
+  /// no phone_decision attachment. It never authorizes key or rule changes.
   /// AUTOMATIC_RULE: signed by the Automatic key named in the signed
   /// Configuration (relay.proto); valid only for logins whose rule is AUTOMATIC
   /// and machines with automatic_allowed there. Receivers check it before opening.

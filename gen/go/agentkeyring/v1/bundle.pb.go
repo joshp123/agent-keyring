@@ -696,7 +696,9 @@ type DecisionStatement struct {
 	LeaseId                string                 `protobuf:"bytes,9,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
 	// SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
 	ReplySha256 []byte `protobuf:"bytes,10,opt,name=reply_sha256,json=replySha256,proto3" json:"reply_sha256,omitempty"`
-	// Who decided. HUMAN: signed by an approver key after Josh's biometric check.
+	// Who decided. HUMAN: signed by a MAC or PHONE approver after Josh's biometric
+	// check. A PHONE signs its own remote Ask delivery directly (RFC 0008), with
+	// no phone_decision attachment. It never authorizes key or rule changes.
 	// AUTOMATIC_RULE: signed by the Automatic key named in the signed
 	// Configuration (relay.proto); valid only for logins whose rule is AUTOMATIC
 	// and machines with automatic_allowed there. Receivers check it before opening.
