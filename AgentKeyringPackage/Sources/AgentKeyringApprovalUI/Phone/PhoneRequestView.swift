@@ -139,8 +139,13 @@ private struct PhoneAnswerArea: View {
                 Text(AccessRequestCopy.outcome(request) ?? "")
                     .font(.body.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
-                if case let .denied(_, reply?, _) = request.state {
+                if let reply = request.state.reply {
                     Text("You replied: “\(reply)”")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                if request.answerIsQueued {
+                    Text(AccessRequestCopy.answerQueued)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -149,7 +154,10 @@ private struct PhoneAnswerArea: View {
         }
         HStack(spacing: 12) {
             if request.state.isInUse {
-                Button(AccessRequestCopy.endNow) { Task { await model.endAccess(request.id) } }
+                Button(model.ending.contains(request.id) ? AccessRequestCopy.ending : AccessRequestCopy.endNow) {
+                    Task { await model.endAccess(request.id) }
+                }
+                .disabled(model.ending.contains(request.id))
                     .buttonStyle(.quiet(text: KeyringColour.denyText))
             }
             Button("Done", action: close)
@@ -171,32 +179,16 @@ private struct PhoneReplyComposer: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(KeyringColour.denyText)
 
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField(AccessRequestCopy.replyPlaceholder, text: $model.replyDraft, axis: .vertical)
-                    .lineLimit(2...6)
-                    .focused($focused)
-                    .padding(.vertical, 10)
-                    .padding(.leading, 12)
-                Button {
-                    model.toggleDictation()
-                } label: {
-                    Image(systemName: model.isListening ? "waveform" : "mic.fill")
-                        .symbolEffect(.variableColor.iterative, isActive: model.isListening)
-                        .font(.title3)
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(KeyringColour.signal, in: .circle)
-                }
-                .accessibilityLabel(model.isListening ? "Stop dictation" : "Dictate a reply")
-                .padding(4)
-            }
-            .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 22, style: .continuous))
+            // The keyboard's own dictation key works here; there is no separate microphone.
+            TextField(AccessRequestCopy.replyPlaceholder, text: $model.replyDraft, axis: .vertical)
+                .lineLimit(2...6)
+                .focused($focused)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 16, style: .continuous))
 
             HStack(spacing: 12) {
-                Button("Cancel") {
-                    model.stopDictation()
-                    model.isReplying = false
-                }
+                Button("Cancel") { model.isReplying = false }
                 .buttonStyle(.quiet())
                 .frame(maxWidth: 120)
 

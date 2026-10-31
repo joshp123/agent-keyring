@@ -20,16 +20,31 @@ public enum ServiceConnection: Hashable, Sendable {
     case notPaired
 }
 
-public struct PhoneSettings: Hashable, Sendable {
-    /// How long a request waits on the Mac before it comes to this iPhone.
-    public var askPhoneAfter: Duration
-    public var notificationsAllowed: Bool
-    public var keyFingerprint: String
+/// Whether a waiting request can reach Josh without him opening the app.
+public enum PhoneNotifications: Hashable, Sendable {
+    /// Push isn't working yet: no push key, or not registered with the relay.
+    case notSetUp
+    /// iOS notifications are turned off for Agent Keyring.
+    case off
+    /// Registered with the relay; a waiting request notifies this iPhone.
+    case on
+}
 
-    public init(askPhoneAfter: Duration, notificationsAllowed: Bool, keyFingerprint: String) {
+public struct PhoneSettings: Hashable, Sendable {
+    /// The Mac's setting: how long a request waits there before it comes to
+    /// this iPhone. Read-only here; nil until the Mac's value is known.
+    public var askPhoneAfter: Duration?
+    /// The real permission and registration result, never a placeholder.
+    public var notifications: PhoneNotifications
+    public var keyFingerprint: String
+    public var rulesUpdatedAt: Date?
+
+    public init(askPhoneAfter: Duration?, notifications: PhoneNotifications, keyFingerprint: String,
+        rulesUpdatedAt: Date? = nil) {
         self.askPhoneAfter = askPhoneAfter
-        self.notificationsAllowed = notificationsAllowed
+        self.notifications = notifications
         self.keyFingerprint = keyFingerprint
+        self.rulesUpdatedAt = rulesUpdatedAt
     }
 }
 
@@ -40,13 +55,15 @@ public struct PhoneKeyringSnapshot: Hashable, Sendable {
     public var passwords: PasswordsOnPhone
     public var connection: ServiceConnection
     public var settings: PhoneSettings
+    public var pairing: PhonePairingState
 
     public init(requests: [AccessRequest], passwords: PasswordsOnPhone, connection: ServiceConnection,
-        settings: PhoneSettings) {
+        settings: PhoneSettings, pairing: PhonePairingState = .notPaired) {
         self.requests = requests
         self.passwords = passwords
         self.connection = connection
         self.settings = settings
+        self.pairing = pairing
     }
 }
 
@@ -55,17 +72,16 @@ public struct PhoneKeyringSnapshot: Hashable, Sendable {
 public protocol PhoneKeyringBackend: AnyObject {
     /// The current snapshot first, then one each time anything changes.
     func updates() -> AsyncStream<PhoneKeyringSnapshot>
+    func beginPairing(endpoint: PhoneRelayEndpoint) async throws
+    func cancelPairing()
     /// Asks for Face ID, signs the answer and sends it. Returns the new state.
     func approve(requestID: String) async throws -> AccessRequestState
     func deny(requestID: String, reply: String?) async throws -> AccessRequestState
     func endAccess(requestID: String) async throws -> AccessRequestState
     /// Clears a denial's hold-off, so this machine may ask for the login again.
     func allowAskingAgain(requestID: String) async throws -> AccessRequestState
-    /// Opens Apple Passwords on its export screen.
+    /// Asks iOS to allow exports to Agent Keyring; the export starts in Passwords.
     func openPasswordsForImport()
-    func setAskPhoneAfter(_ delay: Duration) async throws
-    /// Live transcript of Josh speaking, until the stream is cancelled.
-    func dictation() -> AsyncStream<String>
 }
 
 @MainActor
@@ -75,16 +91,15 @@ public final class PhoneKeyringModel {
     public private(set) var passwords: PasswordsOnPhone
     public private(set) var connection: ServiceConnection
     public private(set) var settings: PhoneSettings
+    public private(set) var pairing: PhonePairingState
     /// The request on screen. Set when Josh taps a notification.
     public var presentedRequestID: String?
     public var isShowingSettings = false
     public var replyDraft = ""
     public var isReplying = false
-    public private(set) var isListening = false
     public private(set) var failure: String?
 
     private let backend: any PhoneKeyringBackend
-    private var dictationTask: Task<Void, Never>?
 
     public init(backend: any PhoneKeyringBackend, initial: PhoneKeyringSnapshot) {
         self.backend = backend
@@ -92,6 +107,7 @@ public final class PhoneKeyringModel {
         self.passwords = initial.passwords
         self.connection = initial.connection
         self.settings = initial.settings
+        self.pairing = initial.pairing
     }
 
     /// Follows the backend until the view goes away. Call from `.task`.
@@ -114,12 +130,26 @@ public final class PhoneKeyringModel {
         passwords = snapshot.passwords
         connection = snapshot.connection
         settings = snapshot.settings
+        pairing = snapshot.pairing
+        settlePendingActions()
+    }
+
+    /// End and Let it ask again stay "sending" until the Mac's own report
+    /// shows the change (RFC 0006); the phone never assumes it happened.
+    public private(set) var ending = Set<String>()
+    public private(set) var askingAgain = Set<String>()
+
+    private func settlePendingActions() {
+        ending = ending.filter { request(id: $0)?.state.isInUse == true }
+        askingAgain = askingAgain.filter { request(id: $0)?.state.isHoldingOffNewRequests(now: .now) == true }
     }
 
     public var waiting: [AccessRequest] { requests.filter(\.state.isWaitingForYou) }
+    /// Answered here, not yet committed by the Mac.
+    public var waitingForMac: [AccessRequest] { requests.filter(\.state.isWaitingForMac) }
     public var inUse: [AccessRequest] { requests.filter(\.state.isInUse) }
     public var finished: [AccessRequest] {
-        requests.filter { !$0.state.isWaitingForYou && !$0.state.isInUse }
+        requests.filter { !$0.state.isWaitingForYou && !$0.state.isWaitingForMac && !$0.state.isInUse }
     }
 
     public func request(id: String) -> AccessRequest? {
@@ -132,7 +162,6 @@ public final class PhoneKeyringModel {
 
     public func deny(_ id: String) async {
         let reply = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        stopDictation()
         isReplying = false
         await answer(id, choice: .deny) {
             try await backend.deny(requestID: id, reply: reply.isEmpty ? nil : reply)
@@ -141,46 +170,34 @@ public final class PhoneKeyringModel {
     }
 
     public func endAccess(_ id: String) async {
+        ending.insert(id)
         do { update(id, to: try await backend.endAccess(requestID: id)) }
-        catch { failure = "Couldn't end it. Agent Keyring will end it at the deadline anyway." }
+        catch {
+            ending.remove(id)
+            failure = "Couldn't end it. Agent Keyring will end it at the deadline anyway."
+        }
+        settlePendingActions()
     }
 
     public func allowAskingAgain(_ id: String) async {
+        askingAgain.insert(id)
         do { update(id, to: try await backend.allowAskingAgain(requestID: id)) }
-        catch { failure = "Couldn't change that. Agent Keyring isn't reachable." }
+        catch {
+            askingAgain.remove(id)
+            failure = "Couldn't change that. Agent Keyring isn't reachable."
+        }
+        settlePendingActions()
     }
+
+    public func beginPairing(endpoint: PhoneRelayEndpoint) async {
+        do { try await backend.beginPairing(endpoint: endpoint) }
+        catch { failure = "Couldn’t start pairing. Check the relay address and Tailscale." }
+    }
+
+    public func cancelPairing() { backend.cancelPairing() }
 
     public func importPasswords() {
         backend.openPasswordsForImport()
-    }
-
-    public func setAskPhoneAfter(_ delay: Duration) async {
-        let previous = settings.askPhoneAfter
-        settings.askPhoneAfter = delay
-        do { try await backend.setAskPhoneAfter(delay) }
-        catch {
-            settings.askPhoneAfter = previous
-            failure = "Couldn't save that. Agent Keyring isn't reachable."
-        }
-    }
-
-    public func toggleDictation() {
-        if isListening { stopDictation(); return }
-        isListening = true
-        let start = replyDraft.isEmpty ? "" : replyDraft + " "
-        let stream = backend.dictation()
-        dictationTask = Task { [weak self] in
-            for await transcript in stream {
-                self?.replyDraft = start + transcript
-            }
-            self?.isListening = false
-        }
-    }
-
-    public func stopDictation() {
-        dictationTask?.cancel()
-        dictationTask = nil
-        isListening = false
     }
 
     public func dismissFailure() { failure = nil }
@@ -201,4 +218,24 @@ public final class PhoneKeyringModel {
         guard let index = requests.firstIndex(where: { $0.id == id }) else { return }
         requests[index].state = state
     }
+}
+
+/// Pairing screens consume these plain values; TLS validation stays in the backend.
+public struct PhoneRelayEndpoint: Hashable, Sendable {
+    public var host: String
+    public var port: UInt16
+    public init(host: String, port: UInt16) { self.host = host; self.port = port }
+}
+
+public enum PhonePairingState: Hashable, Sendable {
+    case notPaired
+    case connecting
+    case comparing(fingerprint: String, relayAddress: String)
+    case paired
+    case failed(String)
+}
+
+public extension PhoneKeyringBackend {
+    func beginPairing(endpoint: PhoneRelayEndpoint) async throws { throw CocoaError(.featureUnsupported) }
+    func cancelPairing() { }
 }

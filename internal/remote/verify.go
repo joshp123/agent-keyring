@@ -35,15 +35,10 @@ func keySet(signed *pb.SignedApproverKeySet) (*pb.ApproverKeySet, error) {
 	if !seen[set.RuleOwnerKeyId] {
 		return nil, errors.New("The approver key set has no rule owner.")
 	}
-	return set, nil
-}
-func signingKey(set *pb.ApproverKeySet, id string) ([]byte, error) {
-	for _, key := range set.Keys {
-		if key.KeyId == id {
-			return key.PublicKey, nil
-		}
+	if err := relaycrypto.ValidateRoles(set, set.RuleOwnerKeyId); err != nil {
+		return nil, err
 	}
-	return nil, errors.New("The delivery was signed by an unknown approver. No value was opened.")
+	return set, nil
 }
 func advanceKeys(state *clientstate.State, chain *pb.ApproverKeyChain) error {
 	current, err := keySet(state.Approvers)
@@ -58,12 +53,15 @@ func advanceKeys(state *clientstate.State, chain *pb.ApproverKeyChain) error {
 		if next.Revision <= current.Revision {
 			return errors.New("The relay returned an older or repeated approver key set.")
 		}
-		public, err := signingKey(current, signed.SignerKeyId)
+		public, err := relaycrypto.KeyForRole(current, signed.SignerKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
 		if err != nil {
 			return err
 		}
 		if relaycrypto.Verify(public, signed.KeySet, signed.Signature) != nil {
 			return errors.New("The approver key chain has an invalid signature.")
+		}
+		if err := relaycrypto.ValidateRoles(next, current.RuleOwnerKeyId); err != nil {
+			return err
 		}
 		state.Approvers = proto.Clone(signed).(*pb.SignedApproverKeySet)
 		current = next
@@ -78,7 +76,7 @@ func verifyGrant(state *clientstate.State, signed *pb.SignedAutomaticGrant) (*pb
 	if signed == nil || signed.ApproverKeyId != set.RuleOwnerKeyId {
 		return nil, errors.New("The Automatic grant is not signed by the current rule owner.")
 	}
-	key, err := signingKey(set, signed.ApproverKeyId)
+	key, err := relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +86,10 @@ func verifyGrant(state *clientstate.State, signed *pb.SignedAutomaticGrant) (*pb
 	grant := new(pb.AutomaticGrant)
 	if proto.Unmarshal(signed.Grant, grant) != nil || grant.Domain != "agentkeyring.automatic.v1" || grant.Revision == 0 {
 		return nil, errors.New("The Automatic grant is invalid.")
+	}
+	delivery, err := relaycrypto.KeyForRole(set, grant.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
+	if err != nil || !bytes.Equal(delivery, grant.AutomaticSigningPublicKey) {
+		return nil, errors.New("Automatic grant must name a current Mac delivery key.")
 	}
 	if _, err = relaycrypto.PublicKey(grant.AutomaticSigningPublicKey); err != nil {
 		return nil, err
@@ -186,7 +188,15 @@ func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDeli
 		if statement.AutomaticGrantRevision != 0 {
 			return nil, errors.New("A human decision incorrectly names an Automatic grant.")
 		}
-		key, err = signingKey(set, delivery.Decision.ApproverKeyId)
+		key, err = relaycrypto.KeyForRole(set, delivery.Decision.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
+	case pb.DecisionAuthority_DECISION_AUTHORITY_PHONE:
+		if err = relaycrypto.VerifyPhoneDelivery(set, delivery.Decision, statement); err != nil {
+			return nil, err
+		}
+		if statement.ApprovedAtUnixSeconds < record.CreatedUnixSeconds || statement.ApprovedAtUnixSeconds >= record.PendingUntilUnixSeconds {
+			return nil, errors.New("Phone decision was outside this request's pending lifetime.")
+		}
+		key, err = relaycrypto.KeyForRole(set, delivery.Decision.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
 	case pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE:
 		var grant *pb.AutomaticGrant
 		grant, err = verifyGrant(state, state.AutomaticGrant)
@@ -290,7 +300,7 @@ func verifyIndex(state *clientstate.State, signed *pb.SignedIndex) (*pb.LoginInd
 	if signed == nil || signed.ApproverKeyId != set.RuleOwnerKeyId {
 		return nil, errors.New("The login index is not signed by the current rule owner.")
 	}
-	key, err := signingKey(set, signed.ApproverKeyId)
+	key, err := relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +346,7 @@ func denialReply(state *clientstate.State, lease *pb.Lease) string {
 	if err != nil {
 		return ""
 	}
-	if statement.Domain != "agentkeyring.decision.v1" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN || statement.AutomaticGrantRevision != 0 || len(statement.BundleCiphertextSha256) != 0 {
+	if statement.Domain != "agentkeyring.decision.v1" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || (statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN && statement.Authority != pb.DecisionAuthority_DECISION_AUTHORITY_PHONE) || statement.AutomaticGrantRevision != 0 || len(statement.BundleCiphertextSha256) != 0 {
 		return ""
 	}
 	if statement.LeaseId != lease.LeaseId || record.LeaseId != lease.LeaseId || statement.RecipientId != state.RecipientId || statement.ReceiverKeyId != state.ReceiverKeyId || !scopeMatches(scope, record) {
@@ -349,7 +359,15 @@ func denialReply(state *clientstate.State, lease *pb.Lease) string {
 	if err != nil {
 		return ""
 	}
-	key, err := signingKey(set, signed.ApproverKeyId)
+	var key []byte
+	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_PHONE {
+		if relaycrypto.VerifyPhoneDelivery(set, signed, statement) != nil || statement.ApprovedAtUnixSeconds < record.CreatedUnixSeconds || statement.ApprovedAtUnixSeconds >= record.PendingUntilUnixSeconds {
+			return ""
+		}
+		key, err = relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
+	} else {
+		key, err = relaycrypto.KeyForRole(set, signed.ApproverKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
+	}
 	if err != nil {
 		return ""
 	}

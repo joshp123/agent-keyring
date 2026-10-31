@@ -1,13 +1,12 @@
-import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
 import AuthenticationServices
-import CloudKit
 import SwiftUI
 import UIKit
 import UserNotifications
 
 @main
 struct AgentKeyringPhoneApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(PhoneAppDelegate.self) private var appDelegate
     private let designScenario = PhoneDesignScenario.fromLaunchArguments()
     private let importBackend: PhoneImportBackend?
@@ -29,6 +28,15 @@ struct AgentKeyringPhoneApp: App {
     var body: some Scene {
         WindowGroup {
             PhoneRootView(model: keyringModel, openRequestID: designScenario?.pushedRequestID)
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    if phase == .active { importBackend?.start() }
+                    else if phase == .background { importBackend?.stop() }
+                }
+                .task {
+                    appDelegate.wake = { importBackend?.start() }
+                    appDelegate.receivedToken = { importBackend?.receivedPushToken($0) }
+                    appDelegate.registrationFailed = { importBackend?.pushRegistrationFailed($0) }
+                }
                 .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
                     importBackend?.receive(activity)
                 }
@@ -38,56 +46,34 @@ struct AgentKeyringPhoneApp: App {
 
 @MainActor
 final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    func application(
-        _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
-    ) -> Bool {
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        center.setNotificationCategories([
-            UNNotificationCategory(
-                identifier: ApprovalCloudRecords.notificationCategory,
-                actions: [
-                    UNNotificationAction(identifier: ApprovalCloudRecords.approveActionIdentifier,
-                        title: "Approve", options: [.authenticationRequired]),
-                    UNNotificationAction(identifier: ApprovalCloudRecords.denyActionIdentifier,
-                        title: "Deny", options: [.authenticationRequired]),
-                    UNNotificationAction(identifier: ApprovalCloudRecords.blockActionIdentifier,
-                        title: "Block this login", options: [.authenticationRequired])
-                ],
-                intentIdentifiers: [], options: []
-            )
-        ])
+    var wake: (() -> Void)?
+    var receivedToken: ((Data) -> Void)?
+    var registrationFailed: ((Error) -> Void)?
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        // Notifications open the app; every answer is checked and signed there.
+        UNUserNotificationCenter.current().setNotificationCategories([])
         return true
     }
 
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        receivedToken?(deviceToken)
+    }
+
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        logPhoneFailure(error, operation: "Push registration")
-        PhoneApprovalModel.shared.notificationStatus = "Push registration failed"
+        registrationFailed?(error)
     }
 
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
-        let choice: ApprovalChoice
-        switch response.actionIdentifier {
-        case ApprovalCloudRecords.approveActionIdentifier: choice = .approve
-        case ApprovalCloudRecords.denyActionIdentifier: choice = .deny
-        case ApprovalCloudRecords.blockActionIdentifier: choice = .blockThisLogin
-        default:
-            return
-        }
-        let content = response.notification.request.content
-        let requestID = content.categoryIdentifier == ApprovalCloudRecords.notificationCategory
-            ? ApprovalCloudRecords.requestID(fromRemoteNotification: content.userInfo) : nil
-        await PhoneApprovalModel.shared.respond(to: requestID, choice: choice)
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                           didReceive response: UNNotificationResponse) async {
+        await MainActor.run { wake?() }
     }
 
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                           willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        await MainActor.run { wake?() }
+        return [.banner, .list, .sound]
     }
 }

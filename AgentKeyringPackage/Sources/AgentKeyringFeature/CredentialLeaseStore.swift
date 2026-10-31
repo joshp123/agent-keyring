@@ -237,7 +237,15 @@ public final class CredentialLeaseStore {
     public func clearDenial(loginID: String) throws {
         try load()
         var next = snapshot!
-        next.suppressions.removeValue(forKey: UUID(uuidString: loginID)?.uuidString ?? loginID)
+        let normalizedID = UUID(uuidString: loginID)?.uuidString ?? loginID
+        next.suppressions.removeValue(forKey: normalizedID)
+        for (id, saved) in next.leases {
+            var lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
+            if lease.loginID == normalizedID, lease.state == .denied, lease.retryNotBeforeUnixSeconds != 0 {
+                lease.retryNotBeforeUnixSeconds = 0
+                next.leases[id]!.lease = try lease.serializedData()
+            }
+        }
         try commit(next)
     }
 

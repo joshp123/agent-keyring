@@ -34,7 +34,7 @@ Screens: `screens/phone/home-*.png`, `nothingWaiting-*.png`.
 The screen a notification opens. Top to bottom:
 
 1. **Waiting for you** and a countdown ("4:10 left"), in blue.
-2. **The question.** "Codex wants to sign in to", then **github.com** in the largest type on the screen, then "as josh@example.com". For a program: "Claude Code wants to give gh the password for". When the value goes to the agent's own code: "Codex wants the password itself for".
+2. **The question.** "Codex on Mac mini wants to sign in to" (the agent and the machine it runs on), then **github.com** in the largest type on the screen, then "as josh@example.com". For a program: "Claude Code wants to give gh the password for". When the value goes to the agent's own code: "Codex wants the password itself for".
 3. **Facts Agent Keyring saw.** Machine (name and tailnet address) and Access ("Sign-in only, up to 30 min", "Password to gh, up to 30 min" or "Password to Codex's own code, up to 30 min"). For a program, the exact command too.
 4. **What came from the agent.** "Codex says", its reason in quotes behind a rule, "Working in ~/code/invoices", and "From the agent. Agent Keyring can't check it." The agent's name and folder come from the requesting process, which can say anything, so they sit here rather than in the facts.
 5. **Answers,** pinned under your thumb: **Deny** (red) and **Approve** with the Face ID glyph (green), equal width. Under them, **Deny and reply…** in red.
@@ -43,7 +43,7 @@ Screens: `request-*.png`, `requestForProgram-*.png`, `requestForAgentProcess-*.p
 
 ### Deny and reply
 
-Tapping **Deny and reply…** swaps the two buttons for a reply box, in place, so the request stays in view. The box has a blue microphone button for dictation; the keyboard's own dictation works too. Buttons: **Cancel** and **Deny and send**. The reply reaches the agent with the denial.
+Tapping **Deny and reply…** swaps the two buttons for a reply box, in place, so the request stays in view. Type, or use the keyboard's own dictation key. Buttons: **Cancel** and **Deny and send**. The reply reaches the agent with the denial.
 
 Screen: `reply-*.png`.
 
@@ -83,7 +83,7 @@ Screen: `unreachable-*.png`.
 
 ### Import needed
 
-Before the first import there is nothing to approve, so this replaces Home. Title "Import passwords", one sentence on what the phone keeps, three numbered steps (Passwords, ··· then Export Data to Another App, choose Agent Keyring) and **Open Passwords**. While it runs: "Importing passwords", "318 logins so far. Keep Passwords open until it finishes."
+Before the first import there is nothing to approve, so this replaces Home. Title "Import passwords", one sentence on what the phone keeps, three numbered steps (allow exports, ··· then Export Data to Another App in Passwords, choose Agent Keyring) and **Allow Exports**, which makes Agent Keyring an export destination; iOS doesn't let an app open the export screen itself. While it runs: "Importing passwords", "318 logins so far. Keep Passwords open until it finishes."
 
 Apple only lets the Passwords app start an export, so the screen says exactly where to tap. The menu wording is to check on a real iOS 27 phone.
 
@@ -96,6 +96,16 @@ Screens: `importNeeded-*.png`, `importing-*.png`.
 - **This iPhone:** notifications, and the key fingerprint: "Your approvals are signed with this key, which never leaves the iPhone's Secure Enclave."
 
 Screen: `settings-*.png`.
+
+### Pairing
+
+Until the phone is paired, Home starts with "Not paired yet, so requests can't reach this iPhone" and **Pair**; Settings has "Pair with your Mac".
+
+The pairing screen takes the relay's address, prefilled `mac-mini:17443`. It then shows the code to compare with the Mac's, in the same two rows of four groups the Mac shows, and "When every group matches, approve on your Mac with Touch ID. This iPhone carries on by itself." There is no confirm button on the phone: the Mac's signed approval is the confirmation. **Doesn't match** cancels. A failure shows the reason and **Try again**.
+
+Settings also shows when the phone last checked the rules: "Rules · Checked 11 minutes ago".
+
+Screens: `pairing*.png`, `homeNotPaired-*.png`, `settingsNotPaired-*.png`.
 
 ## Lock Screen notification
 

@@ -9,15 +9,18 @@ import SwiftUI
 public struct PhoneRootView: View {
     @Bindable var model: PhoneKeyringModel
     @State private var path: [String]
+    @State private var isPairing: Bool
 
-    public init(model: PhoneKeyringModel, openRequestID: String? = nil) {
+    public init(model: PhoneKeyringModel, openRequestID: String? = nil,
+        openPairing: Bool = PhoneDesignScenario.fromLaunchArguments()?.opensPairing ?? false) {
         self.model = model
         _path = State(initialValue: openRequestID.map { [$0] } ?? [])
+        _isPairing = State(initialValue: openPairing)
     }
 
     public var body: some View {
         NavigationStack(path: $path) {
-            PhoneHomeView(model: model)
+            PhoneHomeView(model: model) { isPairing = true }
                 .navigationDestination(for: String.self) { id in
                     if let request = model.request(id: id) {
                         PhoneRequestDetailView(model: model, request: request)
@@ -32,6 +35,17 @@ public struct PhoneRootView: View {
         .sheet(isPresented: $model.isShowingSettings) {
             PhoneSettingsView(model: model)
         }
+        .sheet(isPresented: $isPairing) {
+            NavigationStack {
+                PhonePairingView(model: model)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close", systemImage: "xmark") { isPairing = false }
+                        }
+                    }
+            }
+            .tint(KeyringColour.signal)
+        }
     }
 
     private var presentedRequest: Binding<AccessRequest?> {
@@ -44,16 +58,13 @@ public struct PhoneRootView: View {
 
 struct PhoneHomeView: View {
     let model: PhoneKeyringModel
+    let pair: () -> Void
 
     var body: some View {
-        Group {
-            switch model.passwords {
-            case .notImported, .importing, .importFailed:
-                PhoneImportView(model: model)
-            case .imported:
-                requestList.navigationTitle("Agent Keyring")
-            }
-        }
+        // Always the requests. Passwords on the phone are optional (RFC 0006),
+        // so their state never replaces this list; it lives in Settings.
+        requestList
+        .navigationTitle("Agent Keyring")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Settings", systemImage: "gearshape") { model.isShowingSettings = true }
@@ -63,13 +74,15 @@ struct PhoneHomeView: View {
 
     private var requestList: some View {
         List {
-            if case let .unreachable(service, since) = model.connection {
+            if model.pairing != .paired {
+                Section { NotPairedNotice(pair: pair) }
+            } else if case let .unreachable(service, since) = model.connection {
                 Section { UnreachableNotice(service: service, since: since) }
             }
 
-            if !model.waiting.isEmpty {
+            if !(model.waiting.isEmpty && model.waitingForMac.isEmpty) {
                 Section {
-                    ForEach(model.waiting) { request in
+                    ForEach(model.waiting + model.waitingForMac) { request in
                         Button { model.presentedRequestID = request.id } label: {
                             WaitingRow(request: request)
                         }
@@ -82,14 +95,19 @@ struct PhoneHomeView: View {
                 Section {
                     ForEach(model.inUse) { request in
                         NavigationLink(value: request.id) {
-                            InUseRow(request: request) { Task { await model.endAccess(request.id) } }
+                            InUseRow(request: request, isEnding: model.ending.contains(request.id)) {
+                                Task { await model.endAccess(request.id) }
+                            }
                         }
                     }
                 } header: { SectionHeading("In use now") }
             }
 
-            if model.waiting.isEmpty && model.inUse.isEmpty {
-                Section { NothingWaiting() }
+            if model.waiting.isEmpty && model.waitingForMac.isEmpty && model.inUse.isEmpty {
+                // Unpaired, the notice above already says why nothing arrives.
+                if model.pairing == .paired {
+                    Section { NothingWaiting(notifications: model.settings.notifications) }
+                }
             }
 
             ForEach(historyDays, id: \.title) { day in
@@ -98,11 +116,6 @@ struct PhoneHomeView: View {
                         NavigationLink(value: request.id) { HistoryRow(request: request) }
                     }
                 } header: { SectionHeading(day.title) }
-            }
-
-            if case let .imported(count, at) = model.passwords {
-                Section { PasswordsFooter(count: count, importedAt: at) }
-                    .listSectionSeparator(.hidden)
             }
         }
         .listStyle(.plain)
@@ -150,6 +163,10 @@ private struct WaitingRow: View {
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(KeyringColour.signal)
                 }
+            } else if request.state.isWaitingForMac {
+                Text(AccessRequestCopy.waitingForMac)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
         }
@@ -160,6 +177,7 @@ private struct WaitingRow: View {
 
 private struct InUseRow: View {
     let request: AccessRequest
+    let isEnding: Bool
     let end: () -> Void
 
     var body: some View {
@@ -177,10 +195,16 @@ private struct InUseRow: View {
                 }
             }
             Spacer()
-            Button(AccessRequestCopy.endNow, action: end)
-                .buttonStyle(.borderless)
-                .font(.body.weight(.medium))
-                .foregroundStyle(KeyringColour.denyText)
+            if isEnding {
+                Text(AccessRequestCopy.ending)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button(AccessRequestCopy.endNow, action: end)
+                    .buttonStyle(.borderless)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(KeyringColour.denyText)
+            }
         }
         .padding(.vertical, 4)
     }
@@ -208,15 +232,36 @@ private struct HistoryRow: View {
 }
 
 private struct NothingWaiting: View {
+    let notifications: PhoneNotifications
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Nothing waiting")
                 .font(.title3.weight(.semibold))
-            Text("When an agent asks for a login and you're away from your Mac, it appears here and on your Lock Screen.")
+            Text(SetupCopy.nothingWaiting(notifications))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 12)
+        .listRowSeparator(.hidden)
+    }
+}
+
+private struct NotPairedNotice: View {
+    let pair: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "link")
+                .foregroundStyle(KeyringColour.signal)
+            Text(SetupCopy.notPairedNotice)
+                .font(.subheadline)
+            Spacer()
+            Button(SetupCopy.pairButton, action: pair)
+                .buttonStyle(.borderedProminent)
+                .tint(KeyringColour.signal)
+        }
+        .padding(.vertical, 6)
         .listRowSeparator(.hidden)
     }
 }
@@ -242,16 +287,4 @@ private struct UnreachableNotice: View {
     }
 }
 
-private struct PasswordsFooter: View {
-    let count: Int
-    let importedAt: Date
-
-    var body: some View {
-        Text("\(count) logins · imported \(importedAt.formatted(.relative(presentation: .named)))")
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
-    }
-}
 #endif

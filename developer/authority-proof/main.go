@@ -207,6 +207,7 @@ func main() {
 	denied := lease("different-task", "denial-2", pb.Purpose_PURPOSE_AGENT_PROCESS)
 	check(denied.State == pb.LeaseState_LEASE_STATE_DENIED && denied.Reply == "Use the other account" && denied.RetryNotBeforeUnixSeconds == get(pending.LeaseId).RetryNotBeforeUnixSeconds, "denial persists across task and purpose")
 	owner("clear-denial")
+	check(get(pending.LeaseId).RetryNotBeforeUnixSeconds == 0 && get(denied.LeaseId).RetryNotBeforeUnixSeconds == 0, "clear denial updates every denied history row")
 	cancelled := lease("cancel", "cancel-1", pb.Purpose_PURPOSE_AGENT_PROCESS)
 	check(end(cancelled.LeaseId).State == pb.LeaseState_LEASE_STATE_CANCELLED, "cancel pending")
 	check(lease("cancel", "cancel-1", pb.Purpose_PURPOSE_AGENT_PROCESS).State == pb.LeaseState_LEASE_STATE_CANCELLED, "terminal exact retry stays terminal")

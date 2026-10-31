@@ -11,7 +11,7 @@ public enum KeyringColour {
     public static let approve = Color(light: 0x1A7F37, dark: 0x238636)
     /// Deny, block, and anything that stops an agent.
     public static let deny = Color(light: 0xCF222E, dark: 0xDA3633)
-    /// Agent Keyring itself: waiting, timers, links, the dictation button.
+    /// Agent Keyring itself: waiting, timers, links.
     public static let signal = Color(light: 0x0A4BD6, dark: 0x4C8DFF)
     /// The same meanings as text. Brighter in dark mode, where the fills are too dim to read.
     public static let approveText = Color(light: 0x1A7F37, dark: 0x3FB950)
@@ -61,7 +61,7 @@ public func outcomeColour(_ state: AccessRequestState) -> Color? {
     switch state {
     case .approved, .released: KeyringColour.approveText
     case .denied, .blockedByRule: KeyringColour.denyText
-    case .waitingForYou, .sendingAnswer: KeyringColour.signal
+    case .waitingForYou, .sendingAnswer, .waitingForMac: KeyringColour.signal
     case .unanswered, .cancelled, .expired, .ended: nil
     }
 }
@@ -71,7 +71,7 @@ public func outcomeSymbol(_ state: AccessRequestState) -> String {
     switch state {
     case .approved, .released: "checkmark.circle.fill"
     case .denied, .blockedByRule: "xmark.circle.fill"
-    case .waitingForYou, .sendingAnswer: "clock"
+    case .waitingForYou, .sendingAnswer, .waitingForMac: "clock"
     case .unanswered, .cancelled, .expired, .ended: "clock.badge.xmark"
     }
 }

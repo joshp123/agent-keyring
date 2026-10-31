@@ -52,8 +52,17 @@ A rule is a property of the login, so it is a column, not a folder you move logi
 
 Screens: `rules-*.png`, `rulesAll-*.png`, `rulesConfirm-*.png`.
 
+## Other machines (release 3)
+
+- **Remote requests** use the same panel, with the machine in the question: "Codex on Mac mini wants to sign in to". A local request stays "Codex wants to sign in to", and its Machine line reads "This Mac". Replying to a remote agent shows Touch ID on "Deny and send", because the reply is signed. If the relay is unreachable, an answer says "Saved. It reaches the relay as soon as the relay is back."
+- **A machine joining** (after `agent-keyring enrol` there) opens the panel with its name, the tailnet node the relay saw, and an eight-group code in two rows of four. "Doesn't match" refuses; "They match" approves with Touch ID. Automatic logins for it are off unless switched on. Your iPhone joining as an approver looks the same.
+- **Machines window**, from the menu bar's More menu: the relay link (set up once by comparing the relay's code), answers waiting to send, rule changes not yet sent, devices waiting to join, machines that can ask (each with Remove), and devices that can approve.
+- **Menu bar:** devices waiting to join appear under "Waiting for you" and count in the icon. One line appears when the relay is offline or rules haven't reached it.
+
+Screens: `approvalLocal-*.png`, `approvalQueued-*.png`, `enrolment*.png`, `machines*.png`, `menuBarRemote-*.png`.
+
 ## Built and not built
 
-The views are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Mac`, behind the four backend protocols in RFC 0007, and fed by mock data. The screenshots come from the design gallery (`Tools/AgentKeyringDesignGallery`), which shows the real views on the Mac mini.
+The views are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Mac`. Since release 2, the Mac app uses all three: the panel answers lease requests in place of the system Touch ID prompt, the menu bar window follows the lease store, and the rules window wraps the existing access-rules controller. RFC 0007 says how, and lists the one-look, one-touch check that proves the panel on the MacBook.
 
-The Mac app itself still uses its old menu, rules window and plain system Touch ID prompt. Wiring the new views in is RFC 0007's U2 (approval panel) and U3 (menu bar and rules), as adapters over the release 2 lease store and the existing access-rules controller. RFC 0007 lists what the lease store still needs to supply.
+Screenshots come from the design gallery (`Tools/AgentKeyringDesignGallery`) on the Mac mini. Most use mock data; `lease*.png` are mapped from lease records through the same adapter the app uses.

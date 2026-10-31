@@ -8,12 +8,15 @@ import Foundation
 public enum AccessRequestCopy {
     // MARK: The question
 
-    /// The line above the site: "Codex wants to sign in to".
+    /// The line above the site: "Codex wants to sign in to" for an agent on
+    /// this Mac, "Codex on Mac mini wants to sign in to" for one elsewhere, so
+    /// a remote request reads differently at a glance.
     public static func headlineLead(_ request: AccessRequest) -> String {
-        switch request.access {
-        case .signIn: "\(request.agent.name) wants to sign in to"
-        case let .program(command): "\(request.agent.name) wants to give \(programName(command)) the password for"
-        case .agentProcess: "\(request.agent.name) wants the password itself for"
+        let who = request.agent.isLocal ? request.agent.name : "\(request.agent.name) on \(request.agent.machine)"
+        return switch request.access {
+        case .signIn: "\(who) wants to sign in to"
+        case let .program(command): "\(who) wants to give \(programName(command)) the password for"
+        case .agentProcess: "\(who) wants the password itself for"
         }
     }
 
@@ -28,8 +31,16 @@ public enum AccessRequestCopy {
     public static let commandLabel = "Command"
 
     public static func machine(_ agent: RequestingAgent) -> String {
-        "\(agent.machine) · \(agent.address)"
+        agent.isLocal ? "This Mac" : "\(agent.machine) · \(agent.address)"
     }
+
+    /// Where a request came from, in lists: "This Mac" or the machine's name.
+    public static func origin(_ agent: RequestingAgent) -> String {
+        agent.isLocal ? "This Mac" : agent.machine
+    }
+
+    /// Under the outcome while an answer waits to reach the relay.
+    public static let answerQueued = "Saved. It reaches the relay as soon as the relay is back."
 
     public static func access(_ request: AccessRequest) -> String {
         switch request.access {
@@ -68,6 +79,8 @@ public enum AccessRequestCopy {
     public static let denyAndSend = "Deny and send"
     public static let sending = "Sending…"
     public static let endNow = "End now"
+    public static let ending = "Ending…"
+    public static let askingAgainPending = "Telling your Mac…"
     public static func askAgainUntil(_ date: Date) -> String {
         "New requests from this machine are held off until \(clock(date))."
     }
@@ -76,6 +89,7 @@ public enum AccessRequestCopy {
     // MARK: States
 
     public static let waitingForYou = "Waiting for you"
+    public static let waitingForMac = "Waiting for your Mac"
 
     public static func remaining(until deadline: Date, now: Date) -> String {
         let seconds = max(0, Int(deadline.timeIntervalSince(now).rounded(.up)))
@@ -97,12 +111,18 @@ public enum AccessRequestCopy {
             return "Approving…"
         case .sendingAnswer(.deny):
             return "Denying…"
+        case .waitingForMac(.approve, _):
+            return "You approved. Waiting for your Mac to deliver it."
+        case let .waitingForMac(.deny, reply):
+            return reply == nil ? "You denied. Waiting for your Mac to tell \(agent)."
+                : "You denied. Waiting for your Mac to pass your reply to \(agent)."
         case let .approved(.automaticRule, until):
             return "Approved by rule. \(agent) can use it until \(clock(until))."
-        case let .approved(_, until):
-            return "Approved. \(agent) can use it until \(clock(until)), or until it says it's done."
-        case let .denied(_, reply, _):
-            return reply == nil ? "Denied. \(agent) was told." : "Denied. \(agent) got your reply."
+        case let .approved(surface, until):
+            return "Approved\(elsewhere(surface)). \(agent) can use it until \(clock(until)), or until it says it's done."
+        case let .denied(surface, reply, _):
+            return reply == nil ? "Denied\(elsewhere(surface)). \(agent) was told."
+                : "Denied\(elsewhere(surface)). \(agent) got your reply."
         case .unanswered:
             return "Nobody answered, so \(agent) stopped waiting."
         case .cancelled:
@@ -123,6 +143,7 @@ public enum AccessRequestCopy {
         switch state {
         case .waitingForYou: "Waiting"
         case .sendingAnswer: "Sending"
+        case .waitingForMac: "Waiting for your Mac"
         case .approved(.automaticRule, _): "Automatic"
         case .approved: "In use"
         case .denied: "Denied"
@@ -133,6 +154,16 @@ public enum AccessRequestCopy {
         case .ended: "Ended"
         case .blockedByRule: "Blocked"
         }
+    }
+
+    /// " on your Mac" on the iPhone, " on your iPhone" on the Mac, so an
+    /// answer from the other device reads as such. Empty for this device.
+    public static func elsewhere(_ surface: ApprovalSurface) -> String {
+        #if os(iOS)
+        surface == .mac ? " on your Mac" : ""
+        #else
+        surface == .iPhone ? " on your iPhone" : ""
+        #endif
     }
 
     public static func surface(_ surface: ApprovalSurface) -> String {

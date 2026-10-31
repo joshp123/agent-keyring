@@ -22,8 +22,9 @@ fi
 
 SCENARIOS=("$@")
 if [[ ${#SCENARIOS[@]} -eq 0 ]]; then
-  SCENARIOS=(request requestForProgram requestForAgentProcess reply sending approved denied unanswered
-    home nothingWaiting inUseDetail historyDetail unreachable importNeeded importing settings)
+  SCENARIOS=(request requestForProgram requestForAgentProcess reply sending waitingForMac approved denied unanswered
+    pairing pairingConnecting pairingComparing pairingPaired pairingFailed homeNotPaired settingsNotPaired
+    home nothingWaiting notificationsOn inUseDetail historyDetail unreachable importFailed settings real)
 fi
 
 xcodebuild -project "$ROOT_DIR/AgentKeyringPhone.xcodeproj" -scheme AgentKeyringPhone \
@@ -41,7 +42,12 @@ for appearance in light dark; do
   xcrun simctl ui "$SIM" appearance "$appearance"
   for scenario in "${SCENARIOS[@]}"; do
     xcrun simctl terminate "$SIM" "$BUNDLE_ID" 2>/dev/null || true
-    xcrun simctl launch "$SIM" "$BUNDLE_ID" -designScenario "$scenario" >/dev/null
+    if [[ "$scenario" == real ]]; then
+      # The app as installed: the real phone backend, nothing paired.
+      xcrun simctl launch "$SIM" "$BUNDLE_ID" >/dev/null
+    else
+      xcrun simctl launch "$SIM" "$BUNDLE_ID" -designScenario "$scenario" >/dev/null
+    fi
     sleep 2.5
     xcrun simctl io "$SIM" screenshot "$OUT/$scenario-$appearance.png" >/dev/null 2>&1
     echo "$OUT/$scenario-$appearance.png"

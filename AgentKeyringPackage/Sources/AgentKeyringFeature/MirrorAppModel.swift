@@ -49,12 +49,13 @@ public final class MirrorAppModel {
     let merger: SnapshotMerger
     let resolver: CredentialResolver
     public let leaseStore: CredentialLeaseStore
+    @ObservationIgnored public lazy var relayApprover: RelayApprover = makeRelayApprover()
     public var automaticallyPromptForLeases = true
     var leaseMaintenance: Task<Void, Never>?
     var macApprovalTask: Task<Void, Never>?
     var isApprovingLease = false
     var attemptedMacApprovals = Set<String>()
-    var leaseLogins: [CredentialCandidate] = []
+    public internal(set) var leaseLogins: [CredentialCandidate] = []
     public let approvalRoutingSettings: ApprovalRoutingSettings
     let authorizer: any CredentialReleaseAuthorizing
     let bridge: AgentBridgeDirectory
@@ -95,6 +96,7 @@ public final class MirrorAppModel {
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
         self.accessControl.onRulesChanged = { [weak self] in
             guard let self else { return }
+            self.relayApprover.noteRulesChanged()
             do {
                 try self.leaseStore.reconcile(logins: self.leaseLogins,
                     policies: Dictionary(uniqueKeysWithValues: self.leaseLogins.map { ($0.id, self.accessControl.policy(for: $0.id)) }),
@@ -111,6 +113,7 @@ public final class MirrorAppModel {
             leaseLogins = metadataIncludingExample(importedMetadata)?.candidates ?? []
             await accessControl.refresh(fromMetadata: metadataIncludingExample(importedMetadata))
             try await refreshLeasePolicy()
+            relayApprover.start()
         } catch {
             notice = MirrorNotice(
                 kind: .error,

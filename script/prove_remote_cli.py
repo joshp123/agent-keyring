@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ parser.add_argument('--cli', type=Path, required=True)
 parser.add_argument('--fixture', type=Path, required=True)
 parser.add_argument('--cryptokit', type=Path)
 parser.add_argument('--browser', action='store_true', help='Mac mini only: exercise signed bundle sites and real Chrome')
+parser.add_argument('--interruptions', action='store_true', help='Send Go preemption signals during CLI calls, including file and tab locking')
 args = parser.parse_args()
 root = Path(tempfile.mkdtemp(prefix='keyring-remote-cli-'))
 state = root / 'receiver'
@@ -43,7 +45,26 @@ def mode(value):
     (root / 'relay' / 'mode').write_text(value)
 
 def run(*words, code=0, private=False):
-    result = subprocess.run([str(args.cli.resolve()), *words], env=env, capture_output=True, timeout=40)
+    command = [str(args.cli.resolve()), *words]
+    if args.interruptions:
+        child = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 40
+        while True:
+            try:
+                stdout, stderr = child.communicate(timeout=.005)
+                result = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= deadline:
+                    child.kill()
+                    child.communicate()
+                    raise
+                try:
+                    child.send_signal(signal.SIGURG)
+                except ProcessLookupError:
+                    pass
+    else:
+        result = subprocess.run(command, env=env, capture_output=True, timeout=40)
     if result.returncode != code:
         raise RuntimeError(f'{words[0]} returned {result.returncode}: {result.stderr.decode()}')
     if not private and b'keyring-r3-dummy-password' in result.stdout + result.stderr:
@@ -96,6 +117,8 @@ try:
         'bad-enc': 'encapsulated key',
         'bundle-login': 'opened login does not match',
         'bad-chain': 'key chain has an invalid signature',
+        'phone-chain': 'required approver role',
+        'delivery-chain': 'required approver role',
     }
     for fault, expected in failures.items():
         mode(fault)
@@ -151,6 +174,8 @@ try:
     stale = run('read', lease, '--field', 'password', code=1)
     assert stale.stdout == b'' and b'unknown approver' in stale.stderr
     print('PASS removed signer refused after key-set update')
+    if args.interruptions:
+        print('PASS CLI calls under repeated Go preemption signals, including state locks' + (' and browser tab locks' if args.browser else ''))
     print('All remote CLI checks passed' + (' with CryptoKit signatures and HPKE.' if args.cryptokit else '.'))
 finally:
     if browser:

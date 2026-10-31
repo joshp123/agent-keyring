@@ -34,8 +34,15 @@ const (
 	DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE DecisionAuthority = 2
 	// DENY with an empty reply only. Sent unsigned over the approver's pinned
 	// connection, so a plain Deny needs no biometric check. It grants nothing.
-	// A denial with a reply must be HUMAN; receivers show a reply only then.
+	// A denial with a reply must be HUMAN or PHONE with the required signatures.
 	DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION DecisionAuthority = 3
+	// Josh answered on his iPhone. Signed by the MacBook's delivery key (role
+	// MAC_DELIVERY) and carrying SignedDecision.phone_decision. Receivers check
+	// both signatures and equal request_digest, lease_id, choice, approval/
+	// decision time, not_after and reply_sha256 (RFC 0006). The outer reply must
+	// equal the phone's reply. A plain unsigned phone denial uses
+	// APPROVER_CONNECTION instead. PHONE never authorizes key or rule changes.
+	DecisionAuthority_DECISION_AUTHORITY_PHONE DecisionAuthority = 4
 )
 
 // Enum value maps for DecisionAuthority.
@@ -45,12 +52,14 @@ var (
 		1: "DECISION_AUTHORITY_HUMAN",
 		2: "DECISION_AUTHORITY_AUTOMATIC_RULE",
 		3: "DECISION_AUTHORITY_APPROVER_CONNECTION",
+		4: "DECISION_AUTHORITY_PHONE",
 	}
 	DecisionAuthority_value = map[string]int32{
 		"DECISION_AUTHORITY_UNSPECIFIED":         0,
 		"DECISION_AUTHORITY_HUMAN":               1,
 		"DECISION_AUTHORITY_AUTOMATIC_RULE":      2,
 		"DECISION_AUTHORITY_APPROVER_CONNECTION": 3,
+		"DECISION_AUTHORITY_PHONE":               4,
 	}
 )
 
@@ -130,9 +139,9 @@ func (DecisionChoice) EnumDescriptor() ([]byte, []int) {
 	return file_agentkeyring_v1_bundle_proto_rawDescGZIP(), []int{1}
 }
 
-// What the receiver gets from BeginOperation once requests travel through the
+// What the receiver gets from Deliver once requests travel through the
 // relay. Checked before opening: decision signature by a pinned approver key,
-// or a granted Automatic key, statement names this receiver and lease,
+// or the configuration's Automatic key, statement names this receiver and lease,
 // not_after in the future.
 type SealedDelivery struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
@@ -428,7 +437,10 @@ type SignedDecision struct {
 	// Upload attachment for Approvals.Decide: required on approval, absent on
 	// denial. Its ciphertext hash must match the signed statement. In a returned
 	// SealedDelivery this attachment is omitted; use SealedDelivery.bundle.
-	Bundle        *SealedBundle `protobuf:"bytes,5,opt,name=bundle,proto3" json:"bundle,omitempty"`
+	Bundle *SealedBundle `protobuf:"bytes,5,opt,name=bundle,proto3" json:"bundle,omitempty"`
+	// Required when authority is PHONE: Josh's answer from his iPhone, which the
+	// MacBook acted on. Receivers verify it as well as the MacBook's signature.
+	PhoneDecision *SignedPhoneDecision `protobuf:"bytes,6,opt,name=phone_decision,json=phoneDecision,proto3" json:"phone_decision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -498,6 +510,179 @@ func (x *SignedDecision) GetBundle() *SealedBundle {
 	return nil
 }
 
+func (x *SignedDecision) GetPhoneDecision() *SignedPhoneDecision {
+	if x != nil {
+		return x.PhoneDecision
+	}
+	return nil
+}
+
+// Signed on the iPhone after Face ID, over the exact `decision` bytes.
+// Exception: a plain DENY has an empty signature and reply; the relay accepts
+// it only from that paired phone's pinned connection. It grants nothing.
+// The MacBook, which holds the passwords, delivers only what this allows.
+type SignedPhoneDecision struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Decision      []byte                 `protobuf:"bytes,1,opt,name=decision,proto3" json:"decision,omitempty"`   // Serialized PhoneDecision.
+	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"` // DER, by the phone's approver key (role PHONE).
+	PhoneKeyId    string                 `protobuf:"bytes,3,opt,name=phone_key_id,json=phoneKeyId,proto3" json:"phone_key_id,omitempty"`
+	Reply         string                 `protobuf:"bytes,4,opt,name=reply,proto3" json:"reply,omitempty"` // Optional, bound by reply_sha256.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedPhoneDecision) Reset() {
+	*x = SignedPhoneDecision{}
+	mi := &file_agentkeyring_v1_bundle_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedPhoneDecision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedPhoneDecision) ProtoMessage() {}
+
+func (x *SignedPhoneDecision) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_bundle_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedPhoneDecision.ProtoReflect.Descriptor instead.
+func (*SignedPhoneDecision) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_bundle_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SignedPhoneDecision) GetDecision() []byte {
+	if x != nil {
+		return x.Decision
+	}
+	return nil
+}
+
+func (x *SignedPhoneDecision) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+func (x *SignedPhoneDecision) GetPhoneKeyId() string {
+	if x != nil {
+		return x.PhoneKeyId
+	}
+	return ""
+}
+
+func (x *SignedPhoneDecision) GetReply() string {
+	if x != nil {
+		return x.Reply
+	}
+	return ""
+}
+
+type PhoneDecision struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Domain             string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`                                    // Always "agentkeyring.phonedecision.v1".
+	RequestDigest      []byte                 `protobuf:"bytes,2,opt,name=request_digest,json=requestDigest,proto3" json:"request_digest,omitempty"` // Same digest as DecisionStatement.request_digest.
+	Choice             DecisionChoice         `protobuf:"varint,3,opt,name=choice,proto3,enum=agentkeyring.v1.DecisionChoice" json:"choice,omitempty"`
+	DecidedUnixSeconds int64                  `protobuf:"varint,4,opt,name=decided_unix_seconds,json=decidedUnixSeconds,proto3" json:"decided_unix_seconds,omitempty"`
+	// Approve only: at most decided + 1800. The MacBook uses this deadline
+	// unchanged; delivery later never extends it.
+	NotAfterUnixSeconds int64  `protobuf:"varint,5,opt,name=not_after_unix_seconds,json=notAfterUnixSeconds,proto3" json:"not_after_unix_seconds,omitempty"`
+	ReplySha256         []byte `protobuf:"bytes,6,opt,name=reply_sha256,json=replySha256,proto3" json:"reply_sha256,omitempty"`
+	LeaseId             string `protobuf:"bytes,7,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *PhoneDecision) Reset() {
+	*x = PhoneDecision{}
+	mi := &file_agentkeyring_v1_bundle_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PhoneDecision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PhoneDecision) ProtoMessage() {}
+
+func (x *PhoneDecision) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_bundle_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PhoneDecision.ProtoReflect.Descriptor instead.
+func (*PhoneDecision) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_bundle_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PhoneDecision) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
+}
+
+func (x *PhoneDecision) GetRequestDigest() []byte {
+	if x != nil {
+		return x.RequestDigest
+	}
+	return nil
+}
+
+func (x *PhoneDecision) GetChoice() DecisionChoice {
+	if x != nil {
+		return x.Choice
+	}
+	return DecisionChoice_DECISION_CHOICE_UNSPECIFIED
+}
+
+func (x *PhoneDecision) GetDecidedUnixSeconds() int64 {
+	if x != nil {
+		return x.DecidedUnixSeconds
+	}
+	return 0
+}
+
+func (x *PhoneDecision) GetNotAfterUnixSeconds() int64 {
+	if x != nil {
+		return x.NotAfterUnixSeconds
+	}
+	return 0
+}
+
+func (x *PhoneDecision) GetReplySha256() []byte {
+	if x != nil {
+		return x.ReplySha256
+	}
+	return nil
+}
+
+func (x *PhoneDecision) GetLeaseId() string {
+	if x != nil {
+		return x.LeaseId
+	}
+	return ""
+}
+
 type DecisionStatement struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	Domain                 string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`                                    // Always "agentkeyring.decision.v1".
@@ -512,18 +697,21 @@ type DecisionStatement struct {
 	// SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
 	ReplySha256 []byte `protobuf:"bytes,10,opt,name=reply_sha256,json=replySha256,proto3" json:"reply_sha256,omitempty"`
 	// Who decided. HUMAN: signed by an approver key after Josh's biometric check.
-	// AUTOMATIC_RULE: signed by the Automatic key named in a current
-	// SignedAutomaticGrant (relay.proto); valid only for the logins and
-	// recipients that grant lists. Receivers check the grant before opening.
-	Authority              DecisionAuthority `protobuf:"varint,11,opt,name=authority,proto3,enum=agentkeyring.v1.DecisionAuthority" json:"authority,omitempty"`
-	AutomaticGrantRevision uint64            `protobuf:"varint,12,opt,name=automatic_grant_revision,json=automaticGrantRevision,proto3" json:"automatic_grant_revision,omitempty"` // Set only for AUTOMATIC_RULE.
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// AUTOMATIC_RULE: signed by the Automatic key named in the signed
+	// Configuration (relay.proto); valid only for logins whose rule is AUTOMATIC
+	// and machines with automatic_allowed there. Receivers check it before opening.
+	Authority DecisionAuthority `protobuf:"varint,11,opt,name=authority,proto3,enum=agentkeyring.v1.DecisionAuthority" json:"authority,omitempty"`
+	// Set only for AUTOMATIC_RULE: the revision the decision was made under. It
+	// stays valid under later revisions that keep the key, the Automatic rule
+	// and the receiver's Automatic access (RFC 0005).
+	ConfigurationRevision uint64 `protobuf:"varint,12,opt,name=configuration_revision,json=configurationRevision,proto3" json:"configuration_revision,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *DecisionStatement) Reset() {
 	*x = DecisionStatement{}
-	mi := &file_agentkeyring_v1_bundle_proto_msgTypes[5]
+	mi := &file_agentkeyring_v1_bundle_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -535,7 +723,7 @@ func (x *DecisionStatement) String() string {
 func (*DecisionStatement) ProtoMessage() {}
 
 func (x *DecisionStatement) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_bundle_proto_msgTypes[5]
+	mi := &file_agentkeyring_v1_bundle_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -548,7 +736,7 @@ func (x *DecisionStatement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionStatement.ProtoReflect.Descriptor instead.
 func (*DecisionStatement) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_bundle_proto_rawDescGZIP(), []int{5}
+	return file_agentkeyring_v1_bundle_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DecisionStatement) GetDomain() string {
@@ -628,9 +816,9 @@ func (x *DecisionStatement) GetAuthority() DecisionAuthority {
 	return DecisionAuthority_DECISION_AUTHORITY_UNSPECIFIED
 }
 
-func (x *DecisionStatement) GetAutomaticGrantRevision() uint64 {
+func (x *DecisionStatement) GetConfigurationRevision() uint64 {
 	if x != nil {
-		return x.AutomaticGrantRevision
+		return x.ConfigurationRevision
 	}
 	return 0
 }
@@ -661,13 +849,28 @@ const file_agentkeyring_v1_bundle_proto_rawDesc = "" +
 	"\tTimedCode\x125\n" +
 	"\x17valid_from_unix_seconds\x18\x01 \x01(\x03R\x14validFromUnixSeconds\x127\n" +
 	"\x18valid_until_unix_seconds\x18\x02 \x01(\x03R\x15validUntilUnixSeconds\x12\x12\n" +
-	"\x04code\x18\x03 \x01(\tR\x04code\"\xc1\x01\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\"\x8e\x02\n" +
 	"\x0eSignedDecision\x12\x1c\n" +
 	"\tstatement\x18\x01 \x01(\fR\tstatement\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12&\n" +
 	"\x0fapprover_key_id\x18\x03 \x01(\tR\rapproverKeyId\x12\x14\n" +
 	"\x05reply\x18\x04 \x01(\tR\x05reply\x125\n" +
-	"\x06bundle\x18\x05 \x01(\v2\x1d.agentkeyring.v1.SealedBundleR\x06bundle\"\xb8\x04\n" +
+	"\x06bundle\x18\x05 \x01(\v2\x1d.agentkeyring.v1.SealedBundleR\x06bundle\x12K\n" +
+	"\x0ephone_decision\x18\x06 \x01(\v2$.agentkeyring.v1.SignedPhoneDecisionR\rphoneDecision\"\x87\x01\n" +
+	"\x13SignedPhoneDecision\x12\x1a\n" +
+	"\bdecision\x18\x01 \x01(\fR\bdecision\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\x12 \n" +
+	"\fphone_key_id\x18\x03 \x01(\tR\n" +
+	"phoneKeyId\x12\x14\n" +
+	"\x05reply\x18\x04 \x01(\tR\x05reply\"\xac\x02\n" +
+	"\rPhoneDecision\x12\x16\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\x12%\n" +
+	"\x0erequest_digest\x18\x02 \x01(\fR\rrequestDigest\x127\n" +
+	"\x06choice\x18\x03 \x01(\x0e2\x1f.agentkeyring.v1.DecisionChoiceR\x06choice\x120\n" +
+	"\x14decided_unix_seconds\x18\x04 \x01(\x03R\x12decidedUnixSeconds\x123\n" +
+	"\x16not_after_unix_seconds\x18\x05 \x01(\x03R\x13notAfterUnixSeconds\x12!\n" +
+	"\freply_sha256\x18\x06 \x01(\fR\vreplySha256\x12\x19\n" +
+	"\blease_id\x18\a \x01(\tR\aleaseId\"\xb5\x04\n" +
 	"\x11DecisionStatement\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12%\n" +
 	"\x0erequest_digest\x18\x02 \x01(\fR\rrequestDigest\x127\n" +
@@ -680,13 +883,14 @@ const file_agentkeyring_v1_bundle_proto_rawDesc = "" +
 	"\blease_id\x18\t \x01(\tR\aleaseId\x12!\n" +
 	"\freply_sha256\x18\n" +
 	" \x01(\fR\vreplySha256\x12@\n" +
-	"\tauthority\x18\v \x01(\x0e2\".agentkeyring.v1.DecisionAuthorityR\tauthority\x128\n" +
-	"\x18automatic_grant_revision\x18\f \x01(\x04R\x16automaticGrantRevision*\xa8\x01\n" +
+	"\tauthority\x18\v \x01(\x0e2\".agentkeyring.v1.DecisionAuthorityR\tauthority\x125\n" +
+	"\x16configuration_revision\x18\f \x01(\x04R\x15configurationRevision*\xc6\x01\n" +
 	"\x11DecisionAuthority\x12\"\n" +
 	"\x1eDECISION_AUTHORITY_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18DECISION_AUTHORITY_HUMAN\x10\x01\x12%\n" +
 	"!DECISION_AUTHORITY_AUTOMATIC_RULE\x10\x02\x12*\n" +
-	"&DECISION_AUTHORITY_APPROVER_CONNECTION\x10\x03*h\n" +
+	"&DECISION_AUTHORITY_APPROVER_CONNECTION\x10\x03\x12\x1c\n" +
+	"\x18DECISION_AUTHORITY_PHONE\x10\x04*h\n" +
 	"\x0eDecisionChoice\x12\x1f\n" +
 	"\x1bDECISION_CHOICE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17DECISION_CHOICE_APPROVE\x10\x01\x12\x18\n" +
@@ -705,29 +909,33 @@ func file_agentkeyring_v1_bundle_proto_rawDescGZIP() []byte {
 }
 
 var file_agentkeyring_v1_bundle_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agentkeyring_v1_bundle_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_agentkeyring_v1_bundle_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_agentkeyring_v1_bundle_proto_goTypes = []any{
-	(DecisionAuthority)(0),    // 0: agentkeyring.v1.DecisionAuthority
-	(DecisionChoice)(0),       // 1: agentkeyring.v1.DecisionChoice
-	(*SealedDelivery)(nil),    // 2: agentkeyring.v1.SealedDelivery
-	(*SealedBundle)(nil),      // 3: agentkeyring.v1.SealedBundle
-	(*BundleContents)(nil),    // 4: agentkeyring.v1.BundleContents
-	(*TimedCode)(nil),         // 5: agentkeyring.v1.TimedCode
-	(*SignedDecision)(nil),    // 6: agentkeyring.v1.SignedDecision
-	(*DecisionStatement)(nil), // 7: agentkeyring.v1.DecisionStatement
+	(DecisionAuthority)(0),      // 0: agentkeyring.v1.DecisionAuthority
+	(DecisionChoice)(0),         // 1: agentkeyring.v1.DecisionChoice
+	(*SealedDelivery)(nil),      // 2: agentkeyring.v1.SealedDelivery
+	(*SealedBundle)(nil),        // 3: agentkeyring.v1.SealedBundle
+	(*BundleContents)(nil),      // 4: agentkeyring.v1.BundleContents
+	(*TimedCode)(nil),           // 5: agentkeyring.v1.TimedCode
+	(*SignedDecision)(nil),      // 6: agentkeyring.v1.SignedDecision
+	(*SignedPhoneDecision)(nil), // 7: agentkeyring.v1.SignedPhoneDecision
+	(*PhoneDecision)(nil),       // 8: agentkeyring.v1.PhoneDecision
+	(*DecisionStatement)(nil),   // 9: agentkeyring.v1.DecisionStatement
 }
 var file_agentkeyring_v1_bundle_proto_depIdxs = []int32{
 	6, // 0: agentkeyring.v1.SealedDelivery.decision:type_name -> agentkeyring.v1.SignedDecision
 	3, // 1: agentkeyring.v1.SealedDelivery.bundle:type_name -> agentkeyring.v1.SealedBundle
 	5, // 2: agentkeyring.v1.BundleContents.one_time_codes:type_name -> agentkeyring.v1.TimedCode
 	3, // 3: agentkeyring.v1.SignedDecision.bundle:type_name -> agentkeyring.v1.SealedBundle
-	1, // 4: agentkeyring.v1.DecisionStatement.choice:type_name -> agentkeyring.v1.DecisionChoice
-	0, // 5: agentkeyring.v1.DecisionStatement.authority:type_name -> agentkeyring.v1.DecisionAuthority
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	7, // 4: agentkeyring.v1.SignedDecision.phone_decision:type_name -> agentkeyring.v1.SignedPhoneDecision
+	1, // 5: agentkeyring.v1.PhoneDecision.choice:type_name -> agentkeyring.v1.DecisionChoice
+	1, // 6: agentkeyring.v1.DecisionStatement.choice:type_name -> agentkeyring.v1.DecisionChoice
+	0, // 7: agentkeyring.v1.DecisionStatement.authority:type_name -> agentkeyring.v1.DecisionAuthority
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v1_bundle_proto_init() }
@@ -741,7 +949,7 @@ func file_agentkeyring_v1_bundle_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentkeyring_v1_bundle_proto_rawDesc), len(file_agentkeyring_v1_bundle_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
