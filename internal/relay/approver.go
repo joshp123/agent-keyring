@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/hex"
-	"errors"
-	"slices"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
@@ -36,7 +34,7 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	role := relaycrypto.Role(keys, keyByID(keys, p.approver))
 	if role == pb.ApproverRole_APPROVER_ROLE_PHONE {
 		switch r.Request.(type) {
-		case *pb.RelayWireRequest_WatchWork, *pb.RelayWireRequest_RegisterPush, *pb.RelayWireRequest_AnswerFromPhone, *pb.RelayWireRequest_RevokeLease, *pb.RelayWireRequest_ClearDenial, *pb.RelayWireRequest_GetEnrolmentSet:
+		case *pb.RelayWireRequest_WatchWork, *pb.RelayWireRequest_RegisterPush, *pb.RelayWireRequest_AnswerFromPhone, *pb.RelayWireRequest_RevokeLease, *pb.RelayWireRequest_ClearDenial:
 		default:
 			return nil, false, denied("This method requires a Mac approver.")
 		}
@@ -50,9 +48,22 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	case *pb.RelayWireRequest_Decide:
 		result, err := s.decide(tx, p, request.Decide)
 		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Decision{Decision: result}, EndOfStream: true}, false, err
-	case *pb.RelayWireRequest_DecideEnrolment:
-		err := s.decideEnrolment(tx, request.DecideEnrolment)
-		return enrolAck(), false, err
+	case *pb.RelayWireRequest_PublishConfiguration:
+		err := s.publishConfiguration(tx, request.PublishConfiguration)
+		return publishAck(), false, err
+	case *pb.RelayWireRequest_DismissEnrolment:
+		result, err := tx.Exec("UPDATE enrolments SET state=2 WHERE id=? AND state=0", request.DismissEnrolment.RecipientId)
+		if err == nil {
+			count, e := result.RowsAffected()
+			err = e
+			if count == 0 {
+				var state int
+				if tx.QueryRow("SELECT state FROM enrolments WHERE id=?", request.DismissEnrolment.RecipientId).Scan(&state) != nil || state != 2 {
+					err = missing("No pending enrolment to dismiss.")
+				}
+			}
+		}
+		return publishAck(), false, err
 	case *pb.RelayWireRequest_ClearDenial:
 		err := s.clearDenial(tx, request.ClearDenial)
 		if err == nil {
@@ -69,51 +80,6 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 			err = saveLease(tx, lease)
 		}
 		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Lease{Lease: lease}, EndOfStream: true}, false, err
-	case *pb.RelayWireRequest_PublishIndex:
-		err := s.publishIndex(tx, request.PublishIndex)
-		return publishAck(), false, err
-	case *pb.RelayWireRequest_GetIndex:
-		value := new(pb.SignedIndex)
-		err := get(tx, "current", "index", value)
-		if errors.Is(err, sql.ErrNoRows) {
-			err = missing("No login index published yet.")
-		}
-		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Index{Index: value}, EndOfStream: true}, false, err
-	case *pb.RelayWireRequest_PublishAutomaticGrant:
-		err := s.publishGrant(tx, request.PublishAutomaticGrant)
-		return publishAck(), false, err
-	case *pb.RelayWireRequest_ListEnrolments:
-		rows, err := tx.Query("SELECT record,decision FROM enrolments WHERE state=? ORDER BY id", int(pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE))
-		if err != nil {
-			return nil, false, err
-		}
-		result := new(pb.ListEnrolmentsResponse)
-		for rows.Next() {
-			var record, decision []byte
-			if err = rows.Scan(&record, &decision); err != nil {
-				break
-			}
-			signed := new(pb.SignedEnrolmentDecision)
-			if err = proto.Unmarshal(decision, signed); err != nil {
-				break
-			}
-			result.Enrolments = append(result.Enrolments, &pb.ApprovedEnrolment{Record: record, Decision: signed})
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
-		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Enrolments{Enrolments: result}, EndOfStream: true}, false, err
-	case *pb.RelayWireRequest_PublishEnrolmentSet:
-		err := s.publishRoster(tx, request.PublishEnrolmentSet)
-		return publishAck(), false, err
-	case *pb.RelayWireRequest_GetEnrolmentSet:
-		value := new(pb.SignedEnrolmentSet)
-		err := get(tx, "current", "roster", value)
-		if errors.Is(err, sql.ErrNoRows) {
-			err = missing("No signed machine roster published yet.")
-		}
-		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_EnrolmentSet{EnrolmentSet: value}, EndOfStream: true}, false, err
 	case *pb.RelayWireRequest_PublishApproverKeys:
 		err := s.publishKeys(tx, request.PublishApproverKeys)
 		return publishAck(), false, err
@@ -129,7 +95,7 @@ func (s *Server) approver(tx *sql.Tx, p peer, r *pb.RelayWireRequest, seen map[s
 	case *pb.RelayWireRequest_UpdateLocalPhoneLease:
 		ack, err := updateLocalPhoneLease(tx, p, request.UpdateLocalPhoneLease)
 		return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Decision{Decision: ack}, EndOfStream: true}, false, err
-	case *pb.RelayWireRequest_PublishAutomatic, *pb.RelayWireRequest_GetAutomaticKeys:
+	case *pb.RelayWireRequest_GetAutomaticKeys:
 		return nil, false, &rpcError{pb.RpcErrorCode_RPC_ERROR_CODE_UNAVAILABLE, "This method belongs to release 4 and is not available on this relay."}
 	default:
 		return nil, false, invalid("Select a supported relay method.")
@@ -139,7 +105,7 @@ func (s *Server) clearDenial(tx *sql.Tx, request *pb.ClearDenialRequest) error {
 	if request.RecipientId == "" || request.LoginId == "" {
 		return invalid("Recipient and login are required.")
 	}
-	leases, err := allLeases(tx)
+	leases, err := queryLeases(tx, "SELECT lease FROM leases WHERE recipient=?", request.RecipientId)
 	if err != nil {
 		return err
 	}
@@ -170,8 +136,17 @@ func (s *Server) work(tx *sql.Tx, p peer, seen map[string][]byte) (*pb.RelayWire
 			return nil, false, err
 		}
 		for _, lease := range leases {
-			key := "lease:" + lease.LeaseId
-			if (lease.State == pb.LeaseState_LEASE_STATE_ACTIVE || seen[key] != nil) && changed(seen, key, lease) {
+			_, raw, err := loadLease(tx, lease.LeaseId)
+			if err != nil {
+				return nil, false, err
+			}
+			digest := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", raw))
+			requestKey := "request:" + digest
+			if lease.State != pb.LeaseState_LEASE_STATE_PENDING && bytes.Equal(seen[requestKey], []byte{1}) {
+				seen[requestKey] = []byte{2}
+				return workResponse(&pb.ApproverWork{Item: &pb.ApproverWork_CancelledRequestDigestHex{CancelledRequestDigestHex: digest}}), true, nil
+			}
+			if lease.State != pb.LeaseState_LEASE_STATE_PENDING && changed(seen, "lease:"+lease.LeaseId, lease) {
 				return workResponse(&pb.ApproverWork{Item: &pb.ApproverWork_Lease{Lease: lease}}), true, nil
 			}
 		}
@@ -255,7 +230,7 @@ func (s *Server) work(tx *sql.Tx, p peer, seen map[string][]byte) (*pb.RelayWire
 	if next != nil {
 		return workResponse(next), true, nil
 	}
-	rows, err = tx.Query("SELECT request,keyset,created FROM pairings ORDER BY rowid")
+	rows, err = tx.Query("SELECT request,keyset,created FROM pairings WHERE expires IS NOT NULL ORDER BY rowid")
 	if err != nil {
 		return nil, false, err
 	}
@@ -299,15 +274,11 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		return nil, err
 	}
 	var accepted []byte
-	if err = tx.QueryRow("SELECT decision FROM leases WHERE id=?", l.LeaseId).Scan(&accepted); err != nil {
+	if err = tx.QueryRow("SELECT decision_hash FROM leases WHERE id=?", l.LeaseId).Scan(&accepted); err != nil {
 		return nil, err
 	}
 	if len(accepted) > 0 {
-		old := new(pb.SignedDecision)
-		if proto.Unmarshal(accepted, old) != nil {
-			return nil, errors.New("corrupt decision")
-		}
-		return &pb.DecisionAck{Accepted: proto.Equal(old, r), Lease: l, Detail: "The request already has a decision."}, nil
+		return &pb.DecisionAck{Accepted: bytes.Equal(accepted, relaycrypto.Hash(marshal(r))), Lease: l, Detail: "The request already has a decision."}, nil
 	}
 	if terminal(l) || l.State != pb.LeaseState_LEASE_STATE_PENDING {
 		return &pb.DecisionAck{Lease: l, Detail: "The request is no longer pending."}, nil
@@ -315,29 +286,21 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 	if !bytes.Equal(statement.RequestDigest, relaycrypto.Digest("agentkeyring.request.v1", record)) || statement.RecipientId != l.Recipient.RecipientId {
 		return nil, denied("Decision does not match the original request.")
 	}
-	var enrolBytes []byte
-	var state int
-	if err = tx.QueryRow("SELECT record,state FROM enrolments WHERE id=?", l.Recipient.RecipientId).Scan(&enrolBytes, &state); err != nil {
+	_, config, err := configuration(tx)
+	if err != nil {
 		return nil, err
 	}
-	enrol := new(pb.EnrolmentRecord)
-	if err = proto.Unmarshal(enrolBytes, enrol); err != nil {
-		return nil, err
-	}
-	if state != int(pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE) || statement.ReceiverKeyId != enrol.ReceiverKeyId {
+	enrol := machineByID(config, l.Recipient.RecipientId)
+	if enrol == nil || statement.ReceiverKeyId != enrol.ReceiverKeyId {
 		return nil, denied("Decision receiver is not currently enrolled.")
 	}
 	if !bytes.Equal(statement.ReplySha256, relaycrypto.Hash([]byte(r.Reply))) {
 		return nil, denied("Decision reply hash mismatch.")
 	}
-	idx, err := index(tx)
-	if err != nil {
-		return nil, err
-	}
-	login := loginByID(idx, l.LoginId)
+	login := loginByID(config, l.LoginId)
 	switch statement.Authority {
 	case pb.DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION:
-		if p.approver == "" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || r.Reply != "" || len(r.Signature) != 0 || r.Bundle != nil || len(statement.BundleCiphertextSha256) != 0 || statement.AutomaticGrantRevision != 0 || (r.ApproverKeyId != "" && r.ApproverKeyId != p.approver) {
+		if p.approver == "" || statement.Choice != pb.DecisionChoice_DECISION_CHOICE_DENY || r.Reply != "" || len(r.Signature) != 0 || r.Bundle != nil || len(statement.BundleCiphertextSha256) != 0 || statement.ConfigurationRevision != 0 || (r.ApproverKeyId != "" && r.ApproverKeyId != p.approver) {
 			return nil, denied("Approver connection authority permits only an unsigned denial with no reply.")
 		}
 	case pb.DecisionAuthority_DECISION_AUTHORITY_PHONE:
@@ -354,8 +317,8 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 			return nil, denied("Phone answer was not accepted for this escalation.")
 		}
 	case pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN:
-		if statement.AutomaticGrantRevision != 0 {
-			return nil, invalid("Human decision cannot name an Automatic grant.")
+		if statement.ConfigurationRevision != 0 {
+			return nil, invalid("Human decision cannot name an Automatic configuration revision.")
 		}
 		if err = verifyApprover(tx, r.ApproverKeyId, r.Statement, r.Signature, false); err != nil {
 			return nil, err
@@ -364,42 +327,16 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		if statement.Choice != pb.DecisionChoice_DECISION_CHOICE_APPROVE || login == nil || login.Rule != pb.AccessRule_ACCESS_RULE_AUTOMATIC {
 			return nil, denied("Automatic authority cannot answer this request.")
 		}
-		signed := new(pb.SignedAutomaticGrant)
-		if err = get(tx, "current", "grant", signed); err != nil {
-			return nil, denied("No current Automatic grant.")
-		}
-		grant := new(pb.AutomaticGrant)
-		if err = proto.Unmarshal(signed.Grant, grant); err != nil {
-			return nil, err
-		}
-		if verifyApprover(tx, signed.ApproverKeyId, signed.Grant, signed.Signature, true) != nil || grant.Revision != statement.AutomaticGrantRevision || grant.AutomaticKeyId != r.ApproverKeyId || !slices.Contains(grant.LoginIds, l.LoginId) || !slices.Contains(grant.RecipientIds, l.Recipient.RecipientId) {
-			return nil, denied("Automatic grant does not authorize this login and recipient.")
-		}
-		approval := new(pb.SignedEnrolmentDecision)
-		var data []byte
-		if err = tx.QueryRow("SELECT decision FROM enrolments WHERE id=?", enrol.RecipientId).Scan(&data); err != nil {
-			return nil, err
-		}
-		if err = proto.Unmarshal(data, approval); err != nil {
-			return nil, err
-		}
-		enrolStatement := new(pb.EnrolmentStatement)
-		if err = proto.Unmarshal(approval.Statement, enrolStatement); err != nil {
-			return nil, err
-		}
-		if !enrolStatement.AutomaticAllowed {
-			return nil, denied("This machine was not allowed Automatic logins.")
+		if statement.ConfigurationRevision == 0 || statement.ConfigurationRevision > config.Revision || config.AutomaticKeyId != r.ApproverKeyId || !enrol.AutomaticAllowed {
+			return nil, denied("Current configuration does not authorize this Automatic decision.")
 		}
 		_, keys, e := currentKeys(tx)
 		if e != nil {
 			return nil, e
 		}
-		delivery, e := relaycrypto.KeyForRole(keys, grant.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
-		if e != nil || !bytes.Equal(delivery, grant.AutomaticSigningPublicKey) {
-			return nil, denied("Automatic delivery key is no longer authorized.")
-		}
-		if relaycrypto.Verify(grant.AutomaticSigningPublicKey, r.Statement, r.Signature) != nil {
-			return nil, denied("Invalid Automatic signature.")
+		delivery, e := relaycrypto.KeyForRole(keys, config.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
+		if e != nil || !bytes.Equal(delivery, config.AutomaticSigningPublicKey) || relaycrypto.Verify(delivery, r.Statement, r.Signature) != nil {
+			return nil, denied("Invalid or retired Automatic signing key.")
 		}
 	default:
 		return nil, invalid("Unknown decision authority.")
@@ -425,13 +362,6 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 		l.State = pb.LeaseState_LEASE_STATE_ACTIVE
 		l.ApprovedAtUnixSeconds = statement.ApprovedAtUnixSeconds
 		l.NotAfterUnixSeconds = statement.NotAfterUnixSeconds
-		l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_MAC
-		if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_PHONE {
-			l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_IPHONE
-		}
-		if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE {
-			l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_AUTOMATIC_RULE
-		}
 	case pb.DecisionChoice_DECISION_CHOICE_DENY:
 		if r.Bundle != nil || len(statement.BundleCiphertextSha256) > 0 {
 			return nil, invalid("Denial cannot include a bundle.")
@@ -442,300 +372,155 @@ func (s *Server) decide(tx *sql.Tx, p peer, r *pb.SignedDecision) (*pb.DecisionA
 	default:
 		return nil, invalid("Unknown decision choice.")
 	}
+	l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_MAC
+	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_PHONE {
+		l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_IPHONE
+	}
+	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE {
+		l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_AUTOMATIC_RULE
+	}
+	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION {
+		_, keys, e := currentKeys(tx)
+		if e != nil {
+			return nil, e
+		}
+		if relaycrypto.Role(keys, keyByID(keys, p.approver)) == pb.ApproverRole_APPROVER_ROLE_PHONE {
+			l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_IPHONE
+		}
+	}
+	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_APPROVER_CONNECTION {
+		var accepted []byte
+		if tx.QueryRow("SELECT answer FROM phone_escalations WHERE lease=? AND owner=?", l.LeaseId, p.approver).Scan(&accepted) == nil && len(accepted) > 0 {
+			answer := new(pb.SignedPhoneDecision)
+			phone := new(pb.PhoneDecision)
+			if proto.Unmarshal(accepted, answer) == nil && proto.Unmarshal(answer.Decision, phone) == nil && phone.Choice == pb.DecisionChoice_DECISION_CHOICE_DENY && answer.Reply == "" {
+				l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_IPHONE
+			}
+		}
+	}
 	if err = saveLease(tx, l); err != nil {
 		return nil, err
 	}
 	var bundle []byte
-	if r.Bundle != nil {
+	if r.Bundle != nil && !terminal(l) {
 		bundle = marshal(r.Bundle)
 	}
-	if _, err = tx.Exec("UPDATE leases SET decision=?,bundle=? WHERE id=?", marshal(r), bundle, l.LeaseId); err != nil {
+	stored := proto.Clone(r).(*pb.SignedDecision)
+	stored.Bundle = nil
+	if terminal(l) && stored.Reply == "" {
+		stored.PhoneDecision = nil
+	}
+	if _, err = tx.Exec("UPDATE leases SET decision=?,decision_hash=?,bundle=? WHERE id=?", marshal(stored), relaycrypto.Hash(marshal(r)), bundle, l.LeaseId); err != nil {
 		return nil, err
 	}
 	return &pb.DecisionAck{Accepted: true, Lease: l}, nil
 }
-func (s *Server) decideEnrolment(tx *sql.Tx, r *pb.SignedEnrolmentDecision) error {
-	if r == nil {
-		return invalid("Missing enrolment decision.")
+func (s *Server) publishConfiguration(tx *sql.Tx, publication *pb.ConfigurationPublication) error {
+	if publication == nil || publication.Configuration == nil {
+		return invalid("Missing configuration.")
 	}
-	if err := verifyApprover(tx, r.ApproverKeyId, r.Statement, r.Signature, false); err != nil {
+	r := publication.Configuration
+	if err := verifyApprover(tx, r.ApproverKeyId, r.Configuration, r.Signature, true); err != nil {
 		return err
 	}
-	statement := new(pb.EnrolmentStatement)
-	if proto.Unmarshal(r.Statement, statement) != nil || statement.Domain != "agentkeyring.enrolment.v1" || statement.Choice < 1 || statement.Choice > 3 {
-		return invalid("Invalid enrolment statement.")
+	next := new(pb.Configuration)
+	if proto.Unmarshal(r.Configuration, next) != nil || next.Domain != "agentkeyring.configuration.v1" || next.Revision == 0 {
+		return invalid("Invalid configuration.")
 	}
-	rows, err := tx.Query("SELECT id,record,decision,state FROM enrolments")
+	if len(publication.AutomaticLogins) != 0 || len(next.SealedAutomaticLoginSha256) != 0 || len(next.RelayEncryptionPublicKey) != 0 {
+		return invalid("Relay-held Automatic logins are not available in this release.")
+	}
+	oldSigned, old, err := configuration(tx)
 	if err != nil {
 		return err
 	}
-	var id string
-	var record *pb.EnrolmentRecord
-	var previous []byte
-	var state int
-	for rows.Next() {
-		var candidateID string
-		var data, decision []byte
-		var candidateState int
-		if err = rows.Scan(&candidateID, &data, &decision, &candidateState); err != nil {
-			break
-		}
-		if bytes.Equal(statement.EnrolmentDigest, relaycrypto.Digest("agentkeyring.enrolment.v1", data)) {
-			id = candidateID
-			record = new(pb.EnrolmentRecord)
-			err = proto.Unmarshal(data, record)
-			previous = decision
-			state = candidateState
-			break
-		}
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	if record == nil {
-		return missing("Enrolment record not found.")
-	}
-	if len(previous) > 0 {
-		old := new(pb.SignedEnrolmentDecision)
-		if err = proto.Unmarshal(previous, old); err != nil {
-			return err
-		}
-		if proto.Equal(old, r) {
+	if oldSigned != nil && next.Revision <= old.Revision {
+		if bytes.Equal(oldSigned.Configuration, r.Configuration) {
 			return nil
 		}
-		if statement.Choice != pb.EnrolmentChoice_ENROLMENT_CHOICE_REVOKE || state != int(pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE) {
-			return conflict("Enrolment was already decided.")
-		}
+		return conflict("Configuration revision did not increase.")
 	}
-	if statement.DecidedUnixSeconds < record.CreatedUnixSeconds || statement.DecidedUnixSeconds > time.Now().Unix()+30 {
-		return denied("Invalid enrolment decision time.")
-	}
-	if statement.Choice != pb.EnrolmentChoice_ENROLMENT_CHOICE_REVOKE {
-		current, _, err := currentKeys(tx)
-		if err != nil {
-			return err
-		}
-		if time.Now().Unix() >= record.CreatedUnixSeconds+600 || !bytes.Equal(record.ApproverKeySetSha256, relaycrypto.Hash(current.KeySet)) {
-			return denied("Compared enrolment has expired or its key set changed.")
-		}
-	}
-	if _, err = tx.Exec("UPDATE enrolments SET state=?,decision=? WHERE id=?", int(statement.Choice), marshal(r), id); err != nil {
-		return err
-	}
-	if statement.Choice == pb.EnrolmentChoice_ENROLMENT_CHOICE_REVOKE {
-		return revokeRecipient(tx, id)
-	}
-	return nil
-}
-func revokeRecipient(tx *sql.Tx, id string) error {
-	leases, err := allLeases(tx)
+	currentSigned, keys, err := currentKeys(tx)
 	if err != nil {
 		return err
 	}
-	for _, l := range leases {
-		if l.Recipient.RecipientId == id && !terminal(l) {
-			end(l, pb.LeaseState_LEASE_STATE_REVOKED)
-			if err = saveLease(tx, l); err != nil {
-				return err
-			}
+	if next.AutomaticKeyId != "" || len(next.AutomaticSigningPublicKey) != 0 {
+		key, e := relaycrypto.KeyForRole(keys, next.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
+		if e != nil || !bytes.Equal(key, next.AutomaticSigningPublicKey) {
+			return denied("Configuration must name a current Mac delivery key.")
 		}
-	}
-	return nil
-}
-func (s *Server) publishIndex(tx *sql.Tx, r *pb.SignedIndex) error {
-	if r == nil {
-		return invalid("Missing index.")
-	}
-	if err := verifyApprover(tx, r.ApproverKeyId, r.Index, r.Signature, true); err != nil {
-		return err
-	}
-	next := new(pb.LoginIndex)
-	if proto.Unmarshal(r.Index, next) != nil || next.Revision == 0 {
-		return invalid("Invalid login index.")
-	}
-	oldSigned := new(pb.SignedIndex)
-	if err := get(tx, "current", "index", oldSigned); err == nil {
-		old := new(pb.LoginIndex)
-		if err = proto.Unmarshal(oldSigned.Index, old); err != nil {
-			return err
-		}
-		if next.Revision <= old.Revision {
-			if proto.Equal(oldSigned, r) {
-				return nil
-			}
-			return conflict("Login index revision did not increase.")
-		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
 	}
 	ids := map[string]bool{}
 	for _, login := range next.Logins {
 		if login.LoginId == "" || ids[login.LoginId] || login.Rule < 1 || login.Rule > 3 {
-			return invalid("Login index has duplicate IDs or unknown rules.")
+			return invalid("Configuration has duplicate login IDs or unknown rules.")
 		}
 		ids[login.LoginId] = true
 	}
-	old, err := index(tx)
-	if err != nil {
-		return err
-	}
-	leases, err := allLeases(tx)
-	if err != nil {
-		return err
-	}
-	for _, l := range leases {
-		if terminal(l) {
-			continue
-		}
-		before, after := loginByID(old, l.LoginId), loginByID(next, l.LoginId)
-		if after == nil || after.Rule == pb.AccessRule_ACCESS_RULE_BLOCKED || (before != nil && before.Rule == pb.AccessRule_ACCESS_RULE_AUTOMATIC && after.Rule == pb.AccessRule_ACCESS_RULE_ASK) {
-			end(l, pb.LeaseState_LEASE_STATE_REVOKED)
-			if err = saveLease(tx, l); err != nil {
-				return err
-			}
-		}
-	}
-	return put(tx, "current", "index", r)
-}
-func (s *Server) publishGrant(tx *sql.Tx, r *pb.SignedAutomaticGrant) error {
-	if r == nil {
-		return invalid("Missing Automatic grant.")
-	}
-	if err := verifyApprover(tx, r.ApproverKeyId, r.Grant, r.Signature, true); err != nil {
-		return err
-	}
-	next := new(pb.AutomaticGrant)
-	if proto.Unmarshal(r.Grant, next) != nil || next.Domain != "agentkeyring.automatic.v1" || next.Revision == 0 || next.AutomaticKeyId == "" {
-		return invalid("Invalid Automatic grant.")
-	}
-	_, keys, err := currentKeys(tx)
-	if err != nil {
-		return err
-	}
-	delivery, err := relaycrypto.KeyForRole(keys, next.AutomaticKeyId, pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY)
-	if err != nil || !bytes.Equal(delivery, next.AutomaticSigningPublicKey) {
-		return denied("Automatic grant must name a current Mac delivery key.")
-	}
-	if _, err := relaycrypto.PublicKey(next.AutomaticSigningPublicKey); err != nil {
-		return invalid("Invalid Automatic signing key.")
-	}
-	oldSigned := new(pb.SignedAutomaticGrant)
-	if err := get(tx, "current", "grant", oldSigned); err == nil {
-		old := new(pb.AutomaticGrant)
-		if err = proto.Unmarshal(oldSigned.Grant, old); err != nil {
-			return err
-		}
-		if next.Revision <= old.Revision {
-			if proto.Equal(oldSigned, r) {
-				return nil
-			}
-			return conflict("Automatic grant revision did not increase.")
-		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	leases, err := allLeases(tx)
-	if err != nil {
-		return err
-	}
-	for _, l := range leases {
-		if l.State == pb.LeaseState_LEASE_STATE_ACTIVE && l.ApprovedBy == pb.ApprovedBy_APPROVED_BY_AUTOMATIC_RULE {
-			end(l, pb.LeaseState_LEASE_STATE_REVOKED)
-			if err = saveLease(tx, l); err != nil {
-				return err
-			}
-		}
-	}
-	return put(tx, "current", "grant", r)
-}
-func (s *Server) publishRoster(tx *sql.Tx, r *pb.SignedEnrolmentSet) error {
-	if r == nil {
-		return invalid("Missing machine roster.")
-	}
-	if err := verifyApprover(tx, r.ApproverKeyId, r.EnrolmentSet, r.Signature, false); err != nil {
-		return err
-	}
-	next := new(pb.EnrolmentSet)
-	if proto.Unmarshal(r.EnrolmentSet, next) != nil || next.Domain != "agentkeyring.enrolments.v1" || next.Revision == 0 {
-		return invalid("Invalid machine roster.")
-	}
-	previous := new(pb.SignedEnrolmentSet)
-	if err := get(tx, "current", "roster", previous); err == nil {
-		old := new(pb.EnrolmentSet)
-		if err = proto.Unmarshal(previous.EnrolmentSet, old); err != nil {
-			return err
-		}
-		if next.Revision <= old.Revision {
-			if proto.Equal(previous, r) {
-				return nil
-			}
-			return conflict("Machine roster revision did not increase.")
-		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	present := map[string]bool{}
+	ids = map[string]bool{}
+	tlsKeys := map[string]bool{}
 	for _, machine := range next.Machines {
-		if machine.RecipientId == "" || present[machine.RecipientId] {
-			return invalid("Duplicate machine in roster.")
+		if machine.RecipientId == "" || ids[machine.RecipientId] || tlsKeys[string(machine.TlsPublicKey)] {
+			return invalid("Configuration has duplicate machines or TLS keys.")
 		}
-		present[machine.RecipientId] = true
-		var data, decision []byte
+		ids[machine.RecipientId] = true
+		tlsKeys[string(machine.TlsPublicKey)] = true
+		var raw, compared []byte
 		var state int
-		if err := tx.QueryRow("SELECT record,decision,state FROM enrolments WHERE id=?", machine.RecipientId).Scan(&data, &decision, &state); err != nil {
-			return denied("Roster names an unknown machine.")
+		var expires sql.NullInt64
+		if tx.QueryRow("SELECT record,keyset,state,expires FROM enrolments WHERE id=?", machine.RecipientId).Scan(&raw, &compared, &state, &expires) != nil {
+			return denied("Configuration names an unknown machine. Enrol it first.")
 		}
 		record := new(pb.EnrolmentRecord)
-		if err := proto.Unmarshal(data, record); err != nil {
+		if err = proto.Unmarshal(raw, record); err != nil {
 			return err
 		}
-		signed := new(pb.SignedEnrolmentDecision)
-		if err := proto.Unmarshal(decision, signed); err != nil {
-			return err
+		expected := &pb.EnrolledMachine{RecipientId: record.RecipientId, MachineLabel: record.MachineLabel, ClientLabel: record.ClientLabel, TailscaleNodeId: record.TailscaleNodeId, TlsPublicKey: record.TlsPublicKey, ReceiverPublicKey: record.ReceiverPublicKey, ReceiverKeyId: record.ReceiverKeyId, AutomaticAllowed: machine.AutomaticAllowed}
+		if !proto.Equal(machine, expected) || (state != 0 && state != 1) {
+			return denied("Machine does not match its enrolled keys and tailnet node.")
 		}
-		statement := new(pb.EnrolmentStatement)
-		if err := proto.Unmarshal(signed.Statement, statement); err != nil {
-			return err
+		if state == 0 {
+			set := new(pb.SignedApproverKeySet)
+			if err = proto.Unmarshal(compared, set); err != nil {
+				return err
+			}
+			comparedKeys := new(pb.ApproverKeySet)
+			if err = proto.Unmarshal(set.KeySet, comparedKeys); err != nil {
+				return err
+			}
+			if !expires.Valid || expires.Int64 <= time.Now().Unix() || !bytes.Equal(set.KeySet, currentSigned.KeySet) || !bytes.Equal(record.ApproverKeySetSha256, relaycrypto.Hash(set.KeySet)) || comparedKeys.RuleOwnerKeyId != r.ApproverKeyId || !bytes.Equal(keyByID(comparedKeys, r.ApproverKeyId).GetPublicKey(), keyByID(keys, r.ApproverKeyId).GetPublicKey()) {
+				return denied("Compared enrolment expired or its rule owner changed.")
+			}
 		}
-		expected := &pb.EnrolledMachine{RecipientId: record.RecipientId, MachineLabel: record.MachineLabel, ClientLabel: record.ClientLabel, TailscaleNodeId: record.TailscaleNodeId, TlsPublicKey: record.TlsPublicKey, ReceiverPublicKey: record.ReceiverPublicKey, ReceiverKeyId: record.ReceiverKeyId, AutomaticAllowed: statement.AutomaticAllowed}
-		if state != int(pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE) || !proto.Equal(machine, expected) {
-			return denied("Roster does not match the approved machine keys and permissions.")
+		if _, err = tx.Exec("UPDATE enrolments SET state=1,decision=?,expires=NULL WHERE id=?", marshal(r), machine.RecipientId); err != nil {
+			return err
 		}
 	}
-	rows, err := tx.Query("SELECT id FROM enrolments WHERE state=?", int(pb.EnrolmentChoice_ENROLMENT_CHOICE_APPROVE))
+	for _, machine := range old.Machines {
+		if machineByID(next, machine.RecipientId) == nil {
+			if _, err = tx.Exec("UPDATE enrolments SET state=3,expires=? WHERE id=?", time.Now().Unix()+600, machine.RecipientId); err != nil {
+				return err
+			}
+		}
+	}
+	leases, err := queryLeases(tx, "SELECT lease FROM leases WHERE deadline IS NOT NULL")
 	if err != nil {
 		return err
 	}
-	var revoked []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			break
+	for _, lease := range leases {
+		login, machine := loginByID(next, lease.LoginId), machineByID(next, lease.GetRecipient().GetRecipientId())
+		revoke := login == nil || login.Rule == pb.AccessRule_ACCESS_RULE_BLOCKED || machine == nil
+		if lease.ApprovedBy == pb.ApprovedBy_APPROVED_BY_AUTOMATIC_RULE {
+			revoke = revoke || login.GetRule() != pb.AccessRule_ACCESS_RULE_AUTOMATIC || !machine.GetAutomaticAllowed() || old.AutomaticKeyId != next.AutomaticKeyId || !bytes.Equal(old.AutomaticSigningPublicKey, next.AutomaticSigningPublicKey)
 		}
-		if !present[id] {
-			revoked = append(revoked, id)
-		}
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, id := range revoked {
-		if _, err = tx.Exec("UPDATE enrolments SET state=? WHERE id=?", int(pb.EnrolmentChoice_ENROLMENT_CHOICE_REVOKE), id); err != nil {
-			return err
-		}
-		if err = revokeRecipient(tx, id); err != nil {
-			return err
+		if revoke {
+			end(lease, pb.LeaseState_LEASE_STATE_REVOKED)
+			if err = saveLease(tx, lease); err != nil {
+				return err
+			}
 		}
 	}
-	return put(tx, "current", "roster", r)
+	return put(tx, "current", "configuration", r)
 }
 func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
 	if r == nil {
@@ -804,16 +589,29 @@ func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
 		return invalid("Pair one new approver at a time.")
 	}
 	if added == 1 {
-		signed := new(pb.SignedEnrolmentSet)
-		if err = get(tx, "current", "roster", signed); err != nil {
-			return denied("Publish the current signed machine roster before adding an approver.")
-		}
-		roster := new(pb.EnrolmentSet)
-		if err = proto.Unmarshal(signed.EnrolmentSet, roster); err != nil {
+		signed, config, err := configuration(tx)
+		if err != nil {
 			return err
 		}
-		if roster.Revision != next.EnrolmentSetRevision || !bytes.Equal(next.EnrolmentSetSha256, relaycrypto.Hash(signed.EnrolmentSet)) {
-			return denied("New approver set must bind the current signed roster.")
+		if signed == nil || config.Revision != next.ConfigurationRevision || !bytes.Equal(next.ConfigurationSha256, relaycrypto.Hash(signed.Configuration)) {
+			return denied("New approver set must bind the current signed configuration.")
+		}
+	}
+	for _, key := range next.Keys {
+		if key.Role != pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY {
+			if _, err = tx.Exec("UPDATE pairings SET expires=NULL WHERE id=?", key.KeyId); err != nil {
+				return err
+			}
+		}
+	}
+	for _, key := range old.Keys {
+		if keyByID(next, key.KeyId) == nil {
+			if _, err = tx.Exec("DELETE FROM pairings WHERE id=?", key.KeyId); err != nil {
+				return err
+			}
+			if _, err = tx.Exec("DELETE FROM objects WHERE kind='push' AND id=?", key.KeyId); err != nil {
+				return err
+			}
 		}
 	}
 	if err = put(tx, "current", "keys", r); err != nil {

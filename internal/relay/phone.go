@@ -38,6 +38,13 @@ func escalationLease(tx *sql.Tx, id string) (*pb.Lease, []byte, string, error) {
 	var owner string
 	var record, local []byte
 	err := tx.QueryRow("SELECT owner,record,local_lease FROM phone_escalations WHERE lease=?", id).Scan(&owner, &record, &local)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRow("SELECT owner,request,lease FROM local_leases WHERE id=?", id).Scan(&owner, &record, &local)
+		if errors.Is(err, sql.ErrNoRows) {
+			lease, raw, loadErr := loadLease(tx, id)
+			return lease, raw, "", loadErr
+		}
+	}
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -73,7 +80,26 @@ func escalate(tx *sql.Tx, p peer, r *pb.PhoneEscalation) error {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	idx, err := index(tx)
+	if r.LocalLease != nil {
+		var data, original []byte
+		var owner string
+		err := tx.QueryRow("SELECT lease,request,owner FROM local_leases WHERE id=?", r.LeaseId).Scan(&data, &original, &owner)
+		if err == nil {
+			if owner != p.approver || !bytes.Equal(original, r.Record) {
+				return conflict("Local lease already belongs to another request or Mac.")
+			}
+			old := new(pb.Lease)
+			if err = proto.Unmarshal(data, old); err != nil {
+				return err
+			}
+			if terminal(old) {
+				return nil
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	_, idx, err := configuration(tx)
 	if err != nil {
 		return err
 	}
@@ -107,6 +133,11 @@ func escalate(tx *sql.Tx, p peer, r *pb.PhoneEscalation) error {
 			return denied("Remote request is not identical and pending.")
 		}
 	}
+	if local != nil {
+		if err = saveLocalLease(tx, p.approver, r.Record, r.LocalLease); err != nil {
+			return err
+		}
+	}
 	_, err = tx.Exec("INSERT INTO phone_escalations VALUES(?,?,?,?,NULL)", r.LeaseId, p.approver, r.Record, local)
 	return err
 }
@@ -133,8 +164,13 @@ func answerPhone(tx *sql.Tx, p peer, r *pb.SignedPhoneDecision) (*pb.DecisionAck
 	if err != nil {
 		return nil, err
 	}
+	if lease.State != pb.LeaseState_LEASE_STATE_PENDING {
+		return &pb.DecisionAck{Lease: lease, Detail: "The request is no longer pending."}, nil
+	}
 	var accepted []byte
-	if err = tx.QueryRow("SELECT answer FROM phone_escalations WHERE lease=?", lease.LeaseId).Scan(&accepted); err != nil {
+	if err = tx.QueryRow("SELECT answer FROM phone_escalations WHERE lease=?", lease.LeaseId).Scan(&accepted); errors.Is(err, sql.ErrNoRows) {
+		return nil, missing("Request was not escalated.")
+	} else if err != nil {
 		return nil, err
 	}
 	if len(accepted) > 0 {
@@ -176,7 +212,7 @@ func updateLocalPhoneLease(tx *sql.Tx, p peer, r *pb.LocalPhoneLeaseUpdate) (*pb
 		return nil, err
 	}
 	var local []byte
-	if err = tx.QueryRow("SELECT local_lease FROM phone_escalations WHERE lease=?", old.LeaseId).Scan(&local); err != nil {
+	if err = tx.QueryRow("SELECT lease FROM local_leases WHERE id=?", old.LeaseId).Scan(&local); err != nil {
 		return nil, err
 	}
 	if owner != p.approver || local == nil || !bytes.Equal(r.RequestDigest, relaycrypto.Digest("agentkeyring.request.v1", raw)) {
@@ -206,7 +242,7 @@ func updateLocalPhoneLease(tx *sql.Tx, p peer, r *pb.LocalPhoneLeaseUpdate) (*pb
 	if next.State == pb.LeaseState_LEASE_STATE_ACTIVE && (next.ApprovedAtUnixSeconds < record.CreatedUnixSeconds || next.ApprovedAtUnixSeconds >= record.PendingUntilUnixSeconds || next.NotAfterUnixSeconds <= next.ApprovedAtUnixSeconds || next.NotAfterUnixSeconds > next.ApprovedAtUnixSeconds+1800) {
 		return nil, invalid("Invalid local approval lifetime.")
 	}
-	if _, err = tx.Exec("UPDATE phone_escalations SET local_lease=? WHERE lease=?", marshal(next), next.LeaseId); err != nil {
+	if err = saveLocalLease(tx, owner, raw, next); err != nil {
 		return nil, err
 	}
 	if terminal(next) {
@@ -221,7 +257,7 @@ func updateLocalPhoneLease(tx *sql.Tx, p peer, r *pb.LocalPhoneLeaseUpdate) (*pb
 }
 func revokeLocal(tx *sql.Tx, id string) (*pb.Lease, error) {
 	var local []byte
-	err := tx.QueryRow("SELECT local_lease FROM phone_escalations WHERE lease=?", id).Scan(&local)
+	err := tx.QueryRow("SELECT lease FROM local_leases WHERE id=?", id).Scan(&local)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && local == nil {
 		return nil, nil
 	}
@@ -238,7 +274,7 @@ func revokeLocal(tx *sql.Tx, id string) (*pb.Lease, error) {
 	return lease, err
 }
 func queueLocalClear(tx *sql.Tx, r *pb.ClearDenialRequest) error {
-	rows, err := tx.Query("SELECT lease,local_lease FROM phone_escalations WHERE local_lease IS NOT NULL")
+	rows, err := tx.Query("SELECT id,lease FROM local_leases")
 	if err != nil {
 		return err
 	}
@@ -277,7 +313,7 @@ func phoneWork(tx *sql.Tx, p peer, seen map[string][]byte) (*pb.RelayWireRespons
 		return nil, err
 	}
 	phone := relaycrypto.Role(keys, keyByID(keys, p.approver)) == pb.ApproverRole_APPROVER_ROLE_PHONE
-	rows, err := tx.Query("SELECT lease,owner,record,local_lease,answer FROM phone_escalations ORDER BY rowid")
+	rows, err := tx.Query("SELECT lease,owner,record,local_lease,answer FROM phone_escalations UNION ALL SELECT id,owner,request,lease,NULL FROM local_leases WHERE id NOT IN (SELECT lease FROM phone_escalations)")
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +343,7 @@ func phoneWork(tx *sql.Tx, p peer, seen map[string][]byte) (*pb.RelayWireRespons
 		}
 		if phone {
 			digest := hex.EncodeToString(relaycrypto.Digest("agentkeyring.request.v1", e.record))
-			requestKey := "phone-request:" + digest
+			requestKey := "request:" + digest
 			if lease.State == pb.LeaseState_LEASE_STATE_PENDING && seen[requestKey] == nil {
 				seen[requestKey] = []byte{1}
 				pending := &pb.PendingRequest{Record: e.record, SourceMacKeyId: e.owner}
@@ -348,4 +384,17 @@ func phoneWork(tx *sql.Tx, p peer, seen map[string][]byte) (*pb.RelayWireRespons
 		}
 	}
 	return nil, nil
+}
+
+func saveLocalLease(tx *sql.Tx, owner string, record []byte, lease *pb.Lease) error {
+	deadline, deleteAfter := leaseDeadlines(lease)
+	_, err := tx.Exec("INSERT INTO local_leases(id,owner,request,lease,deadline,delete_after) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET lease=excluded.lease,deadline=excluded.deadline,delete_after=excluded.delete_after", lease.LeaseId, owner, record, marshal(lease), deadline, deleteAfter)
+	if err != nil {
+		return err
+	}
+	if terminal(lease) {
+		return discardDelivery(tx, lease.LeaseId)
+	}
+	_, err = tx.Exec("UPDATE phone_escalations SET local_lease=? WHERE lease=?", marshal(lease), lease.LeaseId)
+	return err
 }

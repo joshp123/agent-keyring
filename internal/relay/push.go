@@ -29,7 +29,7 @@ type pushJob struct {
 func (s *Server) pushJobs() ([]pushJob, error) {
 	s.Store.mu.Lock()
 	defer s.Store.mu.Unlock()
-	tx, err := s.Store.db.Begin()
+	tx, before, err := s.Store.begin()
 	if err != nil {
 		return nil, err
 	}
@@ -94,10 +94,13 @@ func (s *Server) pushJobs() ([]pushJob, error) {
 			}
 		}
 	}
-	return jobs, tx.Commit()
+	return jobs, s.Store.commit(tx, before)
 }
 func (s *Server) sendPushes(ctx context.Context) {
 	for {
+		s.Store.mu.Lock()
+		wake := s.Store.changed
+		s.Store.mu.Unlock()
 		jobs, err := s.pushJobs()
 		if err != nil {
 			s.Log.Error("cannot load pending notifications", "error", err)
@@ -127,17 +130,21 @@ func (s *Server) sendPushes(ctx context.Context) {
 				s.Log.Error("cannot save notification outcome", "error", err)
 			}
 		}
+		if len(jobs) > 0 {
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Second):
+		case <-wake:
+		case <-s.pushReady:
 		}
 	}
 }
 func (s *Server) recordPush(job pushJob, result apns.Result, sendErr error) error {
 	s.Store.mu.Lock()
 	defer s.Store.mu.Unlock()
-	tx, err := s.Store.db.Begin()
+	tx, before, err := s.Store.begin()
 	if err != nil {
 		return err
 	}
@@ -164,5 +171,5 @@ func (s *Server) recordPush(job pushJob, result apns.Result, sendErr error) erro
 	if _, err = tx.Exec("UPDATE push_attempts SET sent=?,retry_at=? WHERE lease=? AND phone=?", sent, retry, job.lease, job.phone); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return s.Store.commit(tx, before)
 }

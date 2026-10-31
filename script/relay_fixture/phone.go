@@ -185,12 +185,6 @@ func (p *proof) phoneProof(binary string) {
 	defer func() { p.work.Close() }()
 	p.enrol()
 	initialKeys := p.keys
-	machine := &pb.EnrolledMachine{RecipientId: p.enrolled.RecipientId, MachineLabel: p.enrolled.MachineLabel,
-		ClientLabel: p.enrolled.ClientLabel, TailscaleNodeId: p.enrolled.TailscaleNodeId, TlsPublicKey: p.enrolled.TlsPublicKey,
-		ReceiverPublicKey: p.enrolled.ReceiverPublicKey, ReceiverKeyId: p.enrolled.ReceiverKeyId}
-	rosterBytes := encoded(&pb.EnrolmentSet{Domain: "agentkeyring.enrolments.v1", Revision: 1, Machines: []*pb.EnrolledMachine{machine}})
-	roster := &pb.SignedEnrolmentSet{EnrolmentSet: rosterBytes, Signature: sign(p.signer, rosterBytes), ApproverKeyId: p.key.KeyId}
-	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishEnrolmentSet{PublishEnrolmentSet: roster}})).GetPublish().Accepted, "roster refused")
 	directory := filepath.Join(p.directory, "phone")
 	must(os.MkdirAll(directory, 0700))
 	certificate := identity(directory)
@@ -218,7 +212,7 @@ func (p *proof) phoneProof(binary string) {
 	deliverySigner := signingKey()
 	deliveryKey := &pb.ApproverKey{KeyId: hex.EncodeToString(relaycrypto.Hash(public(deliverySigner))), PublicKey: public(deliverySigner), Label: "Fixture Mac delivery", Role: pb.ApproverRole_APPROVER_ROLE_MAC_DELIVERY}
 	nextBytes := encoded(&pb.ApproverKeySet{Domain: "agentkeyring.approvers.v1", Revision: 2, Keys: []*pb.ApproverKey{p.key, pair.Key, deliveryKey},
-		RuleOwnerKeyId: p.key.KeyId, EnrolmentSetRevision: 1, EnrolmentSetSha256: relaycrypto.Hash(rosterBytes), PairingTranscriptSha256: relaycrypto.Hash(transcript)})
+		RuleOwnerKeyId: p.key.KeyId, ConfigurationRevision: p.configuration.Revision, ConfigurationSha256: relaycrypto.Hash(p.signedConfiguration.Configuration), PairingTranscriptSha256: relaycrypto.Hash(transcript)})
 	next := &pb.SignedApproverKeySet{KeySet: nextBytes, Signature: sign(p.signer, nextBytes), SignerKeyId: p.key.KeyId}
 	phone.stop()
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}})).GetPublish().Accepted, "phone addition refused")
@@ -305,7 +299,7 @@ func (p *proof) phoneProof(binary string) {
 	decision := p.deliverPhone(record, answer, deliverySigner)
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: decision}})).GetDecision().Accepted, "Mac delivery refused")
 	phone.wait("requests", id+"=approved")
-	begin := good(p.client.call(beginRequest(lease.LeaseId, "phone-operation"))).GetClient().GetBeginOperation()
+	begin := good(p.client.call(deliverRequest(lease.LeaseId, "phone-operation"))).GetClient().GetDelivery()
 	require(begin.GetSealed() != nil && proto.Equal(begin.GetSealed().Decision.PhoneDecision, answer), "delivery lost the phone signature")
 	values, _, err := receiver.OpenValues(context.Background(), lease, begin)
 	must(err)
@@ -314,7 +308,7 @@ func (p *proof) phoneProof(binary string) {
 	fmt.Println("PASS real Go receiver advanced the pinned key set, verified Swift phone consent and opened the Mac's dummy login")
 
 	require(strings.Contains(phone.command("end\t"+id), "ended"), "phone remote revocation failed")
-	require(p.client.call(beginRequest(lease.LeaseId, "after-phone-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "revoked lease delivered")
+	require(p.client.call(deliverRequest(lease.LeaseId, "after-phone-revoke")).GetError().Code == pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, "revoked lease delivered")
 
 	for index, reply := range []string{"", "Use the test account instead"} {
 		l := good(p.client.call(leaseRequest("deny-"+strconv.Itoa(index), "deny-task-"+strconv.Itoa(index), p.enrolled.RecipientId))).GetClient().GetLease()
