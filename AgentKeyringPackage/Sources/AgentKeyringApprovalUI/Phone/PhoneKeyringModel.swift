@@ -71,7 +71,7 @@ public protocol PhoneKeyringBackend: AnyObject {
     func openPasswordsForImport()
     func setAskPhoneAfter(_ delay: Duration) async throws
     /// Live transcript of Josh speaking, until the stream is cancelled.
-    func dictation() -> AsyncStream<String>
+    func dictation() -> AsyncThrowingStream<String, any Error>
 }
 
 @MainActor
@@ -83,15 +83,20 @@ public final class PhoneKeyringModel {
     public private(set) var settings: PhoneSettings
     public private(set) var pairing: PhonePairingState
     /// The request on screen. Set when Josh taps a notification.
-    public var presentedRequestID: String?
+    public var presentedRequestID: String? {
+        didSet { if oldValue != presentedRequestID { stopDictation() } }
+    }
     public var isShowingSettings = false
     public var replyDraft = ""
-    public var isReplying = false
+    public var isReplying = false {
+        didSet { if !isReplying { stopDictation() } }
+    }
     public private(set) var isListening = false
     public private(set) var failure: String?
 
     private let backend: any PhoneKeyringBackend
     private var dictationTask: Task<Void, Never>?
+    private var dictationID: UUID?
 
     public init(backend: any PhoneKeyringBackend, initial: PhoneKeyringSnapshot) {
         self.backend = backend
@@ -104,6 +109,7 @@ public final class PhoneKeyringModel {
 
     /// Follows the backend until the view goes away. Call from `.task`.
     public func followUpdates() async {
+        defer { stopDictation() }
         for await snapshot in backend.updates() {
             apply(snapshot)
         }
@@ -123,6 +129,9 @@ public final class PhoneKeyringModel {
         connection = snapshot.connection
         settings = snapshot.settings
         pairing = snapshot.pairing
+        if let presentedRequestID, request(id: presentedRequestID)?.state.isWaitingForYou != true {
+            stopDictation()
+        }
     }
 
     public var waiting: [AccessRequest] { requests.filter(\.state.isWaitingForYou) }
@@ -182,18 +191,30 @@ public final class PhoneKeyringModel {
 
     public func toggleDictation() {
         if isListening { stopDictation(); return }
+        failure = nil
         isListening = true
+        let id = UUID()
+        dictationID = id
         let start = replyDraft.isEmpty ? "" : replyDraft + " "
         let stream = backend.dictation()
         dictationTask = Task { [weak self] in
-            for await transcript in stream {
-                self?.replyDraft = start + transcript
+            do {
+                for try await transcript in stream {
+                    guard !Task.isCancelled, self?.dictationID == id else { break }
+                    self?.replyDraft = start + transcript
+                }
+            } catch {
+                if !Task.isCancelled, self?.dictationID == id { self?.failure = error.localizedDescription }
             }
+            guard self?.dictationID == id else { return }
             self?.isListening = false
+            self?.dictationID = nil
+            self?.dictationTask = nil
         }
     }
 
     public func stopDictation() {
+        dictationID = nil
         dictationTask?.cancel()
         dictationTask = nil
         isListening = false

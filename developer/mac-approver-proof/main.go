@@ -54,6 +54,9 @@ type owner struct {
 	leases                 map[string][]string
 	queued, authorizations int
 	saved                  map[string]string
+	pairVisible            bool
+	pendingApprovers       string
+	expectedFailure        string
 }
 
 func startOwner(binary, root string) *owner {
@@ -84,6 +87,9 @@ func (p *owner) wait(predicate func([]string) bool) []string {
 		case e, ok := <-p.events:
 			require(ok, "Swift approver exited")
 			switch e[0] {
+			case "SETUP":
+				p.pairVisible = e[1] == "true"
+				p.pendingApprovers = e[2]
 			case "PAIR":
 				p.pair = e[1]
 			case "ENROL":
@@ -98,7 +104,9 @@ func (p *owner) wait(predicate func([]string) bool) []string {
 			case "SAVED":
 				p.saved[e[1]] = e[2]
 			case "FAILED":
-				panic(strings.Join(e, " "))
+				if e[1] != p.expectedFailure {
+					panic(strings.Join(e, " "))
+				}
 			}
 			if predicate(e) {
 				return e
@@ -114,6 +122,13 @@ func (p *owner) action(parts ...string) {
 	p.wait(func(e []string) bool { return e[0] == "DONE" && e[1] == parts[0] })
 }
 func (p *owner) status() { p.action("status") }
+func (p *owner) expectFailure(parts ...string) []string {
+	p.expectedFailure = parts[0]
+	defer func() { p.expectedFailure = "" }()
+	_, err := fmt.Fprintln(p.input, strings.Join(parts, "\t"))
+	must(err)
+	return p.wait(func(e []string) bool { return e[0] == "FAILED" && e[1] == parts[0] })
+}
 func (p *owner) stop() {
 	if p.command != nil {
 		p.input.Close()
@@ -416,6 +431,7 @@ func (p *proof) run() {
 }
 func main() {
 	p := new(proof)
+	pairingControls := flag.Bool("pairing-controls", false, "short pairing cancellation and resolved-address proof")
 	flag.StringVar(&p.root, "root", "", "fresh dummy root inside the app container")
 	flag.StringVar(&p.fixture, "approver", "", "signed mini-only Swift fixture executable")
 	flag.StringVar(&p.relayBinary, "relay", "", "relay executable")
@@ -424,5 +440,9 @@ func main() {
 	flag.Parse()
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	p.run()
+	if *pairingControls {
+		p.runPairingControls()
+	} else {
+		p.run()
+	}
 }

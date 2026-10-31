@@ -61,9 +61,18 @@ struct PhoneFixture {
             do {
                 switch parts[0] {
                 case "pair":
-                    try await approver.beginPairing(endpoint: RelayEndpoint(host: "127.0.0.1", port: UInt16(parts[1])!, allowsLoopbackForProof: true))
+                    try await approver.beginPairing(endpoint: RelayEndpoint(host: "localhost", port: UInt16(parts[1])!, allowsLoopbackForProof: true))
                     if case let .comparing(fingerprint, _) = approver.pairing { output("PAIR\t" + fingerprint) }
                     else { output("PAIRED") }
+                case "probe-non-tailnet":
+                    let connection = RelayConnection(endpoint: try RelayEndpoint(host: "localhost", port: UInt16(parts[1])!), identity: identity, pin: nil)
+                    defer { connection.cancel() }
+                    do {
+                        try await connection.open()
+                        output("ERROR\tNon-tailnet connection was permitted")
+                    } catch let error as RelayFailure where error.code == .permissionDenied {
+                        output("REFUSED\tNon-tailnet peer rejected before sending a request")
+                    }
                 case "status":
                     output("STATUS\t\(approver.pairing)\t\(try approver.requests().count)")
                 case "requests":
