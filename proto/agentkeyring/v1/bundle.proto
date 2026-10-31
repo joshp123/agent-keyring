@@ -74,6 +74,18 @@ message DecisionStatement {
   string lease_id = 9;
   // SHA-256 of SignedDecision.reply encoded as UTF-8, including an empty reply.
   bytes reply_sha256 = 10;
+  // Who decided. HUMAN: signed by an approver key after Josh's biometric check.
+  // AUTOMATIC_RULE: signed by the Automatic key named in a current
+  // SignedAutomaticGrant (relay.proto); valid only for the logins and
+  // recipients that grant lists. Receivers check the grant before opening.
+  DecisionAuthority authority = 11;
+  uint64 automatic_grant_revision = 12;  // Set only for AUTOMATIC_RULE.
+}
+
+enum DecisionAuthority {
+  DECISION_AUTHORITY_UNSPECIFIED = 0;
+  DECISION_AUTHORITY_HUMAN = 1;
+  DECISION_AUTHORITY_AUTOMATIC_RULE = 2;
 }
 
 enum DecisionChoice {
