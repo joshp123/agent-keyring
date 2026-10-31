@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--root", required=True, type=Path)
     args = parser.parse_args()
     server = LoginServer(8443, example_login=True)
+    server.example_login = False  # Keep the known fixture, enable the code step.
     server.totp_secret = b"12345678901234567890"
     threading.Thread(target=server.serve_forever, daemon=True).start()
     environment = dict(os.environ, AGENT_KEYRING_SOCKET=str(args.root / "agent.sock"))
