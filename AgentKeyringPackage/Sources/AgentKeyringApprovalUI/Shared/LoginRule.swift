@@ -56,6 +56,10 @@ public enum RulesCopy {
     /// first relay setup. The rules on this Mac are fine and in use.
     public static let confirmForOtherMachinesBody =
         "Your other machines don't have these logins and rules yet. Confirm to send them. Nothing is wrong, and agents on this Mac already use them."
+    /// RFC 0008: the mini keeps Automatic logins so it can serve them while
+    /// the MacBook is shut. Added to the band once a relay is paired.
+    public static let automaticStoredOnMini =
+        "Automatic passwords and two-factor secrets are also stored on your Mac mini. Anyone with admin access to it, including agents, can read them."
     public static let otherMachinesNeedRulesTitle = "Confirm rules for other machines"
     public static let otherMachinesNeedRulesDetail = "They can't use your latest logins and rules yet."
     public static let confirmButton = "Confirm with Touch ID"

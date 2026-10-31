@@ -174,9 +174,13 @@ public final class AccessRulesBackend: LoginRulesBackend {
             controller.hasLoadedLoginList else { return nil }
         func count(_ rule: LoginRule) -> Int { rows.lazy.filter { $0.rule == rule }.count }
         var summary = "\(rows.count) logins: \(count(.ask)) Ask, \(count(.automatic)) Automatic, \(count(.blocked)) Blocked."
+        let miniStoresAutomatic = model.relayApprover.update.connection != .notPaired && count(.automatic) > 0
+        func withMiniCopy(_ explanation: String) -> String {
+            miniStoresAutomatic ? explanation + " " + RulesCopy.automaticStoredOnMini : explanation
+        }
         if !controller.needsConfirmation {
             return RulesConfirmation(summary: summary, savedRulesWereUnreadable: false,
-                explanation: RulesCopy.confirmForOtherMachinesBody)
+                explanation: withMiniCopy(RulesCopy.confirmForOtherMachinesBody))
         }
         if controller.pendingPhoneBlockCount > 0 {
             summary += " \(controller.pendingPhoneBlockCount) blocked from your iPhone."
@@ -190,7 +194,7 @@ public final class AccessRulesBackend: LoginRulesBackend {
             explanation += " Your previously paired iPhone must be paired again."
         }
         return RulesConfirmation(summary: summary,
-            savedRulesWereUnreadable: controller.confirmationResetsUnreadableRules, explanation: explanation)
+            savedRulesWereUnreadable: controller.confirmationResetsUnreadableRules, explanation: withMiniCopy(explanation))
     }
 }
 
