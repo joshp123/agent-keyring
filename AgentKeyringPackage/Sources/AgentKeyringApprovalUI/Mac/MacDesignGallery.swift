@@ -14,11 +14,20 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case approvalApproved
     case approvalDenied
     case approvalAgentProcess
+    case approvalLocal
+    case approvalQueued
     case menuBar
     case menuBarQuiet
     case rules
     case rulesAll
     case rulesConfirm
+    case enrolment
+    case enrolmentIPhone
+    case enrolmentJoined
+    case machines
+    case machinesSetUp
+    case machinesComparing
+    case menuBarRemote
 }
 
 @MainActor
@@ -39,12 +48,19 @@ public final class MacDesignGallery {
     public func show() {
         showBackdrop()
         switch screen {
-        case .approval, .approvalReply, .approvalApproved, .approvalDenied, .approvalAgentProcess:
+        case .approval, .approvalReply, .approvalApproved, .approvalDenied, .approvalAgentProcess, .approvalLocal,
+            .approvalQueued:
             showApprovalPanel()
         case .menuBar, .menuBarQuiet:
             showMenuBar()
         case .rules, .rulesAll, .rulesConfirm:
             showRules()
+        case .enrolment, .enrolmentIPhone, .enrolmentJoined:
+            showEnrolment()
+        case .machines, .machinesSetUp, .machinesComparing:
+            showMachines()
+        case .menuBarRemote:
+            showMenuBar()
         }
     }
 
@@ -65,10 +81,14 @@ public final class MacDesignGallery {
     private func showApprovalPanel() {
         let waiting = requests?.filter(\.state.isWaitingForYou).sorted { $0.askedAt < $1.askedAt }
         var request = waiting?.first ?? (screen == .approvalAgentProcess
-            ? DesignExamples.agentProcessRead(now: now) : DesignExamples.githubSignIn(now: now))
+            ? DesignExamples.agentProcessRead(now: now)
+            : screen == .approvalLocal ? DesignExamples.localSignIn(now: now) : DesignExamples.githubSignIn(now: now))
         let reply = "Don't sign in. The invoice is already in my email, use that."
         switch screen {
         case .approvalApproved: request.state = .approved(by: .mac, until: now.addingTimeInterval(30 * 60))
+        case .approvalQueued:
+            request.state = .approved(by: .mac, until: now.addingTimeInterval(30 * 60))
+            request.answerIsQueued = true
         case .approvalDenied:
             request.state = .denied(by: .mac, reply: reply, askAgainAfter: now.addingTimeInterval(30 * 60))
         default: break
@@ -86,13 +106,63 @@ public final class MacDesignGallery {
         if let panel = NSApplication.shared.windows.last(where: { $0 is NSPanel }) { report(panel) }
     }
 
+    private func showEnrolment() {
+        let enrolment = screen == .enrolmentIPhone
+            ? DesignExamples.iPhoneEnrolment(now: now) : DesignExamples.machineEnrolment(now: now)
+        let model = MacEnrolmentModel(enrolment: enrolment, backend: DesignMacBackend(enrolment: enrolment))
+        let controller = MacApprovalPanelController()
+        controller.show(model)
+        retained.append(controller)
+        if screen == .enrolmentJoined { Task { await model.approve() } }
+        if let panel = NSApplication.shared.windows.last(where: { $0 is NSPanel }) { report(panel) }
+    }
+
+    private func showMachines() {
+        let snapshot: MachinesSnapshot = switch screen {
+        case .machinesSetUp: MachinesSnapshot(relay: .notSetUp)
+        case .machinesComparing:
+            MachinesSnapshot(relay: .comparing(code: "C3E1 5A90 7B24 0DF8 916C 2E47 B8A3 54D0", address: "mac-mini:17443"))
+        default:
+            MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0, rulesNotSent: true,
+                waiting: [DesignExamples.machineEnrolment(now: now)],
+                machines: [
+                    EnrolledMachine(id: "m-mini", name: "Mac mini", tailnetNode: "mac-mini", automaticAllowed: true),
+                    EnrolledMachine(id: "m-linux", name: "build server", tailnetNode: "mini-server-1",
+                        automaticAllowed: false),
+                ],
+                approvers: [ApproverDevice(name: "MacBook Pro", isPhone: false),
+                    ApproverDevice(name: "Josh's iPhone", isPhone: true)])
+        }
+        let model = MacMachinesModel(backend: DesignMacBackend(machines: snapshot), initial: snapshot)
+        if screen == .machinesSetUp { model.addressDraft = "mac-mini:17443" }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines ? 640 : 420),
+            styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.title = "Machines"
+        window.contentView = NSHostingView(rootView: MacMachinesView(model: model))
+        if let visible = NSScreen.main?.visibleFrame {
+            window.setFrameTopLeftPoint(NSPoint(x: visible.minX + 24, y: visible.maxY - 24))
+        }
+        window.level = .floating
+        window.makeKeyAndOrderFront(nil)
+        windows.append(window)
+        report(window)
+    }
+
     private func showMenuBar() {
         let history = DesignExamples.history(now: now)
         let requests = self.requests ?? (screen == .menuBarQuiet
             ? history.filter { !$0.state.isInUse }
             : [DesignExamples.githubSignIn(now: now)] + history)
-        let snapshot = MacMenuBarSnapshot(requests: requests,
-            passwords: ImportedPasswords(count: 542, importedAt: now.addingTimeInterval(-3 * 86_400)))
+        var snapshot = MacMenuBarSnapshot(requests: requests,
+            passwords: ImportedPasswords(count: 542, importedAt: now.addingTimeInterval(-3 * 86_400)),
+            relay: .connected(address: "mac-mini:17443"))
+        if screen == .menuBarRemote {
+            snapshot.requests = [DesignExamples.githubSignIn(now: now), DesignExamples.localSignIn(now: now)]
+                + history.filter { !$0.state.isInUse }
+            snapshot.enrolments = [DesignExamples.machineEnrolment(now: now)]
+            snapshot.relay = .offline(address: "mac-mini:17443")
+            snapshot.queuedAnswers = 1
+        }
         let model = MacMenuBarModel(backend: DesignMacBackend(menuBar: snapshot), initial: snapshot)
         // Drawn like a menu bar extra window: material, rounded, under the bar.
         let panel = KeyringPanel.floating(MacMenuBarView(model: model))
@@ -149,16 +219,45 @@ public final class MacDesignGallery {
 /// Answers instantly and pretends everything works. Each stream yields the
 /// one snapshot it was given.
 @MainActor
-final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesBackend {
+final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesBackend, MacEnrolmentBackend,
+    MacMachinesBackend {
+    private var machines: MachinesSnapshot?
+
+    convenience init(machines: MachinesSnapshot) {
+        self.init()
+        self.machines = machines
+    }
+
+    func updates() -> AsyncStream<MachinesSnapshot> { Self.once(machines) }
+    func connect(host: String, port: UInt16) async throws {}
+    func confirmRelay(comparedCode: String) async throws {}
+    func cancelRelaySetup() throws {}
+    func sendRules() async throws {}
+    func remove(machineID: String) async throws {}
+
     private let request: AccessRequest?
     private let menuBar: MacMenuBarSnapshot?
     private let rules: LoginRulesSnapshot?
+    private let enrolment: DeviceEnrolment?
 
-    init(request: AccessRequest? = nil, menuBar: MacMenuBarSnapshot? = nil, rules: LoginRulesSnapshot? = nil) {
+    init(request: AccessRequest? = nil, menuBar: MacMenuBarSnapshot? = nil, rules: LoginRulesSnapshot? = nil,
+        enrolment: DeviceEnrolment? = nil) {
         self.request = request
         self.menuBar = menuBar
         self.rules = rules
+        self.enrolment = enrolment
     }
+
+    func updates(enrolmentID: String) -> AsyncStream<DeviceEnrolment?> {
+        let enrolment = enrolment
+        return AsyncStream { continuation in
+            continuation.yield(enrolment)
+            continuation.finish()
+        }
+    }
+
+    func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool) async throws {}
+    func refuse(enrolmentID: String) async throws {}
 
     private static func once<Value: Sendable>(_ value: Value?) -> AsyncStream<Value> {
         AsyncStream { continuation in

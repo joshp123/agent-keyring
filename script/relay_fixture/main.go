@@ -121,6 +121,7 @@ type proof struct {
 	process                         *exec.Cmd
 	approver, client                wireClient
 	signer                          *ecdsa.PrivateKey
+	receiver                        *ecdsa.PrivateKey
 	key                             *pb.ApproverKey
 	keys                            *pb.SignedApproverKeySet
 	enrolled                        *pb.EnrolmentRecord
@@ -155,7 +156,7 @@ func (p *proof) pair() {
 	p.signer = signingKey()
 	spki, err := relaycrypto.CertificateSPKI(p.approver.certificate)
 	must(err)
-	p.key = &pb.ApproverKey{KeyId: "fixture-approver", Label: "Fixture approver", PublicKey: public(p.signer), TlsPublicKey: spki}
+	p.key = &pb.ApproverKey{KeyId: hex.EncodeToString(relaycrypto.Hash(public(p.signer))), Label: "Fixture approver", PublicKey: public(p.signer), TlsPublicKey: spki}
 	pair := &pb.PairApproverRequest{Key: p.key, TlsPublicKey: spki}
 	conn := p.approver.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PairApprover{PairApprover: pair}})
 	defer conn.Close()
@@ -210,6 +211,7 @@ func (p *proof) enrol(automatic ...bool) {
 	spki, err := relaycrypto.CertificateSPKI(p.client.certificate)
 	must(err)
 	receiver := signingKey()
+	p.receiver = receiver
 	r := &pb.RelayWireRequest{Request: &pb.RelayWireRequest_Enrol{Enrol: &pb.EnrolRequest{MachineLabel: "Fixture machine", ClientLabel: "Fixture agent", TlsPublicKey: spki, ReceiverPublicKey: public(receiver)}}}
 	conn := p.client.open(r)
 	defer conn.Close()
@@ -376,7 +378,8 @@ func (p *proof) local() {
 	fmt.Println("PASS human denial suppression, Blocked policy and machine revocation")
 }
 func main() {
-	mode := flag.String("mode", "proof", "proof, tailnet, or machine")
+	mode := flag.String("mode", "proof", "proof, phone, tailnet, or machine")
+	phoneBinary := flag.String("phone-binary", "", "Swift phone fixture for phone mode")
 	address := flag.String("address", "127.0.0.1:0", "Relay address")
 	directory := flag.String("state", "", "Fixture directory")
 	relayBinary := flag.String("relay", "", "Relay binary for loopback proof")
@@ -395,7 +398,7 @@ func main() {
 		return
 	}
 	p := &proof{address: *address, directory: *directory, relayBinary: *relayBinary}
-	if *mode == "proof" {
+	if *mode == "proof" || *mode == "phone" {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		must(err)
 		p.address = listener.Addr().String()
@@ -407,7 +410,9 @@ func main() {
 		p.serveApprover()
 		return
 	}
-	if *mode == "tailnet" {
+	if *mode == "phone" {
+		p.phoneProof(*phoneBinary)
+	} else if *mode == "tailnet" {
 		p.tailnet(*linuxHost, *remoteBinary)
 	} else {
 		p.local()

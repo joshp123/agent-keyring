@@ -25,8 +25,9 @@ public enum LeaseScreenMapping {
             agent: RequestingAgent(
                 name: agentName,
                 machine: machine,
-                address: requester?.networkAddress ?? "this Mac",
-                folder: requester?.workingDirectory.map(abbreviatingHome)),
+                address: requester?.networkAddress ?? "",
+                folder: requester?.workingDirectory.map(abbreviatingHome),
+                isLocal: true),
             access: access(lease),
             agentReason: lease.reason,
             askedAt: date(lease.requestedAtUnixSeconds),

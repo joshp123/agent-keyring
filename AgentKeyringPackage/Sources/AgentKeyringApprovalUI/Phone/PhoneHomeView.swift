@@ -9,15 +9,18 @@ import SwiftUI
 public struct PhoneRootView: View {
     @Bindable var model: PhoneKeyringModel
     @State private var path: [String]
+    @State private var isPairing: Bool
 
-    public init(model: PhoneKeyringModel, openRequestID: String? = nil) {
+    public init(model: PhoneKeyringModel, openRequestID: String? = nil,
+        openPairing: Bool = PhoneDesignScenario.fromLaunchArguments()?.opensPairing ?? false) {
         self.model = model
         _path = State(initialValue: openRequestID.map { [$0] } ?? [])
+        _isPairing = State(initialValue: openPairing)
     }
 
     public var body: some View {
         NavigationStack(path: $path) {
-            PhoneHomeView(model: model)
+            PhoneHomeView(model: model) { isPairing = true }
                 .navigationDestination(for: String.self) { id in
                     if let request = model.request(id: id) {
                         PhoneRequestDetailView(model: model, request: request)
@@ -32,6 +35,17 @@ public struct PhoneRootView: View {
         .sheet(isPresented: $model.isShowingSettings) {
             PhoneSettingsView(model: model)
         }
+        .sheet(isPresented: $isPairing) {
+            NavigationStack {
+                PhonePairingView(model: model)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close", systemImage: "xmark") { isPairing = false }
+                        }
+                    }
+            }
+            .tint(KeyringColour.signal)
+        }
     }
 
     private var presentedRequest: Binding<AccessRequest?> {
@@ -44,6 +58,7 @@ public struct PhoneRootView: View {
 
 struct PhoneHomeView: View {
     let model: PhoneKeyringModel
+    let pair: () -> Void
 
     var body: some View {
         Group {
@@ -63,7 +78,9 @@ struct PhoneHomeView: View {
 
     private var requestList: some View {
         List {
-            if case let .unreachable(service, since) = model.connection {
+            if model.pairing != .paired {
+                Section { NotPairedNotice(pair: pair) }
+            } else if case let .unreachable(service, since) = model.connection {
                 Section { UnreachableNotice(service: service, since: since) }
             }
 
@@ -217,6 +234,25 @@ private struct NothingWaiting: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 12)
+        .listRowSeparator(.hidden)
+    }
+}
+
+private struct NotPairedNotice: View {
+    let pair: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "link")
+                .foregroundStyle(KeyringColour.signal)
+            Text(SetupCopy.notPairedNotice)
+                .font(.subheadline)
+            Spacer()
+            Button(SetupCopy.pairButton, action: pair)
+                .buttonStyle(.borderedProminent)
+                .tint(KeyringColour.signal)
+        }
+        .padding(.vertical, 6)
         .listRowSeparator(.hidden)
     }
 }

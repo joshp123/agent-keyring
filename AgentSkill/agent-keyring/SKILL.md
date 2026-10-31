@@ -53,6 +53,16 @@ agent-keyring exec "$lease" --field password
 
 **Two-factor codes.** Authenticator codes saved with the login come from Agent Keyring (`--code` when filling, `--field one-time-code` otherwise). Codes sent by SMS or email come from your own tools for the user's messages or mail, if you have them. Get them yourself rather than asking the user.
 
+## On a machine without the app
+
+Agent Keyring runs on the user's Mac. On another machine on their tailnet, such as a server or a cloud VM, enrol it once:
+
+```sh
+agent-keyring enrol --name "build server" --relay mac-mini:17443
+```
+
+Ask the user for the relay address if you don't know it. `enrol` prints a code of eight groups and waits. Show the user that code and ask them to compare every group with the one Agent Keyring shows on their Mac before they approve there: the comparison is what proves this machine reached their own Agent Keyring, so it needs their eyes. After that, every command above works the same. Answers can take longer, because the user may approve on their iPhone.
+
 ## When it doesn't work
 
 - **Denied.** The user said no, and any reply they wrote is printed. Do what it says, or stop and ask them.

@@ -147,7 +147,7 @@ message Lease {
   // (zero until then). For display; deadlines come from the fields above.
   int64 requested_at_unix_seconds = 17;
   int64 ended_at_unix_seconds = 18;
-  // Relay only: the HUMAN-signed denial and the exact request bytes, with no
+  // Relay only: a HUMAN or fully verified PHONE denial and exact request bytes, with no
   // bundle, when a remote denial carries a reply. The receiver verifies them
   // like an approval before it shows `reply`; otherwise it shows no reply.
   SealedDelivery signed_denial = 19;

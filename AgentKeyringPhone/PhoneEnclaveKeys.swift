@@ -1,3 +1,4 @@
+import AgentKeyringPhoneApprover
 import CryptoKit
 import Foundation
 import LocalAuthentication
@@ -5,7 +6,7 @@ import Security
 
 /// These are device-wrapped Secure Enclave representations, not exportable private keys.
 /// The v2 signing account deliberately never opens the old biometric-free v1 key.
-struct PhoneEnclaveKeys {
+struct PhoneEnclaveKeys: PhoneApproverKeys {
     private let service = "com.joshpalmer.AgentKeyring.Phone.enclave"
 
     func vaultPublicKey(createIfMissing: Bool) throws -> P256.KeyAgreement.PublicKey {
@@ -18,6 +19,22 @@ struct PhoneEnclaveKeys {
         let context = LAContext()
         context.interactionNotAllowed = true
         return try signingKey(context: context, createIfMissing: true).publicKey.x963Representation
+    }
+
+    func authorize(_ context: LAContext, reason: String) async throws {
+        context.localizedReason = reason
+        context.localizedFallbackTitle = ""
+        context.touchIDAuthenticationAllowableReuseDuration = 0
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error), context.biometryType == .faceID else {
+            throw error ?? PhoneEnclaveFailure.enclaveUnavailable
+        }
+        guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) else {
+            throw LAError(.authenticationFailed)
+        }
+        // Both key operations must use this action's authentication. If iOS cannot
+        // reuse it, fail rather than silently present a second Face ID prompt.
+        context.interactionNotAllowed = true
     }
 
     /// R4.3 shares this context between opening and signing for one explicit approval.

@@ -18,6 +18,8 @@ public struct AccessRequest: Identifiable, Hashable, Sendable {
     public var state: AccessRequestState
     /// What happened, oldest first. Shown on the history detail screen.
     public var events: [AccessRequestEvent]
+    /// Josh answered, but the answer is still waiting to reach the relay.
+    public var answerIsQueued: Bool
 
     public init(
         id: String,
@@ -27,7 +29,8 @@ public struct AccessRequest: Identifiable, Hashable, Sendable {
         agentReason: String,
         askedAt: Date,
         state: AccessRequestState,
-        events: [AccessRequestEvent] = []
+        events: [AccessRequestEvent] = [],
+        answerIsQueued: Bool = false
     ) {
         self.id = id
         self.login = login
@@ -37,6 +40,7 @@ public struct AccessRequest: Identifiable, Hashable, Sendable {
         self.askedAt = askedAt
         self.state = state
         self.events = events
+        self.answerIsQueued = answerIsQueued
     }
 }
 
@@ -60,12 +64,16 @@ public struct RequestingAgent: Hashable, Sendable {
     public var address: String
     /// Claim: the folder the agent says it is working in.
     public var folder: String?
+    /// Fact: the request came from the device showing it (a local agent on
+    /// this Mac), not through the relay from another machine.
+    public var isLocal: Bool
 
-    public init(name: String, machine: String, address: String, folder: String? = nil) {
+    public init(name: String, machine: String, address: String, folder: String? = nil, isLocal: Bool = false) {
         self.name = name
         self.machine = machine
         self.address = address
         self.folder = folder
+        self.isLocal = isLocal
     }
 }
 
