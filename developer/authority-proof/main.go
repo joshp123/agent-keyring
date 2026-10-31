@@ -254,10 +254,15 @@ func writeSlots(slots [2][]byte) {
 	}
 }
 func rejectDiskState(message string) {
-	bad := exec.Command(authority, root)
-	bad.Stdin = bytes.NewReader(nil)
-	out, err := bad.CombinedOutput()
-	check(err != nil && !bytes.Contains(out, []byte("Ready:")), message)
+	start()
+	// Recovery keeps discovery available while all task access is stopped.
+	found := rpc(&pb.WireRequest{Request: &pb.WireRequest_FindLogins{FindLogins: &pb.FindLoginsRequest{Query: "example.com"}}})
+	check(len(found.GetLogins().GetLogins()) == 1, "history recovery preserves login discovery")
+	request := &pb.RequestLeaseRequest{LoginId: "00000000-0000-0000-0000-000000000301", TaskRef: "untrusted-history", RequestId: "untrusted-history", Purpose: pb.Purpose_PURPOSE_AGENT_PROCESS, Reason: "Check history recovery refuses access"}
+	refused := rpc(&pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: request}})
+	check(refused.GetError().GetCode() == pb.RpcErrorCode_RPC_ERROR_CODE_UNAVAILABLE, message)
+	check(bytes.Contains([]byte(refused.GetError().GetMessage()), []byte("Reset task history")), "history recovery names the owner action")
+	stop()
 }
 func proveCLI() {
 	run := func(args ...string) []byte {
