@@ -46,13 +46,15 @@ The fingerprint is computed locally over the exact transcript bytes. The phone
 does not offer first-authority bootstrap. It activates only after verifying a
 previous approver's signature, the compared transcript, its own signing/TLS
 keys, the unchanged rule owner, and the exact signed roster revision/hash bound
-by the Mac. A saved comparison survives interruption. Reopening pairing can
+by the Mac. A saved comparison survives interruption. Foregrounding resumes an unfinished
+attempt automatically; explicitly cancelling disables that resume. Reopening pairing can
 verify an already accepted addition from that receipt; an APPROVED flag alone
 cannot establish trust. Cancel closes the attempt and does not activate it.
 
 ## Approval and recovery
 
-Each foreground connection walks the signed approver chain, verifies the signed
+A completed import reconnects so requests previously missing a local login are
+replayed. Each foreground connection walks the signed approver chain, verifies the signed
 machine roster, fetches the owner's index through GetIndex, and opens WatchWork.
 WatchWork replays pending requests and active remote leases before updates.
 The phone uses its own login metadata and the signed roster's receiver keys.

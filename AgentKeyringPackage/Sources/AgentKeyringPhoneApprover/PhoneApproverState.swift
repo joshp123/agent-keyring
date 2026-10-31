@@ -37,6 +37,7 @@ struct PhoneApproverState: Codable {
     var endpoint: RelayEndpoint?
     var relaySPKI: Data?
     var pendingPair: PhonePendingPair?
+    var pairingWanted = false
     var keySet: Data?
     var roster: Data?
     var requests: [String: PhoneSavedRequest] = [:]
@@ -56,6 +57,7 @@ public final class PhoneRelayApprover {
     var workTask: Task<Void, Never>?
     var retryTask: Task<Void, Never>?
     var pairingAttempt = UUID()
+    var pairingStartTask: Task<Void, Never>?
     var pairTask: Task<Void, Never>?
     var pairConnection: RelayConnection?
     var authorityTask: Task<Void, Error>?

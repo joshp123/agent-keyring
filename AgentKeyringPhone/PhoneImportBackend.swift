@@ -106,6 +106,8 @@ final class PhoneImportBackend: PhoneKeyringBackend {
             let status = try await destination.receive(batch)
             phoneImportLogger.notice("Saved encrypted phone vault with \(status.loginCount, privacy: .public) items")
             snapshot.passwords = .imported(count: status.loginCount, at: status.importedAt)
+            // A request for a previously missing login must be replayed after import.
+            approver.reconnect()
         } catch {
             logFailure(error, stage: "Phone vault import")
             snapshot.passwords = .importFailed("Passwords transferred \(receipt.loginCount) logins, but the phone vault could not save them. Existing saved logins are unchanged. Start the export again in Passwords.")
