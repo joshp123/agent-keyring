@@ -1,7 +1,6 @@
 import AgentKeyringProtocol
 import Foundation
 import Network
-import OSLog
 import Security
 import SwiftProtobuf
 

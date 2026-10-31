@@ -113,9 +113,11 @@ public final class RelayApprover {
     var workTask: Task<Void, Never>?
     var outboxTask: Task<Void, Never>?
     var pairConnection: RelayConnection?
-    var deciding = Set<String>()
+    var sessionTask: Task<Void, Never>?
     var isFlushing = false
     var authorizationID: String?
+    var rulesCheckGeneration = 0
+    var rulesAreBeingChecked = false
     @ObservationIgnored var observers: [UUID: AsyncStream<RelayApproverUpdate>.Continuation] = [:]
 
     public init(persistence: LeasePersistence = LeasePersistence(directory: RelayApprover.defaultDirectory(),
@@ -198,7 +200,7 @@ public final class RelayApprover {
                 let lease = try? Agentkeyring_V1_Lease(serializedBytes: saved.lease),
                 let machine = try? Agentkeyring_V1_EnrolledMachine(serializedBytes: saved.machine) else { return nil }
             return RelayRemoteRequest(id: digest, record: record, lease: lease, loginTitle: saved.title,
-                account: saved.account, machine: machine, answerIsQueued: saved.decision != nil && !saved.acknowledged)
+                account: saved.account, machine: machine, answerIsQueued: state.outbox.contains { $0.id == "decision:" + digest })
         }.sorted { $0.lease.requestedAtUnixSeconds > $1.lease.requestedAtUnixSeconds }
         queuedAnswerCount = state.outbox.count
         for observer in observers.values { observer.yield(update) }

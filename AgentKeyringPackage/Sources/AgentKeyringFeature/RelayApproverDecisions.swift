@@ -72,7 +72,12 @@ extension RelayApprover {
     func decideByRule(_ id: String) async throws {
         guard let saved = state.requests[id], saved.decision == nil,
             try Agentkeyring_V1_Lease(serializedBytes: saved.lease).state == .pending else { return }
-        let vault = try await credentialSource()
+        try decideByRule(id, vault: await credentialSource())
+    }
+
+    func decideByRule(_ id: String, vault: RelayApproverVault) throws {
+        guard let saved = state.requests[id], saved.decision == nil,
+            try Agentkeyring_V1_Lease(serializedBytes: saved.lease).state == .pending else { return }
         let scope = try pendingScope(id, vault: vault)
         if vault.policies[scope.item.id, default: .ask] == .block
             || state.suppressions[suppressionKey(scope.record), default: 0] > Self.now {
@@ -101,16 +106,15 @@ extension RelayApprover {
         try load()
         if state.requests[id]?.decision != nil { await flushOutbox(); return }
         let hasReply = !reply.isEmpty
+        defer { if hasReply { authorizationID = nil } }
         if hasReply {
             try claimAuthorization("reply:" + id)
-            defer { authorizationID = nil }
-            _ = try pendingScope(id, vault: await credentialSource())
+            _ = try pendingRequest(id)
             try await keys().1.authorize(context: context, reason: "Send your reply when denying this Agent Keyring request")
         }
-        let vault = try await credentialSource()
         try Task.checkCancellation()
         try queueDecision(id, approve: false, reply: reply, automatic: false, context: hasReply ? context : nil,
-            vault: vault, suppress: true)
+            vault: nil, suppress: true)
         await flushOutbox()
     }
 
@@ -134,8 +138,7 @@ extension RelayApprover {
         await flushOutbox()
     }
 
-    func pendingScope(_ id: String, vault: RelayApproverVault) throws -> (record: Agentkeyring_V1_RequestRecord, item: MirrorItem,
-        machine: Agentkeyring_V1_EnrolledMachine, policy: CredentialAccessPolicy) {
+    func pendingRequest(_ id: String) throws -> (record: Agentkeyring_V1_RequestRecord, machine: Agentkeyring_V1_EnrolledMachine) {
         guard let saved = state.requests[id] else { throw LeaseFailure(.notFound, "No such remote request.") }
         let lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
         guard saved.decision == nil, lease.state == .pending, lease.pendingUntilUnixSeconds > Self.now else {
@@ -146,8 +149,16 @@ extension RelayApprover {
             throw LeaseFailure(.permissionDenied, "This machine is no longer enrolled with the same receiving key.")
         }
         let machine = try Agentkeyring_V1_EnrolledMachine(serializedBytes: machineBytes)
-        guard machine.receiverKeyID == RelayCrypto.keyID(machine.receiverPublicKey),
-            let item = vault.generation.items.first(where: { $0.id == UUID(uuidString: record.loginID) }) else {
+        guard machine.receiverKeyID == RelayCrypto.keyID(machine.receiverPublicKey) else {
+            throw LeaseFailure(.permissionDenied, "The receiving key changed.")
+        }
+        return (record, machine)
+    }
+
+    func pendingScope(_ id: String, vault: RelayApproverVault) throws -> (record: Agentkeyring_V1_RequestRecord, item: MirrorItem,
+        machine: Agentkeyring_V1_EnrolledMachine, policy: CredentialAccessPolicy) {
+        let (record, machine) = try pendingRequest(id)
+        guard let item = vault.generation.items.first(where: { $0.id == UUID(uuidString: record.loginID) }) else {
             throw LeaseFailure(.notFound, "The login or its enrolled receiving key is no longer available.")
         }
         return (record, item, machine, vault.policies[item.id, default: .ask])
@@ -168,11 +179,12 @@ extension RelayApprover {
     }
 
     func queueDecision(_ id: String, approve: Bool, reply: String, automatic: Bool, context: LAContext?,
-        vault: RelayApproverVault, suppress: Bool) throws {
+        vault: RelayApproverVault?, suppress: Bool) throws {
         if state.requests[id]?.decision != nil { return }
-        let scope = try pendingScope(id, vault: vault)
+        let scope = try pendingRequest(id)
         if approve {
-            guard scope.policy != .block, !lockState.isLocked else { throw LeaseFailure(.permissionDenied, "This login is blocked or the Mac is locked.") }
+            guard let vault, let item = vault.generation.items.first(where: { $0.id == UUID(uuidString: scope.record.loginID) }),
+                vault.policies[item.id, default: .ask] != .block, !lockState.isLocked else { throw LeaseFailure(.permissionDenied, "This login is blocked or the Mac is locked.") }
             if automatic {
                 guard canApproveAutomatically(scope.record, vault: vault) else { throw LeaseFailure(.permissionDenied, "The current rules do not grant Automatic access to this machine.") }
             }
@@ -197,7 +209,8 @@ extension RelayApprover {
         decision.approverKeyID = RelayCrypto.keyID(automatic ? signer.automaticPublicKey : signer.publicKey)
         decision.reply = reply
         if approve {
-            let contents = try RelayCrypto.bundle(item: scope.item, leaseID: scope.record.leaseID,
+            let item = try pendingScope(id, vault: vault!).item
+            let contents = try RelayCrypto.bundle(item: item, leaseID: scope.record.leaseID,
                 approvedAt: statement.approvedAtUnixSeconds, notAfter: statement.notAfterUnixSeconds)
             decision.bundle = try RelayCrypto.seal(contents, receiverKey: scope.machine.receiverPublicKey, requestDigest: statement.requestDigest)
             statement.bundleCiphertextSha256 = RelayCrypto.hash(decision.bundle.ciphertext)
@@ -208,6 +221,12 @@ extension RelayApprover {
         }
         var next = state
         next.requests[id]!.decision = try decision.serializedData()
+        if approve {
+            var lease = try Agentkeyring_V1_Lease(serializedBytes: next.requests[id]!.lease)
+            lease.approvedAtUnixSeconds = statement.approvedAtUnixSeconds
+            lease.notAfterUnixSeconds = statement.notAfterUnixSeconds
+            next.requests[id]!.lease = try lease.serializedData()
+        }
         if suppress { next.suppressions[suppressionKey(scope.record)] = Self.now + 1800 }
         var command = Agentkeyring_V1_RelayWireRequest()
         command.decide = decision

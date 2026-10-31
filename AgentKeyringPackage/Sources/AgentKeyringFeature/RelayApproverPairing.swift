@@ -139,6 +139,8 @@ extension RelayApprover {
         // One biometric approval covers the roster, index and grant publication.
         try preparePublication(next: &next, vault: vault, context: context)
         try commit(next)
+        needsPublication = false
+        publish()
         await flushOutbox()
     }
 

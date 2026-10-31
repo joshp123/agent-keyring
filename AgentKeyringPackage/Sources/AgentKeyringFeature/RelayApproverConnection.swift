@@ -20,6 +20,14 @@ extension RelayApprover {
                 }
             }
         }
+        if state.keySet != nil, sessionTask == nil {
+            sessionTask = Task { [weak self, lockState] in
+                for await _ in lockState.changes {
+                    guard let self, !Task.isCancelled else { return }
+                    if !lockState.isLocked { self.noteRulesChanged() }
+                }
+            }
+        }
         guard state.keySet != nil, workTask == nil else { return }
         noteRulesChanged()
         workTask = Task { [weak self] in
@@ -56,6 +64,7 @@ extension RelayApprover {
     public func stop() {
         workTask?.cancel(); workTask = nil
         outboxTask?.cancel(); outboxTask = nil
+        sessionTask?.cancel(); sessionTask = nil
         pairConnection?.cancel(); pairConnection = nil
         connectionState = .stopped
         publish()
@@ -70,6 +79,8 @@ extension RelayApprover {
         while let queued = state.outbox.first, !Task.isCancelled {
             do {
                 let command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: queued.bytes)
+                if case let .decide(decision) = command.request, rulesAreBeingChecked,
+                    try Agentkeyring_V1_DecisionStatement(serializedBytes: decision.statement).choice == .approve { return }
                 let client: RelayTransport
                 if case .confirmPairing = command.request, let pending = state.pairing {
                     client = RelayTransport(endpoint: pending.endpoint, identity: try keys().0, pin: pending.relaySPKI)
@@ -106,6 +117,14 @@ extension RelayApprover {
                         // It cannot authorize a delivery or invite a second touch.
                         let terminal: [Agentkeyring_V1_LeaseState] = [.denied, .expired, .released, .revoked, .cancelled, .unanswered]
                         lease.state = terminal.contains(ack.lease.state) ? ack.lease.state : .cancelled
+                        lease.endedAtUnixSeconds = Self.now
+                    }
+                    let terminal: [Agentkeyring_V1_LeaseState] = [.denied, .expired, .released, .revoked, .cancelled, .unanswered]
+                    if terminal.contains(ack.lease.state) {
+                        lease.state = ack.lease.state
+                        lease.endedAtUnixSeconds = Self.now
+                    } else if lease.state == .active && lease.notAfterUnixSeconds <= Self.now {
+                        lease.state = .expired
                         lease.endedAtUnixSeconds = Self.now
                     }
                     saved.lease = try lease.serializedData()
@@ -145,9 +164,7 @@ extension RelayApprover {
                 next.requests[id]!.lease = try lease.serializedData()
                 try commit(next)
             }
-        case .pairing:
-            // Adding the iPhone is release 4. A relay message cannot add a key.
-            break
+        case .pairing, .lease: break
         case nil: throw LeaseFailure(.invalidArgument, "The relay sent empty work.")
         }
     }

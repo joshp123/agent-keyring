@@ -19,21 +19,35 @@ extension RelayApprover {
         publish()
         start()
         await flushOutbox()
+        await retryPendingRules()
     }
 
     public func noteRulesChanged() {
         guard loaded, state.keySet != nil else { return }
         needsPublication = true
+        rulesAreBeingChecked = true
+        rulesCheckGeneration += 1
+        let generation = rulesCheckGeneration
         publish()
         Task { [weak self] in
             guard let self else { return }
             do {
                 let vault = try await self.credentialSource()
+                guard generation == self.rulesCheckGeneration else { return }
                 self.needsPublication = self.state.publicationDigest != self.publicationDigest(vault, machines: self.state.machines)
                 try self.reconcileLocalRequests(vault)
+                self.rulesAreBeingChecked = false
+                for id in self.state.requests.keys.sorted() { try self.decideByRule(id, vault: vault) }
                 self.publish()
             } catch { self.report(error) }
         }
+    }
+
+    func retryPendingRules() async {
+        do {
+            let vault = try await credentialSource()
+            for id in state.requests.keys.sorted() { try decideByRule(id, vault: vault) }
+        } catch { report(error) }
     }
 
     func publicationDigest(_ vault: RelayApproverVault, machines: [String: Data]) -> Data {
