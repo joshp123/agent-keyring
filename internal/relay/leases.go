@@ -233,7 +233,6 @@ func (s *Server) requestLease(tx *sql.Tx, p peer, r *pb.RequestLeaseRequest) (*p
 	for _, old := range leases {
 		if old.State == pb.LeaseState_LEASE_STATE_DENIED && old.Recipient.RecipientId == p.recipient && old.LoginId == r.LoginId && old.RetryNotBeforeUnixSeconds > now {
 			end(l, pb.LeaseState_LEASE_STATE_DENIED)
-			l.Reply = old.Reply
 			l.RetryNotBeforeUnixSeconds = old.RetryNotBeforeUnixSeconds
 		}
 	}
@@ -424,4 +423,36 @@ func (s *Server) finish(tx *sql.Tx, p peer, r *pb.FinishOperationRequest) (*pb.O
 	}
 	_, err = tx.Exec("UPDATE operations SET record=? WHERE lease=? AND retry=?", marshal(next), r.LeaseId, key)
 	return next, err
+}
+
+// attachSignedDenial reconstructs the response envelope from the exact durable
+// upload. It is never a new signature or a proof for a suppression-created lease.
+func attachSignedDenial(tx *sql.Tx, lease *pb.Lease) error {
+	if lease == nil {
+		return nil
+	}
+	lease.SignedDenial = nil
+	if lease.State != pb.LeaseState_LEASE_STATE_DENIED || lease.Reply == "" {
+		return nil
+	}
+	var decisionBytes, record []byte
+	if err := tx.QueryRow("SELECT decision,request FROM leases WHERE id=?", lease.LeaseId).Scan(&decisionBytes, &record); err != nil {
+		return err
+	}
+	if len(decisionBytes) == 0 {
+		return nil
+	}
+	decision := new(pb.SignedDecision)
+	if err := proto.Unmarshal(decisionBytes, decision); err != nil {
+		return err
+	}
+	statement := new(pb.DecisionStatement)
+	if err := proto.Unmarshal(decision.Statement, statement); err != nil {
+		return err
+	}
+	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_HUMAN && statement.Choice == pb.DecisionChoice_DECISION_CHOICE_DENY && decision.Reply != "" {
+		decision.Bundle = nil
+		lease.SignedDenial = &pb.SealedDelivery{Decision: decision, RequestRecord: record}
+	}
+	return nil
 }
