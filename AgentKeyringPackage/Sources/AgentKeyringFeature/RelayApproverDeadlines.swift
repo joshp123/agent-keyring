@@ -33,7 +33,8 @@ extension RelayApproverState {
             if lease.state.isTerminal { deadlines.append(lease.endedAtUnixSeconds + 7 * 86400) }
             else if lease.state == .active { deadlines.append(lease.notAfterUnixSeconds) }
             else {
-                deadlines.append(saved.decision == nil ? lease.pendingUntilUnixSeconds : max(lease.pendingUntilUnixSeconds, lease.notAfterUnixSeconds))
+                deadlines.append(saved.decision == nil || lease.notAfterUnixSeconds == 0
+                    ? lease.pendingUntilUnixSeconds : lease.notAfterUnixSeconds)
                 if canEscalate(loginID: lease.loginID), saved.decision == nil, saved.escalated != true, let due = saved.phoneDue { deadlines.append(due) }
             }
         }
