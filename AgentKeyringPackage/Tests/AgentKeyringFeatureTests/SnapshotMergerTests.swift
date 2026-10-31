@@ -80,6 +80,23 @@ struct SnapshotMergerTests {
         try await checkRuleAfterImport(first, second, expectedPolicy: .ask)
     }
 
+    @Test("Swapping password and code account names cannot inherit Automatic")
+    func changedCredentialAccounts() async throws {
+        func login(passwordAccount: String, codeAccount: String) -> MirrorItem {
+            let source = item(index: 1)
+            return MirrorItem(id: source.id, sourceIdentity: source.sourceIdentity, title: source.title,
+                origins: source.origins, credentials: [.password(userName: passwordAccount, password: "synthetic"),
+                    .totp(secret: Data("synthetic-seed".utf8), period: 30, digits: 6,
+                        userName: codeAccount, algorithm: .sha1, issuer: nil)])
+        }
+        let first = try merger().merge(previous: nil,
+            importBatch: batch(items: [login(passwordAccount: "first-account", codeAccount: "second-account")]))
+        let second = try merger().merge(previous: first,
+            importBatch: batch(items: [login(passwordAccount: "second-account", codeAccount: "first-account")]))
+        #expect(second.items[0].id != first.items[0].id)
+        try await checkRuleAfterImport(first, second, expectedPolicy: .ask)
+    }
+
     @Test("Changing a secondary destination on the same Apple item cannot inherit Automatic")
     func changedSecondaryDestination() async throws {
         let first = try merger().merge(previous: nil, importBatch: batch(items: [item(index: 1,

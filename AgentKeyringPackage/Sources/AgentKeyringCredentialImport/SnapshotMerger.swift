@@ -66,13 +66,18 @@ public struct SnapshotMerger: Sendable {
         }
     }
 
-    private func accountNames(in item: MirrorItem) -> Set<String> {
-        Set(item.credentials.compactMap { credential -> String? in
+    private enum CredentialAccount: Hashable {
+        case password(String?)
+        case totp(String?)
+    }
+
+    private func accountNames(in item: MirrorItem) -> Set<CredentialAccount> {
+        Set(item.credentials.map { credential in
             switch credential {
             case let .password(userName, _):
-                userName
+                CredentialAccount.password(userName)
             case let .totp(_, _, _, userName, _, _):
-                userName
+                CredentialAccount.totp(userName)
             }
         })
     }
