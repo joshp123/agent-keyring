@@ -7,6 +7,7 @@ let package = Package(
     name: "AgentKeyringFeature",
     platforms: [.macOS(.v26), .iOS(.v17)],
     products: [
+        .library(name: "AgentKeyringProtocol", targets: ["AgentKeyringProtocol"]),
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
         .library(name: "AgentKeyringFillerSupport", targets: ["AgentKeyringFillerSupport"]),
         .library(name: "AgentKeyringTestSupport", targets: ["AgentKeyringTestSupport"]),
@@ -25,9 +26,11 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.6.2")
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.6.2"),
+        .package(url: "https://github.com/apple/swift-protobuf.git", exact: "1.38.1")
     ],
     targets: [
+        .target(name: "AgentKeyringProtocol", dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")]),
         .target(name: "AgentKeyringApprovalCore"),
         .target(name: "AgentKeyringFillerSupport"),
         // Targets are the basic building blocks of a package, defining a module or a test suite.
