@@ -25,11 +25,13 @@ public struct PhoneSettings: Hashable, Sendable {
     public var askPhoneAfter: Duration
     public var notificationsAllowed: Bool
     public var keyFingerprint: String
+    public var rulesUpdatedAt: Date?
 
-    public init(askPhoneAfter: Duration, notificationsAllowed: Bool, keyFingerprint: String) {
+    public init(askPhoneAfter: Duration, notificationsAllowed: Bool, keyFingerprint: String, rulesUpdatedAt: Date? = nil) {
         self.askPhoneAfter = askPhoneAfter
         self.notificationsAllowed = notificationsAllowed
         self.keyFingerprint = keyFingerprint
+        self.rulesUpdatedAt = rulesUpdatedAt
     }
 }
 
