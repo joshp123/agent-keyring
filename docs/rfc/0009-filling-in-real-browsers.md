@@ -41,52 +41,104 @@ to us.
 
 ## The design
 
-**An Agent Keyring browser extension does the filling.** It runs in the
-browser Josh or the agent is already using. The agent keeps using the same
-command:
+**An Agent Keyring browser extension does the filling**, in the browser Josh or
+the agent is already using. Agents drive it with three commands, all from a
+shell, so it works for any agent that can run a command, whatever browser tool
+it also has:
 
 ```sh
-agent-keyring fill "$lease" [--username CSS] [--password CSS] [--code CSS] [--submit CSS]
+agent-keyring tabs                       # browsers and tabs with the extension; no secrets
+agent-keyring fields --tab TAB           # the tab's visible fields and buttons, with selectors; no values
+agent-keyring fill "$lease" --tab TAB \
+  --username CSS --password CSS --submit CSS     # or --code CSS for a two-factor step
 ```
 
-1. The CLI passes the request to the extension's native messaging host: a
-   small helper the browser starts for the extension, which is the same
-   `agent-keyring` binary.
-2. The host gets the value from Agent Keyring (the Mac app, or the relay as in
-   RFC 0005) under the lease, exactly as today.
-3. It hands the value to the extension over the browser's native messaging
-   pipe. Nothing passes through the CLI's output or the agent's chat.
-4. The extension finds the tab: the one tab on the lease's saved site. If
-   there are several, the agent passes `--url`. It reads the page's real
-   address from the browser itself, so it cannot be fooled about which site it
-   is on.
-5. It fills the fields the agent named. Without selectors it uses the page's
-   own `autocomplete` markings (username, current-password, one-time-code).
-   It submits, clears what it typed if the page doesn't move on, and returns
-   submitted, uncertain or a reason it refused.
+The model reads `fields` (or its own browser tools) and chooses the fields and
+the submit control. Code only fills what it was told to.
 
-The lease, approvals, 30-minute limit, retries and receiver records are
-unchanged (RFC 0004). The extension plus its host is the "receiver".
+### How the command reaches the browser
+
+Chrome starts the extension's native messaging host and owns its pipe, so a
+separate command cannot write to that pipe. Instead:
+
+1. When a browser profile with the extension starts, the extension opens a
+   long-lived native messaging port. Chrome starts the host, the same
+   `agent-keyring` binary, and keeps it running while the port is open; an
+   open port also keeps the extension's background worker alive.
+2. The host listens on its own Unix socket in Agent Keyring's private state
+   directory, readable only by Josh's user. The socket is named by a random ID
+   the extension keeps for that browser profile, so each profile has its own
+   host and socket.
+3. `tabs` connects to every socket in that directory. Each host answers with
+   its browser's name, its profile ID and its open tabs. A socket that doesn't
+   answer belongs to a browser that has quit, and is deleted.
+4. `fill` and `fields` connect to the socket named in the tab target.
+
+A browser restart starts a new host on the same profile ID; tab IDs change, so
+the agent runs `tabs` again. Several profiles, or several browsers, are simply
+several sockets.
+
+**Safari** works the same way to the agent, but Safari lets an extension talk
+only to its own containing app, so the Agent Keyring Mac app plays the host:
+the Safari extension keeps a port open to the app, and the app answers `tabs`,
+`fields` and `fill` for Safari tabs on its existing local socket.
+
+### Which tab, and what is checked
+
+- A tab target is opaque: browser profile, tab and the document it showed when
+  listed. `tabs` lists each with its URL and title. Two agents working at once
+  each use their own target.
+- If the agent passes no target, `fill` uses the one tab on the lease's saved
+  site; if there is more than one, it refuses and lists them.
+- Just before filling, the extension checks that the tab still shows the same
+  document, that the frame holding the fields is on the lease's saved site
+  (read from the browser, not from the page), and that each selector matches
+  exactly one visible field. Anything else is refused without filling.
+
+### The fill
+
+1. The host gets the value from Agent Keyring under the lease (the Mac app, or
+   the relay as in RFC 0005). The host is the receiver; the CLI never sees the
+   value.
+2. The host hands it to the extension over its pipe. The extension fills,
+   submits, clears what it typed if the page doesn't move on, and returns
+   submitted, uncertain or the reason it refused.
+
+The lease, approvals, 30-minute limit and retry records are unchanged (RFC
+0004). The host keeps the retry records.
 
 **Without a browser, the CLI does the job.** Programs get the value on stdin
-with `exec`; the agent's own code gets it with `read` (RFC 0004). Those stay
-as they are.
+with `exec` (RFC 0004).
 
 ## Where it works
 
-| Where | How | Status |
-| --- | --- | --- |
-| Josh's Google Chrome, and Brave, Edge, Arc | The Chrome extension | Build |
-| Claude Code and Claude in Chrome | Claude in Chrome drives Josh's real Chrome, where our extension also runs; Claude Code runs `agent-keyring fill` from its shell | Build |
-| Codex CLI | Its shell runs `agent-keyring fill` against whichever browser has the extension | Build |
-| Codex app, Chrome surface | Codex can drive Josh's real Chrome through its Chrome plugin; our extension fills there | Build |
-| Safari | A Safari web extension inside the Agent Keyring Mac app. Safari only lets an extension talk to its own containing app, which here is Agent Keyring itself | Build |
-| Agent-launched Chromium and Chrome for Testing, on Mac or Linux | The same Chrome extension, loaded with `--load-extension`, which these builds still accept | Build |
-| Linux desktop Chrome or Chromium | The same extension and host; the host talks to the relay as an enrolled machine | Build |
-| No browser | `exec` and `read`, as now | Exists |
-| Codex app's in-app browser | None. It takes credentials only from Josh typing into ChatGPT's own form or from its built-in 1Password adapter. It accepts no other extension and no other password manager | **Gap**: use the Chrome surface instead, or `read` from the agent's own code |
-| T3 Code's preview | None. Its typing tool takes literal text only | **Gap**: needs T3 to accept a secret reference |
-| Claude Desktop's 1Password integration | Works only with 1Password | Not ours to use |
+Nothing below is proved yet except where it says so. Each row is proved by the
+slice that builds it.
+
+| Where | How |
+| --- | --- |
+| Josh's Google Chrome, and Brave, Edge, Arc | The Chrome extension |
+| Claude Code | Its shell runs `tabs`, `fields`, `fill` against Josh's Chrome or Safari |
+| Claude in Chrome | It drives Josh's real Chrome, where our extension also runs; the fill is triggered from Claude Code's shell |
+| Codex CLI, and the Codex app with its shell | The same shell commands, against Josh's Chrome or Safari |
+| Safari | A Safari web extension inside the Mac app |
+| Agent-launched Chromium and Chrome for Testing, Mac or Linux | The same extension, loaded with `--load-extension`, which these builds still accept |
+| Linux desktop Chrome or Chromium | The same extension and host; the host talks to the relay |
+| No browser | `exec`, as now (proved) |
+
+**Gaps, exactly:**
+
+- **Codex app's in-app browser.** It accepts no other extension. Its sign-in
+  feature takes credentials only from Josh typing into ChatGPT's own form or
+  from its built-in 1Password support, according to the installed plugin's
+  documentation and code. There is no supported way to put a password into it
+  without the agent handling it. Agents sign in through Josh's Chrome or Safari
+  instead.
+- **T3 Code's preview.** Its typing tool accepts literal text only.
+- **Claude Desktop's 1Password integration** is for 1Password only.
+
+The earlier "`read` from the agent's own code" fallback for these is dropped:
+no host offers a supported way to pass that output into its browser privately.
 
 ## What it protects, and what it doesn't
 
@@ -103,11 +155,10 @@ as they are.
 
 ## What is thrown away
 
-- The debugging-port filler and its Google Chrome signature check.
-- `agent-keyring fields` and the `--browser` and `--tab` flags. The agent uses
-  its own browser tools to look at the page, and the extension finds the tab
-  by site.
-- The `ChromiumTarget` in the contract, replaced by an optional URL.
+- The debugging-port filler, its Google Chrome signature check, and the
+  `--browser` endpoint flag.
+- The `ChromiumTarget` in the contract, replaced by the opaque tab target.
+- `fields` and `--tab` stay, now answered by the extension.
 
 ## Installing it
 
@@ -118,23 +169,34 @@ as they are.
 - **Safari:** it ships inside the Mac app; Josh turns it on once in Safari's
   settings.
 - **Native messaging host:** `agent-keyring install` writes the host's small
-  manifest file into each browser's NativeMessagingHosts folder.
+  manifest file into each browser's NativeMessagingHosts folder. The manifest
+  names our extension's ID, so no other extension can start the host.
 
 ## Build slices
 
 | Slice | What | Done when |
 | --- | --- | --- |
-| F1 | Chrome extension and native host, with `fill` routed to it | Claude Code fills a test sign-in in Josh's own Chrome with one approval, and the value appears in no tool output |
-| F2 | Remove the debugging-port filler, `fields` and the old flags; update the skill | The skill describes one way to fill |
-| F3 | Safari web extension in the Mac app | The same test sign-in works in Safari |
-| F4 | Linux host through the relay | A Linux machine with desktop Chromium fills a test sign-in |
+| F1 | Chrome extension, native host, socket per profile, `tabs`, `fields`, `fill` | The proof below passes |
+| F2 | Remove the debugging-port filler and the old flags; update the skill | The skill describes one way to fill |
+| F3 | Safari web extension, hosted by the Mac app | The proof below passes in Safari |
+| F4 | Linux host through the relay | The proof below passes on a Linux machine with desktop Chromium |
 
-## Device proofs
+## The first proof
 
-With test logins only: Claude in Chrome, Codex CLI and Codex's Chrome surface
-each complete a two-step sign-in in Josh's real Chrome; Safari does the same;
-an agent-launched Chromium on Linux does the same. In each case the password
-and code appear in no transcript.
+Isolated, with test logins and nothing installed globally: Chrome for Testing
+with its own profile, the extension loaded with `--load-extension`, and the
+host's manifest in that profile's own NativeMessagingHosts folder.
+
+- A real agent (Claude Code, then Codex CLI) gets one approval, lists tabs,
+  targets its own tab, and completes a password step and a two-factor step.
+- It retries a step and gets the recorded result, with no second approval.
+- With two identical sign-in tabs open, an untargeted `fill` refuses and the
+  targeted one fills the right tab.
+- After a browser restart, the agent runs `tabs` again and carries on under the
+  same lease.
+- The password and code appear in no transcript or tool output.
+
+Then the same in Josh's own Chrome with Claude in Chrome, and in Safari.
 
 ## Josh's decision
 
