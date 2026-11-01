@@ -85,9 +85,15 @@ func (c wireClient) open(r *pb.RelayWireRequest) *tls.Conn {
 	return conn
 }
 func receive(conn *tls.Conn) *pb.RelayWireResponse {
-	r := new(pb.RelayWireResponse)
-	must(authority.ReadFrame(conn, r))
-	return r
+	for {
+		r := new(pb.RelayWireResponse)
+		must(authority.ReadFrame(conn, r))
+		// Legacy scripted peers ignore public updates, without pretending to
+		// acknowledge them. The receipt proof uses the production Go client.
+		if r.GetTrustUpdate() == nil {
+			return r
+		}
+	}
 }
 func (c wireClient) call(r *pb.RelayWireRequest) *pb.RelayWireResponse {
 	conn := c.open(r)
@@ -402,6 +408,8 @@ func (p *proof) local() {
 	fmt.Println("PASS human denial suppression, Blocked policy and machine revocation")
 }
 func main() {
+	leaseID := flag.String("lease", "", "Receiver proof lease")
+	deliveryPath := flag.String("delivery", "", "Receiver proof sealed delivery")
 	mode := flag.String("mode", "proof", "proof, phone, tailnet, or machine")
 	phoneBinary := flag.String("phone-binary", "", "Swift phone fixture for phone mode")
 	legacyPhoneBinary := flag.String("legacy-phone-binary", "", "Previous approval-only Swift fixture to prove replacement from its saved pairing")
@@ -419,12 +427,16 @@ func main() {
 		*directory, err = os.MkdirTemp("", "keyring-relay-proof-")
 		must(err)
 	}
+	if *mode == "receipt-receiver" {
+		receiptReceiver(*directory, *leaseID, *deliveryPath)
+		return
+	}
 	if *mode == "machine" {
 		machine(*address, *directory, *pinHex, *action)
 		return
 	}
 	p := &proof{address: *address, directory: *directory, relayBinary: *relayBinary}
-	if *mode == "proof" || *mode == "phone" || *mode == "phone-approval" || *mode == "phone-copy" || *mode == "idle" {
+	if *mode == "proof" || *mode == "phone" || *mode == "phone-approval" || *mode == "phone-copy" || *mode == "receipts" || *mode == "idle" {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		must(err)
 		p.address = listener.Addr().String()
@@ -440,7 +452,9 @@ func main() {
 		p.serveApprover()
 		return
 	}
-	if *mode == "idle" {
+	if *mode == "receipts" {
+		p.receiptProof()
+	} else if *mode == "idle" {
 		p.idleProof()
 	} else if *mode == "phone-approval" {
 		p.phoneApprovalProof()
