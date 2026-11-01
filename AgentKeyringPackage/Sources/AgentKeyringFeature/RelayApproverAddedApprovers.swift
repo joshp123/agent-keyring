@@ -120,7 +120,10 @@ extension RelayApprover {
             let prefix = "login-copy:\(RelayCrypto.keyID(replaced.encryptionPublicKey)):"
             next.outbox.removeAll { $0.id.hasPrefix(prefix) }
         }
+        next.keySet = try signed.serializedData()
         try enqueue(command, id: queuedID, into: &next)
+        try recordKeyWithdrawal(previous: previousSet, signed: signed,
+            label: replaced.map { "Replace \($0.label)" } ?? "Change approving devices", into: &next)
         if let vault, try !requiresPublicationConfirmation(vault) {
             try prepareLoginCopy(next: &next, vault: vault, configuration: configuration,
                 receiverKey: request.key.encryptionPublicKey, rule: .ask, policy: .ask)

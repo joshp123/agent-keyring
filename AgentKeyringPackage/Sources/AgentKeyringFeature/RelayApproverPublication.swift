@@ -138,11 +138,13 @@ extension RelayApprover {
         signed.configuration = try configuration.serializedData()
         signed.signature = try signer.sign(signed.configuration, context: context, automatic: false)
         signed.approverKeyID = ownerID
+        let previousConfiguration = try currentConfiguration()
         next.configuration = try signed.serializedData()
         try revokeAffectedRequests(&next, configuration: configuration)
         var command = Agentkeyring_V1_RelayWireRequest()
         command.publishConfiguration.configuration = signed
         try enqueue(command, id: "configuration:\(configuration.revision)", into: &next)
+        try recordConfigurationWithdrawal(previous: previousConfiguration, signed: signed, into: &next)
         try prepareLoginCopies(next: &next, vault: vault, configuration: configuration)
     }
 
@@ -170,6 +172,8 @@ extension RelayApprover {
         command.publishApproverKeys = signed
         try enqueue(command, id: "delivery-key:\(set.revision)", into: &next)
         next.keySet = try signed.serializedData()
+        try recordKeyWithdrawal(previous: try Agentkeyring_V1_ApproverKeySet(serializedBytes: Agentkeyring_V1_SignedApproverKeySet(serializedBytes: keySet).keySet),
+            signed: signed, label: "Replace the Mac background delivery key", into: &next)
     }
 
     func currentConfiguration() throws -> Agentkeyring_V1_Configuration? {

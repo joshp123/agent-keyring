@@ -33,7 +33,7 @@ extension RelayApprover {
     func fetchAutomaticKeys(using client: RelayTransport) async throws -> Agentkeyring_V1_AutomaticKeys {
         var command = Agentkeyring_V1_RelayWireRequest()
         command.getAutomaticKeys = Agentkeyring_V1_GetAutomaticKeysRequest()
-        let response = try await client.call(command)
+        let response = try await callRelay(command, using: client)
         guard case let .automaticKeys(keys) = response.response else {
             throw LeaseFailure(.unavailable, "The relay did not return its Automatic keys.")
         }

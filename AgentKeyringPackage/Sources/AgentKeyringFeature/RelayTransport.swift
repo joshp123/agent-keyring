@@ -163,11 +163,20 @@ struct RelayTransport: Sendable {
         } catch { connection.cancel(); throw error }
     }
 
-    func call(_ request: Agentkeyring_V1_RelayWireRequest) async throws -> Agentkeyring_V1_RelayWireResponse {
+    func call(_ request: Agentkeyring_V1_RelayWireRequest,
+        onTrustUpdate: @escaping @Sendable (Agentkeyring_V1_TrustUpdate) async throws -> Void = { _ in
+            throw LeaseFailure(.permissionDenied, "An unexpected permission update needs to be saved before continuing.")
+        }) async throws -> Agentkeyring_V1_RelayWireResponse {
         let connection = try await open(request)
         defer { connection.cancel() }
         return try await withThrowingTaskGroup(of: Agentkeyring_V1_RelayWireResponse.self) { tasks in
-            tasks.addTask { try await connection.next() }
+            tasks.addTask {
+                while true {
+                    let response = try await connection.next()
+                    if case let .trustUpdate(update) = response.response { try await onTrustUpdate(update) }
+                    else { return response }
+                }
+            }
             tasks.addTask { try await Task.sleep(for: .seconds(15)); throw LeaseFailure(.unavailable, "The relay did not acknowledge the request.") }
             defer { tasks.cancelAll(); connection.cancel() }
             return try await tasks.next()!

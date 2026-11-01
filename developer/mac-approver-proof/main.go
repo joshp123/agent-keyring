@@ -44,7 +44,15 @@ func encode(m proto.Message) []byte { b, e := proto.Marshal(m); must(e); return 
 
 const loginID = "00000000-0000-0000-0000-000000000301"
 
+type withdrawalStatus struct {
+	kind, revision, label string
+	complete              bool
+	devices               map[string][]string
+}
+
 type owner struct {
+	withdrawals            map[string]*withdrawalStatus
+	detail                 string
 	command                *exec.Cmd
 	input                  io.WriteCloser
 	events                 chan []string
@@ -65,7 +73,7 @@ type owner struct {
 }
 
 func startOwner(binary, root string) *owner {
-	p := &owner{events: make(chan []string, 2048), requests: map[string][]string{}, leases: map[string][]string{}, localLeases: map[string][]string{}, saved: map[string]string{}, copies: map[string]string{}}
+	p := &owner{withdrawals: map[string]*withdrawalStatus{}, events: make(chan []string, 2048), requests: map[string][]string{}, leases: map[string][]string{}, localLeases: map[string][]string{}, saved: map[string]string{}, copies: map[string]string{}}
 	p.command = exec.Command(binary, "--dummy-only", root)
 	var err error
 	p.input, err = p.command.StdinPipe()
@@ -105,6 +113,19 @@ func (p *owner) wait(predicate func([]string) bool) []string {
 				p.leases[e[1]] = e
 			case "LOCAL":
 				p.localLeases[e[1]] = e
+			case "WITHDRAWAL":
+				previous := p.withdrawals[e[1]]
+				if previous == nil {
+					previous = &withdrawalStatus{devices: map[string][]string{}}
+					p.withdrawals[e[1]] = previous
+				}
+				previous.kind, previous.revision, previous.complete, previous.label = e[2], e[3], e[4] == "true", e[5]
+			case "DEVICE":
+				if previous := p.withdrawals[e[1]]; previous != nil {
+					previous.devices[e[2]] = e
+				}
+			case "DETAIL":
+				p.detail = e[1]
 			case "STATUS":
 				p.queued, _ = strconv.Atoi(e[2])
 				p.authorizations, _ = strconv.Atoi(e[4])
@@ -181,12 +202,19 @@ func (c client) open(request *pb.RelayWireRequest) *tls.Conn {
 	return conn
 }
 func receive(c *tls.Conn) *pb.RelayWireResponse {
-	r := new(pb.RelayWireResponse)
-	must(authority.ReadFrame(c, r))
-	if e := r.GetError(); e != nil {
-		panic(e.String())
+	for {
+		r := new(pb.RelayWireResponse)
+		must(authority.ReadFrame(c, r))
+		if e := r.GetError(); e != nil {
+			panic(e.String())
+		}
+		// This observation peer deliberately sends no receipts. The production
+		// receiver below owns verification, durable application and receipts.
+		if r.GetTrustUpdate() != nil {
+			continue
+		}
+		return r
 	}
-	return r
 }
 func (c client) call(r *pb.RelayWireRequest) *pb.RelayWireResponse {
 	conn := c.open(r)
@@ -460,6 +488,7 @@ func main() {
 	localPhone := flag.Bool("local-phone-flow", false, "joint phone approval of local agent.sock requests")
 	copyUpdates := flag.Bool("copy-updates", false, "Automatic copy refresh and outbox restart proof")
 	phoneCopies := flag.Bool("phone-copy-updates", false, "Ask-only phone copy import and outbox restart proof")
+	phoneRemoval := flag.Bool("phone-removal", false, "offline phone removal and independently authenticated withdrawal receipts")
 	phoneReplacement := flag.Bool("phone-replacement", false, "joint Swift phone identity replacement and copy recovery proof")
 	flag.StringVar(&p.phoneBinary, "phone-binary", "", "production Swift phone fixture; runs the joint phone flow")
 	flag.StringVar(&p.legacyPhoneBinary, "legacy-phone-binary", "", "previous approval-only Swift fixture for the initial phone pairing")
@@ -468,10 +497,19 @@ func main() {
 	flag.StringVar(&p.relayBinary, "relay", "", "relay executable")
 	flag.StringVar(&p.cli, "cli", "", "actual Go client binary")
 	flag.StringVar(&p.browserScript, "browser-script", "", "mini-only headless browser proof script")
+	receiverRoot := flag.String("receiver-removal-root", "", "fresh process opening a saved synthetic phone delivery")
+	expectRefusal := flag.Bool("expect-refusal", false, "the learned removal must refuse the old delivery")
 	flag.Parse()
+	if *receiverRoot != "" {
+		receiverRemovalCheck(*receiverRoot, *expectRefusal)
+		return
+	}
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	if *phoneReplacement {
+	if *phoneRemoval {
+		require(p.phoneBinary != "", "--phone-removal needs --phone-binary")
+		p.runPhoneRemoval()
+	} else if *phoneReplacement {
 		require(p.phoneBinary != "", "--phone-replacement needs --phone-binary")
 		p.runPhoneReplacement()
 	} else if *phoneCopies {

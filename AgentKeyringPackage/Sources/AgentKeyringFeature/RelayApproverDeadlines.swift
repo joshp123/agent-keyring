@@ -48,6 +48,7 @@ extension RelayApproverState {
         }
         deadlines += pendingApproverCreated?.values.map { $0 + 600 } ?? []
         deadlines += suppressions.values.map { $0 }
+        if let expiry = withdrawalRetentionDeadline { deadlines.append(expiry) }
         return deadlines.min()
     }
 
@@ -100,6 +101,7 @@ extension RelayApproverState {
             pendingApprovers?.removeValue(forKey: id)
             pendingApproverCreated?.removeValue(forKey: id)
         }
+        finishWithdrawals(now: now)
         suppressions = suppressions.filter { $0.value > now }
     }
 }

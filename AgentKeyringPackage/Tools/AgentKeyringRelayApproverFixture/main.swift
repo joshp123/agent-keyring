@@ -202,6 +202,12 @@ struct RelayApproverFixture {
                 print("LEASE\t\(lease.id)\t\(lease.lease.state.rawValue)\t\(lease.endIsQueued)")
             }
             print("STATUS\t\(update.connection)\t\(update.queuedAnswerCount)\t\(update.needsPublication)\t\(signer.saved.authorizations)\t\(update.isApplying)")
+            for withdrawal in update.withdrawals {
+                print("WITHDRAWAL\t\(withdrawal.id)\t\(withdrawal.kind.rawValue)\t\(withdrawal.revision)\t\(withdrawal.isComplete)\t\(withdrawal.label)")
+                for device in withdrawal.devices {
+                    print("DEVICE\t\(withdrawal.id)\t\(device.id)\t\(device.confirmed)\t\(device.removedByLaterChange)\t\(device.label)")
+                }
+            }
             print("BACKGROUND\t\(signer.saved.backgroundSignatures ?? 0)")
             if let error = update.errorMessage { print("DETAIL\t\(error)") }
             fflush(stdout)
@@ -248,6 +254,7 @@ struct RelayApproverFixture {
                 case "clear": try await approver.clearDenial(loginID: MirrorItem.exampleCredentialID.uuidString, recipientID: parts[1])
                 case "revoke": try await approver.revokeMachine(parts[1])
                 case "end": try await approver.revokeLease(parts[1])
+                case "remove-phone": try await approver.removePhone(parts[1])
                 case "rule":
                     vault.rule = parts[1] == "auto" ? .allowAutomatically : parts[1] == "block" ? .block : .ask
                     try vault.rule.rawValue.write(to: root.appendingPathComponent("fixture-rule"), atomically: true, encoding: .utf8)
