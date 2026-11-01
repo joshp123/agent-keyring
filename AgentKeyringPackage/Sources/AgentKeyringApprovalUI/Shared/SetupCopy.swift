@@ -127,6 +127,9 @@ public enum SetupCopy {
     // MARK: The iPhone's pairing
 
     public static let pairTitle = "Pair with your Mac"
+    /// Fresh keys through the same comparison; the Mac drops this iPhone's old key.
+    public static let pairAgain = "Pair again"
+    public static let pairAgainFooter = "Your approvals are signed with this key, which never leaves the iPhone's Secure Enclave. Pair again to give this iPhone new keys, for example if it was paired before it could keep logins for when your Mac is shut."
     public static let pairIntro = "Pairing lets requests reach this iPhone through the relay on your Mac mini, and lets you answer them here."
     public static let pairButton = "Pair"
     public static let pairingConnecting = "Connecting to the relay…"
