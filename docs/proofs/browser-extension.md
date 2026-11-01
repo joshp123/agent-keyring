@@ -494,3 +494,14 @@ errors remain 2. Both retry-message assertions passed without another submit.
 `go vet ./...`, Python compilation and `git diff --check` passed. The shared
 `page.js` is unchanged by this follow-up. Completed runtime state was trashed;
 the new isolated external-Claude workspace is still waiting for its trial.
+
+
+The new fresh Claude trial subsequently passed through T3. It correctly treated
+exit 3 as Uncertain, inspected the next step and reached the authenticated
+account. Its retries used the finished-without-confirmation message and added
+no submission. Independent site counts show one accepted password, one accepted
+code, zero rejected submissions, one authenticated visit and one lease. It
+released the lease, used no `--again`, and its complete transcript passed the
+dummy-secret scan. The driver exited 0 and stopped its browser and authority.
+The completed evidence is in `claude/claude/` under the new evidence directory;
+the trial is now proved rather than merely prepared.
