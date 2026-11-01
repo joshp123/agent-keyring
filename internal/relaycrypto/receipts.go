@@ -19,13 +19,13 @@ func UpdateTarget(update *pb.TrustUpdate) (*pb.UpdateReceiptQuery, error) {
 	switch value := update.GetUpdate().(type) {
 	case *pb.TrustUpdate_ApproverKeys:
 		set := new(pb.ApproverKeySet)
-		if proto.Unmarshal(value.ApproverKeys.KeySet, set) != nil {
+		if value.ApproverKeys == nil || proto.Unmarshal(value.ApproverKeys.KeySet, set) != nil {
 			return nil, errors.New("Invalid approver update.")
 		}
 		target.Kind, target.Revision, raw = pb.UpdateKind_UPDATE_KIND_APPROVER_KEYS, set.Revision, value.ApproverKeys.KeySet
 	case *pb.TrustUpdate_Configuration:
 		config := new(pb.Configuration)
-		if proto.Unmarshal(value.Configuration.Configuration, config) != nil {
+		if value.Configuration == nil || proto.Unmarshal(value.Configuration.Configuration, config) != nil {
 			return nil, errors.New("Invalid configuration update.")
 		}
 		target.Kind, target.Revision, raw = pb.UpdateKind_UPDATE_KIND_CONFIGURATION, config.Revision, value.Configuration.Configuration

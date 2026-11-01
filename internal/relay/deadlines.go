@@ -109,6 +109,7 @@ func (s *Server) maintenance() (time.Time, error) {
 		"DELETE FROM local_leases WHERE delete_after<=?",
 		"DELETE FROM enrolments WHERE expires<=?",
 		"DELETE FROM pairings WHERE expires<=?",
+		"DELETE FROM trust_updates WHERE completed IS NOT NULL AND completed+604800<=? AND NOT EXISTS (SELECT 1 FROM update_devices d JOIN trust_updates pending ON pending.kind=d.kind AND pending.revision=d.revision WHERE pending.completed IS NULL AND d.replacement_kind=trust_updates.kind AND d.replacement_revision=trust_updates.revision)",
 	} {
 		if _, err = tx.Exec(query, now); err != nil {
 			return time.Time{}, err
@@ -121,7 +122,8 @@ func (s *Server) maintenance() (time.Time, error) {
  SELECT MIN(deadline) FROM local_leases WHERE deadline IS NOT NULL UNION ALL
  SELECT MIN(delete_after) FROM local_leases WHERE delete_after IS NOT NULL UNION ALL
  SELECT MIN(expires) FROM enrolments WHERE expires IS NOT NULL UNION ALL
- SELECT MIN(expires) FROM pairings WHERE expires IS NOT NULL`
+ SELECT MIN(expires) FROM pairings WHERE expires IS NOT NULL UNION ALL
+ SELECT MIN(completed+604800) FROM trust_updates WHERE completed IS NOT NULL AND NOT EXISTS (SELECT 1 FROM update_devices d JOIN trust_updates pending ON pending.kind=d.kind AND pending.revision=d.revision WHERE pending.completed IS NULL AND d.replacement_kind=trust_updates.kind AND d.replacement_revision=trust_updates.revision)`
 	if s.Push != nil {
 		query += " UNION ALL SELECT MIN(p.retry_at) FROM push_attempts p JOIN phone_escalations e ON e.lease=p.lease WHERE p.sent=0 AND e.answer IS NULL AND p.retry_at>?"
 	}

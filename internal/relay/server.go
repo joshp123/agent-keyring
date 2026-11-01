@@ -33,6 +33,7 @@ type peer struct {
 	spki                []byte
 	node                Node
 	recipient, approver string
+	retired             bool
 }
 
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
@@ -156,6 +157,27 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 	if err != nil {
 		return nil, false, nil, err
 	}
+	if p.retired {
+		switch r.Request.(type) {
+		case *pb.RelayWireRequest_GetApproverKeyChain, *pb.RelayWireRequest_GetConfiguration, *pb.RelayWireRequest_GetConfigurationUpdates, *pb.RelayWireRequest_PublishUpdateReceipt:
+		default:
+			return nil, false, nil, denied("This device was removed; only signed public updates remain available.")
+		}
+	}
+	if (p.approver != "" && r.GetWatchWork() != nil) || (p.recipient != "" && r.GetClient().GetWatchLease() != nil) {
+		update, e := nextTrustUpdate(tx, p, seen)
+		if e != nil {
+			return nil, false, nil, e
+		}
+		if update != nil {
+			if p.approver != "" {
+				response = workResponse(&pb.ApproverWork{Item: &pb.ApproverWork_TrustUpdate{TrustUpdate: update}})
+			} else {
+				response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_TrustUpdate{TrustUpdate: update}}
+			}
+			return response, true, nil, s.Store.commit(tx, before)
+		}
+	}
 	switch request := r.Request.(type) {
 	case *pb.RelayWireRequest_Enrol:
 		response, more, err = s.enrol(tx, p, request.Enrol, seen)
@@ -169,7 +191,7 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 	case *pb.RelayWireRequest_GetAutomaticKeys:
 		response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_AutomaticKeys{AutomaticKeys: s.automaticKeys()}, EndOfStream: true}
 	default:
-		if p.recipient == "" && p.approver == "" {
+		if p.recipient == "" && p.approver == "" && !p.retired {
 			return nil, false, nil, denied("This TLS key is not enrolled. Run enrol first.")
 		}
 		switch request := r.Request.(type) {
@@ -206,6 +228,24 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 			}
 			rows.Close()
 			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ApproverKeyChain{ApproverKeyChain: chain}, EndOfStream: true}
+		case *pb.RelayWireRequest_GetConfigurationUpdates:
+			value, e := configurationUpdates(tx, p, request.GetConfigurationUpdates.AfterRevision)
+			err = e
+			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ConfigurationUpdates{ConfigurationUpdates: value}, EndOfStream: true}
+		case *pb.RelayWireRequest_PublishUpdateReceipt:
+			err = publishUpdateReceipt(tx, p, request.PublishUpdateReceipt)
+			response = publishAck()
+		case *pb.RelayWireRequest_GetUpdateReceipts:
+			_, keys, e := currentKeys(tx)
+			err = e
+			if err == nil && p.approver != keys.RuleOwnerKeyId {
+				err = denied("Only the rule owner may collect device receipts.")
+			}
+			if err == nil {
+				var value *pb.UpdateReceipts
+				value, err = getUpdateReceipts(tx, request.GetUpdateReceipts)
+				response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_UpdateReceipts{UpdateReceipts: value}, EndOfStream: true}
+			}
 		case *pb.RelayWireRequest_GetConfiguration:
 			value, _, e := configuration(tx)
 			err = e
@@ -268,6 +308,18 @@ func authenticate(tx *sql.Tx, p peer) (peer, error) {
 			p.recipient = machine.RecipientId
 			return p, nil
 		}
+	}
+	var retiredNode string
+	retiredErr := tx.QueryRow("SELECT node FROM retired_devices WHERE spki=?", p.spki).Scan(&retiredNode)
+	if retiredErr == nil {
+		if retiredNode != p.node.ID {
+			return p, denied("Retired identity belongs to a different Tailscale node.")
+		}
+		p.retired = true
+		return p, nil
+	}
+	if !errors.Is(retiredErr, sql.ErrNoRows) {
+		return p, retiredErr
 	}
 	// A pending enrolment is also bound to its observed node before approval.
 	var node string

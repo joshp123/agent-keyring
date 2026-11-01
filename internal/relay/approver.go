@@ -558,6 +558,21 @@ func (s *Server) publishConfiguration(tx *sql.Tx, publication *pb.ConfigurationP
 	if err = s.pruneAutomaticCopies(tx, next); err != nil {
 		return err
 	}
+	if relaycrypto.ConfigurationWithdraws(old, next) {
+		var removed [][]byte
+		for _, machine := range old.Machines {
+			after := machineByID(next, machine.RecipientId)
+			if after == nil || !bytes.Equal(after.TlsPublicKey, machine.TlsPublicKey) {
+				removed = append(removed, machine.TlsPublicKey)
+				if err = retireDevice(tx, machine.TlsPublicKey, machine.TailscaleNodeId); err != nil {
+					return err
+				}
+			}
+		}
+		if err = retainWithdrawal(tx, &pb.TrustUpdate{Update: &pb.TrustUpdate_Configuration{Configuration: r}}, keys, next, removed); err != nil {
+			return err
+		}
+	}
 	return put(tx, "current", "configuration", r)
 }
 func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
@@ -640,6 +655,31 @@ func (s *Server) publishKeys(tx *sql.Tx, r *pb.SignedApproverKeySet) error {
 			if _, err = tx.Exec("UPDATE pairings SET expires=NULL WHERE id=?", key.KeyId); err != nil {
 				return err
 			}
+		}
+	}
+	if relaycrypto.ApproverKeysWithdraw(old, next) {
+		if r.SignerKeyId != old.RuleOwnerKeyId {
+			return denied("Only the rule owner may withdraw approver authority.")
+		}
+		_, config, err := configuration(tx)
+		if err != nil {
+			return err
+		}
+		var removed [][]byte
+		for _, key := range old.Keys {
+			if len(key.TlsPublicKey) > 0 && keyByID(next, key.KeyId) == nil {
+				var node string
+				if err = tx.QueryRow("SELECT node FROM pairings WHERE id=?", key.KeyId).Scan(&node); err != nil {
+					return err
+				}
+				if err = retireDevice(tx, key.TlsPublicKey, node); err != nil {
+					return err
+				}
+				removed = append(removed, key.TlsPublicKey)
+			}
+		}
+		if err = retainWithdrawal(tx, &pb.TrustUpdate{Update: &pb.TrustUpdate_ApproverKeys{ApproverKeys: r}}, next, config, removed); err != nil {
+			return err
 		}
 	}
 	for _, key := range old.Keys {
