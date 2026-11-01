@@ -1,5 +1,8 @@
 <!-- Written by AI on 2026.10.31 by model gpt-6.1-sol. -->
 
+> Historical debugging-port proof. The current path is covered by the
+> [browser extension proof](browser-extension.md).
+
 # Shell-only sign-in with fields
 
 A fresh real Codex run signed in with the bundled skill and shell commands

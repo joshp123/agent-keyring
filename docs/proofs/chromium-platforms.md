@@ -1,5 +1,8 @@
 <!-- Written by AI on 2026.11.01 by model gpt-6.1-sol. -->
 
+> Historical debugging-port proof. The current path is covered by the
+> [browser extension proof](browser-extension.md).
+
 # Chromium on macOS and Linux
 
 The real `agent-keyring fields` and `fill` commands completed password and saved
