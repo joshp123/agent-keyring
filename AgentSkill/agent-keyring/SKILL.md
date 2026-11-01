@@ -2,7 +2,7 @@
 name: agent-keyring
 description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation. Use whenever a task needs a login, a password or a two-factor code. Never ask the user to type or paste a password."
 metadata:
-  written_by: "AI on 2026-10-31 by model Claude Opus 5.5"
+  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; browser workflow updated on 2026-11-01 by model gpt-6.1-sol"
 ---
 
 # Agent Keyring
@@ -28,22 +28,18 @@ agent-keyring release "$lease"
 
 ## Using the lease
 
-**Google Chrome, Chrome for Testing or Chromium on macOS or Linux, reached over its local debugging endpoint.** Use the browser and profile already provided for the task; Agent Keyring does not launch or restart them. Inspect the page with your own browser tools. With only a shell, `agent-keyring fields --browser "$endpoint"` lists the tabs, and adding `--tab "$tab"` lists the page's visible fields and buttons with their selectors, never their values. Then pass the exact fields and the sign-in button:
+**A browser with the Agent Keyring extension.** Use the browser and profile already provided for the task; Agent Keyring does not launch or restart them. `agent-keyring tabs` lists connected tabs with their URLs and titles. Choose your own task's tab, keep its complete opaque target, and use `agent-keyring fields --tab "$tab"` for its visible inputs and buttons, selectors and frame targets, never values. Then pass the exact fields and sign-in button:
 
 ```sh
-agent-keyring fill "$lease" --browser "$endpoint" --tab "$tab" \
+agent-keyring fill "$lease" --tab "$tab" \
   --username '#username' --password '#password' --submit 'button[type=submit]'
 ```
 
-Agent Keyring checks the page is the saved site, fills, submits and clears what it typed. Then look at the new page yourself. A two-factor step is another `fill` under the same lease, for example `--code '#otp' --submit '#verify'`. If the site showed an error without leaving the page, inspect it before repeating the step with `--again`. A result of "uncertain" means the step may already have happened: look before doing anything else.
+Agent Keyring checks the document and frame are still the ones you selected and the frame is the saved site, fills, submits and clears what it typed. Run `tabs` again after navigation, then inspect the new page. A two-factor step is another `fill` under the same lease, for example `--code '#otp' --submit '#verify'`. For fields inside a frame, use the target printed beside those fields. Without `--tab`, filling works only when exactly one connected tab matches the saved site.
 
-**A browser with no debugging endpoint, driven from your own code.** If your code can type into the page itself, lease with `--for agent-process`. Then have that same code run `agent-keyring read "$lease" --field password` and pass its output straight to the field, so the value goes from the command to the page without appearing in your output. Don't run `read` as a shell command of its own: shell tools show you what a command prints, and `read` refuses a terminal for the same reason.
+Repeating the same fill returns its recorded result without submitting again. If the site showed an error without leaving the page, inspect it before deliberately repeating with `--again`. A result of "uncertain" means the step may already have happened: look before doing anything else. After a browser restart, run `tabs` for new targets and keep the same lease.
 
-```sh
-lease=$(agent-keyring lease LOGIN_ID --task "$task" --for agent-process --reason "...")
-```
-
-The user's approval says plainly that the value goes to your code, so use this route only when the browser leaves you no other, and only through input your environment allows.
+**A browser without the extension.** Agent Keyring cannot fill it. Codex's in-app browser and T3's preview do not accept this extension. Use a connected browser for the sign-in; don't substitute `read`, clipboard input or a password in your browser tool's arguments. Safari support is a separate build slice.
 
 **A program that needs the value.** Name the program when you lease, and Agent Keyring gives it the value on stdin. You get its exit status, not its output:
 
