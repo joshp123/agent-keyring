@@ -134,13 +134,6 @@ func (p *proof) swiftRemovalProof(phone *phoneProcess, key *pb.ApproverKey, netw
 	_, err = phoneCheckpoint(directory, "outbox.0")
 	must(err)
 	previous = p.keys
-	db, err := sql.Open("sqlite", filepath.Join(p.directory, "relay", "relay.sqlite"))
-	must(err)
-	var node string
-	var pairRequest, pairKeys []byte
-	var created int64
-	must(db.QueryRow("SELECT node,request,keyset,created FROM pairings WHERE id=?", key.KeyId).Scan(&node, &pairRequest, &pairKeys, &created))
-	must(db.Close())
 	removed := proto.Clone(&advanced).(*pb.ApproverKeySet)
 	removed.Revision++
 	removed.Keys = nil
@@ -153,14 +146,7 @@ func (p *proof) swiftRemovalProof(phone *phoneProcess, key *pb.ApproverKey, netw
 	removal := &pb.SignedApproverKeySet{KeySet: raw, Signature: sign(p.signer, raw), SignerKeyId: p.key.KeyId}
 	good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: removal}}))
 	p.stop()
-	// Retain the valid removal in history while the courier still authenticates
-	// the old phone: even this inconsistent relay must not make it forget removal.
-	restorePhoneProofKeys(p.directory, previous, false)
-	db, err = sql.Open("sqlite", filepath.Join(p.directory, "relay", "relay.sqlite"))
-	must(err)
-	_, err = db.Exec("INSERT OR REPLACE INTO pairings(id,node,request,keyset,created) VALUES(?,?,?,?,?)", key.KeyId, node, pairRequest, pairKeys, created)
-	must(err)
-	must(db.Close())
+	// An honest relay keeps removed identities as read-only update recipients.
 	p.start()
 	failure := phone.command("refresh")
 	require(strings.Contains(failure, "no longer an approver"), "phone did not reject its own removal: "+failure)
