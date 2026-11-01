@@ -123,7 +123,8 @@ extension RelayApprover {
         next.keySet = try signed.serializedData()
         try enqueue(command, id: queuedID, into: &next)
         try recordKeyWithdrawal(previous: previousSet, signed: signed,
-            label: replaced.map { "Replace \($0.label)" } ?? "Change approving devices", into: &next)
+            label: replaced.map { "Replace \($0.label)" } ?? "Change approving devices",
+            change: replaced == nil ? .approverKeys : .phoneReplacement, deviceName: replaced?.label, into: &next)
         if let vault, try !requiresPublicationConfirmation(vault) {
             try prepareLoginCopy(next: &next, vault: vault, configuration: configuration,
                 receiverKey: request.key.encryptionPublicKey, rule: .ask, policy: .ask)
