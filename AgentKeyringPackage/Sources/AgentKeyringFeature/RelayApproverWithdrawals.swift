@@ -11,11 +11,17 @@ public struct RelayPermissionDeviceStatus: Identifiable, Sendable {
     public let removedByLaterChange: Bool
 }
 
+public enum RelayPermissionChange: String, Codable, Sendable {
+    case phoneRemoval, phoneReplacement, approverKeys, configuration
+}
+
 public struct RelayPermissionWithdrawal: Identifiable, Sendable {
     public let id: String
     public let kind: Agentkeyring_V1_UpdateKind
     public let revision: UInt64
     public let label: String
+    public let change: RelayPermissionChange
+    public let deviceName: String?
     public let devices: [RelayPermissionDeviceStatus]
     public let isComplete: Bool
 }
@@ -30,10 +36,13 @@ struct RelayRequiredUpdateDevice: Codable {
 struct RelaySavedWithdrawal: Codable {
     var update: Data
     var label: String
+    var change: RelayPermissionChange?
+    var deviceName: String?
     var devices: [String: RelayRequiredUpdateDevice]
     var removedDevices: Set<String>
     var sequence: UInt64
     var completedAt: Int64?
+    var collectionAcknowledgedAt: Int64?
 }
 
 extension RelayApprover {
@@ -83,7 +92,8 @@ extension RelayApprover {
         if next.dismissedApproverPairingIDs == nil { next.dismissedApproverPairingIDs = [] }
         next.dismissedApproverPairingIDs!.insert(keyID)
         try enqueue(command, id: queuedID, into: &next)
-        try recordKeyWithdrawal(previous: previousSet, signed: signed, label: "Remove \(phone.label)", into: &next)
+        try recordKeyWithdrawal(previous: previousSet, signed: signed, label: "Remove \(phone.label)",
+            change: .phoneRemoval, deviceName: phone.label, into: &next)
         try commit(next)
         await flushOutbox()
     }
@@ -121,13 +131,14 @@ extension RelayApprover {
     }
 
     func recordKeyWithdrawal(previous: Agentkeyring_V1_ApproverKeySet, signed: Agentkeyring_V1_SignedApproverKeySet,
-        label: String, into next: inout RelayApproverState) throws {
+        label: String, change: RelayPermissionChange = .approverKeys, deviceName: String? = nil,
+        into next: inout RelayApproverState) throws {
         let keys = try Agentkeyring_V1_ApproverKeySet(serializedBytes: signed.keySet)
         guard previous.ruleOwnerKeyID != keys.ruleOwnerKeyID || previous.keys.contains(where: { !keys.keys.contains($0) }) else { return }
         let configuration = try currentConfiguration()
         var update = Agentkeyring_V1_TrustUpdate()
         update.approverKeys = signed
-        try recordWithdrawal(update, label: label,
+        try recordWithdrawal(update, label: label, change: change, deviceName: deviceName,
             before: enforcingDevices(keys: previous, configuration: configuration),
             after: enforcingDevices(keys: keys, configuration: configuration), into: &next)
     }
@@ -140,7 +151,7 @@ extension RelayApprover {
         let keys = try copyApprovers(in: next)
         var update = Agentkeyring_V1_TrustUpdate()
         update.configuration = signed
-        try recordWithdrawal(update, label: "Apply changed login and machine permissions",
+        try recordWithdrawal(update, label: "Apply changed login and machine permissions", change: .configuration,
             before: enforcingDevices(keys: keys, configuration: previous),
             after: enforcingDevices(keys: keys, configuration: configuration), into: &next)
     }
@@ -163,6 +174,7 @@ extension RelayApprover {
     }
 
     func recordWithdrawal(_ update: Agentkeyring_V1_TrustUpdate, label: String,
+        change: RelayPermissionChange, deviceName: String? = nil,
         before: [String: RelayRequiredUpdateDevice], after: [String: RelayRequiredUpdateDevice],
         into next: inout RelayApproverState) throws {
         let target = try updateTarget(update)
@@ -178,6 +190,7 @@ extension RelayApprover {
         devices[deviceID]!.receipt = try signedReceipt.serializedData()
         if next.withdrawals == nil { next.withdrawals = [:] }
         next.withdrawals![id] = RelaySavedWithdrawal(update: try update.serializedData(), label: label,
+            change: change, deviceName: deviceName,
             devices: devices, removedDevices: Set(before.keys).subtracting(after.keys), sequence: (next.withdrawalSequence ?? 0) + 1)
         next.withdrawalSequence = next.withdrawals![id]!.sequence
         var command = Agentkeyring_V1_RelayWireRequest()
@@ -275,6 +288,19 @@ extension RelayApprover {
                 try commit(next)
             }
         }
+        try queueCollectedUpdateAcknowledgements()
+    }
+
+    func queueCollectedUpdateAcknowledgements() throws {
+        var next = state
+        for (id, saved) in state.withdrawals ?? [:] where saved.completedAt != nil && saved.collectionAcknowledgedAt == nil {
+            let queuedID = "receipt-collection:" + id
+            if next.outbox.contains(where: { $0.id == queuedID }) { continue }
+            var command = Agentkeyring_V1_RelayWireRequest()
+            command.acknowledgeUpdateReceipts = try updateTarget(Agentkeyring_V1_TrustUpdate(serializedBytes: saved.update))
+            try enqueue(command, id: queuedID, into: &next)
+        }
+        if next.outbox.count != state.outbox.count { try commit(next) }
     }
 
     var displayedWithdrawals: [RelayPermissionWithdrawal] {
@@ -282,6 +308,7 @@ extension RelayApprover {
             guard let update = try? Agentkeyring_V1_TrustUpdate(serializedBytes: saved.update),
                 let target = try? updateTarget(update) else { return nil }
             return RelayPermissionWithdrawal(id: id, kind: target.kind, revision: target.revision, label: saved.label,
+                change: saved.change ?? (target.kind == .configuration ? .configuration : .approverKeys), deviceName: saved.deviceName,
                 devices: saved.devices.map { deviceID, device in
                     RelayPermissionDeviceStatus(id: deviceID, label: device.label,
                         confirmed: device.receipt != nil, removedByLaterChange: device.retiredBy != nil)
@@ -296,8 +323,8 @@ extension RelayApproverState {
     var withdrawalRetentionDeadline: Int64? {
         let referenced = Set((withdrawals ?? [:]).values.flatMap { $0.devices.values.compactMap(\.retiredBy) })
         return (withdrawals ?? [:]).compactMap { id, saved in
-            guard !referenced.contains(id), let completed = saved.completedAt else { return nil }
-            return completed + 7 * 86400
+            guard !referenced.contains(id), let collected = saved.collectionAcknowledgedAt else { return nil }
+            return collected + 7 * 86400
         }.min()
     }
 
@@ -323,7 +350,7 @@ extension RelayApproverState {
             }
         }
         var retained = Set((withdrawals ?? [:]).filter { _, saved in
-            saved.completedAt == nil || saved.completedAt! + 7 * 86400 > now
+            saved.collectionAcknowledgedAt == nil || saved.collectionAcknowledgedAt! + 7 * 86400 > now
         }.keys)
         var previous: Set<String> = []
         while retained != previous {

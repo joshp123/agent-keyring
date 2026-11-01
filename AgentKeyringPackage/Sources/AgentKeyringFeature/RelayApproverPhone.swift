@@ -50,7 +50,7 @@ extension RelayApprover {
         guard latestKeys.keys.contains(key) else { throw LeaseFailure(.permissionDenied, "This phone is no longer paired.") }
         if let local {
             guard local.escalated else { throw LeaseFailure(.permissionDenied, "This local request was never sent to the phone.") }
-            _ = try leaseStore.answerFromPhone(decision, reply: signed.reply)
+            _ = try leaseStore.answerFromPhone(decision, phoneKeyID: signed.phoneKeyID, reply: signed.reply)
         } else {
             guard state.requests[id]?.escalated == true else { throw LeaseFailure(.permissionDenied, "This request was never sent to the phone.") }
             if state.requests[id]?.decision == nil {

@@ -116,11 +116,12 @@ func (p *proof) setCourierReceipt(target *pb.UpdateReceiptQuery, spki []byte, si
 	}
 	query := fmt.Sprintf("UPDATE update_devices SET receipt=%s WHERE kind=%d AND revision='%020d' AND spki=X'%x';",
 		value, target.Kind, target.Revision, spki)
-	result, err := exec.Command("/usr/bin/sqlite3", filepath.Join(p.root, "relay", "relay.sqlite"), query).CombinedOutput()
+	result, err := exec.Command("/usr/bin/sqlite3", "-cmd", ".timeout 5000", filepath.Join(p.root, "relay", "relay.sqlite"), query).CombinedOutput()
 	require(err == nil, string(result))
 }
 
 func (p *proof) runPhoneRemoval() {
+	require(p.cli != "", "phone removal proof needs the actual CLI")
 	p.startRelay()
 	defer p.stopRelay()
 	network := &approvalNetwork{target: "127.0.0.1:17445", address: "127.0.0.1:17455"}
@@ -155,6 +156,18 @@ func (p *proof) runPhoneRemoval() {
 	require(delivery.GetSealed().Decision.ApproverKeyId == lostID, "wrong phone supplied the initial delivery")
 	p.saveRemovalReceiver(active, delivery)
 	p.runReceiverRemovalCheck(false)
+	local := authority.Client{Socket: filepath.Join(p.root, "agent.sock")}
+	localLost := []string{p.localPhoneApprovedLease(lost, "lost-phone-local-1"), p.localPhoneApprovedLease(lost, "lost-phone-local-2")}
+	localRemaining := p.localPhoneApprovedLease(remaining, "remaining-phone-local")
+	for _, id := range append(localLost, localRemaining) {
+		p.checkLocalFields(id, true)
+	}
+	p.owner.stop()
+	p.owner = startOwner(p.fixture, p.root)
+	for _, id := range append(localLost, localRemaining) {
+		require(localLease(local, id).State == pb.LeaseState_LEASE_STATE_ACTIVE, "restart lost a trusted phone's local approval")
+		p.checkLocalFields(id, true)
+	}
 	lost.stop()
 	_, beforeKeys := currentApprovers(p.receiver)
 	beforeConfiguration := p.receiver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfiguration{GetConfiguration: &pb.GetConfigurationRequest{}}}).GetConfiguration()
@@ -165,6 +178,13 @@ func (p *proof) runPhoneRemoval() {
 	network.loseReply = true
 	network.Unlock()
 	p.owner.action("remove-phone", lostID)
+	for _, id := range localLost {
+		lease := localLease(local, id)
+		require(lease.State == pb.LeaseState_LEASE_STATE_REVOKED && lease.EndedAtUnixSeconds > 0, "removed phone's local lease remains active")
+		p.checkLocalFields(id, false)
+	}
+	require(localLease(local, localRemaining).State == pb.LeaseState_LEASE_STATE_ACTIVE, "removing one phone revoked the other phone's local lease")
+	p.checkLocalFields(localRemaining, true)
 	signed, keys := currentApprovers(p.receiver)
 	kept := []*pb.ApproverKey{}
 	for _, key := range beforeKeys.Keys {
@@ -190,6 +210,13 @@ func (p *proof) runPhoneRemoval() {
 	p.owner.action("saved")
 	p.owner.status()
 	require(p.owner.saved["remove-phone:"+lostID] == saved && p.owner.applying && p.owner.authorizations == before+1, "restart changed the signed removal or asked again")
+	for _, id := range localLost {
+		require(localLease(local, id).State == pb.LeaseState_LEASE_STATE_REVOKED, "restart reactivated the removed phone's local approval")
+		p.checkLocalFields(id, false)
+	}
+	require(localLease(local, localRemaining).State == pb.LeaseState_LEASE_STATE_ACTIVE, "restart revoked the remaining phone's local lease")
+	p.checkLocalFields(localRemaining, true)
+	fmt.Println("PASS actual local CLI: both lost-phone leases refuse fresh password and TOTP deliveries before and after Mac/relay restart while publication is unacknowledged; remaining phone lease still works")
 	network.Lock()
 	network.pauseNewCalls = false
 	network.Unlock()
@@ -220,9 +247,7 @@ func (p *proof) runPhoneRemoval() {
 	p.owner.status()
 	require(p.owner.applying && !p.owner.withdrawals[id].complete, "Mac counted a forged courier receipt")
 	p.setCourierReceipt(target, receiverSPKI, nil)
-	p.runReceiverRemovalCheck(true)
-	p.runReceiverRemovalCheck(true)
-	p.waitApplied()
+	p.collectAfterOfflineOwner(target, id, network)
 	require(p.owner.withdrawals[id].complete && p.owner.authorizations == before+1, "authenticated receiver receipt did not complete removal quietly")
 	require(p.rawReply(lostPeer, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_Decide{Decide: delivery.GetSealed().Decision}}).GetError() != nil, "retired TLS/signing identity can still decide")
 	require(p.rawReply(lostPeer, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetCopyUpdate{GetCopyUpdate: &pb.GetCopyUpdateRequest{}}}).GetError() != nil, "retired phone can fetch a new copy")

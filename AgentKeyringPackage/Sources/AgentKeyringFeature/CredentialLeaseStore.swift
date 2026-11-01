@@ -47,6 +47,7 @@ public final class CredentialLeaseStore {
         var automatic: Bool
         var requester: CredentialLeaseRequester? = nil
         var phone: LocalPhoneRequest? = nil
+        var approvingPhoneKeyID: String? = nil
     }
     private struct Suppression: Codable {
         var until: Int64
@@ -191,7 +192,7 @@ public final class CredentialLeaseStore {
         lease.reason = request.reason
         lease.requestedAtUnixSeconds = now
         lease.recipient = localRecipient
-        lease.sites = login.origins
+        lease.sites = login.origins.sorted()
         if request.hasProgram { lease.program = request.program }
         lease.pendingUntilUnixSeconds = now + 600
         if policy == .block {
@@ -286,7 +287,7 @@ public final class CredentialLeaseStore {
     }
 
     @discardableResult
-    func answerFromPhone(_ decision: Agentkeyring_V1_PhoneDecision, reply: String) throws -> Agentkeyring_V1_Lease {
+    func answerFromPhone(_ decision: Agentkeyring_V1_PhoneDecision, phoneKeyID: String, reply: String) throws -> Agentkeyring_V1_Lease {
         var lease = try get(decision.leaseID)
         guard lease.state == .pending else { return lease }
         if decision.choice == .deny { return try deny(lease.leaseID, reply: reply, approvedBy: .iphone) }
@@ -295,7 +296,10 @@ public final class CredentialLeaseStore {
         lease.approvedAtUnixSeconds = decision.decidedUnixSeconds
         lease.notAfterUnixSeconds = decision.notAfterUnixSeconds
         lease.statusLines = []
-        try saveLease(lease)
+        var next = snapshot!
+        next.leases[lease.leaseID]!.lease = try lease.serializedData()
+        next.leases[lease.leaseID]!.approvingPhoneKeyID = phoneKeyID
+        try commit(next)
         return lease
     }
 
@@ -430,6 +434,7 @@ public final class CredentialLeaseStore {
             }
             next.leases[id]!.lease = try lease.serializedData()
         }
+        try revokeUntrustedPhoneLeases(&next)
         next.leases = next.leases.filter { _, saved in
             guard let lease = try? Agentkeyring_V1_Lease(serializedBytes: saved.lease) else { return true }
             return !lease.state.isTerminal || lease.endedAtUnixSeconds + 7 * 86400 > Self.now
@@ -454,6 +459,7 @@ public final class CredentialLeaseStore {
     }
     private func commit(_ proposed: Snapshot) throws {
         var next = proposed
+        try revokeUntrustedPhoneLeases(&next)
         try preparePhoneWork(&next)
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
@@ -462,6 +468,24 @@ public final class CredentialLeaseStore {
         publish()
         scheduleDeadline()
         onCommit?()
+    }
+
+    private func revokeUntrustedPhoneLeases(_ next: inout Snapshot) throws {
+        let trustedPhones: Set<String>
+        if let bytes = next.relay?.keySet {
+            let signed = try Agentkeyring_V1_SignedApproverKeySet(serializedBytes: bytes)
+            let keys = try Agentkeyring_V1_ApproverKeySet(serializedBytes: signed.keySet)
+            trustedPhones = Set(keys.keys.filter { $0.role == .phone }.map(\.keyID))
+        } else { trustedPhones = [] }
+        for (id, saved) in next.leases {
+            var lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
+            guard lease.state == .active, lease.approvedBy == .iphone else { continue }
+            if let phoneKeyID = saved.approvingPhoneKeyID, trustedPhones.contains(phoneKeyID) { continue }
+            lease.state = .revoked
+            lease.endedAtUnixSeconds = Self.now
+            lease.statusLines = ["The approving phone is no longer trusted. Request access again."]
+            next.leases[id]!.lease = try lease.serializedData()
+        }
     }
 
     func setScreenLocked(_ locked: Bool) throws {
