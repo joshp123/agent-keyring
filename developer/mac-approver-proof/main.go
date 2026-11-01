@@ -489,6 +489,7 @@ func main() {
 	copyUpdates := flag.Bool("copy-updates", false, "Automatic copy refresh and outbox restart proof")
 	phoneCopies := flag.Bool("phone-copy-updates", false, "Ask-only phone copy import and outbox restart proof")
 	phoneRemoval := flag.Bool("phone-removal", false, "offline phone removal and independently authenticated withdrawal receipts")
+	collectionRecovery := flag.Bool("collect-saved-receipts", false, "collect completed withdrawals saved by the previous Mac implementation")
 	phoneReplacement := flag.Bool("phone-replacement", false, "joint Swift phone identity replacement and copy recovery proof")
 	flag.StringVar(&p.phoneBinary, "phone-binary", "", "production Swift phone fixture; runs the joint phone flow")
 	flag.StringVar(&p.legacyPhoneBinary, "legacy-phone-binary", "", "previous approval-only Swift fixture for the initial phone pairing")
@@ -506,7 +507,9 @@ func main() {
 	}
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	if *phoneRemoval {
+	if *collectionRecovery {
+		p.runCollectionRecovery()
+	} else if *phoneRemoval {
 		require(p.phoneBinary != "", "--phone-removal needs --phone-binary")
 		p.runPhoneRemoval()
 	} else if *phoneReplacement {

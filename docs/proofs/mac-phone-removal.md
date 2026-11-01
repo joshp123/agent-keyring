@@ -76,6 +76,10 @@ or real Passwords data is involved.
   its reply; Mac and relay restarts preserve both complete evidence and the
   identical queued acknowledgement. Retrying drains the outbox without
   resetting the relay's original collection timestamp.
+- A separate run uses the previous Mac implementation to complete and retain
+  historical withdrawals without collection acknowledgements. Starting the
+  current Swift Mac on that same authority state queues every completed target
+  before reconnecting, then collects them without another authorization.
 - The retired connection cannot decide or fetch a new copy. A genuine synthetic
   password import sends nothing to its old destination and asks for nothing.
 - An Ask-to-Blocked change A stays pending. A later receiving-machine removal B
@@ -101,6 +105,15 @@ mac-approver-proof --phone-removal \
   --root "$HOME/Library/Containers/com.joshpalmer.AgentKeyring/Data/relay-proof-UNIQUE" \
   --approver "$WRAPPER/Contents/MacOS/RelayApproverFixture" \
   --relay "$RELAY_BINARY" --phone-binary "$PHONE_BINARY" --cli "$CLI_BINARY"
+```
+
+For the saved-history upgrade, first run the earlier removal proof with the
+previous Mac fixture. Stop its processes, keep its isolated root, then run:
+
+```sh
+mac-approver-proof --collect-saved-receipts --root "$PREVIOUS_PROOF_ROOT" \
+  --approver "$CURRENT_WRAPPER/Contents/MacOS/RelayApproverFixture" \
+  --relay "$RELAY_BINARY"
 ```
 
 The driver stops its processes. Erase only the root's isolated, non-synchronizing

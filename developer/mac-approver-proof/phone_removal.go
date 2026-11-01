@@ -116,7 +116,7 @@ func (p *proof) setCourierReceipt(target *pb.UpdateReceiptQuery, spki []byte, si
 	}
 	query := fmt.Sprintf("UPDATE update_devices SET receipt=%s WHERE kind=%d AND revision='%020d' AND spki=X'%x';",
 		value, target.Kind, target.Revision, spki)
-	result, err := exec.Command("/usr/bin/sqlite3", filepath.Join(p.root, "relay", "relay.sqlite"), query).CombinedOutput()
+	result, err := exec.Command("/usr/bin/sqlite3", "-cmd", ".timeout 5000", filepath.Join(p.root, "relay", "relay.sqlite"), query).CombinedOutput()
 	require(err == nil, string(result))
 }
 
