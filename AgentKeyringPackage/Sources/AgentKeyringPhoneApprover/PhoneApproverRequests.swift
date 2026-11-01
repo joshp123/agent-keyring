@@ -97,6 +97,7 @@ extension PhoneRelayApprover {
         guard !authorizing else { throw RelayFailure(.conflict, "An approval is already in progress.") }
         authorizing = true; defer { authorizing = false }
         try await refreshAuthority()
+        await flushOutbox(refreshingAuthority: false)
         await refreshCopy()
         let (record, machine, _) = try pendingScope(id, approving: true)
         let context = LAContext(); defer { context.invalidate() }
@@ -108,7 +109,7 @@ extension PhoneRelayApprover {
         if let saved = state.requests[id], try Agentkeyring_V1_Lease(serializedBytes: saved.lease).state != .pending { return try requestState(id) }
         guard record == (try pendingScope(id, approving: true)).0 else { throw RelayFailure(.conflict, "The request changed.") }
         try queueDecision(id, approve: true, reply: "", context: context)
-        await flushOutbox()
+        await flushOutbox(refreshingAuthority: false)
         return try requestState(id)
     }
 
@@ -119,6 +120,7 @@ extension PhoneRelayApprover {
         guard !authorizing else { throw RelayFailure(.conflict, "An approval is already in progress.") }
         authorizing = true; defer { authorizing = false }
         try await refreshAuthority()
+        await flushOutbox(refreshingAuthority: false)
         _ = try pendingScope(id, approving: false)
         if reply.isEmpty { try queueDecision(id, approve: false, reply: "", context: nil) }
         else {
@@ -127,7 +129,7 @@ extension PhoneRelayApprover {
             try Task.checkCancellation()
             try queueDecision(id, approve: false, reply: reply, context: context)
         }
-        await flushOutbox()
+        await flushOutbox(refreshingAuthority: false)
         return try requestState(id)
     }
 

@@ -56,6 +56,8 @@ struct PhoneApproverState: Codable {
     var pairingWanted = false
     var keySet: Data?
     var configuration: Data?
+    var acknowledgedKeyReceipt: Data?
+    var acknowledgedConfigurationReceipt: Data?
     var copy: PhoneSavedCopy?
     var requests: [String: PhoneSavedRequest] = [:]
     var outbox: [Data] = []
@@ -141,7 +143,11 @@ public final class PhoneRelayApprover {
         guard let endpoint = state.endpoint, let pin = state.relaySPKI, state.keySet != nil else {
             throw RelayFailure(.permissionDenied, "Pair this iPhone with your Mac first.")
         }
-        return RelayTransport(endpoint: endpoint, identity: try identityProvider(), pin: pin)
+        return RelayTransport(endpoint: endpoint, identity: try identityProvider(), pin: pin,
+                              receivingTrustUpdate: { [weak self] update in
+            guard let self else { throw CancellationError() }
+            try await self.receiveTrustUpdate(update)
+        })
     }
 
     func fail(_ error: Error, stage: String) {
