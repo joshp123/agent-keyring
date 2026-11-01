@@ -52,6 +52,9 @@ func advanceKeys(state *clientstate.State, chain *pb.ApproverKeyChain) error {
 		if next.Revision <= current.Revision {
 			return errors.New("The relay returned an older or repeated approver key set.")
 		}
+		if relaycrypto.ApproverKeysWithdraw(current, next) && signed.SignerKeyId != current.RuleOwnerKeyId {
+			return errors.New("Only the rule owner may withdraw approver authority.")
+		}
 		public, err := relaycrypto.KeyForRole(current, signed.SignerKeyId, pb.ApproverRole_APPROVER_ROLE_MAC)
 		if err != nil {
 			return err
@@ -134,18 +137,33 @@ func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDeli
 	if err := c.refreshKeys(ctx); err != nil {
 		return nil, err
 	}
+	if err := c.refreshConfiguration(ctx); err != nil {
+		return nil, err
+	}
+	var opened *pb.BundleContents
+	err := c.Store.Update(ctx, func(state *clientstate.State) error {
+		var err error
+		opened, err = c.openSaved(lease, delivery, state)
+		return err
+	})
+	return opened, err
+}
+func (c *Client) openSaved(lease string, delivery *pb.SealedDelivery, state *clientstate.State) (*pb.BundleContents, error) {
 	statement := new(pb.DecisionStatement)
 	if proto.Unmarshal(delivery.Decision.Statement, statement) != nil || statement.Domain != "agentkeyring.decision.v1" {
 		return nil, errors.New("The delivery has an invalid decision statement.")
 	}
-	if statement.Authority == pb.DecisionAuthority_DECISION_AUTHORITY_AUTOMATIC_RULE {
-		if err := c.refreshConfiguration(ctx); err != nil {
-			return nil, err
-		}
-	}
-	state, err := c.Store.Load(ctx)
+	configuration, err := verifyConfiguration(state, state.Configuration)
 	if err != nil {
 		return nil, err
+	}
+	enrolled := machine(configuration, state.RecipientId)
+	spki, err := relaycrypto.CertificateSPKI(c.Certificate)
+	if err != nil {
+		return nil, err
+	}
+	if enrolled == nil || !bytes.Equal(enrolled.TlsPublicKey, spki) || enrolled.ReceiverKeyId != state.ReceiverKeyId {
+		return nil, errors.New("This receiver is no longer enrolled.")
 	}
 	request, err := expected(state, lease)
 	if err != nil {
@@ -169,6 +187,16 @@ func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDeli
 	}
 	if !bytes.Equal(statement.RequestDigest, relaycrypto.Digest("agentkeyring.request.v1", delivery.RequestRecord)) {
 		return nil, errors.New("The approved request was changed after signing.")
+	}
+	var allowedLogin *pb.Login
+	for _, login := range configuration.Logins {
+		if login.LoginId == request.LoginId && login.Rule != pb.AccessRule_ACCESS_RULE_BLOCKED {
+			allowedLogin = login
+			break
+		}
+	}
+	if allowedLogin == nil {
+		return nil, errors.New("Current signed policy refuses this login.")
 	}
 	set, err := keySet(state.Approvers)
 	if err != nil {
@@ -252,6 +280,19 @@ func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDeli
 	if bundle.LeaseId != lease || bundle.LoginId != request.LoginId || bundle.NotAfterUnixSeconds != statement.NotAfterUnixSeconds {
 		clearBundle(bundle)
 		return nil, errors.New("The opened login does not match the signed lease or deadline.")
+	}
+	for _, site := range bundle.Sites {
+		allowed := false
+		for _, current := range allowedLogin.Sites {
+			if site == current {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			clearBundle(bundle)
+			return nil, errors.New("The delivery includes a site removed from current signed policy.")
+		}
 	}
 	for _, code := range bundle.OneTimeCodes {
 		if code.ValidFromUnixSeconds >= code.ValidUntilUnixSeconds || code.ValidUntilUnixSeconds > bundle.NotAfterUnixSeconds {
