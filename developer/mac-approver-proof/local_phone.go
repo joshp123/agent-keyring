@@ -55,7 +55,7 @@ func (p *proof) runLocalPhoneFlow() {
 	p.owner = startOwner(p.fixture, p.root)
 	defer func() { p.owner.stop() }()
 	p.pair()
-	phone, directory := p.pairSwiftPhone()
+	phone, directory := p.pairSwiftPhone(p.phoneBinary)
 	defer func() { phone.stop() }()
 	client := authority.Client{Socket: filepath.Join(p.root, "agent.sock")}
 	// No recipient is enrolled with the relay: these are actual local requests.

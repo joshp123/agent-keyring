@@ -24,7 +24,7 @@ type copyPhone struct {
 	keySet *pb.SignedApproverKeySet
 }
 
-func (p *proof) pairCopyPhone() *copyPhone {
+func (p *proof) pairCopyPhone(label string) *copyPhone {
 	phone := &copyPhone{client: client{address: p.receiver.address, cert: identity()}}
 	signer, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	must(err)
@@ -34,7 +34,7 @@ func (p *proof) pairCopyPhone() *copyPhone {
 	spki, err := relaycrypto.CertificateSPKI(phone.cert)
 	must(err)
 	phone.key = &pb.ApproverKey{KeyId: relaycrypto.CopyDestinationID(public), PublicKey: public,
-		TlsPublicKey: spki, Label: "Dummy copy phone", Role: pb.ApproverRole_APPROVER_ROLE_PHONE,
+		TlsPublicKey: spki, Label: label, Role: pb.ApproverRole_APPROVER_ROLE_PHONE,
 		EncryptionPublicKey: phone.opener.PublicKey().Bytes()}
 	stream := phone.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PairApprover{PairApprover: &pb.PairApproverRequest{Key: phone.key, TlsPublicKey: spki}}})
 	defer stream.Close()
@@ -138,7 +138,7 @@ func (p *proof) runPhoneCopyUpdates() {
 	p.pair()
 	p.enrol()
 	p.waitApplied()
-	phone := p.pairCopyPhone()
+	phone := p.pairCopyPhone("Dummy copy phone")
 	initial := phone.copy()
 	first := phone.checkCopy(initial, "example-password", true)
 	watch := phone.open(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_WatchWork{WatchWork: &pb.WatchWorkRequest{ApproverKeyId: phone.key.KeyId}}})
