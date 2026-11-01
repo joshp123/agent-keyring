@@ -196,11 +196,11 @@ func allowedOrigin(origin string, sites []string) bool {
 	return false
 }
 func operationLock(ctx context.Context, scope, target string) (func(), error) {
-	home, err := os.UserHomeDir()
+	store, err := clientstate.Default()
 	if err != nil {
 		return nil, err
 	}
-	directory := filepath.Join(home, ".cache/agent-keyring/operation-locks")
+	directory := filepath.Join(store.Directory, "operation-locks")
 	if err = os.MkdirAll(directory, 0700); err != nil {
 		return nil, errors.New("Cannot create the local operation lock directory.")
 	}

@@ -26,6 +26,12 @@ func NewID() string {
 	return hex.EncodeToString(value[:])
 }
 
+func LockOperation(ctx context.Context, scope, target string) (func(), error) {
+	return operationLock(ctx, scope, target)
+}
+
+func AllowedOrigin(origin string, sites []string) bool { return allowedOrigin(origin, sites) }
+
 // Lengths make this encoding unambiguous even when arguments contain separators.
 func Digest(parts ...string) []byte {
 	h := sha256.New()

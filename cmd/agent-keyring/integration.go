@@ -134,7 +134,7 @@ func integration(command string) error {
 		fmt.Fprintln(os.Stderr, "Linked:", link.destination)
 	}
 	fmt.Fprintln(os.Stderr, "For sign-ins, use Agent Keyring. Run `agent-keyring skill` for the workflow.")
-	return nil
+	return installBrowserHosts()
 }
 
 // A configuration such as Home Manager may already provide the link, in a

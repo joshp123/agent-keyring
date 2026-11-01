@@ -1,0 +1,67 @@
+// Written by AI on 2026.11.01 by model gpt-6.1-sol.
+syntax = "proto3";
+package agentkeyring.browser;
+option go_package = "github.com/joshp123/agent-keyring/internal/browserbridge";
+import "agentkeyring/v1/agentkeyring.proto";
+
+enum Action {
+  ACTION_UNSPECIFIED = 0;
+  ACTION_TABS = 1;
+  ACTION_FIELDS = 2;
+  ACTION_FILL = 3;
+  ACTION_PREPARE = 4;
+  ACTION_CANDIDATES = 5;
+}
+// CLI to host: no credential values.
+message Request {
+  Action action = 1;
+  string target = 2;
+  FillCommand fill = 3;
+}
+message FillCommand {
+  string lease_id = 1;
+  string operation_id = 2;
+  repeated agentkeyring.v1.FieldBinding fields = 3;
+  string submit = 4;
+}
+message Tab {
+  string target = 1;
+  string url = 2;
+  string title = 3;
+  string browser = 4;
+  string profile = 5;
+}
+message Control {
+  string target = 1;
+  string selector = 2;
+  string type = 3;
+  string name = 4;
+  string id = 5;
+  string label = 6;
+  string autocomplete = 7;
+}
+message Inspection {
+  Tab tab = 1;
+  repeated Control controls = 2;
+}
+// Only safe metadata and outcomes can come back from the extension or host.
+message Response {
+  string id = 1;
+  string profile = 2;
+  string browser = 3;
+  repeated Tab tabs = 4;
+  Inspection inspection = 5;
+  agentkeyring.v1.FillResult fill = 6;
+  string error = 7;
+}
+// Host to extension only. Chrome requires JSON with native-endian lengths;
+// the socket uses the ordinary protobuf framing. Values never enter Request.
+message ExtensionRequest {
+  string id = 1;
+  Action action = 2;
+  string target = 3;
+  repeated agentkeyring.v1.FieldBinding fields = 4;
+  string submit = 5;
+  repeated string values = 6;
+  repeated string sites = 7;
+}

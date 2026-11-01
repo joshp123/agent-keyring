@@ -14,6 +14,7 @@ buildGoModule {
       ../internal
       ../gen/go
       ../AgentSkill/agent-keyring
+      ../BrowserExtension
     ];
   };
   vendorHash = "sha256-510qdC6JRC9BpamW8fYW0Ad3if0czT962FQYbaZEjVc=";
@@ -24,6 +25,7 @@ buildGoModule {
   postInstall = ''
     mkdir -p "$out/share/agent-keyring/skills"
     cp -R AgentSkill/agent-keyring "$out/share/agent-keyring/skills/agent-keyring"
+    cp -R BrowserExtension "$out/share/agent-keyring/BrowserExtension"
   '';
 
   meta = {
