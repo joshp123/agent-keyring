@@ -48,15 +48,20 @@ extension PhoneRelayApprover {
         guard !authorizing, !flushing else {
             throw RelayFailure(.conflict, "An answer is still being sent. Try pairing again when it finishes.")
         }
-        let previousSet = try parsedKeys(currentKeys())
-        let tlsKey = try identityProvider().publicKeySPKI
-        guard let previousPhone = previousSet.keys.first(where: { $0.role == .phone && $0.tlsPublicKey == tlsKey }) else {
-            throw RelayFailure(.permissionDenied, "The saved pairing does not identify this iPhone.")
+        let previousKeyID: String
+        if let removed = state.removedKeyID { previousKeyID = removed }
+        else {
+            let previousSet = try parsedKeys(currentKeys())
+            let tlsKey = try identityProvider().publicKeySPKI
+            guard let previousPhone = previousSet.keys.first(where: { $0.role == .phone && $0.tlsPublicKey == tlsKey }) else {
+                throw RelayFailure(.permissionDenied, "The saved pairing does not identify this iPhone.")
+            }
+            previousKeyID = previousPhone.keyID
         }
         stop()
         var next = PhoneApproverState()
         next.endpoint = endpoint; next.relaySPKI = state.relaySPKI
-        next.replacementPairing = PhoneReplacementPairing(previousKeyID: previousPhone.keyID, needsFreshIdentity: true)
+        next.replacementPairing = PhoneReplacementPairing(previousKeyID: previousKeyID, needsFreshIdentity: true)
         try commit(next)
         pairing = .notPaired; connection = .notPaired; lastFailure = nil; publish()
         try await beginPairing(endpoint: endpoint)
@@ -64,6 +69,10 @@ extension PhoneRelayApprover {
 
     public func beginPairing(endpoint requestedEndpoint: RelayEndpoint) async throws {
         try load()
+        if state.removedKeyID != nil {
+            try await beginReplacementPairing()
+            return
+        }
         guard state.keySet == nil else { throw RelayFailure(.conflict, "This iPhone is already paired.") }
         let endpoint: RelayEndpoint
         if state.replacementPairing != nil {
@@ -233,7 +242,7 @@ extension PhoneRelayApprover {
         return configuration
     }
 
-    func refreshAuthority() async throws {
+    public func refreshAuthority() async throws {
         if let task = authorityTask { return try await task.value }
         let task = Task { try await refreshAuthorityUnshared() }
         authorityTask = task
@@ -243,26 +252,18 @@ extension PhoneRelayApprover {
 
     private func refreshAuthorityUnshared() async throws {
         let client = try transport()
-        var current = try currentKeys()
-        var set = try parsedKeys(current)
+        let set = try parsedKeys(currentKeys())
         var request = Agentkeyring_V1_RelayWireRequest(); request.getApproverKeyChain.fromRevision = set.revision
         let chain = try await client.call(request)
         guard case let .approverKeyChain(chain) = chain.response else { throw RelayFailure(.unavailable, "The approver key chain is unavailable.") }
         for signed in chain.keySets {
-            let candidate = try parsedKeys(signed)
-            guard candidate.revision > set.revision,
-                  candidate.keys.allSatisfy({ $0.role != .unspecified || ($0.keyID == set.ruleOwnerKeyID && $0.publicKey == set.keys.first(where: { $0.keyID == set.ruleOwnerKeyID })?.publicKey) }) else { throw RelayFailure(.permissionDenied, "The approver key chain rolled back.") }
-            try verify(signed.signature, bytes: signed.keySet, signerID: signed.signerKeyID, in: set)
-            current = signed; set = candidate
+            try applyApproverKeys(signed)
         }
-        let ownKey = try keys.signingPublicKey()
-        guard set.keys.contains(where: { $0.role == .phone && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) && ($0.encryptionPublicKey.isEmpty || $0.encryptionPublicKey == (try? keys.encryptionPublicKey())) }) else {
-            throw RelayFailure(.permissionDenied, "This iPhone is no longer an approver.")
-        }
+        let currentSet = try parsedKeys(currentKeys())
         request = .init(); request.getConfiguration = .init()
         let response = try await client.call(request)
         guard case let .configuration(configuration) = response.response else { throw RelayFailure(.unavailable, "The Mac's signed configuration is unavailable.") }
-        let parsed = try verifiedConfiguration(configuration, keys: set)
+        let parsed = try verifiedConfiguration(configuration, keys: currentSet)
         if let bytes = state.configuration {
             let previous = try Agentkeyring_V1_SignedConfiguration(serializedBytes: bytes)
             let old = try Agentkeyring_V1_Configuration(serializedBytes: previous.configuration)
@@ -272,17 +273,47 @@ extension PhoneRelayApprover {
             }
         }
         try Task.checkCancellation()
-        var next = state; next.keySet = try current.serializedData()
+        var next = state
         next.configuration = try configuration.serializedData(); next.rulesUpdatedAt = Date()
         if let bytes = next.copy?.signedUpdate {
             let copy = try Agentkeyring_V1_SignedCopyUpdate(serializedBytes: bytes)
             let update = try Agentkeyring_V1_CopyUpdate(serializedBytes: copy.update)
-            if update.configurationRevision != parsed.revision || !set.keys.contains(where: { $0.keyID == copy.signerKeyID && $0.role == .macDelivery }) {
+            if update.configurationRevision != parsed.revision || !currentSet.keys.contains(where: { $0.keyID == copy.signerKeyID && $0.role == .macDelivery }) {
                 next.copy?.signedUpdate = nil
             }
         }
         try commit(next)
         logger.notice("Verified approver chain and rule owner's configuration; revision=\(parsed.revision, privacy: .public) logins=\(parsed.logins.count, privacy: .public) machines=\(parsed.machines.count, privacy: .public)")
+    }
+
+    func applyApproverKeys(_ signed: Agentkeyring_V1_SignedApproverKeySet) throws {
+        let previous = try parsedKeys(currentKeys())
+        let candidate = try parsedKeys(signed)
+        guard candidate.revision > previous.revision,
+              candidate.keys.allSatisfy({ $0.role != .unspecified || ($0.keyID == previous.ruleOwnerKeyID && $0.publicKey == previous.keys.first(where: { $0.keyID == previous.ruleOwnerKeyID })?.publicKey) }) else {
+            throw RelayFailure(.permissionDenied, "The approver key chain rolled back.")
+        }
+        try verify(signed.signature, bytes: signed.keySet, signerID: signed.signerKeyID, in: previous)
+        try Task.checkCancellation()
+        let ownKey = try keys.signingPublicKey()
+        let isApprover = candidate.keys.contains { $0.role == .phone && $0.publicKey == ownKey && $0.tlsPublicKey == (try? identityProvider().publicKeySPKI) && ($0.encryptionPublicKey.isEmpty || $0.encryptionPublicKey == (try? keys.encryptionPublicKey())) }
+        var next = state; next.keySet = try signed.serializedData()
+        if !isApprover {
+            next.removedKeyID = RelayCrypto.keyID(ownKey)
+            next.copy = nil; next.configuration = nil; next.rulesUpdatedAt = nil
+            next.requests = [:]; next.remoteLeases = [:]; next.outbox = []
+        } else if let bytes = next.copy?.signedUpdate {
+            let copy = try Agentkeyring_V1_SignedCopyUpdate(serializedBytes: bytes)
+            if !candidate.keys.contains(where: { $0.keyID == copy.signerKeyID && $0.role == .macDelivery }) {
+                next.copy?.signedUpdate = nil
+            }
+        }
+        try commit(next)
+        logger.notice("Saved verified approver keys; revision=\(candidate.revision, privacy: .public) removed=\(!isApprover, privacy: .public)")
+        if !isApprover {
+            stop(); pairing = .notPaired; connection = .notPaired; publish()
+            throw RelayFailure(.permissionDenied, "This iPhone is no longer an approver.")
+        }
     }
 
     func configuration() throws -> Agentkeyring_V1_Configuration {
