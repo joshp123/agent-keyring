@@ -94,18 +94,20 @@ public enum RelayScreenMapping {
     public static func withdrawals(_ update: RelayApproverUpdate) -> [PendingWithdrawal] {
         update.withdrawals.filter { !$0.isComplete }.map { withdrawal in
             let counted = withdrawal.devices.filter { !$0.removedByLaterChange }
-            return PendingWithdrawal(id: withdrawal.id, title: withdrawalTitle(withdrawal.label),
+            return PendingWithdrawal(id: withdrawal.id, title: withdrawalTitle(withdrawal),
                 confirmedOn: counted.filter(\.confirmed).map(\.label),
                 waitingFor: counted.filter { !$0.confirmed }.map(\.label))
         }
     }
 
-    /// RelayApprover names a withdrawal as a command ("Remove …"); the
-    /// screen shows it as something in progress.
-    static func withdrawalTitle(_ label: String) -> String {
-        if label.hasPrefix("Remove ") { return "Removing " + label.dropFirst("Remove ".count) }
-        if label == "Apply changed login and machine permissions" { return "Applying changed permissions" }
-        return label
+    /// Records saved before the device name existed get the generic wording.
+    static func withdrawalTitle(_ withdrawal: RelayPermissionWithdrawal) -> String {
+        switch withdrawal.change {
+        case .phoneRemoval: "Removing " + (withdrawal.deviceName ?? "an iPhone")
+        case .phoneReplacement: "Replacing " + (withdrawal.deviceName ?? "an iPhone")
+        case .approverKeys: "Changing who can approve requests"
+        case .configuration: "Applying changed permissions"
+        }
     }
 
     static func site(_ lease: Agentkeyring_V1_Lease, loginTitle: String) -> String {
