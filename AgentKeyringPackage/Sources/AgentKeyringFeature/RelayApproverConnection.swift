@@ -41,6 +41,7 @@ extension RelayApprover {
                     while !Task.isCancelled {
                         let response = try await connection!.next()
                         if case let .work(work) = response.response { try await self.receive(work) }
+                        if case let .trustUpdate(update) = response.response { try self.receiveTrustUpdate(update) }
                         if response.endOfStream { throw LeaseFailure(.unavailable, "The relay ended the work stream.") }
                     }
                 } catch {
@@ -66,14 +67,16 @@ extension RelayApprover {
     public func reconnect() { stop(); start() }
 
     func wakeOutbox() {
-        guard loaded, !state.outbox.isEmpty, outboxTask == nil else { return }
+        guard loaded, (!state.outbox.isEmpty || state.hasPendingWithdrawals), outboxTask == nil else { return }
         outboxTask = Task { [weak self] in
             guard let self else { return }
             defer { self.outboxTask = nil }
             var delay = 1
-            while !Task.isCancelled && !self.state.outbox.isEmpty {
+            while !Task.isCancelled && (!self.state.outbox.isEmpty || self.state.hasPendingWithdrawals) {
                 await self.flushOutbox()
-                if self.state.outbox.isEmpty { return }
+                do { try await self.collectUpdateReceipts() }
+                catch { if !Task.isCancelled { self.report(error) } }
+                if self.state.outbox.isEmpty && !self.state.hasPendingWithdrawals { return }
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }
                 delay = min(30, delay * 2)
             }
@@ -98,7 +101,7 @@ extension RelayApprover {
                     next.outbox[0].attempted = true
                     try commit(next)
                 }
-                let response = try await client.call(command)
+                let response = try await callRelay(command, using: client)
                 guard state.outbox.first?.bytes == queued.bytes else { continue }
                 var next = state
                 switch (command.request, response.response) {
@@ -163,6 +166,19 @@ extension RelayApprover {
                     guard ack.lease.leaseID == update.lease.leaseID else { throw LeaseFailure(.conflict, "The relay acknowledged another local lease.") }
                 case let (.dismissEnrolment, .enrolment(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
+                case let (.publishUpdateReceipt(signed), .publish(ack)):
+                    guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
+                    let receipt = try Agentkeyring_V1_UpdateReceipt(serializedBytes: signed.receipt)
+                    var target = Agentkeyring_V1_UpdateReceiptQuery()
+                    target.kind = receipt.kind
+                    target.revision = receipt.revision
+                    target.updateSha256 = receipt.updateSha256
+                    if next.acknowledgedUpdateReceipts == nil { next.acknowledgedUpdateReceipts = [] }
+                    next.acknowledgedUpdateReceipts!.insert(updateID(target))
+                    let prefix = "\(receipt.kind.rawValue):"
+                    next.acknowledgedUpdateReceipts = next.acknowledgedUpdateReceipts?.filter {
+                        !$0.hasPrefix(prefix) || $0 == updateID(target)
+                    }
                 case let (.escalateToPhone, .publish(ack)), let (.clearDenial_p, .publish(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
                 default: throw LeaseFailure(.unavailable, "The relay returned an unexpected acknowledgement.")
@@ -201,6 +217,7 @@ extension RelayApprover {
         case let .lease(lease): try await receiveLeaseReport(lease)
         case let .phoneDecision(answer): try await receivePhoneDecision(answer)
         case let .localLeaseAction(action): try receiveLocalLeaseAction(action)
+        case let .trustUpdate(update): try receiveTrustUpdate(update)
         case .copyUpdate: throw LeaseFailure(.permissionDenied, "Login copies must be sent only to their phone.")
         case nil: throw LeaseFailure(.invalidArgument, "The relay sent empty work.")
         }

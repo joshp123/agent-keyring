@@ -69,6 +69,17 @@ public struct RelayTLSIdentity: @unchecked Sendable {
         publicKeySPKI = try Self.spki(certificate: cert)
     }
 
+    func sign(_ bytes: Data) throws -> Data {
+        var key: SecKey?
+        let status = SecIdentityCopyPrivateKey(identity, &key)
+        guard status == errSecSuccess, let key else { throw KeychainError(status: status) }
+        var error: Unmanaged<CFError>?
+        guard let signature = SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256, bytes as CFData, &error) else {
+            throw error!.takeRetainedValue() as Error
+        }
+        return signature as Data
+    }
+
     static func spki(certificate: SecCertificate) throws -> Data {
         guard let key = SecCertificateCopyKey(certificate),
             let bytes = SecKeyCopyExternalRepresentation(key, nil) as? Data,

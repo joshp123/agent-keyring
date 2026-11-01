@@ -60,6 +60,7 @@ public struct RelayApproverUpdate: Sendable {
     public let queuedAnswerCount: Int
     public let needsPublication: Bool
     public let isApplying: Bool
+    public let withdrawals: [RelayPermissionWithdrawal]
     public let errorMessage: String?
 }
 
@@ -116,6 +117,9 @@ struct RelayApproverState: Codable {
     var automaticKeys: Data?
     var loginCopies: [String: RelaySavedCopy]?
     var suppressions: [String: Int64] = [:]
+    var withdrawals: [String: RelaySavedWithdrawal]?
+    var withdrawalSequence: UInt64?
+    var acknowledgedUpdateReceipts: Set<String>?
 }
 
 @MainActor @Observable
@@ -131,6 +135,7 @@ public final class RelayApprover {
     public private(set) var queuedAnswerCount = 0
     public internal(set) var needsPublication = false
     public private(set) var isApplying = false
+    public private(set) var withdrawals: [RelayPermissionWithdrawal] = []
     public internal(set) var errorMessage: String?
 
     let legacyPersistence: LeasePersistence?
@@ -221,7 +226,7 @@ public final class RelayApprover {
         RelayApproverUpdate(connection: connectionState, pairing: pairing, enrolments: pendingEnrolments,
             approverPairings: pendingApproverPairings, approverKeySet: approverKeySet,
             requests: requests, leases: leases, machines: enrolledMachines, queuedAnswerCount: queuedAnswerCount,
-            needsPublication: needsPublication, isApplying: isApplying, errorMessage: errorMessage)
+            needsPublication: needsPublication, isApplying: isApplying, withdrawals: withdrawals, errorMessage: errorMessage)
     }
 
     func commit(_ next: RelayApproverState, vault: RelayApproverVault? = nil, rules: CredentialLeaseStore.SavedRules? = nil) throws {
@@ -276,7 +281,8 @@ public final class RelayApprover {
         }
         leases = displayedLeases.values.sorted { $0.lease.requestedAtUnixSeconds > $1.lease.requestedAtUnixSeconds }
         queuedAnswerCount = state.outbox.filter { !Self.isPublication($0) }.count
-        isApplying = state.outbox.contains(where: Self.isPublication)
+        withdrawals = displayedWithdrawals
+        isApplying = state.outbox.contains(where: Self.isPublication) || state.hasPendingWithdrawals
         needsPublication = state.keySet != nil && (state.configuration == nil || rulesDifferFromConfiguration)
         publicationConfirmationChanged?(needsPublication)
         for observer in observers.values { observer.yield(update) }
@@ -284,6 +290,8 @@ public final class RelayApprover {
 
     static func isPublication(_ command: RelayQueuedCommand) -> Bool {
         command.id.hasPrefix("configuration:") || command.id.hasPrefix("login-copy:")
+            || command.id.hasPrefix("remove-phone:") || command.id.hasPrefix("approver-pairing:")
+            || command.id.hasPrefix("update-receipt:")
     }
 
     func currentKeySet() throws -> Agentkeyring_V1_SignedApproverKeySet {
