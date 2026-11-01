@@ -23,6 +23,7 @@ message State {
   agentkeyring.v1.SignedConfiguration configuration = 12;
   repeated OperationReceipt operations = 13;
   LocalAuthority local_authority = 14;
+  repeated agentkeyring.v1.SignedUpdateReceipt pending_update_receipts = 15;
 }
 message LocalAuthority {
   string application_contents = 1;
