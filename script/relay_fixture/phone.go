@@ -63,7 +63,13 @@ func (p *phoneProcess) line() string {
 }
 func (p *phoneProcess) send(command string)           { _, err := fmt.Fprintln(p.input, command); must(err) }
 func (p *phoneProcess) command(command string) string { p.send(command); return p.line() }
-func (p *phoneProcess) stop()                         { p.send("quit"); must(p.cmd.Wait()) }
+func (p *phoneProcess) stop() {
+	if p.cmd.ProcessState != nil {
+		return
+	}
+	p.send("quit")
+	must(p.cmd.Wait())
+}
 func (p *phoneProcess) wait(command, contains string) string {
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
@@ -425,6 +431,9 @@ func (p *proof) phoneProof(binary, legacyBinary string) {
 		phone = startPhone(binary, directory)
 		failure := phone.command("approve\t" + configurationRequestID)
 		expected := "The configuration rolled back or changed at the same revision."
+		if index == 0 {
+			expected = "signed configuration updates are unavailable."
+		}
 		if index == 2 {
 			expected = "Only the rule owner may sign the configuration."
 		}
@@ -452,7 +461,9 @@ func (p *proof) phoneProof(binary, legacyBinary string) {
 	if legacyBinary != "" {
 		phone, pair.Key = p.swiftReplacementProof(phone, pair.Key, phoneSigner, directory, port, network)
 	}
+	phone = p.swiftReceiptProof(phone, pair.Key, network, directory)
 	phone = p.swiftCopyProof(phone, pair.Key, deliverySigner, network, directory)
+	p.swiftRemovalProof(phone, pair.Key, network, directory)
 	fmt.Println("Phone fixture state:", p.directory)
 }
 
