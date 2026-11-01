@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Agent Keyring",
+  "version": "0.1.0",
+  "description": "Fill approved logins in this browser.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8QlfxZwv9ZI+ADTOdK08zbNlxnr/39WADApN/mNPyBKkDn78pGnp5/S9+uKXN1CWdYlxuyMBHbQ53Tj+eXA1UwY8FqncDTKuR19PQPrLxodhbQEyucXcA+Vcvgu8GORAB3airu0woqRXn9krCrtIx4bjJtv6V9h3T26aJ5eePvlj5qdNCBO84Dbl5+/2+UQidKoi/nYa8ErpP6wnqSnEzlOKllC7J7yHrW+Mt9t06gbnImcKAVlRAGDYGZEKgjxXZkgTAqGzpfSmfV6WIo4naPKW/ZqFdZD8PNoR73ytR3dulT6EmIzEy72QW88WKmgIboi2/1bjSOvNa7iYxC3vpQIDAQAB",
+  "permissions": [
+    "tabs",
+    "webNavigation",
+    "storage",
+    "nativeMessaging",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

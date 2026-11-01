@@ -1,5 +1,8 @@
 <!-- Written by AI on 2026.10.31 by model gpt-6.1-sol. -->
 
+> Historical debugging-port proof. The current path is covered by the
+> [browser extension proof](browser-extension.md).
+
 # Release 2 CLI and receiver proof
 
 The shell workflow runs against a dummy protobuf authority and a real signed

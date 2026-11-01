@@ -107,7 +107,7 @@ func Execute(ctx context.Context, client authority.Client, lease *pb.Lease, fiel
 	digestParts := []string{lease.LeaseId, "execute-program", program.Executable, fmt.Sprint(field)}
 	digestParts = append(digestParts, program.Arguments...)
 	digest := Digest(digestParts...)
-	unlock, err := operationLock(ctx, "lease", lease.LeaseId)
+	unlock, err := LockOperation(ctx, "lease", lease.LeaseId)
 	if err != nil {
 		return 1, err
 	}

@@ -16,6 +16,11 @@ if [[ -e "$SKILL_DIR/agent-keyring" || -L "$SKILL_DIR/agent-keyring" ]]; then
   /usr/bin/trash "$SKILL_DIR/agent-keyring"
 fi
 /usr/bin/ditto "$SRCROOT/AgentSkill/agent-keyring" "$SKILL_DIR/agent-keyring"
+EXTENSION_DIR="$(dirname "$SKILL_DIR")/BrowserExtension"
+if [[ -e "$EXTENSION_DIR" ]]; then
+  /usr/bin/trash "$EXTENSION_DIR"
+fi
+/usr/bin/ditto "$SRCROOT/BrowserExtension" "$EXTENSION_DIR"
 # 0.2.5 and earlier linked ~/.codex/skills/agent-keyring to CodexSkill; keep
 # that path so the link still resolves after an update replaces the app.
 LEGACY_SKILL_DIR="$(dirname "$SKILL_DIR")/CodexSkill"

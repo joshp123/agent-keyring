@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Written by AI on 2026.10.31 by model gpt-6.1-sol.
-Run complete CLI workflows with a dummy authority and real debug-port Chrome.
+Run complete CLI workflows with a dummy authority and the browser extension.
 Requires built build/cli/agent-keyring and build/cli/lease-fixture. No vault access.
 """
 import argparse
@@ -110,10 +110,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cli', type=Path, default=CLI)
     parser.add_argument('--fixture', type=Path, default=AUTHORITY)
-    parser.add_argument('--browser', default=CHROME, help='Native browser executable; always launched headlessly with a new temporary profile')
+    parser.add_argument('--browser', required=True, help='Chrome for Testing executable; always launched headlessly with an isolated profile')
+    parser.add_argument('--extension', type=Path, default=ROOT / "BrowserExtension")
     args = parser.parse_args()
     CLI, AUTHORITY = args.cli.resolve(), args.fixture.resolve()
-    directory = Path(tempfile.mkdtemp(prefix="keyring-cli-proof-"))
+    directory = Path(tempfile.mkdtemp(prefix="ak-cli-", dir="/tmp"))
     print("Proof artifacts:", directory, flush=True)
     state = directory / "authority"
     fixture_socket = directory / "authority.sock"
@@ -199,97 +200,6 @@ def main():
         run("release", waiting_lease)
         print("PASS: receiver killed during program; a new process reports uncertainty without starting it again.")
 
-        profile = directory / "chrome"
-        chrome = subprocess.Popen([args.browser, "--headless=new", "--remote-debugging-port=0", "--user-data-dir=" + str(profile), "--no-first-run", "--no-default-browser-check", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        processes.append(chrome)
-        wait_for(lambda: (profile / "DevToolsActivePort").exists())
-        port = (profile / "DevToolsActivePort").read_text().splitlines()[0]
-        endpoint = "http://127.0.0.1:" + port
-        browser = Browser(endpoint, server.origin + "/login")
-        browsers.append(browser)
-        browser.wait("!!document.querySelector('#password')")
-        tabs = run("fields", "--browser", endpoint)
-        assert browser.tab in tabs and server.origin + "/login" in tabs
-        controls = run("fields", "--browser", endpoint, "--tab", browser.tab)
-        selector = lambda text, identity: next(line.split()[0] for line in text.splitlines() if line.startswith(identity + ' '))
-        assert "current-password" in controls and "Username" in controls
-        browser_lease = lease("browser")
-        run("read", browser_lease, "--field", "password", expected=1)
-        fill = ["fill", browser_lease, "--browser", endpoint, "--tab", browser.tab]
-        first = [*fill, "--username", selector(controls, "#username"), "--password", selector(controls, "#password"), "--submit", selector(controls, "#sign-in")]
-        # The receiver remembers its own outcome across navigation and an
-        # authority restart. No browser attempt is stored at the authority.
-        run(*first)
-        browser.wait("!!document.querySelector('#verification-code')")
-        authority.terminate(); authority.wait(); start_authority()
-        run(*first)
-        assert server.results["password_posts"] == 1
-        code_controls = run("fields", "--browser", endpoint, "--tab", browser.tab)
-        assert "one-time-code" in code_controls
-        run(*fill, "--code", selector(code_controls, "#verification-code"), "--submit", selector(code_controls, "#verify"), "--operation", "code-step")
-        run(*fill, "--code", "#missing-after-navigation", "--submit", "#verify", "--operation", "code-step", expected=1, error_contains="different action")
-        browser.wait("!!document.querySelector('#authenticated')")
-        account = run("fields", "--browser", endpoint, "--tab", browser.tab)
-        assert "/account" in account and "No visible inputs or buttons." in account
-        print(account, flush=True)
-        assert server.results["verification_accepted"] == 1
-        assert server.results["password_accepted"] == 1 and server.results["authenticated_visits"] > 0
-        assert not server.results["unrelated_field_received_text"]
-        assert not server.results["password_present_in_otp_form"]
-        print("PASS: fields-to-fill password and TOTP under one browser lease; authenticated account; receiver receipt survives navigation and authority restart.")
-
-        # Interrupt the CLI during a real click. The browser completes its
-        # submit, but the receiver cannot save an outcome. Its next process
-        # must report Uncertain before inspecting the now-different page.
-        browser.navigate(server.origin + "/login")
-        browser.wait("!!document.querySelector('#password')")
-        browser.call("Runtime.enable", {})
-        browser.evaluate("document.querySelector('form').addEventListener('submit',()=>{console.log('proof-submit-started'); const until=Date.now()+2000;while(Date.now()<until){}})")
-        interrupted_lease = lease("interrupted-browser")
-        interrupted_fill = ["fill", interrupted_lease, *first[2:]]
-        before_posts = server.results["password_posts"]
-        interrupted = subprocess.Popen([CLI, *interrupted_fill], env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        processes.append(interrupted)
-        browser.wait_console("proof-submit-started")
-        interrupted.kill(); interrupted.communicate(timeout=5)
-        browser.wait("!!document.querySelector('#verification-code')")
-        run(*interrupted_fill, expected=1, error_contains="earlier fill is uncertain")
-        assert server.results["password_posts"] == before_posts + 1
-        run("release", interrupted_lease)
-        print("PASS: receiver killed during browser submit; retry is uncertain and the site receives one POST.")
-
-        # An SPA leaves its original controls alive after submit. Prove actual
-        # field clearing, including the password, without returning their values.
-        browser.navigate(server.origin + "/login")
-        browser.wait("!!document.querySelector('#password')")
-        browser.evaluate("window.submits=0; document.querySelector('form').addEventListener('submit',e=>{e.preventDefault(); window.submits++})")
-        run(*first, "--again")
-        assert browser.evaluate("window.submits === 1 && [...document.querySelectorAll('input')].every(e=>e.value==='')")
-        run(*first, "--again")
-        assert browser.evaluate("window.submits === 2 && [...document.querySelectorAll('input')].every(e=>e.value==='')")
-        invalid = [*fill, "--password", "#unrelated", "--submit", "#sign-in", "--again"]
-        run(*invalid, expected=1)
-        assert browser.evaluate("document.querySelector('#unrelated').value === ''")
-        # Two independent CLI processes race on the same fresh step. The tab
-        # lock plus the receiver's atomic receipt must permit only one submit.
-        concurrent_lease = lease("concurrent-fill")
-        concurrent = [str(CLI), *first[0:1], concurrent_lease, *first[2:]]
-        before = browser.evaluate("window.submits")
-        attempts = [subprocess.Popen(concurrent, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(2)]
-        for attempt in attempts:
-            stdout, stderr = attempt.communicate(timeout=30)
-            assert attempt.returncode == 0 and not stdout
-            transcript.extend(stderr)
-        assert browser.evaluate("window.submits") == before + 1
-        run("release", concurrent_lease)
-        # A loopback HTTP server claiming to be CDP must fail ownership checks.
-        run("fill", browser_lease, "--browser", server.origin, "--tab", browser.tab,
-            "--password", "#password", "--submit", "#sign-in", "--again", expected=1)
-        run("fields", "--browser", server.origin, expected=1)
-        assert server.results["debugger_requests"] == 0
-        run("release", browser_lease)
-        print("PASS: SPA submission clears residual inputs; inappropriate field refused.")
-
         install_home = directory / "install-home"
         install_environment = dict(environment, HOME=str(install_home))
         run("install", env=install_environment)
@@ -299,7 +209,7 @@ def main():
         print("PASS: installed command and both skills link to the same build/resources.")
         (directory / "cli-transcript.txt").write_bytes(transcript)
         assert not any(secret in transcript for secret in patterns(server.fixture))
-        print("PASS: concurrent fills submit once; fake endpoint refused; receiver transcript has no fixture values or common encodings.")
+        subprocess.run([sys.executable, str(ROOT / "script/prove_fields.py"), "--cli", str(CLI), "--fixture", str(AUTHORITY), "--browser", args.browser, "--extension", str(args.extension)], check=True)
         print("Proof artifacts:", directory)
     finally:
         for browser in browsers:

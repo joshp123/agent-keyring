@@ -193,25 +193,11 @@ message FillRequest {
 
 message Target {
   oneof kind {
-    ChromiumTarget chromium = 1;
+    // Opaque profile, tab, frame and document target returned by tabs or fields.
+    string browser_tab = 3;
   }
-  // No exact-element AX receiver contract has been proved. Add a new target
-  // variant in its component RFC; do not use a window ID as an element ID.
-  reserved 2;
-  reserved "mac_window";
-}
-
-message ChromiumTarget {
-  // Local to the receiver. Loopback alone does not authenticate the browser;
-  // endpoint ownership must be checked by the receiving integration.
-  string endpoint = 1;
-  string target_id = 2;
-  // Optional. Empty means the tab's main frame.
-  string frame_id = 3;
-  // Optional. The CDP frame loader ID the agent observed. When given, a
-  // changed document is refused. The receiver always checks the frame's actual
-  // origin against the saved login before filling, given or not.
-  string loader_id = 4;
+  reserved 1, 2;
+  reserved "chromium", "mac_window";
 }
 
 message FieldBinding {

@@ -18,7 +18,7 @@ buildGoModule {
       ../gen/go
     ];
   };
-  vendorHash = "sha256-+FPkm39xz8zhXhU8MWCSejNmi8VfYKHKCO1Z8sAM5E0=";
+  vendorHash = "sha256-xBYVO/CVICitGaeUd5SDBeZuFRuATqTGoFx54stAqMg=";
   subPackages = [ "cmd/agent-keyring-relay" ];
   env.CGO_ENABLED = "0";
   doCheck = false;

@@ -15,6 +15,7 @@ import (
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/authority"
+	"github.com/joshp123/agent-keyring/internal/browserbridge"
 	"github.com/joshp123/agent-keyring/internal/clientstate"
 	"github.com/joshp123/agent-keyring/internal/receiver"
 	"github.com/joshp123/agent-keyring/internal/remote"
@@ -26,16 +27,18 @@ const help = `Agent Keyring: use a saved login for one task.
   lease LOGIN --task TASK --reason REASON
                              Ask once; print the lease ID when active
   status LEASE [--wait]      Inspect a lease, or wait for its decision
-  fields --browser ENDPOINT [--tab TAB]
-                             List page tabs, or their visible fields and selectors
-  fill LEASE --browser ENDPOINT --tab TAB
+  tabs                       List tabs in profiles with the browser extension
+  fields --tab TARGET        List visible fields and selectors, never values
+  fill LEASE [--tab TARGET]
        [--username CSS] [--password CSS] [--code CSS] --submit CSS
                              Fill, submit this sign-in step, clear the fields
   exec LEASE --field FIELD   Send a field to the approved program's stdin
   read LEASE --field FIELD   Deliver a value to a private process pipe
   release LEASE             End permission when the task is done
   skill                     Print the bundled agent instructions
-  install                   Link the command and skills for Codex and Claude
+  install                   Link the command and skills; register browser helpers
+  install --browser-profile DIRECTORY
+                            Register a helper only in this browser user-data directory
   enrol --name NAME --relay HOST:PORT
                             Enrol this machine with your approving device
 
@@ -46,14 +49,15 @@ lease: --for browser (default), program or agent-process; --no-wait returns
        a pending reference; --request ID retains a caller-supplied retry ID.
        Program leases bind the command after --, resolved before approval:
        lease LOGIN --task TASK --reason REASON --for program -- client login --password-stdin
-fill:  --frame ID and --document LOADER are optional preconditions.
+fill:  targets come from tabs or fields and include the current document.
+       Without --tab, exactly one tab must match the login's saved site.
 fill/exec: --again deliberately repeats an inspected step; --operation ID is
        an explicit retry key. These two options cannot be combined.
 read:  fields are username, password and one-time-code. Never run read in a
        model-visible shell call. A pipe alone does not make output private.
 
 Lease IDs and read values go to stdout; progress and outcomes go to stderr.
-Find and fields print tables. Status without --wait prints readable state.
+Find, tabs and fields print tables. Status without --wait prints readable state.
 Exit status: 0 succeeded; 1 refused, unavailable or uncertain; 2 incorrect usage.
 exec returns the approved child's exit status when it exits normally.
 Environment: AGENT_KEYRING_SOCKET overrides the local authority socket.
@@ -88,7 +92,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "for", "request", "field", "browser", "tab", "username", "password", "code", "submit", "frame", "document", "operation", "name", "relay":
+		case "task", "reason", "for", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "browser-profile":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -141,6 +145,9 @@ func main() {
 	os.Exit(code)
 }
 func run(ctx context.Context, args []string) (int, error) {
+	if len(args) > 0 && strings.HasPrefix(args[0], "chrome-extension://") {
+		return 0, browserbridge.Native(ctx, args[0], chooseAuthority)
+	}
 	if len(args) == 0 || args[0] == "help" {
 		fmt.Print(help)
 		return 0, nil
@@ -160,22 +167,22 @@ func run(ctx context.Context, args []string) (int, error) {
 		return 2, err
 	}
 	if command == "skill" || command == "install" {
+		if command == "install" && a.options["browser-profile"] != "" {
+			if err = a.check("browser-profile", ""); err != nil || len(a.positionals) > 0 || len(a.program) > 0 {
+				return 2, errors.New("install --browser-profile takes only the browser's user-data directory.")
+			}
+			return 0, installNativeHost(a.options["browser-profile"])
+		}
 		if len(args) != 1 {
 			return 2, errors.New("This command takes no arguments.")
 		}
 		return 0, integration(command)
 	}
-	if command == "fields" {
-		if err = a.check("browser tab", ""); err != nil {
-			return 2, err
-		}
-		if len(a.positionals) > 0 || len(a.program) > 0 {
-			return 2, errors.New("fields takes --browser ENDPOINT and optionally --tab TAB, without positional arguments.")
-		}
-		if a.options["browser"] == "" {
-			return 2, errors.New("Supply --browser ENDPOINT, such as 127.0.0.1:9222.")
-		}
-		return 0, printFields(ctx, a.options["browser"], a.options["tab"])
+	if command == "tabs" || command == "fields" {
+		return inspectBrowser(ctx, command, a)
+	}
+	if command == "fill" {
+		return fillBrowser(ctx, a)
 	}
 	if command == "enrol" {
 		if err = a.check("name relay", ""); err != nil {
@@ -210,7 +217,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, remote.Enrol(ctx, store, address, a.options["name"], os.Stderr)
 	}
-	if !strings.Contains(" find lease status release read exec fill ", " "+command+" ") {
+	if !strings.Contains(" find lease status release read exec ", " "+command+" ") {
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 	}
 	client, connectionError := chooseAuthority(ctx)
@@ -382,39 +389,6 @@ func run(ctx context.Context, args []string) (int, error) {
 			fmt.Fprintln(os.Stderr, "Program exited with status", code)
 		}
 		return code, e
-	case "fill":
-		if err = a.check("browser tab username password code submit frame document operation", "again"); err != nil {
-			return 2, err
-		}
-		if a.options["browser"] == "" || a.options["tab"] == "" || a.options["submit"] == "" {
-			return 2, errors.New("fill needs --browser, --tab and --submit. Inspect the page with your browser tools first.")
-		}
-		key, e := receiver.OperationKey(a.options["operation"], a.flags["again"])
-		if e != nil {
-			return 2, e
-		}
-		request := &pb.FillRequest{LeaseId: id, OperationId: key, SubmitSelector: a.options["submit"], Target: &pb.Target{Kind: &pb.Target_Chromium{Chromium: &pb.ChromiumTarget{Endpoint: a.options["browser"], TargetId: a.options["tab"], FrameId: a.options["frame"], LoaderId: a.options["document"]}}}}
-		for _, binding := range []struct {
-			name  string
-			field pb.CredentialField
-		}{{"username", 1}, {"password", 2}, {"code", 3}} {
-			if selector := a.options[binding.name]; selector != "" {
-				request.Fields = append(request.Fields, &pb.FieldBinding{Field: binding.field, Selector: selector})
-			}
-		}
-		if len(request.Fields) == 0 {
-			return 2, errors.New("Select at least one field with --username, --password or --code.")
-		}
-		lease, e := client.Lease(ctx, id)
-		if e != nil {
-			return 1, e
-		}
-		result := receiver.Fill(ctx, client, lease, request)
-		fmt.Fprintln(os.Stderr, result.Detail)
-		if result.Outcome != pb.FillOutcome_FILL_OUTCOME_SUBMITTED {
-			return 1, nil
-		}
-		return 0, nil
 	default:
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 	}
