@@ -66,13 +66,24 @@
     const deadline = performance.now() + 10000;
     const pause = () => new Promise(resolve => setTimeout(resolve, 50));
     const originalURL = location.href;
+    const originalAlerts = new Map([...document.querySelectorAll('[role="alert"], [aria-live="assertive"]')].map(e => [e, visible(e) ? text(e) : '']));
     let finished = false, clicked = false, submitEvent, serialized = false;
-    const onSubmit = event => { submitEvent = event; };
-    const onFormData = () => { serialized = true; };
-    const onDeparture = () => finish(clicked ? 1 : 2);
+    const onSubmit = event => { if (event.isTrusted) submitEvent = event; };
+    const onFormData = event => { if (event.isTrusted) serialized = true; };
+    const onDeparture = event => { if (event.isTrusted) finish(clicked ? 1 : 2); };
+    const observations = () => {
+      const result = [];
+      if (location.href !== originalURL) result.push('The address changed.');
+      const removed = prepared.fields.filter(e => !e.isConnected).length;
+      if (removed) result.push((removed === prepared.fields.length ? 'The' : 'Some') + ' filled fields were removed or replaced.');
+      if ([...document.querySelectorAll('[role="alert"], [aria-live="assertive"]')].some(e => visible(e) && text(e) && text(e) !== originalAlerts.get(e))) result.push('The page displayed an alert.');
+      if (!result.length) result.push('The address and filled fields stayed in place.');
+      return result.join(' ');
+    };
     const finish = (outcome, detail) => {
       if (finished) return;
       finished = true;
+      const observed = outcome === 2 ? observations() : '';
       removeEventListener('pagehide', onDeparture);
       prepared.submit.form?.removeEventListener('submit', onSubmit);
       prepared.submit.form?.removeEventListener('formdata', onFormData);
@@ -85,7 +96,7 @@
       respond({fill: {outcome: cleaned ? outcome : 8,
         detail: !cleaned ? 'Cleanup could not be confirmed. Close this tab without reading its fields.' :
           detail || (outcome === 1 ? 'Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.' :
-            'The fill result is uncertain. Remaining values were cleared. Inspect the page before using --again.')}});
+            'The fill result is uncertain. ' + observed + ' Values were cleared. This step is recorded; repeating it will not submit again. Inspect the page before using --again.')}});
     };
     try {
       for (let i = 0; i < prepared.fields.length; i++) {
@@ -117,10 +128,10 @@
       clicked = true;
       prepared.submit.click();
       // Native form data has been captured before click returns. Scripted
-      // handlers may read later, so retain the inputs until the page moves on.
+      // handlers may retain even detached inputs and read them later. Only the
+      // browser's native submission or document departure confirms consumption.
       while (!finished) {
-        if ((serialized && submitEvent && !submitEvent.defaultPrevented) || location.href !== originalURL ||
-            prepared.fields.every(e => !e.isConnected)) {
+        if (serialized && submitEvent && !submitEvent.defaultPrevented) {
           finish(1);
         } else if (performance.now() >= deadline) {
           finish(2);

@@ -137,7 +137,12 @@ try:
     processes.append(authority)
     wait_for(socket.exists)
     reviewed_results = []
-    for style in ['async', 'disabled', 'formless', 'async-disabled-formless', 'blur', 'async-route-controlled', 'async-swap', 'async-route-swap', 'async-error', 'stuck', 'invalid']:
+    for style in ['async', 'disabled', 'formless', 'async-disabled-formless', 'blur',
+                  'async-route-controlled', 'async-swap', 'async-route-swap', 'async-error',
+                  'async-early-hash', 'async-early-path', 'async-early-hash-route-controlled',
+                  'async-synthetic-pagehide', 'async-synthetic-form', 'async-constructor-formdata',
+                  'async-early-detach', 'async-early-detach-route-swap', 'async-reattach',
+                  'async-hide', 'async-busy', 'stuck', 'invalid']:
         server.login_style = style
         url = server.origin + '/login?style=' + style
         browser.navigate(url)
@@ -151,8 +156,20 @@ try:
         output.extend(attempt.stdout + attempt.stderr)
         blocked = style in ('stuck', 'invalid')
         failed_login = style == 'async-error'
-        assert attempt.returncode == (1 if blocked else 0), attempt.stderr.decode()
+        unconfirmed = 'route' in style or 'swap' in style or failed_login
+        expected = 1 if blocked or unconfirmed else 0
+        assert attempt.returncode == expected, attempt.stderr.decode()
         assert not attempt.stdout
+        if unconfirmed:
+            assert 9 <= time.monotonic() - started < 14
+            assert b'uncertain' in attempt.stderr and b'This step is recorded' in attempt.stderr
+            assert b'repeating it will not submit again' in attempt.stderr
+            if 'route' in style:
+                assert b'The address changed.' in attempt.stderr
+            if 'swap' in style or failed_login:
+                assert b'filled fields were removed or replaced.' in attempt.stderr
+            if failed_login:
+                assert b'The page displayed an alert.' in attempt.stderr
         password_posts = server.results['password_posts'] - before['password_posts']
         accepted = server.results['password_accepted'] - before['password_accepted']
         assert password_posts == (0 if blocked else 1)
@@ -160,18 +177,21 @@ try:
         if 'route' in style or 'swap' in style or blocked or failed_login:
             time.sleep(1)
             assert browser.evaluate("[...document.querySelectorAll('input'), ...window.proofOldInputs || []].every(e=>e.value==='')")
+        run(*password_fill, code=expected)
+        assert server.results['password_posts'] == before['password_posts'] + password_posts
         if not blocked and not failed_login:
-            run(*password_fill)
             assert server.results['password_posts'] == before['password_posts'] + 1
             # The route-only page retains its controls deliberately, to check
             # cleanup. Swap pages install the actual code form in this document.
-            if style == 'async-route-controlled':
+            if 'controlled' in style:
                 browser.navigate(server.origin + '/verify')
             browser.wait("!!document.querySelector('#verification-code')")
-            target = tab_for(url if style == 'async-swap' else server.origin + '/verify')
+            target = tab_for(url if 'swap' in style and 'route' not in style else server.origin + '/verify')
             fields(target)
-            run('fill', reference, '--tab', target, '--code', '#verification-code', '--submit', '#verify')
-            if style == 'async-route-controlled':
+            code_fill = ['fill', reference, '--tab', target, '--code', '#verification-code', '--submit', '#verify']
+            run(*code_fill, code=1 if unconfirmed else 0)
+            run(*code_fill, code=1 if unconfirmed else 0)
+            if 'controlled' in style:
                 time.sleep(1)
                 assert browser.evaluate("[...document.querySelectorAll('input')].every(e=>e.value==='')")
                 browser.navigate(server.origin + '/account')
@@ -248,8 +268,11 @@ try:
     spa = lease('retained-controls')
     fill = ['fill', spa, '--tab', target, '--username', '#username', '--password', '#password', '--submit', '#sign-in']
     started = time.monotonic()
+    before_output = len(output)
     run(*fill, code=1)
     assert 9 <= time.monotonic() - started < 14
+    assert b'The address and filled fields stayed in place.' in output[before_output:]
+    assert b'This step is recorded' in output[before_output:]
     assert browser.evaluate("window.submits===1 && [...document.querySelectorAll('input')].every(e=>e.value==='')")
     run(*fill, code=1)
     assert browser.evaluate('window.submits===1')
@@ -298,7 +321,7 @@ try:
     run('release', interrupted)
     print('PASS killed helper: pending retry is uncertain and does not submit twice', flush=True)
 
-    server.login_style = 'async-disabled-formless'
+    server.login_style = 'async-disabled-formless-early-hash-route-swap'
     for name, executable in [('claude', args.claude or args.external_claude), ('codex', args.codex)]:
         if not executable:
             continue

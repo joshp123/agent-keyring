@@ -209,7 +209,7 @@ func previous(record *clientstate.OperationReceipt) *Response {
 	if record.GetFill() == pb.FillOutcome_FILL_OUTCOME_SUBMITTED {
 		return &Response{Fill: &pb.FillResult{Outcome: 1, Detail: "This step was already submitted. Nothing was filled again; run tabs to inspect the current page."}}
 	}
-	return &Response{Fill: &pb.FillResult{Outcome: 2, Detail: "The earlier fill may have started. Inspect the page before using --again."}}
+	return &Response{Fill: &pb.FillResult{Outcome: 2, Detail: "The earlier fill may have started. This step is recorded; nothing was filled or submitted again. Inspect the page before using --again."}}
 }
 func (h *host) fill(request *Request) (*Response, error) {
 	command := request.Fill
@@ -283,7 +283,7 @@ func (h *host) fill(request *Request) (*Response, error) {
 	}
 	response, err := h.browser(&ExtensionRequest{Action: Action_ACTION_FILL, Target: request.Target, Fields: command.Fields, Submit: command.Submit, Values: payload, Sites: sites})
 	if err != nil || response.GetFill() == nil {
-		response = &Response{Fill: &pb.FillResult{Outcome: 2, Detail: "The browser did not confirm the fill. Inspect the page before using --again."}}
+		response = &Response{Fill: &pb.FillResult{Outcome: 2, Detail: "The browser did not confirm the fill. This step is recorded; repeating it will not submit again. Run tabs and inspect the page before using --again."}}
 	}
 	if err = store.FinishOperation(context.WithoutCancel(h.ctx), &clientstate.OperationReceipt{LeaseId: command.LeaseId, Key: command.OperationId, Digest: digest, Outcome: &clientstate.OperationReceipt_Fill{Fill: response.Fill.Outcome}}); err != nil {
 		return nil, errors.New("The fill ended but its receipt could not be saved. Inspect before retrying.")

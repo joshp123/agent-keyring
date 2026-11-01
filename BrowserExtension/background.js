@@ -80,7 +80,7 @@ async function handle(command) {
     return {fill: result.fill};
   } catch {
     return command.action === 'ACTION_FILL' ? {fill: {outcome: 2,
-      detail: 'The browser did not confirm the fill. Inspect the page before using --again.'}} :
+      detail: 'The browser did not confirm the fill. This step is recorded; repeating it will not submit again. Run tabs and inspect the page before using --again.'}} :
       {error: 'This document cannot be filled or has changed. Run tabs and fields again.'};
   } finally { command.values?.fill(''); }
 }
