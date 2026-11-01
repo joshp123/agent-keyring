@@ -816,44 +816,22 @@ public nonisolated struct Agentkeyring_V1_Target: Sendable {
 
   public var kind: Agentkeyring_V1_Target.OneOf_Kind? = nil
 
-  public var chromium: Agentkeyring_V1_ChromiumTarget {
+  /// Opaque profile, tab, frame and document target returned by tabs or fields.
+  public var browserTab: String {
     get {
-      if case .chromium(let v)? = kind {return v}
-      return Agentkeyring_V1_ChromiumTarget()
+      if case .browserTab(let v)? = kind {return v}
+      return String()
     }
-    set {kind = .chromium(newValue)}
+    set {kind = .browserTab(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Kind: Equatable, Sendable {
-    case chromium(Agentkeyring_V1_ChromiumTarget)
+    /// Opaque profile, tab, frame and document target returned by tabs or fields.
+    case browserTab(String)
 
   }
-
-  public init() {}
-}
-
-public nonisolated struct Agentkeyring_V1_ChromiumTarget: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  /// Local to the receiver. Loopback alone does not authenticate the browser;
-  /// endpoint ownership must be checked by the receiving integration.
-  public var endpoint: String = String()
-
-  public var targetID: String = String()
-
-  /// Optional. Empty means the tab's main frame.
-  public var frameID: String = String()
-
-  /// Optional. The CDP frame loader ID the agent observed. When given, a
-  /// changed document is refused. The receiver always checks the frame's actual
-  /// origin against the saved login before filling, given or not.
-  public var loaderID: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -1778,7 +1756,7 @@ nonisolated extension Agentkeyring_V1_FillRequest: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Agentkeyring_V1_Target: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Target"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}chromium\0\u{b}mac_window\0\u{c}\u{2}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{3}browser_tab\0\u{b}chromium\0\u{b}mac_window\0\u{c}\u{1}\u{1}\u{c}\u{2}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1786,17 +1764,12 @@ nonisolated extension Agentkeyring_V1_Target: SwiftProtobuf.Message, SwiftProtob
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try {
-        var v: Agentkeyring_V1_ChromiumTarget?
-        var hadOneofValue = false
-        if let current = self.kind {
-          hadOneofValue = true
-          if case .chromium(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
+      case 3: try {
+        var v: String?
+        try decoder.decodeSingularStringField(value: &v)
         if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.kind = .chromium(v)
+          if self.kind != nil {try decoder.handleConflictingOneOf()}
+          self.kind = .browserTab(v)
         }
       }()
       default: break
@@ -1809,59 +1782,14 @@ nonisolated extension Agentkeyring_V1_Target: SwiftProtobuf.Message, SwiftProtob
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
-    try { if case .chromium(let v)? = self.kind {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    try { if case .browserTab(let v)? = self.kind {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V1_Target, rhs: Agentkeyring_V1_Target) -> Bool {
     if lhs.kind != rhs.kind {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentkeyring_V1_ChromiumTarget: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ChromiumTarget"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}endpoint\0\u{3}target_id\0\u{3}frame_id\0\u{3}loader_id\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.endpoint) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.targetID) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.frameID) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.loaderID) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.endpoint.isEmpty {
-      try visitor.visitSingularStringField(value: self.endpoint, fieldNumber: 1)
-    }
-    if !self.targetID.isEmpty {
-      try visitor.visitSingularStringField(value: self.targetID, fieldNumber: 2)
-    }
-    if !self.frameID.isEmpty {
-      try visitor.visitSingularStringField(value: self.frameID, fieldNumber: 3)
-    }
-    if !self.loaderID.isEmpty {
-      try visitor.visitSingularStringField(value: self.loaderID, fieldNumber: 4)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentkeyring_V1_ChromiumTarget, rhs: Agentkeyring_V1_ChromiumTarget) -> Bool {
-    if lhs.endpoint != rhs.endpoint {return false}
-    if lhs.targetID != rhs.targetID {return false}
-    if lhs.frameID != rhs.frameID {return false}
-    if lhs.loaderID != rhs.loaderID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

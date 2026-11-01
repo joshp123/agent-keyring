@@ -24,19 +24,14 @@ describe it.
 - **What the 30 minutes means.** It is how long Agent Keyring will hand out the
   login for that task. It does not take back a password the agent's machine
   has already received, and it does not sign anyone out of the website.
-- **Google Chrome, Chrome for Testing and Chromium on macOS and Linux.** Agent
-  Keyring uses the browser's existing local debugging endpoint on the same
-  machine as the agent. It checks which process owns the endpoint and identifies
-  its browser installation, checks the page belongs to the saved site, fills
-  only the fields the agent names, submits, and clears what it typed. It does
-  not launch or restart browsers or change their profiles.
+- **A browser extension fills the login.** The shell commands list its tabs
+  and fields, then fill only the controls the agent names, submit and clear
+  them. The extension checks the selected document and frame against the saved
+  site. The first isolated proof passes in headless Chrome for Testing on a
+  Mac, with real Claude Code and Codex CLI agents. Normal Chrome profiles,
+  other Chromium browsers, Safari and Linux need their own installation proofs.
 - **Programs.** A program named when the agent asks gets the password on its
   standard input. The agent gets the program's exit status, not its output.
-- **Other browsers, from the agent's own code.** For a browser with no
-  debugging port, the agent can ask for the value to be given to its own code,
-  which types it into the page. You are told this when you approve. The value
-  then sits in the agent's process, so this route keeps the password out of
-  the chat, not out of the agent's reach.
 - **Two-factor codes** saved with a login in Apple Passwords. Codes sent by
   SMS or email are not handled.
 - **Other machines.** Agents on another Mac, a Linux server or a cloud machine
@@ -55,8 +50,9 @@ describe it.
 
 ## What it does not do
 
-- Fill Safari or the closed browser tools in agent apps, except through the
-  agent's-own-code route above where the host supports it.
+- Fill Safari yet, or install an extension in Codex's in-app browser or T3's
+  preview. Those closed hosts expose no supported private credential input.
+  Agents use a browser with the Agent Keyring extension for sign-ins.
 - Keep a website signed in or sign it out. That is the agent's browser.
 - Deliver Ask logins while your MacBook is asleep or shut. Delivering them
   from the iPhone is designed but not built yet.
@@ -66,9 +62,8 @@ describe it.
 - Protect a password from software that controls the machine receiving it.
   Agent Keyring keeps passwords out of the agent's conversation and tool
   output; an agent that sets out to read the browser it controls can still do
-  so. Endpoint checks reject a fake debugging server; they do not authenticate
-  the publisher of an ad-hoc or unpacked browser build or isolate software
-  running as the same user.
+  so. The native host sends values only through the extension's private pipe;
+  it does not isolate software running as the same user.
 
 ## Who can read what
 
@@ -104,6 +99,12 @@ Then:
    It links the `agent-keyring` command and gives Codex and Claude Code the
    bundled instructions.
 
+`install` also registers the browser helper and prints the bundled extension's
+folder. Loading that extension once in each Chrome-family profile is a separate
+step: open `chrome://extensions`, enable Developer mode, and choose Load
+unpacked. The isolated proof and its exact installation are recorded in
+[the extension proof](docs/proofs/browser-extension.md).
+
 **Other machines.** Run `agent-keyring-relay` on an always-on Mac, listening on
 its tailnet address, and pair your MacBook with it in the Machines window. On
 each agent machine run `agent-keyring enrol --name NAME --relay HOST:PORT`,
@@ -136,7 +137,9 @@ requests appear when you open the app.
 ```sh
 agent-keyring find example.com
 lease=$(agent-keyring lease LOGIN_ID --task "$task" --reason "What the user asked for")
-agent-keyring fill "$lease" --browser "$endpoint" --tab "$tab" \
+agent-keyring tabs
+agent-keyring fields --tab "$tab"       # use the complete target printed by tabs
+agent-keyring fill "$lease" --tab "$tab" \
   --username '#username' --password '#password' --submit 'button[type=submit]'
 agent-keyring release "$lease"
 ```

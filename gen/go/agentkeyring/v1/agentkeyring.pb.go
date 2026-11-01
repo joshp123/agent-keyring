@@ -1287,7 +1287,7 @@ type Target struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Kind:
 	//
-	//	*Target_Chromium
+	//	*Target_BrowserTab
 	Kind          isTarget_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1330,98 +1330,25 @@ func (x *Target) GetKind() isTarget_Kind {
 	return nil
 }
 
-func (x *Target) GetChromium() *ChromiumTarget {
+func (x *Target) GetBrowserTab() string {
 	if x != nil {
-		if x, ok := x.Kind.(*Target_Chromium); ok {
-			return x.Chromium
+		if x, ok := x.Kind.(*Target_BrowserTab); ok {
+			return x.BrowserTab
 		}
 	}
-	return nil
+	return ""
 }
 
 type isTarget_Kind interface {
 	isTarget_Kind()
 }
 
-type Target_Chromium struct {
-	Chromium *ChromiumTarget `protobuf:"bytes,1,opt,name=chromium,proto3,oneof"`
+type Target_BrowserTab struct {
+	// Opaque profile, tab, frame and document target returned by tabs or fields.
+	BrowserTab string `protobuf:"bytes,3,opt,name=browser_tab,json=browserTab,proto3,oneof"`
 }
 
-func (*Target_Chromium) isTarget_Kind() {}
-
-type ChromiumTarget struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Local to the receiver. Loopback alone does not authenticate the browser;
-	// endpoint ownership must be checked by the receiving integration.
-	Endpoint string `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	TargetId string `protobuf:"bytes,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"`
-	// Optional. Empty means the tab's main frame.
-	FrameId string `protobuf:"bytes,3,opt,name=frame_id,json=frameId,proto3" json:"frame_id,omitempty"`
-	// Optional. The CDP frame loader ID the agent observed. When given, a
-	// changed document is refused. The receiver always checks the frame's actual
-	// origin against the saved login before filling, given or not.
-	LoaderId      string `protobuf:"bytes,4,opt,name=loader_id,json=loaderId,proto3" json:"loader_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ChromiumTarget) Reset() {
-	*x = ChromiumTarget{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ChromiumTarget) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ChromiumTarget) ProtoMessage() {}
-
-func (x *ChromiumTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ChromiumTarget.ProtoReflect.Descriptor instead.
-func (*ChromiumTarget) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *ChromiumTarget) GetEndpoint() string {
-	if x != nil {
-		return x.Endpoint
-	}
-	return ""
-}
-
-func (x *ChromiumTarget) GetTargetId() string {
-	if x != nil {
-		return x.TargetId
-	}
-	return ""
-}
-
-func (x *ChromiumTarget) GetFrameId() string {
-	if x != nil {
-		return x.FrameId
-	}
-	return ""
-}
-
-func (x *ChromiumTarget) GetLoaderId() string {
-	if x != nil {
-		return x.LoaderId
-	}
-	return ""
-}
+func (*Target_BrowserTab) isTarget_Kind() {}
 
 type FieldBinding struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1435,7 +1362,7 @@ type FieldBinding struct {
 
 func (x *FieldBinding) Reset() {
 	*x = FieldBinding{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[11]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1447,7 +1374,7 @@ func (x *FieldBinding) String() string {
 func (*FieldBinding) ProtoMessage() {}
 
 func (x *FieldBinding) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[11]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1460,7 +1387,7 @@ func (x *FieldBinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldBinding.ProtoReflect.Descriptor instead.
 func (*FieldBinding) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{11}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *FieldBinding) GetField() CredentialField {
@@ -1488,7 +1415,7 @@ type FillResult struct {
 
 func (x *FillResult) Reset() {
 	*x = FillResult{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[12]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1500,7 +1427,7 @@ func (x *FillResult) String() string {
 func (*FillResult) ProtoMessage() {}
 
 func (x *FillResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[12]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1513,7 +1440,7 @@ func (x *FillResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FillResult.ProtoReflect.Descriptor instead.
 func (*FillResult) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{12}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FillResult) GetOutcome() FillOutcome {
@@ -1549,7 +1476,7 @@ type ExecuteProgramRequest struct {
 
 func (x *ExecuteProgramRequest) Reset() {
 	*x = ExecuteProgramRequest{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[13]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1561,7 +1488,7 @@ func (x *ExecuteProgramRequest) String() string {
 func (*ExecuteProgramRequest) ProtoMessage() {}
 
 func (x *ExecuteProgramRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[13]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1574,7 +1501,7 @@ func (x *ExecuteProgramRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteProgramRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteProgramRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{13}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ExecuteProgramRequest) GetLeaseId() string {
@@ -1616,7 +1543,7 @@ type ExecuteProgramResult struct {
 
 func (x *ExecuteProgramResult) Reset() {
 	*x = ExecuteProgramResult{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[14]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1628,7 +1555,7 @@ func (x *ExecuteProgramResult) String() string {
 func (*ExecuteProgramResult) ProtoMessage() {}
 
 func (x *ExecuteProgramResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[14]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1641,7 +1568,7 @@ func (x *ExecuteProgramResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteProgramResult.ProtoReflect.Descriptor instead.
 func (*ExecuteProgramResult) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{14}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ExecuteProgramResult) GetOutcome() ProgramOutcome {
@@ -1676,7 +1603,7 @@ type DeliverRequest struct {
 
 func (x *DeliverRequest) Reset() {
 	*x = DeliverRequest{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[15]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1688,7 +1615,7 @@ func (x *DeliverRequest) String() string {
 func (*DeliverRequest) ProtoMessage() {}
 
 func (x *DeliverRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[15]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1701,7 +1628,7 @@ func (x *DeliverRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeliverRequest.ProtoReflect.Descriptor instead.
 func (*DeliverRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{15}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeliverRequest) GetLeaseId() string {
@@ -1738,7 +1665,7 @@ type Delivery struct {
 
 func (x *Delivery) Reset() {
 	*x = Delivery{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[16]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1750,7 +1677,7 @@ func (x *Delivery) String() string {
 func (*Delivery) ProtoMessage() {}
 
 func (x *Delivery) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[16]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1763,7 +1690,7 @@ func (x *Delivery) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Delivery.ProtoReflect.Descriptor instead.
 func (*Delivery) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{16}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Delivery) GetResult() isDelivery_Result {
@@ -1821,7 +1748,7 @@ type CredentialValues struct {
 
 func (x *CredentialValues) Reset() {
 	*x = CredentialValues{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[17]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1833,7 +1760,7 @@ func (x *CredentialValues) String() string {
 func (*CredentialValues) ProtoMessage() {}
 
 func (x *CredentialValues) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[17]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1846,7 +1773,7 @@ func (x *CredentialValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CredentialValues.ProtoReflect.Descriptor instead.
 func (*CredentialValues) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{17}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CredentialValues) GetUsername() string {
@@ -1895,7 +1822,7 @@ type WireRequest struct {
 
 func (x *WireRequest) Reset() {
 	*x = WireRequest{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[18]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1907,7 +1834,7 @@ func (x *WireRequest) String() string {
 func (*WireRequest) ProtoMessage() {}
 
 func (x *WireRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[18]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1920,7 +1847,7 @@ func (x *WireRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WireRequest.ProtoReflect.Descriptor instead.
 func (*WireRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{18}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WireRequest) GetRequest() isWireRequest_Request {
@@ -2072,7 +1999,7 @@ type WireResponse struct {
 
 func (x *WireResponse) Reset() {
 	*x = WireResponse{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[19]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2084,7 +2011,7 @@ func (x *WireResponse) String() string {
 func (*WireResponse) ProtoMessage() {}
 
 func (x *WireResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[19]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2097,7 +2024,7 @@ func (x *WireResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WireResponse.ProtoReflect.Descriptor instead.
 func (*WireResponse) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{19}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *WireResponse) GetResponse() isWireResponse_Response {
@@ -2218,7 +2145,7 @@ type RpcError struct {
 
 func (x *RpcError) Reset() {
 	*x = RpcError{}
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[20]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2230,7 +2157,7 @@ func (x *RpcError) String() string {
 func (*RpcError) ProtoMessage() {}
 
 func (x *RpcError) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[20]
+	mi := &file_agentkeyring_v1_agentkeyring_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2243,7 +2170,7 @@ func (x *RpcError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RpcError.ProtoReflect.Descriptor instead.
 func (*RpcError) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{20}
+	return file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RpcError) GetCode() RpcErrorCode {
@@ -2325,16 +2252,12 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\foperation_id\x18\x03 \x01(\tR\voperationId\x12\x14\n" +
 	"\x05again\x18\x06 \x01(\bR\x05again\x125\n" +
 	"\x06fields\x18\x04 \x03(\v2\x1d.agentkeyring.v1.FieldBindingR\x06fields\x12'\n" +
-	"\x0fsubmit_selector\x18\x05 \x01(\tR\x0esubmitSelector\"a\n" +
-	"\x06Target\x12=\n" +
-	"\bchromium\x18\x01 \x01(\v2\x1f.agentkeyring.v1.ChromiumTargetH\x00R\bchromiumB\x06\n" +
-	"\x04kindJ\x04\b\x02\x10\x03R\n" +
-	"mac_window\"\x81\x01\n" +
-	"\x0eChromiumTarget\x12\x1a\n" +
-	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12\x1b\n" +
-	"\ttarget_id\x18\x02 \x01(\tR\btargetId\x12\x19\n" +
-	"\bframe_id\x18\x03 \x01(\tR\aframeId\x12\x1b\n" +
-	"\tloader_id\x18\x04 \x01(\tR\bloaderId\"b\n" +
+	"\x0fsubmit_selector\x18\x05 \x01(\tR\x0esubmitSelector\"U\n" +
+	"\x06Target\x12!\n" +
+	"\vbrowser_tab\x18\x03 \x01(\tH\x00R\n" +
+	"browserTabB\x06\n" +
+	"\x04kindJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bchromiumR\n" +
+	"mac_window\"b\n" +
 	"\fFieldBinding\x126\n" +
 	"\x05field\x18\x01 \x01(\x0e2 .agentkeyring.v1.CredentialFieldR\x05field\x12\x1a\n" +
 	"\bselector\x18\x02 \x01(\tR\bselector\"\xa3\x01\n" +
@@ -2485,7 +2408,7 @@ func file_agentkeyring_v1_agentkeyring_proto_rawDescGZIP() []byte {
 }
 
 var file_agentkeyring_v1_agentkeyring_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_agentkeyring_v1_agentkeyring_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_agentkeyring_v1_agentkeyring_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_agentkeyring_v1_agentkeyring_proto_goTypes = []any{
 	(AccessRule)(0),               // 0: agentkeyring.v1.AccessRule
 	(Purpose)(0),                  // 1: agentkeyring.v1.Purpose
@@ -2506,18 +2429,17 @@ var file_agentkeyring_v1_agentkeyring_proto_goTypes = []any{
 	(*Lease)(nil),                 // 16: agentkeyring.v1.Lease
 	(*FillRequest)(nil),           // 17: agentkeyring.v1.FillRequest
 	(*Target)(nil),                // 18: agentkeyring.v1.Target
-	(*ChromiumTarget)(nil),        // 19: agentkeyring.v1.ChromiumTarget
-	(*FieldBinding)(nil),          // 20: agentkeyring.v1.FieldBinding
-	(*FillResult)(nil),            // 21: agentkeyring.v1.FillResult
-	(*ExecuteProgramRequest)(nil), // 22: agentkeyring.v1.ExecuteProgramRequest
-	(*ExecuteProgramResult)(nil),  // 23: agentkeyring.v1.ExecuteProgramResult
-	(*DeliverRequest)(nil),        // 24: agentkeyring.v1.DeliverRequest
-	(*Delivery)(nil),              // 25: agentkeyring.v1.Delivery
-	(*CredentialValues)(nil),      // 26: agentkeyring.v1.CredentialValues
-	(*WireRequest)(nil),           // 27: agentkeyring.v1.WireRequest
-	(*WireResponse)(nil),          // 28: agentkeyring.v1.WireResponse
-	(*RpcError)(nil),              // 29: agentkeyring.v1.RpcError
-	(*SealedDelivery)(nil),        // 30: agentkeyring.v1.SealedDelivery
+	(*FieldBinding)(nil),          // 19: agentkeyring.v1.FieldBinding
+	(*FillResult)(nil),            // 20: agentkeyring.v1.FillResult
+	(*ExecuteProgramRequest)(nil), // 21: agentkeyring.v1.ExecuteProgramRequest
+	(*ExecuteProgramResult)(nil),  // 22: agentkeyring.v1.ExecuteProgramResult
+	(*DeliverRequest)(nil),        // 23: agentkeyring.v1.DeliverRequest
+	(*Delivery)(nil),              // 24: agentkeyring.v1.Delivery
+	(*CredentialValues)(nil),      // 25: agentkeyring.v1.CredentialValues
+	(*WireRequest)(nil),           // 26: agentkeyring.v1.WireRequest
+	(*WireResponse)(nil),          // 27: agentkeyring.v1.WireResponse
+	(*RpcError)(nil),              // 28: agentkeyring.v1.RpcError
+	(*SealedDelivery)(nil),        // 29: agentkeyring.v1.SealedDelivery
 }
 var file_agentkeyring_v1_agentkeyring_proto_depIdxs = []int32{
 	11, // 0: agentkeyring.v1.FindLoginsResponse.logins:type_name -> agentkeyring.v1.Login
@@ -2529,55 +2451,54 @@ var file_agentkeyring_v1_agentkeyring_proto_depIdxs = []int32{
 	3,  // 6: agentkeyring.v1.Lease.approved_by:type_name -> agentkeyring.v1.ApprovedBy
 	12, // 7: agentkeyring.v1.Lease.recipient:type_name -> agentkeyring.v1.Recipient
 	13, // 8: agentkeyring.v1.Lease.program:type_name -> agentkeyring.v1.ProgramCommand
-	30, // 9: agentkeyring.v1.Lease.signed_denial:type_name -> agentkeyring.v1.SealedDelivery
+	29, // 9: agentkeyring.v1.Lease.signed_denial:type_name -> agentkeyring.v1.SealedDelivery
 	18, // 10: agentkeyring.v1.FillRequest.target:type_name -> agentkeyring.v1.Target
-	20, // 11: agentkeyring.v1.FillRequest.fields:type_name -> agentkeyring.v1.FieldBinding
-	19, // 12: agentkeyring.v1.Target.chromium:type_name -> agentkeyring.v1.ChromiumTarget
-	4,  // 13: agentkeyring.v1.FieldBinding.field:type_name -> agentkeyring.v1.CredentialField
-	5,  // 14: agentkeyring.v1.FillResult.outcome:type_name -> agentkeyring.v1.FillOutcome
-	4,  // 15: agentkeyring.v1.FillResult.fields_filled:type_name -> agentkeyring.v1.CredentialField
-	4,  // 16: agentkeyring.v1.ExecuteProgramRequest.field:type_name -> agentkeyring.v1.CredentialField
-	6,  // 17: agentkeyring.v1.ExecuteProgramResult.outcome:type_name -> agentkeyring.v1.ProgramOutcome
-	7,  // 18: agentkeyring.v1.DeliverRequest.kind:type_name -> agentkeyring.v1.OperationKind
-	4,  // 19: agentkeyring.v1.DeliverRequest.fields:type_name -> agentkeyring.v1.CredentialField
-	26, // 20: agentkeyring.v1.Delivery.values:type_name -> agentkeyring.v1.CredentialValues
-	30, // 21: agentkeyring.v1.Delivery.sealed:type_name -> agentkeyring.v1.SealedDelivery
-	9,  // 22: agentkeyring.v1.WireRequest.find_logins:type_name -> agentkeyring.v1.FindLoginsRequest
-	14, // 23: agentkeyring.v1.WireRequest.request_lease:type_name -> agentkeyring.v1.RequestLeaseRequest
-	15, // 24: agentkeyring.v1.WireRequest.get_lease:type_name -> agentkeyring.v1.LeaseReference
-	15, // 25: agentkeyring.v1.WireRequest.watch_lease:type_name -> agentkeyring.v1.LeaseReference
-	15, // 26: agentkeyring.v1.WireRequest.end_lease:type_name -> agentkeyring.v1.LeaseReference
-	17, // 27: agentkeyring.v1.WireRequest.fill:type_name -> agentkeyring.v1.FillRequest
-	22, // 28: agentkeyring.v1.WireRequest.execute_program:type_name -> agentkeyring.v1.ExecuteProgramRequest
-	24, // 29: agentkeyring.v1.WireRequest.deliver:type_name -> agentkeyring.v1.DeliverRequest
-	10, // 30: agentkeyring.v1.WireResponse.logins:type_name -> agentkeyring.v1.FindLoginsResponse
-	16, // 31: agentkeyring.v1.WireResponse.lease:type_name -> agentkeyring.v1.Lease
-	21, // 32: agentkeyring.v1.WireResponse.fill:type_name -> agentkeyring.v1.FillResult
-	23, // 33: agentkeyring.v1.WireResponse.execute_program:type_name -> agentkeyring.v1.ExecuteProgramResult
-	29, // 34: agentkeyring.v1.WireResponse.error:type_name -> agentkeyring.v1.RpcError
-	25, // 35: agentkeyring.v1.WireResponse.delivery:type_name -> agentkeyring.v1.Delivery
-	8,  // 36: agentkeyring.v1.RpcError.code:type_name -> agentkeyring.v1.RpcErrorCode
-	9,  // 37: agentkeyring.v1.AgentKeyring.FindLogins:input_type -> agentkeyring.v1.FindLoginsRequest
-	14, // 38: agentkeyring.v1.AgentKeyring.RequestLease:input_type -> agentkeyring.v1.RequestLeaseRequest
-	15, // 39: agentkeyring.v1.AgentKeyring.GetLease:input_type -> agentkeyring.v1.LeaseReference
-	15, // 40: agentkeyring.v1.AgentKeyring.WatchLease:input_type -> agentkeyring.v1.LeaseReference
-	15, // 41: agentkeyring.v1.AgentKeyring.EndLease:input_type -> agentkeyring.v1.LeaseReference
-	24, // 42: agentkeyring.v1.AgentKeyring.Deliver:input_type -> agentkeyring.v1.DeliverRequest
-	17, // 43: agentkeyring.v1.CredentialReceiver.Fill:input_type -> agentkeyring.v1.FillRequest
-	22, // 44: agentkeyring.v1.CredentialReceiver.ExecuteProgram:input_type -> agentkeyring.v1.ExecuteProgramRequest
-	10, // 45: agentkeyring.v1.AgentKeyring.FindLogins:output_type -> agentkeyring.v1.FindLoginsResponse
-	16, // 46: agentkeyring.v1.AgentKeyring.RequestLease:output_type -> agentkeyring.v1.Lease
-	16, // 47: agentkeyring.v1.AgentKeyring.GetLease:output_type -> agentkeyring.v1.Lease
-	16, // 48: agentkeyring.v1.AgentKeyring.WatchLease:output_type -> agentkeyring.v1.Lease
-	16, // 49: agentkeyring.v1.AgentKeyring.EndLease:output_type -> agentkeyring.v1.Lease
-	25, // 50: agentkeyring.v1.AgentKeyring.Deliver:output_type -> agentkeyring.v1.Delivery
-	21, // 51: agentkeyring.v1.CredentialReceiver.Fill:output_type -> agentkeyring.v1.FillResult
-	23, // 52: agentkeyring.v1.CredentialReceiver.ExecuteProgram:output_type -> agentkeyring.v1.ExecuteProgramResult
-	45, // [45:53] is the sub-list for method output_type
-	37, // [37:45] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	37, // [37:37] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	19, // 11: agentkeyring.v1.FillRequest.fields:type_name -> agentkeyring.v1.FieldBinding
+	4,  // 12: agentkeyring.v1.FieldBinding.field:type_name -> agentkeyring.v1.CredentialField
+	5,  // 13: agentkeyring.v1.FillResult.outcome:type_name -> agentkeyring.v1.FillOutcome
+	4,  // 14: agentkeyring.v1.FillResult.fields_filled:type_name -> agentkeyring.v1.CredentialField
+	4,  // 15: agentkeyring.v1.ExecuteProgramRequest.field:type_name -> agentkeyring.v1.CredentialField
+	6,  // 16: agentkeyring.v1.ExecuteProgramResult.outcome:type_name -> agentkeyring.v1.ProgramOutcome
+	7,  // 17: agentkeyring.v1.DeliverRequest.kind:type_name -> agentkeyring.v1.OperationKind
+	4,  // 18: agentkeyring.v1.DeliverRequest.fields:type_name -> agentkeyring.v1.CredentialField
+	25, // 19: agentkeyring.v1.Delivery.values:type_name -> agentkeyring.v1.CredentialValues
+	29, // 20: agentkeyring.v1.Delivery.sealed:type_name -> agentkeyring.v1.SealedDelivery
+	9,  // 21: agentkeyring.v1.WireRequest.find_logins:type_name -> agentkeyring.v1.FindLoginsRequest
+	14, // 22: agentkeyring.v1.WireRequest.request_lease:type_name -> agentkeyring.v1.RequestLeaseRequest
+	15, // 23: agentkeyring.v1.WireRequest.get_lease:type_name -> agentkeyring.v1.LeaseReference
+	15, // 24: agentkeyring.v1.WireRequest.watch_lease:type_name -> agentkeyring.v1.LeaseReference
+	15, // 25: agentkeyring.v1.WireRequest.end_lease:type_name -> agentkeyring.v1.LeaseReference
+	17, // 26: agentkeyring.v1.WireRequest.fill:type_name -> agentkeyring.v1.FillRequest
+	21, // 27: agentkeyring.v1.WireRequest.execute_program:type_name -> agentkeyring.v1.ExecuteProgramRequest
+	23, // 28: agentkeyring.v1.WireRequest.deliver:type_name -> agentkeyring.v1.DeliverRequest
+	10, // 29: agentkeyring.v1.WireResponse.logins:type_name -> agentkeyring.v1.FindLoginsResponse
+	16, // 30: agentkeyring.v1.WireResponse.lease:type_name -> agentkeyring.v1.Lease
+	20, // 31: agentkeyring.v1.WireResponse.fill:type_name -> agentkeyring.v1.FillResult
+	22, // 32: agentkeyring.v1.WireResponse.execute_program:type_name -> agentkeyring.v1.ExecuteProgramResult
+	28, // 33: agentkeyring.v1.WireResponse.error:type_name -> agentkeyring.v1.RpcError
+	24, // 34: agentkeyring.v1.WireResponse.delivery:type_name -> agentkeyring.v1.Delivery
+	8,  // 35: agentkeyring.v1.RpcError.code:type_name -> agentkeyring.v1.RpcErrorCode
+	9,  // 36: agentkeyring.v1.AgentKeyring.FindLogins:input_type -> agentkeyring.v1.FindLoginsRequest
+	14, // 37: agentkeyring.v1.AgentKeyring.RequestLease:input_type -> agentkeyring.v1.RequestLeaseRequest
+	15, // 38: agentkeyring.v1.AgentKeyring.GetLease:input_type -> agentkeyring.v1.LeaseReference
+	15, // 39: agentkeyring.v1.AgentKeyring.WatchLease:input_type -> agentkeyring.v1.LeaseReference
+	15, // 40: agentkeyring.v1.AgentKeyring.EndLease:input_type -> agentkeyring.v1.LeaseReference
+	23, // 41: agentkeyring.v1.AgentKeyring.Deliver:input_type -> agentkeyring.v1.DeliverRequest
+	17, // 42: agentkeyring.v1.CredentialReceiver.Fill:input_type -> agentkeyring.v1.FillRequest
+	21, // 43: agentkeyring.v1.CredentialReceiver.ExecuteProgram:input_type -> agentkeyring.v1.ExecuteProgramRequest
+	10, // 44: agentkeyring.v1.AgentKeyring.FindLogins:output_type -> agentkeyring.v1.FindLoginsResponse
+	16, // 45: agentkeyring.v1.AgentKeyring.RequestLease:output_type -> agentkeyring.v1.Lease
+	16, // 46: agentkeyring.v1.AgentKeyring.GetLease:output_type -> agentkeyring.v1.Lease
+	16, // 47: agentkeyring.v1.AgentKeyring.WatchLease:output_type -> agentkeyring.v1.Lease
+	16, // 48: agentkeyring.v1.AgentKeyring.EndLease:output_type -> agentkeyring.v1.Lease
+	24, // 49: agentkeyring.v1.AgentKeyring.Deliver:output_type -> agentkeyring.v1.Delivery
+	20, // 50: agentkeyring.v1.CredentialReceiver.Fill:output_type -> agentkeyring.v1.FillResult
+	22, // 51: agentkeyring.v1.CredentialReceiver.ExecuteProgram:output_type -> agentkeyring.v1.ExecuteProgramResult
+	44, // [44:52] is the sub-list for method output_type
+	36, // [36:44] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v1_agentkeyring_proto_init() }
@@ -2587,14 +2508,14 @@ func file_agentkeyring_v1_agentkeyring_proto_init() {
 	}
 	file_agentkeyring_v1_bundle_proto_init()
 	file_agentkeyring_v1_agentkeyring_proto_msgTypes[9].OneofWrappers = []any{
-		(*Target_Chromium)(nil),
+		(*Target_BrowserTab)(nil),
 	}
-	file_agentkeyring_v1_agentkeyring_proto_msgTypes[14].OneofWrappers = []any{}
-	file_agentkeyring_v1_agentkeyring_proto_msgTypes[16].OneofWrappers = []any{
+	file_agentkeyring_v1_agentkeyring_proto_msgTypes[13].OneofWrappers = []any{}
+	file_agentkeyring_v1_agentkeyring_proto_msgTypes[15].OneofWrappers = []any{
 		(*Delivery_Values)(nil),
 		(*Delivery_Sealed)(nil),
 	}
-	file_agentkeyring_v1_agentkeyring_proto_msgTypes[18].OneofWrappers = []any{
+	file_agentkeyring_v1_agentkeyring_proto_msgTypes[17].OneofWrappers = []any{
 		(*WireRequest_FindLogins)(nil),
 		(*WireRequest_RequestLease)(nil),
 		(*WireRequest_GetLease)(nil),
@@ -2604,7 +2525,7 @@ func file_agentkeyring_v1_agentkeyring_proto_init() {
 		(*WireRequest_ExecuteProgram)(nil),
 		(*WireRequest_Deliver)(nil),
 	}
-	file_agentkeyring_v1_agentkeyring_proto_msgTypes[19].OneofWrappers = []any{
+	file_agentkeyring_v1_agentkeyring_proto_msgTypes[18].OneofWrappers = []any{
 		(*WireResponse_Logins)(nil),
 		(*WireResponse_Lease)(nil),
 		(*WireResponse_Fill)(nil),
@@ -2618,7 +2539,7 @@ func file_agentkeyring_v1_agentkeyring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentkeyring_v1_agentkeyring_proto_rawDesc), len(file_agentkeyring_v1_agentkeyring_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   21,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

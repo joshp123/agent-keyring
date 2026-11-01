@@ -92,7 +92,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "for", "request", "field", "browser", "tab", "username", "password", "code", "submit", "frame", "document", "operation", "name", "relay", "browser-profile":
+		case "task", "reason", "for", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "browser-profile":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -178,23 +178,11 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, integration(command)
 	}
-	if command == "tabs" || (command == "fields" && a.options["browser"] == "") {
+	if command == "tabs" || command == "fields" {
 		return inspectBrowser(ctx, command, a)
 	}
-	if command == "fill" && a.options["browser"] == "" {
+	if command == "fill" {
 		return fillBrowser(ctx, a)
-	}
-	if command == "fields" {
-		if err = a.check("browser tab", ""); err != nil {
-			return 2, err
-		}
-		if len(a.positionals) > 0 || len(a.program) > 0 {
-			return 2, errors.New("fields takes --browser ENDPOINT and optionally --tab TAB, without positional arguments.")
-		}
-		if a.options["browser"] == "" {
-			return 2, errors.New("Supply --browser ENDPOINT, such as 127.0.0.1:9222.")
-		}
-		return 0, printFields(ctx, a.options["browser"], a.options["tab"])
 	}
 	if command == "enrol" {
 		if err = a.check("name relay", ""); err != nil {
@@ -229,7 +217,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, remote.Enrol(ctx, store, address, a.options["name"], os.Stderr)
 	}
-	if !strings.Contains(" find lease status release read exec fill ", " "+command+" ") {
+	if !strings.Contains(" find lease status release read exec ", " "+command+" ") {
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 	}
 	client, connectionError := chooseAuthority(ctx)
@@ -401,39 +389,6 @@ func run(ctx context.Context, args []string) (int, error) {
 			fmt.Fprintln(os.Stderr, "Program exited with status", code)
 		}
 		return code, e
-	case "fill":
-		if err = a.check("browser tab username password code submit frame document operation", "again"); err != nil {
-			return 2, err
-		}
-		if a.options["browser"] == "" || a.options["tab"] == "" || a.options["submit"] == "" {
-			return 2, errors.New("fill needs --browser, --tab and --submit. Inspect the page with your browser tools first.")
-		}
-		key, e := receiver.OperationKey(a.options["operation"], a.flags["again"])
-		if e != nil {
-			return 2, e
-		}
-		request := &pb.FillRequest{LeaseId: id, OperationId: key, SubmitSelector: a.options["submit"], Target: &pb.Target{Kind: &pb.Target_Chromium{Chromium: &pb.ChromiumTarget{Endpoint: a.options["browser"], TargetId: a.options["tab"], FrameId: a.options["frame"], LoaderId: a.options["document"]}}}}
-		for _, binding := range []struct {
-			name  string
-			field pb.CredentialField
-		}{{"username", 1}, {"password", 2}, {"code", 3}} {
-			if selector := a.options[binding.name]; selector != "" {
-				request.Fields = append(request.Fields, &pb.FieldBinding{Field: binding.field, Selector: selector})
-			}
-		}
-		if len(request.Fields) == 0 {
-			return 2, errors.New("Select at least one field with --username, --password or --code.")
-		}
-		lease, e := client.Lease(ctx, id)
-		if e != nil {
-			return 1, e
-		}
-		result := receiver.Fill(ctx, client, lease, request)
-		fmt.Fprintln(os.Stderr, result.Detail)
-		if result.Outcome != pb.FillOutcome_FILL_OUTCOME_SUBMITTED {
-			return 1, nil
-		}
-		return 0, nil
 	default:
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 	}
