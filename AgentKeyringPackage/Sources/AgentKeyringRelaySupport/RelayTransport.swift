@@ -164,9 +164,12 @@ public struct RelayTransport: Sendable {
     public let endpoint: RelayEndpoint
     public let identity: RelayTLSIdentity
     public let pin: Data?
+    private let receivingTrustUpdate: (@Sendable (Agentkeyring_V1_TrustUpdate) async throws -> Void)?
 
-    public init(endpoint: RelayEndpoint, identity: RelayTLSIdentity, pin: Data?) {
+    public init(endpoint: RelayEndpoint, identity: RelayTLSIdentity, pin: Data?,
+                receivingTrustUpdate: (@Sendable (Agentkeyring_V1_TrustUpdate) async throws -> Void)? = nil) {
         self.endpoint = endpoint; self.identity = identity; self.pin = pin
+        self.receivingTrustUpdate = receivingTrustUpdate
     }
 
     public func open(_ request: Agentkeyring_V1_RelayWireRequest) async throws -> RelayConnection {
@@ -182,7 +185,17 @@ public struct RelayTransport: Sendable {
         let connection = try await open(request)
         defer { connection.cancel() }
         return try await withThrowingTaskGroup(of: Agentkeyring_V1_RelayWireResponse.self) { tasks in
-            tasks.addTask { try await connection.next() }
+            tasks.addTask {
+                while true {
+                    let response = try await connection.next()
+                    if case let .trustUpdate(update) = response.response {
+                        guard let receivingTrustUpdate else {
+                            throw RelayFailure(.unavailable, "This connection cannot save a signed trust update.")
+                        }
+                        try await receivingTrustUpdate(update)
+                    } else { return response }
+                }
+            }
             tasks.addTask { try await Task.sleep(for: .seconds(15)); throw RelayFailure(.unavailable, "The relay did not acknowledge the request.") }
             defer { tasks.cancelAll(); connection.cancel() }
             return try await tasks.next()!

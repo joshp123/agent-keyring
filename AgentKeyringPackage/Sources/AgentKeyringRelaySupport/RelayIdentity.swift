@@ -40,6 +40,17 @@ public struct RelayTLSIdentity: @unchecked Sendable {
     public let publicKeySPKI: Data
     private struct Saved: Codable { let privateKey: Data; let certificate: Data }
 
+    public func sign(_ message: Data) throws -> Data {
+        var key: SecKey?
+        let status = SecIdentityCopyPrivateKey(identity, &key)
+        guard status == errSecSuccess, let key else { throw RelayKeychainError(status: status) }
+        var error: Unmanaged<CFError>?
+        guard let signature = SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256, message as CFData, &error) else {
+            throw error?.takeRetainedValue() as Error? ?? RelayKeychainError(status: errSecInternalComponent)
+        }
+        return signature as Data
+    }
+
     @MainActor public static func loadOrCreate(service: String = "com.agentkeyring.relay-identity.v1") throws -> Self {
         let keychain = RelayKeychain(service: service)
         let saved: Saved
