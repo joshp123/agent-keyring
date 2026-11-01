@@ -11,34 +11,54 @@
     copy.querySelectorAll('input,textarea,select,script,style').forEach(n => n.remove());
     return copy.textContent.replace(/\s+/g, ' ').trim();
   };
+  const queryAll = (selector, root = document) => {
+    const found = [...root.querySelectorAll(selector)];
+    for (const host of root.querySelectorAll('*')) {
+      if (host.shadowRoot) found.push(...queryAll(selector, host.shadowRoot));
+    }
+    return found;
+  };
+  // Each segment selects within one tree. Light-DOM (including slotted)
+  // controls stay in their own tree; open shadow hosts add a boundary.
   const selector = e => {
-    const unique = s => document.querySelectorAll(s).length === 1;
-    if (e.id && unique('#' + CSS.escape(e.id))) return '#' + CSS.escape(e.id);
+    const root = e.getRootNode();
+    const prefix = root.host ? selector(root.host) + ' >>> ' : '';
+    const unique = s => root.querySelectorAll(s).length === 1;
+    if (e.id && unique('#' + CSS.escape(e.id))) return prefix + '#' + CSS.escape(e.id);
     for (const attribute of ['name', 'autocomplete']) {
       const value = e.getAttribute(attribute);
       const s = e.localName + '[' + attribute + '="' + CSS.escape(value || '') + '"]';
-      if (value && unique(s)) return s;
+      if (value && unique(s)) return prefix + s;
     }
     const path = [];
     for (let n = e; n; n = n.parentElement) {
-      const siblings = [...n.parentElement?.children || []].filter(s => s.localName === n.localName);
+      const siblings = [...n.parentNode?.children || []].filter(s => s.localName === n.localName);
       path.unshift(n.localName + ':nth-of-type(' + (siblings.indexOf(n) + 1) + ')');
-      if (unique(path.join(' > '))) return path.join(' > ');
+      if (unique(path.join(' > '))) return prefix + path.join(' > ');
     }
   };
-  const controls = () => [...document.querySelectorAll('input,button')]
+  const controls = () => queryAll('input,button')
     .filter(e => e.type !== 'hidden' && visible(e)).map(e => ({
       selector: selector(e), type: e.type, name: e.name, id: e.id,
       label: e.getAttribute('aria-label') || (e.getAttribute('aria-labelledby') || '').split(/\s+/)
-        .map(id => text(document.getElementById(id))).filter(Boolean).join(' ') ||
+        .map(id => text(e.getRootNode().getElementById(id))).filter(Boolean).join(' ') ||
         [...e.labels || []].map(text).join(' ') || (e.localName === 'button' ? text(e) : ''),
       autocomplete: e.getAttribute('autocomplete') || ''
     }));
   const prepare = message => {
     const query = s => {
-      const all = document.querySelectorAll(s);
-      if (all.length !== 1) throw Error();
-      return all[0];
+      let root = document, element;
+      const segments = s.split(' >>> ');
+      for (let i = 0; i < segments.length; i++) {
+        const all = root.querySelectorAll(segments[i]);
+        if (all.length !== 1) throw Error();
+        element = all[0];
+        if (i < segments.length - 1) {
+          root = element.shadowRoot;
+          if (!root) throw Error();
+        }
+      }
+      return element;
     };
     if (location.origin !== message.origin || !message.fields?.length) throw Error();
     const submit = query(message.submit);
@@ -63,10 +83,10 @@
       e.dispatchEvent(new Event('change', {bubbles: true, composed: true}));
     };
     const written = [];
-    const deadline = performance.now() + 10000;
+    const readinessDeadline = performance.now() + 10000;
     const pause = () => new Promise(resolve => setTimeout(resolve, 50));
     const originalURL = location.href;
-    const originalAlerts = new Map([...document.querySelectorAll('[role="alert"], [aria-live="assertive"]')].map(e => [e, visible(e) ? text(e) : '']));
+    const originalAlerts = new Map(queryAll('[role="alert"], [aria-live="assertive"]').map(e => [e, visible(e) ? text(e) : '']));
     let finished = false, clicked = false, submitEvent, serialized = false;
     const onSubmit = event => { if (event.isTrusted) submitEvent = event; };
     const onFormData = event => { if (event.isTrusted) serialized = true; };
@@ -76,7 +96,7 @@
       if (location.href !== originalURL) result.push('The address changed.');
       const removed = prepared.fields.filter(e => !e.isConnected).length;
       if (removed) result.push((removed === prepared.fields.length ? 'The' : 'Some') + ' filled fields were removed or replaced.');
-      if ([...document.querySelectorAll('[role="alert"], [aria-live="assertive"]')].some(e => visible(e) && text(e) && text(e) !== originalAlerts.get(e))) result.push('The page displayed an alert.');
+      if (queryAll('[role="alert"], [aria-live="assertive"]').some(e => visible(e) && text(e) && text(e) !== originalAlerts.get(e))) result.push('The page displayed an alert.');
       if (!result.length) result.push('The address and filled fields stayed in place.');
       return result.join(' ');
     };
@@ -108,7 +128,7 @@
         changed(e);
         e.blur();
       }
-      while (prepared.submit.matches(':disabled') && performance.now() < deadline) {
+      while (prepared.submit.matches(':disabled') && performance.now() < readinessDeadline) {
         if (!prepared.valid()) throw Error();
         await pause();
       }
@@ -125,6 +145,7 @@
       form?.addEventListener('submit', onSubmit);
       form?.addEventListener('formdata', onFormData);
       addEventListener('pagehide', onDeparture);
+      const consumptionDeadline = performance.now() + 10000;
       clicked = true;
       prepared.submit.click();
       // Native form data has been captured before click returns. Scripted
@@ -133,7 +154,7 @@
       while (!finished) {
         if (serialized && submitEvent && !submitEvent.defaultPrevented) {
           finish(1);
-        } else if (performance.now() >= deadline) {
+        } else if (performance.now() >= consumptionDeadline) {
           finish(2);
         } else {
           await pause();

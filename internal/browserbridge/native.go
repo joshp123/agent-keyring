@@ -61,7 +61,8 @@ func (h *host) browser(request *ExtensionRequest) (*Response, error) {
 	if _, err = os.Stdout.Write(framed); err != nil {
 		return nil, errors.New("The browser connection ended.")
 	}
-	timeout := time.NewTimer(15 * time.Second)
+	// Filling can wait ten seconds for readiness, then ten for consumption.
+	timeout := time.NewTimer(25 * time.Second)
 	defer timeout.Stop()
 	for {
 		select {
