@@ -25,6 +25,7 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case rulesApplying
     case enrolment
     case enrolmentIPhone
+    case enrolmentIPhoneReplacing
     case enrolmentJoined
     case machines
     case machinesSetUp
@@ -57,7 +58,7 @@ public final class MacDesignGallery {
             showMenuBar()
         case .rules, .rulesAll, .rulesConfirm, .rulesConfirmOtherMachines, .rulesApplying:
             showRules()
-        case .enrolment, .enrolmentIPhone, .enrolmentJoined:
+        case .enrolment, .enrolmentIPhone, .enrolmentIPhoneReplacing, .enrolmentJoined:
             showEnrolment()
         case .machines, .machinesSetUp, .machinesComparing:
             showMachines()
@@ -109,8 +110,9 @@ public final class MacDesignGallery {
     }
 
     private func showEnrolment() {
-        let enrolment = screen == .enrolmentIPhone
+        var enrolment = screen == .enrolmentIPhone || screen == .enrolmentIPhoneReplacing
             ? DesignExamples.iPhoneEnrolment(now: now) : DesignExamples.machineEnrolment(now: now)
+        if screen == .enrolmentIPhoneReplacing { enrolment.replacesPhone = "Josh's iPhone" }
         let model = MacEnrolmentModel(enrolment: enrolment, backend: DesignMacBackend(enrolment: enrolment))
         let controller = MacApprovalPanelController()
         controller.show(model)

@@ -23,13 +23,18 @@ public struct DeviceEnrolment: Identifiable, Hashable, Sendable {
     /// the relay. Eight groups of four hex characters.
     public var code: String
     public var askedAt: Date
+    /// Fact from this Mac's key set: the name of the paired iPhone this one
+    /// replaces, matched by its TLS key. Nil for a new device.
+    public var replacesPhone: String?
 
-    public init(id: String, kind: Kind, name: String, tailnetNode: String, code: String, askedAt: Date) {
+    public init(id: String, kind: Kind, name: String, tailnetNode: String, code: String, askedAt: Date,
+        replacesPhone: String? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
         self.tailnetNode = tailnetNode
         self.code = code
         self.askedAt = askedAt
+        self.replacesPhone = replacesPhone
     }
 }

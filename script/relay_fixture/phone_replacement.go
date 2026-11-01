@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (p *proof) swiftReplacementProof(phone *phoneProcess, oldKey *pb.ApproverKey, oldSigner *ecdsa.PrivateKey, directory, port string) (*phoneProcess, *pb.ApproverKey) {
+func (p *proof) swiftReplacementProof(phone *phoneProcess, oldKey *pb.ApproverKey, oldSigner *ecdsa.PrivateKey, directory, port string, network *phoneNetwork) (*phoneProcess, *pb.ApproverKey) {
 	require(len(oldKey.EncryptionPublicKey) == 0, "replacement did not start with an old approval-only pairing")
 	retainedTLSPeer := wireClient{address: p.address, certificate: identity(directory), pin: p.approver.pin}
 	oldSealing, err := os.ReadFile(filepath.Join(directory, "sealing.raw"))
@@ -36,6 +37,21 @@ func (p *proof) swiftReplacementProof(phone *phoneProcess, oldKey *pb.ApproverKe
 	require(!bytes.Equal(newSealing, oldSealing), "replacement reused the sealing key")
 	transcript := relaycrypto.PairTranscript(p.approver.pin, pair.TlsPublicKey, pair.Key.PublicKey, p.keys.KeySet, pair.Key.EncryptionPublicKey)
 	require(comparison == "PAIR\t"+relaycrypto.Fingerprint(transcript), "replacement comparisons differ")
+	newSigning, err := os.ReadFile(filepath.Join(directory, "signing.raw"))
+	must(err)
+	network.down()
+	phone.wait("status", "failed")
+	network.up()
+	_, differentPort, err := net.SplitHostPort(p.address)
+	must(err)
+	require(phone.command("pair\t"+differentPort) == comparison, "failed replacement retry lost its comparison")
+	require(strings.Contains(phone.command("status"), "localhost:"+port), "replacement retry switched away from its saved relay address")
+	retriedSigning, err := os.ReadFile(filepath.Join(directory, "signing.raw"))
+	must(err)
+	retriedSealing, err := os.ReadFile(filepath.Join(directory, "sealing.raw"))
+	must(err)
+	require(bytes.Equal(newSigning, retriedSigning) && bytes.Equal(newSealing, retriedSealing), "failed replacement retry rotated the fresh keys")
+	fmt.Println("PASS replacement fails after comparison; public Try again resumes the saved pinned relay despite another address, with identical fresh signing/sealing keys and comparison")
 	// Cancel and reopen the new comparison without reviving the old identity.
 	phone.command("cancel-pairing")
 	phone.stop()

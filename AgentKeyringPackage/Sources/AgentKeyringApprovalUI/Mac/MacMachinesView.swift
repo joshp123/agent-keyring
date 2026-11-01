@@ -169,7 +169,7 @@ public struct MacMachinesView: View {
                         HStack {
                             MachineLabel(name: enrolment.name,
                                 detail: enrolment.tailnetNode.isEmpty
-                                    ? "Wants to approve requests" : SetupCopy.tailnetNode(enrolment.tailnetNode),
+                                    ? SetupCopy.joiningDetail(enrolment) : SetupCopy.tailnetNode(enrolment.tailnetNode),
                                 symbol: enrolment.kind == .machine ? "desktopcomputer" : "iphone")
                             Spacer()
                             Button(SetupCopy.review) { model.review(enrolment.id) }

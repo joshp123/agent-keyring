@@ -62,7 +62,8 @@ public enum RelayScreenMapping {
 
     public static func enrolment(_ pairing: RelayApproverPairing) -> DeviceEnrolment {
         DeviceEnrolment(id: pairing.id, kind: .approver, name: pairing.label, tailnetNode: "",
-            code: pairing.fingerprint, askedAt: .now)
+            code: pairing.fingerprint, askedAt: .now,
+            replacesPhone: pairing.replacesPhoneKeyID == nil ? nil : pairing.replacesPhoneLabel)
     }
 
     public static func relayLink(_ update: RelayApproverUpdate) -> RelayLink {
