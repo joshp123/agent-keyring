@@ -141,6 +141,57 @@ func (ApproverRole) EnumDescriptor() ([]byte, []int) {
 	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{1}
 }
 
+// Public changes use the existing owner signatures. Hash the payload bytes,
+// not their signature wrappers; signatures may differ on an exact resend.
+type UpdateKind int32
+
+const (
+	UpdateKind_UPDATE_KIND_UNSPECIFIED   UpdateKind = 0
+	UpdateKind_UPDATE_KIND_APPROVER_KEYS UpdateKind = 1
+	UpdateKind_UPDATE_KIND_CONFIGURATION UpdateKind = 2
+)
+
+// Enum value maps for UpdateKind.
+var (
+	UpdateKind_name = map[int32]string{
+		0: "UPDATE_KIND_UNSPECIFIED",
+		1: "UPDATE_KIND_APPROVER_KEYS",
+		2: "UPDATE_KIND_CONFIGURATION",
+	}
+	UpdateKind_value = map[string]int32{
+		"UPDATE_KIND_UNSPECIFIED":   0,
+		"UPDATE_KIND_APPROVER_KEYS": 1,
+		"UPDATE_KIND_CONFIGURATION": 2,
+	}
+)
+
+func (x UpdateKind) Enum() *UpdateKind {
+	p := new(UpdateKind)
+	*p = x
+	return p
+}
+
+func (x UpdateKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UpdateKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentkeyring_v1_relay_proto_enumTypes[2].Descriptor()
+}
+
+func (UpdateKind) Type() protoreflect.EnumType {
+	return &file_agentkeyring_v1_relay_proto_enumTypes[2]
+}
+
+func (x UpdateKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UpdateKind.Descriptor instead.
+func (UpdateKind) EnumDescriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{2}
+}
+
 type WatchWorkRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ApproverKeyId string                 `protobuf:"bytes,1,opt,name=approver_key_id,json=approverKeyId,proto3" json:"approver_key_id,omitempty"`
@@ -197,6 +248,7 @@ type ApproverWork struct {
 	//	*ApproverWork_PhoneDecision
 	//	*ApproverWork_LocalLeaseAction
 	//	*ApproverWork_CopyUpdate
+	//	*ApproverWork_TrustUpdate
 	Item          isApproverWork_Item `protobuf_oneof:"item"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -311,6 +363,15 @@ func (x *ApproverWork) GetCopyUpdate() *SignedCopyUpdate {
 	return nil
 }
 
+func (x *ApproverWork) GetTrustUpdate() *TrustUpdate {
+	if x != nil {
+		if x, ok := x.Item.(*ApproverWork_TrustUpdate); ok {
+			return x.TrustUpdate
+		}
+	}
+	return nil
+}
+
 type isApproverWork_Item interface {
 	isApproverWork_Item()
 }
@@ -349,6 +410,10 @@ type ApproverWork_CopyUpdate struct {
 	CopyUpdate *SignedCopyUpdate `protobuf:"bytes,8,opt,name=copy_update,json=copyUpdate,proto3,oneof"` // To its destination phone only.
 }
 
+type ApproverWork_TrustUpdate struct {
+	TrustUpdate *TrustUpdate `protobuf:"bytes,9,opt,name=trust_update,json=trustUpdate,proto3,oneof"` // Save before accepting further answers.
+}
+
 func (*ApproverWork_Request) isApproverWork_Item() {}
 
 func (*ApproverWork_Enrolment) isApproverWork_Item() {}
@@ -364,6 +429,8 @@ func (*ApproverWork_PhoneDecision) isApproverWork_Item() {}
 func (*ApproverWork_LocalLeaseAction) isApproverWork_Item() {}
 
 func (*ApproverWork_CopyUpdate) isApproverWork_Item() {}
+
+func (*ApproverWork_TrustUpdate) isApproverWork_Item() {}
 
 // The relay serializes RequestRecord once and never changes those bytes. The
 // approver displays what it parses from them, then checks login and recipient
@@ -2938,6 +3005,9 @@ type RelayWireRequest struct {
 	//	*RelayWireRequest_UpdateLocalPhoneLease
 	//	*RelayWireRequest_PublishCopyUpdate
 	//	*RelayWireRequest_GetCopyUpdate
+	//	*RelayWireRequest_PublishUpdateReceipt
+	//	*RelayWireRequest_GetUpdateReceipts
+	//	*RelayWireRequest_GetConfigurationUpdates
 	Request       isRelayWireRequest_Request `protobuf_oneof:"request"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3169,6 +3239,33 @@ func (x *RelayWireRequest) GetGetCopyUpdate() *GetCopyUpdateRequest {
 	return nil
 }
 
+func (x *RelayWireRequest) GetPublishUpdateReceipt() *SignedUpdateReceipt {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_PublishUpdateReceipt); ok {
+			return x.PublishUpdateReceipt
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireRequest) GetGetUpdateReceipts() *UpdateReceiptQuery {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_GetUpdateReceipts); ok {
+			return x.GetUpdateReceipts
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireRequest) GetGetConfigurationUpdates() *GetConfigurationUpdatesRequest {
+	if x != nil {
+		if x, ok := x.Request.(*RelayWireRequest_GetConfigurationUpdates); ok {
+			return x.GetConfigurationUpdates
+		}
+	}
+	return nil
+}
+
 type isRelayWireRequest_Request interface {
 	isRelayWireRequest_Request()
 }
@@ -3257,6 +3354,18 @@ type RelayWireRequest_GetCopyUpdate struct {
 	GetCopyUpdate *GetCopyUpdateRequest `protobuf:"bytes,27,opt,name=get_copy_update,json=getCopyUpdate,proto3,oneof"`
 }
 
+type RelayWireRequest_PublishUpdateReceipt struct {
+	PublishUpdateReceipt *SignedUpdateReceipt `protobuf:"bytes,28,opt,name=publish_update_receipt,json=publishUpdateReceipt,proto3,oneof"`
+}
+
+type RelayWireRequest_GetUpdateReceipts struct {
+	GetUpdateReceipts *UpdateReceiptQuery `protobuf:"bytes,29,opt,name=get_update_receipts,json=getUpdateReceipts,proto3,oneof"`
+}
+
+type RelayWireRequest_GetConfigurationUpdates struct {
+	GetConfigurationUpdates *GetConfigurationUpdatesRequest `protobuf:"bytes,30,opt,name=get_configuration_updates,json=getConfigurationUpdates,proto3,oneof"`
+}
+
 func (*RelayWireRequest_Client) isRelayWireRequest_Request() {}
 
 func (*RelayWireRequest_WatchWork) isRelayWireRequest_Request() {}
@@ -3299,6 +3408,12 @@ func (*RelayWireRequest_PublishCopyUpdate) isRelayWireRequest_Request() {}
 
 func (*RelayWireRequest_GetCopyUpdate) isRelayWireRequest_Request() {}
 
+func (*RelayWireRequest_PublishUpdateReceipt) isRelayWireRequest_Request() {}
+
+func (*RelayWireRequest_GetUpdateReceipts) isRelayWireRequest_Request() {}
+
+func (*RelayWireRequest_GetConfigurationUpdates) isRelayWireRequest_Request() {}
+
 type RelayWireResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Response:
@@ -3316,6 +3431,9 @@ type RelayWireResponse struct {
 	//	*RelayWireResponse_AutomaticKeys
 	//	*RelayWireResponse_Lease
 	//	*RelayWireResponse_CopyUpdate
+	//	*RelayWireResponse_UpdateReceipts
+	//	*RelayWireResponse_ConfigurationUpdates
+	//	*RelayWireResponse_TrustUpdate
 	Response      isRelayWireResponse_Response `protobuf_oneof:"response"`
 	EndOfStream   bool                         `protobuf:"varint,8,opt,name=end_of_stream,json=endOfStream,proto3" json:"end_of_stream,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3476,6 +3594,33 @@ func (x *RelayWireResponse) GetCopyUpdate() *SignedCopyUpdate {
 	return nil
 }
 
+func (x *RelayWireResponse) GetUpdateReceipts() *UpdateReceipts {
+	if x != nil {
+		if x, ok := x.Response.(*RelayWireResponse_UpdateReceipts); ok {
+			return x.UpdateReceipts
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireResponse) GetConfigurationUpdates() *ConfigurationUpdates {
+	if x != nil {
+		if x, ok := x.Response.(*RelayWireResponse_ConfigurationUpdates); ok {
+			return x.ConfigurationUpdates
+		}
+	}
+	return nil
+}
+
+func (x *RelayWireResponse) GetTrustUpdate() *TrustUpdate {
+	if x != nil {
+		if x, ok := x.Response.(*RelayWireResponse_TrustUpdate); ok {
+			return x.TrustUpdate
+		}
+	}
+	return nil
+}
+
 func (x *RelayWireResponse) GetEndOfStream() bool {
 	if x != nil {
 		return x.EndOfStream
@@ -3539,6 +3684,18 @@ type RelayWireResponse_CopyUpdate struct {
 	CopyUpdate *SignedCopyUpdate `protobuf:"bytes,17,opt,name=copy_update,json=copyUpdate,proto3,oneof"`
 }
 
+type RelayWireResponse_UpdateReceipts struct {
+	UpdateReceipts *UpdateReceipts `protobuf:"bytes,18,opt,name=update_receipts,json=updateReceipts,proto3,oneof"`
+}
+
+type RelayWireResponse_ConfigurationUpdates struct {
+	ConfigurationUpdates *ConfigurationUpdates `protobuf:"bytes,19,opt,name=configuration_updates,json=configurationUpdates,proto3,oneof"`
+}
+
+type RelayWireResponse_TrustUpdate struct {
+	TrustUpdate *TrustUpdate `protobuf:"bytes,20,opt,name=trust_update,json=trustUpdate,proto3,oneof"` // May precede a streamed client result.
+}
+
 func (*RelayWireResponse_Client) isRelayWireResponse_Response() {}
 
 func (*RelayWireResponse_Work) isRelayWireResponse_Response() {}
@@ -3565,13 +3722,423 @@ func (*RelayWireResponse_Lease) isRelayWireResponse_Response() {}
 
 func (*RelayWireResponse_CopyUpdate) isRelayWireResponse_Response() {}
 
+func (*RelayWireResponse_UpdateReceipts) isRelayWireResponse_Response() {}
+
+func (*RelayWireResponse_ConfigurationUpdates) isRelayWireResponse_Response() {}
+
+func (*RelayWireResponse_TrustUpdate) isRelayWireResponse_Response() {}
+
+type TrustUpdate struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Update:
+	//
+	//	*TrustUpdate_ApproverKeys
+	//	*TrustUpdate_Configuration
+	Update        isTrustUpdate_Update `protobuf_oneof:"update"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TrustUpdate) Reset() {
+	*x = TrustUpdate{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TrustUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TrustUpdate) ProtoMessage() {}
+
+func (x *TrustUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TrustUpdate.ProtoReflect.Descriptor instead.
+func (*TrustUpdate) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *TrustUpdate) GetUpdate() isTrustUpdate_Update {
+	if x != nil {
+		return x.Update
+	}
+	return nil
+}
+
+func (x *TrustUpdate) GetApproverKeys() *SignedApproverKeySet {
+	if x != nil {
+		if x, ok := x.Update.(*TrustUpdate_ApproverKeys); ok {
+			return x.ApproverKeys
+		}
+	}
+	return nil
+}
+
+func (x *TrustUpdate) GetConfiguration() *SignedConfiguration {
+	if x != nil {
+		if x, ok := x.Update.(*TrustUpdate_Configuration); ok {
+			return x.Configuration
+		}
+	}
+	return nil
+}
+
+type isTrustUpdate_Update interface {
+	isTrustUpdate_Update()
+}
+
+type TrustUpdate_ApproverKeys struct {
+	ApproverKeys *SignedApproverKeySet `protobuf:"bytes,1,opt,name=approver_keys,json=approverKeys,proto3,oneof"`
+}
+
+type TrustUpdate_Configuration struct {
+	Configuration *SignedConfiguration `protobuf:"bytes,2,opt,name=configuration,proto3,oneof"`
+}
+
+func (*TrustUpdate_ApproverKeys) isTrustUpdate_Update() {}
+
+func (*TrustUpdate_Configuration) isTrustUpdate_Update() {}
+
+type UpdateReceipt struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Domain           string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // agentkeyring.update-receipt.v1
+	DeviceSpkiSha256 []byte                 `protobuf:"bytes,2,opt,name=device_spki_sha256,json=deviceSpkiSha256,proto3" json:"device_spki_sha256,omitempty"`
+	Kind             UpdateKind             `protobuf:"varint,3,opt,name=kind,proto3,enum=agentkeyring.v1.UpdateKind" json:"kind,omitempty"`
+	Revision         uint64                 `protobuf:"varint,4,opt,name=revision,proto3" json:"revision,omitempty"`
+	UpdateSha256     []byte                 `protobuf:"bytes,5,opt,name=update_sha256,json=updateSha256,proto3" json:"update_sha256,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *UpdateReceipt) Reset() {
+	*x = UpdateReceipt{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateReceipt) ProtoMessage() {}
+
+func (x *UpdateReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateReceipt.ProtoReflect.Descriptor instead.
+func (*UpdateReceipt) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *UpdateReceipt) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
+}
+
+func (x *UpdateReceipt) GetDeviceSpkiSha256() []byte {
+	if x != nil {
+		return x.DeviceSpkiSha256
+	}
+	return nil
+}
+
+func (x *UpdateReceipt) GetKind() UpdateKind {
+	if x != nil {
+		return x.Kind
+	}
+	return UpdateKind_UPDATE_KIND_UNSPECIFIED
+}
+
+func (x *UpdateReceipt) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *UpdateReceipt) GetUpdateSha256() []byte {
+	if x != nil {
+		return x.UpdateSha256
+	}
+	return nil
+}
+
+type SignedUpdateReceipt struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Receipt []byte                 `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"` // Exact serialized UpdateReceipt bytes.
+	// DER ECDSA-P256/SHA256, using the device's existing non-biometric TLS key.
+	Signature     []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedUpdateReceipt) Reset() {
+	*x = SignedUpdateReceipt{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedUpdateReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedUpdateReceipt) ProtoMessage() {}
+
+func (x *SignedUpdateReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedUpdateReceipt.ProtoReflect.Descriptor instead.
+func (*SignedUpdateReceipt) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *SignedUpdateReceipt) GetReceipt() []byte {
+	if x != nil {
+		return x.Receipt
+	}
+	return nil
+}
+
+func (x *SignedUpdateReceipt) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+type UpdateReceiptQuery struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          UpdateKind             `protobuf:"varint,1,opt,name=kind,proto3,enum=agentkeyring.v1.UpdateKind" json:"kind,omitempty"`
+	Revision      uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	UpdateSha256  []byte                 `protobuf:"bytes,3,opt,name=update_sha256,json=updateSha256,proto3" json:"update_sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateReceiptQuery) Reset() {
+	*x = UpdateReceiptQuery{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateReceiptQuery) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateReceiptQuery) ProtoMessage() {}
+
+func (x *UpdateReceiptQuery) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateReceiptQuery.ProtoReflect.Descriptor instead.
+func (*UpdateReceiptQuery) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *UpdateReceiptQuery) GetKind() UpdateKind {
+	if x != nil {
+		return x.Kind
+	}
+	return UpdateKind_UPDATE_KIND_UNSPECIFIED
+}
+
+func (x *UpdateReceiptQuery) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *UpdateReceiptQuery) GetUpdateSha256() []byte {
+	if x != nil {
+		return x.UpdateSha256
+	}
+	return nil
+}
+
+type UpdateReceipts struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Receipts      []*SignedUpdateReceipt `protobuf:"bytes,1,rep,name=receipts,proto3" json:"receipts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateReceipts) Reset() {
+	*x = UpdateReceipts{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateReceipts) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateReceipts) ProtoMessage() {}
+
+func (x *UpdateReceipts) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateReceipts.ProtoReflect.Descriptor instead.
+func (*UpdateReceipts) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *UpdateReceipts) GetReceipts() []*SignedUpdateReceipt {
+	if x != nil {
+		return x.Receipts
+	}
+	return nil
+}
+
+type GetConfigurationUpdatesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AfterRevision uint64                 `protobuf:"varint,1,opt,name=after_revision,json=afterRevision,proto3" json:"after_revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConfigurationUpdatesRequest) Reset() {
+	*x = GetConfigurationUpdatesRequest{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConfigurationUpdatesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConfigurationUpdatesRequest) ProtoMessage() {}
+
+func (x *GetConfigurationUpdatesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConfigurationUpdatesRequest.ProtoReflect.Descriptor instead.
+func (*GetConfigurationUpdatesRequest) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *GetConfigurationUpdatesRequest) GetAfterRevision() uint64 {
+	if x != nil {
+		return x.AfterRevision
+	}
+	return 0
+}
+
+type ConfigurationUpdates struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Ascending pending withdrawals after the requested revision, then current.
+	Configurations []*SignedConfiguration `protobuf:"bytes,1,rep,name=configurations,proto3" json:"configurations,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ConfigurationUpdates) Reset() {
+	*x = ConfigurationUpdates{}
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigurationUpdates) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigurationUpdates) ProtoMessage() {}
+
+func (x *ConfigurationUpdates) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v1_relay_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigurationUpdates.ProtoReflect.Descriptor instead.
+func (*ConfigurationUpdates) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v1_relay_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *ConfigurationUpdates) GetConfigurations() []*SignedConfiguration {
+	if x != nil {
+		return x.Configurations
+	}
+	return nil
+}
+
 var File_agentkeyring_v1_relay_proto protoreflect.FileDescriptor
 
 const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\n" +
 	"\x1bagentkeyring/v1/relay.proto\x12\x0fagentkeyring.v1\x1a\"agentkeyring/v1/agentkeyring.proto\x1a\x1cagentkeyring/v1/bundle.proto\":\n" +
 	"\x10WatchWorkRequest\x12&\n" +
-	"\x0fapprover_key_id\x18\x01 \x01(\tR\rapproverKeyId\"\xb3\x04\n" +
+	"\x0fapprover_key_id\x18\x01 \x01(\tR\rapproverKeyId\"\xf6\x04\n" +
 	"\fApproverWork\x12;\n" +
 	"\arequest\x18\x01 \x01(\v2\x1f.agentkeyring.v1.PendingRequestH\x00R\arequest\x12A\n" +
 	"\tenrolment\x18\x02 \x01(\v2!.agentkeyring.v1.PendingEnrolmentH\x00R\tenrolment\x12A\n" +
@@ -3581,7 +4148,8 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x0ephone_decision\x18\x06 \x01(\v2$.agentkeyring.v1.SignedPhoneDecisionH\x00R\rphoneDecision\x12Q\n" +
 	"\x12local_lease_action\x18\a \x01(\v2!.agentkeyring.v1.LocalLeaseActionH\x00R\x10localLeaseAction\x12D\n" +
 	"\vcopy_update\x18\b \x01(\v2!.agentkeyring.v1.SignedCopyUpdateH\x00R\n" +
-	"copyUpdateB\x06\n" +
+	"copyUpdate\x12A\n" +
+	"\ftrust_update\x18\t \x01(\v2\x1c.agentkeyring.v1.TrustUpdateH\x00R\vtrustUpdateB\x06\n" +
 	"\x04item\"\x8c\x01\n" +
 	"\x0ePendingRequest\x12\x16\n" +
 	"\x06record\x18\x01 \x01(\fR\x06record\x12)\n" +
@@ -3769,7 +4337,7 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\n" +
 	"PublishAck\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
-	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xe0\r\n" +
+	"\x06detail\x18\x02 \x01(\tR\x06detail\"\x84\x10\n" +
 	"\x10RelayWireRequest\x126\n" +
 	"\x06client\x18\x01 \x01(\v2\x1c.agentkeyring.v1.WireRequestH\x00R\x06client\x12B\n" +
 	"\n" +
@@ -3792,9 +4360,12 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x11answer_from_phone\x18\x18 \x01(\v2$.agentkeyring.v1.SignedPhoneDecisionH\x00R\x0fanswerFromPhone\x12a\n" +
 	"\x18update_local_phone_lease\x18\x19 \x01(\v2&.agentkeyring.v1.LocalPhoneLeaseUpdateH\x00R\x15updateLocalPhoneLease\x12S\n" +
 	"\x13publish_copy_update\x18\x1a \x01(\v2!.agentkeyring.v1.SignedCopyUpdateH\x00R\x11publishCopyUpdate\x12O\n" +
-	"\x0fget_copy_update\x18\x1b \x01(\v2%.agentkeyring.v1.GetCopyUpdateRequestH\x00R\rgetCopyUpdateB\t\n" +
+	"\x0fget_copy_update\x18\x1b \x01(\v2%.agentkeyring.v1.GetCopyUpdateRequestH\x00R\rgetCopyUpdate\x12\\\n" +
+	"\x16publish_update_receipt\x18\x1c \x01(\v2$.agentkeyring.v1.SignedUpdateReceiptH\x00R\x14publishUpdateReceipt\x12U\n" +
+	"\x13get_update_receipts\x18\x1d \x01(\v2#.agentkeyring.v1.UpdateReceiptQueryH\x00R\x11getUpdateReceipts\x12m\n" +
+	"\x19get_configuration_updates\x18\x1e \x01(\v2/.agentkeyring.v1.GetConfigurationUpdatesRequestH\x00R\x17getConfigurationUpdatesB\t\n" +
 	"\arequestJ\x04\b\n" +
-	"\x10\vJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x11\x10\x12J\x04\b\x12\x10\x13J\x04\b\x13\x10\x14\"\x9b\a\n" +
+	"\x10\vJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x11\x10\x12J\x04\b\x12\x10\x13J\x04\b\x13\x10\x14\"\x88\t\n" +
 	"\x11RelayWireResponse\x127\n" +
 	"\x06client\x18\x01 \x01(\v2\x1d.agentkeyring.v1.WireResponseH\x00R\x06client\x123\n" +
 	"\x04work\x18\x02 \x01(\v2\x1d.agentkeyring.v1.ApproverWorkH\x00R\x04work\x12:\n" +
@@ -3810,11 +4381,37 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x0eautomatic_keys\x18\x0f \x01(\v2\x1e.agentkeyring.v1.AutomaticKeysH\x00R\rautomaticKeys\x12.\n" +
 	"\x05lease\x18\x10 \x01(\v2\x16.agentkeyring.v1.LeaseH\x00R\x05lease\x12D\n" +
 	"\vcopy_update\x18\x11 \x01(\v2!.agentkeyring.v1.SignedCopyUpdateH\x00R\n" +
-	"copyUpdate\x12\"\n" +
+	"copyUpdate\x12J\n" +
+	"\x0fupdate_receipts\x18\x12 \x01(\v2\x1f.agentkeyring.v1.UpdateReceiptsH\x00R\x0eupdateReceipts\x12\\\n" +
+	"\x15configuration_updates\x18\x13 \x01(\v2%.agentkeyring.v1.ConfigurationUpdatesH\x00R\x14configurationUpdates\x12A\n" +
+	"\ftrust_update\x18\x14 \x01(\v2\x1c.agentkeyring.v1.TrustUpdateH\x00R\vtrustUpdate\x12\"\n" +
 	"\rend_of_stream\x18\b \x01(\bR\vendOfStreamB\n" +
 	"\n" +
 	"\bresponseJ\x04\b\t\x10\n" +
-	"J\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0f*\x8d\x01\n" +
+	"J\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0f\"\xb3\x01\n" +
+	"\vTrustUpdate\x12L\n" +
+	"\rapprover_keys\x18\x01 \x01(\v2%.agentkeyring.v1.SignedApproverKeySetH\x00R\fapproverKeys\x12L\n" +
+	"\rconfiguration\x18\x02 \x01(\v2$.agentkeyring.v1.SignedConfigurationH\x00R\rconfigurationB\b\n" +
+	"\x06update\"\xc7\x01\n" +
+	"\rUpdateReceipt\x12\x16\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\x12,\n" +
+	"\x12device_spki_sha256\x18\x02 \x01(\fR\x10deviceSpkiSha256\x12/\n" +
+	"\x04kind\x18\x03 \x01(\x0e2\x1b.agentkeyring.v1.UpdateKindR\x04kind\x12\x1a\n" +
+	"\brevision\x18\x04 \x01(\x04R\brevision\x12#\n" +
+	"\rupdate_sha256\x18\x05 \x01(\fR\fupdateSha256\"M\n" +
+	"\x13SignedUpdateReceipt\x12\x18\n" +
+	"\areceipt\x18\x01 \x01(\fR\areceipt\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"\x86\x01\n" +
+	"\x12UpdateReceiptQuery\x12/\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x1b.agentkeyring.v1.UpdateKindR\x04kind\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\x04R\brevision\x12#\n" +
+	"\rupdate_sha256\x18\x03 \x01(\fR\fupdateSha256\"R\n" +
+	"\x0eUpdateReceipts\x12@\n" +
+	"\breceipts\x18\x01 \x03(\v2$.agentkeyring.v1.SignedUpdateReceiptR\breceipts\"G\n" +
+	"\x1eGetConfigurationUpdatesRequest\x12%\n" +
+	"\x0eafter_revision\x18\x01 \x01(\x04R\rafterRevision\"d\n" +
+	"\x14ConfigurationUpdates\x12L\n" +
+	"\x0econfigurations\x18\x01 \x03(\v2$.agentkeyring.v1.SignedConfigurationR\x0econfigurations*\x8d\x01\n" +
 	"\n" +
 	"EnrolState\x12\x1b\n" +
 	"\x17ENROL_STATE_UNSPECIFIED\x10\x00\x12\x17\n" +
@@ -3826,13 +4423,21 @@ const file_agentkeyring_v1_relay_proto_rawDesc = "" +
 	"\x19APPROVER_ROLE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11APPROVER_ROLE_MAC\x10\x01\x12\x17\n" +
 	"\x13APPROVER_ROLE_PHONE\x10\x02\x12\x1e\n" +
-	"\x1aAPPROVER_ROLE_MAC_DELIVERY\x10\x032\xba\t\n" +
+	"\x1aAPPROVER_ROLE_MAC_DELIVERY\x10\x03*g\n" +
+	"\n" +
+	"UpdateKind\x12\x1b\n" +
+	"\x17UPDATE_KIND_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19UPDATE_KIND_APPROVER_KEYS\x10\x01\x12\x1d\n" +
+	"\x19UPDATE_KIND_CONFIGURATION\x10\x022\xe3\v\n" +
 	"\tApprovals\x12O\n" +
 	"\tWatchWork\x12!.agentkeyring.v1.WatchWorkRequest\x1a\x1d.agentkeyring.v1.ApproverWork0\x01\x12G\n" +
 	"\x06Decide\x12\x1f.agentkeyring.v1.SignedDecision\x1a\x1c.agentkeyring.v1.DecisionAck\x12^\n" +
 	"\x14PublishConfiguration\x12).agentkeyring.v1.ConfigurationPublication\x1a\x1b.agentkeyring.v1.PublishAck\x12S\n" +
 	"\x11PublishCopyUpdate\x12!.agentkeyring.v1.SignedCopyUpdate\x1a\x1b.agentkeyring.v1.PublishAck\x12Y\n" +
 	"\rGetCopyUpdate\x12%.agentkeyring.v1.GetCopyUpdateRequest\x1a!.agentkeyring.v1.SignedCopyUpdate\x12Y\n" +
+	"\x14PublishUpdateReceipt\x12$.agentkeyring.v1.SignedUpdateReceipt\x1a\x1b.agentkeyring.v1.PublishAck\x12Y\n" +
+	"\x11GetUpdateReceipts\x12#.agentkeyring.v1.UpdateReceiptQuery\x1a\x1f.agentkeyring.v1.UpdateReceipts\x12q\n" +
+	"\x17GetConfigurationUpdates\x12/.agentkeyring.v1.GetConfigurationUpdatesRequest\x1a%.agentkeyring.v1.ConfigurationUpdates\x12Y\n" +
 	"\x10DismissEnrolment\x12(.agentkeyring.v1.DismissEnrolmentRequest\x1a\x1b.agentkeyring.v1.PublishAck\x12N\n" +
 	"\fRegisterPush\x12!.agentkeyring.v1.PushRegistration\x1a\x1b.agentkeyring.v1.PublishAck\x12Y\n" +
 	"\x13PublishApproverKeys\x12%.agentkeyring.v1.SignedApproverKeySet\x1a\x1b.agentkeyring.v1.PublishAck\x12\\\n" +
@@ -3862,175 +4467,202 @@ func file_agentkeyring_v1_relay_proto_rawDescGZIP() []byte {
 	return file_agentkeyring_v1_relay_proto_rawDescData
 }
 
-var file_agentkeyring_v1_relay_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agentkeyring_v1_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_agentkeyring_v1_relay_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_agentkeyring_v1_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_agentkeyring_v1_relay_proto_goTypes = []any{
-	(EnrolState)(0),                    // 0: agentkeyring.v1.EnrolState
-	(ApproverRole)(0),                  // 1: agentkeyring.v1.ApproverRole
-	(*WatchWorkRequest)(nil),           // 2: agentkeyring.v1.WatchWorkRequest
-	(*ApproverWork)(nil),               // 3: agentkeyring.v1.ApproverWork
-	(*PendingRequest)(nil),             // 4: agentkeyring.v1.PendingRequest
-	(*RequestRecord)(nil),              // 5: agentkeyring.v1.RequestRecord
-	(*DecisionAck)(nil),                // 6: agentkeyring.v1.DecisionAck
-	(*EnrolRequest)(nil),               // 7: agentkeyring.v1.EnrolRequest
-	(*EnrolStatus)(nil),                // 8: agentkeyring.v1.EnrolStatus
-	(*PendingEnrolment)(nil),           // 9: agentkeyring.v1.PendingEnrolment
-	(*EnrolmentRecord)(nil),            // 10: agentkeyring.v1.EnrolmentRecord
-	(*EnrolmentAck)(nil),               // 11: agentkeyring.v1.EnrolmentAck
-	(*ApproverKey)(nil),                // 12: agentkeyring.v1.ApproverKey
-	(*PhoneEscalation)(nil),            // 13: agentkeyring.v1.PhoneEscalation
-	(*LocalPhoneLeaseUpdate)(nil),      // 14: agentkeyring.v1.LocalPhoneLeaseUpdate
-	(*LocalLeaseAction)(nil),           // 15: agentkeyring.v1.LocalLeaseAction
-	(*SignedApproverKeySet)(nil),       // 16: agentkeyring.v1.SignedApproverKeySet
-	(*ApproverKeySet)(nil),             // 17: agentkeyring.v1.ApproverKeySet
-	(*GetApproverKeyChainRequest)(nil), // 18: agentkeyring.v1.GetApproverKeyChainRequest
-	(*ApproverKeyChain)(nil),           // 19: agentkeyring.v1.ApproverKeyChain
-	(*SignedPairingConfirmation)(nil),  // 20: agentkeyring.v1.SignedPairingConfirmation
-	(*PairingConfirmation)(nil),        // 21: agentkeyring.v1.PairingConfirmation
-	(*EnrolledMachine)(nil),            // 22: agentkeyring.v1.EnrolledMachine
-	(*GetConfigurationRequest)(nil),    // 23: agentkeyring.v1.GetConfigurationRequest
-	(*DismissEnrolmentRequest)(nil),    // 24: agentkeyring.v1.DismissEnrolmentRequest
-	(*SignedConfiguration)(nil),        // 25: agentkeyring.v1.SignedConfiguration
-	(*Configuration)(nil),              // 26: agentkeyring.v1.Configuration
-	(*ConfigurationPublication)(nil),   // 27: agentkeyring.v1.ConfigurationPublication
-	(*SignedCopyUpdate)(nil),           // 28: agentkeyring.v1.SignedCopyUpdate
-	(*CopyUpdate)(nil),                 // 29: agentkeyring.v1.CopyUpdate
-	(*GetAutomaticKeysRequest)(nil),    // 30: agentkeyring.v1.GetAutomaticKeysRequest
-	(*GetCopyUpdateRequest)(nil),       // 31: agentkeyring.v1.GetCopyUpdateRequest
-	(*AutomaticKeys)(nil),              // 32: agentkeyring.v1.AutomaticKeys
-	(*LoginSource)(nil),                // 33: agentkeyring.v1.LoginSource
-	(*SealedAutomaticLogin)(nil),       // 34: agentkeyring.v1.SealedAutomaticLogin
-	(*AutomaticLoginContents)(nil),     // 35: agentkeyring.v1.AutomaticLoginContents
-	(*PairApproverRequest)(nil),        // 36: agentkeyring.v1.PairApproverRequest
-	(*GetApproverKeysRequest)(nil),     // 37: agentkeyring.v1.GetApproverKeysRequest
-	(*PushRegistration)(nil),           // 38: agentkeyring.v1.PushRegistration
-	(*ClearDenialRequest)(nil),         // 39: agentkeyring.v1.ClearDenialRequest
-	(*PublishAck)(nil),                 // 40: agentkeyring.v1.PublishAck
-	(*RelayWireRequest)(nil),           // 41: agentkeyring.v1.RelayWireRequest
-	(*RelayWireResponse)(nil),          // 42: agentkeyring.v1.RelayWireResponse
-	(*Lease)(nil),                      // 43: agentkeyring.v1.Lease
-	(*SignedPhoneDecision)(nil),        // 44: agentkeyring.v1.SignedPhoneDecision
-	(Purpose)(0),                       // 45: agentkeyring.v1.Purpose
-	(*ProgramCommand)(nil),             // 46: agentkeyring.v1.ProgramCommand
-	(*LeaseReference)(nil),             // 47: agentkeyring.v1.LeaseReference
-	(*Login)(nil),                      // 48: agentkeyring.v1.Login
-	(*SealedBundle)(nil),               // 49: agentkeyring.v1.SealedBundle
-	(*WireRequest)(nil),                // 50: agentkeyring.v1.WireRequest
-	(*SignedDecision)(nil),             // 51: agentkeyring.v1.SignedDecision
-	(*WireResponse)(nil),               // 52: agentkeyring.v1.WireResponse
-	(*RpcError)(nil),                   // 53: agentkeyring.v1.RpcError
+	(EnrolState)(0),                        // 0: agentkeyring.v1.EnrolState
+	(ApproverRole)(0),                      // 1: agentkeyring.v1.ApproverRole
+	(UpdateKind)(0),                        // 2: agentkeyring.v1.UpdateKind
+	(*WatchWorkRequest)(nil),               // 3: agentkeyring.v1.WatchWorkRequest
+	(*ApproverWork)(nil),                   // 4: agentkeyring.v1.ApproverWork
+	(*PendingRequest)(nil),                 // 5: agentkeyring.v1.PendingRequest
+	(*RequestRecord)(nil),                  // 6: agentkeyring.v1.RequestRecord
+	(*DecisionAck)(nil),                    // 7: agentkeyring.v1.DecisionAck
+	(*EnrolRequest)(nil),                   // 8: agentkeyring.v1.EnrolRequest
+	(*EnrolStatus)(nil),                    // 9: agentkeyring.v1.EnrolStatus
+	(*PendingEnrolment)(nil),               // 10: agentkeyring.v1.PendingEnrolment
+	(*EnrolmentRecord)(nil),                // 11: agentkeyring.v1.EnrolmentRecord
+	(*EnrolmentAck)(nil),                   // 12: agentkeyring.v1.EnrolmentAck
+	(*ApproverKey)(nil),                    // 13: agentkeyring.v1.ApproverKey
+	(*PhoneEscalation)(nil),                // 14: agentkeyring.v1.PhoneEscalation
+	(*LocalPhoneLeaseUpdate)(nil),          // 15: agentkeyring.v1.LocalPhoneLeaseUpdate
+	(*LocalLeaseAction)(nil),               // 16: agentkeyring.v1.LocalLeaseAction
+	(*SignedApproverKeySet)(nil),           // 17: agentkeyring.v1.SignedApproverKeySet
+	(*ApproverKeySet)(nil),                 // 18: agentkeyring.v1.ApproverKeySet
+	(*GetApproverKeyChainRequest)(nil),     // 19: agentkeyring.v1.GetApproverKeyChainRequest
+	(*ApproverKeyChain)(nil),               // 20: agentkeyring.v1.ApproverKeyChain
+	(*SignedPairingConfirmation)(nil),      // 21: agentkeyring.v1.SignedPairingConfirmation
+	(*PairingConfirmation)(nil),            // 22: agentkeyring.v1.PairingConfirmation
+	(*EnrolledMachine)(nil),                // 23: agentkeyring.v1.EnrolledMachine
+	(*GetConfigurationRequest)(nil),        // 24: agentkeyring.v1.GetConfigurationRequest
+	(*DismissEnrolmentRequest)(nil),        // 25: agentkeyring.v1.DismissEnrolmentRequest
+	(*SignedConfiguration)(nil),            // 26: agentkeyring.v1.SignedConfiguration
+	(*Configuration)(nil),                  // 27: agentkeyring.v1.Configuration
+	(*ConfigurationPublication)(nil),       // 28: agentkeyring.v1.ConfigurationPublication
+	(*SignedCopyUpdate)(nil),               // 29: agentkeyring.v1.SignedCopyUpdate
+	(*CopyUpdate)(nil),                     // 30: agentkeyring.v1.CopyUpdate
+	(*GetAutomaticKeysRequest)(nil),        // 31: agentkeyring.v1.GetAutomaticKeysRequest
+	(*GetCopyUpdateRequest)(nil),           // 32: agentkeyring.v1.GetCopyUpdateRequest
+	(*AutomaticKeys)(nil),                  // 33: agentkeyring.v1.AutomaticKeys
+	(*LoginSource)(nil),                    // 34: agentkeyring.v1.LoginSource
+	(*SealedAutomaticLogin)(nil),           // 35: agentkeyring.v1.SealedAutomaticLogin
+	(*AutomaticLoginContents)(nil),         // 36: agentkeyring.v1.AutomaticLoginContents
+	(*PairApproverRequest)(nil),            // 37: agentkeyring.v1.PairApproverRequest
+	(*GetApproverKeysRequest)(nil),         // 38: agentkeyring.v1.GetApproverKeysRequest
+	(*PushRegistration)(nil),               // 39: agentkeyring.v1.PushRegistration
+	(*ClearDenialRequest)(nil),             // 40: agentkeyring.v1.ClearDenialRequest
+	(*PublishAck)(nil),                     // 41: agentkeyring.v1.PublishAck
+	(*RelayWireRequest)(nil),               // 42: agentkeyring.v1.RelayWireRequest
+	(*RelayWireResponse)(nil),              // 43: agentkeyring.v1.RelayWireResponse
+	(*TrustUpdate)(nil),                    // 44: agentkeyring.v1.TrustUpdate
+	(*UpdateReceipt)(nil),                  // 45: agentkeyring.v1.UpdateReceipt
+	(*SignedUpdateReceipt)(nil),            // 46: agentkeyring.v1.SignedUpdateReceipt
+	(*UpdateReceiptQuery)(nil),             // 47: agentkeyring.v1.UpdateReceiptQuery
+	(*UpdateReceipts)(nil),                 // 48: agentkeyring.v1.UpdateReceipts
+	(*GetConfigurationUpdatesRequest)(nil), // 49: agentkeyring.v1.GetConfigurationUpdatesRequest
+	(*ConfigurationUpdates)(nil),           // 50: agentkeyring.v1.ConfigurationUpdates
+	(*Lease)(nil),                          // 51: agentkeyring.v1.Lease
+	(*SignedPhoneDecision)(nil),            // 52: agentkeyring.v1.SignedPhoneDecision
+	(Purpose)(0),                           // 53: agentkeyring.v1.Purpose
+	(*ProgramCommand)(nil),                 // 54: agentkeyring.v1.ProgramCommand
+	(*LeaseReference)(nil),                 // 55: agentkeyring.v1.LeaseReference
+	(*Login)(nil),                          // 56: agentkeyring.v1.Login
+	(*SealedBundle)(nil),                   // 57: agentkeyring.v1.SealedBundle
+	(*WireRequest)(nil),                    // 58: agentkeyring.v1.WireRequest
+	(*SignedDecision)(nil),                 // 59: agentkeyring.v1.SignedDecision
+	(*WireResponse)(nil),                   // 60: agentkeyring.v1.WireResponse
+	(*RpcError)(nil),                       // 61: agentkeyring.v1.RpcError
 }
 var file_agentkeyring_v1_relay_proto_depIdxs = []int32{
-	4,  // 0: agentkeyring.v1.ApproverWork.request:type_name -> agentkeyring.v1.PendingRequest
-	9,  // 1: agentkeyring.v1.ApproverWork.enrolment:type_name -> agentkeyring.v1.PendingEnrolment
-	36, // 2: agentkeyring.v1.ApproverWork.pairing:type_name -> agentkeyring.v1.PairApproverRequest
-	43, // 3: agentkeyring.v1.ApproverWork.lease:type_name -> agentkeyring.v1.Lease
-	44, // 4: agentkeyring.v1.ApproverWork.phone_decision:type_name -> agentkeyring.v1.SignedPhoneDecision
-	15, // 5: agentkeyring.v1.ApproverWork.local_lease_action:type_name -> agentkeyring.v1.LocalLeaseAction
-	28, // 6: agentkeyring.v1.ApproverWork.copy_update:type_name -> agentkeyring.v1.SignedCopyUpdate
-	43, // 7: agentkeyring.v1.PendingRequest.local_lease:type_name -> agentkeyring.v1.Lease
-	45, // 8: agentkeyring.v1.RequestRecord.purpose:type_name -> agentkeyring.v1.Purpose
-	46, // 9: agentkeyring.v1.RequestRecord.program:type_name -> agentkeyring.v1.ProgramCommand
-	43, // 10: agentkeyring.v1.DecisionAck.lease:type_name -> agentkeyring.v1.Lease
-	0,  // 11: agentkeyring.v1.EnrolStatus.state:type_name -> agentkeyring.v1.EnrolState
-	12, // 12: agentkeyring.v1.EnrolStatus.approver_keys:type_name -> agentkeyring.v1.ApproverKey
-	16, // 13: agentkeyring.v1.EnrolStatus.approver_key_set:type_name -> agentkeyring.v1.SignedApproverKeySet
-	25, // 14: agentkeyring.v1.EnrolStatus.configuration:type_name -> agentkeyring.v1.SignedConfiguration
-	32, // 15: agentkeyring.v1.EnrolStatus.automatic_keys:type_name -> agentkeyring.v1.AutomaticKeys
-	1,  // 16: agentkeyring.v1.ApproverKey.role:type_name -> agentkeyring.v1.ApproverRole
-	43, // 17: agentkeyring.v1.PhoneEscalation.local_lease:type_name -> agentkeyring.v1.Lease
-	43, // 18: agentkeyring.v1.LocalPhoneLeaseUpdate.lease:type_name -> agentkeyring.v1.Lease
-	47, // 19: agentkeyring.v1.LocalLeaseAction.revoke_lease:type_name -> agentkeyring.v1.LeaseReference
-	39, // 20: agentkeyring.v1.LocalLeaseAction.clear_denial:type_name -> agentkeyring.v1.ClearDenialRequest
-	12, // 21: agentkeyring.v1.ApproverKeySet.keys:type_name -> agentkeyring.v1.ApproverKey
-	16, // 22: agentkeyring.v1.ApproverKeyChain.key_sets:type_name -> agentkeyring.v1.SignedApproverKeySet
-	16, // 23: agentkeyring.v1.SignedPairingConfirmation.initial_key_set:type_name -> agentkeyring.v1.SignedApproverKeySet
-	48, // 24: agentkeyring.v1.Configuration.logins:type_name -> agentkeyring.v1.Login
-	33, // 25: agentkeyring.v1.Configuration.sources:type_name -> agentkeyring.v1.LoginSource
-	22, // 26: agentkeyring.v1.Configuration.machines:type_name -> agentkeyring.v1.EnrolledMachine
-	25, // 27: agentkeyring.v1.ConfigurationPublication.configuration:type_name -> agentkeyring.v1.SignedConfiguration
-	34, // 28: agentkeyring.v1.CopyUpdate.logins:type_name -> agentkeyring.v1.SealedAutomaticLogin
-	49, // 29: agentkeyring.v1.SealedAutomaticLogin.sealed:type_name -> agentkeyring.v1.SealedBundle
-	12, // 30: agentkeyring.v1.PairApproverRequest.key:type_name -> agentkeyring.v1.ApproverKey
-	50, // 31: agentkeyring.v1.RelayWireRequest.client:type_name -> agentkeyring.v1.WireRequest
-	2,  // 32: agentkeyring.v1.RelayWireRequest.watch_work:type_name -> agentkeyring.v1.WatchWorkRequest
-	51, // 33: agentkeyring.v1.RelayWireRequest.decide:type_name -> agentkeyring.v1.SignedDecision
-	27, // 34: agentkeyring.v1.RelayWireRequest.publish_configuration:type_name -> agentkeyring.v1.ConfigurationPublication
-	24, // 35: agentkeyring.v1.RelayWireRequest.dismiss_enrolment:type_name -> agentkeyring.v1.DismissEnrolmentRequest
-	23, // 36: agentkeyring.v1.RelayWireRequest.get_configuration:type_name -> agentkeyring.v1.GetConfigurationRequest
-	38, // 37: agentkeyring.v1.RelayWireRequest.register_push:type_name -> agentkeyring.v1.PushRegistration
-	7,  // 38: agentkeyring.v1.RelayWireRequest.enrol:type_name -> agentkeyring.v1.EnrolRequest
-	16, // 39: agentkeyring.v1.RelayWireRequest.publish_approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
-	36, // 40: agentkeyring.v1.RelayWireRequest.pair_approver:type_name -> agentkeyring.v1.PairApproverRequest
-	37, // 41: agentkeyring.v1.RelayWireRequest.get_approver_keys:type_name -> agentkeyring.v1.GetApproverKeysRequest
-	20, // 42: agentkeyring.v1.RelayWireRequest.confirm_pairing:type_name -> agentkeyring.v1.SignedPairingConfirmation
-	18, // 43: agentkeyring.v1.RelayWireRequest.get_approver_key_chain:type_name -> agentkeyring.v1.GetApproverKeyChainRequest
-	30, // 44: agentkeyring.v1.RelayWireRequest.get_automatic_keys:type_name -> agentkeyring.v1.GetAutomaticKeysRequest
-	39, // 45: agentkeyring.v1.RelayWireRequest.clear_denial:type_name -> agentkeyring.v1.ClearDenialRequest
-	47, // 46: agentkeyring.v1.RelayWireRequest.revoke_lease:type_name -> agentkeyring.v1.LeaseReference
-	13, // 47: agentkeyring.v1.RelayWireRequest.escalate_to_phone:type_name -> agentkeyring.v1.PhoneEscalation
-	44, // 48: agentkeyring.v1.RelayWireRequest.answer_from_phone:type_name -> agentkeyring.v1.SignedPhoneDecision
-	14, // 49: agentkeyring.v1.RelayWireRequest.update_local_phone_lease:type_name -> agentkeyring.v1.LocalPhoneLeaseUpdate
-	28, // 50: agentkeyring.v1.RelayWireRequest.publish_copy_update:type_name -> agentkeyring.v1.SignedCopyUpdate
-	31, // 51: agentkeyring.v1.RelayWireRequest.get_copy_update:type_name -> agentkeyring.v1.GetCopyUpdateRequest
-	52, // 52: agentkeyring.v1.RelayWireResponse.client:type_name -> agentkeyring.v1.WireResponse
-	3,  // 53: agentkeyring.v1.RelayWireResponse.work:type_name -> agentkeyring.v1.ApproverWork
-	6,  // 54: agentkeyring.v1.RelayWireResponse.decision:type_name -> agentkeyring.v1.DecisionAck
-	11, // 55: agentkeyring.v1.RelayWireResponse.enrolment:type_name -> agentkeyring.v1.EnrolmentAck
-	40, // 56: agentkeyring.v1.RelayWireResponse.publish:type_name -> agentkeyring.v1.PublishAck
-	8,  // 57: agentkeyring.v1.RelayWireResponse.enrol_status:type_name -> agentkeyring.v1.EnrolStatus
-	53, // 58: agentkeyring.v1.RelayWireResponse.error:type_name -> agentkeyring.v1.RpcError
-	16, // 59: agentkeyring.v1.RelayWireResponse.approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
-	19, // 60: agentkeyring.v1.RelayWireResponse.approver_key_chain:type_name -> agentkeyring.v1.ApproverKeyChain
-	25, // 61: agentkeyring.v1.RelayWireResponse.configuration:type_name -> agentkeyring.v1.SignedConfiguration
-	32, // 62: agentkeyring.v1.RelayWireResponse.automatic_keys:type_name -> agentkeyring.v1.AutomaticKeys
-	43, // 63: agentkeyring.v1.RelayWireResponse.lease:type_name -> agentkeyring.v1.Lease
-	28, // 64: agentkeyring.v1.RelayWireResponse.copy_update:type_name -> agentkeyring.v1.SignedCopyUpdate
-	2,  // 65: agentkeyring.v1.Approvals.WatchWork:input_type -> agentkeyring.v1.WatchWorkRequest
-	51, // 66: agentkeyring.v1.Approvals.Decide:input_type -> agentkeyring.v1.SignedDecision
-	27, // 67: agentkeyring.v1.Approvals.PublishConfiguration:input_type -> agentkeyring.v1.ConfigurationPublication
-	28, // 68: agentkeyring.v1.Approvals.PublishCopyUpdate:input_type -> agentkeyring.v1.SignedCopyUpdate
-	31, // 69: agentkeyring.v1.Approvals.GetCopyUpdate:input_type -> agentkeyring.v1.GetCopyUpdateRequest
-	24, // 70: agentkeyring.v1.Approvals.DismissEnrolment:input_type -> agentkeyring.v1.DismissEnrolmentRequest
-	38, // 71: agentkeyring.v1.Approvals.RegisterPush:input_type -> agentkeyring.v1.PushRegistration
-	16, // 72: agentkeyring.v1.Approvals.PublishApproverKeys:input_type -> agentkeyring.v1.SignedApproverKeySet
-	30, // 73: agentkeyring.v1.Approvals.GetAutomaticKeys:input_type -> agentkeyring.v1.GetAutomaticKeysRequest
-	39, // 74: agentkeyring.v1.Approvals.ClearDenial:input_type -> agentkeyring.v1.ClearDenialRequest
-	47, // 75: agentkeyring.v1.Approvals.RevokeLease:input_type -> agentkeyring.v1.LeaseReference
-	13, // 76: agentkeyring.v1.Approvals.EscalateToPhone:input_type -> agentkeyring.v1.PhoneEscalation
-	44, // 77: agentkeyring.v1.Approvals.AnswerFromPhone:input_type -> agentkeyring.v1.SignedPhoneDecision
-	14, // 78: agentkeyring.v1.Approvals.UpdateLocalPhoneLease:input_type -> agentkeyring.v1.LocalPhoneLeaseUpdate
-	7,  // 79: agentkeyring.v1.Enrolment.Enrol:input_type -> agentkeyring.v1.EnrolRequest
-	36, // 80: agentkeyring.v1.Enrolment.PairApprover:input_type -> agentkeyring.v1.PairApproverRequest
-	37, // 81: agentkeyring.v1.Enrolment.GetApproverKeys:input_type -> agentkeyring.v1.GetApproverKeysRequest
-	20, // 82: agentkeyring.v1.Enrolment.ConfirmPairing:input_type -> agentkeyring.v1.SignedPairingConfirmation
-	18, // 83: agentkeyring.v1.Enrolment.GetApproverKeyChain:input_type -> agentkeyring.v1.GetApproverKeyChainRequest
-	23, // 84: agentkeyring.v1.Enrolment.GetConfiguration:input_type -> agentkeyring.v1.GetConfigurationRequest
-	3,  // 85: agentkeyring.v1.Approvals.WatchWork:output_type -> agentkeyring.v1.ApproverWork
-	6,  // 86: agentkeyring.v1.Approvals.Decide:output_type -> agentkeyring.v1.DecisionAck
-	40, // 87: agentkeyring.v1.Approvals.PublishConfiguration:output_type -> agentkeyring.v1.PublishAck
-	40, // 88: agentkeyring.v1.Approvals.PublishCopyUpdate:output_type -> agentkeyring.v1.PublishAck
-	28, // 89: agentkeyring.v1.Approvals.GetCopyUpdate:output_type -> agentkeyring.v1.SignedCopyUpdate
-	40, // 90: agentkeyring.v1.Approvals.DismissEnrolment:output_type -> agentkeyring.v1.PublishAck
-	40, // 91: agentkeyring.v1.Approvals.RegisterPush:output_type -> agentkeyring.v1.PublishAck
-	40, // 92: agentkeyring.v1.Approvals.PublishApproverKeys:output_type -> agentkeyring.v1.PublishAck
-	32, // 93: agentkeyring.v1.Approvals.GetAutomaticKeys:output_type -> agentkeyring.v1.AutomaticKeys
-	40, // 94: agentkeyring.v1.Approvals.ClearDenial:output_type -> agentkeyring.v1.PublishAck
-	43, // 95: agentkeyring.v1.Approvals.RevokeLease:output_type -> agentkeyring.v1.Lease
-	40, // 96: agentkeyring.v1.Approvals.EscalateToPhone:output_type -> agentkeyring.v1.PublishAck
-	6,  // 97: agentkeyring.v1.Approvals.AnswerFromPhone:output_type -> agentkeyring.v1.DecisionAck
-	6,  // 98: agentkeyring.v1.Approvals.UpdateLocalPhoneLease:output_type -> agentkeyring.v1.DecisionAck
-	8,  // 99: agentkeyring.v1.Enrolment.Enrol:output_type -> agentkeyring.v1.EnrolStatus
-	8,  // 100: agentkeyring.v1.Enrolment.PairApprover:output_type -> agentkeyring.v1.EnrolStatus
-	16, // 101: agentkeyring.v1.Enrolment.GetApproverKeys:output_type -> agentkeyring.v1.SignedApproverKeySet
-	11, // 102: agentkeyring.v1.Enrolment.ConfirmPairing:output_type -> agentkeyring.v1.EnrolmentAck
-	19, // 103: agentkeyring.v1.Enrolment.GetApproverKeyChain:output_type -> agentkeyring.v1.ApproverKeyChain
-	25, // 104: agentkeyring.v1.Enrolment.GetConfiguration:output_type -> agentkeyring.v1.SignedConfiguration
-	85, // [85:105] is the sub-list for method output_type
-	65, // [65:85] is the sub-list for method input_type
-	65, // [65:65] is the sub-list for extension type_name
-	65, // [65:65] is the sub-list for extension extendee
-	0,  // [0:65] is the sub-list for field type_name
+	5,   // 0: agentkeyring.v1.ApproverWork.request:type_name -> agentkeyring.v1.PendingRequest
+	10,  // 1: agentkeyring.v1.ApproverWork.enrolment:type_name -> agentkeyring.v1.PendingEnrolment
+	37,  // 2: agentkeyring.v1.ApproverWork.pairing:type_name -> agentkeyring.v1.PairApproverRequest
+	51,  // 3: agentkeyring.v1.ApproverWork.lease:type_name -> agentkeyring.v1.Lease
+	52,  // 4: agentkeyring.v1.ApproverWork.phone_decision:type_name -> agentkeyring.v1.SignedPhoneDecision
+	16,  // 5: agentkeyring.v1.ApproverWork.local_lease_action:type_name -> agentkeyring.v1.LocalLeaseAction
+	29,  // 6: agentkeyring.v1.ApproverWork.copy_update:type_name -> agentkeyring.v1.SignedCopyUpdate
+	44,  // 7: agentkeyring.v1.ApproverWork.trust_update:type_name -> agentkeyring.v1.TrustUpdate
+	51,  // 8: agentkeyring.v1.PendingRequest.local_lease:type_name -> agentkeyring.v1.Lease
+	53,  // 9: agentkeyring.v1.RequestRecord.purpose:type_name -> agentkeyring.v1.Purpose
+	54,  // 10: agentkeyring.v1.RequestRecord.program:type_name -> agentkeyring.v1.ProgramCommand
+	51,  // 11: agentkeyring.v1.DecisionAck.lease:type_name -> agentkeyring.v1.Lease
+	0,   // 12: agentkeyring.v1.EnrolStatus.state:type_name -> agentkeyring.v1.EnrolState
+	13,  // 13: agentkeyring.v1.EnrolStatus.approver_keys:type_name -> agentkeyring.v1.ApproverKey
+	17,  // 14: agentkeyring.v1.EnrolStatus.approver_key_set:type_name -> agentkeyring.v1.SignedApproverKeySet
+	26,  // 15: agentkeyring.v1.EnrolStatus.configuration:type_name -> agentkeyring.v1.SignedConfiguration
+	33,  // 16: agentkeyring.v1.EnrolStatus.automatic_keys:type_name -> agentkeyring.v1.AutomaticKeys
+	1,   // 17: agentkeyring.v1.ApproverKey.role:type_name -> agentkeyring.v1.ApproverRole
+	51,  // 18: agentkeyring.v1.PhoneEscalation.local_lease:type_name -> agentkeyring.v1.Lease
+	51,  // 19: agentkeyring.v1.LocalPhoneLeaseUpdate.lease:type_name -> agentkeyring.v1.Lease
+	55,  // 20: agentkeyring.v1.LocalLeaseAction.revoke_lease:type_name -> agentkeyring.v1.LeaseReference
+	40,  // 21: agentkeyring.v1.LocalLeaseAction.clear_denial:type_name -> agentkeyring.v1.ClearDenialRequest
+	13,  // 22: agentkeyring.v1.ApproverKeySet.keys:type_name -> agentkeyring.v1.ApproverKey
+	17,  // 23: agentkeyring.v1.ApproverKeyChain.key_sets:type_name -> agentkeyring.v1.SignedApproverKeySet
+	17,  // 24: agentkeyring.v1.SignedPairingConfirmation.initial_key_set:type_name -> agentkeyring.v1.SignedApproverKeySet
+	56,  // 25: agentkeyring.v1.Configuration.logins:type_name -> agentkeyring.v1.Login
+	34,  // 26: agentkeyring.v1.Configuration.sources:type_name -> agentkeyring.v1.LoginSource
+	23,  // 27: agentkeyring.v1.Configuration.machines:type_name -> agentkeyring.v1.EnrolledMachine
+	26,  // 28: agentkeyring.v1.ConfigurationPublication.configuration:type_name -> agentkeyring.v1.SignedConfiguration
+	35,  // 29: agentkeyring.v1.CopyUpdate.logins:type_name -> agentkeyring.v1.SealedAutomaticLogin
+	57,  // 30: agentkeyring.v1.SealedAutomaticLogin.sealed:type_name -> agentkeyring.v1.SealedBundle
+	13,  // 31: agentkeyring.v1.PairApproverRequest.key:type_name -> agentkeyring.v1.ApproverKey
+	58,  // 32: agentkeyring.v1.RelayWireRequest.client:type_name -> agentkeyring.v1.WireRequest
+	3,   // 33: agentkeyring.v1.RelayWireRequest.watch_work:type_name -> agentkeyring.v1.WatchWorkRequest
+	59,  // 34: agentkeyring.v1.RelayWireRequest.decide:type_name -> agentkeyring.v1.SignedDecision
+	28,  // 35: agentkeyring.v1.RelayWireRequest.publish_configuration:type_name -> agentkeyring.v1.ConfigurationPublication
+	25,  // 36: agentkeyring.v1.RelayWireRequest.dismiss_enrolment:type_name -> agentkeyring.v1.DismissEnrolmentRequest
+	24,  // 37: agentkeyring.v1.RelayWireRequest.get_configuration:type_name -> agentkeyring.v1.GetConfigurationRequest
+	39,  // 38: agentkeyring.v1.RelayWireRequest.register_push:type_name -> agentkeyring.v1.PushRegistration
+	8,   // 39: agentkeyring.v1.RelayWireRequest.enrol:type_name -> agentkeyring.v1.EnrolRequest
+	17,  // 40: agentkeyring.v1.RelayWireRequest.publish_approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
+	37,  // 41: agentkeyring.v1.RelayWireRequest.pair_approver:type_name -> agentkeyring.v1.PairApproverRequest
+	38,  // 42: agentkeyring.v1.RelayWireRequest.get_approver_keys:type_name -> agentkeyring.v1.GetApproverKeysRequest
+	21,  // 43: agentkeyring.v1.RelayWireRequest.confirm_pairing:type_name -> agentkeyring.v1.SignedPairingConfirmation
+	19,  // 44: agentkeyring.v1.RelayWireRequest.get_approver_key_chain:type_name -> agentkeyring.v1.GetApproverKeyChainRequest
+	31,  // 45: agentkeyring.v1.RelayWireRequest.get_automatic_keys:type_name -> agentkeyring.v1.GetAutomaticKeysRequest
+	40,  // 46: agentkeyring.v1.RelayWireRequest.clear_denial:type_name -> agentkeyring.v1.ClearDenialRequest
+	55,  // 47: agentkeyring.v1.RelayWireRequest.revoke_lease:type_name -> agentkeyring.v1.LeaseReference
+	14,  // 48: agentkeyring.v1.RelayWireRequest.escalate_to_phone:type_name -> agentkeyring.v1.PhoneEscalation
+	52,  // 49: agentkeyring.v1.RelayWireRequest.answer_from_phone:type_name -> agentkeyring.v1.SignedPhoneDecision
+	15,  // 50: agentkeyring.v1.RelayWireRequest.update_local_phone_lease:type_name -> agentkeyring.v1.LocalPhoneLeaseUpdate
+	29,  // 51: agentkeyring.v1.RelayWireRequest.publish_copy_update:type_name -> agentkeyring.v1.SignedCopyUpdate
+	32,  // 52: agentkeyring.v1.RelayWireRequest.get_copy_update:type_name -> agentkeyring.v1.GetCopyUpdateRequest
+	46,  // 53: agentkeyring.v1.RelayWireRequest.publish_update_receipt:type_name -> agentkeyring.v1.SignedUpdateReceipt
+	47,  // 54: agentkeyring.v1.RelayWireRequest.get_update_receipts:type_name -> agentkeyring.v1.UpdateReceiptQuery
+	49,  // 55: agentkeyring.v1.RelayWireRequest.get_configuration_updates:type_name -> agentkeyring.v1.GetConfigurationUpdatesRequest
+	60,  // 56: agentkeyring.v1.RelayWireResponse.client:type_name -> agentkeyring.v1.WireResponse
+	4,   // 57: agentkeyring.v1.RelayWireResponse.work:type_name -> agentkeyring.v1.ApproverWork
+	7,   // 58: agentkeyring.v1.RelayWireResponse.decision:type_name -> agentkeyring.v1.DecisionAck
+	12,  // 59: agentkeyring.v1.RelayWireResponse.enrolment:type_name -> agentkeyring.v1.EnrolmentAck
+	41,  // 60: agentkeyring.v1.RelayWireResponse.publish:type_name -> agentkeyring.v1.PublishAck
+	9,   // 61: agentkeyring.v1.RelayWireResponse.enrol_status:type_name -> agentkeyring.v1.EnrolStatus
+	61,  // 62: agentkeyring.v1.RelayWireResponse.error:type_name -> agentkeyring.v1.RpcError
+	17,  // 63: agentkeyring.v1.RelayWireResponse.approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
+	20,  // 64: agentkeyring.v1.RelayWireResponse.approver_key_chain:type_name -> agentkeyring.v1.ApproverKeyChain
+	26,  // 65: agentkeyring.v1.RelayWireResponse.configuration:type_name -> agentkeyring.v1.SignedConfiguration
+	33,  // 66: agentkeyring.v1.RelayWireResponse.automatic_keys:type_name -> agentkeyring.v1.AutomaticKeys
+	51,  // 67: agentkeyring.v1.RelayWireResponse.lease:type_name -> agentkeyring.v1.Lease
+	29,  // 68: agentkeyring.v1.RelayWireResponse.copy_update:type_name -> agentkeyring.v1.SignedCopyUpdate
+	48,  // 69: agentkeyring.v1.RelayWireResponse.update_receipts:type_name -> agentkeyring.v1.UpdateReceipts
+	50,  // 70: agentkeyring.v1.RelayWireResponse.configuration_updates:type_name -> agentkeyring.v1.ConfigurationUpdates
+	44,  // 71: agentkeyring.v1.RelayWireResponse.trust_update:type_name -> agentkeyring.v1.TrustUpdate
+	17,  // 72: agentkeyring.v1.TrustUpdate.approver_keys:type_name -> agentkeyring.v1.SignedApproverKeySet
+	26,  // 73: agentkeyring.v1.TrustUpdate.configuration:type_name -> agentkeyring.v1.SignedConfiguration
+	2,   // 74: agentkeyring.v1.UpdateReceipt.kind:type_name -> agentkeyring.v1.UpdateKind
+	2,   // 75: agentkeyring.v1.UpdateReceiptQuery.kind:type_name -> agentkeyring.v1.UpdateKind
+	46,  // 76: agentkeyring.v1.UpdateReceipts.receipts:type_name -> agentkeyring.v1.SignedUpdateReceipt
+	26,  // 77: agentkeyring.v1.ConfigurationUpdates.configurations:type_name -> agentkeyring.v1.SignedConfiguration
+	3,   // 78: agentkeyring.v1.Approvals.WatchWork:input_type -> agentkeyring.v1.WatchWorkRequest
+	59,  // 79: agentkeyring.v1.Approvals.Decide:input_type -> agentkeyring.v1.SignedDecision
+	28,  // 80: agentkeyring.v1.Approvals.PublishConfiguration:input_type -> agentkeyring.v1.ConfigurationPublication
+	29,  // 81: agentkeyring.v1.Approvals.PublishCopyUpdate:input_type -> agentkeyring.v1.SignedCopyUpdate
+	32,  // 82: agentkeyring.v1.Approvals.GetCopyUpdate:input_type -> agentkeyring.v1.GetCopyUpdateRequest
+	46,  // 83: agentkeyring.v1.Approvals.PublishUpdateReceipt:input_type -> agentkeyring.v1.SignedUpdateReceipt
+	47,  // 84: agentkeyring.v1.Approvals.GetUpdateReceipts:input_type -> agentkeyring.v1.UpdateReceiptQuery
+	49,  // 85: agentkeyring.v1.Approvals.GetConfigurationUpdates:input_type -> agentkeyring.v1.GetConfigurationUpdatesRequest
+	25,  // 86: agentkeyring.v1.Approvals.DismissEnrolment:input_type -> agentkeyring.v1.DismissEnrolmentRequest
+	39,  // 87: agentkeyring.v1.Approvals.RegisterPush:input_type -> agentkeyring.v1.PushRegistration
+	17,  // 88: agentkeyring.v1.Approvals.PublishApproverKeys:input_type -> agentkeyring.v1.SignedApproverKeySet
+	31,  // 89: agentkeyring.v1.Approvals.GetAutomaticKeys:input_type -> agentkeyring.v1.GetAutomaticKeysRequest
+	40,  // 90: agentkeyring.v1.Approvals.ClearDenial:input_type -> agentkeyring.v1.ClearDenialRequest
+	55,  // 91: agentkeyring.v1.Approvals.RevokeLease:input_type -> agentkeyring.v1.LeaseReference
+	14,  // 92: agentkeyring.v1.Approvals.EscalateToPhone:input_type -> agentkeyring.v1.PhoneEscalation
+	52,  // 93: agentkeyring.v1.Approvals.AnswerFromPhone:input_type -> agentkeyring.v1.SignedPhoneDecision
+	15,  // 94: agentkeyring.v1.Approvals.UpdateLocalPhoneLease:input_type -> agentkeyring.v1.LocalPhoneLeaseUpdate
+	8,   // 95: agentkeyring.v1.Enrolment.Enrol:input_type -> agentkeyring.v1.EnrolRequest
+	37,  // 96: agentkeyring.v1.Enrolment.PairApprover:input_type -> agentkeyring.v1.PairApproverRequest
+	38,  // 97: agentkeyring.v1.Enrolment.GetApproverKeys:input_type -> agentkeyring.v1.GetApproverKeysRequest
+	21,  // 98: agentkeyring.v1.Enrolment.ConfirmPairing:input_type -> agentkeyring.v1.SignedPairingConfirmation
+	19,  // 99: agentkeyring.v1.Enrolment.GetApproverKeyChain:input_type -> agentkeyring.v1.GetApproverKeyChainRequest
+	24,  // 100: agentkeyring.v1.Enrolment.GetConfiguration:input_type -> agentkeyring.v1.GetConfigurationRequest
+	4,   // 101: agentkeyring.v1.Approvals.WatchWork:output_type -> agentkeyring.v1.ApproverWork
+	7,   // 102: agentkeyring.v1.Approvals.Decide:output_type -> agentkeyring.v1.DecisionAck
+	41,  // 103: agentkeyring.v1.Approvals.PublishConfiguration:output_type -> agentkeyring.v1.PublishAck
+	41,  // 104: agentkeyring.v1.Approvals.PublishCopyUpdate:output_type -> agentkeyring.v1.PublishAck
+	29,  // 105: agentkeyring.v1.Approvals.GetCopyUpdate:output_type -> agentkeyring.v1.SignedCopyUpdate
+	41,  // 106: agentkeyring.v1.Approvals.PublishUpdateReceipt:output_type -> agentkeyring.v1.PublishAck
+	48,  // 107: agentkeyring.v1.Approvals.GetUpdateReceipts:output_type -> agentkeyring.v1.UpdateReceipts
+	50,  // 108: agentkeyring.v1.Approvals.GetConfigurationUpdates:output_type -> agentkeyring.v1.ConfigurationUpdates
+	41,  // 109: agentkeyring.v1.Approvals.DismissEnrolment:output_type -> agentkeyring.v1.PublishAck
+	41,  // 110: agentkeyring.v1.Approvals.RegisterPush:output_type -> agentkeyring.v1.PublishAck
+	41,  // 111: agentkeyring.v1.Approvals.PublishApproverKeys:output_type -> agentkeyring.v1.PublishAck
+	33,  // 112: agentkeyring.v1.Approvals.GetAutomaticKeys:output_type -> agentkeyring.v1.AutomaticKeys
+	41,  // 113: agentkeyring.v1.Approvals.ClearDenial:output_type -> agentkeyring.v1.PublishAck
+	51,  // 114: agentkeyring.v1.Approvals.RevokeLease:output_type -> agentkeyring.v1.Lease
+	41,  // 115: agentkeyring.v1.Approvals.EscalateToPhone:output_type -> agentkeyring.v1.PublishAck
+	7,   // 116: agentkeyring.v1.Approvals.AnswerFromPhone:output_type -> agentkeyring.v1.DecisionAck
+	7,   // 117: agentkeyring.v1.Approvals.UpdateLocalPhoneLease:output_type -> agentkeyring.v1.DecisionAck
+	9,   // 118: agentkeyring.v1.Enrolment.Enrol:output_type -> agentkeyring.v1.EnrolStatus
+	9,   // 119: agentkeyring.v1.Enrolment.PairApprover:output_type -> agentkeyring.v1.EnrolStatus
+	17,  // 120: agentkeyring.v1.Enrolment.GetApproverKeys:output_type -> agentkeyring.v1.SignedApproverKeySet
+	12,  // 121: agentkeyring.v1.Enrolment.ConfirmPairing:output_type -> agentkeyring.v1.EnrolmentAck
+	20,  // 122: agentkeyring.v1.Enrolment.GetApproverKeyChain:output_type -> agentkeyring.v1.ApproverKeyChain
+	26,  // 123: agentkeyring.v1.Enrolment.GetConfiguration:output_type -> agentkeyring.v1.SignedConfiguration
+	101, // [101:124] is the sub-list for method output_type
+	78,  // [78:101] is the sub-list for method input_type
+	78,  // [78:78] is the sub-list for extension type_name
+	78,  // [78:78] is the sub-list for extension extendee
+	0,   // [0:78] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v1_relay_proto_init() }
@@ -4049,6 +4681,7 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*ApproverWork_PhoneDecision)(nil),
 		(*ApproverWork_LocalLeaseAction)(nil),
 		(*ApproverWork_CopyUpdate)(nil),
+		(*ApproverWork_TrustUpdate)(nil),
 	}
 	file_agentkeyring_v1_relay_proto_msgTypes[13].OneofWrappers = []any{
 		(*LocalLeaseAction_RevokeLease)(nil),
@@ -4077,6 +4710,9 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*RelayWireRequest_UpdateLocalPhoneLease)(nil),
 		(*RelayWireRequest_PublishCopyUpdate)(nil),
 		(*RelayWireRequest_GetCopyUpdate)(nil),
+		(*RelayWireRequest_PublishUpdateReceipt)(nil),
+		(*RelayWireRequest_GetUpdateReceipts)(nil),
+		(*RelayWireRequest_GetConfigurationUpdates)(nil),
 	}
 	file_agentkeyring_v1_relay_proto_msgTypes[40].OneofWrappers = []any{
 		(*RelayWireResponse_Client)(nil),
@@ -4092,14 +4728,21 @@ func file_agentkeyring_v1_relay_proto_init() {
 		(*RelayWireResponse_AutomaticKeys)(nil),
 		(*RelayWireResponse_Lease)(nil),
 		(*RelayWireResponse_CopyUpdate)(nil),
+		(*RelayWireResponse_UpdateReceipts)(nil),
+		(*RelayWireResponse_ConfigurationUpdates)(nil),
+		(*RelayWireResponse_TrustUpdate)(nil),
+	}
+	file_agentkeyring_v1_relay_proto_msgTypes[41].OneofWrappers = []any{
+		(*TrustUpdate_ApproverKeys)(nil),
+		(*TrustUpdate_Configuration)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentkeyring_v1_relay_proto_rawDesc), len(file_agentkeyring_v1_relay_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   41,
+			NumEnums:      3,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
