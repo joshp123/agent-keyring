@@ -179,7 +179,7 @@ no host offers a supported way to pass that output into its browser privately.
 | F1 | Chrome extension, native host, socket per profile, `tabs`, `fields`, `fill` | The proof below passes |
 | F2 | Remove the debugging-port filler and the old flags; update the skill | The skill describes one way to fill |
 | F3 | Safari web extension, hosted by the Mac app | The proof below passes in Safari |
-| F4 | Linux host through the relay | The proof below passes on a Linux machine with desktop Chromium |
+| F4 | Linux host through the relay | The proof below passes on a Linux machine with desktop Chromium; [observed Codex and Claude runs](../proofs/linux-desktop-browser.md) |
 
 ## The first proof
 

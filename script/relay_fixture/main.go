@@ -137,6 +137,7 @@ type proof struct {
 	signedConfiguration             *pb.SignedConfiguration
 	pairingAutomaticKeys            *pb.AutomaticKeys
 	work                            *tls.Conn
+	browserFixture                  *browserFixture
 }
 
 func (p *proof) start() {
@@ -264,7 +265,11 @@ func (p *proof) decision(record []byte, deny bool, lifetime ...int64) *pb.RelayW
 	must(err)
 	encapsulated, sealer, err := hpke.NewSender(hpkeKey, hpke.HKDFSHA256(), hpke.AES256GCM(), []byte("agentkeyring.bundle.v1"))
 	must(err)
-	contents := encoded(&pb.BundleContents{LeaseId: request.LeaseId, LoginId: request.LoginId, Sites: []string{"https://example.com"}, Username: "fixture-user", Password: "fixture-password-for-relay-system-proof", NotAfterUnixSeconds: statement.NotAfterUnixSeconds})
+	values := &pb.BundleContents{LeaseId: request.LeaseId, LoginId: request.LoginId, Sites: []string{"https://example.com"}, Username: "fixture-user", Password: "fixture-password-for-relay-system-proof", NotAfterUnixSeconds: statement.NotAfterUnixSeconds}
+	if p.browserFixture != nil {
+		p.browserFixture.populate(values)
+	}
+	contents := encoded(values)
 	ciphertext, err := sealer.Seal(statement.RequestDigest, contents)
 	must(err)
 	clear(contents)
@@ -421,6 +426,7 @@ func main() {
 	linuxHost := flag.String("linux", "mini-server-1", "Linux proof host")
 	remoteBinary := flag.String("remote-binary", "", "Linux fixture binary path")
 	copySite := flag.String("site", "https://example.com", "Dummy copy login origin")
+	browserFixturePath := flag.String("browser-fixture", "", "Dummy test_login_server fixture for scripted browser approvals")
 	flag.Parse()
 	if *directory == "" {
 		var err error
@@ -449,6 +455,9 @@ func main() {
 		return
 	}
 	if *mode == "approver" {
+		if *browserFixturePath != "" {
+			p.browserFixture = loadBrowserFixture(*browserFixturePath)
+		}
 		p.serveApprover()
 		return
 	}
@@ -544,7 +553,13 @@ func (p *proof) serveApprover() {
 	p.pair()
 	defer p.work.Close()
 	must(p.work.SetDeadline(time.Time{}))
-	fmt.Println("Fixture approver ready. Only example.com dummy credentials are published.")
+	if p.browserFixture != nil {
+		p.configuration.Logins[0].Sites = []string{p.browserFixture.Origin}
+		p.configuration.Logins[0].Title = "Dummy browser login"
+		p.configuration.Logins[0].Account = p.browserFixture.Username
+		p.publishConfiguration()
+	}
+	fmt.Println("Fixture approver ready. Only dummy credentials are published.")
 	for {
 		work := good(receive(p.work)).GetWork()
 		switch item := work.Item.(type) {

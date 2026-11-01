@@ -140,8 +140,9 @@ The final Codex run recorded the following SHA-256 values before starting:
 | Bundled skill | `fea262a0b4de55d8847ff1d708b39acaf05b2fc186ff6db185d24348a341b931` |
 
 This is not yet proof of installation in Josh's ordinary Chrome, Claude in
-Chrome, Safari, or Linux desktop Chromium. Those remain the subsequent RFC
-slices. Closed built-in browsers do not gain an unsupported credential fallback.
+Chrome, or Safari. Linux desktop Chromium through the relay is proved
+separately in [the F4 record](linux-desktop-browser.md). Closed built-in
+browsers do not gain an unsupported credential fallback.
 
 Chrome's native host search path follows its user-data directory
 ([Chromium source](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/common/chrome_paths.cc)),
