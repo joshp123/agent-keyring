@@ -70,7 +70,9 @@ key it already uses without Touch ID, in a separate copy update:
 - The MacBook sends a copy update after every import that changes a copied
   password, and after every configuration change. Both go through the same
   outbox, so a password-only refresh reaches the copies with no prompt.
-- The MacBook shows "Applying" until the mini acknowledges the update. The
+- For a password-only copy update, the MacBook shows "Applying" until the mini
+  acknowledges the update. Permission withdrawals also need the device
+  confirmations described below. The
   phone picks up its copy the next time it connects; until then it treats any
   login whose copy belongs to an older configuration as not held, and falls
   back to approval only.
@@ -82,9 +84,10 @@ copy, but it can already read every password there.
 
 ## When a rule changes
 
-A change takes effect at the mini when it acknowledges the publication, not
-before. Until then the mini may still serve under the previous configuration;
-the MacBook says "Applying" for that period.
+A change takes effect at the mini when it commits the publication. A withdrawal
+is complete only when the remaining enforcing devices have saved and confirmed
+the exact owner-signed change, as below. Until then the MacBook shows which
+devices it is waiting for.
 
 - **Automatic to Ask, or to Blocked:** the mini deletes its copy of that login
   and stops serving it when it commits the new configuration. It cannot take
@@ -95,6 +98,69 @@ the MacBook says "Applying" for that period.
 - **Changed password:** a copy update follows the import, with no prompt.
 - **New login:** it starts as Ask. It reaches a copy after Josh confirms the
   new configuration, as today.
+
+### Device confirmations for permission withdrawals
+
+<!-- Written by AI on 2026.11.01 by model gpt-6.1-sol. -->
+
+One receipt mechanism covers removing or replacing an approver or receiving
+machine, removing a login or site, moving a login to Blocked or off Automatic,
+withdrawing a machine's Automatic permission, and replacing the named Automatic
+keys. Grants and password refreshes keep the existing relay acknowledgement.
+The owner signs withdrawals; a background delivery key cannot withdraw policy.
+
+For each withdrawal the Mac saves the exact signed update and its original
+required devices: the TLS identities of every remaining approver and enrolled
+receiving machine, including the Mac itself. The removed identity is excluded.
+A device first verifies and durably saves each checkpoint, then queues its
+receipt in the same durable write, before accepting further answers. A failed
+later fetch or lost receipt acknowledgement cannot undo that checkpoint.
+
+`SignedUpdateReceipt.receipt` contains the exact serialized `UpdateReceipt`:
+domain `agentkeyring.update-receipt.v1`, SHA-256 of the device's DER SPKI, update
+kind, revision, and SHA-256 of the exact `SignedApproverKeySet.key_set` or
+`SignedConfiguration.configuration` payload bytes. The hash excludes the outer
+signature wrapper. The existing enrolled TLS private key signs the receipt
+bytes with ECDSA P-256 and SHA-256, DER signature; no biometric prompt is needed.
+Verification uses the original required device's public key and exact target,
+never a signature or completion claim supplied by the relay itself.
+
+The relay retains each withdrawal and its device signatures. `WatchWork`
+delivers `ApproverWork.trust_update`; `WatchLease` delivers
+`RelayWireResponse.trust_update` before subsequent lease results. Reconnection
+uses the existing `GetApproverKeyChain` and
+`GetConfigurationUpdates(after_revision)`: retained configuration withdrawals
+for that device after its saved revision, ascending, then the current snapshot.
+Every verified checkpoint is saved individually. An older snapshot must never
+roll authority back; only an already saved receipt for that exact older target
+may be resent. The current cached key set may routinely be receipted on connect.
+Removed identities retain only access to signed public updates and receipt
+submission, bound to their original tailnet node; no requests, copies or answers.
+
+`PublishUpdateReceipt` is idempotent. `GetUpdateReceipts` gives the owner the
+device-signed evidence to verify and save locally. An acknowledgement merely
+drains an outbox: unretained targets and devices outside a target's original
+required set are acknowledged without recording or counting anything. This
+lets routine receipts and lost acknowledgements recover after newer grants or
+history pruning. Pending withdrawals do not expire. Completed evidence stays
+on the relay for seven days, with any evidence still needed by a pending
+dependency retained longer; the Mac keeps its own completion evidence.
+
+If device B still owes a receipt for update A and a later owner-signed withdrawal
+C removes B, A's original evidence stays intact. Only after all of C's remaining
+devices have confirmed C may the Mac retire B's missing requirement on A. Until
+then both stay pending. Neither a newer revision nor the relay's acknowledgement
+is evidence of that completion. The same rule applies through later removals.
+
+A withholding relay can keep an offline device on genuine old signed authority.
+That device stays explicitly pending; a receipt does not make unseen changes
+known. Once an honest device has saved the change it rejects old authority,
+including an unexpired delivery not yet opened, across process restarts. A
+cooperative phone saves its own removal before returning denial and clears its
+copies and pending answers. None of these receipts proves erasure from a lost
+or compromised device: an existing copy includes passwords and TOTP seeds.
+Suspected exposure requires changing the affected website credentials, replacing
+exposed TOTP enrolment and considering existing website sessions separately.
 
 ## What each copy exposes
 
