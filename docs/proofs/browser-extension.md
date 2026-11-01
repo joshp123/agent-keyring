@@ -436,3 +436,14 @@ output and retained machine results are in the private evidence directory's
 `full-pass.txt` and `full-run/`. Completed profiles and runtime state were moved
 to Trash; the prepared external-Claude trial remains live until completion or
 the driver's timeout.
+
+
+The prepared fresh Claude trial subsequently passed through T3 with the same
+bundled skill and plain task. Independent site counts show one accepted
+password POST, one accepted saved-code POST, zero rejected POSTs and one
+authenticated visit under one lease. Its transcript confirms suppressed retries
+and release; the driver's complete-transcript secret and browser-client-code
+scans passed. Evidence is in `claude/claude/results.json`, `events.jsonl` and
+`claude.txt` under the private evidence directory. Claude is now proved for
+this isolated combined page, rather than merely prepared. The driver exited 0
+and stopped its headless browser and dummy authority.
