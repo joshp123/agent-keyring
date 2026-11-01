@@ -40,9 +40,38 @@ extension PhoneRelayApprover {
         }
     }
 
+    public func beginReplacementPairing() async throws {
+        try load()
+        guard state.keySet != nil, let endpoint = state.endpoint else {
+            throw RelayFailure(.conflict, "This iPhone is not paired.")
+        }
+        guard !authorizing, !flushing else {
+            throw RelayFailure(.conflict, "An answer is still being sent. Try pairing again when it finishes.")
+        }
+        let previousSet = try parsedKeys(currentKeys())
+        let tlsKey = try identityProvider().publicKeySPKI
+        guard let previousPhone = previousSet.keys.first(where: { $0.role == .phone && $0.tlsPublicKey == tlsKey }) else {
+            throw RelayFailure(.permissionDenied, "The saved pairing does not identify this iPhone.")
+        }
+        stop()
+        var next = PhoneApproverState()
+        next.endpoint = endpoint; next.relaySPKI = state.relaySPKI
+        next.replacementPairing = PhoneReplacementPairing(previousKeyID: previousPhone.keyID, needsFreshIdentity: true)
+        try commit(next)
+        pairing = .notPaired; connection = .notPaired; lastFailure = nil; publish()
+        try await beginPairing(endpoint: endpoint)
+    }
+
     public func beginPairing(endpoint: RelayEndpoint) async throws {
         try load()
         guard state.keySet == nil else { throw RelayFailure(.conflict, "This iPhone is already paired.") }
+        if state.replacementPairing?.needsFreshIdentity == true {
+            // The unpaired receipt is durable before removing any key. An interrupted
+            // reset can retry; it can never reopen the retired copy or its outbox.
+            try replaceIdentity()
+            var next = state; next.replacementPairing?.needsFreshIdentity = false
+            try commit(next)
+        }
         pairingAttempt = UUID()
         pairTask?.cancel(); pairTask = nil; pairConnection?.cancel(); pairConnection = nil
         var requested = state; requested.pairingWanted = true; try commit(requested)
@@ -65,7 +94,8 @@ extension PhoneRelayApprover {
         request.pairApprover.key.role = .phone
         request.pairApprover.key.encryptionPublicKey = try keys.encryptionPublicKey()
         request.pairApprover.tlsPublicKey = identity.publicKeySPKI
-        let connection = try await RelayTransport(endpoint: endpoint, identity: identity, pin: nil).open(request)
+        let pin = endpoint == state.endpoint ? state.relaySPKI : nil
+        let connection = try await RelayTransport(endpoint: endpoint, identity: identity, pin: pin).open(request)
         do {
             let response = try await connection.next()
             guard pairingAttempt == attempt else { throw CancellationError() }
@@ -133,6 +163,11 @@ extension PhoneRelayApprover {
         let previous = try parsedKeys(Agentkeyring_V1_SignedApproverKeySet(serializedBytes: pending.previousKeySet))
         let nextSet = try parsedKeys(signed)
         try verify(signed.signature, bytes: signed.keySet, signerID: signed.signerKeyID, in: previous)
+        if let replacement = state.replacementPairing {
+            guard !nextSet.keys.contains(where: { $0.keyID == replacement.previousKeyID }) else {
+                throw RelayFailure(.permissionDenied, "Replace the previous iPhone on your Mac before completing this pairing.")
+            }
+        }
         logger.notice("Mac signature on added approver verified")
         let ownKey = try keys.signingPublicKey()
         guard state.pendingPair?.transcript == pending.transcript,
@@ -155,7 +190,7 @@ extension PhoneRelayApprover {
         guard pairingAttempt == attempt, state.pendingPair?.transcript == pending.transcript else { throw CancellationError() }
         var next = state; next.endpoint = pending.endpoint; next.relaySPKI = pending.relaySPKI
         next.keySet = try signed.serializedData(); next.configuration = try configuration.serializedData()
-        next.rulesUpdatedAt = Date(); next.pendingPair = nil; next.pairingWanted = false
+        next.rulesUpdatedAt = Date(); next.pendingPair = nil; next.pairingWanted = false; next.replacementPairing = nil
         try commit(next); pairing = .paired; lastFailure = nil; publish()
         logger.notice("Accepted Mac-signed approver addition and configuration; revision=\(parsed.revision, privacy: .public) machines=\(parsed.machines.count, privacy: .public)")
     }

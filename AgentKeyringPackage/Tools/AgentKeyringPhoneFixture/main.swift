@@ -9,8 +9,8 @@ import LocalAuthentication
 @MainActor
 final class FixtureKeys: PhoneApproverKeys {
     let directory: URL
-    let signer: P256.Signing.PrivateKey
-    let sealer: P256.KeyAgreement.PrivateKey
+    var signer: P256.Signing.PrivateKey
+    var sealer: P256.KeyAgreement.PrivateKey
     var authorizedContext: LAContext?
     init(_ directory: URL) throws {
         self.directory = directory
@@ -25,6 +25,12 @@ final class FixtureKeys: PhoneApproverKeys {
     }
     func signingPublicKey() throws -> Data { signer.publicKey.x963Representation }
     func encryptionPublicKey() throws -> Data { sealer.publicKey.x963Representation }
+    func replace() throws {
+        signer = P256.Signing.PrivateKey(); sealer = P256.KeyAgreement.PrivateKey()
+        try signer.rawRepresentation.write(to: directory.appending(path: "signing.raw"), options: .atomic)
+        try sealer.rawRepresentation.write(to: directory.appending(path: "sealing.raw"), options: .atomic)
+        authorizedContext = nil
+    }
     func openCopy(encapsulatedKey: Data, ciphertext: Data, associatedData: Data, context: LAContext) throws -> Data {
         precondition(authorizedContext === context)
         var recipient = try HPKE.Recipient(privateKey: sealer, ciphersuite: .P256_SHA256_AES_GCM_256,
@@ -57,7 +63,9 @@ struct PhoneFixture {
         let keys = try FixtureKeys(directory)
         let identity = try RelayTLSIdentity(privateKey: Data(contentsOf: directory.appending(path: "tls-private.x963")),
                                             certificate: Data(contentsOf: directory.appending(path: "tls-cert.der")))
-        let approver = PhoneRelayApprover(directory: directory.appending(path: "approver"), keys: keys, identity: { identity })
+        let approver = PhoneRelayApprover(directory: directory.appending(path: "approver"), keys: keys, identity: { identity }, replaceIdentity: {
+            try keys.replace()
+        })
         try approver.load(); approver.start()
         output("READY")
         while let line = await Task.detached(operation: { readLine() }).value {
@@ -79,6 +87,11 @@ struct PhoneFixture {
                     }
                 case "status":
                     output("STATUS\t\(approver.pairing)\t\(try approver.requests().count)")
+                case "replace-pairing":
+                    try await approver.beginReplacementPairing()
+                    if case let .comparing(fingerprint, _) = approver.pairing { output("PAIR\t" + fingerprint) }
+                    else { output("PAIRED") }
+                case "cancel-pairing": approver.cancelPairing(); output("CANCELLED")
                 case "requests":
                     let requests = try approver.requests()
                     output("REQUESTS\t" + requests.map { "\($0.id)=\($0.state)" }.joined(separator: "\t"))

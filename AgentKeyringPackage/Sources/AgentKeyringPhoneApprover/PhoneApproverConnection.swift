@@ -86,6 +86,7 @@ extension PhoneRelayApprover {
         pairingStartTask?.cancel(); pairingStartTask = nil
         workTask?.cancel(); workTask = nil
         retryTask?.cancel(); retryTask = nil
+        authorityTask?.cancel(); authorityTask = nil
         pairTask?.cancel(); pairTask = nil; pairConnection?.cancel(); pairConnection = nil
     }
 

@@ -190,7 +190,7 @@ func (p *proof) phoneRequest(leaseID string) []byte {
 	}
 }
 
-func (p *proof) phoneProof(binary string) {
+func (p *proof) phoneProof(binary, legacyBinary string) {
 	require(binary != "", "--phone-binary required")
 	p.start()
 	defer p.stop()
@@ -211,7 +211,11 @@ func (p *proof) phoneProof(binary string) {
 	defer network.down()
 	_, port, err := net.SplitHostPort(network.address)
 	must(err)
-	phone := startPhone(binary, directory)
+	startingBinary := binary
+	if legacyBinary != "" {
+		startingBinary = legacyBinary
+	}
+	phone := startPhone(startingBinary, directory)
 	require(strings.HasPrefix(phone.command("probe-non-tailnet\t"+port), "REFUSED"), "phone accepted a resolved non-tailnet peer")
 	fmt.Println("PASS resolved non-tailnet peer refused before a request")
 	comparison := phone.command("pair\t" + port)
@@ -220,6 +224,9 @@ func (p *proof) phoneProof(binary string) {
 		pair = good(receive(p.work)).GetWork().GetPairing()
 	}
 	require(pair.Key.Role == pb.ApproverRole_APPROVER_ROLE_PHONE, "phone paired with the wrong authority")
+	if legacyBinary != "" {
+		require(len(pair.Key.EncryptionPublicKey) == 0, "legacy fixture did not start with an approval-only identity")
+	}
 	transcript := relaycrypto.PairTranscript(p.approver.pin, pair.TlsPublicKey, pair.Key.PublicKey, p.keys.KeySet, pair.Key.EncryptionPublicKey)
 	require(comparison == "PAIR\t"+relaycrypto.Fingerprint(transcript), "Swift and Go pairing comparisons differ")
 	deliverySigner := signingKey()
@@ -230,8 +237,13 @@ func (p *proof) phoneProof(binary string) {
 	phone.stop()
 	require(good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_PublishApproverKeys{PublishApproverKeys: next}})).GetPublish().Accepted, "phone addition refused")
 	p.keys = next
-	phone = startPhone(binary, directory)
+	phone = startPhone(startingBinary, directory)
 	phone.wait("status", "paired")
+	if legacyBinary != "" {
+		phone.stop()
+		phone = startPhone(binary, directory)
+		phone.wait("status", "paired")
+	}
 	_, err = os.Stat(filepath.Join(directory, "vault"))
 	require(os.IsNotExist(err), "fixture created a phone vault")
 	fmt.Println("PASS PHONE role pairing, exact transcript, saved comparison recovery and bound configuration, with no phone vault")
@@ -437,6 +449,9 @@ func (p *proof) phoneProof(binary string) {
 	phone.command("clear\t" + configurationRequestID)
 	p.configuration = nextConfiguration
 	p.signedConfiguration = latestConfiguration
+	if legacyBinary != "" {
+		phone, pair.Key = p.swiftReplacementProof(phone, pair.Key, phoneSigner, directory, port)
+	}
 	phone = p.swiftCopyProof(phone, pair.Key, deliverySigner, network, directory)
 	fmt.Println("Phone fixture state:", p.directory)
 }

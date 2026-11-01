@@ -59,6 +59,8 @@ public protocol PhoneKeyringBackend: AnyObject {
     /// The current snapshot first, then one each time anything changes.
     func updates() -> AsyncStream<PhoneKeyringSnapshot>
     func beginPairing(endpoint: PhoneRelayEndpoint) async throws
+    /// Starts fresh keys and the existing comparison flow; the Mac must replace the old phone.
+    func beginReplacementPairing() async throws
     func cancelPairing()
     /// Asks for Face ID, signs the answer and sends it. Returns the new state.
     func approve(requestID: String) async throws -> AccessRequestState
@@ -177,6 +179,11 @@ public final class PhoneKeyringModel {
 
     public func cancelPairing() { backend.cancelPairing() }
 
+    public func beginReplacementPairing() async {
+        do { try await backend.beginReplacementPairing() }
+        catch { failure = "Couldn’t start pairing again. Try again." }
+    }
+
     public func dismissFailure() { failure = nil }
 
     private func answer(
@@ -214,5 +221,6 @@ public enum PhonePairingState: Hashable, Sendable {
 
 public extension PhoneKeyringBackend {
     func beginPairing(endpoint: PhoneRelayEndpoint) async throws { throw CocoaError(.featureUnsupported) }
+    func beginReplacementPairing() async throws { throw CocoaError(.featureUnsupported) }
     func cancelPairing() { }
 }
