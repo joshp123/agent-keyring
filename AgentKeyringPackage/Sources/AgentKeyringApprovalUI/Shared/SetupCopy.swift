@@ -21,6 +21,17 @@ public enum SetupCopy {
         }
     }
 
+    /// The second line under a joining device's name, in lists.
+    public static func joiningDetail(_ enrolment: DeviceEnrolment) -> String {
+        if let old = enrolment.replacesPhone { return "Replaces \(old)" }
+        return enrolment.kind == .machine ? "Wants to ask for logins" : "Wants to approve requests"
+    }
+
+    /// In the panel, under the new iPhone's name.
+    public static func replacesPhone(_ old: String) -> String {
+        "Replaces the iPhone paired as \(old). That one loses access: it can't approve requests any more."
+    }
+
     public static func tailnetNode(_ node: String) -> String {
         "On your tailnet as \(node)"
     }
@@ -38,7 +49,8 @@ public enum SetupCopy {
     public static func joined(_ enrolment: DeviceEnrolment) -> String {
         switch enrolment.kind {
         case .machine: "\(enrolment.name) can now ask for logins."
-        case .approver: "Your iPhone can now approve requests."
+        case .approver: enrolment.replacesPhone.map { "Your iPhone can now approve requests. The one paired as \($0) can't." }
+            ?? "Your iPhone can now approve requests."
         }
     }
 
@@ -115,6 +127,9 @@ public enum SetupCopy {
     // MARK: The iPhone's pairing
 
     public static let pairTitle = "Pair with your Mac"
+    /// Fresh keys through the same comparison; the Mac drops this iPhone's old key.
+    public static let pairAgain = "Pair again"
+    public static let pairAgainFooter = "Your approvals are signed with this key, which never leaves the iPhone's Secure Enclave. Pair again to give this iPhone new keys, for example if it was paired before it could keep logins for when your Mac is shut."
     public static let pairIntro = "Pairing lets requests reach this iPhone through the relay on your Mac mini, and lets you answer them here."
     public static let pairButton = "Pair"
     public static let pairingConnecting = "Connecting to the relay…"

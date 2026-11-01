@@ -32,6 +32,7 @@ final class FixtureSigner: RelayApproverSigning {
         saved.authorizations += 1
         try persistence.save(PropertyListEncoder().encode(saved))
         print("AUTHORIZED\t\(saved.authorizations)")
+        print("REASON\t\(reason)")
         fflush(stdout)
     }
     func sign(_ bytes: Data, context: LAContext?, automatic: Bool) throws -> Data {
@@ -46,7 +47,12 @@ final class FixtureSigner: RelayApproverSigning {
 
 @MainActor
 final class FixtureVault {
+    static let automaticID = UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
+    static let blockedID = UUID(uuidString: "00000000-0000-0000-0000-000000000303")!
     var rule = CredentialAccessPolicy.ask
+    var policies: [UUID: CredentialAccessPolicy] {
+        [MirrorItem.exampleCredentialID: rule, Self.automaticID: .allowAutomatically, Self.blockedID: .block]
+    }
     let root: URL
     init(root: URL) {
         self.root = root
@@ -161,7 +167,7 @@ struct RelayApproverFixture {
         let approver = RelayApprover(persistence: persistence, leaseStore: leases, phoneDelay: { 30 }, identity: identity, signer: signer,
             lockState: lockState, credentialSource: {
                 guard let generation = try await mirror.loadCurrent() else { throw LeaseFailure(.notFound, "Missing dummy mirror") }
-                return RelayApproverVault(generation: generation, policies: [MirrorItem.exampleCredentialID: vault.rule])
+                return RelayApproverVault(generation: generation, policies: vault.policies)
             })
         let ruleFile = root.appendingPathComponent("local-rules.json")
         let ruleSigner = FakeAccessRulesSigner(signedBytes: try? Data(contentsOf: ruleFile))
@@ -186,7 +192,9 @@ struct RelayApproverFixture {
             print("SETUP\t\(update.pairing != nil)\t\(update.approverPairings.map(\.id).joined(separator: ","))")
             if let pairing = update.pairing { print("PAIR\t\(pairing.fingerprint)") }
             for enrolment in update.enrolments { print("ENROL\t\(enrolment.id)\t\(enrolment.fingerprint)") }
-            for pairing in update.approverPairings { print("APPROVER\t\(pairing.id)\t\(pairing.fingerprint)") }
+            for pairing in update.approverPairings {
+                print("APPROVER\t\(pairing.id)\t\(pairing.fingerprint)\t\(pairing.replacesPhoneKeyID ?? "")\t\(pairing.replacesPhoneLabel ?? "")")
+            }
             for request in update.requests {
                 print("REQUEST\t\(request.id)\t\(request.lease.leaseID)\t\(request.lease.state.rawValue)\t\(request.answerIsQueued)\t\(request.lease.notAfterUnixSeconds)\t\(request.lease.retryNotBeforeUnixSeconds)")
             }
@@ -258,6 +266,17 @@ struct RelayApproverFixture {
                     guard model.notice?.kind == .information else {
                         throw LeaseFailure(.unavailable, model.notice?.text ?? "Dummy import has no result.")
                     }
+                case "mixed-rules":
+                    let generation = try await mirror.loadCurrent()!
+                    let extra = [(FixtureVault.automaticID, "automatic.example"), (FixtureVault.blockedID, "blocked.example")].map { id, site in
+                        MirrorItem(id: id, sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "com.agentkeyring.example",
+                            accountID: Data(site.utf8), itemID: Data(site.utf8)), title: site, origins: ["https://" + site],
+                            credentials: [.password(userName: "dummy@" + site, password: "dummy-" + site)])
+                    }
+                    try await mirror.save(MirrorGeneration(id: UUID(), previousGenerationID: generation.id, createdAt: Date(),
+                        sourceExportedAt: generation.sourceExportedAt, scope: generation.scope,
+                        exporterIdentifier: generation.exporterIdentifier, exporterDisplayName: generation.exporterDisplayName,
+                        items: generation.items + extra, skippedCredentialCount: 0))
                 case "status": show(approver.update)
                 case "saved":
                     let bytes = try authorityPersistence.load()!
@@ -266,9 +285,10 @@ struct RelayApproverFixture {
                         for queued in outbox {
                             guard let bytes = queued["bytes"] as? Data else { continue }
                             let command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: bytes)
+                            print("SAVED\t\(queued["id"] as! String)\t\(RelayCrypto.hex(RelayCrypto.hash(bytes)))")
                             if case let .publishCopyUpdate(signed) = command.request {
                                 let update = try Agentkeyring_V1_CopyUpdate(serializedBytes: signed.update)
-                                print("COPY\t\(update.revision)\t\(RelayCrypto.hex(bytes))")
+                                print("COPY\t\(update.destinationKeyID):\(update.revision)\t\(RelayCrypto.hex(bytes))")
                             }
                         }
                     }

@@ -28,7 +28,7 @@ agent-keyring release "$lease"
 
 ## Using the lease
 
-**Google Chrome on this Mac, reached over its debugging endpoint.** Other Chromium browsers aren't supported yet and say so. Inspect the page with your own browser tools. With only a shell, `agent-keyring fields --browser "$endpoint"` lists the tabs, and adding `--tab "$tab"` lists the page's visible fields and buttons with their selectors, never their values. Then pass the exact fields and the sign-in button:
+**Google Chrome, Chrome for Testing or Chromium on macOS or Linux, reached over its local debugging endpoint.** Use the browser and profile already provided for the task; Agent Keyring does not launch or restart them. Inspect the page with your own browser tools. With only a shell, `agent-keyring fields --browser "$endpoint"` lists the tabs, and adding `--tab "$tab"` lists the page's visible fields and buttons with their selectors, never their values. Then pass the exact fields and the sign-in button:
 
 ```sh
 agent-keyring fill "$lease" --browser "$endpoint" --tab "$tab" \
@@ -55,15 +55,17 @@ agent-keyring exec "$lease" --field password
 
 **Two-factor codes.** Authenticator codes saved with the login come from Agent Keyring (`--code` when filling, `--field one-time-code` otherwise). Codes sent by SMS or email come from your own tools for the user's messages or mail, if you have them. Get them yourself rather than asking the user.
 
-## On a machine without the app
+## On another machine
 
-Agent Keyring runs on the user's Mac. On another machine on their tailnet, such as a server or a cloud VM, enrol it once:
+The standalone `agent-keyring` package includes this skill and needs no Mac app. On another machine on the user's tailnet, such as a Mac mini, server or cloud VM, enrol it once:
 
 ```sh
 agent-keyring enrol --name "build server" --relay RELAY_HOST:17443
 ```
 
 Ask the user for the relay address if you don't know it. `enrol` prints a code of eight groups and waits. Show the user that code and ask them to compare every group with the one Agent Keyring shows on their Mac before they approve there: the comparison is what proves this machine reached their own Agent Keyring, so it needs their eyes. After that, every command above works the same. Answers can take longer, because the user may approve on their iPhone.
+
+Enrolment records the relay as this machine's authority, even if the Mac app is installed. Commands keep using that relay when it is unavailable; they do not switch to a local copy. On a Mac using its own imported logins, the client records the local app instead.
 
 ## When it doesn't work
 

@@ -5,14 +5,48 @@ import LocalAuthentication
 import Security
 
 /// These are device-wrapped Secure Enclave representations, not exportable private keys.
-/// Approval-only v3 never reuses a key enrolled with the former generic role.
+/// Signing and copy opening use the same action's Face ID context.
 struct PhoneEnclaveKeys: PhoneApproverKeys {
     private let service = "com.joshpalmer.AgentKeyring.Phone.enclave"
+
+    func replace() throws {
+        for account in ["phone-answers.v3", "phone-copies.v1"] {
+            let status = SecItemDelete(query(account: account) as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+            }
+        }
+        _ = try signingPublicKey()
+        _ = try encryptionPublicKey()
+    }
 
     func signingPublicKey() throws -> Data {
         let context = LAContext()
         context.interactionNotAllowed = true
         return try signingKey(context: context, createIfMissing: true).publicKey.x963Representation
+    }
+
+    func encryptionPublicKey() throws -> Data {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return try sealingKey(context: context, createIfMissing: true).publicKey.x963Representation
+    }
+
+    func openCopy(encapsulatedKey: Data, ciphertext: Data, associatedData: Data, context: LAContext) throws -> Data {
+        var recipient = try HPKE.Recipient(privateKey: sealingKey(context: context, createIfMissing: false),
+                                           ciphersuite: .P256_SHA256_AES_GCM_256,
+                                           info: Data("agentkeyring.login-copy.v1".utf8), encapsulatedKey: encapsulatedKey)
+        return try recipient.open(ciphertext, authenticating: associatedData)
+    }
+
+    private func sealingKey(context: LAContext, createIfMissing: Bool) throws -> SecureEnclave.P256.KeyAgreement.PrivateKey {
+        if let representation = try load(account: "phone-copies.v1") {
+            return try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: representation, authenticationContext: context)
+        }
+        guard createIfMissing else { throw PhoneEnclaveFailure.sealingKeyMissing }
+        let key = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: faceIDAccessControl(), authenticationContext: context)
+        try save(key.dataRepresentation, account: "phone-copies.v1")
+        return key
     }
 
     func authorize(_ context: LAContext, reason: String) async throws {
@@ -94,4 +128,5 @@ enum PhoneEnclaveFailure: Error {
     case enclaveUnavailable
     case accessControlUnavailable
     case signingKeyMissing
+    case sealingKeyMissing
 }

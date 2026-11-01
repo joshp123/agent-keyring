@@ -36,6 +36,7 @@ extension PhoneRelayApprover {
                 var stream: RelayConnection?
                 do {
                     try await self.refreshAuthority()
+                    await self.refreshCopy()
                     try Task.checkCancellation()
                     var request = Agentkeyring_V1_RelayWireRequest()
                     request.watchWork.approverKeyID = RelayCrypto.keyID(try self.keys.signingPublicKey())
@@ -54,6 +55,11 @@ extension PhoneRelayApprover {
                             } catch { self.fail(error, stage: "Check pending request") }
                         case .cancelledRequestDigestHex: break // The following Lease carries the actual Mac outcome.
                         case let .lease(lease): try self.receiveLease(lease)
+                        case let .copyUpdate(update):
+                            do {
+                                try await self.refreshAuthority()
+                                try self.receiveCopy(update)
+                            } catch { self.fail(error, stage: "Check login copy") }
                         case .pairing, .enrolment: break // The Mac owns enrolment during release 4 development.
                         case .phoneDecision, .localLeaseAction: break // Sent only to the MacBook (RFC 0006).
                         case nil: throw RelayFailure(.invalidArgument, "The relay sent empty work.")
@@ -80,6 +86,7 @@ extension PhoneRelayApprover {
         pairingStartTask?.cancel(); pairingStartTask = nil
         workTask?.cancel(); workTask = nil
         retryTask?.cancel(); retryTask = nil
+        authorityTask?.cancel(); authorityTask = nil
         pairTask?.cancel(); pairTask = nil; pairConnection?.cancel(); pairConnection = nil
     }
 
@@ -105,6 +112,15 @@ extension PhoneRelayApprover {
                     try mergeLease(ack.lease, into: &next)
                     // accepted means the relay retained the answer. Only the Mac's
                     // actual lease update may turn PENDING into ACTIVE or DENIED.
+                case let (.decide(decision), .decision(ack)):
+                    let statement = try Agentkeyring_V1_DecisionStatement(serializedBytes: decision.statement)
+                    let id = RelayCrypto.hex(statement.requestDigest)
+                    guard let saved = next.requests[id] else { throw RelayFailure(.notFound, "The queued delivery has no saved request.") }
+                    let record = try Agentkeyring_V1_RequestRecord(serializedBytes: saved.record)
+                    try validateLease(ack.lease, record: record)
+                    guard ack.lease.state != .pending else { throw RelayFailure(.unavailable, "The relay has not committed an answer.") }
+                    next.requests[id]!.acknowledged = true
+                    try mergeLease(ack.lease, into: &next)
                 case let (.clearDenial_p(clear), .publish(ack)):
                     guard ack.accepted else { throw RelayFailure(.conflict, "The relay did not clear the denial.") }
                     for (id, saved) in next.requests {

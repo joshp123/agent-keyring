@@ -17,6 +17,7 @@ type approvalNetwork struct {
 	listener        net.Listener
 	connections     []net.Conn
 	loseReply       bool
+	passNewCalls    int
 	pauseNewCalls   bool
 	dropped         int
 }
@@ -45,6 +46,10 @@ func (n *approvalNetwork) up() {
 			must(err)
 			n.Lock()
 			lose := n.loseReply
+			if lose && n.passNewCalls > 0 {
+				n.passNewCalls--
+				lose = false
+			}
 			n.connections = append(n.connections, downstream, upstream)
 			n.Unlock()
 			go func() { defer downstream.Close(); defer upstream.Close(); io.Copy(upstream, downstream) }()

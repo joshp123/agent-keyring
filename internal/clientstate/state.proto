@@ -22,6 +22,11 @@ message State {
   string machine_label = 11;
   agentkeyring.v1.SignedConfiguration configuration = 12;
   repeated OperationReceipt operations = 13;
+  LocalAuthority local_authority = 14;
+}
+message LocalAuthority {
+  string application_contents = 1;
+  string bundle_id = 2;
 }
 message ExpectedRequest {
   agentkeyring.v1.RequestLeaseRequest scope = 1;

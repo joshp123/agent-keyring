@@ -2,6 +2,10 @@
 
 Written by AI on 2026.10.31 by model gpt-6.1-sol.
 
+This records the approval-only build 8 and its device installation. The later
+[sealed Ask copy proof](phone-login-copies.md) adds direct phone delivery and
+updates the remote denial path; it has not been installed on the iPhone.
+
 The actual `PhoneRelayApprover` now signs answers; it does not open, seal or
 send credentials. Its package target no longer depends on the phone vault.
 The deferred phone vault, Passwords import and credential-provider extension

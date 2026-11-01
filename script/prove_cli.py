@@ -3,6 +3,7 @@
 Run complete CLI workflows with a dummy authority and real debug-port Chrome.
 Requires built build/cli/agent-keyring and build/cli/lease-fixture. No vault access.
 """
+import argparse
 import base64
 import json
 import os
@@ -105,6 +106,13 @@ class Browser:
 
 
 def main():
+    global CLI, AUTHORITY
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cli', type=Path, default=CLI)
+    parser.add_argument('--fixture', type=Path, default=AUTHORITY)
+    parser.add_argument('--browser', default=CHROME, help='Native browser executable; always launched headlessly with a new temporary profile')
+    args = parser.parse_args()
+    CLI, AUTHORITY = args.cli.resolve(), args.fixture.resolve()
     directory = Path(tempfile.mkdtemp(prefix="keyring-cli-proof-"))
     print("Proof artifacts:", directory, flush=True)
     state = directory / "authority"
@@ -130,6 +138,7 @@ def main():
         transcript.extend(result.stderr)
         (directory / "cli-transcript.txt").write_bytes(transcript)
         if args[0] == "fill":
+            assert not result.stdout, "fill must write results only to stderr"
             print(result.stderr.decode().strip(), flush=True)
         if not private:
             transcript.extend(result.stdout)
@@ -191,7 +200,7 @@ def main():
         print("PASS: receiver killed during program; a new process reports uncertainty without starting it again.")
 
         profile = directory / "chrome"
-        chrome = subprocess.Popen([CHROME, "--headless=new", "--remote-debugging-port=0", "--user-data-dir=" + str(profile), "--no-first-run", "--no-default-browser-check", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        chrome = subprocess.Popen([args.browser, "--headless=new", "--remote-debugging-port=0", "--user-data-dir=" + str(profile), "--no-first-run", "--no-default-browser-check", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         processes.append(chrome)
         wait_for(lambda: (profile / "DevToolsActivePort").exists())
         port = (profile / "DevToolsActivePort").read_text().splitlines()[0]
@@ -199,9 +208,15 @@ def main():
         browser = Browser(endpoint, server.origin + "/login")
         browsers.append(browser)
         browser.wait("!!document.querySelector('#password')")
+        tabs = run("fields", "--browser", endpoint)
+        assert browser.tab in tabs and server.origin + "/login" in tabs
+        controls = run("fields", "--browser", endpoint, "--tab", browser.tab)
+        selector = lambda text, identity: next(line.split()[0] for line in text.splitlines() if line.startswith(identity + ' '))
+        assert "current-password" in controls and "Username" in controls
         browser_lease = lease("browser")
+        run("read", browser_lease, "--field", "password", expected=1)
         fill = ["fill", browser_lease, "--browser", endpoint, "--tab", browser.tab]
-        first = [*fill, "--username", "#username", "--password", "#password", "--submit", "#sign-in"]
+        first = [*fill, "--username", selector(controls, "#username"), "--password", selector(controls, "#password"), "--submit", selector(controls, "#sign-in")]
         # The receiver remembers its own outcome across navigation and an
         # authority restart. No browser attempt is stored at the authority.
         run(*first)
@@ -209,13 +224,19 @@ def main():
         authority.terminate(); authority.wait(); start_authority()
         run(*first)
         assert server.results["password_posts"] == 1
-        run(*fill, "--code", "#verification-code", "--submit", "#verify", "--operation", "code-step")
+        code_controls = run("fields", "--browser", endpoint, "--tab", browser.tab)
+        assert "one-time-code" in code_controls
+        run(*fill, "--code", selector(code_controls, "#verification-code"), "--submit", selector(code_controls, "#verify"), "--operation", "code-step")
         run(*fill, "--code", "#missing-after-navigation", "--submit", "#verify", "--operation", "code-step", expected=1, error_contains="different action")
         browser.wait("!!document.querySelector('#authenticated')")
+        account = run("fields", "--browser", endpoint, "--tab", browser.tab)
+        assert "/account" in account and "No visible inputs or buttons." in account
+        print(account, flush=True)
         assert server.results["verification_accepted"] == 1
+        assert server.results["password_accepted"] == 1 and server.results["authenticated_visits"] > 0
         assert not server.results["unrelated_field_received_text"]
         assert not server.results["password_present_in_otp_form"]
-        print("PASS: two-step Chrome login; receiver receipt survives navigation and authority restart.")
+        print("PASS: fields-to-fill password and TOTP under one browser lease; authenticated account; receiver receipt survives navigation and authority restart.")
 
         # Interrupt the CLI during a real click. The browser completes its
         # submit, but the receiver cannot save an outcome. Its next process
@@ -264,6 +285,8 @@ def main():
         # A loopback HTTP server claiming to be CDP must fail ownership checks.
         run("fill", browser_lease, "--browser", server.origin, "--tab", browser.tab,
             "--password", "#password", "--submit", "#sign-in", "--again", expected=1)
+        run("fields", "--browser", server.origin, expected=1)
+        assert server.results["debugger_requests"] == 0
         run("release", browser_lease)
         print("PASS: SPA submission clears residual inputs; inappropriate field refused.")
 

@@ -320,7 +320,7 @@ private struct JoiningMenuRow: View {
                 .frame(width: 8)
             VStack(alignment: .leading, spacing: 1) {
                 Text(enrolment.name).font(.body.weight(.semibold))
-                Text(enrolment.kind == .machine ? "Wants to ask for logins" : "Wants to approve requests")
+                Text(SetupCopy.joiningDetail(enrolment))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

@@ -201,6 +201,7 @@ extension RelayApprover {
         case let .lease(lease): try await receiveLeaseReport(lease)
         case let .phoneDecision(answer): try await receivePhoneDecision(answer)
         case let .localLeaseAction(action): try receiveLocalLeaseAction(action)
+        case .copyUpdate: throw LeaseFailure(.permissionDenied, "Login copies must be sent only to their phone.")
         case nil: throw LeaseFailure(.invalidArgument, "The relay sent empty work.")
         }
     }

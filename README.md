@@ -24,10 +24,12 @@ describe it.
 - **What the 30 minutes means.** It is how long Agent Keyring will hand out the
   login for that task. It does not take back a password the agent's machine
   has already received, and it does not sign anyone out of the website.
-- **Google Chrome.** Agent Keyring fills a sign-in form in Google Chrome on the
-  same machine as the agent, reached through Chrome's remote debugging port. It
-  checks the page belongs to the saved site, fills only the fields the agent
-  names, submits, and clears what it typed.
+- **Google Chrome, Chrome for Testing and Chromium on macOS and Linux.** Agent
+  Keyring uses the browser's existing local debugging endpoint on the same
+  machine as the agent. It checks which process owns the endpoint and identifies
+  its browser installation, checks the page belongs to the saved site, fills
+  only the fields the agent names, submits, and clears what it typed. It does
+  not launch or restart browsers or change their profiles.
 - **Programs.** A program named when the agent asks gets the password on its
   standard input. The agent gets the program's exit status, not its output.
 - **Other browsers, from the agent's own code.** For a browser with no
@@ -38,26 +40,47 @@ describe it.
 - **Two-factor codes** saved with a login in Apple Passwords. Codes sent by
   SMS or email are not handled.
 - **Other machines.** Agents on another Mac, a Linux server or a cloud machine
-  on your tailnet can ask too. Their requests go through a small relay that
-  runs on an always-on Mac, and your MacBook approves and seals each login to
-  the machine that asked. The relay cannot read them.
+  on your tailnet can ask too. Their requests go to a small relay that runs on
+  an always-on Mac, such as a Mac mini.
+  - **Automatic logins** are served by the relay itself, whether your MacBook
+    is awake or shut, to machines you have allowed Automatic logins. Your
+    MacBook keeps the relay's copy up to date, including when you re-import a
+    changed password, without asking you.
+  - **Ask logins** need your approval. Your MacBook delivers them, sealed to
+    the machine that asked, so it must be awake.
 - **Approving on your iPhone.** If you don't answer on the Mac within your
-  delay, or your Mac's screen is locked, the request goes to your iPhone. You
-  approve with Face ID; your Mac delivers the login, so it must be awake.
+  delay, or your Mac's screen is locked, an Ask request goes to your iPhone.
+  You approve with Face ID; your MacBook delivers the login, so it must be
+  awake.
 
 ## What it does not do
 
-- Fill Safari, Claude's or Codex's built-in browsers, or Chromium browsers other
-  than Google Chrome, except through the agent's-own-code route above.
+- Fill Safari or the closed browser tools in agent apps, except through the
+  agent's-own-code route above where the host supports it.
 - Keep a website signed in or sign it out. That is the agent's browser.
-- Work while your MacBook is asleep or shut.
+- Deliver Ask logins while your MacBook is asleep or shut. Delivering them
+  from the iPhone is designed but not built yet.
 - Sync with Apple Passwords by itself. Apple only allows an export that you
   start, so you export again when logins change.
 - Passkeys.
 - Protect a password from software that controls the machine receiving it.
   Agent Keyring keeps passwords out of the agent's conversation and tool
   output; an agent that sets out to read the browser it controls can still do
-  so.
+  so. Endpoint checks reject a fake debugging server; they do not authenticate
+  the publisher of an ad-hoc or unpacked browser build or isolate software
+  running as the same user.
+
+## Who can read what
+
+| Where | What it holds | Who can read it |
+| --- | --- | --- |
+| Your MacBook's Agent Keyring | Every imported login | Whoever controls your MacBook user account |
+| The relay | Your Automatic logins, with their two-factor seeds, and a list of which machine asked for which login and when | **Anyone who administers the Mac running it, including agents you let administer it.** Moving a login off Automatic deletes it from the relay but cannot take back what was already read. Keep a login on Ask if that is not acceptable |
+| An Ask login on its way to a machine | One login, for one task | Only that machine. The relay passes it on sealed and cannot open it |
+| The machine that asked | What it was given | That machine, which can keep it |
+
+If the relay's Mac is also signed in to iCloud Keychain, Apple Passwords on that
+Mac already holds every password, with or without Agent Keyring.
 
 ## Install
 
@@ -86,6 +109,18 @@ its tailnet address, and pair your MacBook with it in the Machines window. On
 each agent machine run `agent-keyring enrol --name NAME --relay HOST:PORT`,
 compare the code it prints with the one on your Mac, and approve. Details are
 in [docs/implementation/relay.md](docs/implementation/relay.md).
+
+The standalone CLI and its skill are available on macOS and Linux as the Nix
+package `agent-keyring` (`nix build .#agent-keyring`). It needs no Mac app. The
+skill is in `share/agent-keyring/skills/agent-keyring` inside the package;
+`agent-keyring install` links the command and skill for Codex and Claude Code.
+Machines managed by Nix should declare those links in their configuration.
+
+Enrolment selects the relay persistently, including on a Mac with the app
+installed. An unavailable relay never causes a switch to a local vault. A Mac
+using its own imported logins records the selected app and bundle identity;
+the presence of a socket alone selects nothing. Explicit connection environment
+overrides apply only to that command and do not change the saved selection.
 
 **iPhone.** Build the iPhone app from this repository (it is not in the App
 Store) and pair it with the relay from the phone. Compare the code it shows

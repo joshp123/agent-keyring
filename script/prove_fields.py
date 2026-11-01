@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Written by AI on 2026.10.31 by model gpt-6.1-sol.
-"""Use fields and fill on signed headless Chrome. Run on the Mac mini only."""
+"""Use fields and fill on headless Chromium. Run on an owned test host only."""
 import argparse
 import json
 import os
@@ -17,6 +17,7 @@ from test_login_server import LoginServer, private_json
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--cli', type=Path, required=True)
 parser.add_argument('--fixture', type=Path, required=True)
+parser.add_argument('--browser', default=CHROME, help='Browser executable; uses a new temporary headless profile')
 parser.add_argument('--codex', type=Path, help='Run one uncoached shell-only Codex sign-in afterward')
 args = parser.parse_args()
 root = Path(tempfile.mkdtemp(prefix='keyring-fields-'))
@@ -27,8 +28,8 @@ config = root / 'fixture.json'
 private_json(config, server.fixture)
 profile = root / 'chrome'
 socket = root / 'authority.sock'
-env = dict(os.environ, AGENT_KEYRING_SOCKET=str(socket), AGENT_KEYRING_STATE_DIR=str(root / 'receiver'), HOME=str(root / 'home'))
-chrome = subprocess.Popen([CHROME, '--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + str(profile), '--no-first-run', '--no-default-browser-check', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+env = dict(os.environ, PATH=os.defpath, AGENT_KEYRING_SOCKET=str(socket), AGENT_KEYRING_STATE_DIR=str(root / 'receiver'), HOME=str(root / 'home'))
+chrome = subprocess.Popen([args.browser, '--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + str(profile), '--no-first-run', '--no-default-browser-check', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 authority = browser = None
 output = bytearray()
 
@@ -57,6 +58,7 @@ try:
     assert browser.evaluate("(()=>{const v=" + populated + ";return document.querySelector('#username').value===v.username && document.querySelector('#password').value===v.password})()")
     assert server.results['password_posts'] == 0 and not socket.exists()
     run('fields', '--browser', server.origin, code=1)
+    assert server.results['debugger_requests'] == 0
     print('PASS fields: tabs and labelled selectors; no authority, no values, no mutation; fake endpoint refused', flush=True)
 
     authority = subprocess.Popen([str(args.fixture.resolve()), '--socket', str(socket), '--fixture', str(config), '--state', str(root / 'authority')], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)

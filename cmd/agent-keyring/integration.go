@@ -40,21 +40,6 @@ func bundleID(contents string) string {
 	}
 	return strings.TrimSpace(string(data))
 }
-func socketPath() string {
-	if override := os.Getenv("AGENT_KEYRING_SOCKET"); override != "" {
-		return override
-	}
-	contents := contentsPath()
-	if contents == "" {
-		contents = "/Applications/AgentKeyring.app/Contents"
-	}
-	id := bundleID(contents)
-	if id == "" {
-		id = "com.joshpalmer.AgentKeyring"
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library/Containers", id, "Data/agent.sock")
-}
 func skillPath() (string, error) {
 	if contents := contentsPath(); contents != "" {
 		path := filepath.Join(contents, "Resources/AgentTools/AgentSkill/agent-keyring/SKILL.md")
@@ -66,13 +51,21 @@ func skillPath() (string, error) {
 	// Development binaries use the canonical source file; release bundles always
 	// read their own resource, so replacing the prose never changes Go source.
 	executable, _ := os.Executable()
+	executable, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", err
+	}
+	packaged := filepath.Join(filepath.Dir(filepath.Dir(executable)), "share/agent-keyring/skills/agent-keyring/SKILL.md")
+	if _, err := os.Stat(packaged); err == nil {
+		return packaged, nil
+	}
 	for directory := filepath.Dir(executable); directory != "/" && directory != "."; directory = filepath.Dir(directory) {
 		path := filepath.Join(directory, "AgentSkill/agent-keyring/SKILL.md")
 		if _, err := os.Stat(path); err == nil {
 			return path, nil
 		}
 	}
-	return "", errors.New("The bundled skill is missing. Run this command from AgentKeyring.app or rebuild the app with its AgentSkill resource.")
+	return "", errors.New("The bundled skill is missing. Reinstall the Agent Keyring CLI package or Mac app.")
 }
 func integration(command string) error {
 	source, err := skillPath()
@@ -155,13 +148,9 @@ func linksTo(link, target string) bool {
 	return err == nil && resolved == wanted
 }
 
-func startApp(ctx context.Context) error {
+func startApp(ctx context.Context, contents string) error {
 	if runtime.GOOS != "darwin" {
-		return errors.New("The local credential authority is available on macOS. Remote transport is not implemented yet.")
-	}
-	contents := contentsPath()
-	if contents == "" {
-		contents = "/Applications/AgentKeyring.app/Contents"
+		return errors.New("This saved authority is a Mac app. Enrol this machine with your relay instead.")
 	}
 	application := filepath.Dir(contents)
 	if _, err := os.Stat(application); err != nil {

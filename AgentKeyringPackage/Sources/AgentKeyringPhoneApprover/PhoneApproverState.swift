@@ -8,6 +8,8 @@ import OSLog
 @MainActor
 public protocol PhoneApproverKeys {
     func signingPublicKey() throws -> Data
+    func encryptionPublicKey() throws -> Data
+    func openCopy(encapsulatedKey: Data, ciphertext: Data, associatedData: Data, context: LAContext) throws -> Data
     func authorize(_ context: LAContext, reason: String) async throws
     func sign(_ bytes: Data, context: LAContext) throws -> Data
 }
@@ -17,6 +19,11 @@ struct PhonePendingPair: Codable {
     let relaySPKI: Data
     let previousKeySet: Data
     let transcript: Data
+}
+
+struct PhoneReplacementPairing: Codable {
+    let previousKeyID: String
+    var needsFreshIdentity: Bool
 }
 
 struct PhoneRequestLogin: Codable, Equatable {
@@ -34,6 +41,8 @@ struct PhoneSavedRequest: Codable {
     let sourceMacKeyID: String
     let isLocal: Bool
     var decision: Data?
+    var deliveryDecision: Data?
+    var hasAnswer: Bool { decision != nil || deliveryDecision != nil }
     var acknowledged = false
 }
 
@@ -42,9 +51,11 @@ struct PhoneApproverState: Codable {
     var endpoint: RelayEndpoint?
     var relaySPKI: Data?
     var pendingPair: PhonePendingPair?
+    var replacementPairing: PhoneReplacementPairing?
     var pairingWanted = false
     var keySet: Data?
     var configuration: Data?
+    var copy: PhoneSavedCopy?
     var requests: [String: PhoneSavedRequest] = [:]
     var outbox: [Data] = []
     var remoteLeases: [String: Data] = [:]
@@ -56,6 +67,7 @@ public final class PhoneRelayApprover {
     let directory: URL
     let keys: any PhoneApproverKeys
     let identityProvider: @MainActor () throws -> RelayTLSIdentity
+    let replaceIdentity: @MainActor () throws -> Void
     var state = PhoneApproverState()
     var loaded = false
     var workTask: Task<Void, Never>?
@@ -76,8 +88,10 @@ public final class PhoneRelayApprover {
     let logger = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Approver")
 
     public init(directory: URL, keys: any PhoneApproverKeys,
-                identity: @escaping @MainActor () throws -> RelayTLSIdentity) {
+                identity: @escaping @MainActor () throws -> RelayTLSIdentity,
+                replaceIdentity: @escaping @MainActor () throws -> Void) {
         self.directory = directory; self.keys = keys; self.identityProvider = identity
+        self.replaceIdentity = replaceIdentity
     }
 
     public func load() throws {

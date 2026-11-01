@@ -41,19 +41,43 @@ extension RelayApprover {
         return keys
     }
 
-    func prepareAutomaticCopy(next: inout RelayApproverState, vault: RelayApproverVault,
+    func prepareLoginCopies(next: inout RelayApproverState, vault: RelayApproverVault,
         configuration: Agentkeyring_V1_Configuration) throws {
         let keys = try automaticKeys(in: next)
-        guard configuration.automaticSigningPublicKey == keys.signingPublicKey,
+        if configuration.automaticSigningPublicKey == keys.signingPublicKey,
             configuration.automaticKeyID == keys.signingKeyID,
-            configuration.relayEncryptionPublicKey == keys.encryptionPublicKey else { return }
-        let destination = keys.encryptionKeyID
+            configuration.relayEncryptionPublicKey == keys.encryptionPublicKey {
+            try prepareLoginCopy(next: &next, vault: vault, configuration: configuration,
+                receiverKey: keys.encryptionPublicKey, rule: .automatic, policy: .allowAutomatically)
+        }
+        let keySet = try copyApprovers(in: next)
+        for phone in keySet.keys.filter({ $0.role == .phone && !$0.encryptionPublicKey.isEmpty }).sorted(by: { $0.keyID < $1.keyID }) {
+            try prepareLoginCopy(next: &next, vault: vault, configuration: configuration,
+                receiverKey: phone.encryptionPublicKey, rule: .ask, policy: .ask)
+        }
+    }
+
+    func copyApprovers(in next: RelayApproverState) throws -> Agentkeyring_V1_ApproverKeySet {
+        // A queued replacement precedes copies on the wire, even before its ACK.
+        for queued in next.outbox.reversed() {
+            let command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: queued.bytes)
+            if case let .publishApproverKeys(signed) = command.request {
+                return try Agentkeyring_V1_ApproverKeySet(serializedBytes: signed.keySet)
+            }
+        }
+        guard let bytes = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
+        return try Agentkeyring_V1_ApproverKeySet(serializedBytes:
+            Agentkeyring_V1_SignedApproverKeySet(serializedBytes: bytes).keySet)
+    }
+
+    func prepareLoginCopy(next: inout RelayApproverState, vault: RelayApproverVault,
+        configuration: Agentkeyring_V1_Configuration, receiverKey: Data,
+        rule: Agentkeyring_V1_AccessRule, policy: CredentialAccessPolicy) throws {
+        let destination = RelayCrypto.keyID(receiverKey)
         let previous = next.loginCopies?[destination]
         guard previous?.configurationRevision != configuration.revision || previous?.generationID != vault.generation.id else { return }
         let signer = try self.keys().1
-        guard let keySetBytes = next.keySet else { throw LeaseFailure(.permissionDenied, "This Mac is not paired.") }
-        let keySet = try Agentkeyring_V1_ApproverKeySet(serializedBytes:
-            Agentkeyring_V1_SignedApproverKeySet(serializedBytes: keySetBytes).keySet)
+        let keySet = try copyApprovers(in: next)
         let signerID = RelayCrypto.keyID(signer.automaticPublicKey)
         guard keySet.keys.contains(where: { $0.keyID == signerID && $0.role == .macDelivery }) else {
             throw LeaseFailure(.permissionDenied, "Confirm your rules to allow background login copies.")
@@ -63,13 +87,13 @@ extension RelayApprover {
         update.destinationKeyID = destination
         update.configurationRevision = configuration.revision
         update.revision = (previous?.revision ?? 0) + 1
-        for login in configuration.logins.filter({ $0.rule == .automatic }).sorted(by: { $0.loginID < $1.loginID }) {
+        for login in configuration.logins.filter({ $0.rule == rule }).sorted(by: { $0.loginID < $1.loginID }) {
             guard let item = vault.generation.items.first(where: { $0.id.uuidString == login.loginID }),
-                vault.policies[item.id, default: .ask] == .allowAutomatically else {
-                throw LeaseFailure(.conflict, "An Automatic login changed before its copy could be saved.")
+                vault.policies[item.id, default: .ask] == policy else {
+                throw LeaseFailure(.conflict, "A login's rule changed before its copy could be saved.")
             }
             let contents = try RelayCrypto.loginCopyContents(item: item)
-            update.logins.append(try RelayCrypto.sealLoginCopy(contents, receiverKey: keys.encryptionPublicKey,
+            update.logins.append(try RelayCrypto.sealLoginCopy(contents, receiverKey: receiverKey,
                 configurationRevision: update.configurationRevision, revision: update.revision))
         }
         var command = Agentkeyring_V1_RelayWireRequest()
