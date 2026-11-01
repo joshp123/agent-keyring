@@ -47,6 +47,9 @@ extension PhoneRelayApprover {
                     self.logger.notice("Pinned relay connected; fetching pending backlog")
                     while !Task.isCancelled {
                         let response = try await stream!.next()
+                        if case let .trustUpdate(update) = response.response {
+                            try self.receiveTrustUpdate(update); continue
+                        }
                         guard case let .work(work) = response.response else { throw RelayFailure(.unavailable, "Unexpected relay work response.") }
                         switch work.item {
                         case let .request(pending):
@@ -63,7 +66,7 @@ extension PhoneRelayApprover {
                             } catch { self.fail(error, stage: "Check login copy") }
                         case .pairing, .enrolment: break // The Mac owns enrolment during release 4 development.
                         case .phoneDecision, .localLeaseAction: break // Sent only to the MacBook (RFC 0006).
-                        case .trustUpdate: try await self.refreshAuthority()
+                        case let .trustUpdate(update): try self.receiveTrustUpdate(update)
                         case nil: throw RelayFailure(.invalidArgument, "The relay sent empty work.")
                         }
                         if response.endOfStream { throw RelayFailure(.unavailable, "The relay ended the work stream.") }
@@ -94,16 +97,32 @@ extension PhoneRelayApprover {
 
     public func reconnect() { stop(); start() }
 
-    func flushOutbox() async {
+    func flushOutbox(refreshingAuthority: Bool = true) async {
         guard !flushing else { return }
         flushing = true; defer { flushing = false }
         while let bytes = state.outbox.first, !Task.isCancelled {
             do {
-                let command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: bytes)
+                var command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: bytes)
+                if case var .publishUpdateReceipt(receipt) = command.request, receipt.signature.isEmpty {
+                    receipt.signature = try identityProvider().sign(receipt.receipt)
+                    command.publishUpdateReceipt = receipt
+                    var next = state; next.outbox[0] = try command.serializedData(); try commit(next)
+                    continue
+                }
+                if case .publishUpdateReceipt = command.request {} else if refreshingAuthority {
+                    try await refreshAuthority()
+                    guard state.outbox.first == bytes else { continue }
+                }
                 let response = try await transport().call(command)
                 guard state.outbox.first == bytes else { continue }
                 var next = state
                 switch (command.request, response.response) {
+                case let (.publishUpdateReceipt(receipt), .publish(ack)):
+                    guard ack.accepted else { throw RelayFailure(.unavailable, "The relay has not retained the update receipt.") }
+                    let statement = try Agentkeyring_V1_UpdateReceipt(serializedBytes: receipt.receipt)
+                    let saved = try receipt.serializedData()
+                    if statement.kind == .approverKeys { next.acknowledgedKeyReceipt = saved }
+                    else { next.acknowledgedConfigurationReceipt = saved }
                 case let (.answerFromPhone(decision), .decision(ack)):
                     let statement = try Agentkeyring_V1_PhoneDecision(serializedBytes: decision.decision)
                     let id = RelayCrypto.hex(statement.requestDigest)

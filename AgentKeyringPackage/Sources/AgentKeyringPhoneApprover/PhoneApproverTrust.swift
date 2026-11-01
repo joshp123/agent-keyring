@@ -259,10 +259,17 @@ extension PhoneRelayApprover {
         for signed in chain.keySets {
             try applyApproverKeys(signed)
         }
-        let currentSet = try parsedKeys(currentKeys())
-        request = .init(); request.getConfiguration = .init()
+        try applyApproverKeys(currentKeys())
+        request = .init(); request.getConfigurationUpdates.afterRevision = (try? configuration().revision) ?? 0
         let response = try await client.call(request)
-        guard case let .configuration(configuration) = response.response else { throw RelayFailure(.unavailable, "The Mac's signed configuration is unavailable.") }
+        guard case let .configurationUpdates(updates) = response.response, !updates.configurations.isEmpty else {
+            throw RelayFailure(.unavailable, "The Mac's signed configuration updates are unavailable.")
+        }
+        for signed in updates.configurations { try applyConfiguration(signed) }
+    }
+
+    func applyConfiguration(_ configuration: Agentkeyring_V1_SignedConfiguration) throws {
+        let currentSet = try parsedKeys(currentKeys())
         let parsed = try verifiedConfiguration(configuration, keys: currentSet)
         if let bytes = state.configuration {
             let previous = try Agentkeyring_V1_SignedConfiguration(serializedBytes: bytes)
@@ -282,6 +289,8 @@ extension PhoneRelayApprover {
                 next.copy?.signedUpdate = nil
             }
         }
+        try discardWithdrawnRequests(in: &next)
+        try queueUpdateReceipt(kind: .configuration, revision: parsed.revision, payload: configuration.configuration, into: &next)
         try commit(next)
         logger.notice("Verified approver chain and rule owner's configuration; revision=\(parsed.revision, privacy: .public) logins=\(parsed.logins.count, privacy: .public) machines=\(parsed.machines.count, privacy: .public)")
     }
@@ -289,6 +298,15 @@ extension PhoneRelayApprover {
     func applyApproverKeys(_ signed: Agentkeyring_V1_SignedApproverKeySet) throws {
         let previous = try parsedKeys(currentKeys())
         let candidate = try parsedKeys(signed)
+        if candidate.revision == previous.revision {
+            guard signed.keySet == (try currentKeys()).keySet else {
+                throw RelayFailure(.permissionDenied, "The approver keys changed at the same revision.")
+            }
+            var next = state
+            try queueUpdateReceipt(kind: .approverKeys, revision: candidate.revision, payload: signed.keySet, into: &next)
+            try commit(next)
+            return
+        }
         guard candidate.revision > previous.revision,
               candidate.keys.allSatisfy({ $0.role != .unspecified || ($0.keyID == previous.ruleOwnerKeyID && $0.publicKey == previous.keys.first(where: { $0.keyID == previous.ruleOwnerKeyID })?.publicKey) }) else {
             throw RelayFailure(.permissionDenied, "The approver key chain rolled back.")
@@ -307,6 +325,10 @@ extension PhoneRelayApprover {
             if !candidate.keys.contains(where: { $0.keyID == copy.signerKeyID && $0.role == .macDelivery }) {
                 next.copy?.signedUpdate = nil
             }
+        }
+        if isApprover {
+            try discardWithdrawnRequests(in: &next)
+            try queueUpdateReceipt(kind: .approverKeys, revision: candidate.revision, payload: signed.keySet, into: &next)
         }
         try commit(next)
         logger.notice("Saved verified approver keys; revision=\(candidate.revision, privacy: .public) removed=\(!isApprover, privacy: .public)")
