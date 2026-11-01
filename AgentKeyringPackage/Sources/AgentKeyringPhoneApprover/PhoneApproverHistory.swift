@@ -17,17 +17,23 @@ extension PhoneApproverState {
         }
     }
 
+    // Times come from the relay, so a far-future value must not overflow.
+    private func historyEnd(_ lease: Agentkeyring_V1_Lease) -> Int64 {
+        let (end, overflow) = completionTime(lease).addingReportingOverflow(Self.historySeconds)
+        return overflow ? .max : end
+    }
+
     mutating func pruneHistory(now: Int64) throws {
         var retainedLeaseIDs = Set<String>()
         for (id, saved) in requests {
             let lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
-            if (!saved.hasAnswer || saved.acknowledged) && completionTime(lease) + Self.historySeconds <= now {
+            if (!saved.hasAnswer || saved.acknowledged) && historyEnd(lease) <= now {
                 requests.removeValue(forKey: id)
             } else { retainedLeaseIDs.insert(lease.leaseID) }
         }
         for (id, bytes) in remoteLeases {
             let lease = try Agentkeyring_V1_Lease(serializedBytes: bytes)
-            if !retainedLeaseIDs.contains(id) && completionTime(lease) + Self.historySeconds <= now {
+            if !retainedLeaseIDs.contains(id) && historyEnd(lease) <= now {
                 remoteLeases.removeValue(forKey: id)
             }
         }
@@ -40,15 +46,13 @@ extension PhoneApproverState {
         }
         for saved in requests.values {
             let lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
-            let completion = completionTime(lease)
-            if lease.state == .pending || lease.state == .active { include(completion) }
-            if !saved.hasAnswer || saved.acknowledged { include(completion + Self.historySeconds) }
+            if lease.state == .pending || lease.state == .active { include(completionTime(lease)) }
+            if !saved.hasAnswer || saved.acknowledged { include(historyEnd(lease)) }
         }
         for bytes in remoteLeases.values {
             let lease = try Agentkeyring_V1_Lease(serializedBytes: bytes)
-            let completion = completionTime(lease)
-            if lease.state == .pending || lease.state == .active { include(completion) }
-            include(completion + Self.historySeconds)
+            if lease.state == .pending || lease.state == .active { include(completionTime(lease)) }
+            include(historyEnd(lease))
         }
         return deadline
     }
@@ -61,7 +65,9 @@ extension PhoneRelayApprover {
         do {
             guard let deadline = try state.nextHistoryDeadline(now: Self.now) else { return }
             historyTask = Task { [weak self] in
-                do { try await Task.sleep(for: .seconds(max(1, deadline - Self.now))) } catch { return }
+                // Wake at least daily; commit reschedules for anything later.
+                let wait = min(max(1, deadline - Self.now), 86400)
+                do { try await Task.sleep(for: .seconds(wait)) } catch { return }
                 guard let self else { return }
                 self.historyTask = nil
                 do { try self.commit(self.state) } catch { self.fail(error, stage: "Prune request history") }

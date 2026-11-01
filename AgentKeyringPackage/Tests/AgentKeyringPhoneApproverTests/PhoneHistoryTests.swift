@@ -70,6 +70,23 @@ import Testing
     phone.stop()
 }
 
+@Test @MainActor func farFutureLeaseTimesFromTheRelayDoNotCrashThePhone() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { _ = try? FileManager.default.trashItem(at: directory, resultingItemURL: nil) }
+    var lease = Agentkeyring_V1_Lease()
+    lease.leaseID = "dummy-lease"; lease.loginID = "dummy-login"; lease.recipient.recipientID = "dummy-machine"
+    lease.state = .released; lease.endedAtUnixSeconds = .max
+    let phone = PhoneRelayApprover(directory: directory, keys: UnusedKeys(), identity: { throw CancellationError() }, replaceIdentity: {})
+    try phone.load()
+    try phone.receiveLease(lease)
+    // A checkpoint already holding such a time must also reopen.
+    let reopened = PhoneRelayApprover(directory: directory, keys: UnusedKeys(), identity: { throw CancellationError() }, replaceIdentity: {})
+    try reopened.load()
+    #expect(reopened.state.remoteLeases["dummy-lease"] != nil)
+    #expect(try reopened.state.nextHistoryDeadline(now: PhoneRelayApprover.now) == .max)
+}
+
 @Test func macAndPhoneUseTheSameResolvedAddressPolicy() throws {
     let endpoint = try RelayEndpoint(host: "relay.example", port: 443)
     func permits(_ address: String) -> Bool {
