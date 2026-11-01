@@ -82,7 +82,8 @@ public final class PhoneRelayApprover {
     var authorityTask: Task<Void, Error>?
     var flushing = false
     var authorizing = false
-    var lastDeadlineCheck = Int64(Date().timeIntervalSince1970)
+    var running = false
+    var historyTask: Task<Void, Never>?
     var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
     public internal(set) var pairing = PhonePairingState.notPaired
     public internal(set) var connection = ServiceConnection.notPaired
@@ -107,10 +108,12 @@ public final class PhoneRelayApprover {
         loaded = true
         if state.keySet != nil && state.removedKeyID == nil { pairing = .paired }
 
-        publish()
+        try commit(state)
     }
 
-    func commit(_ next: PhoneApproverState) throws {
+    func commit(_ proposed: PhoneApproverState) throws {
+        var next = proposed
+        try next.pruneHistory(now: Self.now)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var values = URLResourceValues(); values.isExcludedFromBackup = true
         var url = directory; try url.setResourceValues(values)
@@ -122,6 +125,8 @@ public final class PhoneRelayApprover {
         try encoder.encode(next).write(to: directory.appending(path: "phone-answers-v3.plist"), options: .atomic)
         #endif
         state = next
+        scheduleHistoryDeadline()
+        scheduleOutboxRetry()
         publish()
     }
 

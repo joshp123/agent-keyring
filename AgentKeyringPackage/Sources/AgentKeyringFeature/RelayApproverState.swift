@@ -1,3 +1,4 @@
+import AgentKeyringRelaySupport
 import AgentKeyringProtocol
 import Foundation
 import Observation
@@ -202,7 +203,7 @@ public final class RelayApprover {
     }
 
     func keys() throws -> (RelayTLSIdentity, any RelayApproverSigning) {
-        if identity == nil { identity = try suppliedIdentity ?? RelayTLSIdentity.loadOrCreate() }
+        if identity == nil { identity = try suppliedIdentity ?? RelayTLSIdentity.loadMacIdentity() }
         if signer == nil { signer = try suppliedSigner ?? SecureEnclaveRelaySigner() }
         return (identity!, signer!)
     }

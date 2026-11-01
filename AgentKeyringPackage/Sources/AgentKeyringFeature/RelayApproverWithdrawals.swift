@@ -1,3 +1,4 @@
+import AgentKeyringRelaySupport
 // Written by AI on 2026.11.01 by model gpt-6.1-sol.
 import AgentKeyringProtocol
 import CryptoKit

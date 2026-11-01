@@ -19,16 +19,9 @@ extension PhoneRelayApprover {
             }
             return
         }
-        if retryTask == nil {
-            retryTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    guard let self else { return }
-                    await self.flushOutbox()
-                    do { try self.expireRequests() } catch { self.fail(error, stage: "Expire requests") }
-                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
-                }
-            }
-        }
+        running = true
+        scheduleHistoryDeadline()
+        scheduleOutboxRetry()
         guard workTask == nil else { return }
         workTask = Task { [weak self] in
             var delay = 1
@@ -87,6 +80,8 @@ extension PhoneRelayApprover {
     }
 
     public func stop() {
+        running = false
+        historyTask?.cancel(); historyTask = nil
         pairingAttempt = UUID()
         pairingStartTask?.cancel(); pairingStartTask = nil
         workTask?.cancel(); workTask = nil
@@ -99,7 +94,7 @@ extension PhoneRelayApprover {
 
     func flushOutbox(refreshingAuthority: Bool = true) async {
         guard !flushing else { return }
-        flushing = true; defer { flushing = false }
+        flushing = true; defer { flushing = false; scheduleOutboxRetry() }
         while let bytes = state.outbox.first, !Task.isCancelled {
             do {
                 var command = try Agentkeyring_V1_RelayWireRequest(serializedBytes: bytes)
@@ -172,14 +167,4 @@ extension PhoneRelayApprover {
         logger.notice("Registered notification token; production=\(production, privacy: .public)")
     }
 
-    func expireRequests() throws {
-        let previous = lastDeadlineCheck
-        lastDeadlineCheck = Self.now
-        let leases = Array(state.remoteLeases.values) + state.requests.values.map(\.lease)
-        for bytes in leases {
-            let lease = try Agentkeyring_V1_Lease(serializedBytes: bytes)
-            let deadline = lease.state == .pending ? lease.pendingUntilUnixSeconds : (lease.state == .active ? lease.notAfterUnixSeconds : 0)
-            if deadline > previous && deadline <= lastDeadlineCheck { publish(); return }
-        }
-    }
 }
