@@ -7,6 +7,7 @@ extension PhoneRelayApprover {
     /// Every foreground connection asks WatchWork for the entire pending backlog.
     public func start() {
         do { try load() } catch { fail(error, stage: "Load approver"); return }
+        guard state.removedKeyID == nil else { return }
         guard state.keySet != nil, let endpoint = state.endpoint else {
             if state.pairingWanted, let pending = state.pendingPair, pairTask == nil, pairingStartTask == nil {
                 pairingStartTask = Task { [weak self] in
@@ -62,6 +63,7 @@ extension PhoneRelayApprover {
                             } catch { self.fail(error, stage: "Check login copy") }
                         case .pairing, .enrolment: break // The Mac owns enrolment during release 4 development.
                         case .phoneDecision, .localLeaseAction: break // Sent only to the MacBook (RFC 0006).
+                        case .trustUpdate: try await self.refreshAuthority()
                         case nil: throw RelayFailure(.invalidArgument, "The relay sent empty work.")
                         }
                         if response.endOfStream { throw RelayFailure(.unavailable, "The relay ended the work stream.") }

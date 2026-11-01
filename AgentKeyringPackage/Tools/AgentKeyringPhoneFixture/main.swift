@@ -87,6 +87,7 @@ struct PhoneFixture {
                     }
                 case "status":
                     output("STATUS\t\(approver.pairing)\t\(try approver.requests().count)")
+                case "refresh": try await approver.refreshAuthority(); output("REFRESHED")
                 case "replace-pairing":
                     try await approver.beginReplacementPairing()
                     if case let .comparing(fingerprint, _) = approver.pairing { output("PAIR\t" + fingerprint) }
