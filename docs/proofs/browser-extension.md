@@ -1,4 +1,4 @@
-<!-- Written by AI on 2026.11.01 by model gpt-6.1-sol. -->
+<!-- Written by AI on 2026.11.01 by model gpt-6.1-sol; fresh-agent section added by model claude opus 5.5. -->
 
 # Browser extension: isolated first proof
 
@@ -165,20 +165,21 @@ buttons need no form element; the document, origin, selector and field checks
 remain. Controls associated with different HTML forms are still refused.
 Native HTML validation is checked before clicking a submit button.
 
-A click alone no longer means Submitted. Native form-data capture confirms a
-normal submission. For script-driven submissions, full page departure, a URL
-change (including `history.pushState`), or removal of all filled controls is a
-completion signal. Submitted describes that sign-in **step**, including a step
-that displays an error; the agent still has to confirm authentication. The
-receiver clears the typed controls after that signal, with input/change events
-so controlled inputs also drop their stored value.
+A click alone no longer means Submitted. A trusted native submit event followed
+by native form-data capture, or a trusted document departure, confirms a
+submission. The first repair also treated URL changes and detached controls as
+completion; the second review below showed that was wrong, and removed both.
+Submitted describes the sign-in **step**; the agent still has to confirm
+authentication. Cleanup dispatches input/change events so controlled inputs
+also drop their stored value.
 
 If no completion is observed within ten seconds from filling, it clears the
 controls and reports Uncertain. There is no generic browser event that proves
-arbitrary JavaScript has finished reading an input. A handler that remains on
-the same page with the same controls, or reads only after the deadline, can
-therefore remain Uncertain. This does not grant another approval or click
-again: the receipt still suppresses retries until an inspected `--again`.
+arbitrary JavaScript has finished reading an input. Same-document handlers,
+including those that change the address or remove controls, therefore remain
+Uncertain without native confirmation. Handlers reading after the deadline
+may find empty values. This does not grant another approval or click again:
+the receipt still suppresses retries until an inspected `--again`.
 
 The existing `script/prove_fields.py` and dummy site now cover:
 
@@ -187,9 +188,9 @@ The existing `script/prove_fields.py` and dummy site now cover:
   TOTP, with an authenticated account, under one lease for each page shape.
 - Blur-driven validation and controlled inputs that redraw from stored state.
   Cleanup remains empty after a further second of page activity.
-- In-place URL changes, form replacement for a next step, and form replacement
-  for an error: prompt completion without waiting for a full navigation. The
-  deliberate error receives one rejected POST and is not called authenticated.
+- In-place URL changes and form replacement for a next step or an error. These
+  now wait for the bound and report Uncertain. The deliberate error receives
+  one rejected POST and is not called authenticated.
 - A permanently disabled button and an incomplete required field: zero POSTs,
   a clear refusal, and empty inputs.
 - A handler that neither navigates nor replaces controls: Uncertain after ten
@@ -244,3 +245,101 @@ The exact receiver and skill used by both agents have SHA-256 values:
 The fresh mini build's help advertises `tabs`, opaque targets and the extension,
 with no debugging-port filling workflow. Broader browser installation and
 harness support remain the separate slices listed above.
+
+## Browser confirmation before cleanup
+
+A second review reproduced an early-clear failure after a handler changed its
+address to `#working`, waited 200 ms, then read the fields. The same full-path
+reproduction also found it after a path change, synthetic `pagehide`, synthetic
+submit/form-data events, and detaching a form while retaining its inputs in
+JavaScript. In each case the old receiver reported Submitted and the site
+rejected an empty password. Detachment does not stop a handler reading retained
+references.
+
+The receiver now confirms only a trusted native submit with form-data capture,
+or a trusted document departure. A script-created event is not confirmation.
+All other cases retain the typed inputs, including detached nodes, until the
+ten-second bound, clear them, and report Uncertain. Address changes, removed or
+replaced fields, and alerts marked by the page are observations only. The result
+includes those observations without page text, URLs or input values, and says
+the step is recorded so repeating it will not submit again. The skill leaves
+the next decision to the agent inspecting the page.
+
+The identical eight-case reproduction was replayed with the corrected receiver:
+every case sent one accepted password and zero rejected passwords, then reported
+Uncertain. The no-change, hidden-input and disabled-input cases also retained
+the correct bounded behavior. The existing dummy site and full CLI proof now
+cover 22 page shapes, including early hash/path changes, synthetic events,
+`FormData()` in a prevented handler, detached references, reattachment, in-place
+step swaps, controlled inputs, validation and form-less buttons. Successful
+shapes each complete password and saved TOTP under one lease. The deliberate
+error alone sends a rejected password; permanently disabled or invalid forms
+send none. Repeating password and code actions adds no POST, including when the
+recorded result is Uncertain.
+
+The final full CLI replay's program, agent-process, restart, identical-tab,
+foreign-frame and interrupted-helper checks all passed. Its run directories and
+the before/after reproductions were temporary; their outputs, counts and
+reproduction script are retained under
+`.private/proofs/browser-extension-consumption-a0po78ul/`.
+
+## Fresh agents on the corrected receiver
+
+A fresh Claude Code (Claude Opus 5.5, started through the mini's T3) and a fresh
+Codex CLI each received only the bundled skill and the same plain task: sign in
+to the dummy site with its saved login, check that retrying a completed step
+does not submit twice, and report. Neither was told about the page's behaviour.
+The site combined a delayed read, an initially disabled button, no `<form>`, an
+early address change and in-place step swaps, so no step gives a trusted
+completion signal. The driver restarted the browser once, after the first
+accepted password. Approval was the stand-in fixture, as above.
+
+The site's own counts, taken independently of the agents' reports:
+
+| Agent | Accepted password POSTs | Rejected password POSTs | Accepted code POSTs | New leases |
+| --- | ---: | ---: | ---: | ---: |
+| Claude Code | 2 | 0 | 1 | 1 |
+| Codex CLI | 2 | 0 | 1 | 1 |
+
+In both runs the first password was accepted before the restart, and the next
+login request carried neither the pending nor the authenticated cookie. The
+restart had discarded the site's half-finished sign-in, so the second password,
+in a new document, was a needed new step. Each agent then filled the code,
+reached `/account`, repeated each completed step against its original target
+and got "This step is recorded; nothing was filled or submitted again" with no
+added POST, and released the lease. Neither used `--again`. No early-clear
+failure occurred: no password POST was rejected.
+
+The driver scanned both complete transcripts for the dummy password, TOTP seed,
+codes and common encodings, and for debugging-protocol use; nothing matched.
+Both used `tabs`, `fields` and `fill`. Two observations matter for real use:
+
+- **Every fill on this page reported Uncertain, including the ones that
+  worked.** That is the intended result when the browser gives no trusted
+  signal, but it means the agent must inspect the page after every step. Codex
+  did so with `fields`. Claude also fetched the page's HTML and script with
+  `curl` to understand the flow; those were GET requests and sent no
+  credentials.
+- **Tab targets are about 220 characters.** Codex once passed a mistyped target
+  and was refused with "Use the complete tab target"; it recovered on the next
+  command.
+
+The tested CLI was built from a source copy identical to this branch's `cmd`,
+`internal`, `gen`, Go module files, extension and skill. The artifacts the agents
+used have these SHA-256 values, which match the committed files:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Mini arm64 CLI | `ffd29063a4d116c87a58041c18821cde30a3a6f73ceb74260435dce75c6b5a2f` |
+| `BrowserExtension/page.js` | `85f86e6856c614334df3c55520f5c02b56591cb694d74f77be3e9cf966a7ceea` |
+| `BrowserExtension/background.js` | `d772ac596cbc61ba98d8b08a65b5c2f1fc314b4d88a2891481528c1854eeaf5c` |
+| `BrowserExtension/manifest.json` | `df2905f59dfe4a00228ade675d8c199bf9a7c62f3a74507674493ca8ec30981c` |
+| Bundled skill | `5115c92832008ddaa9eb536521586c6e450f16a364cce5d0f8555c39a9da079f` |
+
+The complete transcripts, prompts, counts and artifact hashes are under
+`.private/proofs/browser-extension-consumption-a0po78ul/agents/`. The
+disposable profiles, authority and receiver state were trashed afterwards.
+
+This is still an isolated Chrome for Testing proof with a stand-in approval.
+Real Touch ID, Josh's own Chrome, Claude in Chrome, Safari and the closed
+built-in browsers remain the separate slices listed above.

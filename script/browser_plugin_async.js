@@ -32,10 +32,27 @@
       });
     }
     if (style.includes('async') || style.includes('formless')) {
-      if (style.includes('formless')) button.type = 'button';
-      (style.includes('formless') ? button : form).addEventListener(style.includes('formless') ? 'click' : 'submit', async event => {
+      const scriptedButton = style.includes('formless') || style.includes('synthetic-form');
+      if (scriptedButton) button.type = 'button';
+      (scriptedButton ? button : form).addEventListener(scriptedButton ? 'click' : 'submit', async event => {
         event.preventDefault();
         window.proofFinished = false;
+        if (style.includes('early-hash')) location.hash = 'working';
+        if (style.includes('early-path')) history.pushState({}, '', '/working');
+        if (style.includes('synthetic-pagehide')) dispatchEvent(new PageTransitionEvent('pagehide'));
+        if (style.includes('synthetic-form')) {
+          form.dispatchEvent(new SubmitEvent('submit'));
+          form.dispatchEvent(new FormDataEvent('formdata', {formData: new FormData()}));
+        }
+        if (style.includes('constructor-formdata')) new FormData(form);
+        if (style.includes('early-detach')) form.remove();
+        if (style.includes('reattach')) {
+          const placeholder = document.createElement('div');
+          form.replaceWith(placeholder);
+          setTimeout(() => placeholder.replaceWith(form), 100);
+        }
+        if (style.includes('hide')) form.hidden = true;
+        if (style.includes('busy')) inputs.forEach(e => { e.disabled = true; });
         await new Promise(resolve => setTimeout(resolve, 200));
         const data = new URLSearchParams(inputs.map(e => [e.name, e.value]));
         if (style.includes('error')) data.set('password', 'deliberately-wrong-dummy-password');
@@ -51,6 +68,7 @@
           install(document.querySelector('form'));
         } else if (style.includes('error')) {
           const message = document.createElement('p');
+          message.setAttribute('role', 'alert');
           message.textContent = 'The dummy sign-in was refused.';
           form.replaceWith(message);
           window.proofOldInputs = inputs;
@@ -58,6 +76,7 @@
           location.assign(response.url);
         } else if (!response.ok) {
           const message = document.createElement('p');
+          message.setAttribute('role', 'alert');
           message.textContent = 'The dummy sign-in was refused.';
           form.append(message);
         }
