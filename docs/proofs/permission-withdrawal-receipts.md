@@ -53,9 +53,15 @@ an explicit empty directory. It prints no password or TOTP seed.
   further use. Removed identities can fetch signed public changes over their
   original node binding, but cannot request logins, fetch copies or answer.
 - Killing and restarting the relay preserves exact device-signed evidence.
-  The fixture ages one completed target past seven days and restarts the
-  relay to exercise pruning. A late authenticated retry is acknowledged
-  without recreating completion evidence. Routine receipts and devices
+  The owner publishes a withdrawal and goes offline before collecting the
+  phone's confirmation. The fixture ages completion beyond seven days and
+  restarts over the previous database schema. The returning owner can still
+  fetch and verify both signatures; a read does not start expiry. Only its
+  explicit collection acknowledgement, sent after saving the evidence, starts
+  retention. A phone, receiver, wrong target hash and incomplete target are
+  refused. Retrying after restart keeps the first collection timestamp.
+  Aging that timestamp beyond seven days then permits pruning; late receipt
+  and collection retries do not recreate evidence. Routine receipts and devices
   outside an update's original required set are likewise ignored, not counted.
 
 The final result is `All relay system checks passed.` The existing relay TLS,

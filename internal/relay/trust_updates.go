@@ -175,3 +175,33 @@ func getUpdateReceipts(tx *sql.Tx, query *pb.UpdateReceiptQuery) (*pb.UpdateRece
 	}
 	return result, rows.Err()
 }
+
+func acknowledgeUpdateReceipts(tx *sql.Tx, p peer, target *pb.UpdateReceiptQuery) error {
+	_, keys, err := currentKeys(tx)
+	if err != nil {
+		return err
+	}
+	if p.approver != keys.RuleOwnerKeyId {
+		return denied("Only the rule owner may acknowledge collected device receipts.")
+	}
+	if target == nil || target.Revision == 0 || len(target.UpdateSha256) != 32 || (target.Kind != pb.UpdateKind_UPDATE_KIND_APPROVER_KEYS && target.Kind != pb.UpdateKind_UPDATE_KIND_CONFIGURATION) {
+		return invalid("Acknowledgement must name an exact permission update.")
+	}
+	var hash []byte
+	var completed sql.NullInt64
+	err = tx.QueryRow("SELECT hash,completed FROM trust_updates WHERE kind=? AND revision=?", target.Kind, revisionID(target.Revision)).Scan(&hash, &completed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil // Idempotent after completed evidence has already been pruned.
+	}
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(hash, target.UpdateSha256) {
+		return denied("Acknowledgement hash does not match the saved update.")
+	}
+	if !completed.Valid {
+		return denied("Device confirmations for this update are not complete.")
+	}
+	_, err = tx.Exec("UPDATE trust_updates SET collected=COALESCE(collected,?) WHERE kind=? AND revision=?", time.Now().Unix(), target.Kind, revisionID(target.Revision))
+	return err
+}
