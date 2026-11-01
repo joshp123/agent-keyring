@@ -45,6 +45,14 @@ or real Passwords data is involved.
   That phone then exits before removal.
 - One Mac authorization removes only that phone. All other approver keys and
   the exact configuration remain unchanged. The relay deletes its retained copy.
+- The actual local CLI obtains two approvals from that phone and one from the
+  remaining phone, and privately reads each password and TOTP. A Mac restart
+  preserves all three approvals. Removing the first phone then revokes both of
+  its local leases in the same checkpoint as the signed key change and receipt.
+  Fresh CLI reads return no value for either field, before and after Mac/relay
+  restart while the publication is still unacknowledged. The other phone's
+  lease continues to work. Older local phone approvals without a recorded key
+  ID are revoked on load because their authority cannot be attributed.
 - A lost publication acknowledgement, Mac restart and relay restart preserve
   the exact queued signed change and its pending receiver evidence.
 - The remaining phone confirms automatically. The offline receiver remains
@@ -75,7 +83,7 @@ the integrated committed tree. With unused proof ports 17445 and 17455, run:
 mac-approver-proof --phone-removal \
   --root "$HOME/Library/Containers/com.joshpalmer.AgentKeyring/Data/relay-proof-UNIQUE" \
   --approver "$WRAPPER/Contents/MacOS/RelayApproverFixture" \
-  --relay "$RELAY_BINARY" --phone-binary "$PHONE_BINARY"
+  --relay "$RELAY_BINARY" --phone-binary "$PHONE_BINARY" --cli "$CLI_BINARY"
 ```
 
 The driver stops its processes. Erase only the root's isolated, non-synchronizing
