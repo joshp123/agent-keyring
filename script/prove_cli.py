@@ -157,6 +157,8 @@ def main():
 
     try:
         authority = start_authority()
+        assert "3 browser fill uncertain" in run("--help")
+        assert "**3** for Uncertain" in run("skill")
         run("find", "127.0.0.1", private=True)
         run("lease", "dummy", expected=2)
         run("read", "missing", "--field", "unknown", expected=2)

@@ -103,10 +103,14 @@ func fillBrowser(ctx context.Context, a arguments) (int, error) {
 		return 1, errors.New("The browser did not confirm the fill. Inspect before retrying.")
 	}
 	fmt.Fprintln(os.Stderr, safe(response.Fill.Detail))
-	if response.Fill.Outcome != pb.FillOutcome_FILL_OUTCOME_SUBMITTED {
+	switch response.Fill.Outcome {
+	case pb.FillOutcome_FILL_OUTCOME_SUBMITTED:
+		return 0, nil
+	case pb.FillOutcome_FILL_OUTCOME_UNCERTAIN:
+		return 3, nil
+	default:
 		return 1, nil
 	}
-	return 0, nil
 }
 
 // Chrome's --user-data-dir contains this directory too, so an isolated install

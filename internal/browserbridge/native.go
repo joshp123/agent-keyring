@@ -61,7 +61,8 @@ func (h *host) browser(request *ExtensionRequest) (*Response, error) {
 	if _, err = os.Stdout.Write(framed); err != nil {
 		return nil, errors.New("The browser connection ended.")
 	}
-	timeout := time.NewTimer(15 * time.Second)
+	// Filling can wait ten seconds for readiness, then ten for consumption.
+	timeout := time.NewTimer(25 * time.Second)
 	defer timeout.Stop()
 	for {
 		select {
@@ -206,10 +207,17 @@ func (h *host) handle(request *Request) (*Response, error) {
 	return nil, errors.New("Unsupported browser command.")
 }
 func previous(record *clientstate.OperationReceipt) *Response {
-	if record.GetFill() == pb.FillOutcome_FILL_OUTCOME_SUBMITTED {
-		return &Response{Fill: &pb.FillResult{Outcome: 1, Detail: "This step was already submitted. Nothing was filled again; run tabs to inspect the current page."}}
+	outcome := record.GetFill()
+	detail := "The earlier fill ended without a confirmed submission."
+	if record.Outcome == nil {
+		outcome = pb.FillOutcome_FILL_OUTCOME_UNCERTAIN
+		detail = "The earlier fill was interrupted and may have started."
+	} else if outcome == pb.FillOutcome_FILL_OUTCOME_SUBMITTED {
+		detail = "This step was already submitted."
+	} else if outcome == pb.FillOutcome_FILL_OUTCOME_UNCERTAIN {
+		detail = "The earlier fill finished, but the browser did not confirm submission."
 	}
-	return &Response{Fill: &pb.FillResult{Outcome: 2, Detail: "The earlier fill may have started. This step is recorded; nothing was filled or submitted again. Inspect the page before using --again."}}
+	return &Response{Fill: &pb.FillResult{Outcome: outcome, Detail: detail + " This step is recorded; nothing was filled or submitted again. Run tabs and inspect the page before using --again."}}
 }
 func (h *host) fill(request *Request) (*Response, error) {
 	command := request.Fill

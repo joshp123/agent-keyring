@@ -11,8 +11,23 @@
       form.replaceWith(container);
       form = container;
     }
+    if (style.includes('shadow') || style.includes('slot')) {
+      const host = document.createElement('section');
+      host.id = 'login-component';
+      form.replaceWith(host);
+      const root = host.attachShadow({mode: 'open'});
+      if (style.includes('nested')) {
+        const inner = document.createElement('section');
+        root.append(inner);
+        inner.attachShadow({mode: 'open'}).append(form);
+      } else if (style.includes('slot')) {
+        root.innerHTML = '<slot></slot>';
+        host.append(form);
+      } else root.append(form);
+    }
     const button = form.querySelector('button');
     const inputs = [...form.querySelectorAll('input')];
+    window.proofInputs = inputs;
     if (style.includes('stuck')) button.disabled = true;
     if (style.includes('invalid')) {
       const required = document.createElement('input');
@@ -24,6 +39,15 @@
       const state = inputs.map(e => e.value);
       inputs.forEach((e, i) => e.addEventListener('input', () => { state[i] = e.value; }));
       setInterval(() => inputs.forEach((e, i) => { e.value = state[i]; }), 100);
+    }
+    if (style.includes('late')) {
+      const control = style.includes('fieldset') ? document.createElement('fieldset') : button;
+      if (control !== button) { button.replaceWith(control); control.append(button); }
+      control.disabled = true;
+      let scheduled = false;
+      inputs.forEach(e => e.addEventListener('input', () => {
+        if (!scheduled) { scheduled = true; setTimeout(() => { control.disabled = false; }, 9000); }
+      }));
     }
     if (style.includes('disabled') || style.includes('blur')) {
       button.disabled = true;
@@ -53,7 +77,7 @@
         }
         if (style.includes('hide')) form.hidden = true;
         if (style.includes('busy')) inputs.forEach(e => { e.disabled = true; });
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, style.includes('late') ? 2000 : 200));
         const data = new URLSearchParams(inputs.map(e => [e.name, e.value]));
         if (style.includes('error')) data.set('password', 'deliberately-wrong-dummy-password');
         const response = await fetch(action, {method: 'POST', body: data});

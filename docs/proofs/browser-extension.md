@@ -344,3 +344,164 @@ disposable profiles, authority and receiver state were trashed afterwards.
 This is still an isolated Chrome for Testing proof with a stand-in approval.
 Real Touch ID, Josh's own Chrome, Claude in Chrome, Safari and the closed
 built-in browsers remain the separate slices listed above.
+
+
+## Late submit readiness and open shadow roots
+
+Written by AI on 2026.11.01 by model gpt-6.1-sol.
+
+The independent review found two compatibility failures: a button enabled nine
+seconds after input left only one second for its handler, which read the inputs
+two seconds after clicking; and an ordinary form inside an open shadow root
+was invisible to inspection and filling. The original reproduction on the
+reviewed main produced one rejected password POST with empty inputs and no
+visible shadow controls. Replaying the same reproduction with the repair
+produced one accepted password POST, zero rejected, and all three shadow
+controls with usable selectors.
+
+The receiver now allows up to ten seconds from starting the fill for button
+readiness, then a separate ten seconds from clicking for consumption. Thus
+values are retained for at most twenty seconds under normal browser scheduling,
+and are cleared sooner when a trusted native submit with form-data capture or
+trusted document departure confirms submission. The native-host response timeout
+is twenty-five seconds so it does not return before this cleanup. This replaces
+the earlier shared ten-second bound described above. A late JavaScript reader
+beyond the consumption window can still encounter empty inputs: there is no
+generic signal for arbitrary JavaScript consumption. Unconfirmed steps remain
+Uncertain with observations; URL changes, field replacement and synthetic events
+still do not confirm Submitted. Retry receipts still suppress another click.
+
+Inspection traverses open shadow roots recursively. Each selector segment is
+unique within its own tree, with ` >>> ` between a host and its shadow root.
+Fill resolves and revalidates every segment before writing. Slotted controls
+keep their light-DOM selectors and are listed once. Closed shadow roots are
+not accessible. Labels and alert observations use the control's tree too.
+
+The existing dummy-site behavior and `script/prove_fields.py` add six shapes:
+open shadow form, nested shadow form, slotted form, nine-second button readiness
+with a two-second delayed read, the same delay via a disabled fieldset, and the
+combined nested-shadow/delayed-read/in-place-step form. The combined shape
+also drives fresh agents. The full suite now covers 28 shapes. Native and
+scripted completion, cleanup, retries and saved TOTP retain their earlier
+checks. Agent-only runs can use `--agents-only`; `--directory` retains the
+workspace and evidence while keeping Unix sockets in short isolated paths.
+
+Private evidence and the prepared external-Claude workspace are under
+`.private/proofs/browser-shadow/`. All credentials are generated dummy data;
+no global install, real profile, desktop interaction or native-host registration
+outside the isolated profile is involved. This does not prove Safari runtime,
+Touch ID or isolation from an agent's independent browser-reading tools.
+
+
+A fresh Codex CLI received only the bundled skill and the plain sign-in/retry
+task on the combined nested-shadow, nine-second-readiness, two-second-read
+page. The browser had no debugging port. The site's own counts were one
+accepted password POST, one accepted code POST, zero rejected POSTs and one
+authenticated account visit, under one lease. Codex inspected each next step,
+retried both recorded fills without another POST, and released the lease.
+Both original fills reported Uncertain as expected for same-document swaps.
+Its complete saved Codex session, captured event stream and final answer were
+scanned for the dummy password, TOTP seed, generated codes and common
+encodings: zero matches. The transcript contains no browser client code.
+
+The external Claude workspace has the identical bundled skill and plain task,
+and the same combined page in another isolated browser. `claude/claude/setup.json`
+under the private evidence directory records its environment, prompt, transcript
+and finish marker. The driver checks counts and scans the transcript after the
+T3-launched Claude finishes. Claude has been prepared, not counted as passed.
+
+
+The killed-helper proof now selects the native host parented by its own Chrome
+process. A process-name-only lookup also matched a separately prepared external
+agent browser; that assertion refused to kill either helper. Scoping the lookup
+keeps simultaneous isolated trials independent.
+
+Tested production artifact SHA-256 values:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Mini arm64 CLI | `af0f9225a179240cd92fb0fb7ec04b805092b24c45ec17a078c259f05d2eccbd` |
+| Shared page receiver | `f08c2ca5facc72b392bf7f4a0637bf10d487c7f807e22c6998325f705f113912` |
+| Bundled skill | `5c56b4b26284c4cf2869a62434f840f788bffbe9c9d4c29bc46ac5d61c8193a6` |
+
+
+The final complete `script/prove_cli.py` run exited 0 on the mini in isolated
+headless Chrome for Testing 156.0.8078.80. All 28 page shapes passed, followed
+by identical-tab selection, native-host/browser restart, uncertain-step retry
+suppression and deliberate repeat, foreign-frame refusal and killed-helper
+recovery. Program stdin delivery, output suppression, exit status, task rejoin,
+release, killed-program recovery and isolated installation/skill links passed.
+`go vet ./...`, Python compilation and `git diff --check` also passed. Full
+output and retained machine results are in the private evidence directory's
+`full-pass.txt` and `full-run/`. Completed profiles and runtime state were moved
+to Trash; the prepared external-Claude trial remains live until completion or
+the driver's timeout.
+
+
+The prepared fresh Claude trial subsequently passed through T3 with the same
+bundled skill and plain task. Independent site counts show one accepted
+password POST, one accepted saved-code POST, zero rejected POSTs and one
+authenticated visit under one lease. Its transcript confirms suppressed retries
+and release; the driver's complete-transcript secret and browser-client-code
+scans passed. Evidence is in `claude/claude/results.json`, `events.jsonl` and
+`claude.txt` under the private evidence directory. Claude is now proved for
+this isolated combined page, rather than merely prepared. The driver exited 0
+and stopped its headless browser and dummy authority.
+
+
+## Distinct Uncertain exit status and truthful replay messages
+
+Written by AI on 2026.11.01 by model gpt-6.1-sol.
+
+Browser `fill` now returns status 0 for Submitted, 3 for Uncertain, 1 for
+refused/unavailable, and 2 for usage errors. Both a fresh Uncertain result and
+a replay of one return 3. The bundled skill and `--help` explain that status 3
+requires inspecting the page; it does not mean the site rejected the login.
+Program `exec` retains its child-status contract and existing interrupted-program
+behavior. Neither the trusted-confirmation rules nor the retention bound changed.
+
+A recorded Uncertain receipt now says: "The earlier fill finished, but the
+browser did not confirm submission." A pending receipt without an outcome says:
+"The earlier fill was interrupted and may have started." Both then say nothing
+was filled or submitted again and ask the agent to inspect before `--again`.
+Recorded refusal outcomes also retain their original outcome rather than being
+converted to Uncertain on replay. The proof checks the two retry messages against
+actual completed and killed-helper flows, including their status 3 and unchanged
+submission counts. Refused forms still return 1; malformed commands still return 2.
+
+New private evidence is under `.private/proofs/browser-fill-status/`.
+
+
+The fresh uncoached Codex trial on the same nested-shadow, nine-second button,
+two-second delayed-read page passed under one lease. Site counts show one
+accepted password, one accepted code, zero rejected submissions and one
+authenticated visit. Its fresh and replayed fill commands all exited 3; retries
+used the finished-but-unconfirmed wording and added no POST. It inspected the
+page, confirmed sign-in and released. The complete saved Codex session, event
+stream and final answer passed scans for the dummy password, TOTP seed, codes
+and common encodings. Evidence is in `codex/` under the new evidence directory.
+
+A new external Claude trial is prepared with the updated skill and the same
+plain task and page. Its `claude/claude/setup.json` records the environment,
+prompt, transcript and finish marker for T3. That trial is not yet claimed as
+passed; `prepare-claude.sh` recreates it if the waiting driver expires.
+
+
+The full `script/prove_cli.py` replay exited 0 with all 28 page shapes and the
+existing CLI, restart, frame, retry and killed-helper checks passing. The fresh
+and replayed same-document fills now exit 3; blocked forms remain 1 and usage
+errors remain 2. Both retry-message assertions passed without another submit.
+`go vet ./...`, Python compilation and `git diff --check` passed. The shared
+`page.js` is unchanged by this follow-up. Completed runtime state was trashed;
+the new isolated external-Claude workspace is still waiting for its trial.
+
+
+The new fresh Claude trial subsequently passed through T3. It correctly treated
+exit 3 as Uncertain, inspected the next step and reached the authenticated
+account. Its retries used the finished-without-confirmation message and added
+no submission. Independent site counts show one accepted password, one accepted
+code, zero rejected submissions, one authenticated visit and one lease. It
+released the lease, used no `--again`, and its complete transcript passed the
+dummy-secret scan. The driver exited 0 and stopped its browser and authority.
+The completed evidence is in `claude/claude/` under the new evidence directory;
+the trial is now proved rather than merely prepared.
