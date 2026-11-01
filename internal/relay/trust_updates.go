@@ -137,30 +137,8 @@ func publishUpdateReceipt(tx *sql.Tx, p peer, signed *pb.SignedUpdateReceipt) er
 	var hash []byte
 	err := tx.QueryRow("SELECT hash FROM trust_updates WHERE kind=? AND revision=?", target.Kind, revisionID(target.Revision)).Scan(&hash)
 	if errors.Is(err, sql.ErrNoRows) {
-		// Routine acknowledgements for grants/current state do not create history.
-		var update *pb.TrustUpdate
-		if target.Kind == pb.UpdateKind_UPDATE_KIND_APPROVER_KEYS {
-			value := new(pb.SignedApproverKeySet)
-			if err = get(tx, "keychain", revisionID(target.Revision), value); err != nil {
-				return err
-			}
-			update = &pb.TrustUpdate{Update: &pb.TrustUpdate_ApproverKeys{ApproverKeys: value}}
-		} else if target.Kind == pb.UpdateKind_UPDATE_KIND_CONFIGURATION {
-			value, _, e := configuration(tx)
-			if e != nil {
-				return e
-			}
-			update = &pb.TrustUpdate{Update: &pb.TrustUpdate_Configuration{Configuration: value}}
-		} else {
-			return invalid("Unknown update kind.")
-		}
-		actual, e := relaycrypto.UpdateTarget(update)
-		if e != nil {
-			return e
-		}
-		if !proto.Equal(target, actual) {
-			return denied("Receipt does not match the saved update.")
-		}
+		// Grants and already-pruned confirmations need no receipt history. An ACK
+		// only drains the sender's outbox; it is never evidence for the owner.
 		return nil
 	}
 	if err != nil {
@@ -169,17 +147,12 @@ func publishUpdateReceipt(tx *sql.Tx, p peer, signed *pb.SignedUpdateReceipt) er
 	if !bytes.Equal(hash, target.UpdateSha256) {
 		return denied("Receipt hash does not match the saved update.")
 	}
-	result, err := tx.Exec("UPDATE update_devices SET receipt=COALESCE(receipt,?) WHERE kind=? AND revision=? AND spki=?", marshal(signed), target.Kind, revisionID(target.Revision), p.spki)
+	_, err = tx.Exec("UPDATE update_devices SET receipt=COALESCE(receipt,?) WHERE kind=? AND revision=? AND spki=?", marshal(signed), target.Kind, revisionID(target.Revision), p.spki)
 	if err != nil {
 		return err
 	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return denied("Device is not a recipient of this update.")
-	}
+	// A device enrolled later may routinely receipt its cached key set. Its
+	// signature cannot fulfil any other device's original obligation.
 	return settleWithdrawals(tx)
 }
 func getUpdateReceipts(tx *sql.Tx, query *pb.UpdateReceiptQuery) (*pb.UpdateReceipts, error) {
