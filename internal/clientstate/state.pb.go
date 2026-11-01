@@ -87,19 +87,20 @@ func (x *PrivateKeys) GetReceiverPrivateKey() []byte {
 }
 
 type State struct {
-	state          protoimpl.MessageState   `protogen:"open.v1"`
-	RelayAddress   string                   `protobuf:"bytes,1,opt,name=relay_address,json=relayAddress,proto3" json:"relay_address,omitempty"`
-	RelaySpki      []byte                   `protobuf:"bytes,2,opt,name=relay_spki,json=relaySpki,proto3" json:"relay_spki,omitempty"`
-	RecipientId    string                   `protobuf:"bytes,3,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
-	ReceiverKeyId  string                   `protobuf:"bytes,4,opt,name=receiver_key_id,json=receiverKeyId,proto3" json:"receiver_key_id,omitempty"`
-	Approvers      *v1.SignedApproverKeySet `protobuf:"bytes,5,opt,name=approvers,proto3" json:"approvers,omitempty"`
-	Requests       []*ExpectedRequest       `protobuf:"bytes,8,rep,name=requests,proto3" json:"requests,omitempty"`
-	MachineLabel   string                   `protobuf:"bytes,11,opt,name=machine_label,json=machineLabel,proto3" json:"machine_label,omitempty"`
-	Configuration  *v1.SignedConfiguration  `protobuf:"bytes,12,opt,name=configuration,proto3" json:"configuration,omitempty"`
-	Operations     []*OperationReceipt      `protobuf:"bytes,13,rep,name=operations,proto3" json:"operations,omitempty"`
-	LocalAuthority *LocalAuthority          `protobuf:"bytes,14,opt,name=local_authority,json=localAuthority,proto3" json:"local_authority,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state                 protoimpl.MessageState    `protogen:"open.v1"`
+	RelayAddress          string                    `protobuf:"bytes,1,opt,name=relay_address,json=relayAddress,proto3" json:"relay_address,omitempty"`
+	RelaySpki             []byte                    `protobuf:"bytes,2,opt,name=relay_spki,json=relaySpki,proto3" json:"relay_spki,omitempty"`
+	RecipientId           string                    `protobuf:"bytes,3,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
+	ReceiverKeyId         string                    `protobuf:"bytes,4,opt,name=receiver_key_id,json=receiverKeyId,proto3" json:"receiver_key_id,omitempty"`
+	Approvers             *v1.SignedApproverKeySet  `protobuf:"bytes,5,opt,name=approvers,proto3" json:"approvers,omitempty"`
+	Requests              []*ExpectedRequest        `protobuf:"bytes,8,rep,name=requests,proto3" json:"requests,omitempty"`
+	MachineLabel          string                    `protobuf:"bytes,11,opt,name=machine_label,json=machineLabel,proto3" json:"machine_label,omitempty"`
+	Configuration         *v1.SignedConfiguration   `protobuf:"bytes,12,opt,name=configuration,proto3" json:"configuration,omitempty"`
+	Operations            []*OperationReceipt       `protobuf:"bytes,13,rep,name=operations,proto3" json:"operations,omitempty"`
+	LocalAuthority        *LocalAuthority           `protobuf:"bytes,14,opt,name=local_authority,json=localAuthority,proto3" json:"local_authority,omitempty"`
+	PendingUpdateReceipts []*v1.SignedUpdateReceipt `protobuf:"bytes,15,rep,name=pending_update_receipts,json=pendingUpdateReceipts,proto3" json:"pending_update_receipts,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *State) Reset() {
@@ -198,6 +199,13 @@ func (x *State) GetOperations() []*OperationReceipt {
 func (x *State) GetLocalAuthority() *LocalAuthority {
 	if x != nil {
 		return x.LocalAuthority
+	}
+	return nil
+}
+
+func (x *State) GetPendingUpdateReceipts() []*v1.SignedUpdateReceipt {
+	if x != nil {
+		return x.PendingUpdateReceipts
 	}
 	return nil
 }
@@ -454,7 +462,7 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\vPrivateKeys\x12'\n" +
 	"\x0fcertificate_pem\x18\x01 \x01(\fR\x0ecertificatePem\x12\x1e\n" +
 	"\vtls_key_pem\x18\x02 \x01(\fR\ttlsKeyPem\x120\n" +
-	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xca\x04\n" +
+	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xa8\x05\n" +
 	"\x05State\x12#\n" +
 	"\rrelay_address\x18\x01 \x01(\tR\frelayAddress\x12\x1d\n" +
 	"\n" +
@@ -468,7 +476,8 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\n" +
 	"operations\x18\r \x03(\v2*.agentkeyring.clientstate.OperationReceiptR\n" +
 	"operations\x12Q\n" +
-	"\x0flocal_authority\x18\x0e \x01(\v2(.agentkeyring.clientstate.LocalAuthorityR\x0elocalAuthorityJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
+	"\x0flocal_authority\x18\x0e \x01(\v2(.agentkeyring.clientstate.LocalAuthorityR\x0elocalAuthority\x12\\\n" +
+	"\x17pending_update_receipts\x18\x0f \x03(\v2$.agentkeyring.v1.SignedUpdateReceiptR\x15pendingUpdateReceiptsJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
 	"J\x04\b\n" +
 	"\x10\v\"`\n" +
 	"\x0eLocalAuthority\x121\n" +
@@ -511,24 +520,26 @@ var file_internal_clientstate_state_proto_goTypes = []any{
 	(*OperationReceipt)(nil),        // 4: agentkeyring.clientstate.OperationReceipt
 	(*v1.SignedApproverKeySet)(nil), // 5: agentkeyring.v1.SignedApproverKeySet
 	(*v1.SignedConfiguration)(nil),  // 6: agentkeyring.v1.SignedConfiguration
-	(*v1.RequestLeaseRequest)(nil),  // 7: agentkeyring.v1.RequestLeaseRequest
-	(v1.FillOutcome)(0),             // 8: agentkeyring.v1.FillOutcome
-	(v1.ProgramOutcome)(0),          // 9: agentkeyring.v1.ProgramOutcome
+	(*v1.SignedUpdateReceipt)(nil),  // 7: agentkeyring.v1.SignedUpdateReceipt
+	(*v1.RequestLeaseRequest)(nil),  // 8: agentkeyring.v1.RequestLeaseRequest
+	(v1.FillOutcome)(0),             // 9: agentkeyring.v1.FillOutcome
+	(v1.ProgramOutcome)(0),          // 10: agentkeyring.v1.ProgramOutcome
 }
 var file_internal_clientstate_state_proto_depIdxs = []int32{
-	5, // 0: agentkeyring.clientstate.State.approvers:type_name -> agentkeyring.v1.SignedApproverKeySet
-	3, // 1: agentkeyring.clientstate.State.requests:type_name -> agentkeyring.clientstate.ExpectedRequest
-	6, // 2: agentkeyring.clientstate.State.configuration:type_name -> agentkeyring.v1.SignedConfiguration
-	4, // 3: agentkeyring.clientstate.State.operations:type_name -> agentkeyring.clientstate.OperationReceipt
-	2, // 4: agentkeyring.clientstate.State.local_authority:type_name -> agentkeyring.clientstate.LocalAuthority
-	7, // 5: agentkeyring.clientstate.ExpectedRequest.scope:type_name -> agentkeyring.v1.RequestLeaseRequest
-	8, // 6: agentkeyring.clientstate.OperationReceipt.fill:type_name -> agentkeyring.v1.FillOutcome
-	9, // 7: agentkeyring.clientstate.OperationReceipt.program:type_name -> agentkeyring.v1.ProgramOutcome
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	5,  // 0: agentkeyring.clientstate.State.approvers:type_name -> agentkeyring.v1.SignedApproverKeySet
+	3,  // 1: agentkeyring.clientstate.State.requests:type_name -> agentkeyring.clientstate.ExpectedRequest
+	6,  // 2: agentkeyring.clientstate.State.configuration:type_name -> agentkeyring.v1.SignedConfiguration
+	4,  // 3: agentkeyring.clientstate.State.operations:type_name -> agentkeyring.clientstate.OperationReceipt
+	2,  // 4: agentkeyring.clientstate.State.local_authority:type_name -> agentkeyring.clientstate.LocalAuthority
+	7,  // 5: agentkeyring.clientstate.State.pending_update_receipts:type_name -> agentkeyring.v1.SignedUpdateReceipt
+	8,  // 6: agentkeyring.clientstate.ExpectedRequest.scope:type_name -> agentkeyring.v1.RequestLeaseRequest
+	9,  // 7: agentkeyring.clientstate.OperationReceipt.fill:type_name -> agentkeyring.v1.FillOutcome
+	10, // 8: agentkeyring.clientstate.OperationReceipt.program:type_name -> agentkeyring.v1.ProgramOutcome
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_internal_clientstate_state_proto_init() }

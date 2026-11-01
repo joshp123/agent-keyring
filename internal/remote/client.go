@@ -136,59 +136,71 @@ func (c *Client) refreshKeys(ctx context.Context) error {
 	if chain == nil {
 		return errors.New("The relay did not return the signed approver key chain.")
 	}
-	return c.Store.Update(ctx, func(current *clientstate.State) error {
-		latest, err := keySet(current.Approvers)
-		if err != nil {
+	for _, signed := range chain.KeySets {
+		if err = c.saveTrustUpdate(ctx, &pb.TrustUpdate{Update: &pb.TrustUpdate_ApproverKeys{ApproverKeys: signed}}); err != nil {
 			return err
 		}
-		// Another CLI may have saved the same verified chain while this call waited.
-		remaining := &pb.ApproverKeyChain{}
-		for _, signed := range chain.KeySets {
-			next, err := keySet(signed)
-			if err != nil {
-				return err
-			}
-			if next.Revision <= latest.Revision {
-				if next.Revision == latest.Revision && !proto.Equal(signed, current.Approvers) {
-					return errors.New("The relay returned conflicting approver keys.")
-				}
-				continue
-			}
-			remaining.KeySets = append(remaining.KeySets, signed)
-		}
-		return advanceKeys(current, remaining)
-	})
+	}
+	// Also acknowledge a snapshot saved before this protocol was introduced.
+	state, err = c.Store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	if err = c.saveTrustUpdate(ctx, &pb.TrustUpdate{Update: &pb.TrustUpdate_ApproverKeys{ApproverKeys: state.Approvers}}); err != nil {
+		return err
+	}
+	return c.flushUpdateReceipts(ctx)
 }
 func (c *Client) refreshConfiguration(ctx context.Context) error {
-	response, err := c.call(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfiguration{GetConfiguration: &pb.GetConfigurationRequest{}}})
+	state, err := c.Store.Load(ctx)
 	if err != nil {
 		return err
 	}
-	var membershipError error
-	err = c.Store.Update(ctx, func(state *clientstate.State) error {
-		configuration, err := verifyConfiguration(state, response.GetConfiguration())
-		if err != nil {
-			return err
+	var after uint64
+	if state.Configuration != nil {
+		config := new(pb.Configuration)
+		if proto.Unmarshal(state.Configuration.Configuration, config) != nil {
+			return errors.New("Invalid saved configuration.")
 		}
-		clientSPKI, err := relaycrypto.CertificateSPKI(c.Certificate)
-		if err != nil {
-			return err
-		}
-		receiver, err := ecdh.P256().NewPrivateKey(c.Keys.ReceiverPrivateKey)
-		if err != nil {
-			return err
-		}
-		enrolled := machine(configuration, state.RecipientId)
-		if enrolled == nil || !bytesEqual(enrolled.TlsPublicKey, clientSPKI) || !bytesEqual(enrolled.ReceiverPublicKey, receiver.PublicKey().Bytes()) || enrolled.ReceiverKeyId != state.ReceiverKeyId {
-			membershipError = errors.New("The current signed configuration no longer enrolls this machine's keys.")
-		}
-		state.Configuration = proto.Clone(response.GetConfiguration()).(*pb.SignedConfiguration)
-		return nil
-	})
+		after = config.Revision
+	}
+	response, err := c.call(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfigurationUpdates{GetConfigurationUpdates: &pb.GetConfigurationUpdatesRequest{AfterRevision: after}}})
 	if err != nil {
 		return err
 	}
-	return membershipError
+	updates := response.GetConfigurationUpdates()
+	if updates == nil {
+		return errors.New("The relay did not return signed configuration updates.")
+	}
+	for _, signed := range updates.Configurations {
+		if err = c.saveTrustUpdate(ctx, &pb.TrustUpdate{Update: &pb.TrustUpdate_Configuration{Configuration: signed}}); err != nil {
+			return err
+		}
+	}
+	if err = c.flushUpdateReceipts(ctx); err != nil {
+		return err
+	}
+	state, err = c.Store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	configuration, err := verifyConfiguration(state, state.Configuration)
+	if err != nil {
+		return err
+	}
+	clientSPKI, err := relaycrypto.CertificateSPKI(c.Certificate)
+	if err != nil {
+		return err
+	}
+	receiver, err := ecdh.P256().NewPrivateKey(c.Keys.ReceiverPrivateKey)
+	if err != nil {
+		return err
+	}
+	enrolled := machine(configuration, state.RecipientId)
+	if enrolled == nil || !bytesEqual(enrolled.TlsPublicKey, clientSPKI) || !bytesEqual(enrolled.ReceiverPublicKey, receiver.PublicKey().Bytes()) || enrolled.ReceiverKeyId != state.ReceiverKeyId {
+		return errors.New("The current signed configuration no longer enrolls this machine's keys.")
+	}
+	return nil
 }
 func (c *Client) find(ctx context.Context, query string) (*pb.WireResponse, error) {
 	if err := c.refreshKeys(ctx); err != nil {
@@ -255,6 +267,17 @@ func (c *Client) exchange(ctx context.Context, request *pb.WireRequest, receive 
 	}
 	var transformError error
 	err := c.wire(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_Client{Client: request}}, func(relay *pb.RelayWireResponse) bool {
+		if update := relay.GetTrustUpdate(); update != nil {
+			if update.GetApproverKeys() != nil {
+				transformError = c.refreshKeys(ctx)
+			} else {
+				transformError = c.saveTrustUpdate(ctx, update)
+				if transformError == nil {
+					transformError = c.flushUpdateReceipts(ctx)
+				}
+			}
+			return transformError == nil
+		}
 		response := relay.GetClient()
 		if response == nil {
 			transformError = errors.New("The relay returned no client result.")
