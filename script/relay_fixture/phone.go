@@ -450,7 +450,7 @@ func (p *proof) phoneProof(binary, legacyBinary string) {
 	p.configuration = nextConfiguration
 	p.signedConfiguration = latestConfiguration
 	if legacyBinary != "" {
-		phone, pair.Key = p.swiftReplacementProof(phone, pair.Key, phoneSigner, directory, port)
+		phone, pair.Key = p.swiftReplacementProof(phone, pair.Key, phoneSigner, directory, port, network)
 	}
 	phone = p.swiftCopyProof(phone, pair.Key, deliverySigner, network, directory)
 	fmt.Println("Phone fixture state:", p.directory)

@@ -24,6 +24,11 @@ receipt is durable before any old key is removed. A failed reset can retry;
 it never restores the retired local identity. Cancel and reopen retain the
 fresh keys and comparison receipt.
 
+While replacement is pending, the pairing screen's existing
+`beginPairing(endpoint:)` retry resumes the saved relay address and pin,
+regardless of the address form's value. It retains the replacement receipt
+and fresh keys until the Mac-signed result removes the previous phone.
+
 The usual fingerprint comparison and Mac signature authorize the fresh phone.
 The phone also requires its previous key to be absent from the signed result.
 Appending the new key while retaining the previous one is not replacement.
@@ -63,6 +68,9 @@ approval-only delivery. The replacement phase then checks:
 - Signing and sealing keys change; the TLS key stays identical. Go and Swift
   compare identical encryption-key-bound transcripts.
 - Cancel, process restart and re-entry keep the fresh comparison and keys.
+- Cutting the connection after comparison produces a failed pairing. The
+  screen's retry API resumes the original pinned relay with the same signing
+  and sealing keys and comparison, even when given another address.
 - The Mac-signed replacement is accepted without phone authorization.
 - The retained TLS connection identifies the new phone and its empty copy
   destination. The retired key ID cannot register push or sign a decision.
@@ -107,3 +115,15 @@ mid-comparison adds an encryption key to the old request and is refused.
 Real Secure Enclave key replacement, Face ID and Mac Touch ID remain unproved
 by this software-key run. No Apple account, certificate, signing or physical
 phone change was made.
+
+## Replacement retry receipt
+
+The retry extension runs as part of the same full phone proof and legacy
+upgrade above. On the mini, the previous Swift binary reproduced the address
+switch after a failed comparison connection. The fixed binary passed the
+retry, cancel/reopen, replacement, retired signer refusal and subsequent
+current-copy delivery checks. The unsigned iOS Release build also passed.
+Logs are retained in the main checkout at
+`.private/proofs/phone-replacement-retry/`: `phone-retry-before.log`,
+`phone-retry-joint.log`, `phone-retry-swift-build.log`,
+`phone-retry-ios-summary.log` and `phone-retry-ios-build.log`.

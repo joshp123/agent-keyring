@@ -62,9 +62,18 @@ extension PhoneRelayApprover {
         try await beginPairing(endpoint: endpoint)
     }
 
-    public func beginPairing(endpoint: RelayEndpoint) async throws {
+    public func beginPairing(endpoint requestedEndpoint: RelayEndpoint) async throws {
         try load()
         guard state.keySet == nil else { throw RelayFailure(.conflict, "This iPhone is already paired.") }
+        let endpoint: RelayEndpoint
+        if state.replacementPairing != nil {
+            guard let savedEndpoint = state.endpoint else {
+                throw RelayFailure(.conflict, "The relay for this iPhone's replacement is unavailable.")
+            }
+            endpoint = savedEndpoint
+        } else {
+            endpoint = requestedEndpoint
+        }
         if state.replacementPairing?.needsFreshIdentity == true {
             // The unpaired receipt is durable before removing any key. An interrupted
             // reset can retry; it can never reopen the retired copy or its outbox.
