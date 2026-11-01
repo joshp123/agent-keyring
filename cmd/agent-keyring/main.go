@@ -58,7 +58,8 @@ read:  fields are username, password and one-time-code. Never run read in a
 
 Lease IDs and read values go to stdout; progress and outcomes go to stderr.
 Find, tabs and fields print tables. Status without --wait prints readable state.
-Exit status: 0 succeeded; 1 refused, unavailable or uncertain; 2 incorrect usage.
+Exit status: 0 succeeded; 1 refused or unavailable; 2 incorrect usage;
+             3 browser fill uncertain (inspect the page; do not retry blindly).
 exec returns the approved child's exit status when it exits normally.
 Environment: AGENT_KEYRING_SOCKET overrides the local authority socket.
              AGENT_KEYRING_RELAY selects the enrolled relay (and supplies enrol's address).

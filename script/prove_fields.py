@@ -173,7 +173,7 @@ try:
             blocked = style in ('stuck', 'invalid')
             failed_login = style == 'async-error'
             unconfirmed = 'route' in style or 'swap' in style or failed_login
-            expected = 1 if blocked or unconfirmed else 0
+            expected = 1 if blocked else 3 if unconfirmed else 0
             assert attempt.returncode == expected, attempt.stderr.decode()
             assert not attempt.stdout
             if unconfirmed:
@@ -205,8 +205,8 @@ try:
                 target = tab_for(url if 'swap' in style and 'route' not in style else server.origin + '/verify')
                 selectors = control_selectors(target, ('verification-code', 'verify'))
                 code_fill = ['fill', reference, '--tab', target, '--code', selectors['verification-code'], '--submit', selectors['verify']]
-                run(*code_fill, code=1 if unconfirmed else 0)
-                run(*code_fill, code=1 if unconfirmed else 0)
+                run(*code_fill, code=3 if unconfirmed else 0)
+                run(*code_fill, code=3 if unconfirmed else 0)
                 if 'controlled' in style:
                     time.sleep(1)
                     assert browser.evaluate("[...document.querySelectorAll('input')].every(e=>e.value==='')")
@@ -285,14 +285,18 @@ try:
         fill = ['fill', spa, '--tab', target, '--username', '#username', '--password', '#password', '--submit', '#sign-in']
         started = time.monotonic()
         before_output = len(output)
-        run(*fill, code=1)
+        run(*fill, code=3)
         assert 9 <= time.monotonic() - started < 14
         assert b'The address and filled fields stayed in place.' in output[before_output:]
         assert b'This step is recorded' in output[before_output:]
         assert browser.evaluate("window.submits===1 && [...document.querySelectorAll('input')].every(e=>e.value==='')")
-        run(*fill, code=1)
+        before_replay = len(output)
+        run(*fill, code=3)
+        assert b'earlier fill finished, but the browser did not confirm submission' in output[before_replay:]
+        assert b'may have started' not in output[before_replay:]
+        assert b'nothing was filled or submitted again' in output[before_replay:]
         assert browser.evaluate('window.submits===1')
-        run(*fill, '--again', code=1)
+        run(*fill, '--again', code=3)
         assert browser.evaluate("window.submits===2 && [...document.querySelectorAll('input')].every(e=>e.value==='')")
         run('fill', spa, '--tab', target, '--password', '#unrelated', '--submit', '#sign-in', code=1)
         run('release', spa)
@@ -333,7 +337,8 @@ try:
         wait_for(lambda: list((runtime / 'receiver/browsers').glob('*.sock')))
         result = subprocess.run([cli, *fill], env=env, capture_output=True)
         output.extend(result.stdout + result.stderr)
-        assert result.returncode == 1 and b'may have started' in result.stderr
+        assert result.returncode == 3 and b'was interrupted and may have started' in result.stderr
+        assert b'nothing was filled or submitted again' in result.stderr
         run('release', interrupted)
         print('PASS killed helper: pending retry is uncertain and does not submit twice', flush=True)
 

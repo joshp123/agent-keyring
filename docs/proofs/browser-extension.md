@@ -447,3 +447,50 @@ scans passed. Evidence is in `claude/claude/results.json`, `events.jsonl` and
 `claude.txt` under the private evidence directory. Claude is now proved for
 this isolated combined page, rather than merely prepared. The driver exited 0
 and stopped its headless browser and dummy authority.
+
+
+## Distinct Uncertain exit status and truthful replay messages
+
+Written by AI on 2026.11.01 by model gpt-6.1-sol.
+
+Browser `fill` now returns status 0 for Submitted, 3 for Uncertain, 1 for
+refused/unavailable, and 2 for usage errors. Both a fresh Uncertain result and
+a replay of one return 3. The bundled skill and `--help` explain that status 3
+requires inspecting the page; it does not mean the site rejected the login.
+Program `exec` retains its child-status contract and existing interrupted-program
+behavior. Neither the trusted-confirmation rules nor the retention bound changed.
+
+A recorded Uncertain receipt now says: "The earlier fill finished, but the
+browser did not confirm submission." A pending receipt without an outcome says:
+"The earlier fill was interrupted and may have started." Both then say nothing
+was filled or submitted again and ask the agent to inspect before `--again`.
+Recorded refusal outcomes also retain their original outcome rather than being
+converted to Uncertain on replay. The proof checks the two retry messages against
+actual completed and killed-helper flows, including their status 3 and unchanged
+submission counts. Refused forms still return 1; malformed commands still return 2.
+
+New private evidence is under `.private/proofs/browser-fill-status/`.
+
+
+The fresh uncoached Codex trial on the same nested-shadow, nine-second button,
+two-second delayed-read page passed under one lease. Site counts show one
+accepted password, one accepted code, zero rejected submissions and one
+authenticated visit. Its fresh and replayed fill commands all exited 3; retries
+used the finished-but-unconfirmed wording and added no POST. It inspected the
+page, confirmed sign-in and released. The complete saved Codex session, event
+stream and final answer passed scans for the dummy password, TOTP seed, codes
+and common encodings. Evidence is in `codex/` under the new evidence directory.
+
+A new external Claude trial is prepared with the updated skill and the same
+plain task and page. Its `claude/claude/setup.json` records the environment,
+prompt, transcript and finish marker for T3. That trial is not yet claimed as
+passed; `prepare-claude.sh` recreates it if the waiting driver expires.
+
+
+The full `script/prove_cli.py` replay exited 0 with all 28 page shapes and the
+existing CLI, restart, frame, retry and killed-helper checks passing. The fresh
+and replayed same-document fills now exit 3; blocked forms remain 1 and usage
+errors remain 2. Both retry-message assertions passed without another submit.
+`go vet ./...`, Python compilation and `git diff --check` passed. The shared
+`page.js` is unchanged by this follow-up. Completed runtime state was trashed;
+the new isolated external-Claude workspace is still waiting for its trial.
