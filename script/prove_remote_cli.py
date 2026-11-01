@@ -114,7 +114,7 @@ try:
         'changed-task': 'saved login, task or program',
         'wrong-lease': 'different lease',
         'expired': 'deadline has expired',
-        'unknown-signer': 'unknown approver',
+        'unknown-signer': 'Human decisions require a current Mac or phone approver.',
         'tampered-ciphertext': 'ciphertext was changed',
         'bad-enc': 'encapsulated key',
         'bundle-login': 'opened login does not match',
@@ -184,7 +184,7 @@ try:
     print('PASS signed approver key update from pinned predecessor, new process accepts new signer')
     mode('')
     stale = run('read', lease, '--field', 'password', code=1)
-    assert stale.stdout == b'' and b'unknown approver' in stale.stderr
+    assert stale.stdout == b'' and b'Human decisions require a current Mac or phone approver.' in stale.stderr
     print('PASS removed signer refused after key-set update')
     if args.interruptions:
         print('PASS CLI calls under repeated Go preemption signals, including state locks' + (' and browser tab locks' if args.browser else ''))
