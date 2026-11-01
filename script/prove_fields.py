@@ -136,13 +136,66 @@ try:
     authority = subprocess.Popen([str(args.fixture.resolve()), '--socket', str(socket), '--fixture', str(config), '--state', str(root / 'authority')], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     processes.append(authority)
     wait_for(socket.exists)
+    reviewed_results = []
+    for style in ['async', 'disabled', 'formless', 'async-disabled-formless', 'blur', 'async-route-controlled', 'async-swap', 'async-route-swap', 'async-error', 'stuck', 'invalid']:
+        server.login_style = style
+        url = server.origin + '/login?style=' + style
+        browser.navigate(url)
+        browser.wait("location.href === " + json.dumps(url) + " && window.proofReady")
+        target = tab_for(url)
+        before = dict(server.results)
+        reference = lease('review-' + style)
+        started = time.monotonic()
+        password_fill = ['fill', reference, '--tab', target, '--username', '#username', '--password', '#password', '--submit', '#sign-in']
+        attempt = subprocess.run([cli, *password_fill], env=env, capture_output=True, timeout=40)
+        output.extend(attempt.stdout + attempt.stderr)
+        blocked = style in ('stuck', 'invalid')
+        failed_login = style == 'async-error'
+        assert attempt.returncode == (1 if blocked else 0), attempt.stderr.decode()
+        assert not attempt.stdout
+        password_posts = server.results['password_posts'] - before['password_posts']
+        accepted = server.results['password_accepted'] - before['password_accepted']
+        assert password_posts == (0 if blocked else 1)
+        assert accepted == (0 if blocked or failed_login else 1)
+        if 'route' in style or 'swap' in style or blocked or failed_login:
+            time.sleep(1)
+            assert browser.evaluate("[...document.querySelectorAll('input'), ...window.proofOldInputs || []].every(e=>e.value==='')")
+        if not blocked and not failed_login:
+            run(*password_fill)
+            assert server.results['password_posts'] == before['password_posts'] + 1
+            # The route-only page retains its controls deliberately, to check
+            # cleanup. Swap pages install the actual code form in this document.
+            if style == 'async-route-controlled':
+                browser.navigate(server.origin + '/verify')
+            browser.wait("!!document.querySelector('#verification-code')")
+            target = tab_for(url if style == 'async-swap' else server.origin + '/verify')
+            fields(target)
+            run('fill', reference, '--tab', target, '--code', '#verification-code', '--submit', '#verify')
+            if style == 'async-route-controlled':
+                time.sleep(1)
+                assert browser.evaluate("[...document.querySelectorAll('input')].every(e=>e.value==='')")
+                browser.navigate(server.origin + '/account')
+            browser.wait("!!document.querySelector('#authenticated')")
+            if 'swap' in style:
+                assert browser.evaluate("window.proofOldInputs.every(e=>e.value==='')")
+            assert server.results['verification_accepted'] == before['verification_accepted'] + 1
+        reviewed_results.append({'style': style, 'exit': attempt.returncode, 'password_posts': password_posts, 'accepted': accepted, 'seconds': round(time.monotonic() - started, 2)})
+        print('PASS reviewed page:', reviewed_results[-1], flush=True)
+        (root / 'reviewed-pages.json').write_text(json.dumps(reviewed_results, indent=2))
+        run('release', reference)
+    server.login_style = 'native'
+    before_core = dict(server.results)
+    leases_before_core = len(list((root / 'authority').glob('lease-*')))
+    browser.navigate(server.origin + '/login')
+    browser.wait("location.pathname === '/login' && !!document.querySelector('#password')")
+    target = tab_for(server.origin + '/login')
     granted = lease('extension-proof')
     other = Browser(endpoint, server.origin + '/login')
     other.wait("!!document.querySelector('#password')")
     ambiguity = subprocess.run([cli, 'fill', granted, '--username', '#username', '--password', '#password', '--submit', '#sign-in'], env=env, capture_output=True)
     output.extend(ambiguity.stdout + ambiguity.stderr)
     assert ambiguity.returncode == 1 and b'More than one tab' in ambiguity.stderr
-    assert server.results['password_posts'] == 0
+    assert server.results['password_posts'] == before_core['password_posts']
     first = ['fill', granted, '--tab', target, '--username', '#username', '--password', '#password', '--submit', '#sign-in', '--operation', 'password-step']
     run(*first)
     browser.wait("!!document.querySelector('#verification-code')")
@@ -152,7 +205,7 @@ try:
     conflict = subprocess.run([cli, 'fill', granted, '--tab', target, '--password', '#changed', '--submit', '#sign-in', '--operation', 'password-step'], env=env, capture_output=True)
     output.extend(conflict.stdout + conflict.stderr)
     assert conflict.returncode == 1 and b'different action' in conflict.stderr
-    assert server.results['password_posts'] == 1
+    assert server.results['password_posts'] == before_core['password_posts'] + 1
     other.close()
     print('PASS identical tabs: untargeted refusal; targeted tab only; retry submits once; changed explicit key refused', flush=True)
     # Native host and browser both restart. Profile identity and lease persist;
@@ -176,8 +229,8 @@ try:
     assert target != old and 'one-time-code' in fields(target)
     run('fill', granted, '--tab', target, '--code', '#verification-code', '--submit', '#verify')
     wait_for(lambda: any(row[3] == server.origin + '/account' for row in inventory()))
-    assert server.results['password_accepted'] == 2 and server.results['verification_accepted'] == 1
-    assert len(list((root / 'authority').glob('lease-*'))) == 1
+    assert server.results['password_accepted'] == before_core['password_accepted'] + 2 and server.results['verification_accepted'] == before_core['verification_accepted'] + 1
+    assert len(list((root / 'authority').glob('lease-*'))) == leases_before_core + 1
     assert 'No visible inputs or buttons.' in fields(tab_for(server.origin + '/account'))
     run('release', granted)
     print('PASS restart without debugging port: same profile and lease; stale target refused; saved TOTP; authenticated page', flush=True)
@@ -194,15 +247,17 @@ try:
     browser.evaluate("window.submits=0;document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.submits++})")
     spa = lease('retained-controls')
     fill = ['fill', spa, '--tab', target, '--username', '#username', '--password', '#password', '--submit', '#sign-in']
-    run(*fill)
+    started = time.monotonic()
+    run(*fill, code=1)
+    assert 9 <= time.monotonic() - started < 14
     assert browser.evaluate("window.submits===1 && [...document.querySelectorAll('input')].every(e=>e.value==='')")
-    run(*fill)
+    run(*fill, code=1)
     assert browser.evaluate('window.submits===1')
-    run(*fill, '--again')
+    run(*fill, '--again', code=1)
     assert browser.evaluate("window.submits===2 && [...document.querySelectorAll('input')].every(e=>e.value==='')")
     run('fill', spa, '--tab', target, '--password', '#unrelated', '--submit', '#sign-in', code=1)
     run('release', spa)
-    print('PASS retained form: cleared fields; retry suppressed; deliberate repeat; unsuitable field refused', flush=True)
+    print('PASS unknown submission: bounded retention; Uncertain; cleared fields; retry suppressed; deliberate repeat; unsuitable field refused', flush=True)
 
     other_site = LoginServer(0)
     threading.Thread(target=other_site.serve_forever, daemon=True).start()
@@ -243,6 +298,7 @@ try:
     run('release', interrupted)
     print('PASS killed helper: pending retry is uncertain and does not submit twice', flush=True)
 
+    server.login_style = 'async-disabled-formless'
     for name, executable in [('claude', args.claude or args.external_claude), ('codex', args.codex)]:
         if not executable:
             continue

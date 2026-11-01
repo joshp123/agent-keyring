@@ -148,3 +148,99 @@ Chrome's native host search path follows its user-data directory
 which permits the isolated profile registration. The implementation uses
 [native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
 and [document-targeted isolated scripts](https://developer.chrome.com/docs/extensions/reference/api/scripting).
+
+## Submission and cleanup repair
+
+A fresh review found three real page failures in the first slice. They were
+reproduced through the real CLI, native host and extension on the mini before
+changing the receiver. On an asynchronous handler that read the inputs after
+200 ms, the old receiver reported success but the site rejected the cleared
+credentials. An initially disabled button and a JavaScript login without a
+`form` element were refused before any POST. The reproduction is retained in
+`.private/proofs/browser-extension-review/reproduction/`.
+
+The receiver now fills first, dispatches input/change and focus/blur events,
+and waits for a disabled button to become ready. Explicitly selected inputs and
+buttons need no form element; the document, origin, selector and field checks
+remain. Controls associated with different HTML forms are still refused.
+Native HTML validation is checked before clicking a submit button.
+
+A click alone no longer means Submitted. Native form-data capture confirms a
+normal submission. For script-driven submissions, full page departure, a URL
+change (including `history.pushState`), or removal of all filled controls is a
+completion signal. Submitted describes that sign-in **step**, including a step
+that displays an error; the agent still has to confirm authentication. The
+receiver clears the typed controls after that signal, with input/change events
+so controlled inputs also drop their stored value.
+
+If no completion is observed within ten seconds from filling, it clears the
+controls and reports Uncertain. There is no generic browser event that proves
+arbitrary JavaScript has finished reading an input. A handler that remains on
+the same page with the same controls, or reads only after the deadline, can
+therefore remain Uncertain. This does not grant another approval or click
+again: the receipt still suppresses retries until an inspected `--again`.
+
+The existing `script/prove_fields.py` and dummy site now cover:
+
+- Delayed asynchronous reads, initially disabled buttons, form-less JavaScript
+  logins, and all three together: one accepted password and one accepted saved
+  TOTP, with an authenticated account, under one lease for each page shape.
+- Blur-driven validation and controlled inputs that redraw from stored state.
+  Cleanup remains empty after a further second of page activity.
+- In-place URL changes, form replacement for a next step, and form replacement
+  for an error: prompt completion without waiting for a full navigation. The
+  deliberate error receives one rejected POST and is not called authenticated.
+- A permanently disabled button and an incomplete required field: zero POSTs,
+  a clear refusal, and empty inputs.
+- A handler that neither navigates nor replaces controls: Uncertain after ten
+  seconds, empty inputs, and no second click on an ordinary retry.
+
+The original identical-tab, frame-scope, changed-retry-key, browser-restart and
+killed-helper checks also pass. No secret is returned by `fill` or `fields`.
+
+Fresh Claude Code and Codex CLI runs used the combined asynchronous,
+initially-disabled, form-less site for both password and TOTP. Each used `tabs`,
+`fields` and `fill`, reached `/account`, checked completed-step retries and
+released one lease. The site's counts, independently of their reports, show:
+
+| Agent | Accepted password POSTs | Accepted code POSTs | New leases |
+| --- | ---: | ---: | ---: |
+| Claude Code | 2 | 1 | 1 |
+| Codex CLI | 2 | 1 | 1 |
+
+Both first password POSTs were accepted **before** the injected restart. The
+next login request had no pending or authenticated cookie. Claude's statement
+that the first step “had not taken effect” is therefore too strong: it happened,
+but the restart lost the site's pending session. The second password POST in a
+new document was needed. Retrying a completed password or code action added no
+POST. The fixture grants access automatically; this is not a real human approval
+or Touch ID proof.
+
+The complete agent transcripts and CLI output were scanned for the generated
+password, TOTP seed, codes over the run's time range, and common encodings. No
+matches were found. The agents' complete shell commands were also inspected:
+neither wrote a browser client or handled a secret. Their browsers had no
+debugging port. No candidate binary ran on the MacBook, and nothing was
+installed globally.
+
+The agent run is `/tmp/ak-ext-6y8ma99k`; the final unchanged full CLI replay is
+`/tmp/ak-cli-7501_u08`, with extension checks in `/tmp/ak-ext-5pzr2ijj`. Private
+copies of the transcripts, prompts, fixtures, counts, output and artifact hashes
+are in `.private/proofs/browser-extension-review/` in this worktree, with a
+second private copy in the main checkout at
+`.private/proofs/browser-extension-submission-6y8ma99k/`. Disposable profiles, authority state and receiver state were cleaned after the runs.
+
+The exact receiver and skill used by both agents have SHA-256 values:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Fresh mini arm64 CLI | `3e048e8301510f3974a7da02a84faa19a80c0f698033c0fc889cceaecf564e6b` |
+| Extension content script | `79b05ccefa52de08e044080406e38051643c23216fa83376814daf214dd60f0b` |
+| Bundled skill | `dae4fa4b6985640b0cf06d508f4af1ddad1a28357f5eeaccb156fc4ec4e01119` |
+
+`script/build_cli.sh` was rerun locally without executing the candidate there.
+`build/cli/macos/agent-keyring` contains both x86_64 and arm64; its SHA-256 is
+`3cf980860753209c82920ad582cc6b49a58050254fc6bcab0ba9c3f237cbd5e1`.
+The fresh mini build's help advertises `tabs`, opaque targets and the extension,
+with no debugging-port filling workflow. Broader browser installation and
+harness support remain the separate slices listed above.

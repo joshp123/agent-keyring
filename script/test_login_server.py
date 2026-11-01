@@ -96,7 +96,7 @@ class LoginHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'none'; form-action 'self'; base-uri 'none'; style-src 'unsafe-inline'")
+        self.send_header("Content-Security-Policy", "default-src 'none'; form-action 'self'; base-uri 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'")
         if cookie:
             self.send_header("Set-Cookie", cookie)
         self.end_headers()
@@ -112,6 +112,9 @@ class LoginHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def document(self, title, body):
+        style = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get('style', [getattr(self.server, 'login_style', 'native')])[0]
+        if style != 'native' and '<input' in body:
+            body += '<script src="/login-behavior.js?style=' + urllib.parse.quote(style) + '"></script>'
         return ("<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
                 f"<title>{html.escape(title)}</title><style>"
                 "body{font:18px system-ui;max-width:42rem;margin:4rem auto;padding:1rem}"
@@ -139,6 +142,8 @@ class LoginHandler(http.server.BaseHTTPRequestHandler):
             self.send_document(200, json.dumps(results), "application/json")
         elif parsed.path == "/health":
             self.send_document(200, '{"ready":true}', "application/json")
+        elif parsed.path == "/login-behavior.js":
+            self.send_document(200, Path(__file__).with_name('browser_plugin_async.js').read_text(), "application/javascript")
         elif parsed.path == "/json/version":
             with self.server.lock:
                 self.server.results["debugger_requests"] += 1
