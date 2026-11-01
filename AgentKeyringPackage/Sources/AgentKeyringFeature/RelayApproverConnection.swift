@@ -162,6 +162,15 @@ extension RelayApprover {
                     next.acknowledgedConfigurationRevision = try Agentkeyring_V1_Configuration(serializedBytes: publication.configuration.configuration).revision
                 case let (.publishCopyUpdate, .publish(ack)):
                     guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
+                case let (.acknowledgeUpdateReceipts(target), .publish(ack)):
+                    guard ack.accepted else { throw LeaseFailure(.conflict, ack.detail) }
+                    let id = updateID(target)
+                    guard next.withdrawals?[id]?.completedAt != nil else {
+                        throw LeaseFailure(.conflict, "The collected device confirmations are not saved on this Mac.")
+                    }
+                    if next.withdrawals![id]!.collectionAcknowledgedAt == nil {
+                        next.withdrawals![id]!.collectionAcknowledgedAt = Self.now
+                    }
                 case let (.updateLocalPhoneLease(update), .decision(ack)):
                     guard ack.lease.leaseID == update.lease.leaseID else { throw LeaseFailure(.conflict, "The relay acknowledged another local lease.") }
                 case let (.dismissEnrolment, .enrolment(ack)):

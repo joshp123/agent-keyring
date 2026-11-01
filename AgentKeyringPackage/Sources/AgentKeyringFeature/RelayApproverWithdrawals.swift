@@ -42,6 +42,7 @@ struct RelaySavedWithdrawal: Codable {
     var removedDevices: Set<String>
     var sequence: UInt64
     var completedAt: Int64?
+    var collectionAcknowledgedAt: Int64?
 }
 
 extension RelayApprover {
@@ -287,6 +288,19 @@ extension RelayApprover {
                 try commit(next)
             }
         }
+        try queueCollectedUpdateAcknowledgements()
+    }
+
+    func queueCollectedUpdateAcknowledgements() throws {
+        var next = state
+        for (id, saved) in state.withdrawals ?? [:] where saved.completedAt != nil && saved.collectionAcknowledgedAt == nil {
+            let queuedID = "receipt-collection:" + id
+            if next.outbox.contains(where: { $0.id == queuedID }) { continue }
+            var command = Agentkeyring_V1_RelayWireRequest()
+            command.acknowledgeUpdateReceipts = try updateTarget(Agentkeyring_V1_TrustUpdate(serializedBytes: saved.update))
+            try enqueue(command, id: queuedID, into: &next)
+        }
+        if next.outbox.count != state.outbox.count { try commit(next) }
     }
 
     var displayedWithdrawals: [RelayPermissionWithdrawal] {
@@ -309,8 +323,8 @@ extension RelayApproverState {
     var withdrawalRetentionDeadline: Int64? {
         let referenced = Set((withdrawals ?? [:]).values.flatMap { $0.devices.values.compactMap(\.retiredBy) })
         return (withdrawals ?? [:]).compactMap { id, saved in
-            guard !referenced.contains(id), let completed = saved.completedAt else { return nil }
-            return completed + 7 * 86400
+            guard !referenced.contains(id), let collected = saved.collectionAcknowledgedAt else { return nil }
+            return collected + 7 * 86400
         }.min()
     }
 
@@ -336,7 +350,7 @@ extension RelayApproverState {
             }
         }
         var retained = Set((withdrawals ?? [:]).filter { _, saved in
-            saved.completedAt == nil || saved.completedAt! + 7 * 86400 > now
+            saved.collectionAcknowledgedAt == nil || saved.collectionAcknowledgedAt! + 7 * 86400 > now
         }.keys)
         var previous: Set<String> = []
         while retained != previous {

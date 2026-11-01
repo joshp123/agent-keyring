@@ -12,6 +12,9 @@ retries without another authorization.
 The public `withdrawals` collection is included in `RelayApproverUpdate`.
 Each `RelayPermissionWithdrawal` names the exact update kind and revision,
 contains its device labels and statuses, and exposes `isComplete`.
+Its `change` distinguishes phone removal, phone replacement, approver-key
+changes and configuration changes; `deviceName` supplies the phone's name.
+Views can word these without parsing `label`.
 `RelayPermissionDeviceStatus.confirmed` means this Mac verified that original
 TLS identity's signature for the exact payload hash. `removedByLaterChange`
 means a later, fully confirmed owner withdrawal retired its missing obligation.
@@ -25,8 +28,13 @@ permission, login destinations and receiving-machine removal. A later change
 never rewrites an earlier required-device set. A durable sequence orders changes
 made within the same second; only a later withdrawal with all of its own receipts
 can retire an earlier missing device. Pending evidence survives indefinitely;
-completed evidence is retained for seven days, including any evidence still
-needed by another record. Retention shares the existing deadline timer.
+completed evidence remains until the owner has durably collected it. The Mac
+first saves independently verified complete evidence, then queues the exact
+collection acknowledgement in its durable outbox. Loading older completed
+records queues any missing acknowledgement too. A lost reply retries without
+another authorization. Only collection starts seven-day retention; evidence
+still needed by another record remains. Retention shares the existing deadline
+timer.
 
 The Mac independently verifies receipts. A relay acknowledgement or its claim
 of completion is insufficient. Only previously saved owner publications can
@@ -62,6 +70,12 @@ or real Passwords data is involved.
 - Fresh production receiver processes learn and save removal, publish their
   authentic receipt, and reject the old phone's still-unexpired delivery.
   The Mac then completes the change without another authorization.
+- The owner is offline while those receipts complete removal. After eight
+  simulated days and a relay restart, the actual Swift Mac still collects
+  their exact authenticated evidence. Its collection acknowledgement loses
+  its reply; Mac and relay restarts preserve both complete evidence and the
+  identical queued acknowledgement. Retrying drains the outbox without
+  resetting the relay's original collection timestamp.
 - The retired connection cannot decide or fetch a new copy. A genuine synthetic
   password import sends nothing to its old destination and asks for nothing.
 - An Ask-to-Blocked change A stays pending. A later receiving-machine removal B
@@ -70,9 +84,12 @@ or real Passwords data is involved.
   the remaining Swift phone's real receipts complete B and then retire A's
   missing receiver. Public updates require no phone authorization.
 
-The complete Swift package and `go vet ./...` pass. The actual Xcode Release
-app builds on the mini, with its universal Go helper. It is not launched or
-installed by this proof. Logs are retained in `.private/proofs/round12-removal/`.
+The complete Swift package and `go vet ./...` pass. The prior round's actual
+Xcode Release app also built on the mini with its universal Go helper; this
+round proves the production Swift authority through the local CLI, without
+launching or installing the app. Logs are retained in
+`.private/proofs/round13/`; the earlier removal proof is in
+`.private/proofs/round12-removal/`.
 
 Build/sign the mini-built Mac fixture using the existing profile as described
 in [the Mac approver runbook](mac-relay-approver.md). It has no extension and is
