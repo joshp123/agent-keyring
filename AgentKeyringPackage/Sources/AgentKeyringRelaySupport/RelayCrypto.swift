@@ -69,4 +69,22 @@ public enum RelayCrypto {
         return data
     }
 
+    public static func sealLoginCopy(_ contents: Agentkeyring_V1_AutomaticLoginContents, receiverKey: Data,
+        configurationRevision: UInt64, revision: UInt64) throws -> Agentkeyring_V1_SealedAutomaticLogin {
+        let key = try P256.KeyAgreement.PublicKey(x963Representation: receiverKey)
+        var sender = try HPKE.Sender(recipientKey: key, ciphersuite: .P256_SHA256_AES_GCM_256,
+            info: Data("agentkeyring.login-copy.v1".utf8))
+        let destination = keyID(receiverKey)
+        let aad = loginCopyAssociatedData(destination: destination, configurationRevision: configurationRevision,
+                                          revision: revision, loginID: contents.loginID)
+        var plaintext = try contents.serializedData()
+        defer { plaintext.resetBytes(in: plaintext.startIndex..<plaintext.endIndex) }
+        var login = Agentkeyring_V1_SealedAutomaticLogin()
+        login.loginID = contents.loginID
+        login.sealed.encapsulatedKey = sender.encapsulatedKey
+        login.sealed.ciphertext = try sender.seal(plaintext, authenticating: aad)
+        login.sealed.receiverKeyID = destination
+        return login
+    }
+
 }

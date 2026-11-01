@@ -53,12 +53,16 @@ public struct RelayTLSIdentity: @unchecked Sendable {
 
     @MainActor public static func loadOrCreate(service: String = "com.agentkeyring.relay-identity.v1") throws -> Self {
         let keychain = RelayKeychain(service: service)
+        return try loadOrCreate(read: { try keychain.read("tls") }, write: { try keychain.write($0, account: "tls") })
+    }
+
+    @MainActor public static func loadOrCreate(read: () throws -> Data?, write: (Data) throws -> Void) throws -> Self {
         let saved: Saved
-        if let bytes = try keychain.read("tls") { saved = try PropertyListDecoder().decode(Saved.self, from: bytes) }
+        if let bytes = try read() { saved = try PropertyListDecoder().decode(Saved.self, from: bytes) }
         else {
             let key = P256.Signing.PrivateKey()
             saved = Saved(privateKey: key.x963Representation, certificate: try certificate(key))
-            try keychain.write(PropertyListEncoder().encode(saved), account: "tls")
+            try write(PropertyListEncoder().encode(saved))
         }
         return try Self(privateKey: saved.privateKey, certificate: saved.certificate)
     }

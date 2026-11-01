@@ -155,7 +155,7 @@ struct RelayApproverFixture {
         let signer = try FixtureSigner(root: root)
         let vault = FixtureVault(root: root)
         let lockState = FixtureSessionLockState(root: root)
-        let identity = try RelayTLSIdentity.loadOrCreate(service: "com.agentkeyring.relay-proof.tls." + root.lastPathComponent)
+        let identity = try RelayTLSIdentity.loadMacIdentity(service: "com.agentkeyring.relay-proof.tls." + root.lastPathComponent)
         let persistence = LeasePersistence(directory: root.appendingPathComponent("approver"),
             checkpointService: "com.agentkeyring.relay-proof.authority." + root.lastPathComponent)
         let authorityPersistence = LeasePersistence(directory: root.appendingPathComponent("authority"),

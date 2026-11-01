@@ -12,7 +12,7 @@ public struct RelayEndpoint: Codable, Equatable, Sendable {
     private let allowsLoopbackForProof: Bool?
 
     public init(host: String, port: UInt16, allowsLoopbackForProof: Bool = false) throws {
-        guard port > 0, !host.isEmpty, !host.contains("/"), !host.contains("@"),
+        guard port > 0, !host.isEmpty, !host.contains("/"), !host.contains("@"), !host.utf8.contains(0),
               host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
             throw RelayFailure(.invalidArgument, "Enter the relay's host name and port.")
         }
@@ -21,7 +21,7 @@ public struct RelayEndpoint: Codable, Equatable, Sendable {
         self.allowsLoopbackForProof = allowsLoopbackForProof ? true : nil
     }
 
-    fileprivate func permitsPeer(_ endpoint: NWEndpoint?) -> Bool {
+    public func permitsResolvedEndpoint(_ endpoint: NWEndpoint?) -> Bool {
         guard case let .hostPort(host, _) = endpoint else { return false }
         switch host {
         case let .ipv4(address): return permitsIPv4(address)
@@ -124,7 +124,7 @@ public final class RelayConnection: @unchecked Sendable {
     }
 
     private func requireTailnetPeer() throws {
-        guard endpoint.permitsPeer(connection.currentPath?.remoteEndpoint) else {
+        guard endpoint.permitsResolvedEndpoint(connection.currentPath?.remoteEndpoint) else {
             connection.cancel()
             throw RelayFailure(.permissionDenied, "The relay must connect over Tailscale.")
         }
@@ -181,7 +181,8 @@ public struct RelayTransport: Sendable {
         } catch { connection.cancel(); throw error }
     }
 
-    public func call(_ request: Agentkeyring_V1_RelayWireRequest) async throws -> Agentkeyring_V1_RelayWireResponse {
+    public func call(_ request: Agentkeyring_V1_RelayWireRequest,
+                     onTrustUpdate: (@Sendable (Agentkeyring_V1_TrustUpdate) async throws -> Void)? = nil) async throws -> Agentkeyring_V1_RelayWireResponse {
         let connection = try await open(request)
         defer { connection.cancel() }
         return try await withThrowingTaskGroup(of: Agentkeyring_V1_RelayWireResponse.self) { tasks in
@@ -189,7 +190,7 @@ public struct RelayTransport: Sendable {
                 while true {
                     let response = try await connection.next()
                     if case let .trustUpdate(update) = response.response {
-                        guard let receivingTrustUpdate else {
+                        guard let receivingTrustUpdate = onTrustUpdate ?? receivingTrustUpdate else {
                             throw RelayFailure(.unavailable, "This connection cannot save a signed trust update.")
                         }
                         try await receivingTrustUpdate(update)

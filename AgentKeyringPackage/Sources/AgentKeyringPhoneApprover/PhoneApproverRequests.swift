@@ -59,7 +59,7 @@ extension PhoneRelayApprover {
         lease.recipient.clientLabel = machine.clientLabel
         if pending.hasLocalLease { lease = pending.localLease; lease.recipient.machineLabel = mac.label }
         lease.state = Self.now < record.pendingUntilUnixSeconds ? .pending : .unanswered
-        if lease.state == .unanswered { lease.endedAtUnixSeconds = Self.now }
+        if lease.state == .unanswered { lease.endedAtUnixSeconds = record.pendingUntilUnixSeconds }
         var next = state
         next.requests[id] = PhoneSavedRequest(record: bytes, lease: try lease.serializedData(), metadata: metadata,
                                               machine: try machine.serializedData(), sourceMacKeyID: mac.keyID, isLocal: pending.hasLocalLease)

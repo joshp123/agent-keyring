@@ -1,15 +1,9 @@
+import AgentKeyringRelaySupport
 import AgentKeyringProtocol
 import Foundation
 import Observation
 
-public struct LeaseFailure: Error, Sendable {
-    public let code: Agentkeyring_V1_RpcErrorCode
-    public let message: String
-    public init(_ code: Agentkeyring_V1_RpcErrorCode, _ message: String) {
-        self.code = code
-        self.message = message
-    }
-}
+public typealias LeaseFailure = RelayFailure
 
 public struct CredentialLeaseRequester: Codable, Sendable {
     public let name: String
