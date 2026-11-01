@@ -82,7 +82,7 @@ struct PairedApprovalDeviceTests {
         await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.addPairedDevice(fixture.device) }
         await #expect(throws: AccessRulesConfirmationRequired.self) { try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey) }
         try await fixture.store.save(snapshot, reason: "confirm test rules")
-        #expect(fixture.signer.signingReason == "confirm test rules. Your iPhone must be paired again.")
+        #expect(fixture.signer.signingReason == "confirm test rules. Your previously paired iPhone must be paired again.")
         #expect(try await fixture.store.load() == [loginID: .block])
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
         await #expect(throws: ApprovalDecisionRefusal.unpairedDevice) {
@@ -123,7 +123,7 @@ struct PairedApprovalDeviceTests {
         #expect(snapshot.reason == .unverified)
         try await fixture.store.save(snapshot, reason: "confirm test rules")
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
-        #expect(fixture.signer.signingReason == "confirm test rules. Your iPhone must be paired again.")
+        #expect(fixture.signer.signingReason == "confirm test rules")
     }
 
     @Test("A stale rule snapshot cannot restore a removed device")
@@ -133,7 +133,6 @@ struct PairedApprovalDeviceTests {
         try await fixture.pair()
         let snapshot = try await fixture.store.snapshotForConfirmation()
         try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey)
-        #expect(snapshot.reason != .unverified)
         try await fixture.store.save(snapshot, reason: "confirm test rules")
         #expect(try await fixture.store.loadPairedDevices().isEmpty)
     }

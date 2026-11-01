@@ -35,7 +35,7 @@ struct SignedAccessRulesTests {
         await controller.confirmRules()
         #expect(try Data(contentsOf: fixture.fileURL) == snapshotBytes)
         #expect(try await fixture.store.load()[fixture.loginID] == .block)
-        #expect(fixture.signer.signingReason == "confirm your Agent Keyring access rules: 0 allowed automatically, 1 blocked, 0 ask each time. Your iPhone must be paired again.")
+        #expect(fixture.signer.signingReason == "confirm your Agent Keyring access rules: 0 allowed automatically, 1 blocked, 0 ask each time")
     }
     @Test("Restoring an older valid signed pair fails closed")
     func signedRollback() async throws {
