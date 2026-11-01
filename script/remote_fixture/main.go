@@ -262,6 +262,15 @@ func (f *fixture) serve(conn net.Conn) {
 			chain.KeySets = append(chain.KeySets, signed)
 		}
 		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ApproverKeyChain{ApproverKeyChain: chain}})
+	case request.GetGetConfigurationUpdates() != nil:
+		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ConfigurationUpdates{ConfigurationUpdates: &pb.ConfigurationUpdates{Configurations: []*pb.SignedConfiguration{f.configuration()}}}})
+	case request.GetPublishUpdateReceipt() != nil:
+		receipt := new(pb.UpdateReceipt)
+		signed := request.GetPublishUpdateReceipt()
+		must(proto.Unmarshal(signed.Receipt, receipt))
+		spki := conn.(*tls.Conn).ConnectionState().PeerCertificates[0].RawSubjectPublicKeyInfo
+		must(relaycrypto.VerifyUpdateReceipt(spki, signed, &pb.UpdateReceiptQuery{Kind: receipt.Kind, Revision: receipt.Revision, UpdateSha256: receipt.UpdateSha256}))
+		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Publish{Publish: &pb.PublishAck{Accepted: true}}})
 	case request.GetGetConfiguration() != nil:
 		f.write(conn, &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Configuration{Configuration: f.configuration()}})
 	case request.GetClient() != nil:

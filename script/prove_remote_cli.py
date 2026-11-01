@@ -119,8 +119,8 @@ try:
         'bad-enc': 'encapsulated key',
         'bundle-login': 'opened login does not match',
         'bad-chain': 'key chain has an invalid signature',
-        'phone-chain': 'required approver role',
-        'delivery-chain': 'required approver role',
+        'phone-chain': 'Only the rule owner may withdraw approver authority.',
+        'delivery-chain': 'Only the rule owner may withdraw approver authority.',
     }
     for fault, expected in failures.items():
         mode(fault)
@@ -184,7 +184,7 @@ try:
     print('PASS signed approver key update from pinned predecessor, new process accepts new signer')
     mode('')
     stale = run('read', lease, '--field', 'password', code=1)
-    assert stale.stdout == b'' and b'Human decisions require a current Mac or phone approver.' in stale.stderr
+    assert stale.stdout == b'' and b'The configuration is not signed by the current rule owner.' in stale.stderr, stale.stderr
     print('PASS removed signer refused after key-set update')
     if args.interruptions:
         print('PASS CLI calls under repeated Go preemption signals, including state locks' + (' and browser tab locks' if args.browser else ''))
