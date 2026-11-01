@@ -35,6 +35,10 @@ service Approvals {
   rpc PublishCopyUpdate(SignedCopyUpdate) returns (PublishAck);
   // A pinned phone fetches only its own opaque copy. Missing returns NOT_FOUND.
   rpc GetCopyUpdate(GetCopyUpdateRequest) returns (SignedCopyUpdate);
+  // Receipts authenticate durable application, never a relay's claim of delivery.
+  rpc PublishUpdateReceipt(SignedUpdateReceipt) returns (PublishAck);
+  rpc GetUpdateReceipts(UpdateReceiptQuery) returns (UpdateReceipts);
+  rpc GetConfigurationUpdates(GetConfigurationUpdatesRequest) returns (ConfigurationUpdates);
   // Josh pressed "Doesn't match" or dismissed a pending enrolment. Grants
   // nothing, so unsigned; accepted only from a pinned approver connection.
   rpc DismissEnrolment(DismissEnrolmentRequest) returns (PublishAck);
@@ -106,6 +110,7 @@ message ApproverWork {
     SignedPhoneDecision phone_decision = 6;  // To the MacBook only.
     LocalLeaseAction local_lease_action = 7; // To the owning MacBook only.
     SignedCopyUpdate copy_update = 8; // To its destination phone only.
+    TrustUpdate trust_update = 9; // Save before accepting further answers.
   }
 }
 
@@ -489,6 +494,9 @@ message RelayWireRequest {
     LocalPhoneLeaseUpdate update_local_phone_lease = 25;
     SignedCopyUpdate publish_copy_update = 26;
     GetCopyUpdateRequest get_copy_update = 27;
+    SignedUpdateReceipt publish_update_receipt = 28;
+    UpdateReceiptQuery get_update_receipts = 29;
+    GetConfigurationUpdatesRequest get_configuration_updates = 30;
   }
   reserved 10, 15, 16, 17, 18, 19;
 }
@@ -508,7 +516,47 @@ message RelayWireResponse {
     AutomaticKeys automatic_keys = 15;
     Lease lease = 16;
     SignedCopyUpdate copy_update = 17;
+    UpdateReceipts update_receipts = 18;
+    ConfigurationUpdates configuration_updates = 19;
+    TrustUpdate trust_update = 20; // May precede a streamed client result.
   }
   bool end_of_stream = 8;
   reserved 9, 13, 14;
+}
+
+// Public changes use the existing owner signatures. Hash the payload bytes,
+// not their signature wrappers; signatures may differ on an exact resend.
+enum UpdateKind {
+  UPDATE_KIND_UNSPECIFIED = 0;
+  UPDATE_KIND_APPROVER_KEYS = 1;
+  UPDATE_KIND_CONFIGURATION = 2;
+}
+message TrustUpdate {
+  oneof update {
+    SignedApproverKeySet approver_keys = 1;
+    SignedConfiguration configuration = 2;
+  }
+}
+message UpdateReceipt {
+  string domain = 1; // agentkeyring.update-receipt.v1
+  bytes device_spki_sha256 = 2;
+  UpdateKind kind = 3;
+  uint64 revision = 4;
+  bytes update_sha256 = 5;
+}
+message SignedUpdateReceipt {
+  bytes receipt = 1; // Exact serialized UpdateReceipt bytes.
+  // DER ECDSA-P256/SHA256, using the device's existing non-biometric TLS key.
+  bytes signature = 2;
+}
+message UpdateReceiptQuery {
+  UpdateKind kind = 1;
+  uint64 revision = 2;
+  bytes update_sha256 = 3;
+}
+message UpdateReceipts { repeated SignedUpdateReceipt receipts = 1; }
+message GetConfigurationUpdatesRequest { uint64 after_revision = 1; }
+message ConfigurationUpdates {
+  // Ascending pending withdrawals after the requested revision, then current.
+  repeated SignedConfiguration configurations = 1;
 }
