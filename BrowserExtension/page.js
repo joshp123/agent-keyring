@@ -42,19 +42,93 @@
     };
     if (location.origin !== message.origin || !message.fields?.length) throw Error();
     const submit = query(message.submit);
-    if (!visible(submit) || submit.disabled || !submit.form ||
+    if (!visible(submit) ||
         !(submit instanceof HTMLButtonElement || (submit instanceof HTMLInputElement && ['submit', 'button'].includes(submit.type)))) throw Error();
     const fields = message.fields.map(b => {
       const e = query(b.selector);
-      if (!(e instanceof HTMLInputElement) || !visible(e) || e.disabled || e.readOnly || e.form !== submit.form) throw Error();
+      if (!(e instanceof HTMLInputElement) || !visible(e) || e.matches(':disabled') || e.readOnly || (e.form && submit.form && e.form !== submit.form)) throw Error();
       if (b.field === 'CREDENTIAL_FIELD_PASSWORD' ? e.type !== 'password' : !['text', 'email', 'tel', 'number'].includes(e.type)) throw Error();
       return e;
     });
     if (new Set(fields).size !== fields.length || new Set(message.fields.map(b => b.field)).size !== fields.length) throw Error();
     const types = fields.map(e => e.type);
     return {fields, submit, valid: () => location.origin === message.origin &&
-      query(message.submit) === submit && visible(submit) && !submit.disabled &&
-      fields.every((e, i) => query(message.fields[i].selector) === e && visible(e) && !e.disabled && !e.readOnly && e.type === types[i] && e.form === submit.form)};
+      query(message.submit) === submit && visible(submit) &&
+      fields.every((e, i) => query(message.fields[i].selector) === e && visible(e) && !e.matches(':disabled') && !e.readOnly && e.type === types[i] && (!e.form || !submit.form || e.form === submit.form))};
+  };
+  const fill = async (message, prepared, respond) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    const changed = e => {
+      e.dispatchEvent(new Event('input', {bubbles: true, composed: true}));
+      e.dispatchEvent(new Event('change', {bubbles: true, composed: true}));
+    };
+    const written = [];
+    const deadline = performance.now() + 10000;
+    const pause = () => new Promise(resolve => setTimeout(resolve, 50));
+    const originalURL = location.href;
+    let finished = false, clicked = false, submitEvent, serialized = false;
+    const onSubmit = event => { submitEvent = event; };
+    const onFormData = () => { serialized = true; };
+    const onDeparture = () => finish(clicked ? 1 : 2);
+    const finish = (outcome, detail) => {
+      if (finished) return;
+      finished = true;
+      removeEventListener('pagehide', onDeparture);
+      prepared.submit.form?.removeEventListener('submit', onSubmit);
+      prepared.submit.form?.removeEventListener('formdata', onFormData);
+      let cleaned = true;
+      for (const e of written) {
+        try { setter.call(e, ''); changed(e); if (e.value !== '') cleaned = false; }
+        catch { cleaned = false; }
+      }
+      message.values.fill('');
+      respond({fill: {outcome: cleaned ? outcome : 8,
+        detail: !cleaned ? 'Cleanup could not be confirmed. Close this tab without reading its fields.' :
+          detail || (outcome === 1 ? 'Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.' :
+            'The fill result is uncertain. Remaining values were cleared. Inspect the page before using --again.')}});
+    };
+    try {
+      for (let i = 0; i < prepared.fields.length; i++) {
+        if (!prepared.valid()) throw Error();
+        const e = prepared.fields[i];
+        e.focus({preventScroll: true});
+        setter.call(e, message.values[i]);
+        written.push(e);
+        changed(e);
+        e.blur();
+      }
+      while (prepared.submit.matches(':disabled') && performance.now() < deadline) {
+        if (!prepared.valid()) throw Error();
+        await pause();
+      }
+      if (!prepared.valid()) throw Error();
+      if (prepared.submit.matches(':disabled')) {
+        finish(4, 'The submit control stayed disabled. Values were cleared without clicking it. Inspect the page before trying again.');
+        return;
+      }
+      const form = prepared.submit.form;
+      if (form && prepared.submit.type === 'submit' && !form.noValidate && !prepared.submit.formNoValidate && !form.checkValidity()) {
+        finish(4, 'The form needs another field or a valid value. Values were cleared without submitting. Inspect the page before trying again.');
+        return;
+      }
+      form?.addEventListener('submit', onSubmit);
+      form?.addEventListener('formdata', onFormData);
+      addEventListener('pagehide', onDeparture);
+      clicked = true;
+      prepared.submit.click();
+      // Native form data has been captured before click returns. Scripted
+      // handlers may read later, so retain the inputs until the page moves on.
+      while (!finished) {
+        if ((serialized && submitEvent && !submitEvent.defaultPrevented) || location.href !== originalURL ||
+            prepared.fields.every(e => !e.isConnected)) {
+          finish(1);
+        } else if (performance.now() >= deadline) {
+          finish(2);
+        } else {
+          await pause();
+        }
+      }
+    } catch { finish(2); }
   };
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (sender.id !== chrome.runtime.id) return;
@@ -64,28 +138,7 @@
     catch { respond({error: 'A field or submit selector is missing, ambiguous or unsuitable. Run fields again.'}); return; }
     if (message.action === 'prepare') { respond({ready: true}); return; }
     if (message.action !== 'fill' || message.values?.length !== prepared.fields.length) return;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    let submitted = false, cleaned = true;
-    try {
-      for (let i = 0; i < prepared.fields.length; i++) {
-        if (!prepared.valid()) throw Error();
-        setter.call(prepared.fields[i], message.values[i]);
-        prepared.fields[i].dispatchEvent(new Event('input', {bubbles: true}));
-        prepared.fields[i].dispatchEvent(new Event('change', {bubbles: true}));
-      }
-      if (!prepared.valid()) throw Error();
-      prepared.submit.click();
-      submitted = true;
-    } catch {} finally {
-      for (const e of prepared.fields) {
-        try { setter.call(e, ''); if (e.value !== '') cleaned = false; }
-        catch { cleaned = false; }
-      }
-      message.values.fill('');
-    }
-    respond({fill: {outcome: !cleaned ? 8 : submitted ? 1 : 2,
-      detail: !cleaned ? 'Cleanup could not be confirmed. Close this tab without reading its fields.' :
-        submitted ? 'Submitted this sign-in step and cleared remaining values. Inspect the page to confirm sign-in.' :
-          'The fill result is uncertain. Inspect the page before using --again.'}});
+    void fill(message, prepared, respond);
+    return true;
   });
 })();
