@@ -90,6 +90,27 @@ public enum SetupCopy {
     public static let automaticAllowed = "Automatic logins allowed"
     public static let asksEveryTime = "Asks every time"
     public static let remove = "Remove"
+    public static let removeWithTouchID = "Remove with Touch ID"
+
+    public static func removePhoneTitle(_ name: String) -> String { "Remove \(name)?" }
+    /// Honest about the limit: removal stops the phone approving, but cannot
+    /// reach into it and erase what it already holds.
+    public static let removePhoneMessage = "It stops approving requests once your other devices confirm the change. This doesn't erase anything already on it: its stored passwords and two-factor codes stay locked behind its Face ID. If it might be in someone else's hands, change those passwords and set up two-factor again."
+
+    // MARK: Removals waiting for every device to confirm
+
+    public static let waitingForDevices = "Waiting for devices"
+
+    public static func withdrawalProgress(_ withdrawal: PendingWithdrawal) -> String {
+        let waiting = "Waiting for \(list(withdrawal.waitingFor))."
+        return withdrawal.confirmedOn.isEmpty ? waiting : "Done on \(list(withdrawal.confirmedOn)). " + waiting
+    }
+
+    /// "a", "a and b", "a, b and c".
+    static func list(_ names: [String]) -> String {
+        guard names.count > 1 else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + names.last!
+    }
     public static let canApprove = "Can approve requests"
     public static let answersWithTouchID = "Answers with Touch ID"
     public static let answersWithFaceID = "Answers with Face ID"

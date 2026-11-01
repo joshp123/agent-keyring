@@ -34,12 +34,31 @@ public struct EnrolledMachine: Identifiable, Hashable, Sendable {
 
 /// A device in the current approver key set.
 public struct ApproverDevice: Hashable, Sendable {
+    public var keyID: String
     public var name: String
     public var isPhone: Bool
 
-    public init(name: String, isPhone: Bool) {
+    public init(keyID: String = "", name: String, isPhone: Bool) {
+        self.keyID = keyID
         self.name = name
         self.isPhone = isPhone
+    }
+}
+
+/// A removal or narrowed permission that every remaining device must
+/// confirm, with its own signature, before it counts as done.
+public struct PendingWithdrawal: Identifiable, Hashable, Sendable {
+    public let id: String
+    /// For example "Removing Josh's old iPhone".
+    public var title: String
+    public var confirmedOn: [String]
+    public var waitingFor: [String]
+
+    public init(id: String, title: String, confirmedOn: [String], waitingFor: [String]) {
+        self.id = id
+        self.title = title
+        self.confirmedOn = confirmedOn
+        self.waitingFor = waitingFor
     }
 }
 
@@ -52,18 +71,21 @@ public struct MachinesSnapshot: Hashable, Sendable {
     public var waiting: [DeviceEnrolment]
     public var machines: [EnrolledMachine]
     public var approvers: [ApproverDevice]
+    /// Unfinished only; a withdrawal leaves the list once every device confirms.
+    public var withdrawals: [PendingWithdrawal]
     /// How long a request waits here before the Mac asks the iPhone (RFC 0006).
     public var askPhoneAfter: Duration
 
     public init(relay: RelayLink, queuedAnswers: Int = 0, isApplying: Bool = false,
         waiting: [DeviceEnrolment] = [], machines: [EnrolledMachine] = [], approvers: [ApproverDevice] = [],
-        askPhoneAfter: Duration = .seconds(120)) {
+        withdrawals: [PendingWithdrawal] = [], askPhoneAfter: Duration = .seconds(120)) {
         self.relay = relay
         self.queuedAnswers = queuedAnswers
         self.isApplying = isApplying
         self.waiting = waiting
         self.machines = machines
         self.approvers = approvers
+        self.withdrawals = withdrawals
         self.askPhoneAfter = askPhoneAfter
     }
 }
@@ -79,6 +101,8 @@ public protocol MacMachinesBackend: AnyObject {
     func cancelRelaySetup() throws
     /// Removes a machine's right to ask, with Touch ID.
     func remove(machineID: String) async throws
+    /// Removes an iPhone's right to approve, with Touch ID.
+    func removePhone(keyID: String) async throws
     func setAskPhoneAfter(_ delay: Duration)
 }
 
@@ -126,6 +150,10 @@ public final class MacMachinesModel {
         await run("The setup couldn't be cancelled.") { try backend.cancelRelaySetup() }
     }
 
+    public func removePhone(_ keyID: String) async {
+        await run("The iPhone wasn't removed. Try again.") { try await backend.removePhone(keyID: keyID) }
+    }
+
     public func remove(_ machineID: String) async {
         await run("The machine wasn't removed. Try again.") { try await backend.remove(machineID: machineID) }
     }
@@ -151,6 +179,7 @@ public final class MacMachinesModel {
 
 public struct MacMachinesView: View {
     @Bindable var model: MacMachinesModel
+    @State private var phoneToRemove: ApproverDevice?
 
     public init(model: MacMachinesModel) {
         self.model = model
@@ -160,7 +189,24 @@ public struct MacMachinesView: View {
         Form {
             Section(SetupCopy.relayHeading) {
                 relay
-                if model.snapshot.isApplying { ApplyingLine() }
+                // Pending withdrawals say more than the spinner, so they replace it.
+                if model.snapshot.isApplying && model.snapshot.withdrawals.isEmpty { ApplyingLine() }
+            }
+
+            if !model.snapshot.withdrawals.isEmpty {
+                Section(SetupCopy.waitingForDevices) {
+                    ForEach(model.snapshot.withdrawals) { withdrawal in
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(withdrawal.title).fontWeight(.medium)
+                                Text(SetupCopy.withdrawalProgress(withdrawal))
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
             }
 
             if !model.snapshot.waiting.isEmpty {
@@ -183,9 +229,17 @@ public struct MacMachinesView: View {
             if !model.snapshot.approvers.isEmpty {
                 Section {
                     ForEach(model.snapshot.approvers, id: \.self) { approver in
-                        MachineLabel(name: approver.name,
-                            detail: approver.isPhone ? SetupCopy.answersWithFaceID : SetupCopy.answersWithTouchID,
-                            symbol: approver.isPhone ? "iphone" : "laptopcomputer")
+                        HStack {
+                            MachineLabel(name: approver.name,
+                                detail: approver.isPhone ? SetupCopy.answersWithFaceID : SetupCopy.answersWithTouchID,
+                                symbol: approver.isPhone ? "iphone" : "laptopcomputer")
+                            if approver.isPhone {
+                                Spacer()
+                                Button(SetupCopy.remove) { phoneToRemove = approver }
+                                    .foregroundStyle(KeyringColour.denyText)
+                                    .disabled(model.isWorking)
+                            }
+                        }
                     }
                     if model.snapshot.approvers.contains(where: \.isPhone) {
                         Picker(SetupCopy.askPhoneAfterOnMac, selection: phoneDelay) {
@@ -226,6 +280,14 @@ public struct MacMachinesView: View {
         .formStyle(.grouped)
         .frame(minWidth: 520, idealWidth: 560, minHeight: 420)
         .task { await model.followUpdates() }
+        .confirmationDialog(phoneToRemove.map { SetupCopy.removePhoneTitle($0.name) } ?? "",
+            isPresented: removingPhone, titleVisibility: .visible, presenting: phoneToRemove) { phone in
+            Button(SetupCopy.removeWithTouchID, role: .destructive) {
+                Task { await model.removePhone(phone.keyID) }
+            }
+        } message: { _ in
+            Text(SetupCopy.removePhoneMessage)
+        }
         .alert("Something went wrong", isPresented: failureShown) {
             Button("OK") { model.dismissFailure() }
         } message: {
@@ -290,6 +352,10 @@ public struct MacMachinesView: View {
 
     private var phoneDelay: Binding<Duration> {
         Binding(get: { model.snapshot.askPhoneAfter }, set: { model.setAskPhoneAfter($0) })
+    }
+
+    private var removingPhone: Binding<Bool> {
+        Binding(get: { phoneToRemove != nil }, set: { if !$0 { phoneToRemove = nil } })
     }
 
     private var failureShown: Binding<Bool> {

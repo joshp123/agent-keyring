@@ -86,9 +86,26 @@ public enum RelayScreenMapping {
         guard let signed = update.approverKeySet,
             let set = try? Agentkeyring_V1_ApproverKeySet(serializedBytes: signed.keySet)
         else { return [] }
-        let thisMac = Host.current().localizedName ?? "This Mac"
-        // Release 3 and 4 approvers are this Mac and iPhones.
-        return set.keys.map { ApproverDevice(name: $0.label, isPhone: $0.label != thisMac) }
+        return set.keys.map { ApproverDevice(keyID: $0.keyID, name: $0.label, isPhone: $0.role == .phone) }
+    }
+
+    /// Unfinished withdrawals. A device dropped by a later change no longer
+    /// has to confirm, so it is in neither list.
+    public static func withdrawals(_ update: RelayApproverUpdate) -> [PendingWithdrawal] {
+        update.withdrawals.filter { !$0.isComplete }.map { withdrawal in
+            let counted = withdrawal.devices.filter { !$0.removedByLaterChange }
+            return PendingWithdrawal(id: withdrawal.id, title: withdrawalTitle(withdrawal.label),
+                confirmedOn: counted.filter(\.confirmed).map(\.label),
+                waitingFor: counted.filter { !$0.confirmed }.map(\.label))
+        }
+    }
+
+    /// RelayApprover names a withdrawal as a command ("Remove …"); the
+    /// screen shows it as something in progress.
+    static func withdrawalTitle(_ label: String) -> String {
+        if label.hasPrefix("Remove ") { return "Removing " + label.dropFirst("Remove ".count) }
+        if label == "Apply changed login and machine permissions" { return "Applying changed permissions" }
+        return label
     }
 
     static func site(_ lease: Agentkeyring_V1_Lease, loginTitle: String) -> String {
@@ -218,6 +235,7 @@ public final class RelayMachinesBackend: MacMachinesBackend {
                     automaticAllowed: $0.automaticAllowed)
             },
             approvers: RelayScreenMapping.approvers(update),
+            withdrawals: RelayScreenMapping.withdrawals(update),
             askPhoneAfter: .seconds(routing.phoneDelaySeconds))
     }
 
@@ -235,6 +253,10 @@ public final class RelayMachinesBackend: MacMachinesBackend {
 
     public func cancelRelaySetup() throws {
         try screenErrors { try relay.abandonPairing() }
+    }
+
+    public func removePhone(keyID: String) async throws {
+        try await screenErrors { try await relay.removePhone(keyID, context: LAContext()) }
     }
 
     public func remove(machineID: String) async throws {

@@ -29,6 +29,7 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case enrolmentJoined
     case machines
     case machinesSetUp
+    case machinesRemovingPhone
     case machinesComparing
     case menuBarRemote
 }
@@ -60,7 +61,7 @@ public final class MacDesignGallery {
             showRules()
         case .enrolment, .enrolmentIPhone, .enrolmentIPhoneReplacing, .enrolmentJoined:
             showEnrolment()
-        case .machines, .machinesSetUp, .machinesComparing:
+        case .machines, .machinesSetUp, .machinesComparing, .machinesRemovingPhone:
             showMachines()
         case .menuBarRemote:
             showMenuBar()
@@ -122,7 +123,7 @@ public final class MacDesignGallery {
     }
 
     private func showMachines() {
-        let snapshot: MachinesSnapshot = switch screen {
+        var snapshot: MachinesSnapshot = switch screen {
         case .machinesSetUp: MachinesSnapshot(relay: .notSetUp)
         case .machinesComparing:
             MachinesSnapshot(relay: .comparing(code: "C3E1 5A90 7B24 0DF8 916C 2E47 B8A3 54D0", address: "mac-mini:17443"))
@@ -137,9 +138,14 @@ public final class MacDesignGallery {
                 approvers: [ApproverDevice(name: "MacBook Pro", isPhone: false),
                     ApproverDevice(name: "Josh's iPhone", isPhone: true)])
         }
+        if screen == .machinesRemovingPhone {
+            snapshot.waiting = []
+            snapshot.withdrawals = [PendingWithdrawal(id: "w1", title: "Removing Josh's old iPhone",
+                confirmedOn: ["Josh's iPhone", "Mac mini"], waitingFor: ["build server"])]
+        }
         let model = MacMachinesModel(backend: DesignMacBackend(machines: snapshot), initial: snapshot)
         if screen == .machinesSetUp { model.addressDraft = "mac-mini:17443" }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines ? 720 : 420),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines || screen == .machinesRemovingPhone ? 720 : 420),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Machines"
         window.contentView = NSHostingView(rootView: MacMachinesView(model: model))
@@ -243,6 +249,7 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
     func confirmRelay(comparedCode: String) async throws {}
     func cancelRelaySetup() throws {}
     func remove(machineID: String) async throws {}
+    func removePhone(keyID: String) async throws {}
     func setAskPhoneAfter(_ delay: Duration) {}
 
     private let request: AccessRequest?
