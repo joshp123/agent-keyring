@@ -61,6 +61,7 @@ type owner struct {
 	pairVisible            bool
 	pendingApprovers       string
 	expectedFailure        string
+	authorizationReason    string
 }
 
 func startOwner(binary, root string) *owner {
@@ -114,6 +115,8 @@ func (p *owner) wait(predicate func([]string) bool) []string {
 				p.saved[e[1]] = e[2]
 			case "BACKGROUND":
 				p.backgroundSignatures, _ = strconv.Atoi(e[1])
+			case "REASON":
+				p.authorizationReason = e[1]
 			case "FAILED":
 				if e[1] != p.expectedFailure {
 					panic(strings.Join(e, " "))
@@ -221,16 +224,16 @@ func identity() tls.Certificate {
 }
 
 type proof struct {
-	root, relayBinary, fixture       string
-	cli, cliRecipient, browserScript string
-	phoneBinary, approverPort        string
-	relay                            *exec.Cmd
-	log                              *os.File
-	owner                            *owner
-	receiver                         client
-	receiverKey                      *ecdh.PrivateKey
-	keys                             *pb.SignedApproverKeySet
-	recipient                        string
+	root, relayBinary, fixture                   string
+	cli, cliRecipient, browserScript             string
+	phoneBinary, legacyPhoneBinary, approverPort string
+	relay                                        *exec.Cmd
+	log                                          *os.File
+	owner                                        *owner
+	receiver                                     client
+	receiverKey                                  *ecdh.PrivateKey
+	keys                                         *pb.SignedApproverKeySet
+	recipient                                    string
 }
 
 func (p *proof) startRelay() {
@@ -457,7 +460,9 @@ func main() {
 	localPhone := flag.Bool("local-phone-flow", false, "joint phone approval of local agent.sock requests")
 	copyUpdates := flag.Bool("copy-updates", false, "Automatic copy refresh and outbox restart proof")
 	phoneCopies := flag.Bool("phone-copy-updates", false, "Ask-only phone copy import and outbox restart proof")
+	phoneReplacement := flag.Bool("phone-replacement", false, "joint Swift phone identity replacement and copy recovery proof")
 	flag.StringVar(&p.phoneBinary, "phone-binary", "", "production Swift phone fixture; runs the joint phone flow")
+	flag.StringVar(&p.legacyPhoneBinary, "legacy-phone-binary", "", "previous approval-only Swift fixture for the initial phone pairing")
 	flag.StringVar(&p.root, "root", "", "fresh dummy root inside the app container")
 	flag.StringVar(&p.fixture, "approver", "", "signed mini-only Swift fixture executable")
 	flag.StringVar(&p.relayBinary, "relay", "", "relay executable")
@@ -466,7 +471,10 @@ func main() {
 	flag.Parse()
 	require(p.root != "" && p.fixture != "" && p.relayBinary != "", "supply --root --approver --relay")
 	must(os.MkdirAll(p.root, 0700))
-	if *phoneCopies {
+	if *phoneReplacement {
+		require(p.phoneBinary != "", "--phone-replacement needs --phone-binary")
+		p.runPhoneReplacement()
+	} else if *phoneCopies {
 		p.runPhoneCopyUpdates()
 	} else if *copyUpdates {
 		p.runCopyUpdates()

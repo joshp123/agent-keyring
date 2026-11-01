@@ -90,7 +90,7 @@ func (p *phoneProcess) stop() {
 	p.command = nil
 }
 
-func (p *proof) pairSwiftPhone() (*phoneProcess, string) {
+func (p *proof) pairSwiftPhone(binary string) (*phoneProcess, string) {
 	directory := filepath.Join(p.root, "phone")
 	must(os.MkdirAll(directory, 0700))
 	certificate := identity()
@@ -102,7 +102,7 @@ func (p *proof) pairSwiftPhone() (*phoneProcess, string) {
 	must(err)
 	public = elliptic.Marshal(elliptic.P256(), signer.X, signer.Y)
 	must(os.WriteFile(filepath.Join(directory, "signing.raw"), signer.D.FillBytes(make([]byte, 32)), 0600))
-	phone := startPhone(p.phoneBinary, directory)
+	phone := startPhone(binary, directory)
 	phone.relay = client{address: "127.0.0.1:17445", cert: certificate}
 	comparison := phone.action("pair\t17445")
 	id := hex.EncodeToString(relaycrypto.Hash(public))
@@ -228,7 +228,7 @@ func (p *proof) runPhoneFlow() {
 	p.pair()
 	p.enrol()
 	p.realCLIProgram()
-	phone, directory := p.pairSwiftPhone()
+	phone, directory := p.pairSwiftPhone(p.phoneBinary)
 	defer phone.stop()
 	receiver := p.cliIdentity()
 	p.owner.status()

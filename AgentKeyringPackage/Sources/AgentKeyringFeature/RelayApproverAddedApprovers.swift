@@ -8,9 +8,16 @@ public struct RelayApproverPairing: Identifiable, Sendable {
     public let label: String
     public let fingerprint: String
     public let answerIsQueued: Bool
+    public let replacesPhoneKeyID: String?
+    public let replacesPhoneLabel: String?
 }
 
 extension RelayApprover {
+    func phoneBeingReplaced(by request: Agentkeyring_V1_PairApproverRequest,
+        in keySet: Agentkeyring_V1_ApproverKeySet) -> Agentkeyring_V1_ApproverKey? {
+        keySet.keys.first { $0.role == .phone && $0.keyID != request.key.keyID && $0.tlsPublicKey == request.tlsPublicKey }
+    }
+
     func receiveApproverPairing(_ request: Agentkeyring_V1_PairApproverRequest) throws {
         guard state.dismissedApproverPairingIDs?.contains(request.key.keyID) != true else { return }
         let current = try Agentkeyring_V1_ApproverKeySet(serializedBytes: currentKeySet().keySet)
@@ -75,6 +82,7 @@ extension RelayApprover {
             throw LeaseFailure(.unavailable, "Publish your current rules and machines before pairing another approver.")
         }
         let request = try Agentkeyring_V1_PairApproverRequest(serializedBytes: bytes)
+        let replaced = phoneBeingReplaced(by: request, in: previousSet)
         let transcript = RelayCrypto.pairTranscript(relaySPKI: state.relaySPKI!, approverSPKI: request.tlsPublicKey,
             signingKey: request.key.publicKey, keySet: previous.keySet, encryptionKey: request.key.encryptionPublicKey)
         guard comparedFingerprint == RelayCrypto.fingerprint(transcript) else {
@@ -83,7 +91,9 @@ extension RelayApprover {
         try claimAuthorization(queuedID)
         defer { authorizationID = nil }
         let signer = try keys().1
-        try await signer.authorize(context: context, reason: "Allow \(request.key.label) to approve Agent Keyring requests after comparing its full fingerprint")
+        let reason = replaced.map { "Replace the Agent Keyring approval keys for \($0.label) after comparing the full fingerprint" }
+            ?? "Allow \(request.key.label) to approve Agent Keyring requests after comparing its full fingerprint"
+        try await signer.authorize(context: context, reason: reason)
         let vault = request.key.encryptionPublicKey.isEmpty ? nil : try await credentialSource()
         try Task.checkCancellation()
         guard try currentKeySet() == previous, state.configuration == configurationBytes, state.pendingApprovers?[id] == bytes else {
@@ -93,6 +103,7 @@ extension RelayApprover {
         let configuration = try Agentkeyring_V1_Configuration(serializedBytes: signedConfiguration.configuration)
         var nextSet = previousSet
         nextSet.revision += 1
+        if let replaced { nextSet.keys.removeAll { $0.keyID == replaced.keyID } }
         nextSet.keys.append(request.key)
         nextSet.configurationRevision = configuration.revision
         nextSet.configurationSha256 = RelayCrypto.hash(signedConfiguration.configuration)
@@ -104,6 +115,11 @@ extension RelayApprover {
         var command = Agentkeyring_V1_RelayWireRequest()
         command.publishApproverKeys = signed
         var next = state
+        if let replaced, !replaced.encryptionPublicKey.isEmpty,
+            replaced.encryptionPublicKey != request.key.encryptionPublicKey {
+            let prefix = "login-copy:\(RelayCrypto.keyID(replaced.encryptionPublicKey)):"
+            next.outbox.removeAll { $0.id.hasPrefix(prefix) }
+        }
         try enqueue(command, id: queuedID, into: &next)
         if let vault, try !requiresPublicationConfirmation(vault) {
             try prepareLoginCopy(next: &next, vault: vault, configuration: configuration,
