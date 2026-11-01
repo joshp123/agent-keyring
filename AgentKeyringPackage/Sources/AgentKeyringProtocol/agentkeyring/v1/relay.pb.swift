@@ -131,6 +131,46 @@ public nonisolated enum Agentkeyring_V1_ApproverRole: SwiftProtobuf.Enum, Swift.
 
 }
 
+/// Public changes use the existing owner signatures. Hash the payload bytes,
+/// not their signature wrappers; signatures may differ on an exact resend.
+public nonisolated enum Agentkeyring_V1_UpdateKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case approverKeys // = 1
+  case configuration // = 2
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .approverKeys
+    case 2: self = .configuration
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .approverKeys: return 1
+    case .configuration: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Agentkeyring_V1_UpdateKind] = [
+    .unspecified,
+    .approverKeys,
+    .configuration,
+  ]
+
+}
+
 public nonisolated struct Agentkeyring_V1_WatchWorkRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -219,6 +259,15 @@ public nonisolated struct Agentkeyring_V1_ApproverWork: Sendable {
     set {item = .copyUpdate(newValue)}
   }
 
+  /// Save before accepting further answers.
+  public var trustUpdate: Agentkeyring_V1_TrustUpdate {
+    get {
+      if case .trustUpdate(let v)? = item {return v}
+      return Agentkeyring_V1_TrustUpdate()
+    }
+    set {item = .trustUpdate(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Item: Equatable, Sendable {
@@ -235,6 +284,8 @@ public nonisolated struct Agentkeyring_V1_ApproverWork: Sendable {
     case localLeaseAction(Agentkeyring_V1_LocalLeaseAction)
     /// To its destination phone only.
     case copyUpdate(Agentkeyring_V1_SignedCopyUpdate)
+    /// Save before accepting further answers.
+    case trustUpdate(Agentkeyring_V1_TrustUpdate)
 
   }
 
@@ -1320,6 +1371,30 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     set {request = .getCopyUpdate(newValue)}
   }
 
+  public var publishUpdateReceipt: Agentkeyring_V1_SignedUpdateReceipt {
+    get {
+      if case .publishUpdateReceipt(let v)? = request {return v}
+      return Agentkeyring_V1_SignedUpdateReceipt()
+    }
+    set {request = .publishUpdateReceipt(newValue)}
+  }
+
+  public var getUpdateReceipts: Agentkeyring_V1_UpdateReceiptQuery {
+    get {
+      if case .getUpdateReceipts(let v)? = request {return v}
+      return Agentkeyring_V1_UpdateReceiptQuery()
+    }
+    set {request = .getUpdateReceipts(newValue)}
+  }
+
+  public var getConfigurationUpdates: Agentkeyring_V1_GetConfigurationUpdatesRequest {
+    get {
+      if case .getConfigurationUpdates(let v)? = request {return v}
+      return Agentkeyring_V1_GetConfigurationUpdatesRequest()
+    }
+    set {request = .getConfigurationUpdates(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Request: Equatable, Sendable {
@@ -1345,6 +1420,9 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     case updateLocalPhoneLease(Agentkeyring_V1_LocalPhoneLeaseUpdate)
     case publishCopyUpdate(Agentkeyring_V1_SignedCopyUpdate)
     case getCopyUpdate(Agentkeyring_V1_GetCopyUpdateRequest)
+    case publishUpdateReceipt(Agentkeyring_V1_SignedUpdateReceipt)
+    case getUpdateReceipts(Agentkeyring_V1_UpdateReceiptQuery)
+    case getConfigurationUpdates(Agentkeyring_V1_GetConfigurationUpdatesRequest)
 
   }
 
@@ -1465,6 +1543,31 @@ public nonisolated struct Agentkeyring_V1_RelayWireResponse: @unchecked Sendable
     set {_uniqueStorage()._response = .copyUpdate(newValue)}
   }
 
+  public var updateReceipts: Agentkeyring_V1_UpdateReceipts {
+    get {
+      if case .updateReceipts(let v)? = _storage._response {return v}
+      return Agentkeyring_V1_UpdateReceipts()
+    }
+    set {_uniqueStorage()._response = .updateReceipts(newValue)}
+  }
+
+  public var configurationUpdates: Agentkeyring_V1_ConfigurationUpdates {
+    get {
+      if case .configurationUpdates(let v)? = _storage._response {return v}
+      return Agentkeyring_V1_ConfigurationUpdates()
+    }
+    set {_uniqueStorage()._response = .configurationUpdates(newValue)}
+  }
+
+  /// May precede a streamed client result.
+  public var trustUpdate: Agentkeyring_V1_TrustUpdate {
+    get {
+      if case .trustUpdate(let v)? = _storage._response {return v}
+      return Agentkeyring_V1_TrustUpdate()
+    }
+    set {_uniqueStorage()._response = .trustUpdate(newValue)}
+  }
+
   public var endOfStream: Bool {
     get {_storage._endOfStream}
     set {_uniqueStorage()._endOfStream = newValue}
@@ -1486,12 +1589,140 @@ public nonisolated struct Agentkeyring_V1_RelayWireResponse: @unchecked Sendable
     case automaticKeys(Agentkeyring_V1_AutomaticKeys)
     case lease(Agentkeyring_V1_Lease)
     case copyUpdate(Agentkeyring_V1_SignedCopyUpdate)
+    case updateReceipts(Agentkeyring_V1_UpdateReceipts)
+    case configurationUpdates(Agentkeyring_V1_ConfigurationUpdates)
+    /// May precede a streamed client result.
+    case trustUpdate(Agentkeyring_V1_TrustUpdate)
 
   }
 
   public init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+public nonisolated struct Agentkeyring_V1_TrustUpdate: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var update: Agentkeyring_V1_TrustUpdate.OneOf_Update? = nil
+
+  public var approverKeys: Agentkeyring_V1_SignedApproverKeySet {
+    get {
+      if case .approverKeys(let v)? = update {return v}
+      return Agentkeyring_V1_SignedApproverKeySet()
+    }
+    set {update = .approverKeys(newValue)}
+  }
+
+  public var configuration: Agentkeyring_V1_SignedConfiguration {
+    get {
+      if case .configuration(let v)? = update {return v}
+      return Agentkeyring_V1_SignedConfiguration()
+    }
+    set {update = .configuration(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated enum OneOf_Update: Equatable, Sendable {
+    case approverKeys(Agentkeyring_V1_SignedApproverKeySet)
+    case configuration(Agentkeyring_V1_SignedConfiguration)
+
+  }
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_UpdateReceipt: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// agentkeyring.update-receipt.v1
+  public var domain: String = String()
+
+  public var deviceSpkiSha256: Data = Data()
+
+  public var kind: Agentkeyring_V1_UpdateKind = .unspecified
+
+  public var revision: UInt64 = 0
+
+  public var updateSha256: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_SignedUpdateReceipt: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Exact serialized UpdateReceipt bytes.
+  public var receipt: Data = Data()
+
+  /// DER ECDSA-P256/SHA256, using the device's existing non-biometric TLS key.
+  public var signature: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_UpdateReceiptQuery: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var kind: Agentkeyring_V1_UpdateKind = .unspecified
+
+  public var revision: UInt64 = 0
+
+  public var updateSha256: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_UpdateReceipts: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var receipts: [Agentkeyring_V1_SignedUpdateReceipt] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_GetConfigurationUpdatesRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var afterRevision: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_ConfigurationUpdates: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Ascending pending withdrawals after the requested revision, then current.
+  public var configurations: [Agentkeyring_V1_SignedConfiguration] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -1504,6 +1735,10 @@ nonisolated extension Agentkeyring_V1_EnrolState: SwiftProtobuf._ProtoNameProvid
 
 nonisolated extension Agentkeyring_V1_ApproverRole: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0APPROVER_ROLE_UNSPECIFIED\0\u{1}APPROVER_ROLE_MAC\0\u{1}APPROVER_ROLE_PHONE\0\u{1}APPROVER_ROLE_MAC_DELIVERY\0")
+}
+
+nonisolated extension Agentkeyring_V1_UpdateKind: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0UPDATE_KIND_UNSPECIFIED\0\u{1}UPDATE_KIND_APPROVER_KEYS\0\u{1}UPDATE_KIND_CONFIGURATION\0")
 }
 
 nonisolated extension Agentkeyring_V1_WatchWorkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -1538,7 +1773,7 @@ nonisolated extension Agentkeyring_V1_WatchWorkRequest: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApproverWork"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{1}enrolment\0\u{3}cancelled_request_digest_hex\0\u{1}pairing\0\u{1}lease\0\u{3}phone_decision\0\u{3}local_lease_action\0\u{3}copy_update\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{1}enrolment\0\u{3}cancelled_request_digest_hex\0\u{1}pairing\0\u{1}lease\0\u{3}phone_decision\0\u{3}local_lease_action\0\u{3}copy_update\0\u{3}trust_update\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1645,6 +1880,19 @@ nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, Swift
           self.item = .copyUpdate(v)
         }
       }()
+      case 9: try {
+        var v: Agentkeyring_V1_TrustUpdate?
+        var hadOneofValue = false
+        if let current = self.item {
+          hadOneofValue = true
+          if case .trustUpdate(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.item = .trustUpdate(v)
+        }
+      }()
       default: break
       }
     }
@@ -1687,6 +1935,10 @@ nonisolated extension Agentkeyring_V1_ApproverWork: SwiftProtobuf.Message, Swift
     case .copyUpdate?: try {
       guard case .copyUpdate(let v)? = self.item else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+    }()
+    case .trustUpdate?: try {
+      guard case .trustUpdate(let v)? = self.item else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
     }()
     case nil: break
     }
@@ -3364,7 +3616,7 @@ nonisolated extension Agentkeyring_V1_PublishAck: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayWireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}publish_configuration\0\u{3}dismiss_enrolment\0\u{3}get_configuration\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{4}\u{2}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{4}\u{6}get_automatic_keys\0\u{3}clear_denial\0\u{3}revoke_lease\0\u{3}escalate_to_phone\0\u{3}answer_from_phone\0\u{3}update_local_phone_lease\0\u{3}publish_copy_update\0\u{3}get_copy_update\0\u{c}\u{a}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c}\u{11}\u{1}\u{c}\u{12}\u{1}\u{c}\u{13}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}publish_configuration\0\u{3}dismiss_enrolment\0\u{3}get_configuration\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{4}\u{2}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{4}\u{6}get_automatic_keys\0\u{3}clear_denial\0\u{3}revoke_lease\0\u{3}escalate_to_phone\0\u{3}answer_from_phone\0\u{3}update_local_phone_lease\0\u{3}publish_copy_update\0\u{3}get_copy_update\0\u{3}publish_update_receipt\0\u{3}get_update_receipts\0\u{3}get_configuration_updates\0\u{c}\u{a}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c}\u{11}\u{1}\u{c}\u{12}\u{1}\u{c}\u{13}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3645,6 +3897,45 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
           self.request = .getCopyUpdate(v)
         }
       }()
+      case 28: try {
+        var v: Agentkeyring_V1_SignedUpdateReceipt?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .publishUpdateReceipt(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .publishUpdateReceipt(v)
+        }
+      }()
+      case 29: try {
+        var v: Agentkeyring_V1_UpdateReceiptQuery?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .getUpdateReceipts(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .getUpdateReceipts(v)
+        }
+      }()
+      case 30: try {
+        var v: Agentkeyring_V1_GetConfigurationUpdatesRequest?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .getConfigurationUpdates(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .getConfigurationUpdates(v)
+        }
+      }()
       default: break
       }
     }
@@ -3740,6 +4031,18 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
       guard case .getCopyUpdate(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 27)
     }()
+    case .publishUpdateReceipt?: try {
+      guard case .publishUpdateReceipt(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 28)
+    }()
+    case .getUpdateReceipts?: try {
+      guard case .getUpdateReceipts(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 29)
+    }()
+    case .getConfigurationUpdates?: try {
+      guard case .getConfigurationUpdates(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 30)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -3754,7 +4057,7 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayWireResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{1}work\0\u{1}decision\0\u{1}enrolment\0\u{1}publish\0\u{3}enrol_status\0\u{1}error\0\u{3}end_of_stream\0\u{4}\u{2}approver_keys\0\u{3}approver_key_chain\0\u{1}configuration\0\u{4}\u{3}automatic_keys\0\u{1}lease\0\u{3}copy_update\0\u{c}\u{9}\u{1}\u{c}\u{d}\u{1}\u{c}\u{e}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{1}work\0\u{1}decision\0\u{1}enrolment\0\u{1}publish\0\u{3}enrol_status\0\u{1}error\0\u{3}end_of_stream\0\u{4}\u{2}approver_keys\0\u{3}approver_key_chain\0\u{1}configuration\0\u{4}\u{3}automatic_keys\0\u{1}lease\0\u{3}copy_update\0\u{3}update_receipts\0\u{3}configuration_updates\0\u{3}trust_update\0\u{c}\u{9}\u{1}\u{c}\u{d}\u{1}\u{c}\u{e}\u{1}")
 
   fileprivate class _StorageClass {
     var _response: Agentkeyring_V1_RelayWireResponse.OneOf_Response?
@@ -3959,6 +4262,45 @@ nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, 
             _storage._response = .copyUpdate(v)
           }
         }()
+        case 18: try {
+          var v: Agentkeyring_V1_UpdateReceipts?
+          var hadOneofValue = false
+          if let current = _storage._response {
+            hadOneofValue = true
+            if case .updateReceipts(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._response = .updateReceipts(v)
+          }
+        }()
+        case 19: try {
+          var v: Agentkeyring_V1_ConfigurationUpdates?
+          var hadOneofValue = false
+          if let current = _storage._response {
+            hadOneofValue = true
+            if case .configurationUpdates(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._response = .configurationUpdates(v)
+          }
+        }()
+        case 20: try {
+          var v: Agentkeyring_V1_TrustUpdate?
+          var hadOneofValue = false
+          if let current = _storage._response {
+            hadOneofValue = true
+            if case .trustUpdate(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._response = .trustUpdate(v)
+          }
+        }()
         default: break
         }
       }
@@ -4030,6 +4372,18 @@ nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, 
         guard case .copyUpdate(let v)? = _storage._response else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 17)
       }()
+      case .updateReceipts?: try {
+        guard case .updateReceipts(let v)? = _storage._response else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 18)
+      }()
+      case .configurationUpdates?: try {
+        guard case .configurationUpdates(let v)? = _storage._response else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 19)
+      }()
+      case .trustUpdate?: try {
+        guard case .trustUpdate(let v)? = _storage._response else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
+      }()
       default: break
       }
     }
@@ -4047,6 +4401,288 @@ nonisolated extension Agentkeyring_V1_RelayWireResponse: SwiftProtobuf.Message, 
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_TrustUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".TrustUpdate"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}approver_keys\0\u{1}configuration\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Agentkeyring_V1_SignedApproverKeySet?
+        var hadOneofValue = false
+        if let current = self.update {
+          hadOneofValue = true
+          if case .approverKeys(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.update = .approverKeys(v)
+        }
+      }()
+      case 2: try {
+        var v: Agentkeyring_V1_SignedConfiguration?
+        var hadOneofValue = false
+        if let current = self.update {
+          hadOneofValue = true
+          if case .configuration(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.update = .configuration(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.update {
+    case .approverKeys?: try {
+      guard case .approverKeys(let v)? = self.update else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .configuration?: try {
+      guard case .configuration(let v)? = self.update else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_TrustUpdate, rhs: Agentkeyring_V1_TrustUpdate) -> Bool {
+    if lhs.update != rhs.update {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_UpdateReceipt: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".UpdateReceipt"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}device_spki_sha256\0\u{1}kind\0\u{1}revision\0\u{3}update_sha256\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.domain) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.deviceSpkiSha256) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      case 5: try { try decoder.decodeSingularBytesField(value: &self.updateSha256) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.domain.isEmpty {
+      try visitor.visitSingularStringField(value: self.domain, fieldNumber: 1)
+    }
+    if !self.deviceSpkiSha256.isEmpty {
+      try visitor.visitSingularBytesField(value: self.deviceSpkiSha256, fieldNumber: 2)
+    }
+    if self.kind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 3)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 4)
+    }
+    if !self.updateSha256.isEmpty {
+      try visitor.visitSingularBytesField(value: self.updateSha256, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_UpdateReceipt, rhs: Agentkeyring_V1_UpdateReceipt) -> Bool {
+    if lhs.domain != rhs.domain {return false}
+    if lhs.deviceSpkiSha256 != rhs.deviceSpkiSha256 {return false}
+    if lhs.kind != rhs.kind {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs.updateSha256 != rhs.updateSha256 {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_SignedUpdateReceipt: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SignedUpdateReceipt"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}receipt\0\u{1}signature\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.receipt) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.signature) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.receipt.isEmpty {
+      try visitor.visitSingularBytesField(value: self.receipt, fieldNumber: 1)
+    }
+    if !self.signature.isEmpty {
+      try visitor.visitSingularBytesField(value: self.signature, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_SignedUpdateReceipt, rhs: Agentkeyring_V1_SignedUpdateReceipt) -> Bool {
+    if lhs.receipt != rhs.receipt {return false}
+    if lhs.signature != rhs.signature {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_UpdateReceiptQuery: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".UpdateReceiptQuery"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{1}revision\0\u{3}update_sha256\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.updateSha256) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.kind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 1)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 2)
+    }
+    if !self.updateSha256.isEmpty {
+      try visitor.visitSingularBytesField(value: self.updateSha256, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_UpdateReceiptQuery, rhs: Agentkeyring_V1_UpdateReceiptQuery) -> Bool {
+    if lhs.kind != rhs.kind {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs.updateSha256 != rhs.updateSha256 {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_UpdateReceipts: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".UpdateReceipts"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}receipts\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.receipts) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.receipts.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.receipts, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_UpdateReceipts, rhs: Agentkeyring_V1_UpdateReceipts) -> Bool {
+    if lhs.receipts != rhs.receipts {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_GetConfigurationUpdatesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetConfigurationUpdatesRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}after_revision\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.afterRevision) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.afterRevision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.afterRevision, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_GetConfigurationUpdatesRequest, rhs: Agentkeyring_V1_GetConfigurationUpdatesRequest) -> Bool {
+    if lhs.afterRevision != rhs.afterRevision {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_ConfigurationUpdates: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ConfigurationUpdates"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}configurations\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.configurations) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.configurations.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.configurations, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_ConfigurationUpdates, rhs: Agentkeyring_V1_ConfigurationUpdates) -> Bool {
+    if lhs.configurations != rhs.configurations {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
