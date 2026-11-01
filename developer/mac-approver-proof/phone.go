@@ -91,7 +91,10 @@ func (p *phoneProcess) stop() {
 }
 
 func (p *proof) pairSwiftPhone(binary string) (*phoneProcess, string) {
-	directory := filepath.Join(p.root, "phone")
+	return p.pairSwiftPhoneAt(binary, filepath.Join(p.root, "phone"))
+}
+
+func (p *proof) pairSwiftPhoneAt(binary, directory string) (*phoneProcess, string) {
 	must(os.MkdirAll(directory, 0700))
 	certificate := identity()
 	private := certificate.PrivateKey.(*ecdsa.PrivateKey)
