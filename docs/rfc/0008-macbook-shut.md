@@ -144,7 +144,12 @@ required set are acknowledged without recording or counting anything. This
 lets routine receipts and lost acknowledgements recover after newer grants or
 history pruning. Pending withdrawals do not expire. Completed evidence stays
 on the relay for seven days, with any evidence still needed by a pending
-dependency retained longer; the Mac keeps its own completion evidence.
+dependency retained longer. The seven days start only when the pinned owner
+Mac calls `AcknowledgeUpdateReceipts` with the exact target after independently
+verifying and durably saving complete evidence. Reading receipts does not
+acknowledge collection. Completed but uncollected evidence does not expire;
+repeated acknowledgements preserve the first collection time. This call grants
+no authority and is never completion evidence. The Mac keeps its own evidence.
 
 If device B still owes a receipt for update A and a later owner-signed withdrawal
 C removes B, A's original evidence stays intact. Only after all of C's remaining

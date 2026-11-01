@@ -337,15 +337,77 @@ func (p *proof) receiptProof() {
 	p.stop()
 	p.start()
 	require(p.hasReceipt(target, p.client) && p.hasReceipt(b, remaining), "relay restart lost authenticated receipt history")
-	// Completed public history expires without making a very late lost-ACK
-	// retry fail forever. The owner has already saved its verified evidence.
+	p.receiptCollectionProof(remaining)
+	fmt.Println("PASS relay restart retains exact device evidence; no receipt asserts erasure of a lost phone's passwords or TOTP seeds")
+}
+
+func (p *proof) receiptCollectionProof(remaining wireClient) {
+	p.configuration.Logins[0].Rule = pb.AccessRule_ACCESS_RULE_BLOCKED
+	p.publishConfiguration()
+	target := p.receiptTarget(&pb.TrustUpdate{Update: &pb.TrustUpdate_Configuration{Configuration: p.signedConfiguration}})
+	ack := &pb.RelayWireRequest{Request: &pb.RelayWireRequest_AcknowledgeUpdateReceipts{AcknowledgeUpdateReceipts: target}}
+	p.submitReceipt(p.approver, target)
+	require(p.approver.call(ack).GetError() != nil, "owner acknowledged incomplete evidence")
+	// The owner publishes, then goes offline without collecting any other
+	// device's receipt. The phone confirms while the owner is absent.
+	must(p.work.Close())
+	p.submitReceipt(remaining, target)
 	p.stop()
 	db := p.database()
-	_, err = db.Exec("UPDATE trust_updates SET completed=? WHERE kind=? AND revision=?", time.Now().Unix()-8*86400, target.Kind, fmt.Sprintf("%020d", target.Revision))
+	_, err := db.Exec("UPDATE trust_updates SET completed=? WHERE kind=? AND revision=?", time.Now().Unix()-8*86400, target.Kind, fmt.Sprintf("%020d", target.Revision))
+	must(err)
+	// Also exercise migration from the released store without this column.
+	_, err = db.Exec("ALTER TABLE trust_updates DROP COLUMN collected")
 	must(err)
 	must(db.Close())
 	p.start()
-	p.submitReceipt(p.client, target)
-	require(!p.hasReceipt(target, p.client), "pruned evidence was fabricated from a routine ACK")
-	fmt.Println("PASS relay restart retains exact device evidence; no receipt asserts erasure of a lost phone's passwords or TOTP seeds")
+	require(p.hasReceipt(target, p.approver) && p.hasReceipt(target, remaining), "offline owner's uncollected evidence expired after eight days")
+	require(!p.collectionTime(target).Valid, "reading evidence implicitly acknowledged durable collection")
+	require(remaining.call(ack).GetError() != nil, "phone acknowledged the owner's collection")
+	require(p.client.call(ack).GetError() != nil, "receiver acknowledged the owner's collection")
+	wrong := proto.Clone(ack).(*pb.RelayWireRequest)
+	wrong.GetAcknowledgeUpdateReceipts().UpdateSha256[0] ^= 1
+	require(p.approver.call(wrong).GetError() != nil, "collection acknowledgement accepted another update hash")
+	// The stand-in Mac verifies both exact TLS signatures above, then saves
+	// those original bytes before authorizing relay retention to start.
+	receipts := good(p.approver.call(&pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetUpdateReceipts{GetUpdateReceipts: target}})).GetUpdateReceipts()
+	checkpoint, err := os.OpenFile(filepath.Join(p.directory, "owner-collected.pb"), os.O_CREATE|os.O_WRONLY, 0600)
+	must(err)
+	_, err = checkpoint.Write(encoded(receipts))
+	must(err)
+	must(checkpoint.Sync())
+	must(checkpoint.Close())
+	collectionStarted := time.Now().Unix()
+	good(p.approver.call(ack))
+	collected := p.collectionTime(target)
+	require(collected.Valid && collected.Int64 >= collectionStarted, "collection did not start retention from acknowledgement")
+	p.stop()
+	db = p.database()
+	collected.Int64 -= 86400
+	_, err = db.Exec("UPDATE trust_updates SET collected=? WHERE kind=? AND revision=?", collected.Int64, target.Kind, fmt.Sprintf("%020d", target.Revision))
+	must(err)
+	must(db.Close())
+	p.start()
+	good(p.approver.call(ack))
+	require(p.collectionTime(target) == collected, "collection retry changed the first acknowledgement after restart")
+	require(p.hasReceipt(target, remaining), "freshly acknowledged eight-day-old completion expired immediately")
+	p.stop()
+	db = p.database()
+	_, err = db.Exec("UPDATE trust_updates SET collected=? WHERE kind=? AND revision=?", time.Now().Unix()-8*86400, target.Kind, fmt.Sprintf("%020d", target.Revision))
+	must(err)
+	must(db.Close())
+	p.start()
+	require(!p.hasReceipt(target, remaining), "owner-collected evidence did not expire after retention")
+	good(p.approver.call(ack))
+	p.submitReceipt(remaining, target)
+	require(!p.hasReceipt(target, remaining), "late retries recreated pruned evidence")
+	fmt.Println("PASS owner offline beyond seven days retains completed receipts across schema migration/restart; owner-only exact collection ACK starts retention, retries keep its first time, later pruning remains idempotent")
+}
+
+func (p *proof) collectionTime(target *pb.UpdateReceiptQuery) sql.NullInt64 {
+	db := p.database()
+	defer db.Close()
+	var collected sql.NullInt64
+	must(db.QueryRow("SELECT collected FROM trust_updates WHERE kind=? AND revision=?", target.Kind, fmt.Sprintf("%020d", target.Revision)).Scan(&collected))
+	return collected
 }

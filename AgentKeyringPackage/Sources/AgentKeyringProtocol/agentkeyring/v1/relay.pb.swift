@@ -1395,6 +1395,14 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     set {request = .getConfigurationUpdates(newValue)}
   }
 
+  public var acknowledgeUpdateReceipts: Agentkeyring_V1_UpdateReceiptQuery {
+    get {
+      if case .acknowledgeUpdateReceipts(let v)? = request {return v}
+      return Agentkeyring_V1_UpdateReceiptQuery()
+    }
+    set {request = .acknowledgeUpdateReceipts(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Request: Equatable, Sendable {
@@ -1423,6 +1431,7 @@ public nonisolated struct Agentkeyring_V1_RelayWireRequest: Sendable {
     case publishUpdateReceipt(Agentkeyring_V1_SignedUpdateReceipt)
     case getUpdateReceipts(Agentkeyring_V1_UpdateReceiptQuery)
     case getConfigurationUpdates(Agentkeyring_V1_GetConfigurationUpdatesRequest)
+    case acknowledgeUpdateReceipts(Agentkeyring_V1_UpdateReceiptQuery)
 
   }
 
@@ -3616,7 +3625,7 @@ nonisolated extension Agentkeyring_V1_PublishAck: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayWireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}publish_configuration\0\u{3}dismiss_enrolment\0\u{3}get_configuration\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{4}\u{2}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{4}\u{6}get_automatic_keys\0\u{3}clear_denial\0\u{3}revoke_lease\0\u{3}escalate_to_phone\0\u{3}answer_from_phone\0\u{3}update_local_phone_lease\0\u{3}publish_copy_update\0\u{3}get_copy_update\0\u{3}publish_update_receipt\0\u{3}get_update_receipts\0\u{3}get_configuration_updates\0\u{c}\u{a}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c}\u{11}\u{1}\u{c}\u{12}\u{1}\u{c}\u{13}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}client\0\u{3}watch_work\0\u{1}decide\0\u{3}publish_configuration\0\u{3}dismiss_enrolment\0\u{3}get_configuration\0\u{3}register_push\0\u{1}enrol\0\u{3}publish_approver_keys\0\u{4}\u{2}pair_approver\0\u{3}get_approver_keys\0\u{3}confirm_pairing\0\u{3}get_approver_key_chain\0\u{4}\u{6}get_automatic_keys\0\u{3}clear_denial\0\u{3}revoke_lease\0\u{3}escalate_to_phone\0\u{3}answer_from_phone\0\u{3}update_local_phone_lease\0\u{3}publish_copy_update\0\u{3}get_copy_update\0\u{3}publish_update_receipt\0\u{3}get_update_receipts\0\u{3}get_configuration_updates\0\u{3}acknowledge_update_receipts\0\u{c}\u{a}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c}\u{11}\u{1}\u{c}\u{12}\u{1}\u{c}\u{13}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3936,6 +3945,19 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
           self.request = .getConfigurationUpdates(v)
         }
       }()
+      case 31: try {
+        var v: Agentkeyring_V1_UpdateReceiptQuery?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .acknowledgeUpdateReceipts(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .acknowledgeUpdateReceipts(v)
+        }
+      }()
       default: break
       }
     }
@@ -4042,6 +4064,10 @@ nonisolated extension Agentkeyring_V1_RelayWireRequest: SwiftProtobuf.Message, S
     case .getConfigurationUpdates?: try {
       guard case .getConfigurationUpdates(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 30)
+    }()
+    case .acknowledgeUpdateReceipts?: try {
+      guard case .acknowledgeUpdateReceipts(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 31)
     }()
     case nil: break
     }

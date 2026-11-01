@@ -235,6 +235,9 @@ func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte
 		case *pb.RelayWireRequest_PublishUpdateReceipt:
 			err = publishUpdateReceipt(tx, p, request.PublishUpdateReceipt)
 			response = publishAck()
+		case *pb.RelayWireRequest_AcknowledgeUpdateReceipts:
+			err = acknowledgeUpdateReceipts(tx, p, request.AcknowledgeUpdateReceipts)
+			response = publishAck()
 		case *pb.RelayWireRequest_GetUpdateReceipts:
 			_, keys, e := currentKeys(tx)
 			err = e

@@ -69,6 +69,7 @@ func OpenStore(directory string) (*Store, error) {
 	for _, column := range []struct{ table, name, declaration string }{
 		{"leases", "deadline", "INTEGER"}, {"leases", "delete_after", "INTEGER"}, {"leases", "decision_hash", "BLOB"},
 		{"enrolments", "expires", "INTEGER"}, {"pairings", "expires", "INTEGER"},
+		{"trust_updates", "collected", "INTEGER"},
 	} {
 		rows, queryErr := db.Query("SELECT name FROM pragma_table_info(?)", column.table)
 		if queryErr != nil {

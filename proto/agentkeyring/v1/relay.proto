@@ -38,6 +38,9 @@ service Approvals {
   // Receipts authenticate durable application, never a relay's claim of delivery.
   rpc PublishUpdateReceipt(SignedUpdateReceipt) returns (PublishAck);
   rpc GetUpdateReceipts(UpdateReceiptQuery) returns (UpdateReceipts);
+  // Owner's pinned TLS connection, after complete evidence is durably saved.
+  // Starts completed-evidence retention; never confirms a permission change.
+  rpc AcknowledgeUpdateReceipts(UpdateReceiptQuery) returns (PublishAck);
   rpc GetConfigurationUpdates(GetConfigurationUpdatesRequest) returns (ConfigurationUpdates);
   // Josh pressed "Doesn't match" or dismissed a pending enrolment. Grants
   // nothing, so unsigned; accepted only from a pinned approver connection.
@@ -497,6 +500,7 @@ message RelayWireRequest {
     SignedUpdateReceipt publish_update_receipt = 28;
     UpdateReceiptQuery get_update_receipts = 29;
     GetConfigurationUpdatesRequest get_configuration_updates = 30;
+    UpdateReceiptQuery acknowledge_update_receipts = 31;
   }
   reserved 10, 15, 16, 17, 18, 19;
 }
