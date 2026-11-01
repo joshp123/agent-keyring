@@ -104,6 +104,13 @@ public struct MacEnrolmentPanelView: View {
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
+                if let old = model.enrolment.replacesPhone {
+                    Text(SetupCopy.replacesPhone(old))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                }
             }
 
             Divider()

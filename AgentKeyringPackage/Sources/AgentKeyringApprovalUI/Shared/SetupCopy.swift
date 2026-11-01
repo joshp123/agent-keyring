@@ -21,6 +21,17 @@ public enum SetupCopy {
         }
     }
 
+    /// The second line under a joining device's name, in lists.
+    public static func joiningDetail(_ enrolment: DeviceEnrolment) -> String {
+        if let old = enrolment.replacesPhone { return "Replaces \(old)" }
+        return enrolment.kind == .machine ? "Wants to ask for logins" : "Wants to approve requests"
+    }
+
+    /// In the panel, under the new iPhone's name.
+    public static func replacesPhone(_ old: String) -> String {
+        "Replaces the iPhone paired as \(old). That one loses access: it can't approve requests any more."
+    }
+
     public static func tailnetNode(_ node: String) -> String {
         "On your tailnet as \(node)"
     }
@@ -38,7 +49,8 @@ public enum SetupCopy {
     public static func joined(_ enrolment: DeviceEnrolment) -> String {
         switch enrolment.kind {
         case .machine: "\(enrolment.name) can now ask for logins."
-        case .approver: "Your iPhone can now approve requests."
+        case .approver: enrolment.replacesPhone.map { "Your iPhone can now approve requests. The one paired as \($0) can't." }
+            ?? "Your iPhone can now approve requests."
         }
     }
 
