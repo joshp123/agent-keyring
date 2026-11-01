@@ -56,6 +56,10 @@ func OpenStore(directory string) (*Store, error) {
  CREATE TABLE IF NOT EXISTS copy_updates(destination TEXT PRIMARY KEY,revision TEXT NOT NULL,update_hash BLOB NOT NULL);
  CREATE TABLE IF NOT EXISTS automatic_logins(id TEXT PRIMARY KEY,contents BLOB NOT NULL);
  CREATE TABLE IF NOT EXISTS phone_copies(destination TEXT PRIMARY KEY,signed BLOB NOT NULL);
+ CREATE TABLE IF NOT EXISTS trust_updates(kind INTEGER NOT NULL,revision TEXT NOT NULL,hash BLOB NOT NULL,value BLOB NOT NULL,completed INTEGER,PRIMARY KEY(kind,revision));
+ CREATE TABLE IF NOT EXISTS update_devices(kind INTEGER NOT NULL,revision TEXT NOT NULL,spki BLOB NOT NULL,receipt BLOB,replacement_kind INTEGER,replacement_revision TEXT,PRIMARY KEY(kind,revision,spki),FOREIGN KEY(kind,revision) REFERENCES trust_updates(kind,revision) ON DELETE CASCADE);
+ CREATE INDEX IF NOT EXISTS device_update_queue ON update_devices(spki,kind,revision) WHERE receipt IS NULL;
+ CREATE TABLE IF NOT EXISTS retired_devices(spki BLOB PRIMARY KEY,node TEXT NOT NULL);
  DROP TABLE IF EXISTS operations;`)
 	if err != nil {
 		db.Close()
