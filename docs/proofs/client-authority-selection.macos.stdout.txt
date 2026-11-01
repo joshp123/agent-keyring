@@ -1,0 +1,31 @@
+PASS local selection recorded: bundled helper and standalone package use the same app; a socket alone selects nothing
+PASS standalone package: bundled skill prints; install repairs dangling command and both skill links in an isolated home
+Fixture pair fingerprint: 5AB9 B4B7 898D C60B 2A28 86F0 1F2B CD3F
+PASS copy acknowledged; sender exiting: setup
+PASS copy acknowledged; sender exiting: enrol
+PASS enrolment with app installed: both entry points use the recorded relay without connection overrides; local authority still serves its own login
+PASS sender exited: real CLI filled password and TOTP; website authenticated; retry submitted once
+PASS copy resend
+PASS selected relay unavailable: standalone and bundled helpers refuse; local app and socket remain present
+PASS relay restart retained copy, keys, exact sealed delivery and original lease deadline
+PASS copy acknowledged; sender exiting: update
+PASS password-only update reached the next fill with sender stopped; same lease/deadline; no prompt
+PASS copy replay
+PASS copy conflict
+PASS refused copy outside
+PASS refused copy ask-copy
+PASS refused copy blocked-copy
+PASS refused copy wrong-destination
+PASS refused copy bad-signature
+PASS configuration committed: ask
+PASS configuration committed: blocked
+PASS acknowledged Automatic-to-Ask removed the copy and revoked delivery; Ask waits; Blocked refuses
+PASS configuration committed: automatic
+PASS copy acknowledged; sender exiting: automatic
+PASS copy acknowledged; sender exiting: clear
+PASS copy replay
+PASS configuration committed: automatic
+PASS copy acknowledged; sender exiting: automatic
+PASS empty full replacement clears delivery; replay cannot restore it; fresh higher revision restores service
+All Automatic copy checks passed. Isolated state: /tmp/ak-copy-21oo3wlj
+PASS cleanup: copied app never launched; its extension and LaunchServices registration are absent

@@ -1,0 +1,32 @@
+unpacking 'github:NixOS/nixpkgs/fe13242281a67641c0102cdb1087f0ebe586c7df' into the Git cache...
+these 3 paths will be fetched (459.3 KiB download, 2.3 MiB unpacked):
+  /nix/store/3vkdg5ldh9g14sd03y0hy3g54cgn6dmq-python3.14-psutil-7.2.2
+  /nix/store/ryg0sjdnp2vhi51m876d5blj7si80mgf-python3.14-six-1.17.0
+  /nix/store/gfm6ly2dipv1paxnqr8his0phfi2yjl0-trash-cli-0.26.9.29
+copying path '/nix/store/3vkdg5ldh9g14sd03y0hy3g54cgn6dmq-python3.14-psutil-7.2.2' from 'https://cache.nixos.org'...
+copying path '/nix/store/ryg0sjdnp2vhi51m876d5blj7si80mgf-python3.14-six-1.17.0' from 'https://cache.nixos.org'...
+copying path '/nix/store/gfm6ly2dipv1paxnqr8his0phfi2yjl0-trash-cli-0.26.9.29' from 'https://cache.nixos.org'...
+PASS enrol: locally computed eight-group fingerprint; owner-signed enrolment configuration; private key storage
+PASS signed login configuration through the recorded relay, without a connection override
+PASS program sign-in: echo suppressed, cross-process retry did not rerun, explicit release
+PASS private agent-process password and current code delivery
+PASS refused wrong-recipient
+PASS refused changed-task
+PASS refused wrong-lease
+PASS refused expired
+PASS refused unknown-signer
+PASS refused tampered-ciphertext
+PASS refused bad-enc
+PASS refused bundle-login
+PASS refused bad-chain
+PASS refused phone-chain
+PASS refused delivery-chain
+PASS denial history: show only verified HUMAN reply; hide changed, unsigned and bundle-bearing replies
+PASS Automatic signing key, login rule and machine permission in the owner-signed configuration
+PASS newer configuration preserves the existing Automatic decision
+PASS Automatic rule withdrawal refuses the old decision
+PASS Automatic permission withdrawal refuses the old decision
+PASS Automatic key withdrawal refuses the old decision
+PASS signed approver key update from pinned predecessor, new process accepts new signer
+PASS removed signer refused after key-set update
+All remote CLI checks passed.

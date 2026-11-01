@@ -35,8 +35,10 @@ the MacBook keeps its copy of the passwords.
 
 The agent-facing contract does not change: `find`, `lease`, `status`,
 `release`, `fill`, `exec`, `read`, same flags, same exit codes. The client
-uses the local socket when the Mac app is on the same machine and the relay
-otherwise.
+uses its recorded authority. Completed enrolment selects the relay, including
+on a Mac with the app installed. Otherwise a Mac records its local app and
+bundle identity when first used. An unavailable authority never causes a
+fallback to the other store; the presence of a socket selects nothing.
 
 ## Protections and their limits
 

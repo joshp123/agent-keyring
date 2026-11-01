@@ -110,6 +110,18 @@ each agent machine run `agent-keyring enrol --name NAME --relay HOST:PORT`,
 compare the code it prints with the one on your Mac, and approve. Details are
 in [docs/implementation/relay.md](docs/implementation/relay.md).
 
+The standalone CLI and its skill are available on macOS and Linux as the Nix
+package `agent-keyring` (`nix build .#agent-keyring`). It needs no Mac app. The
+skill is in `share/agent-keyring/skills/agent-keyring` inside the package;
+`agent-keyring install` links the command and skill for Codex and Claude Code.
+Machines managed by Nix should declare those links in their configuration.
+
+Enrolment selects the relay persistently, including on a Mac with the app
+installed. An unavailable relay never causes a switch to a local vault. A Mac
+using its own imported logins records the selected app and bundle identity;
+the presence of a socket alone selects nothing. Explicit connection environment
+overrides apply only to that command and do not change the saved selection.
+
 **iPhone.** Build the iPhone app from this repository (it is not in the App
 Store) and pair it with the relay from the phone. Compare the code it shows
 with the one on your Mac and approve with Touch ID. Notifications need an

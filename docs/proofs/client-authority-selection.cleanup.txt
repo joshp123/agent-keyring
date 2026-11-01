@@ -1,0 +1,5 @@
+PASS pluginkit: no Agent Keyring credential extension registered after unregistering every proof copy
+PASS LaunchServices: none of the copied app paths remains registered
+PASS /Applications unchanged: Agent Keyring app remains absent
+PASS cleanup: all owned mini relay, fixture and Chrome processes stopped; proof apps, profiles and state moved to Trash
+PASS Linux cleanup: temporary proof state and transferred artifacts moved to Trash; no package or profile installed
