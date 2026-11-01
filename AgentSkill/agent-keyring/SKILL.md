@@ -37,7 +37,7 @@ agent-keyring fill "$lease" --tab "$tab" \
 
 Agent Keyring checks the document and frame are still the ones you selected and the frame is the saved site, fills, submits and clears what it typed. Run `tabs` again after navigation, then inspect the new page. A two-factor step is another `fill` under the same lease, for example `--code '#otp' --submit '#verify'`. For fields inside a frame, use the target printed beside those fields. Without `--tab`, filling works only when exactly one connected tab matches the saved site.
 
-Repeating the same fill returns its recorded result without submitting again. If the site showed an error without leaving the page, inspect it before deliberately repeating with `--again`. A result of "uncertain" means the step may already have happened: look before doing anything else. After a browser restart, run `tabs` for new targets and keep the same lease.
+Repeating the same fill returns its recorded result without submitting again. If the site showed an error without leaving the page, inspect it before deliberately repeating with `--again`. A scripted sign-in can take up to ten seconds; if the page does not move on, values are cleared and the result is "uncertain". That means the step may already have happened: look before doing anything else. After a browser restart, run `tabs` for new targets and keep the same lease.
 
 **A browser without the extension.** Agent Keyring cannot fill it. Codex's in-app browser and T3's preview do not accept this extension. Use a connected browser for the sign-in; don't substitute `read`, clipboard input or a password in your browser tool's arguments. Safari support is a separate build slice.
 
