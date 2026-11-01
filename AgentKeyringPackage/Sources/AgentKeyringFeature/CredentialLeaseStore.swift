@@ -192,7 +192,7 @@ public final class CredentialLeaseStore {
         lease.reason = request.reason
         lease.requestedAtUnixSeconds = now
         lease.recipient = localRecipient
-        lease.sites = login.origins
+        lease.sites = login.origins.sorted()
         if request.hasProgram { lease.program = request.program }
         lease.pendingUntilUnixSeconds = now + 600
         if policy == .block {
