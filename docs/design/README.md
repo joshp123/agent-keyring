@@ -36,6 +36,3 @@ All of it lives in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI`:
 | The question, facts and claim block (both apps) | `Shared/AccessRequestParts.swift` |
 
 Views only read view models (`PhoneKeyringModel`, `MacApprovalModel`, `MacMenuBarModel`, `MacRulesModel`). Each model talks to the outside world through one protocol (`PhoneKeyringBackend`, `MacApprovalBackend`, `MacMenuBarBackend`, `LoginRulesBackend`): a stream of updates plus one call per thing Josh can do. Today those are mocks; the real backends replace them without touching a view. RFC 0007 maps each lease state and purpose to what the screens show.
-
-To refresh the screenshots:
-
