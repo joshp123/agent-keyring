@@ -7,34 +7,26 @@ import UserNotifications
 struct AgentKeyringPhoneApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(PhoneAppDelegate.self) private var appDelegate
-    private let designScenario = PhoneDesignScenario.fromLaunchArguments()
-    private let importBackend: PhoneImportBackend?
+    private let importBackend: PhoneImportBackend
     @State private var keyringModel: PhoneKeyringModel
 
     init() {
-        let model: PhoneKeyringModel
-        if let scenario = PhoneDesignScenario.fromLaunchArguments() {
-            importBackend = nil
-            model = scenario.makeModel()
-        } else {
-            let backend = PhoneImportBackend()
-            importBackend = backend
-            model = PhoneKeyringModel(backend: backend, initial: backend.snapshot)
-        }
-        _keyringModel = State(initialValue: model)
+        let backend = PhoneImportBackend()
+        importBackend = backend
+        _keyringModel = State(initialValue: PhoneKeyringModel(backend: backend, initial: backend.snapshot))
     }
 
     var body: some Scene {
         WindowGroup {
-            PhoneRootView(model: keyringModel, openRequestID: designScenario?.pushedRequestID)
+            PhoneRootView(model: keyringModel)
                 .onChange(of: scenePhase, initial: true) { _, phase in
-                    if phase == .active { importBackend?.start() }
-                    else if phase == .background { importBackend?.stop() }
+                    if phase == .active { importBackend.start() }
+                    else if phase == .background { importBackend.stop() }
                 }
                 .task {
-                    appDelegate.wake = { importBackend?.start() }
-                    appDelegate.receivedToken = { importBackend?.receivedPushToken($0) }
-                    appDelegate.registrationFailed = { importBackend?.pushRegistrationFailed($0) }
+                    appDelegate.wake = { importBackend.start() }
+                    appDelegate.receivedToken = { importBackend.receivedPushToken($0) }
+                    appDelegate.registrationFailed = { importBackend.pushRegistrationFailed($0) }
                 }
         }
     }

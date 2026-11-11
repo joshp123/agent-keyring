@@ -33,7 +33,6 @@ let package = Package(
         .target(name: "AgentKeyringApprovalUI"),
         // Joins the lease store and access rules to the screens (RFC 0007, U2 and U3).
         .target(name: "AgentKeyringScreenBackends", dependencies: ["AgentKeyringApprovalUI", "AgentKeyringFeature", "AgentKeyringProtocol"]),
-        .executableTarget(name: "AgentKeyringDesignGallery", dependencies: ["AgentKeyringApprovalUI", "AgentKeyringScreenBackends", "AgentKeyringFeature", "AgentKeyringProtocol"], path: "Tools/AgentKeyringDesignGallery"),
         .target(name: "AgentKeyringFeature", dependencies: ["AgentKeyringRelaySupport", "AgentKeyringProtocol", "AgentKeyringApprovalCore", "AgentKeyringCredentialImport"]),
         .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),
         .executableTarget(name: "AgentKeyringAuthorityFixture", dependencies: ["AgentKeyringFeature", "AgentKeyringTestSupport"], path: "Tools/AgentKeyringAuthorityFixture"),
