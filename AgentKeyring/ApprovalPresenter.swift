@@ -272,7 +272,7 @@ private struct RelayConnectionPrompt: View {
                 }
                 .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
                 if let context = approval.context {
-                    EmbeddedOwnerApproval(context: context)
+                    EmbeddedOwnerApproval(context: context, action: SetupCopy.allow.lowercased())
                         .id(ObjectIdentifier(context))
                         .onAppear { approval.wait(context: context, confirm: confirm, done: done) }
                 } else {
