@@ -102,7 +102,7 @@ extension PhoneRelayApprover {
         let (record, machine, _) = try pendingScope(id, approving: true)
         let context = LAContext(); defer { context.invalidate() }
         logger.notice("Requesting Face ID for explicit approval")
-        try await keys.authorize(context, reason: "Approve this login for an agent on \(machine.machineLabel), for up to 30 minutes.")
+        try await keys.authorize(context, reason: "Let an agent on \(machine.machineLabel) use this login for up to 30 minutes.")
         try Task.checkCancellation()
         logger.notice("Face ID authorized; signing phone answer")
         // After Face ID there are no network calls before durable enqueue.
@@ -125,7 +125,7 @@ extension PhoneRelayApprover {
         if reply.isEmpty { try queueDecision(id, approve: false, reply: "", context: nil) }
         else {
             let context = LAContext(); defer { context.invalidate() }
-            try await keys.authorize(context, reason: "Deny the request and send your reply.")
+            try await keys.authorize(context, reason: "Refuse the agent and send it your reply.")
             try Task.checkCancellation()
             try queueDecision(id, approve: false, reply: reply, context: context)
         }

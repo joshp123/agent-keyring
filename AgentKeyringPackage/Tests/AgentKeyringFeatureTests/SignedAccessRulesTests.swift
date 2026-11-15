@@ -92,7 +92,7 @@ struct SignedAccessRulesTests {
         #expect(try Data(contentsOf: fixture.fileURL) == snapshotBytes)
         await controller.refresh(from: fixture.generation)
         #expect(controller.canConfirmRules)
-        #expect(controller.confirmationSummary == "0 Ask, 0 Automatic, 1 Blocked")
+        #expect(controller.confirmationSummary == "0 without asking you, 1 never, 0 only after asking you")
         let rows = controller.rows
         let attackerBytes = String(decoding: snapshotBytes, as: UTF8.self).replacingOccurrences(of: "block", with: "allowAutomatically")
         try Data(attackerBytes.utf8).write(to: fixture.fileURL)
@@ -106,7 +106,7 @@ struct SignedAccessRulesTests {
         await controller.confirmRules()
         #expect(try Data(contentsOf: fixture.fileURL) == snapshotBytes)
         #expect(try await fixture.store.load()[fixture.loginID] == .block)
-        #expect(fixture.signer.signingReason == "save your rules for agents: 0 Ask, 0 Automatic, 1 Blocked")
+        #expect(fixture.signer.signingReason == "set which of your logins agents may use: 0 without asking you, 1 never, 0 only after asking you")
     }
     @Test("Restoring an older valid signed pair fails closed")
     func signedRollback() async throws {

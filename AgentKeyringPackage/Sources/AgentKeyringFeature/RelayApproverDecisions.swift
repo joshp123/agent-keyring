@@ -119,7 +119,7 @@ extension RelayApprover {
             try claimAuthorization("reply:" + id)
             ownsAuthorization = true
             _ = try pendingRequest(id)
-            try await keys().1.authorize(context: context, reason: "deny the request and send your reply")
+            try await keys().1.authorize(context: context, reason: "refuse the agent and send it your reply")
             onAuthenticated()
         }
         try Task.checkCancellation()

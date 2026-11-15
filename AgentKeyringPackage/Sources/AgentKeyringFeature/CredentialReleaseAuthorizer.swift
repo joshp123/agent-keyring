@@ -50,9 +50,9 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
             case .password: "password"
             case .totp: "verification code"
             }
-        if fillsFocusedField { return "fill the \(value) for \(account) on \(destination)" }
-        return "show the agent the \(value) for \(account) on \(destination)"
-            + (isPossiblyStale ? ". This login may be stale; update the copy from Apple Passwords." : "")
+        if fillsFocusedField { return "let an agent fill in your \(value) for \(account) on \(destination)" }
+        return "let an agent see your \(value) for \(account) on \(destination)"
+            + (isPossiblyStale ? ". This copy may be out of date; import again from Apple Passwords" : "")
     }
 
     static func leaseReason(purpose: Agentkeyring_V1_Purpose, site: String, account: String,
@@ -60,14 +60,14 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
         let site = URL(string: site)?.host() ?? site
         switch purpose {
         case .browserSignIn:
-            return "sign in to \(site) as \(account)"
+            return "let \(agent.isEmpty ? "an agent" : agent) sign in to \(site) as \(account)"
         case .program:
             let name = URL(fileURLWithPath: program).lastPathComponent
-            return "give \(name.isEmpty ? "the program" : name) the password for \(account) on \(site)"
+            return "let \(agent.isEmpty ? "an agent" : agent) pass your \(site) password for \(account) to \(name.isEmpty ? "a program" : name)"
         case .agentProcess:
-            return "show \(agent.isEmpty ? "the agent" : agent) the password for \(account) on \(site)"
+            return "let \(agent.isEmpty ? "an agent" : agent) see your \(site) password for \(account). It can keep a copy"
         default:
-            return "allow access to the login for \(account) on \(site)"
+            return "let an agent use your \(site) login for \(account)"
         }
     }
 }

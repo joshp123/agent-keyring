@@ -93,8 +93,8 @@ extension RelayApprover {
         try claimAuthorization(queuedID)
         defer { authorizationID = nil }
         let signer = try keys().1
-        let reason = replaced.map { "Replace the Agent Keyring approval keys for \($0.label) after comparing the full fingerprint" }
-            ?? "Allow \(request.key.label) to approve Agent Keyring requests after comparing its full fingerprint"
+        let reason = replaced.map { "let \($0.label) keep approving agents' requests, with new keys" }
+            ?? "let \(request.key.label) approve agents' requests for your logins"
         try await signer.authorize(context: context, reason: reason)
         onAuthenticated()
         let vault = request.key.encryptionPublicKey.isEmpty ? nil : try await credentialSource()

@@ -24,6 +24,25 @@ public enum AccessRequestCopy {
         "as \(request.login.account)"
     }
 
+    // MARK: The notification that carries a request to the iPhone and Watch
+
+    /// The site, because it is what Josh decides about and what the Watch
+    /// shows largest.
+    public static func notificationTitle(_ request: AccessRequest) -> String { request.login.site }
+
+    /// "Codex on Mac mini wants to sign in as josh@example.com".
+    public static func notificationSubtitle(_ request: AccessRequest) -> String {
+        let who = "\(request.agent.name) on \(request.agent.isLocal ? "your Mac" : request.agent.machine)"
+        return switch request.access {
+        case .signIn: "\(who) wants to sign in as \(request.login.account)"
+        case let .program(command): "\(who) wants to give \(programName(command)) the password for \(request.login.account)"
+        case .agentProcess: "\(who) wants to see the password for \(request.login.account)"
+        }
+    }
+
+    /// The agent's own reason, in quotation marks because Agent Keyring can't check it.
+    public static func notificationBody(_ request: AccessRequest) -> String { "“\(request.agentReason)”" }
+
     // MARK: Facts Agent Keyring observed
 
     public static let machineLabel = "Machine"

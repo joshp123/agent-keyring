@@ -197,16 +197,16 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
     }
 
     public func save(_ policies: [UUID: CredentialAccessPolicy]) async throws {
-        try await persist(policies: policies, reason: "save your rules for agents")
+        try await persist(policies: policies, reason: "set which of your logins agents may use")
     }
 
     public func addPairedDevice(_ device: PairedApprovalDevice, confirmationCode: String? = nil) async throws {
-        try await persist(deviceChange: .add(device), reason: confirmationCode.map { "pair \(device.name) with Agent Keyring, code \($0)" }
-            ?? "pair your iPhone with Agent Keyring")
+        try await persist(deviceChange: .add(device), reason: confirmationCode.map { "let \(device.name) approve agents' requests for your logins (code \($0))" }
+            ?? "let your iPhone approve agents' requests for your logins")
     }
 
     public func removePairedDevice(publicKey: Data) async throws {
-        try await persist(deviceChange: .remove(publicKey), reason: "remove your iPhone from Agent Keyring")
+        try await persist(deviceChange: .remove(publicKey), reason: "stop your iPhone approving agents' requests")
     }
 
     public func save(_ snapshot: AccessRulesConfirmationSnapshot, reason: String) async throws {
