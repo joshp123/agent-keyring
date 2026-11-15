@@ -39,7 +39,7 @@ public struct AccessRequestHeadline: View {
 }
 
 /// Label and value on one baseline grid. Only facts Agent Keyring saw itself:
-/// the machine the request came from and what the approval would allow.
+/// the machine the request came from and how long the approval would last.
 public struct AccessRequestFacts: View {
     let request: AccessRequest
 
@@ -50,7 +50,7 @@ public struct AccessRequestFacts: View {
     public var body: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
             FactRow(label: AccessRequestCopy.machineLabel, value: AccessRequestCopy.machine(request.agent))
-            FactRow(label: AccessRequestCopy.accessLabel, value: AccessRequestCopy.access(request))
+            FactRow(label: AccessRequestCopy.lastsLabel, value: AccessRequestCopy.lasts(request))
             if case let .program(command) = request.access {
                 FactRow(label: AccessRequestCopy.commandLabel, value: command, monospaced: true)
             }
@@ -117,7 +117,7 @@ public struct AgentClaim: View {
                     }
                 }
             }
-            Text(AccessRequestCopy.claimFootnote)
+            Text(AccessRequestCopy.claimFootnote(request.agent))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

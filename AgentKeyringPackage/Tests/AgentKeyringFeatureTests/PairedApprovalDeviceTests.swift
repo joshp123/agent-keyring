@@ -25,7 +25,7 @@ struct PairedApprovalDeviceTests {
         #expect(try await reopened.load() == [loginID: .allowAutomatically])
         let pairedHash = try fixture.signer.signedBytesHash()
         try await reopened.removePairedDevice(publicKey: fixture.device.publicKey)
-        #expect(fixture.signer.signingReason == "remove your paired iPhone from Agent Keyring")
+        #expect(fixture.signer.signingReason == "remove your iPhone from Agent Keyring")
         #expect(try fixture.signer.signedBytesHash() != pairedHash)
         #expect(try await reopened.loadPairedDevices().isEmpty)
         #expect(try await reopened.load() == [loginID: .allowAutomatically])

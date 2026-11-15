@@ -22,8 +22,8 @@ public enum LoginRule: String, CaseIterable, Hashable, Sendable {
     public var explanation: String {
         switch self {
         case .ask: "Agents ask you before each task. New logins start here."
-        case .automatic: "Approved without asking. Still recorded, and still ends after 30 minutes."
-        case .blocked: "Agents can't use these, and you aren't asked."
+        case .automatic: "Agents get these without asking you, for up to 30 minutes at a time."
+        case .blocked: "Agents can't use these. You won't be asked."
         }
     }
 
@@ -46,8 +46,8 @@ public enum LoginRule: String, CaseIterable, Hashable, Sendable {
 
 /// The words on the rules window that aren't a rule's own.
 public enum RulesCopy {
-    public static let confirmTitle = "Confirm your rules"
-    public static let confirmBody = "Agents get nothing until you confirm the rules below."
+    public static let confirmTitle = "Confirm these rules"
+    public static let confirmBody = "Agents can't use any login until you confirm."
     public static let confirmBodyAfterUnreadableRules =
         "The saved rules couldn't be checked. Review and confirm the rules below before agents can use logins."
     public static let confirmUpgradeBody =
@@ -55,12 +55,12 @@ public enum RulesCopy {
     /// Only the relay's copy is behind, for example after an import or the
     /// first relay setup. The rules on this Mac are fine and in use.
     public static let confirmForOtherMachinesBody =
-        "Your other machines don't have these logins and rules yet. Confirm to send them. Nothing is wrong, and agents on this Mac already use them."
+        "Confirm to send these logins and rules to your Mac mini, so agents on your other machines can use them. Agents on this Mac already do."
     /// RFC 0008: the mini keeps Automatic logins so it can serve them while
     /// the MacBook is shut. Added to the band once a relay is paired.
     public static let automaticStoredOnMini =
-        "Automatic passwords and two-factor secrets are also stored on your Mac mini. Anyone with admin access to it, including agents, can read them."
+        "Logins set to Automatic are also kept on your Mac mini, with their two-factor codes. Anyone with admin rights there, agents included, can read them."
     public static let otherMachinesNeedRulesTitle = "Confirm rules for other machines"
-    public static let otherMachinesNeedRulesDetail = "They can't use your latest logins and rules yet."
+    public static let otherMachinesNeedRulesDetail = "Your other machines need them"
     public static let confirmButton = "Confirm with Touch ID"
 }

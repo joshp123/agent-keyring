@@ -45,7 +45,6 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
         var connection = ServiceConnection.connected(service: DesignExamples.macMini.name,
             lastContact: now.addingTimeInterval(-4))
         var presented: String?
-        var replying = false
         var reply = ""
         var showingSettings = false
         var pairing = PhonePairingState.paired
@@ -69,7 +68,6 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
             presented = read.id
         case .reply:
             presented = github.id
-            replying = true
             reply = "Don't sign in. The invoice is already in my email, use that."
         case .sending:
             requests[0].state = .sendingAnswer(.approve)
@@ -126,7 +124,6 @@ public enum PhoneDesignScenario: String, CaseIterable, Sendable {
         )
         let model = PhoneKeyringModel(backend: DesignPhoneBackend(snapshot: snapshot), initial: snapshot)
         model.presentedRequestID = presented
-        model.isReplying = replying
         model.replyDraft = reply
         model.isShowingSettings = showingSettings
         return model

@@ -44,7 +44,7 @@ final class AgentKeyringUITests: XCTestCase {
         XCTAssertTrue(rulesWindow.staticTexts["440"].exists)
         XCTAssertTrue(rulesWindow.staticTexts["52"].exists)
         XCTAssertTrue(rulesWindow.staticTexts["30"].exists)
-        XCTAssertFalse(rulesWindow.staticTexts["Confirm your rules"].exists)
+        XCTAssertFalse(rulesWindow.staticTexts["Confirm these rules"].exists)
         XCTAssertTrue(rulesWindow.staticTexts["Login"].exists)
         XCTAssertTrue(rulesWindow.staticTexts["Rule"].exists)
         XCTAssertTrue(rulesWindow.staticTexts["service-1.example"].exists)

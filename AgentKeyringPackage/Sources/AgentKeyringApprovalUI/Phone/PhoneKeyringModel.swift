@@ -80,8 +80,8 @@ public final class PhoneKeyringModel {
     /// The request on screen. Set when Josh taps a notification.
     public var presentedRequestID: String?
     public var isShowingSettings = false
+    /// What Josh has typed for the agent. Deny sends it; empty means a plain denial.
     public var replyDraft = ""
-    public var isReplying = false
     public private(set) var failure: String?
 
     private let backend: any PhoneKeyringBackend
@@ -145,7 +145,6 @@ public final class PhoneKeyringModel {
 
     public func deny(_ id: String) async {
         let reply = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        isReplying = false
         await answer(id, choice: .deny) {
             try await backend.deny(requestID: id, reply: reply.isEmpty ? nil : reply)
         }
@@ -174,7 +173,7 @@ public final class PhoneKeyringModel {
 
     public func beginPairing(endpoint: PhoneRelayEndpoint) async {
         do { try await backend.beginPairing(endpoint: endpoint) }
-        catch { failure = "Couldn’t start pairing. Check the relay address and Tailscale." }
+        catch { failure = "Couldn’t start pairing. Check the Mac mini address and that Tailscale is on." }
     }
 
     public func cancelPairing() { backend.cancelPairing() }

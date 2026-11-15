@@ -16,7 +16,7 @@ public enum AccessRequestCopy {
         return switch request.access {
         case .signIn: "\(who) wants to sign in to"
         case let .program(command): "\(who) wants to give \(programName(command)) the password for"
-        case .agentProcess: "\(who) wants the password itself for"
+        case .agentProcess: "\(who) wants to see the password for"
         }
     }
 
@@ -27,7 +27,7 @@ public enum AccessRequestCopy {
     // MARK: Facts Agent Keyring observed
 
     public static let machineLabel = "Machine"
-    public static let accessLabel = "Access"
+    public static let lastsLabel = "Lasts"
     public static let commandLabel = "Command"
 
     public static func machine(_ agent: RequestingAgent) -> String {
@@ -40,13 +40,14 @@ public enum AccessRequestCopy {
     }
 
     /// Under the outcome while an answer waits to reach the relay.
-    public static let answerQueued = "Saved. It reaches the relay as soon as the relay is back."
+    public static let answerQueued = "Saved. It goes to your Mac mini as soon as it can be reached."
 
-    public static func access(_ request: AccessRequest) -> String {
+    /// How long an approval lasts. Once an agent has seen a password, ending
+    /// the approval can't take it back, so that case says so.
+    public static func lasts(_ request: AccessRequest) -> String {
         switch request.access {
-        case .signIn: "Sign-in only, up to 30 min"
-        case let .program(command): "Password to \(programName(command)), up to 30 min"
-        case .agentProcess: "Password to \(request.agent.name)'s own code, up to 30 min"
+        case .signIn, .program: "Up to 30 minutes"
+        case .agentProcess: "Up to 30 minutes. Once \(request.agent.name) has seen the password, it can keep it."
         }
     }
 
@@ -67,16 +68,19 @@ public enum AccessRequestCopy {
     }
 
     /// Covers the agent's name, folder and reason: all come from the agent.
-    public static let claimFootnote = "From the agent. Agent Keyring can't check it."
+    public static func claimFootnote(_ agent: RequestingAgent) -> String {
+        "Agent Keyring can't check what \(agent.name) says."
+    }
 
     // MARK: Answering
 
     public static let approve = "Approve"
     public static let deny = "Deny"
-    public static let denyAndReply = "Deny and reply…"
-    public static func replySheetTitle(_ agent: RequestingAgent) -> String { "Reply to \(agent.name)" }
-    public static let replyPlaceholder = "Why not, or what to do instead"
-    public static let denyAndSend = "Deny and send"
+    /// Deny's label once Josh has typed a reply: the reply goes with the denial.
+    public static let denyAndSendReply = "Deny and reply"
+    public static func replyPlaceholder(_ agent: RequestingAgent) -> String {
+        "Tell \(agent.name) what to do instead (optional)"
+    }
     public static let sending = "Sending…"
     public static let endNow = "End now"
     public static let ending = "Ending…"
@@ -93,7 +97,7 @@ public enum AccessRequestCopy {
 
     public static func remaining(until deadline: Date, now: Date) -> String {
         let seconds = max(0, Int(deadline.timeIntervalSince(now).rounded(.up)))
-        return String(format: "%d:%02d left", seconds / 60, seconds % 60)
+        return String(format: "%d:%02d to answer", seconds / 60, seconds % 60)
     }
 
     public static func minutesLeft(until deadline: Date, now: Date) -> String {
@@ -112,19 +116,19 @@ public enum AccessRequestCopy {
         case .sendingAnswer(.deny):
             return "Denying…"
         case .waitingForMac(.approve, _):
-            return "You approved. Waiting for your Mac to deliver it."
+            return "You approved. Waiting for your Mac to send the login."
         case let .waitingForMac(.deny, reply):
             return reply == nil ? "You denied. Waiting for your Mac to tell \(agent)."
                 : "You denied. Waiting for your Mac to pass your reply to \(agent)."
         case let .approved(.automaticRule, until):
-            return "Approved by rule. \(agent) can use it until \(clock(until))."
+            return "Approved by this login's rule. \(agent) can use it until \(clock(until))."
         case let .approved(surface, until):
             return "Approved\(elsewhere(surface)). \(agent) can use it until \(clock(until)), or until it says it's done."
         case let .denied(surface, reply, _):
             return reply == nil ? "Denied\(elsewhere(surface)). \(agent) was told."
                 : "Denied\(elsewhere(surface)). \(agent) got your reply."
         case .unanswered:
-            return "Nobody answered, so \(agent) stopped waiting."
+            return "Nobody answered in time, so \(agent) stopped waiting."
         case .cancelled:
             return "\(agent) stopped asking before you answered."
         case let .expired(at):

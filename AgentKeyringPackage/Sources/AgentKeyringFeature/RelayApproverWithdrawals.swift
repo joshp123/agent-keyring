@@ -68,7 +68,7 @@ extension RelayApprover {
         guard previousSet.ruleOwnerKeyID == RelayCrypto.keyID(signer.publicKey) else {
             throw LeaseFailure(.permissionDenied, "Only the rule owner can remove an approving phone.")
         }
-        try await signer.authorize(context: context, reason: "Remove \(phone.label) from Agent Keyring. Its saved password copies cannot be erased remotely")
+        try await signer.authorize(context: context, reason: "remove \(phone.label). Passwords already on it can't be erased from here")
         try Task.checkCancellation()
         guard try currentKeySet() == previous, state.configuration == configurationBytes else {
             throw LeaseFailure(.conflict, "The allowed devices changed. Review the phone again.")

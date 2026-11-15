@@ -36,13 +36,13 @@ The screen a notification opens. Top to bottom:
 2. **The question.** "Codex on Mac mini wants to sign in to" (the agent and the machine it runs on), then **github.com** in the largest type on the screen, then "as josh@example.com". For a program: "Claude Code wants to give gh the password for". When the value goes to the agent's own code: "Codex wants the password itself for".
 3. **Facts Agent Keyring saw.** Machine (name and tailnet address) and Access ("Sign-in only, up to 30 min", "Password to gh, up to 30 min" or "Password to Codex's own code, up to 30 min"). For a program, the exact command too.
 4. **What came from the agent.** "Codex says", its reason in quotes behind a rule, "Working in ~/code/invoices", and "From the agent. Agent Keyring can't check it." The agent's name and folder come from the requesting process, which can say anything, so they sit here rather than in the facts.
-5. **Answers,** pinned under your thumb: **Deny** (red) and **Approve** with the Face ID glyph (green), equal width. Under them, **Deny and reply…** in red.
+5. **Answers,** pinned under your thumb: **Deny** (red) and **Approve** with the Face ID glyph (green), equal width. Above them, a reply box, "Tell Codex what to do instead (optional)". Once a reply is typed, Deny reads **Deny and reply** and sends it, with Face ID because a reply is signed.
 
 Screens: `request-*.png`, `requestForProgram-*.png`, `requestForAgentProcess-*.png`.
 
 ### Deny and reply
 
-Tapping **Deny and reply…** swaps the two buttons for a reply box, in place, so the request stays in view. Type, or use the keyboard's own dictation key. Buttons: **Cancel** and **Deny and send**. The reply reaches the agent with the denial.
+The reply box is always above the answers. Type, or use the keyboard's own dictation key, then tap **Deny and reply**. The reply reaches the agent with the denial.
 
 Screen: `reply-*.png`.
 

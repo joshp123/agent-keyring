@@ -177,7 +177,7 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
     }
 
     public func save(_ policies: [UUID: CredentialAccessPolicy]) async throws {
-        try await persist(policies: policies, reason: "confirm your Agent Keyring access rules")
+        try await persist(policies: policies, reason: "save your rules for agents")
     }
 
     public func addPairedDevice(_ device: PairedApprovalDevice, confirmationCode: String? = nil) async throws {
@@ -186,7 +186,7 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
     }
 
     public func removePairedDevice(publicKey: Data) async throws {
-        try await persist(deviceChange: .remove(publicKey), reason: "remove your paired iPhone from Agent Keyring")
+        try await persist(deviceChange: .remove(publicKey), reason: "remove your iPhone from Agent Keyring")
     }
 
     public func save(_ snapshot: AccessRulesConfirmationSnapshot, reason: String) async throws {

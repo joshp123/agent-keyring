@@ -16,6 +16,9 @@ public enum KeyringColour {
     /// The same meanings as text. Brighter in dark mode, where the fills are too dim to read.
     public static let approveText = Color(light: 0x1A7F37, dark: 0x3FB950)
     public static let denyText = Color(light: 0xCF222E, dark: 0xFF6A69)
+    /// The Mac panels' background: white, or near-black in dark mode, so the
+    /// request reads as clearly as a sheet of paper and not a grey haze.
+    public static let surface = Color(light: 0xFFFFFF, dark: 0x1E1E1E)
 }
 
 public enum KeyringMetric {

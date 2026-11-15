@@ -10,10 +10,11 @@ The Mac does three things: lets you answer a request with Touch ID when you're a
 
 A request that asks you appears first on the Mac, as a small borderless panel at the top right, under the menu bar, on the screen with the pointer. It shows the same things as the iPhone, in the same order: the question with the site largest, the facts Agent Keyring saw (machine, access, and the command for a program), and what came from the agent (name, reason, folder), labelled as such.
 
-- **Approve** (green, Touch ID glyph) and **Deny** (red), equal width. **Deny and reply…** under Deny; "1 more waiting" on the right when requests queue.
+- A reply box, "Tell Codex what to do instead (optional)", above the answers. It takes the keyboard only when clicked.
+- **Approve** (green, Touch ID glyph) and **Deny** (red), equal width. Once a reply is typed, Deny reads **Deny and reply** and sends it. "1 more waiting" under them when requests queue.
 - **Touch ID is the approval.** Where the backend allows it, the panel shows the live Touch ID glyph ("Touch ID to approve") and starts Touch ID as it opens, so touching the sensor approves with no click; Deny stops it. Otherwise Approve is a button that brings up the system Touch ID or Apple Watch prompt. The screenshots show the button form, because the Mac mini has no Touch ID.
 - **It never takes focus by itself.** Josh: half of Apple Watch prompts hit while he's typing. The panel is non-activating and has no keyboard shortcuts, so typing into another app can't approve or deny anything. It takes the keyboard only when you click into the reply box.
-- **Deny and reply…** swaps the buttons for a reply box with **Cancel** and **Deny and send**; Return sends.
+- Return in the reply box does nothing: only the Deny button answers, so typing meant for another app can't deny. (Changed 15 Nov 2026, by Claude Opus 5.5, after Josh found the hidden reply link.)
 - **After an answer:** the same sentences as the iPhone ("Approved. Codex can use it until 01:07, or until it says it's done.") and **Close**. If Touch ID fails: "Touch ID didn't confirm. Nothing was shared."
 - If you don't answer, the request goes to the iPhone after the delay set there (default 2 minutes), and the panel stays until either answers.
 

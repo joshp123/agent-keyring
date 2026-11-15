@@ -41,7 +41,7 @@ struct PrimaryActionRow: View {
         if status != nil {
             HStack(spacing: 10) {
                 Button(action: manageAccess) {
-                    Label("Access Rules…", systemImage: "person.badge.key")
+                    Label("Rules…", systemImage: "person.badge.key")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -50,7 +50,7 @@ struct PrimaryActionRow: View {
                 Button {
                     isShowingUpdateHelp = true
                 } label: {
-                    Label("Update…", systemImage: "arrow.clockwise")
+                    Label("Import Again…", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
@@ -73,15 +73,15 @@ struct PrimaryActionRow: View {
     }
 
     private var progressLabel: String {
-        if isLoading { return "Checking encrypted credentials…" }
-        if isImporting { return "Saving the updated credentials…" }
-        return "Asking macOS to enable the extension…"
+        if isLoading { return "Opening your logins…" }
+        if isImporting { return "Saving the imported logins…" }
+        return "Asking macOS to allow imports…"
     }
 
     private var primaryLabel: String {
         if providerState == .enabled { return "Open Passwords" }
-        if providerState == .denied { return "Retry after profile setup" }
-        return "Allow Passwords Import"
+        if providerState == .denied { return "Try Again" }
+        return "Allow Imports from Passwords"
     }
 
     private var primarySymbol: String {
@@ -93,9 +93,9 @@ struct PrimaryActionRow: View {
     private var actionHint: String {
         if providerState == .denied {
             return
-                "Agent Keyring needs an eligible Apple Developer Program profile before macOS can enable credential import."
+                "This copy needs a different Apple developer profile before macOS allows imports."
         }
-        return "Agent Keyring does not read Passwords in the background."
+        return "Agent Keyring gets logins only when you export them from Passwords."
     }
 
     private var primaryAction: () -> Void {
@@ -127,7 +127,7 @@ private struct UpdateHelp: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Update from Passwords")
+            Text("Import again from Passwords")
                 .font(.headline)
             Text("Choose File → Export All Items to App → Agent Keyring.")
                 .foregroundStyle(.secondary)

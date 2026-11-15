@@ -10,7 +10,7 @@ extension RelayApprover {
         try await prepareForPublication()
         try claimAuthorization("publication")
         defer { authorizationID = nil }
-        try await keys().1.authorize(context: context, reason: "Apply your Agent Keyring rules and allowed machines")
+        try await keys().1.authorize(context: context, reason: "send your rules and machines to your Mac mini")
         let vault = try await credentialSource()
         try Task.checkCancellation()
         try applyConfirmedRules(vault, context: context)

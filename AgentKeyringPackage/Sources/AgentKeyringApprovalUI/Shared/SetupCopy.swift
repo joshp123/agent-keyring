@@ -8,7 +8,7 @@ import Foundation
 public enum SetupCopy {
     // MARK: Comparing a code
 
-    public static let allGroupsMustMatch = "All eight groups must match. If any differs, don't approve."
+    public static let allGroupsMustMatch = "Approve only if all eight groups match."
     public static let theyMatch = "They match"
     public static let doesNotMatch = "Doesn't match"
 
@@ -38,7 +38,7 @@ public enum SetupCopy {
 
     public static func compareWith(_ enrolment: DeviceEnrolment) -> String {
         switch enrolment.kind {
-        case .machine: "Compare with the code \(enrolment.name) shows:"
+        case .machine: "The agent setting up \(enrolment.name) shows you a code. Compare it with this one:"
         case .approver: "Compare with the code on your iPhone:"
         }
     }
@@ -55,47 +55,51 @@ public enum SetupCopy {
     }
 
     public static func refused(_ enrolment: DeviceEnrolment) -> String {
-        "Refused. If you expected \(enrolment.name), start again there; if you didn't, nothing was allowed."
+        "Refused. Nothing was allowed. To try again, start again on \(enrolment.name)."
     }
 
     public static let joiningFailed = "Touch ID didn't confirm. Nothing changed."
 
     // MARK: The Mac's relay (Machines window)
 
-    public static let relayHeading = "Relay"
-    public static let relayNotSetUp = "Agents on other machines ask through the relay on your Mac mini. Set it up once."
-    public static let relayAddress = "Relay address"
+    public static let relayHeading = "Requests from other machines"
+    public static let relayNotSetUp = "Agents on your other machines send their requests through Agent Keyring on your Mac mini. Connect this Mac to it once."
+    public static let relayAddress = "Mac mini address"
     /// The relay listens on port 17443 on the Mac mini, so this is usually right as it is.
     public static let defaultRelayAddress = "mac-mini:17443"
     public static let relayAddressExample = "mac-mini:17443"
-    public static let relayAddressHint = "The relay's Tailscale name and port."
+    public static let relayAddressHint = "Its Tailscale name and port."
     public static let connect = "Connect"
-    /// RFC 0005, "First approver": setup reads the relay's code over the mini's
-    /// trusted SSH connection and brings it to Josh; he never opens a log.
-    public static let compareWithSetupCode = "Compare with the relay's code from setup:"
-    public static let setupCodeSource = "Setup reads it on your Mac mini and shows it to you."
+    /// RFC 0005, "First approver": the agent setting up the relay reads its
+    /// code over the mini's trusted SSH connection and shows it to Josh; he
+    /// never opens a log.
+    public static let compareWithSetupCode = "Check that this Mac is talking to your Mac mini"
+    public static func setupCodeSource(_ address: String) -> String {
+        "The agent that set up your Mac mini reads the same code there and shows it to you. Compare the two. Address: \(address)."
+    }
 
     public static func relayConnected(_ address: String) -> String { "Connected to \(address)" }
+    public static func relayConnecting(_ address: String) -> String { "Connecting to \(address)…" }
     public static func relayOffline(_ address: String) -> String { "Can't reach \(address). Retrying." }
 
     public static func queuedAnswers(_ count: Int) -> String {
-        count == 1 ? "1 answer waits to send." : "\(count) answers wait to send."
+        count == 1 ? "1 answer will be sent when it's back." : "\(count) answers will be sent when it's back."
     }
 
     /// RFC 0005, "Applying a change": shown until the relay acknowledges.
-    public static let applying = "Applying changes…"
+    public static let applying = "Sending changes to your Mac mini…"
     public static let waitingToJoin = "Waiting to join"
-    public static let machinesThatCanAsk = "Machines that can ask"
-    public static let noMachines = "No other machine can ask yet. Run agent-keyring enrol on it to start."
-    public static let automaticAllowed = "Automatic logins allowed"
-    public static let asksEveryTime = "Asks every time"
+    public static let machinesThatCanAsk = "Machines that can ask for logins"
+    public static let noMachines = "None yet. To add a machine, ask an agent on it to set up Agent Keyring."
+    public static let automaticAllowed = "Can use Automatic logins"
+    public static let asksEveryTime = "Asks you for every login"
     public static let remove = "Remove"
     public static let removeWithTouchID = "Remove with Touch ID"
 
     public static func removePhoneTitle(_ name: String) -> String { "Remove \(name)?" }
     /// Honest about the limit: removal stops the phone approving, but cannot
     /// reach into it and erase what it already holds.
-    public static let removePhoneMessage = "It stops approving requests once your other devices confirm the change. This doesn't erase anything already on it: its stored passwords and two-factor codes stay locked behind its Face ID. If it might be in someone else's hands, change those passwords and set up two-factor again."
+    public static let removePhoneMessage = "It stops approving once your other devices confirm. Passwords and two-factor codes already on it stay there, locked behind its Face ID. If someone else might have it, change those passwords and set up two-factor again."
 
     // MARK: Removals waiting for every device to confirm
 
@@ -113,7 +117,7 @@ public enum SetupCopy {
         guard names.count > 1 else { return names.first ?? "" }
         return names.dropLast().joined(separator: ", ") + " and " + names.last!
     }
-    public static let canApprove = "Can approve requests"
+    public static let canApprove = "Devices that can approve"
     public static let answersWithTouchID = "Answers with Touch ID"
     public static let answersWithFaceID = "Answers with Face ID"
     public static let review = "Review"
@@ -122,7 +126,7 @@ public enum SetupCopy {
 
     public static let phoneDelayFooter = "A request shows on your Mac first. If you don't answer there in time, or your Mac is locked, it comes here. The delay is set on your Mac."
     public static let askPhoneAfterOnMac = "Ask your iPhone after"
-    public static let macDelayFooter = "If you don't answer on this Mac by then. When this Mac is locked, it asks your iPhone at once."
+    public static let macDelayFooter = "If you haven't answered on this Mac by then. If this Mac is locked, your iPhone is asked straight away."
 
     /// "30 seconds", "1 minute", "9 minutes".
     public static func delay(_ delay: Duration) -> String {
@@ -152,12 +156,13 @@ public enum SetupCopy {
     public static let pairTitle = "Pair with your Mac"
     /// Fresh keys through the same comparison; the Mac drops this iPhone's old key.
     public static let pairAgain = "Pair again"
-    public static let pairAgainFooter = "Your approvals are signed with this key, which never leaves the iPhone's Secure Enclave. Pair again to give this iPhone new keys, for example if it was paired before it could keep logins for when your Mac is shut."
-    public static let pairIntro = "Pairing lets requests reach this iPhone through the relay on your Mac mini, and lets you answer them here."
+    public static let pairAgainFooter = "Your approvals are signed with this key, which never leaves this iPhone's Secure Enclave. Pair again to make new keys, for example if this iPhone was paired before it could keep logins for when your Mac is shut."
+    public static let pairIntro = "Pair this iPhone to answer requests when you're away from your Mac. Requests reach it through Agent Keyring on your Mac mini."
     public static let pairButton = "Pair"
-    public static let pairingConnecting = "Connecting to the relay…"
+    public static let pairingConnecting = "Connecting to your Mac mini…"
     public static let pairingCompareHere = "Compare this code with the one on your Mac:"
-    public static let pairingConfirmOnMac = "When every group matches, approve on your Mac with Touch ID. This iPhone carries on by itself."
+    public static let pairingConfirmOnMac = "If every group matches, approve on your Mac with Touch ID. This screen moves on by itself."
+    public static func pairingThrough(_ address: String) -> String { "Through \(address)" }
     public static let pairingPaired = "Paired. Requests now reach this iPhone."
     public static let tryAgain = "Try again"
     public static let notPairedNotice = "Not paired yet, so requests can't reach this iPhone."

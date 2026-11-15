@@ -88,16 +88,13 @@ struct PhonePairingView: View {
         FingerprintGrid(fingerprint, size: .title3)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-        Text(SetupCopy.allGroupsMustMatch)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
         Hairline()
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             ProgressView()
             Text(SetupCopy.pairingConfirmOnMac)
                 .font(.body)
         }
-        Text("Relay: \(relayAddress)")
+        Text(SetupCopy.pairingThrough(relayAddress))
             .font(.footnote.monospaced())
             .foregroundStyle(.secondary)
         Button(SetupCopy.doesNotMatch) { model.cancelPairing() }

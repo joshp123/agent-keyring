@@ -96,7 +96,7 @@ extension RelayApprover {
         let before = try pendingScope(id, vault: await credentialSource())
         guard before.policy != .block else { throw LeaseFailure(.permissionDenied, "This login is blocked.") }
         let signer = try keys().1
-        try await signer.authorize(context: context, reason: "Allow \(before.item.title) for this task on \(before.machine.machineLabel), up to 30 minutes")
+        try await signer.authorize(context: context, reason: "let an agent on \(before.machine.machineLabel) use \(before.item.title) for up to 30 minutes")
         let vault = try await credentialSource()
         try Task.checkCancellation()
         try queueDecision(id, approve: true, reply: "", automatic: false, context: context, vault: vault, suppress: false)
@@ -113,7 +113,7 @@ extension RelayApprover {
             try claimAuthorization("reply:" + id)
             ownsAuthorization = true
             _ = try pendingRequest(id)
-            try await keys().1.authorize(context: context, reason: "Send your reply when denying this Agent Keyring request")
+            try await keys().1.authorize(context: context, reason: "deny the request and send your reply")
         }
         try Task.checkCancellation()
         try queueDecision(id, approve: false, reply: reply, automatic: false, context: hasReply ? context : nil,

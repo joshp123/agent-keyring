@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @available(macOS 26.0, *)
-struct MirrorStatusPanel: View {
+public struct MirrorStatusPanel: View {
     let status: SafeMirrorStatus?
     let isLoading: Bool
     let isImporting: Bool
@@ -12,7 +12,21 @@ struct MirrorStatusPanel: View {
     let openPasswords: () -> Void
     let manageAccess: () -> Void
 
-    var body: some View {
+    /// Public so the design gallery can show the main window's states.
+    public init(status: SafeMirrorStatus?, isLoading: Bool, isImporting: Bool, providerState: ProviderEnablementState,
+        notice: MirrorNotice?, enableProvider: @escaping () -> Void, openPasswords: @escaping () -> Void,
+        manageAccess: @escaping () -> Void) {
+        self.status = status
+        self.isLoading = isLoading
+        self.isImporting = isImporting
+        self.providerState = providerState
+        self.notice = notice
+        self.enableProvider = enableProvider
+        self.openPasswords = openPasswords
+        self.manageAccess = manageAccess
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 18) {
                 StatusMark(symbol: presentation.symbol, colour: presentation.colour)
@@ -35,7 +49,7 @@ struct MirrorStatusPanel: View {
 
             if status != nil, !isImporting {
                 Text(
-                    "Agents use the `agent-keyring` command to fill sign-in forms; they never see the password. Access Rules decide whether to ask you, allow it or block it."
+                    "When an agent needs a login, it asks Agent Keyring. Each login's rule decides what happens: Ask, Automatic or Blocked."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -45,7 +59,7 @@ struct MirrorStatusPanel: View {
             if let status, !isImporting, status.skippedCredentialCount > 0 {
                 Divider()
                 MirrorDeltaStrip(status: status)
-            } else if !isLoading, !isImporting {
+            } else if status == nil, !isLoading, !isImporting {
                 Divider()
                 SetupSteps(providerState: providerState)
             }
@@ -55,7 +69,7 @@ struct MirrorStatusPanel: View {
             }
 
             if let status, Date().timeIntervalSince(status.importedAt) > 7 * 86_400 {
-                Text("The mirror is older than 7 days. Update it from Apple Passwords.")
+                Text("These logins were imported more than 7 days ago. Import again to pick up changes from Apple Passwords.")
                     .font(.callout)
                     .foregroundStyle(.orange)
             }
@@ -91,7 +105,7 @@ struct MirrorStatusPanel: View {
         if isImporting {
             return MirrorPresentation(
                 title: "Importing from Passwords",
-                detail: "The existing logins remain available until the update is saved.",
+                detail: "Your current logins stay available until the import finishes.",
                 symbol: "arrow.triangle.2.circlepath",
                 colour: .teal
             )
@@ -100,16 +114,16 @@ struct MirrorStatusPanel: View {
             return MirrorPresentation(
                 title: "\(status.credentialItemCount) logins",
                 detail:
-                    "Updated \(status.importedAt.formatted(.relative(presentation: .named))).",
+                    "Imported from Apple Passwords \(status.importedAt.formatted(.relative(presentation: .named))).",
                 symbol: "checkmark.shield.fill",
                 colour: .green
             )
         }
         if providerState == .denied {
             return MirrorPresentation(
-                title: "Apple blocked the extension",
+                title: "Apple Passwords can't send logins here",
                 detail:
-                    "The app is built and signed, but credential exchange needs an eligible Developer Program profile.",
+                    "This copy of Agent Keyring needs a different Apple developer profile before Passwords can export to it.",
                 symbol: "exclamationmark.shield.fill",
                 colour: .orange
             )
@@ -118,7 +132,7 @@ struct MirrorStatusPanel: View {
             return MirrorPresentation(
                 title: "Import your logins",
                 detail:
-                    "In Passwords, export all items to Agent Keyring. They are encrypted on this Mac.",
+                    "In Passwords, export all items to Agent Keyring. They are kept encrypted on this Mac.",
                 symbol: "arrow.down.to.line.compact",
                 colour: .teal
             )
@@ -126,7 +140,7 @@ struct MirrorStatusPanel: View {
         return MirrorPresentation(
             title: "Set up Agent Keyring",
             detail:
-                "Agent Keyring lets local AI agents use logins from Apple Passwords without putting passwords or codes in chat.",
+                "Agent Keyring lets your AI agents use logins from Apple Passwords, with your approval.",
             symbol: "key.horizontal.fill",
             colour: .teal
         )

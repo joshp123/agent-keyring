@@ -2,7 +2,8 @@
 //
 // The Mac's answer to a request: a small panel under the menu bar with the
 // same facts as the iPhone and Touch ID to approve. It never takes keyboard
-// focus on its own, so typing elsewhere can't answer it.
+// focus on its own, so typing elsewhere can't answer it. The reply field is
+// always there: type a reply first, then Deny sends it.
 
 #if os(macOS)
 import AppKit
@@ -33,7 +34,7 @@ public final class MacApprovalModel {
     public private(set) var request: AccessRequest
     /// Other requests queued behind this one.
     public var moreWaiting: Int
-    public var isReplying = false
+    /// What Josh has typed for the agent. Deny sends it; empty means a plain denial.
     public var replyDraft = ""
     public private(set) var failure: String?
     /// Set while the panel waits for a touch on the sensor. Nil after a failed
@@ -91,7 +92,6 @@ public final class MacApprovalModel {
     public func deny() async {
         stopWaitingForTouch()
         let reply = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        isReplying = false
         await answer(.deny) { try await backend.deny(requestID: request.id, reply: reply.isEmpty ? nil : reply) }
     }
 
@@ -109,7 +109,6 @@ public final class MacApprovalModel {
 
 public struct MacApprovalPanelView: View {
     @Bindable var model: MacApprovalModel
-    @FocusState private var replyFocused: Bool
 
     public init(model: MacApprovalModel) {
         self.model = model
@@ -151,9 +150,8 @@ public struct MacApprovalPanelView: View {
 
     @ViewBuilder private var answers: some View {
         switch model.request.state {
-        case .waitingForYou where model.isReplying:
-            replyComposer
         case .waitingForYou, .sendingAnswer:
+            replyField
             answerButtons
         default:
             outcome
@@ -170,13 +168,32 @@ public struct MacApprovalPanelView: View {
         return nil
     }
 
+    private var hasReply: Bool {
+        !model.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Takes focus only when Josh clicks into it. Return does nothing: only
+    /// the Deny button answers, so typing meant for another app can never deny.
+    private var replyField: some View {
+        TextField(AccessRequestCopy.replyPlaceholder(model.request.agent), text: $model.replyDraft, axis: .vertical)
+            .lineLimit(1...4)
+            .textFieldStyle(.roundedBorder)
+            .disabled(sending != nil)
+    }
+
     @ViewBuilder private var answerButtons: some View {
         HStack(spacing: 10) {
             Button {
                 Task { await model.deny() }
             } label: {
-                if sending == .deny { ProgressView().controlSize(.small).tint(.white) }
-                else { Text(AccessRequestCopy.deny) }
+                if sending == .deny {
+                    ProgressView().controlSize(.small).tint(.white)
+                } else if hasReply && !model.request.agent.isLocal {
+                    // A reply to an agent on another machine is signed, so it takes Touch ID.
+                    Label(AccessRequestCopy.denyAndSendReply, systemImage: "touchid")
+                } else {
+                    Text(hasReply ? AccessRequestCopy.denyAndSendReply : AccessRequestCopy.deny)
+                }
             }
             .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
             .disabled(sending == .approve)
@@ -200,42 +217,11 @@ public struct MacApprovalPanelView: View {
         }
         .allowsHitTesting(sending == nil)
 
-        HStack {
-            Button(AccessRequestCopy.denyAndReply) { model.isReplying = true; replyFocused = true }
-                .buttonStyle(.link)
-                .foregroundStyle(KeyringColour.denyText)
-            Spacer()
-            if model.moreWaiting > 0 {
-                Text("\(model.moreWaiting) more waiting")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.callout)
-    }
-
-    @ViewBuilder private var replyComposer: some View {
-        Text(AccessRequestCopy.replySheetTitle(model.request.agent))
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(KeyringColour.denyText)
-        TextField(AccessRequestCopy.replyPlaceholder, text: $model.replyDraft, axis: .vertical)
-            .lineLimit(2...5)
-            .textFieldStyle(.roundedBorder)
-            .focused($replyFocused)
-            .onSubmit { Task { await model.deny() } }
-        HStack(spacing: 10) {
-            Button("Cancel") { model.isReplying = false }
-                .buttonStyle(.quiet(height: 36))
-                .frame(maxWidth: 110)
-            // A reply to an agent on another machine is signed, so it takes Touch ID.
-            Button { Task { await model.deny() } } label: {
-                if model.request.agent.isLocal {
-                    Text(AccessRequestCopy.denyAndSend)
-                } else {
-                    Label(AccessRequestCopy.denyAndSend, systemImage: "touchid")
-                }
-            }
-            .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
+        if model.moreWaiting > 0 {
+            Text("\(model.moreWaiting) more waiting")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
@@ -298,19 +284,6 @@ private struct TouchIDGlyph: NSViewRepresentable {
     func updateNSView(_ view: LAAuthenticationView, context representableContext: Context) {}
 }
 
-/// The blurred background menus and popovers use.
-private struct PanelMaterial: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .popover
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
-}
-
 /// Hosts the panel under the menu bar, at the top right of the screen with
 /// the pointer. Non-activating: the app Josh is typing in keeps focus until
 /// he clicks the panel.
@@ -341,14 +314,16 @@ public final class MacApprovalPanelController {
     }
 }
 
-/// Becomes key only when Josh clicks into it (to type a reply), never on its own.
+/// Becomes key only when Josh clicks into its reply field, never on its own.
 final class KeyringPanel: NSPanel {
-    /// A borderless, rounded, translucent panel above other windows that
+    /// A borderless, rounded, opaque panel above other windows that
     /// grows and shrinks with its SwiftUI content. Not yet on screen.
     static func floating(_ content: some View) -> KeyringPanel {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         let controller = NSHostingController(rootView: content
-            .background(PanelMaterial())
-            .clipShape(.rect(cornerRadius: 14, style: .continuous)))
+            .background(KeyringColour.surface)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(.separator, lineWidth: 0.5)))
         controller.sizingOptions = [.preferredContentSize]
         let panel = KeyringPanel(contentRect: .zero, styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered, defer: false)
@@ -360,11 +335,23 @@ final class KeyringPanel: NSPanel {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        // Buttons work without the panel taking the keyboard; only a click in
+        // the reply field makes it key.
+        panel.becomesKeyOnlyIfNeeded = true
         panel.setContentSize(controller.view.fittingSize)
         return panel
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// Never hand the keyboard to a field on Josh's behalf, even when Agent
+    /// Keyring is the active app: SwiftUI would focus the reply field and
+    /// catch typing meant for elsewhere. A click in the field still focuses
+    /// it, because the click is handled after this.
+    override func becomeKey() {
+        super.becomeKey()
+        makeFirstResponder(nil)
+    }
 }
 #endif
