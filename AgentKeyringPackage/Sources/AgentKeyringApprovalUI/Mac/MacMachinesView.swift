@@ -325,7 +325,7 @@ public struct MacMachinesView: View {
                     Button(SetupCopy.notNow) { Task { await model.cancelRelaySetup() } }
                         .buttonStyle(.quiet(height: 32))
                     Button { Task { await model.confirmRelay() } } label: {
-                        Label(SetupCopy.connect, systemImage: "touchid")
+                        Label(SetupCopy.allow, systemImage: "touchid")
                     }
                     .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 32))
                 }

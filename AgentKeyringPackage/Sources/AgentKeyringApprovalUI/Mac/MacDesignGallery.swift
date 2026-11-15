@@ -32,6 +32,9 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case machinesRemovingPhone
     case machinesComparing
     case menuBarRemote
+    case firstRunAllow
+    case firstRunExport
+    case firstRunReady
 }
 
 @MainActor
@@ -67,6 +70,8 @@ public final class MacDesignGallery {
             showMachines()
         case .menuBarRemote:
             showMenuBar()
+        case .firstRunAllow, .firstRunExport, .firstRunReady:
+            showFirstRun()
         }
     }
 
@@ -218,6 +223,26 @@ public final class MacDesignGallery {
     }
 
     private var retained: [AnyObject] = []
+
+    /// The line Josh pastes into his agents' instructions. Proposed wording;
+    /// the app takes it from AgentInstructions.snippet.
+    static let agentInstructions = "When you need one of my logins, use the agent-keyring command. Run `agent-keyring --help` to see how. Never ask me to type a password."
+
+    private func showFirstRun() {
+        let state: FirstRunState = switch screen {
+        case .firstRunAllow: .needsAllow
+        case .firstRunExport: .needsExport
+        default: .ready(logins: 542, importedAt: now.addingTimeInterval(-120))
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 400),
+            styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.title = "Agent Keyring"
+        let host = NSHostingView(rootView: MacFirstRunView(state: state, agentInstructions: Self.agentInstructions,
+            allow: {}, openPasswords: {}, openRules: {}))
+        window.contentView = host
+        window.setContentSize(host.fittingSize)
+        present(window)
+    }
 
     private func present(_ window: NSWindow) {
         windows.append(window)

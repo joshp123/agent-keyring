@@ -17,7 +17,7 @@ public enum SetupCopy {
     public static func joiningLead(_ enrolment: DeviceEnrolment) -> String {
         switch enrolment.kind {
         case .machine: "Let agents on \(enrolment.name) ask for your logins?"
-        case .approver: "Your iPhone wants to approve requests"
+        case .approver: "Let your iPhone approve agents' requests?"
         }
     }
 
@@ -72,8 +72,8 @@ public enum SetupCopy {
     public static let connect = "Connect"
     /// The agent setting up the mini checks its code for Josh (it reads it over
     /// SSH and the Mac app compares), so he only makes the decision itself.
-    public static let connectToMiniTitle = "Connect this Mac to your Mac mini?"
-    public static let connectToMiniBody = "Agents on your other machines can then ask you for logins. Their requests go through your Mac mini."
+    public static let connectToMiniTitle = "Let agents on your other machines use your logins?"
+    public static let connectToMiniBody = "You still approve each request. Their requests reach you through your Mac mini."
     public static let notNow = "Not now"
     public static let allow = "Allow"
     public static let dontAllow = "Don't allow"
@@ -166,4 +166,31 @@ public enum SetupCopy {
     public static let pairingPaired = "Paired. Requests now reach this iPhone."
     public static let tryAgain = "Try again"
     public static let notPairedNotice = "Not paired yet, so requests can't reach this iPhone."
+}
+
+/// Every sentence of the first-run window (MacFirstRunView).
+public enum FirstRunCopy {
+    public static let title = "Let your agents sign in as you"
+    public static let intro = "When an agent needs a login, it asks Agent Keyring for one from Apple Passwords. You approve each request with Touch ID or your Watch."
+    public static let importHeading = "First, bring in your logins"
+    public static let allowBody = "macOS asks you once to let Apple Passwords send logins to Agent Keyring."
+    public static let allowButton = "Allow"
+    public static let exportBody = "In Passwords, choose File › Export All Items to App › Agent Keyring. Your logins stay encrypted on this Mac."
+    public static let exportButton = "Open Passwords"
+    public static let importing = "Importing your logins…"
+    public static let blockedBody = "Apple Passwords can't send logins to this copy of Agent Keyring. It needs a different Apple developer profile."
+
+    public static let readyTitle = "Ready"
+    public static func readyIntro(_ count: Int) -> String {
+        "Agents can now ask for any of your \(count) logins. You're asked every time, unless you change a login's rule."
+    }
+    public static let whenAgentAsksHeading = "When an agent asks"
+    public static let whenAgentAsksBody = "A request appears beside the window you're working in. Approve it with Touch ID or your Watch. To refuse, type what the agent should do instead, then press Deny."
+    public static let tellAgentsHeading = "Tell your agents"
+    public static let tellAgentsBody = "Paste this into AGENTS.md or CLAUDE.md."
+    public static let copy = "Copy"
+    public static let copied = "Copied"
+    public static func imported(_ ago: String) -> String { "Imported from Apple Passwords \(ago)." }
+    public static let importAgain = "Import Again…"
+    public static let rules = "Rules…"
 }
