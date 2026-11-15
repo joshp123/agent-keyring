@@ -14,9 +14,9 @@ public enum SetupCopy {
 
     // MARK: A machine or iPhone joining (Mac panel)
 
-    public static func joiningLead(_ kind: DeviceEnrolment.Kind) -> String {
-        switch kind {
-        case .machine: "Let agents on this machine ask for your logins?"
+    public static func joiningLead(_ enrolment: DeviceEnrolment) -> String {
+        switch enrolment.kind {
+        case .machine: "Let agents on \(enrolment.name) ask for your logins?"
         case .approver: "Your iPhone wants to approve requests"
         }
     }
@@ -73,7 +73,7 @@ public enum SetupCopy {
     /// The agent setting up the mini checks its code for Josh (it reads it over
     /// SSH and the Mac app compares), so he only makes the decision itself.
     public static let connectToMiniTitle = "Connect this Mac to your Mac mini?"
-    public static let connectToMiniBody = "Agents on your other machines will then send their login requests through it to you."
+    public static let connectToMiniBody = "Agents on your other machines can then ask you for logins. Their requests go through your Mac mini."
     public static let notNow = "Not now"
     public static let allow = "Allow"
     public static let dontAllow = "Don't allow"

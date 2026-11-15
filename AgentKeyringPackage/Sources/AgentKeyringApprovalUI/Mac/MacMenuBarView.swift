@@ -157,6 +157,12 @@ public struct MacMenuBarView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Label("Agent Keyring", systemImage: "key.horizontal.fill")
+                .font(.subheadline.weight(.semibold))
+                .labelStyle(KeyringTitleLabelStyle())
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
             if model.taskHistoryNeedsReset {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Agents are paused on this Mac").font(.headline)
@@ -232,6 +238,16 @@ public struct MacMenuBarView: View {
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 4)
+    }
+}
+
+/// The app's name with its key in the brand colour, as on the request panel.
+private struct KeyringTitleLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon.foregroundStyle(KeyringColour.signal)
+            configuration.title
+        }
     }
 }
 

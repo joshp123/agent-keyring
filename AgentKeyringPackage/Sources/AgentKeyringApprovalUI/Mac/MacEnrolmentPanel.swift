@@ -93,7 +93,7 @@ public struct MacEnrolmentPanelView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(SetupCopy.joiningLead(model.enrolment.kind))
+                Text(SetupCopy.joiningLead(model.enrolment))
                     .font(.title3)
                     .foregroundStyle(.secondary)
                 Text(model.enrolment.name)
