@@ -175,7 +175,7 @@ public enum FirstRunCopy {
     public static let importHeading = "First, bring in your logins"
     public static let allowBody = "macOS asks you once to let Apple Passwords send logins to Agent Keyring."
     public static let allowButton = "Allow"
-    public static let exportBody = "In Passwords, choose File › Export All Items to App › Agent Keyring. Your logins stay encrypted on this Mac."
+    public static let exportBody = "In Passwords, choose File › Export All Items to App › Agent Keyring. Agent Keyring keeps an encrypted copy on this Mac, and reads nothing from Passwords except what you export."
     public static let exportButton = "Open Passwords"
     public static let importing = "Importing your logins…"
     public static let blockedBody = "Apple Passwords can't send logins to this copy of Agent Keyring. It needs a different Apple developer profile."
@@ -185,7 +185,7 @@ public enum FirstRunCopy {
         "Agents can now ask for any of your \(count) logins. You're asked every time, unless you change a login's rule."
     }
     public static let whenAgentAsksHeading = "When an agent asks"
-    public static let whenAgentAsksBody = "A request appears beside the window you're working in. Approve it with Touch ID or your Watch. To refuse, type what the agent should do instead, then press Deny."
+    public static let whenAgentAsksBody = "A request appears near the window you're working in. Approve it with Touch ID or your Watch, or press Deny. To tell the agent what to do instead, type it before you press Deny."
     public static let tellAgentsHeading = "Tell your agents"
     public static let tellAgentsBody = "Paste this into AGENTS.md or CLAUDE.md."
     public static let copy = "Copy"
