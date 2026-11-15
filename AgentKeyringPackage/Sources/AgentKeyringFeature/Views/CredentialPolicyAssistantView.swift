@@ -98,7 +98,7 @@ public struct CredentialPolicyAssistantView: View {
 
     private func pasteResponse() {
         guard let value = NSPasteboard.general.string(forType: .string), !value.isEmpty else {
-            message = .error("The Clipboard does not contain an AI proposal.")
+            message = .error("The clipboard doesn't hold the AI's answer. Copy its whole reply, then try again.")
             return
         }
         responseText = value

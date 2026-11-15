@@ -4,7 +4,6 @@ import SwiftUI
 
 @available(macOS 26.0, *)
 public struct ContentView: View {
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
     private let model: MirrorAppModel
@@ -41,35 +40,11 @@ public struct ContentView: View {
         .frame(width: 720)
         .frame(minHeight: 440)
         .fixedSize(horizontal: false, vertical: true)
-        .background(windowGradient)
-        .tint(.teal)
-        .containerBackground(windowGradient, for: .window)
+        .tint(.blue)
         .task { await model.loadStatus() }
         .onContinueUserActivity(ASCredentialExchangeActivity) { activity in
             model.receive(activity)
         }
-    }
-
-    private var windowGradient: LinearGradient {
-        let colours: [Color] =
-            if colorScheme == .dark {
-                [
-                    Color(red: 0.04, green: 0.08, blue: 0.17),
-                    Color(red: 0.04, green: 0.16, blue: 0.16),
-                    Color(red: 0.11, green: 0.07, blue: 0.20),
-                ]
-            } else {
-                [
-                    Color(red: 0.93, green: 0.96, blue: 1.00),
-                    Color(red: 0.90, green: 0.98, blue: 0.96),
-                    Color(red: 0.96, green: 0.94, blue: 1.00),
-                ]
-            }
-        return LinearGradient(
-            colors: colours,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
 }
 
@@ -81,17 +56,17 @@ private struct LeaseHistoryRecoveryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Task history could not be opened", systemImage: "exclamationmark.circle")
+            Label("Agents are paused on this Mac", systemImage: "exclamationmark.circle")
                 .font(.headline)
-            Text("Reset it to let agents ask again. This ends previous task access on this Mac. Your saved logins and access rules are kept.")
+            Text("Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. This ends any access agents have now. Your logins and rules stay.")
                 .font(.callout)
             if let failure { Text(failure).font(.callout).foregroundStyle(.red) }
-            Button("Reset task history…") {
+            Button("Reset…") {
                 Task {
                     isResetting = true
                     defer { isResetting = false }
                     do { try await model.resetLeaseHistory() }
-                    catch { failure = "Task history wasn't reset: \(error.localizedDescription)" }
+                    catch { failure = "The record wasn't reset: \(error.localizedDescription)" }
                 }
             }
             .disabled(isResetting)

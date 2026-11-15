@@ -10,8 +10,23 @@
 // the real adapter instead of the mock examples.
 
 import AgentKeyringApprovalUI
+import AgentKeyringFeature
 import AppKit
 import SwiftUI
+
+/// The main window's status panel before and after the first import.
+@MainActor func renderMainWindow(to directory: URL) async {
+    let imported = SafeMirrorStatus(generationID: UUID(), importedAt: .now.addingTimeInterval(-3 * 86_400),
+        sourceExportedAt: .now.addingTimeInterval(-3 * 86_400), scope: .full, credentialItemCount: 542,
+        skippedCredentialCount: 0)
+    for (name, status) in [("mainSetUp", nil), ("mainImported", imported)] as [(String, SafeMirrorStatus?)] {
+        let panel = MirrorStatusPanel(status: status, isLoading: false, isImporting: false, providerState: .unknown,
+            notice: nil, enableProvider: {}, openPasswords: {}, manageAccess: {})
+            .padding(24).frame(width: 720).tint(.blue)
+        await MacDesignGallery.render(panel, title: "Agent Keyring", size: NSSize(width: 720, height: status == nil ? 380 : 560),
+            name: name, to: directory)
+    }
+}
 
 let arguments = CommandLine.arguments
 
@@ -25,6 +40,7 @@ if arguments.count >= 3, arguments[1] == "render" {
     let screens = arguments.count > 3 ? arguments[3...].compactMap(MacDesignScreen.init(rawValue:)) : MacDesignScreen.allCases
     Task { @MainActor in
         await MacDesignGallery.render(screens, to: directory)
+        if arguments.count == 3 || arguments.contains("main") { await renderMainWindow(to: directory) }
         exit(0)
     }
     application.run()

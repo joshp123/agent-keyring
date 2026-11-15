@@ -4,8 +4,8 @@ import SwiftUI
 extension CredentialAccessPolicy {
     var displayName: LocalizedStringResource {
         switch self {
-        case .ask: "Ask each time"
-        case .allowAutomatically: "Allow automatically"
+        case .ask: "Ask"
+        case .allowAutomatically: "Automatic"
         case .block: "Blocked"
         }
     }
@@ -13,11 +13,11 @@ extension CredentialAccessPolicy {
     var detail: LocalizedStringResource {
         switch self {
         case .ask:
-            "Agents ask before using a password or verification code. This is the default for new logins."
+            "Agents ask you before each task. New logins start here."
         case .allowAutomatically:
-            "Agents can use these logins without asking."
+            "Agents get these without asking you, for up to 30 minutes at a time."
         case .block:
-            "Agents cannot use these logins."
+            "Agents can't use these. You won't be asked."
         }
     }
 
