@@ -136,7 +136,7 @@ public final class MacMachinesModel {
 
     public func connect() async {
         guard let address = parsedAddress else { return }
-        await run("Couldn't reach the relay. Check the address and that Tailscale is on.") {
+        await run("Couldn't reach your Mac mini. Check the address and that Tailscale is on.") {
             try await backend.connect(host: address.host, port: address.port)
         }
     }
@@ -312,13 +312,13 @@ public struct MacMachinesView: View {
         case let .connecting(address):
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Connecting to \(address)…")
+                Text(SetupCopy.relayConnecting(address))
             }
         case let .comparing(code, address):
             VStack(alignment: .leading, spacing: 10) {
                 Text(SetupCopy.compareWithSetupCode)
                     .font(.headline)
-                Text("\(SetupCopy.setupCodeSource) Relay: \(address).")
+                Text(SetupCopy.setupCodeSource(address))
                     .foregroundStyle(.secondary)
                 FingerprintGrid(code)
                     .frame(maxWidth: .infinity)

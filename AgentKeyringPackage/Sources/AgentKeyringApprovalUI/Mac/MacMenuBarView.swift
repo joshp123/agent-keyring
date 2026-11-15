@@ -165,11 +165,11 @@ public struct MacMenuBarView: View {
         VStack(alignment: .leading, spacing: 0) {
             if model.taskHistoryNeedsReset {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Task history needs attention").font(.headline)
-                    Text("Task access on this Mac is stopped. Your logins and rules are kept.")
+                    Text("Agents are paused on this Mac").font(.headline)
+                    Text("Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. Your logins and rules stay.")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Reset task history…", action: model.openAgentKeyring)
+                    Button("Reset…", action: model.openAgentKeyring)
                 }
                 .padding(14)
             }
