@@ -88,7 +88,7 @@ extension RelayApprover {
         }
     }
 
-    public func approve(_ id: String, context: LAContext = LAContext()) async throws {
+    public func approve(_ id: String, context: LAContext = LAContext(), onAuthenticated: @MainActor () -> Void = {}) async throws {
         try load()
         if state.requests[id]?.decision != nil { await flushOutbox(); return }
         try claimAuthorization("request:" + id)
@@ -102,13 +102,14 @@ extension RelayApprover {
             program: before.record.program.executable,
             agent: before.record.agentLabel.isEmpty ? before.machine.clientLabel : before.record.agentLabel)
         try await signer.authorize(context: context, reason: reason)
+        onAuthenticated()
         let vault = try await credentialSource()
         try Task.checkCancellation()
         try queueDecision(id, approve: true, reply: "", automatic: false, context: context, vault: vault, suppress: false)
         await flushOutbox()
     }
 
-    public func deny(_ id: String, reply: String = "", context: LAContext = LAContext()) async throws {
+    public func deny(_ id: String, reply: String = "", context: LAContext = LAContext(), onAuthenticated: @MainActor () -> Void = {}) async throws {
         try load()
         if state.requests[id]?.decision != nil { await flushOutbox(); return }
         let hasReply = !reply.isEmpty
@@ -119,6 +120,7 @@ extension RelayApprover {
             ownsAuthorization = true
             _ = try pendingRequest(id)
             try await keys().1.authorize(context: context, reason: "deny the request and send your reply")
+            onAuthenticated()
         }
         try Task.checkCancellation()
         try queueDecision(id, approve: false, reply: reply, automatic: false, context: hasReply ? context : nil,

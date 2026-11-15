@@ -87,7 +87,7 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
         case .denied:
             "\(MacOwner.firstName) declined the request."
         case .interrupted:
-            "macOS interrupted the approval prompt; retry the request."
+            "Approval was interrupted. Try again."
         case .notVerified:
             "Approval didn't confirm. Try again."
         case .expired:

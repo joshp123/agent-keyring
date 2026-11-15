@@ -37,10 +37,12 @@ extension MirrorAppModel {
     /// The panel owns this context and displays its biometric controls. The
     /// authority evaluates that exact context without activating another UI.
     @discardableResult
-    public func approveLeaseWithTouchID(_ leaseID: String, context: LAContext) async throws -> Agentkeyring_V1_Lease {
+    public func approveLeaseWithTouchID(_ leaseID: String, context: LAContext,
+        onAuthenticated: @MainActor () -> Void = {}) async throws -> Agentkeyring_V1_Lease {
         let panelAuthorizer = LocalCredentialReleaseAuthorizer()
         return try await approveLease(leaseID) { approval in
             try await panelAuthorizer.authorize(approval, context: context, onPromptStarted: {})
+            onAuthenticated()
         }
     }
 

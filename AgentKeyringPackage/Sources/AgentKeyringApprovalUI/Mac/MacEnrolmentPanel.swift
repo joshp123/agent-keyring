@@ -6,6 +6,7 @@
 
 #if os(macOS)
 import Observation
+import LocalAuthentication
 import SwiftUI
 
 @MainActor
@@ -15,7 +16,8 @@ public protocol MacEnrolmentBackend: AnyObject {
     func updates(enrolmentID: String) -> AsyncStream<DeviceEnrolment?>
     /// Josh said the codes match. `comparedCode` is the code he compared,
     /// as shown; Touch ID is the confirmation.
-    func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool) async throws
+    func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool, context: LAContext?,
+        onAuthenticated: @MainActor () -> Void, onCommitted: @MainActor () -> Void) async throws
     func refuse(enrolmentID: String) async throws
 }
 
@@ -30,35 +32,108 @@ public final class MacEnrolmentModel {
     }
 
     public private(set) var enrolment: DeviceEnrolment
-    public var allowAutomatic = false
+    public var allowAutomatic = false {
+        didSet { if allowAutomatic != oldValue { restartAuthentication() } }
+    }
     public private(set) var isSending = false
     public private(set) var outcome: Outcome?
     public private(set) var failure: String?
+    public private(set) var phoneComparisonConfirmed = false
     public var close: () -> Void = {}
 
     private let backend: any MacEnrolmentBackend
+    private let contextFactory: @MainActor () -> LAContext?
+    public private(set) var authenticationContext: LAContext?
+    private var authenticationTask: Task<Void, Never>?
+    private var previousAuthentication: Task<Void, Never>?
+    private var authenticationTimeout: Task<Void, Never>?
+    var authenticationTimeoutDuration: Duration = .seconds(60)
+    private var authenticationID = UUID()
 
-    public init(enrolment: DeviceEnrolment, backend: any MacEnrolmentBackend) {
+    public init(enrolment: DeviceEnrolment, backend: any MacEnrolmentBackend,
+        contextFactory: @escaping @MainActor () -> LAContext? = { MacEnrolmentModel.makeContext() }) {
         self.enrolment = enrolment
         self.backend = backend
+        self.contextFactory = contextFactory
+        if enrolment.kind == .machine {
+            authenticationContext = contextFactory()
+            if authenticationContext == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
+        }
     }
 
     /// Follows the enrolment until the panel closes. Call from `.task`.
     public func followUpdates() async {
         for await latest in backend.updates(enrolmentID: enrolment.id) {
             guard outcome == nil, !isSending else { continue }
-            if let latest { enrolment = latest } else { outcome = .gone }
+            if let latest { enrolment = latest }
+            else { stopAuthentication(); outcome = .gone }
         }
     }
 
     public func approve() async {
-        await send(.joined) {
-            try await backend.approve(enrolmentID: enrolment.id, comparedCode: enrolment.code,
-                allowAutomatic: allowAutomatic && enrolment.kind == .machine)
+        guard enrolment.kind == .approver else { return }
+        phoneComparisonConfirmed = true
+        restartAuthentication()
+    }
+
+    public static func makeContext() -> LAContext? {
+        let context = LAContext()
+        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) ? context : nil
+    }
+
+    public func restartAuthentication() {
+        stopAuthentication()
+        guard (enrolment.kind == .machine || phoneComparisonConfirmed), outcome == nil else { return }
+        failure = nil
+        authenticationContext = contextFactory()
+        if authenticationContext == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
+    }
+
+    public func stopAuthentication() {
+        authenticationID = UUID()
+        if let authenticationTask { previousAuthentication = authenticationTask }
+        authenticationTask?.cancel()
+        authenticationTask = nil
+        authenticationTimeout?.cancel()
+        authenticationTimeout = nil
+        authenticationContext?.invalidate()
+        authenticationContext = nil
+    }
+
+    public func waitForAuthentication() {
+        guard let context = authenticationContext, authenticationTask == nil, outcome == nil else { return }
+        let id = authenticationID
+        let automatic = allowAutomatic
+        let previous = previousAuthentication
+        previousAuthentication = nil
+        authenticationTimeout = Task {
+            do { try await Task.sleep(for: authenticationTimeoutDuration) } catch { return }
+            guard authenticationID == id, outcome == nil else { return }
+            stopAuthentication()
+            failure = "Approval timed out. Try again."
+        }
+        authenticationTask = Task {
+            await previous?.value
+            guard !Task.isCancelled, authenticationID == id else { return }
+            do {
+                try await backend.approve(enrolmentID: enrolment.id, comparedCode: enrolment.code,
+                    allowAutomatic: automatic, context: context, onAuthenticated: {
+                        self.authenticationTimeout?.cancel()
+                        self.authenticationTimeout = nil
+                    }, onCommitted: { self.outcome = .joined })
+                guard !Task.isCancelled, authenticationID == id else { return }
+                outcome = .joined
+            } catch {
+                guard !Task.isCancelled, authenticationID == id else { return }
+                failure = ownerAuthenticationFailure(error, fallback: SetupCopy.joiningFailed)
+                authenticationContext = nil
+            }
+            if authenticationID == id { authenticationTask = nil; authenticationTimeout?.cancel(); authenticationTimeout = nil }
         }
     }
 
     public func refuse() async {
+        stopAuthentication()
         await send(.refused) { try await backend.refuse(enrolmentID: enrolment.id) }
     }
 
@@ -157,6 +232,7 @@ public struct MacEnrolmentPanelView: View {
         .frame(width: 420)
         .fixedSize(horizontal: false, vertical: true)
         .task { await model.followUpdates() }
+        .onDisappear { model.stopAuthentication() }
     }
 
     @ViewBuilder private var answers: some View {
@@ -175,11 +251,20 @@ public struct MacEnrolmentPanelView: View {
             HStack(spacing: 10) {
                 Button(isPhone ? SetupCopy.doesNotMatch : SetupCopy.dontAllow) { Task { await model.refuse() } }
                     .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
-                Button { Task { await model.approve() } } label: {
-                    if model.isSending { ProgressView().controlSize(.small).tint(.white) }
-                    else { Label(isPhone ? SetupCopy.theyMatch : SetupCopy.allow, systemImage: "touchid") }
+                if isPhone && !model.phoneComparisonConfirmed {
+                    Button { Task { await model.approve() } } label: {
+                        if model.isSending { ProgressView().controlSize(.small).tint(.white) }
+                        else { Label(SetupCopy.theyMatch, systemImage: "touchid") }
+                    }
+                    .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
+                } else if let context = model.authenticationContext {
+                    EmbeddedOwnerApproval(context: context, action: isPhone ? "pair your iPhone" : "approve")
+                        .id(ObjectIdentifier(context))
+                        .onAppear { model.waitForAuthentication() }
+                } else {
+                    Button("Try again") { model.restartAuthentication() }
+                        .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
                 }
-                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
             }
             .disabled(model.isSending)
         }

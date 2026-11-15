@@ -67,7 +67,8 @@ extension RelayApprover {
         publish()
     }
 
-    public func confirmPairing(comparedFingerprint: String, context: LAContext = LAContext()) async throws {
+    public func confirmPairing(comparedFingerprint: String, context: LAContext = LAContext(),
+        onAuthenticated: @MainActor () -> Void = {}) async throws {
         try load()
         guard let pending = state.pairing else { throw LeaseFailure(.notFound, "There is no pairing to confirm.") }
         guard verifiedPairing == pending.transcript || pending.confirmation != nil else {
@@ -86,6 +87,7 @@ extension RelayApprover {
         }
         let vault = try await credentialSource()
         try await signer.authorize(context: context, reason: "connect this Mac to Agent Keyring on your Mac mini")
+        onAuthenticated()
         let currentVault = try await credentialSource()
         try Task.checkCancellation()
         guard try publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
@@ -132,7 +134,8 @@ extension RelayApprover {
     }
 
     public func approveEnrolment(_ id: String, comparedFingerprint: String, automaticAllowed: Bool = false,
-        context: LAContext = LAContext()) async throws {
+        context: LAContext = LAContext(), onAuthenticated: @MainActor () -> Void = {},
+        onCommitted: @MainActor () -> Void = {}) async throws {
         try load()
         guard let bytes = state.pendingEnrolments[id] else {
             throw LeaseFailure(.notFound, "No such machine is waiting to enrol.")
@@ -149,6 +152,7 @@ extension RelayApprover {
         try await prepareForPublication()
         let signer = try keys().1
         try await signer.authorize(context: context, reason: "let agents on \(record.machineLabel) ask you for logins")
+        onAuthenticated()
         try Task.checkCancellation()
         let vault = try await credentialSource()
         try Task.checkCancellation()
@@ -167,10 +171,11 @@ extension RelayApprover {
         machine.automaticAllowed = automaticAllowed
         var next = state
         next.pendingEnrolments.removeValue(forKey: id)
-        verifiedEnrolments.removeValue(forKey: id)
         next.machines[record.recipientID] = try machine.serializedData()
         try preparePublication(next: &next, vault: vault, context: context)
         try commit(next, vault: vault)
+        verifiedEnrolments.removeValue(forKey: id)
+        onCommitted()
         needsPublication = false
         publish()
         await flushOutbox()

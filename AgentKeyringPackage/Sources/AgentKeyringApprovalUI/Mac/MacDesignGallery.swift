@@ -117,16 +117,19 @@ public final class MacDesignGallery {
         var enrolment = screen == .enrolmentIPhone || screen == .enrolmentIPhoneReplacing
             ? DesignExamples.iPhoneEnrolment(now: now) : DesignExamples.machineEnrolment(now: now)
         if screen == .enrolmentIPhoneReplacing { enrolment.replacesPhone = "Josh's iPhone" }
-        let model = MacEnrolmentModel(enrolment: enrolment, backend: DesignMacBackend(enrolment: enrolment))
+        let backend = DesignMacBackend(enrolment: enrolment)
+        let model = screen == .enrolmentJoined
+            ? MacEnrolmentModel(enrolment: enrolment, backend: backend, contextFactory: { LAContext() })
+            : MacEnrolmentModel(enrolment: enrolment, backend: backend)
         if offScreen {
             windows.append(KeyringPanel.floating(MacEnrolmentPanelView(model: model)))
-            if screen == .enrolmentJoined { Task { await model.approve() } }
+            if screen == .enrolmentJoined { model.waitForAuthentication() }
             return
         }
         let controller = MacApprovalPanelController()
         controller.show(model)
         retained.append(controller)
-        if screen == .enrolmentJoined { Task { await model.approve() } }
+        if screen == .enrolmentJoined { model.waitForAuthentication() }
         if let panel = NSApplication.shared.windows.last(where: { $0 is NSPanel }) { report(panel) }
     }
 
@@ -362,7 +365,7 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
         }
     }
 
-    func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool) async throws {}
+    func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool, context: LAContext?, onAuthenticated: @MainActor () -> Void, onCommitted: @MainActor () -> Void) async throws { onAuthenticated(); onCommitted() }
     func refuse(enrolmentID: String) async throws {}
 
     private static func once<Value: Sendable>(_ value: Value?) -> AsyncStream<Value> {
@@ -375,15 +378,16 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
     func updates(requestID: String) -> AsyncStream<AccessRequest> { Self.once(request) }
     // The mini has no Touch ID, so the gallery shows the button form of Approve.
     func embeddedTouchIDContext(requestID: String) -> LAContext? { nil }
+    func cancelAuthentication(requestID: String) {}
     func updates() -> AsyncStream<MacMenuBarSnapshot> { Self.once(menuBar) }
     func updates() -> AsyncStream<LoginRulesSnapshot> { Self.once(rules) }
 
-    func approve(requestID: String) async throws -> AccessRequestState {
+    func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
         try await Task.sleep(for: .milliseconds(700))
         return .approved(by: .mac, until: .now.addingTimeInterval(RequestedAccess.longestLease))
     }
 
-    func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
+    func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
         .denied(by: .mac, reply: reply, askAgainAfter: .now.addingTimeInterval(30 * 60))
     }
 

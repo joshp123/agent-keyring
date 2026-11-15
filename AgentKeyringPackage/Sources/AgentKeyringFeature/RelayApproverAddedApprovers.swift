@@ -66,7 +66,8 @@ extension RelayApprover {
     }
 
     public func confirmApproverPairing(_ id: String, comparedFingerprint: String,
-        context: LAContext = LAContext()) async throws {
+        context: LAContext = LAContext(), onAuthenticated: @MainActor () -> Void = {},
+        onCommitted: @MainActor () -> Void = {}) async throws {
         try load()
         let queuedID = "approver-pairing:" + id
         if state.outbox.contains(where: { $0.id == queuedID }) { await flushOutbox(); return }
@@ -95,6 +96,7 @@ extension RelayApprover {
         let reason = replaced.map { "Replace the Agent Keyring approval keys for \($0.label) after comparing the full fingerprint" }
             ?? "Allow \(request.key.label) to approve Agent Keyring requests after comparing its full fingerprint"
         try await signer.authorize(context: context, reason: reason)
+        onAuthenticated()
         let vault = request.key.encryptionPublicKey.isEmpty ? nil : try await credentialSource()
         try Task.checkCancellation()
         guard try currentKeySet() == previous, state.configuration == configurationBytes, state.pendingApprovers?[id] == bytes else {
@@ -131,6 +133,7 @@ extension RelayApprover {
                 receiverKey: request.key.encryptionPublicKey, rule: .ask, policy: .ask)
         }
         try commit(next)
+        onCommitted()
         await flushOutbox()
     }
 }

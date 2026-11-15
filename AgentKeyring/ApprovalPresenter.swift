@@ -11,6 +11,7 @@ import AgentKeyringProtocol
 import AgentKeyringScreenBackends
 import AppKit
 import Foundation
+import LocalAuthentication
 import Observation
 import SwiftUI
 
@@ -37,6 +38,8 @@ final class ApprovalPresenter {
     private var relayPanel: NSPanel?
     private var shownItem: Item?
     private var shownRequest: MacApprovalModel?
+    private var shownEnrolment: MacEnrolmentModel?
+    private var relayApproval: RelayConnectionApproval?
     private var following: Task<Void, Never>?
     private var closingAfterAnswer: Task<Void, Never>?
 
@@ -96,6 +99,10 @@ final class ApprovalPresenter {
     private func show(_ item: Item) {
         // One approval at a time: a panel being replaced stops waiting for a touch.
         shownRequest?.stopWaitingForTouch()
+        shownEnrolment?.stopAuthentication()
+        shownEnrolment = nil
+        relayApproval?.stop()
+        relayApproval = nil
         panel.close()
         relayPanel?.orderOut(nil)
         relayPanel = nil
@@ -117,6 +124,7 @@ final class ApprovalPresenter {
             let joining = MacEnrolmentModel(enrolment: enrolment, backend: joiningBackend)
             panel.show(joining)
             joining.close = { [weak self] in self?.dismiss() }
+            shownEnrolment = joining
             shownRequest = nil
         }
         shownItem = item
@@ -130,6 +138,10 @@ final class ApprovalPresenter {
 
     private func dismiss() {
         shownRequest?.stopWaitingForTouch()
+        shownEnrolment?.stopAuthentication()
+        shownEnrolment = nil
+        relayApproval?.stop()
+        relayApproval = nil
         closingAfterAnswer?.cancel()
         closingAfterAnswer = nil
         panel.close()
@@ -142,8 +154,10 @@ final class ApprovalPresenter {
 
     private func showRelayPrompt() {
         let relay = model.relayApprover
-        let content = RelayConnectionPrompt(confirm: {
-            try await relay.confirmPairing(comparedFingerprint: "")
+        let approval = RelayConnectionApproval()
+        relayApproval = approval
+        let content = RelayConnectionPrompt(approval: approval, confirm: { context in
+            try await relay.confirmPairing(comparedFingerprint: "", context: context) { approval.cancelTimeout() }
         }, cancel: {
             try relay.abandonPairing()
         }, done: { [weak self] in self?.dismiss() })
@@ -169,39 +183,109 @@ final class ApprovalPresenter {
     }
 }
 
+@MainActor @Observable
+private final class RelayConnectionApproval {
+    var context: LAContext? = makeContext()
+    var task: Task<Void, Never>?
+    var previous: Task<Void, Never>?
+    var timeout: Task<Void, Never>?
+    var id = UUID()
+    var failure: String?
+
+    init() {
+        if context == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
+    }
+
+    private static func makeContext() -> LAContext? {
+        let context = LAContext()
+        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) ? context : nil
+    }
+
+    func stop() {
+        id = UUID()
+        if let task { previous = task }
+        task?.cancel()
+        task = nil
+        timeout?.cancel()
+        timeout = nil
+        context?.invalidate()
+        context = nil
+    }
+
+    func retry() {
+        stop()
+        failure = nil
+        context = Self.makeContext()
+        if context == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
+    }
+
+    func cancelTimeout() {
+        timeout?.cancel()
+        timeout = nil
+    }
+
+    func wait(context: LAContext, confirm: @escaping @MainActor (LAContext) async throws -> Void,
+        done: @escaping @MainActor () -> Void) {
+        guard task == nil else { return }
+        let currentID = id
+        let previous = previous
+        self.previous = nil
+        timeout = Task {
+            do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            guard id == currentID else { return }
+            stop()
+            failure = "Approval timed out. Try again."
+        }
+        task = Task {
+            await previous?.value
+            guard !Task.isCancelled, id == currentID else { return }
+            do {
+                try await confirm(context)
+                guard !Task.isCancelled, id == currentID else { return }
+                done()
+            } catch {
+                guard !Task.isCancelled, id == currentID else { return }
+                failure = ownerAuthenticationFailure(error, fallback: "Couldn't connect. Try again.")
+                self.context = nil
+            }
+            if id == currentID { task = nil; timeout?.cancel(); timeout = nil }
+        }
+    }
+}
+
 private struct RelayConnectionPrompt: View {
-    let confirm: @MainActor () async throws -> Void
+    @Bindable var approval: RelayConnectionApproval
+    let confirm: @MainActor (LAContext) async throws -> Void
     let cancel: @MainActor () throws -> Void
     let done: @MainActor () -> Void
-    @State private var working = false
-    @State private var failure: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Connect this Mac to your Mac mini?").font(.headline)
             Text("Agents on your other machines can then ask you for logins. Their requests go through your Mac mini.")
                 .font(.callout).foregroundStyle(.secondary)
-            if let failure { Text(failure).font(.callout).foregroundStyle(KeyringColour.denyText) }
+            if let failure = approval.failure { Text(failure).font(.callout).foregroundStyle(KeyringColour.denyText) }
             HStack(spacing: 10) {
                 Button("Not now") {
+                    approval.stop()
                     do { try cancel(); done() }
-                    catch { failure = (error as? LocalizedError)?.errorDescription ?? "Couldn't cancel. Try again." }
+                    catch { approval.failure = (error as? LocalizedError)?.errorDescription ?? "Couldn't cancel. Try again." }
                 }
                 .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
-                Button("Connect") {
-                    working = true
-                    Task {
-                        defer { working = false }
-                        do { try await confirm(); done() }
-                        catch { failure = (error as? LocalizedError)?.errorDescription ?? "Couldn't connect. Try again." }
-                    }
+                if let context = approval.context {
+                    EmbeddedOwnerApproval(context: context)
+                        .id(ObjectIdentifier(context))
+                        .onAppear { approval.wait(context: context, confirm: confirm, done: done) }
+                } else {
+                    Button("Try again") { approval.retry() }
+                        .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
                 }
-                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
-            }.disabled(working)
+            }
         }
         .padding(20)
         .frame(width: 360)
         .background(KeyringColour.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onDisappear { approval.stop() }
     }
 }

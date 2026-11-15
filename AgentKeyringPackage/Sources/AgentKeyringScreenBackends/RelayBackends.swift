@@ -147,22 +147,28 @@ public final class RelayApprovalBackend: MacApprovalBackend {
     public func embeddedTouchIDContext(requestID: String) -> LAContext? {
         if let context = contexts[requestID] { return context }
         let context = LAContext()
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else { return nil }
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else { return nil }
         contexts[requestID] = context
         return context
     }
 
-    public func approve(requestID: String) async throws -> AccessRequestState {
-        defer { contexts[requestID] = nil }
-        try await screenErrors { try await relay.approve(requestID, context: contexts[requestID] ?? LAContext()) }
+    public func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
+        guard let context = contexts[requestID] else { throw CredentialReleaseAuthorizationError.unavailable }
+        defer { if contexts[requestID] === context { contexts[requestID] = nil } }
+        try await screenErrors { try await relay.approve(requestID, context: context, onAuthenticated: onAuthenticated) }
         answered[requestID] = .approve
         return current(requestID)?.state ?? .approved(by: .mac, until: .now.addingTimeInterval(RequestedAccess.longestLease))
     }
 
-    public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
-        contexts[requestID] = nil
+    public func cancelAuthentication(requestID: String) {
+        contexts.removeValue(forKey: requestID)?.invalidate()
+    }
+
+    public func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
+        if reply?.isEmpty == false && context == nil { throw CredentialReleaseAuthorizationError.unavailable }
+        defer { if contexts[requestID] === context { contexts[requestID] = nil } }
         // A plain denial needs no Touch ID; a reply is signed with one.
-        try await screenErrors { try await relay.deny(requestID, reply: reply ?? "") }
+        try await screenErrors { try await relay.deny(requestID, reply: reply ?? "", context: context ?? LAContext(), onAuthenticated: onAuthenticated) }
         answered[requestID] = .deny
         return .denied(by: .mac, reply: reply, askAgainAfter: nil)
     }
@@ -187,15 +193,17 @@ public final class RelayEnrolmentBackend: MacEnrolmentBackend {
         stream(Observations { [weak self] in self?.current(enrolmentID) })
     }
 
-    public func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool) async throws {
+    public func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool, context: LAContext?,
+        onAuthenticated: @MainActor () -> Void, onCommitted: @MainActor () -> Void) async throws {
+        guard let context else { throw CredentialReleaseAuthorizationError.unavailable }
         if relay.pendingApproverPairings.contains(where: { $0.id == enrolmentID }) {
             try await screenErrors {
-                try await relay.confirmApproverPairing(enrolmentID, comparedFingerprint: comparedCode, context: LAContext())
+                try await relay.confirmApproverPairing(enrolmentID, comparedFingerprint: comparedCode, context: context, onAuthenticated: onAuthenticated, onCommitted: onCommitted)
             }
         } else {
             try await screenErrors {
                 try await relay.approveEnrolment(enrolmentID, comparedFingerprint: comparedCode,
-                    automaticAllowed: allowAutomatic, context: LAContext())
+                    automaticAllowed: allowAutomatic, context: context, onAuthenticated: onAuthenticated, onCommitted: onCommitted)
             }
         }
     }

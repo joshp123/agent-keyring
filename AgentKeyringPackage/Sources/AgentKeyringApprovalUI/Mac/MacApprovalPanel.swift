@@ -15,20 +15,33 @@ import SwiftUI
 
 private let approvalLogger = Logger(subsystem: "com.agentkeyring.app", category: "Approval")
 
+public func ownerAuthenticationFailure(_ error: Error, fallback: String) -> String {
+    let native = error as NSError
+    if native.domain == LAError.errorDomain, let code = LAError.Code(rawValue: native.code) {
+        switch code {
+        case .systemCancel, .appCancel, .userCancel:
+            return "Approval was interrupted. Try again."
+        case .companionNotAvailable, .biometryNotAvailable, .biometryNotEnrolled, .biometryNotPaired, .biometryDisconnected:
+            return "Touch ID or Apple Watch isn't available. Check that one is ready and try again."
+        default: break
+        }
+    }
+    return (error as? LocalizedError)?.errorDescription ?? fallback
+}
+
 /// Everything the Mac panel needs from the outside world.
 @MainActor
 public protocol MacApprovalBackend: AnyObject {
     /// The request now, then each time it changes: answered on the iPhone,
     /// withdrawn by the agent, unanswered at its deadline. Ends when it is final.
     func updates(requestID: String) -> AsyncStream<AccessRequest>
-    /// A Touch ID context the panel shows inside itself, so touching the sensor
-    /// alone approves. `approve` must evaluate this same context, and stop
-    /// waiting (invalidate it) when its task is cancelled. Nil: Approve is a
-    /// button that brings up the system Touch ID or Apple Watch prompt.
+    /// A context attached to the panel before evaluation starts. Nil means
+    /// neither Touch ID nor Apple Watch is currently available.
     func embeddedTouchIDContext(requestID: String) -> LAContext?
+    func cancelAuthentication(requestID: String)
     /// Runs Touch ID (or Apple Watch) and records the answer. Returns the new state.
-    func approve(requestID: String) async throws -> AccessRequestState
-    func deny(requestID: String, reply: String?) async throws -> AccessRequestState
+    func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState
+    func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState
 }
 
 @MainActor
@@ -40,45 +53,81 @@ public final class MacApprovalModel {
     /// What Josh has typed for the agent. Deny sends it; empty means a plain denial.
     public var replyDraft = ""
     public private(set) var failure: String?
-    /// Set while the panel waits for a touch on the sensor. Nil after a failed
-    /// touch, so Approve falls back to the button.
+    /// Set while the panel waits for Touch ID or Apple Watch.
     public private(set) var embeddedTouchID: LAContext?
+    public private(set) var pendingDenialReply: String?
     /// Called when Josh is done with the panel.
     public var close: () -> Void = {}
 
     private let backend: any MacApprovalBackend
     private var touchWait: Task<Void, Never>?
+    private var previousWait: Task<Void, Never>?
+    private var timeout: Task<Void, Never>?
+    var authenticationTimeoutDuration: Duration = .seconds(60)
+    private var touchWaitID = UUID()
 
     public init(request: AccessRequest, moreWaiting: Int = 0, backend: any MacApprovalBackend) {
         self.request = request
         self.moreWaiting = moreWaiting
         self.backend = backend
         self.embeddedTouchID = backend.embeddedTouchIDContext(requestID: request.id)
+        if embeddedTouchID == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
     }
 
     /// Starts waiting for a touch, if the backend supports it. The request stays
     /// answerable with Deny meanwhile; Deny cancels the wait.
     public func waitForTouch() {
         guard embeddedTouchID != nil, touchWait == nil, request.state.isWaitingForYou else { return }
+        let waitID = touchWaitID
+        let previous = previousWait
+        previousWait = nil
+        timeout = Task {
+            do { try await Task.sleep(for: authenticationTimeoutDuration) } catch { return }
+            guard touchWaitID == waitID, request.state.isWaitingForYou else { return }
+            stopWaitingForTouch()
+            embeddedTouchID = nil
+            failure = "Approval timed out. Try again."
+        }
         touchWait = Task {
+            await previous?.value
+            guard !Task.isCancelled, touchWaitID == waitID else { return }
             do {
-                request.state = try await backend.approve(requestID: request.id)
+                let state: AccessRequestState
+                if let reply = pendingDenialReply, let context = embeddedTouchID {
+                    state = try await backend.deny(requestID: request.id, reply: reply, context: context) { self.cancelTimeout() }
+                } else {
+                    state = try await backend.approve(requestID: request.id) { self.cancelTimeout() }
+                }
+                guard !Task.isCancelled, touchWaitID == waitID else { return }
+                request.state = state
             } catch is CancellationError {
             } catch {
+                guard !Task.isCancelled, touchWaitID == waitID else { return }
                 let native = error as NSError
                 approvalLogger.error("Approval failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
                 embeddedTouchID = nil
-                failure = (error as? LocalizedError)?.errorDescription
-                    ?? "Approval didn't finish. Nothing was shared. Try again."
+                failure = ownerAuthenticationFailure(error, fallback: "Approval didn't finish. Nothing was shared. Try again.")
             }
-            touchWait = nil
+            if touchWaitID == waitID { touchWait = nil; timeout?.cancel(); timeout = nil }
         }
     }
 
     /// Stops waiting for a touch without answering. Call when the panel goes away.
     public func stopWaitingForTouch() {
+        touchWaitID = UUID()
+        if let touchWait { previousWait = touchWait }
         touchWait?.cancel()
         touchWait = nil
+        timeout?.cancel()
+        timeout = nil
+        backend.cancelAuthentication(requestID: request.id)
+    }
+
+    public func retryAuthentication() {
+        guard touchWait == nil else { return }
+        failure = nil
+        embeddedTouchID = backend.embeddedTouchIDContext(requestID: request.id)
+        if embeddedTouchID == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
     }
 
     /// Follows the request until the panel closes. Call from `.task`.
@@ -91,14 +140,26 @@ public final class MacApprovalModel {
         }
     }
 
-    public func approve() async {
-        await answer(.approve) { try await backend.approve(requestID: request.id) }
-    }
-
     public func deny() async {
         stopWaitingForTouch()
         let reply = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        await answer(.deny) { try await backend.deny(requestID: request.id, reply: reply.isEmpty ? nil : reply) }
+        if !reply.isEmpty && !request.agent.isLocal {
+            pendingDenialReply = reply
+            retryAuthentication()
+            return
+        }
+        await answer(.deny) { try await backend.deny(requestID: request.id, reply: reply.isEmpty ? nil : reply, context: nil, onAuthenticated: {}) }
+    }
+
+    public func cancelDenial() {
+        stopWaitingForTouch()
+        pendingDenialReply = nil
+        retryAuthentication()
+    }
+
+    private func cancelTimeout() {
+        timeout?.cancel()
+        timeout = nil
     }
 
     private func answer(_ choice: AnswerChoice, send: () async throws -> AccessRequestState) async {
@@ -138,6 +199,7 @@ public struct MacApprovalPanelView: View {
         .frame(width: 380)
         .fixedSize(horizontal: false, vertical: true)
         .task { await model.followUpdates() }
+        .onDisappear { model.stopWaitingForTouch() }
     }
 
     private var header: some View {
@@ -187,15 +249,18 @@ public struct MacApprovalPanelView: View {
         TextField(AccessRequestCopy.replyPlaceholder(model.request.agent), text: $model.replyDraft, axis: .vertical)
             .lineLimit(1...4)
             .textFieldStyle(.roundedBorder)
-            .disabled(sending != nil)
+            .disabled(sending != nil || model.pendingDenialReply != nil)
     }
 
     @ViewBuilder private var answerButtons: some View {
         HStack(spacing: 10) {
             Button {
-                Task { await model.deny() }
+                if model.pendingDenialReply != nil { model.cancelDenial() }
+                else { Task { await model.deny() } }
             } label: {
-                if sending == .deny {
+                if model.pendingDenialReply != nil {
+                    Text("Cancel")
+                } else if sending == .deny {
                     ProgressView().controlSize(.small).tint(.white)
                 } else if hasReply && !model.request.agent.isLocal {
                     // A reply to an agent on another machine is signed, so it takes Touch ID.
@@ -208,17 +273,14 @@ public struct MacApprovalPanelView: View {
             .disabled(sending == .approve)
 
             if let context = model.embeddedTouchID {
-                EmbeddedTouchIDApproval(context: context)
+                EmbeddedOwnerApproval(context: context, action: model.pendingDenialReply == nil ? "approve" : "send your reply")
+                    .id(ObjectIdentifier(context))
                     .onAppear { model.waitForTouch() }
             } else {
                 Button {
-                    Task { await model.approve() }
+                    model.retryAuthentication()
                 } label: {
-                    if sending == .approve {
-                        Label("Touch the sensor", systemImage: "touchid")
-                    } else {
-                        Label(AccessRequestCopy.approve, systemImage: "touchid")
-                    }
+                    Label("Try again", systemImage: "touchid")
                 }
                 .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
                 .disabled(sending == .deny)
@@ -262,14 +324,24 @@ public struct MacApprovalPanelView: View {
 
 /// Approve without a click: the system Touch ID glyph, live, inside the panel.
 /// Touching the sensor while the panel is up approves.
-private struct EmbeddedTouchIDApproval: View {
-    let context: LAContext
+public struct EmbeddedOwnerApproval: View {
+    public let context: LAContext
+    public let action: String
 
-    var body: some View {
+    public init(context: LAContext, action: String = "approve") { self.context = context; self.action = action }
+
+    private var label: String {
+        let touch = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        let watch = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithCompanion, error: nil)
+        if touch && watch { return "Touch ID or Apple Watch to \(action)" }
+        return touch ? "Touch ID to \(action)" : "Apple Watch to \(action)"
+    }
+
+    public var body: some View {
         HStack(spacing: 8) {
             TouchIDGlyph(context: context)
                 .frame(width: 22, height: 22)
-            Text("Touch ID to approve")
+            Text(label)
                 .font(.headline)
                 .foregroundStyle(KeyringColour.approveText)
         }
@@ -279,7 +351,7 @@ private struct EmbeddedTouchIDApproval: View {
                 .strokeBorder(KeyringColour.approve, lineWidth: 1.5)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Touch ID to approve")
+        .accessibilityLabel(label)
     }
 }
 
