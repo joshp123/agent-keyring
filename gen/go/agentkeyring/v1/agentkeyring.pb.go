@@ -560,6 +560,7 @@ const (
 	SetupRequest_START_RELAY        SetupRequest_Action = 1
 	SetupRequest_VERIFY_RELAY       SetupRequest_Action = 2
 	SetupRequest_VERIFY_MACHINE     SetupRequest_Action = 3
+	SetupRequest_RELAY_STATUS       SetupRequest_Action = 4
 )
 
 // Enum value maps for SetupRequest_Action.
@@ -569,12 +570,14 @@ var (
 		1: "START_RELAY",
 		2: "VERIFY_RELAY",
 		3: "VERIFY_MACHINE",
+		4: "RELAY_STATUS",
 	}
 	SetupRequest_Action_value = map[string]int32{
 		"ACTION_UNSPECIFIED": 0,
 		"START_RELAY":        1,
 		"VERIFY_RELAY":       2,
 		"VERIFY_MACHINE":     3,
+		"RELAY_STATUS":       4,
 	}
 )
 
@@ -2300,6 +2303,7 @@ func (x *SetupRequest) GetMachineName() string {
 type SetupResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MachineName   string                 `protobuf:"bytes,1,opt,name=machine_name,json=machineName,proto3" json:"machine_name,omitempty"`
+	RelayStatus   string                 `protobuf:"bytes,2,opt,name=relay_status,json=relayStatus,proto3" json:"relay_status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2337,6 +2341,13 @@ func (*SetupResponse) Descriptor() ([]byte, []int) {
 func (x *SetupResponse) GetMachineName() string {
 	if x != nil {
 		return x.MachineName
+	}
+	return ""
+}
+
+func (x *SetupResponse) GetRelayStatus() string {
+	if x != nil {
+		return x.RelayStatus
 	}
 	return ""
 }
@@ -2522,20 +2533,22 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\rend_of_stream\x18\x06 \x01(\bR\vendOfStreamB\n" +
 	"\n" +
 	"\bresponseJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"\"\x84\x02\n" +
+	"\"\x96\x02\n" +
 	"\fSetupRequest\x12<\n" +
 	"\x06action\x18\x01 \x01(\x0e2$.agentkeyring.v1.SetupRequest.ActionR\x06action\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\rR\x04port\x12\x12\n" +
 	"\x04code\x18\x04 \x01(\tR\x04code\x12!\n" +
-	"\fmachine_name\x18\x05 \x01(\tR\vmachineName\"W\n" +
+	"\fmachine_name\x18\x05 \x01(\tR\vmachineName\"i\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vSTART_RELAY\x10\x01\x12\x10\n" +
 	"\fVERIFY_RELAY\x10\x02\x12\x12\n" +
-	"\x0eVERIFY_MACHINE\x10\x03\"2\n" +
+	"\x0eVERIFY_MACHINE\x10\x03\x12\x10\n" +
+	"\fRELAY_STATUS\x10\x04\"U\n" +
 	"\rSetupResponse\x12!\n" +
-	"\fmachine_name\x18\x01 \x01(\tR\vmachineName\"W\n" +
+	"\fmachine_name\x18\x01 \x01(\tR\vmachineName\x12!\n" +
+	"\frelay_status\x18\x02 \x01(\tR\vrelayStatus\"W\n" +
 	"\bRpcError\x121\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x1d.agentkeyring.v1.RpcErrorCodeR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage*r\n" +

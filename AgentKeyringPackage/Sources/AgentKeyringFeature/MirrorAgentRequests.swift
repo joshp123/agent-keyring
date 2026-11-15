@@ -42,6 +42,11 @@ extension MirrorAppModel {
                 case .verifyMachine:
                     guard !setup.machineName.isEmpty else { throw LeaseFailure(.invalidArgument, "Give the machine name used for enrolment.") }
                     result.machineName = try relayApprover.verifyMachineCode(setup.code, machineName: setup.machineName)
+                case .relayStatus:
+                    try relayApprover.load()
+                    if relayApprover.connectionState == .connected { result.relayStatus = "connected" }
+                    else if relayApprover.state.pairing != nil || relayApprover.state.keySet != nil { result.relayStatus = "waiting" }
+                    else { result.relayStatus = "not-started" }
                 default: throw LeaseFailure(.invalidArgument, "Choose a setup action.")
                 }
                 response.setup = result

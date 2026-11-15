@@ -64,7 +64,7 @@ agent-keyring setup-relay --relay RELAY_HOST:PORT
 agent-keyring verify-relay --code 'XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX'
 ```
 
-Read the log from the relay process on the expected SSH host; do not use an old entry. The Mac now offers the user one approval. Wait for it to complete before enrolling machines.
+Read the log from the relay process on the expected SSH host; do not use an old entry. The Mac now offers the user one approval. Check `agent-keyring relay-status` until it says `connected` before enrolling machines. `waiting` means the answer or connection is still pending; `not-started` means setup was cancelled or has not begun. Do not start a second setup while waiting.
 
 To add another machine on the user's tailnet, run its standalone command on that machine over SSH and leave it waiting:
 

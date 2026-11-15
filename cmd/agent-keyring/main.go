@@ -46,6 +46,7 @@ const help = `Agent Keyring: use a saved login for one task.
   setup-relay --relay HOST:PORT
                             Start connecting this Mac to the relay
   verify-relay --code CODE  Verify the code read on the relay over SSH
+  relay-status              Check whether this Mac has connected to the relay
   verify-machine --name NAME --code CODE
                             Verify the code read on the joining machine over SSH
 
@@ -225,7 +226,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, remote.Enrol(ctx, store, address, a.options["name"], os.Stderr)
 	}
-	if command == "setup-relay" || command == "verify-relay" || command == "verify-machine" {
+	if command == "setup-relay" || command == "verify-relay" || command == "verify-machine" || command == "relay-status" {
 		if len(a.positionals) != 0 || len(a.program) != 0 {
 			return 2, errors.New("Setup commands take options only.")
 		}
@@ -243,6 +244,11 @@ func run(ctx context.Context, args []string) (int, error) {
 				return 2, errors.New("Supply a valid relay port.")
 			}
 			setup.Action, setup.Host, setup.Port = pb.SetupRequest_START_RELAY, host, uint32(port)
+		} else if command == "relay-status" {
+			if err = a.check("", ""); err != nil {
+				return 2, err
+			}
+			setup.Action = pb.SetupRequest_RELAY_STATUS
 		} else {
 			if err = a.check("code name", ""); err != nil {
 				return 2, err
@@ -274,7 +280,13 @@ func run(ctx context.Context, args []string) (int, error) {
 		if result.GetSetup() == nil {
 			return 1, errors.New("Agent Keyring did not confirm setup.")
 		}
-		if name := result.GetSetup().GetMachineName(); name != "" {
+		if command == "relay-status" {
+			status := result.GetSetup().GetRelayStatus()
+			if status != "connected" && status != "waiting" && status != "not-started" {
+				return 1, errors.New("Agent Keyring returned an unknown relay status.")
+			}
+			fmt.Println(status)
+		} else if name := result.GetSetup().GetMachineName(); name != "" {
 			fmt.Fprintln(os.Stderr, "Verified", safe(name)+". Waiting for approval on the Mac.")
 		} else if command == "verify-relay" {
 			fmt.Fprintln(os.Stderr, "Relay verified. Waiting for approval on the Mac.")
