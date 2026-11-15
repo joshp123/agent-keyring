@@ -293,8 +293,8 @@ private struct TouchIDGlyph: NSViewRepresentable {
     func updateNSView(_ view: LAAuthenticationView, context representableContext: Context) {}
 }
 
-/// Hosts the panel under the menu bar, at the top right of the screen with
-/// the pointer. Non-activating: the app Josh is typing in keeps focus until
+/// Hosts the panel beside the window Josh is working in (see
+/// ApprovalPanelPlacement). Non-activating: the app Josh is typing in keeps focus until
 /// he clicks the panel.
 @MainActor
 public final class MacApprovalPanelController {
@@ -310,10 +310,9 @@ public final class MacApprovalPanelController {
     func showPanel(_ content: some View) {
         close()
         let panel = KeyringPanel.floating(content)
-        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-        if let visible = screen?.visibleFrame {
-            panel.setFrameTopLeftPoint(NSPoint(x: visible.maxX - panel.frame.width - 12, y: visible.maxY - 8))
-        }
+        panel.setFrame(ApprovalPanelPlacement.frame(panel: panel.frame.size,
+            focusedWindow: ApprovalPanelPlacement.focusedWindow(), pointer: NSEvent.mouseLocation,
+            visibleFrames: NSScreen.screens.map(\.visibleFrame)), display: false)
         panel.orderFrontRegardless()
         self.panel = panel
     }
