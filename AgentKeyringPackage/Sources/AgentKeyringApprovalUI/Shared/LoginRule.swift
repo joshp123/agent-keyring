@@ -60,7 +60,7 @@ public enum RulesCopy {
     /// the MacBook is shut. Added to the band once a relay is paired.
     public static let automaticStoredOnMini =
         "Logins set to Automatic are also kept on your Mac mini, with their two-factor codes. Anyone with admin rights there, agents included, can read them."
-    public static let otherMachinesNeedRulesTitle = "Send your rules to your Mac mini"
+    public static let otherMachinesNeedRulesTitle = "Confirm rules for other machines"
     public static let otherMachinesNeedRulesDetail = "Your other machines need them"
     public static let confirmButton = "Confirm with Touch ID"
 }

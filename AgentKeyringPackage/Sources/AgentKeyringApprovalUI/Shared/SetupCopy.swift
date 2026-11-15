@@ -75,7 +75,7 @@ public enum SetupCopy {
     /// never opens a log.
     public static let compareWithSetupCode = "Check that this Mac is talking to your Mac mini"
     public static func setupCodeSource(_ address: String) -> String {
-        "The agent setting up \(address) reads the same code there and shows it to you. Compare the two."
+        "The agent that set up your Mac mini reads the same code there and shows it to you. Compare the two. Address: \(address)."
     }
 
     public static func relayConnected(_ address: String) -> String { "Connected to \(address)" }
