@@ -14,9 +14,9 @@ public enum SetupCopy {
 
     // MARK: A machine or iPhone joining (Mac panel)
 
-    public static func joiningLead(_ kind: DeviceEnrolment.Kind) -> String {
-        switch kind {
-        case .machine: "A new machine wants to ask for logins"
+    public static func joiningLead(_ enrolment: DeviceEnrolment) -> String {
+        switch enrolment.kind {
+        case .machine: "Let agents on \(enrolment.name) ask for your logins?"
         case .approver: "Your iPhone wants to approve requests"
         }
     }
@@ -24,7 +24,7 @@ public enum SetupCopy {
     /// The second line under a joining device's name, in lists.
     public static func joiningDetail(_ enrolment: DeviceEnrolment) -> String {
         if let old = enrolment.replacesPhone { return "Replaces \(old)" }
-        return enrolment.kind == .machine ? "Wants to ask for logins" : "Wants to approve requests"
+        return enrolment.kind == .machine ? "Wants its agents to ask for your logins" : "Wants to approve requests"
     }
 
     /// In the panel, under the new iPhone's name.
@@ -70,13 +70,13 @@ public enum SetupCopy {
     public static let relayAddressExample = "mac-mini:17443"
     public static let relayAddressHint = "Its Tailscale name and port."
     public static let connect = "Connect"
-    /// RFC 0005, "First approver": the agent setting up the relay reads its
-    /// code over the mini's trusted SSH connection and shows it to Josh; he
-    /// never opens a log.
-    public static let compareWithSetupCode = "Check that this Mac is talking to your Mac mini"
-    public static func setupCodeSource(_ address: String) -> String {
-        "The agent that set up your Mac mini reads the same code there and shows it to you. Compare the two. Address: \(address)."
-    }
+    /// The agent setting up the mini checks its code for Josh (it reads it over
+    /// SSH and the Mac app compares), so he only makes the decision itself.
+    public static let connectToMiniTitle = "Connect this Mac to your Mac mini?"
+    public static let connectToMiniBody = "Agents on your other machines can then ask you for logins. Their requests go through your Mac mini."
+    public static let notNow = "Not now"
+    public static let allow = "Allow"
+    public static let dontAllow = "Don't allow"
 
     public static func relayConnected(_ address: String) -> String { "Connected to \(address)" }
     public static func relayConnecting(_ address: String) -> String { "Connecting to \(address)…" }
@@ -89,7 +89,7 @@ public enum SetupCopy {
     /// RFC 0005, "Applying a change": shown until the relay acknowledges.
     public static let applying = "Sending changes to your Mac mini…"
     public static let waitingToJoin = "Waiting to join"
-    public static let machinesThatCanAsk = "Machines that can ask for logins"
+    public static let machinesThatCanAsk = "Machines whose agents can ask for your logins"
     public static let noMachines = "None yet. To add a machine, ask an agent on it to set up Agent Keyring."
     public static let automaticAllowed = "Can use Automatic logins"
     public static let asksEveryTime = "Asks you for every login"
@@ -117,7 +117,7 @@ public enum SetupCopy {
         guard names.count > 1 else { return names.first ?? "" }
         return names.dropLast().joined(separator: ", ") + " and " + names.last!
     }
-    public static let canApprove = "Devices that can approve"
+    public static let canApprove = "Where you approve requests"
     public static let answersWithTouchID = "Answers on this Mac"
     public static let answersWithFaceID = "Answers with Face ID"
     public static let review = "Review"
