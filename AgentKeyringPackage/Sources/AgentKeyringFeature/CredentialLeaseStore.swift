@@ -563,7 +563,12 @@ public final class CredentialLeaseStore {
                 try Task.checkCancellation()
                 try self?.expire()
             } catch is CancellationError { }
-            catch { self?.errorMessage = "Task deadlines could not be saved. New deliveries will still check expiry." }
+            catch {
+                let native = error as NSError
+                let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
+                historyLogger.error("Task deadline save failed: domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
+                self?.errorMessage = "Task deadlines could not be saved. New deliveries will still check expiry."
+            }
         }
     }
     private func publish() {

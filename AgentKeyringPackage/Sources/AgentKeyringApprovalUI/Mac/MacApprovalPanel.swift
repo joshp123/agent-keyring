@@ -68,7 +68,8 @@ public final class MacApprovalModel {
                 let native = error as NSError
                 approvalLogger.error("Approval failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
                 embeddedTouchID = nil
-                failure = "Approval didn't finish. Nothing was shared. Try again."
+                failure = (error as? LocalizedError)?.errorDescription
+                    ?? "Approval didn't finish. Nothing was shared. Try again."
             }
             touchWait = nil
         }
@@ -109,7 +110,8 @@ public final class MacApprovalModel {
             let native = error as NSError
             approvalLogger.error("Answer failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
             request.state = previous
-            failure = choice == .approve ? "Approval didn't finish. Nothing was shared. Try again." : "The denial wasn't saved. Try again."
+            failure = (error as? LocalizedError)?.errorDescription
+                ?? (choice == .approve ? "Approval didn't finish. Nothing was shared. Try again." : "The denial wasn't saved. Try again.")
         }
     }
 }
