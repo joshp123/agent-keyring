@@ -159,7 +159,7 @@ extension MirrorAppModel {
                     policies: Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, accessControl.policy(for: $0.id)) }))
                 if try relayApprover.requiresPublicationConfirmation(vault) {
                     do {
-                        try await relayApprover.publishCurrentRules(reason: "send your updated logins and rules to your Mac mini")
+                        try await relayApprover.publishCurrentRules(reason: "let agents on your other machines use the logins you just imported")
                         if relayApprover.isApplying {
                             notice = MirrorNotice(kind: .information,
                                 text: "Your logins were saved. Agent Keyring will send the updated list to your Mac mini when it reconnects.")

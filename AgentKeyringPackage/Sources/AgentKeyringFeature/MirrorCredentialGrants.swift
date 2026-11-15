@@ -12,7 +12,7 @@ extension MirrorAppModel {
         let confirmed = try await withTaskCancellationHandler {
             try Task.checkCancellation()
             return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion,
-                localizedReason: "reset its record of what agents are using on this Mac. Your logins and rules stay")
+                localizedReason: "end all agent access on this Mac so agents can ask again. Your logins and rules stay")
         } onCancel: { Task { @MainActor in cancelEvaluation() } }
         try Task.checkCancellation()
         guard confirmed else { throw CancellationError() }

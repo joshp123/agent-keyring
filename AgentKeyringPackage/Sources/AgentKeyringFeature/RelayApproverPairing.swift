@@ -85,7 +85,7 @@ extension RelayApprover {
                 identity: identity, pin: pending.relaySPKI)).serializedData()
         }
         let vault = try await credentialSource()
-        try await signer.authorize(context: context, reason: "connect this Mac to Agent Keyring on your Mac mini")
+        try await signer.authorize(context: context, reason: "let agents on your other machines use your logins, with your approval, through your Mac mini")
         let currentVault = try await credentialSource()
         try Task.checkCancellation()
         guard try publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
@@ -148,7 +148,7 @@ extension RelayApprover {
         defer { authorizationID = nil }
         try await prepareForPublication()
         let signer = try keys().1
-        try await signer.authorize(context: context, reason: "let agents on \(record.machineLabel) ask you for logins")
+        try await signer.authorize(context: context, reason: "let agents on \(record.machineLabel) ask to use your logins")
         try Task.checkCancellation()
         let vault = try await credentialSource()
         try Task.checkCancellation()
@@ -250,7 +250,7 @@ extension RelayApprover {
         try claimAuthorization("revoke:" + recipientID)
         defer { authorizationID = nil }
         try await prepareForPublication()
-        try await keys().1.authorize(context: context, reason: "stop agents on \(machine.machineLabel) asking for logins")
+        try await keys().1.authorize(context: context, reason: "stop agents on \(machine.machineLabel) using your logins")
         let vault = try await credentialSource()
         try Task.checkCancellation()
         guard state.machines[recipientID] == machineBytes else { throw LeaseFailure(.conflict, "This machine's enrolment changed.") }

@@ -14,7 +14,7 @@ struct CredentialReleaseAuthorizerTests {
 
         #expect(
             request.localizedReason
-                == "show the agent the password for user@example.com on accounts.example.com"
+                == "let an agent see your password for user@example.com on accounts.example.com"
         )
     }
 
@@ -24,9 +24,9 @@ struct CredentialReleaseAuthorizerTests {
             CredentialReleaseAuthorizationRequest.leaseReason(purpose: purpose, site: "https://example.com/login",
                 account: "josh", program: "/usr/local/bin/gh", agent: "Codex")
         }
-        #expect(reason(.browserSignIn) == "sign in to example.com as josh")
-        #expect(reason(.program) == "give gh the password for josh on example.com")
-        #expect(reason(.agentProcess) == "show Codex the password for josh on example.com")
+        #expect(reason(.browserSignIn) == "let Codex sign in to example.com as josh")
+        #expect(reason(.program) == "let Codex pass your example.com password for josh to gh")
+        #expect(reason(.agentProcess) == "let Codex see your example.com password for josh. It can keep a copy")
     }
 
     @Test("Only secret-bearing fields need approval")
