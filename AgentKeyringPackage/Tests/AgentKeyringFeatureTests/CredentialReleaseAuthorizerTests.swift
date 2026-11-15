@@ -1,4 +1,5 @@
 import Testing
+import AgentKeyringProtocol
 @testable import AgentKeyringFeature
 
 @Suite("Credential release approval")
@@ -13,8 +14,19 @@ struct CredentialReleaseAuthorizerTests {
 
         #expect(
             request.localizedReason
-                == "release the password for user@example.com to a local agent for accounts.example.com"
+                == "show the agent the password for user@example.com on accounts.example.com"
         )
+    }
+
+    @Test("The native prompt says what each request permits")
+    func leaseReasons() {
+        func reason(_ purpose: Agentkeyring_V1_Purpose) -> String {
+            CredentialReleaseAuthorizationRequest.leaseReason(purpose: purpose, site: "https://example.com/login",
+                account: "josh", program: "/usr/local/bin/gh", agent: "Codex")
+        }
+        #expect(reason(.browserSignIn) == "sign in to example.com as josh")
+        #expect(reason(.program) == "give gh the password for josh on example.com")
+        #expect(reason(.agentProcess) == "show Codex the password for josh on example.com")
     }
 
     @Test("Only secret-bearing fields need approval")

@@ -12,7 +12,7 @@ extension MirrorAppModel {
         let confirmed = try await withTaskCancellationHandler {
             try Task.checkCancellation()
             return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion,
-                localizedReason: "reset Agent Keyring's task history on this Mac and end its previous task access. Your logins and rules will be kept")
+                localizedReason: "reset its record of what agents are using on this Mac. Your logins and rules stay")
         } onCancel: { Task { @MainActor in cancelEvaluation() } }
         try Task.checkCancellation()
         guard confirmed else { throw CancellationError() }
@@ -56,16 +56,15 @@ extension MirrorAppModel {
         guard let login = leaseLogins.first(where: { $0.id.uuidString == lease.loginID }) else {
             throw LeaseFailure(.notFound, "The login is no longer available.")
         }
-        let purpose: String = switch lease.purpose {
-        case .browserSignIn: "Browser sign-in for this task, up to 30 minutes"
-        case .program: "Give the password to \(lease.program.executable) for this task, up to 30 minutes"
-        case .agentProcess: "Give the password to the agent's own code for this task, up to 30 minutes"
-        default: ""
-        }
+        let site = login.origins.first ?? login.title
+        let account = login.username ?? login.title
+        let reason = CredentialReleaseAuthorizationRequest.leaseReason(purpose: lease.purpose, site: site,
+            account: account, program: lease.program.executable,
+            agent: leaseStore.requester(for: leaseID)?.name ?? lease.recipient.clientLabel)
         let approval = CredentialReleaseAuthorizationRequest(destination: login.origins.first ?? login.title,
             account: login.username ?? login.title, field: .password, credentialTitle: login.title,
             expirationSeconds: 1800, authorizationDeadline: Date(timeIntervalSince1970: TimeInterval(lease.pendingUntilUnixSeconds)),
-            leaseDescription: purpose + ". Agent's reason: “\(lease.reason)”")
+            leaseDescription: reason)
         try await authorize(approval)
         try Task.checkCancellation()
         // Re-read signed rules after the suspension and reject a late answer.

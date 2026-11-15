@@ -1,4 +1,5 @@
 import AppKit
+import AgentKeyringProtocol
 import Foundation
 import LocalAuthentication
 import OSLog
@@ -42,7 +43,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
     }
 
     public var localizedReason: String {
-        if let leaseDescription { return "\(account) on \(destination). \(leaseDescription)" }
+        if let leaseDescription { return leaseDescription }
         let value =
             switch field {
             case .username: "username"
@@ -50,8 +51,24 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
             case .totp: "verification code"
             }
         if fillsFocusedField { return "fill the \(value) for \(account) on \(destination)" }
-        return "release the \(value) for \(account) to a local agent for \(destination)"
+        return "show the agent the \(value) for \(account) on \(destination)"
             + (isPossiblyStale ? ". This login may be stale; update the copy from Apple Passwords." : "")
+    }
+
+    static func leaseReason(purpose: Agentkeyring_V1_Purpose, site: String, account: String,
+        program: String, agent: String) -> String {
+        let site = URL(string: site)?.host() ?? site
+        switch purpose {
+        case .browserSignIn:
+            return "sign in to \(site) as \(account)"
+        case .program:
+            let name = URL(fileURLWithPath: program).lastPathComponent
+            return "give \(name.isEmpty ? "the program" : name) the password for \(account) on \(site)"
+        case .agentProcess:
+            return "show \(agent.isEmpty ? "the agent" : agent) the password for \(account) on \(site)"
+        default:
+            return "allow access to the login for \(account) on \(site)"
+        }
     }
 }
 

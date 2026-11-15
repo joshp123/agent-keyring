@@ -96,7 +96,12 @@ extension RelayApprover {
         let before = try pendingScope(id, vault: await credentialSource())
         guard before.policy != .block else { throw LeaseFailure(.permissionDenied, "This login is blocked.") }
         let signer = try keys().1
-        try await signer.authorize(context: context, reason: "let an agent on \(before.machine.machineLabel) use \(before.item.title) for up to 30 minutes")
+        let candidate = CredentialResolver().candidate(for: before.item)
+        let reason = CredentialReleaseAuthorizationRequest.leaseReason(purpose: before.record.purpose,
+            site: before.item.origins.first ?? before.item.title, account: candidate.username ?? before.item.title,
+            program: before.record.program.executable,
+            agent: before.record.agentLabel.isEmpty ? before.machine.clientLabel : before.record.agentLabel)
+        try await signer.authorize(context: context, reason: reason)
         let vault = try await credentialSource()
         try Task.checkCancellation()
         try queueDecision(id, approve: true, reply: "", automatic: false, context: context, vault: vault, suppress: false)
