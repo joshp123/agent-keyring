@@ -118,15 +118,16 @@ struct SnapshotMergerTests {
         try await checkRuleAfterImport(first, second, expectedPolicy: .allowAutomatically)
     }
 
-    @Test("Publication needs confirmation for an added login, but not a password-only refresh", arguments: [false, true])
-    func publicationAfterRefresh(addLogin: Bool) throws {
+    @Test("Publication needs confirmation for an added login, but not a password-only refresh", arguments: [false, true], [false, true])
+    func publicationAfterRefresh(addLogin: Bool, defaultRules: Bool) throws {
         let first = try merger().merge(previous: nil, importBatch: batch(items: [item(index: 1)]))
         var imported = [item(index: 1, password: "refreshed-password")]
         if addLogin { imported.append(item(index: 2)) }
         let second = try merger().merge(previous: first, importBatch: batch(items: imported))
-        let rules = [first.items[0].id: CredentialAccessPolicy.allowAutomatically]
+        let rules: [UUID: CredentialAccessPolicy] = defaultRules ? [:] : [first.items[0].id: .allowAutomatically]
         let approver = RelayApprover { throw CocoaError(.fileReadUnknown) }
         var published = try approver.configurationContents(RelayApproverVault(generation: first, policies: rules), machines: [:])
+        #expect(published.logins.first?.rule == (defaultRules ? .ask : .automatic))
         published.domain = "agentkeyring.configuration.v1"
         published.revision = 12
         published.mirrorRefreshedUnixSeconds = 1_000

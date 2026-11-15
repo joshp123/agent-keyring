@@ -54,7 +54,8 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw signingError(status) }
-        return result as? Data
+        guard let hash = result as? Data, hash.count == SHA256.byteCount else { throw signingError(errSecDecode) }
+        return hash
     }
 
     private func storeSignedBytesHash(_ hash: Data) throws {

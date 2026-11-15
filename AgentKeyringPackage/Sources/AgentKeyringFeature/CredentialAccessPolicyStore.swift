@@ -77,6 +77,21 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
     private func loadVerifiedContents() throws -> FileContents {
         try authority?.load()
         if let saved = authority?.savedRules { return try decodeContents(saved.bytes) }
+        // Only a genuinely new store has neither files nor a protected record of
+        // previously signed rules. Never let deleting the files erase a block.
+        if try isMissing(fileURL), try isMissing(signatureURL) {
+            do {
+                if try signer.signedBytesHash() == nil {
+                    return FileContents(version: 2, records: [], pairedDevices: [])
+                }
+                accessRulesStoreLogger.error("Access rules load failed: signed rules files are missing")
+            } catch {
+                let native = error as NSError
+                let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
+                accessRulesStoreLogger.error("Access rules load failed: saved check domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
+            }
+            throw AccessRulesConfirmationRequired()
+        }
         let bytes: Data
         let signature: Data
         do {
@@ -135,8 +150,9 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
             contents = nil
         }
         let reason: AccessRulesConfirmationReason
-        if !fileManager.fileExists(atPath: fileURL.path), !fileManager.fileExists(atPath: signatureURL.path) {
-            reason = .firstUse
+        if try isMissing(fileURL), try isMissing(signatureURL) {
+            do { reason = try signer.signedBytesHash() == nil ? .firstUse : .missing }
+            catch { reason = .unverified }
         } else if contents?.version == 1, !fileManager.fileExists(atPath: signatureURL.path) {
             reason = .upgrade
         } else {
@@ -281,5 +297,12 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
         else {
             throw CocoaError(.fileReadNoPermission)
         }
+    }
+
+    private func isMissing(_ url: URL) throws -> Bool {
+        var info = stat()
+        if lstat(url.path, &info) == 0 { return false }
+        if errno == ENOENT { return true }
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 }

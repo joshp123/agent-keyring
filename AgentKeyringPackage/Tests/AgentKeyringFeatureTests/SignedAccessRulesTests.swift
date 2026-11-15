@@ -6,6 +6,77 @@ import Testing
 @MainActor
 @Suite("Tamper-evident access rules")
 struct SignedAccessRulesTests {
+    @Test("Fresh and newly imported logins ask without signing rules")
+    func freshRulesDefaultToAsk() async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        let controller = CredentialAccessController(store: fixture.store)
+        let generation = fixture.generation
+        await controller.refresh(from: generation)
+        #expect(!controller.needsConfirmation)
+        #expect(controller.releaseDecision(for: fixture.loginID, field: .password) == .requestAuthorization)
+        try await controller.ensureRulesConfirmed()
+        await controller.setPolicy(.ask, for: [fixture.loginID])
+        #expect(fixture.signer.signingReason == nil)
+        #expect(!FileManager.default.fileExists(atPath: fixture.fileURL.path))
+
+        let importedID = UUID()
+        let imported = MirrorItem(id: importedID,
+            sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
+            title: "New login", origins: ["https://example.org"],
+            credentials: [.password(userName: "synthetic", password: "synthetic-password")])
+        let next = MirrorGeneration(id: UUID(), previousGenerationID: generation.id, createdAt: Date(),
+            sourceExportedAt: Date(), scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture",
+            items: generation.items + [imported], skippedCredentialCount: 0)
+        await controller.refresh(from: next)
+        #expect(controller.policy(for: importedID) == .ask)
+        #expect(controller.releaseDecision(for: importedID, field: .password) == .requestAuthorization)
+        #expect(fixture.signer.signingReason == nil)
+        await controller.setPolicy(.block, for: [fixture.loginID])
+        #expect(fixture.signer.signingReason != nil)
+        #expect(try await fixture.store.load()[fixture.loginID] == .block)
+        let signedBytes = try Data(contentsOf: fixture.fileURL)
+        let anotherID = UUID()
+        let another = MirrorItem(id: anotherID,
+            sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "fixture", accountID: Data(), itemID: Data()),
+            title: "Another login", origins: ["https://example.net"],
+            credentials: [.password(userName: "synthetic", password: "synthetic-password")])
+        let later = MirrorGeneration(id: UUID(), previousGenerationID: next.id, createdAt: Date(),
+            sourceExportedAt: Date(), scope: .full, exporterIdentifier: "fixture", exporterDisplayName: "Fixture",
+            items: next.items + [another], skippedCredentialCount: 0)
+        await controller.refresh(from: later)
+        #expect(controller.policy(for: anotherID) == .ask)
+        #expect(controller.policy(for: fixture.loginID) == .block)
+        #expect(try Data(contentsOf: fixture.fileURL) == signedBytes)
+        await controller.setPolicy(.ask, for: [fixture.loginID])
+        #expect(try await fixture.store.load().isEmpty)
+    }
+
+    @Test("An unsigned file cannot grant automatic access")
+    func unsignedFileCannotGrantAccess() async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        try FileManager.default.createDirectory(at: fixture.root, withIntermediateDirectories: true)
+        try Data("{\"version\":2,\"records\":[{\"credentialID\":\"\(fixture.loginID)\",\"policy\":\"allowAutomatically\"}],\"pairedDevices\":[]}".utf8)
+            .write(to: fixture.fileURL)
+        let controller = CredentialAccessController(store: fixture.store)
+        await controller.refresh(from: fixture.generation)
+        #expect(controller.needsConfirmation)
+        #expect(controller.releaseDecision(for: fixture.loginID, field: .password) == .needsConfirmation)
+    }
+
+    @Test("An unavailable saved check cannot be mistaken for a fresh install")
+    func unavailableCheckFailsClosed() async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        let store = CredentialAccessPolicyStore(fileURL: fixture.fileURL, signer: UnavailableRulesSigner())
+        let controller = CredentialAccessController(store: store)
+        await controller.refresh(from: fixture.generation)
+        #expect(controller.needsConfirmation)
+        #expect(controller.confirmationReason == .unverified)
+        #expect(controller.releaseDecision(for: fixture.loginID, field: .password) == .needsConfirmation)
+    }
+
     @Test("Agent requests and later file edits cannot replace the confirmation snapshot")
     func stableConfirmationSnapshot() async throws {
         let fixture = SignedRulesFixture()
@@ -122,10 +193,13 @@ struct SignedAccessRulesTests {
     func failClosed(change: String) async throws {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
-        if change != "no-file" { try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .allowAutomatically]) }
+        try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: change == "no-file" ? .block : .allowAutomatically])
         let controller = CredentialAccessController(store: fixture.store)
         await controller.refresh(from: fixture.generation)
-        if change == "edited" {
+        if change == "no-file" {
+            try FileManager.default.removeItem(at: fixture.fileURL)
+            try FileManager.default.removeItem(at: fixture.signatureURL)
+        } else if change == "edited" {
             var bytes = try Data(contentsOf: fixture.fileURL)
             bytes.append(0x20)
             try bytes.write(to: fixture.fileURL)
@@ -148,6 +222,11 @@ struct SignedAccessRulesTests {
         }
         await activeController.refresh(from: fixture.generation)
         #expect(activeController.needsConfirmation)
+        if change == "no-file" {
+            #expect(activeController.confirmationResetsUnreadableRules)
+            #expect(activeController.confirmationReason == .missing)
+            #expect(activeController.errorMessage?.contains("saved rules are missing") == true)
+        }
         for field in [AgentCredentialField.username, .password, .totp] {
             #expect(activeController.releaseDecision(for: fixture.loginID, field: field) == .needsConfirmation)
         }
@@ -187,6 +266,8 @@ struct SignedAccessRulesTests {
         let fixture = SignedRulesFixture()
         defer { fixture.cleanUp() }
         let store = fixture.store
+        try await confirmInitialAccessRules(in: store)
+        try FileManager.default.removeItem(at: fixture.signatureURL)
         store.authorizeSave = { _, _ in
             throw LeaseFailure(.unavailable, "The record of what agents are using is missing. Choose Reset.")
         }
@@ -197,6 +278,12 @@ struct SignedAccessRulesTests {
         #expect(controller.errorMessage == "The record of what agents are using is missing. Choose Reset.")
     }
 
+}
+
+private struct UnavailableRulesSigner: AccessRulesSigning {
+    func signedBytesHash() throws -> Data? { throw CocoaError(.fileReadNoPermission) }
+    func sign(_ bytes: Data, reason: String) async throws -> Data { throw CocoaError(.fileReadNoPermission) }
+    func verify(_ signature: Data, for bytes: Data) throws -> Bool { false }
 }
 
 private struct SignedRulesUnlockedSession: CredentialSessionLockState {

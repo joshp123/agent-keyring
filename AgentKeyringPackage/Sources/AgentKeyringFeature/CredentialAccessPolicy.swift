@@ -72,6 +72,7 @@ public enum AccessRulesConfirmationReason: Equatable, Sendable {
     case firstUse
     case upgrade
     case unverified
+    case missing
 }
 
 public struct AccessRulesConfirmationSnapshot: Sendable {
@@ -163,7 +164,11 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         if confirmationSnapshot != nil, hasLoadedLoginList { return }
         if confirmationSnapshot == nil {
             do { try await reloadRules() }
-            catch { errorMessage = AccessRulesConfirmationRequired.message }
+            catch {
+                errorMessage = confirmationReason == .missing
+                    ? "Your saved rules are missing. Review and confirm your rules before agents can use logins."
+                    : AccessRulesConfirmationRequired.message
+            }
         }
         guard let metadata else {
             currentGenerationID = nil
@@ -250,6 +255,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
             }
         }
         for id in pendingPhoneBlocks where assignments[id] == nil { proposedPolicies[id] = .block }
+        guard proposedPolicies != policies || !pendingPhoneBlocks.isEmpty else { return }
         do {
             try await store.save(proposedPolicies)
             try await reloadRules()
@@ -314,7 +320,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
                 confirmationSnapshot = snapshot
                 policies = snapshot.policies
                 confirmationReason = snapshot.reason
-                confirmationResetsUnreadableRules = snapshot.reason == .unverified
+                confirmationResetsUnreadableRules = snapshot.reason == .unverified || snapshot.reason == .missing
                 confirmationRequiresPhonePairingAgain = snapshot.requiresPhonePairingAgain
             }
             updateRowPolicies()

@@ -185,6 +185,7 @@ public final class AccessRulesBackend: LoginRulesBackend {
         case .firstUse: RulesCopy.confirmBody
         case .upgrade: RulesCopy.confirmUpgradeBody
         case .unverified: RulesCopy.confirmBodyAfterUnreadableRules
+        case .missing: "Your saved rules are missing. Review and confirm the rules below before agents can use logins."
         }
         if controller.confirmationRequiresPhonePairingAgain {
             explanation += " Your previously paired iPhone must be paired again."
