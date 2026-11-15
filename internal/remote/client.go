@@ -404,12 +404,11 @@ func Enrol(ctx context.Context, store clientstate.Store, address, name string, o
 			}
 			if !bytesEqual(displayed, status.ApproverKeySet.KeySet) {
 				if displayed != nil {
-					fmt.Fprintln(output, "The approver keys changed. Compare the new fingerprint from the start.")
+					fmt.Fprintln(output, "The approver keys changed. Verify the new code from the start.")
 				}
 				displayed = append([]byte(nil), status.ApproverKeySet.KeySet...)
-				fmt.Fprintln(output, "Compare every group with Agent Keyring on your approving device:")
-				fmt.Fprintln(output, relaycrypto.Fingerprint(relaycrypto.EnrolTranscript(observed, clientSPKI, receiver.PublicKey().Bytes(), displayed)))
-				fmt.Fprintln(output, "Approve this machine there only if all eight groups match. Waiting for approval.")
+				fmt.Fprintln(output, "AGENT_KEYRING_ENROL_CODE="+relaycrypto.Fingerprint(relaycrypto.EnrolTranscript(observed, clientSPKI, receiver.PublicKey().Bytes(), displayed)))
+				fmt.Fprintln(output, "Waiting for the setup agent to verify this code and for approval on the Mac.")
 			}
 		}
 		switch status.State {

@@ -154,6 +154,10 @@ public final class RelayApprover {
     let phoneDelay: @MainActor () -> Int
     var pairConnection: RelayConnection?
     var pairingAttemptID = UUID()
+    // Evidence comes from the setup agent over the local socket, never the relay.
+    // It is deliberately forgotten on restart and when the transcript changes.
+    var verifiedPairing: Data?
+    var verifiedEnrolments: [String: Data] = [:]
     var sessionTask: Task<Void, Never>?
     var isFlushing = false
     var authorizationID: String?
@@ -239,17 +243,21 @@ public final class RelayApprover {
     }
 
     func publish() {
-        pairing = state.pairing.map { RelayPairingComparison(fingerprint: RelayCrypto.fingerprint($0.transcript),
-            relayAddress: "\($0.endpoint.host):\($0.endpoint.port)", answerIsQueued: $0.confirmation != nil) }
+        pairing = state.pairing.flatMap { pending in
+            guard pending.confirmation != nil || verifiedPairing == pending.transcript else { return nil }
+            return RelayPairingComparison(fingerprint: RelayCrypto.fingerprint(pending.transcript),
+            relayAddress: "\(pending.endpoint.host):\(pending.endpoint.port)", answerIsQueued: pending.confirmation != nil) }
         enrolledMachines = state.machines.values.compactMap { try? Agentkeyring_V1_EnrolledMachine(serializedBytes: $0) }
             .sorted { $0.machineLabel < $1.machineLabel }
         pendingEnrolments = state.pendingEnrolments.compactMap { digest, bytes in
             guard let record = try? Agentkeyring_V1_EnrolmentRecord(serializedBytes: bytes),
                 let pin = state.relaySPKI, let keySet = try? currentKeySet() else { return nil }
+            let transcript = RelayCrypto.enrolTranscript(relaySPKI: pin, clientSPKI: record.tlsPublicKey,
+                receiverKey: record.receiverPublicKey, keySet: keySet.keySet)
+            guard verifiedEnrolments[digest] == transcript else { return nil }
             return RelayMachineEnrolment(id: digest, machineLabel: record.machineLabel, clientLabel: record.clientLabel,
                 tailscaleNodeName: record.tailscaleNodeName,
-                fingerprint: RelayCrypto.fingerprint(RelayCrypto.enrolTranscript(relaySPKI: pin,
-                    clientSPKI: record.tlsPublicKey, receiverKey: record.receiverPublicKey, keySet: keySet.keySet)))
+                fingerprint: RelayCrypto.fingerprint(transcript))
         }.sorted { $0.id < $1.id }
         approverKeySet = try? currentKeySet()
         pendingApproverPairings = (state.pendingApprovers ?? [:]).compactMap { id, bytes in

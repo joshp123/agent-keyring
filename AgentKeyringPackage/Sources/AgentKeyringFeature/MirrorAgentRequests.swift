@@ -1,4 +1,5 @@
 import AgentKeyringProtocol
+import AgentKeyringRelaySupport
 import Foundation
 import OSLog
 
@@ -29,6 +30,21 @@ extension MirrorAppModel {
             var response = Agentkeyring_V1_WireResponse()
             response.endOfStream = true
             switch request.request {
+            case let .setup(setup):
+                var result = Agentkeyring_V1_SetupResponse()
+                switch setup.action {
+                case .startRelay:
+                    guard !setup.host.isEmpty, let port = UInt16(exactly: setup.port), port > 0,
+                        setup.code.isEmpty else { throw LeaseFailure(.invalidArgument, "Give a relay host and port.") }
+                    try await relayApprover.beginPairing(try RelayEndpoint(host: setup.host, port: port))
+                case .verifyRelay:
+                    try relayApprover.verifyRelayCode(setup.code)
+                case .verifyMachine:
+                    guard !setup.machineName.isEmpty else { throw LeaseFailure(.invalidArgument, "Give the machine name used for enrolment.") }
+                    result.machineName = try relayApprover.verifyMachineCode(setup.code, machineName: setup.machineName)
+                default: throw LeaseFailure(.invalidArgument, "Choose a setup action.")
+                }
+                response.setup = result
             case let .findLogins(query):
                 let metadata = metadataIncludingExample(try await store.loadCurrentMetadata())
                 leaseLogins = metadata?.candidates ?? []

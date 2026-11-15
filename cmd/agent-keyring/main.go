@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -41,6 +43,11 @@ const help = `Agent Keyring: use a saved login for one task.
                             Register a helper only in this browser user-data directory
   enrol --name NAME --relay HOST:PORT
                             Enrol this machine with your approving device
+  setup-relay --relay HOST:PORT
+                            Start connecting this Mac to the relay
+  verify-relay --code CODE  Verify the code read on the relay over SSH
+  verify-machine --name NAME --code CODE
+                            Verify the code read on the joining machine over SSH
 
 A lease ends on release or 30 minutes after approval. Reuse it through retries
 and two-factor steps. Automatic logins approve without asking.
@@ -217,6 +224,64 @@ func run(ctx context.Context, args []string) (int, error) {
 			return 2, err
 		}
 		return 0, remote.Enrol(ctx, store, address, a.options["name"], os.Stderr)
+	}
+	if command == "setup-relay" || command == "verify-relay" || command == "verify-machine" {
+		if len(a.positionals) != 0 || len(a.program) != 0 {
+			return 2, errors.New("Setup commands take options only.")
+		}
+		setup := &pb.SetupRequest{}
+		if command == "setup-relay" {
+			if err = a.check("relay", ""); err != nil {
+				return 2, err
+			}
+			host, portText, e := net.SplitHostPort(a.options["relay"])
+			if e != nil || host == "" {
+				return 2, errors.New("Supply --relay HOST:PORT.")
+			}
+			port, e := strconv.ParseUint(portText, 10, 16)
+			if e != nil || port == 0 {
+				return 2, errors.New("Supply a valid relay port.")
+			}
+			setup.Action, setup.Host, setup.Port = pb.SetupRequest_START_RELAY, host, uint32(port)
+		} else {
+			if err = a.check("code name", ""); err != nil {
+				return 2, err
+			}
+			if a.options["code"] == "" {
+				return 2, errors.New("Supply --code from the machine over SSH.")
+			}
+			if command == "verify-machine" && strings.TrimSpace(a.options["name"]) == "" {
+				return 2, errors.New("Supply the same --name used to enrol the machine.")
+			}
+			if command == "verify-relay" && a.options["name"] != "" {
+				return 2, errors.New("verify-relay does not take --name.")
+			}
+			setup.Code = a.options["code"]
+			setup.MachineName = a.options["name"]
+			setup.Action = pb.SetupRequest_VERIFY_RELAY
+			if command == "verify-machine" {
+				setup.Action = pb.SetupRequest_VERIFY_MACHINE
+			}
+		}
+		local, e := localSetupAuthority(ctx)
+		if e != nil {
+			return 1, e
+		}
+		result, e := local.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_Setup{Setup: setup}})
+		if e != nil {
+			return 1, e
+		}
+		if result.GetSetup() == nil {
+			return 1, errors.New("Agent Keyring did not confirm setup.")
+		}
+		if name := result.GetSetup().GetMachineName(); name != "" {
+			fmt.Fprintln(os.Stderr, "Verified", safe(name)+". Waiting for approval on the Mac.")
+		} else if command == "verify-relay" {
+			fmt.Fprintln(os.Stderr, "Relay verified. Waiting for approval on the Mac.")
+		} else {
+			fmt.Fprintln(os.Stderr, "Relay connection started. Read its code on the relay over SSH.")
+		}
+		return 0, nil
 	}
 	if !strings.Contains(" find lease status release read exec ", " "+command+" ") {
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)

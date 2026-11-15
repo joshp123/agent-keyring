@@ -13,6 +13,39 @@ import (
 	"github.com/joshp123/agent-keyring/internal/remote"
 )
 
+// Setup is always directed to the local app, never an enrolled remote authority.
+func localSetupAuthority(ctx context.Context) (authority.Client, error) {
+	if socket := os.Getenv("AGENT_KEYRING_SOCKET"); socket != "" {
+		return authority.Client{Socket: socket}, nil
+	}
+	if runtime.GOOS != "darwin" {
+		return authority.Client{}, errors.New("Run setup commands on the approving Mac.")
+	}
+	store, err := clientstate.Default()
+	if err != nil {
+		return authority.Client{}, err
+	}
+	state, err := store.Load(ctx)
+	if err != nil {
+		return authority.Client{}, err
+	}
+	id := bundleID(contentsPath())
+	if id == "" && state.LocalAuthority != nil {
+		id = state.LocalAuthority.BundleId
+	}
+	if id == "" {
+		id = bundleID("/Applications/AgentKeyring.app/Contents")
+	}
+	if id == "" {
+		return authority.Client{}, errors.New("Cannot find the local app. Run its bundled agent-keyring command or set AGENT_KEYRING_SOCKET.")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return authority.Client{}, err
+	}
+	return authority.Client{Socket: filepath.Join(home, "Library/Containers", id, "Data/agent.sock")}, nil
+}
+
 func chooseAuthority(ctx context.Context) (authority.Client, error) {
 	store, err := clientstate.Default()
 	if err != nil {

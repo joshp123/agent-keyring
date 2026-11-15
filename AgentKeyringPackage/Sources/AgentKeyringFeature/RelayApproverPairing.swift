@@ -9,6 +9,8 @@ extension RelayApprover {
         try load()
         guard state.keySet == nil else { throw LeaseFailure(.conflict, "This Mac is already paired with a relay.") }
         if state.pairing?.confirmation != nil { start(); return }
+        verifiedPairing = nil
+        publish()
         let (identity, signer) = try keys()
         var key = Agentkeyring_V1_ApproverKey()
         key.keyID = RelayCrypto.keyID(signer.publicKey)
@@ -54,6 +56,7 @@ extension RelayApprover {
             throw LeaseFailure(.conflict, "Relay pairing has already been confirmed.")
         }
         var next = state
+        verifiedPairing = nil
         next.pairing = nil
         try commit(next)
         pairingAttemptID = UUID()
@@ -67,8 +70,8 @@ extension RelayApprover {
     public func confirmPairing(comparedFingerprint: String, context: LAContext = LAContext()) async throws {
         try load()
         guard let pending = state.pairing else { throw LeaseFailure(.notFound, "There is no pairing to confirm.") }
-        guard comparedFingerprint == RelayCrypto.fingerprint(pending.transcript) else {
-            throw LeaseFailure(.invalidArgument, "Compare every group of the fingerprint on the relay and this Mac.")
+        guard verifiedPairing == pending.transcript || pending.confirmation != nil else {
+            throw LeaseFailure(.permissionDenied, "The setup agent must verify this relay before you can approve it.")
         }
         if pending.confirmation != nil { start(); await flushOutbox(); return }
         let attemptID = pairingAttemptID
@@ -88,7 +91,8 @@ extension RelayApprover {
         guard try publicationDigest(vault, machines: state.machines) == publicationDigest(currentVault, machines: state.machines) else {
             throw LeaseFailure(.conflict, "The logins changed while pairing. Confirm the current rules first.")
         }
-        guard pairingAttemptID == attemptID, state.pairing?.transcript == pending.transcript, state.keySet == nil else {
+        guard pairingAttemptID == attemptID, state.pairing?.transcript == pending.transcript,
+            verifiedPairing == pending.transcript, state.keySet == nil else {
             throw LeaseFailure(.conflict, "Pairing changed. Compare the current fingerprint.")
         }
         var key = Agentkeyring_V1_ApproverKey()
@@ -137,8 +141,8 @@ extension RelayApprover {
         let current = try currentKeySet()
         let transcript = RelayCrypto.enrolTranscript(relaySPKI: state.relaySPKI!, clientSPKI: record.tlsPublicKey,
             receiverKey: record.receiverPublicKey, keySet: current.keySet)
-        guard comparedFingerprint == RelayCrypto.fingerprint(transcript) else {
-            throw LeaseFailure(.invalidArgument, "Compare every fingerprint group with the new machine.")
+        guard verifiedEnrolments[id] == transcript else {
+            throw LeaseFailure(.permissionDenied, "The setup agent must verify this machine before you can approve it.")
         }
         try claimAuthorization("enrolment:" + id)
         defer { authorizationID = nil }
@@ -148,7 +152,8 @@ extension RelayApprover {
         try Task.checkCancellation()
         let vault = try await credentialSource()
         try Task.checkCancellation()
-        guard try currentKeySet() == current, state.pendingEnrolments[id] == bytes else {
+        guard try currentKeySet() == current, state.pendingEnrolments[id] == bytes,
+            verifiedEnrolments[id] == transcript else {
             throw LeaseFailure(.conflict, "The machine comparison changed. Compare the current fingerprint.")
         }
         var machine = Agentkeyring_V1_EnrolledMachine()
@@ -162,6 +167,7 @@ extension RelayApprover {
         machine.automaticAllowed = automaticAllowed
         var next = state
         next.pendingEnrolments.removeValue(forKey: id)
+        verifiedEnrolments.removeValue(forKey: id)
         next.machines[record.recipientID] = try machine.serializedData()
         try preparePublication(next: &next, vault: vault, context: context)
         try commit(next, vault: vault)
@@ -188,6 +194,38 @@ extension RelayApprover {
         }
         return record
     }
+
+    /// Codes must be obtained independently from the relevant machine over SSH.
+    public func verifyRelayCode(_ code: String) throws {
+        try load()
+        guard let pending = state.pairing, pending.confirmation == nil else {
+            throw LeaseFailure(.notFound, "No relay is waiting to be verified.")
+        }
+        guard code == RelayCrypto.fingerprint(pending.transcript) else {
+            throw LeaseFailure(.permissionDenied, "The relay code does not match. Check the relay over SSH and try again.")
+        }
+        verifiedPairing = pending.transcript
+        publish()
+    }
+
+    public func verifyMachineCode(_ code: String, machineName: String) throws -> String {
+        try load()
+        guard let pin = state.relaySPKI else { throw LeaseFailure(.notFound, "This Mac is not connected to a relay.") }
+        let current = try currentKeySet()
+        let matches = state.pendingEnrolments.compactMap { id, bytes -> (String, Data, String)? in
+            guard let record = try? validateEnrolment(bytes), record.machineLabel == machineName else { return nil }
+            let transcript = RelayCrypto.enrolTranscript(relaySPKI: pin, clientSPKI: record.tlsPublicKey,
+                receiverKey: record.receiverPublicKey, keySet: current.keySet)
+            guard RelayCrypto.fingerprint(transcript) == code else { return nil }
+            return (id, transcript, record.machineLabel)
+        }
+        guard matches.count == 1, let match = matches.first else {
+            throw LeaseFailure(.notFound, "No waiting machine matches that code. Check the machine over SSH and try again.")
+        }
+        verifiedEnrolments[match.0] = match.1
+        publish()
+        return match.2
+    }
 }
 
 extension RelayApprover {
@@ -199,6 +237,7 @@ extension RelayApprover {
         command.dismissEnrolment.recipientID = record.recipientID
         var next = state
         next.pendingEnrolments.removeValue(forKey: id)
+        verifiedEnrolments.removeValue(forKey: id)
         try enqueue(command, id: "enrolment:" + id, into: &next)
         try commit(next)
         await flushOutbox()

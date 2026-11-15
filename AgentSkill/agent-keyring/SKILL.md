@@ -2,7 +2,7 @@
 name: agent-keyring
 description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation. Use whenever a task needs a login, a password or a two-factor code. Never ask the user to type or paste a password."
 metadata:
-  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; browser workflow updated on 2026-11-01 by model gpt-6.1-sol"
+  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra"
 ---
 
 # Agent Keyring
@@ -53,13 +53,32 @@ agent-keyring exec "$lease" --field password
 
 ## On another machine
 
-The standalone `agent-keyring` package includes this skill and needs no Mac app. On another machine on the user's tailnet, such as a Mac mini, server or cloud VM, enrol it once:
+The setup agent does the verification. The user only approves on their Mac. Use authenticated SSH to the actual machines, independently of the relay connection. Never take a code from the relay's network response or from the approving Mac and pass it back as if it came from the other machine. Stop on any mismatch; do not try to work around it.
+
+To connect the Mac to a new relay, run its bundled command on the Mac:
+
+```sh
+agent-keyring setup-relay --relay RELAY_HOST:PORT
+# On the relay host over SSH, read the current relay process log entry
+# "compare pairing fingerprint on approver". Use the entire fingerprint:
+agent-keyring verify-relay --code 'XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX'
+```
+
+Read the log from the relay process on the expected SSH host; do not use an old entry. The Mac now offers the user one approval. Wait for it to complete before enrolling machines.
+
+To add another machine on the user's tailnet, run its standalone command on that machine over SSH and leave it waiting:
 
 ```sh
 agent-keyring enrol --name "build server" --relay RELAY_HOST:17443
 ```
 
-Ask the user for the relay address if you don't know it. `enrol` prints a code of eight groups and waits. Show the user that code and ask them to compare every group with the one Agent Keyring shows on their Mac before they approve there: the comparison is what proves this machine reached their own Agent Keyring, so it needs their eyes. After that, every command above works the same. Answers can take longer, because the user may approve on their iPhone.
+Read the `AGENT_KEYRING_ENROL_CODE=` line from that SSH session. On the approving Mac, use the same machine name and the complete code:
+
+```sh
+agent-keyring verify-machine --name "build server" --code 'XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX'
+```
+
+The Mac offers the user one approval. Wait for the enrol command to finish. If the approver keys change, the command prints a new code: verify that new code from the SSH session. If the Mac has not received the enrolment yet, retry verification of the same code. Find the relay address and process log yourself. After enrolment, the commands above work the same. Answers can take longer, because the user may approve on their iPhone.
 
 Enrolment records the relay as this machine's authority, even if the Mac app is installed. Commands keep using that relay when it is unavailable; they do not switch to a local copy. On a Mac using its own imported logins, the client records the local app instead.
 

@@ -296,6 +296,7 @@ message WireRequest {
     FillRequest fill = 6;
     ExecuteProgramRequest execute_program = 7;
     DeliverRequest deliver = 8;
+    SetupRequest setup = 11;
   }
   reserved 9, 10;
 }
@@ -308,9 +309,29 @@ message WireResponse {
     ExecuteProgramResult execute_program = 4;
     RpcError error = 5;
     Delivery delivery = 7;
+    SetupResponse setup = 10;
   }
   reserved 8, 9;
   bool end_of_stream = 6;
+}
+
+// Local same-user socket only. The code must be read independently over SSH;
+// a value obtained from the relay connection does not establish trust.
+message SetupRequest {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    START_RELAY = 1;
+    VERIFY_RELAY = 2;
+    VERIFY_MACHINE = 3;
+  }
+  Action action = 1;
+  string host = 2;
+  uint32 port = 3;
+  string code = 4;
+  string machine_name = 5;
+}
+message SetupResponse {
+  string machine_name = 1;
 }
 
 message RpcError {

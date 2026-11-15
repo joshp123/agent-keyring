@@ -1066,6 +1066,14 @@ public nonisolated struct Agentkeyring_V1_WireRequest: Sendable {
     set {request = .deliver(newValue)}
   }
 
+  public var setup: Agentkeyring_V1_SetupRequest {
+    get {
+      if case .setup(let v)? = request {return v}
+      return Agentkeyring_V1_SetupRequest()
+    }
+    set {request = .setup(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Request: Equatable, Sendable {
@@ -1077,6 +1085,7 @@ public nonisolated struct Agentkeyring_V1_WireRequest: Sendable {
     case fill(Agentkeyring_V1_FillRequest)
     case executeProgram(Agentkeyring_V1_ExecuteProgramRequest)
     case deliver(Agentkeyring_V1_DeliverRequest)
+    case setup(Agentkeyring_V1_SetupRequest)
 
   }
 
@@ -1138,6 +1147,14 @@ public nonisolated struct Agentkeyring_V1_WireResponse: Sendable {
     set {response = .delivery(newValue)}
   }
 
+  public var setup: Agentkeyring_V1_SetupResponse {
+    get {
+      if case .setup(let v)? = response {return v}
+      return Agentkeyring_V1_SetupResponse()
+    }
+    set {response = .setup(newValue)}
+  }
+
   public var endOfStream: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -1149,8 +1166,85 @@ public nonisolated struct Agentkeyring_V1_WireResponse: Sendable {
     case executeProgram(Agentkeyring_V1_ExecuteProgramResult)
     case error(Agentkeyring_V1_RpcError)
     case delivery(Agentkeyring_V1_Delivery)
+    case setup(Agentkeyring_V1_SetupResponse)
 
   }
+
+  public init() {}
+}
+
+/// Local same-user socket only. The code must be read independently over SSH;
+/// a value obtained from the relay connection does not establish trust.
+public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var action: Agentkeyring_V1_SetupRequest.Action = .unspecified
+
+  public var host: String = String()
+
+  public var port: UInt32 = 0
+
+  public var code: String = String()
+
+  public var machineName: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated enum Action: SwiftProtobuf.Enum, Swift.CaseIterable {
+    public typealias RawValue = Int
+    case unspecified // = 0
+    case startRelay // = 1
+    case verifyRelay // = 2
+    case verifyMachine // = 3
+    case UNRECOGNIZED(Int)
+
+    public init() {
+      self = .unspecified
+    }
+
+    public init?(rawValue: Int) {
+      switch rawValue {
+      case 0: self = .unspecified
+      case 1: self = .startRelay
+      case 2: self = .verifyRelay
+      case 3: self = .verifyMachine
+      default: self = .UNRECOGNIZED(rawValue)
+      }
+    }
+
+    public var rawValue: Int {
+      switch self {
+      case .unspecified: return 0
+      case .startRelay: return 1
+      case .verifyRelay: return 2
+      case .verifyMachine: return 3
+      case .UNRECOGNIZED(let i): return i
+      }
+    }
+
+    // The compiler won't synthesize support with the UNRECOGNIZED case.
+    public static let allCases: [Agentkeyring_V1_SetupRequest.Action] = [
+      .unspecified,
+      .startRelay,
+      .verifyRelay,
+      .verifyMachine,
+    ]
+
+  }
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_SetupResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var machineName: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -2108,7 +2202,7 @@ nonisolated extension Agentkeyring_V1_CredentialValues: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}find_logins\0\u{3}request_lease\0\u{3}get_lease\0\u{3}watch_lease\0\u{3}end_lease\0\u{1}fill\0\u{3}execute_program\0\u{1}deliver\0\u{c}\u{9}\u{1}\u{c}\u{a}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}find_logins\0\u{3}request_lease\0\u{3}get_lease\0\u{3}watch_lease\0\u{3}end_lease\0\u{1}fill\0\u{3}execute_program\0\u{1}deliver\0\u{2}\u{3}setup\0\u{c}\u{9}\u{1}\u{c}\u{a}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2220,6 +2314,19 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
           self.request = .deliver(v)
         }
       }()
+      case 11: try {
+        var v: Agentkeyring_V1_SetupRequest?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .setup(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .setup(v)
+        }
+      }()
       default: break
       }
     }
@@ -2263,6 +2370,10 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
       guard case .deliver(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
     }()
+    case .setup?: try {
+      guard case .setup(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -2277,7 +2388,7 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WireResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{1}lease\0\u{1}fill\0\u{3}execute_program\0\u{1}error\0\u{3}end_of_stream\0\u{1}delivery\0\u{c}\u{8}\u{1}\u{c}\u{9}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{1}lease\0\u{1}fill\0\u{3}execute_program\0\u{1}error\0\u{3}end_of_stream\0\u{1}delivery\0\u{2}\u{3}setup\0\u{c}\u{8}\u{1}\u{c}\u{9}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2364,6 +2475,19 @@ nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, Swift
           self.response = .delivery(v)
         }
       }()
+      case 10: try {
+        var v: Agentkeyring_V1_SetupResponse?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .setup(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .setup(v)
+        }
+      }()
       default: break
       }
     }
@@ -2400,15 +2524,107 @@ nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, Swift
     if self.endOfStream != false {
       try visitor.visitSingularBoolField(value: self.endOfStream, fieldNumber: 6)
     }
-    try { if case .delivery(let v)? = self.response {
+    switch self.response {
+    case .delivery?: try {
+      guard case .delivery(let v)? = self.response else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
-    } }()
+    }()
+    case .setup?: try {
+      guard case .setup(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+    }()
+    default: break
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V1_WireResponse, rhs: Agentkeyring_V1_WireResponse) -> Bool {
     if lhs.response != rhs.response {return false}
     if lhs.endOfStream != rhs.endOfStream {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SetupRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}action\0\u{1}host\0\u{1}port\0\u{1}code\0\u{3}machine_name\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.action) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.host) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.port) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.code) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.machineName) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.action != .unspecified {
+      try visitor.visitSingularEnumField(value: self.action, fieldNumber: 1)
+    }
+    if !self.host.isEmpty {
+      try visitor.visitSingularStringField(value: self.host, fieldNumber: 2)
+    }
+    if self.port != 0 {
+      try visitor.visitSingularUInt32Field(value: self.port, fieldNumber: 3)
+    }
+    if !self.code.isEmpty {
+      try visitor.visitSingularStringField(value: self.code, fieldNumber: 4)
+    }
+    if !self.machineName.isEmpty {
+      try visitor.visitSingularStringField(value: self.machineName, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_SetupRequest, rhs: Agentkeyring_V1_SetupRequest) -> Bool {
+    if lhs.action != rhs.action {return false}
+    if lhs.host != rhs.host {return false}
+    if lhs.port != rhs.port {return false}
+    if lhs.code != rhs.code {return false}
+    if lhs.machineName != rhs.machineName {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_SetupRequest.Action: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0")
+}
+
+nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SetupResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}machine_name\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.machineName) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.machineName.isEmpty {
+      try visitor.visitSingularStringField(value: self.machineName, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_SetupResponse, rhs: Agentkeyring_V1_SetupResponse) -> Bool {
+    if lhs.machineName != rhs.machineName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
