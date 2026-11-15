@@ -105,7 +105,7 @@ public enum DesignExamples {
                 askedAt: ago(52), state: .released(at: ago(44)),
                 events: [
                     AccessRequestEvent(ago(52), "Codex asked on Mac mini"),
-                    AccessRequestEvent(ago(51.8), "You approved with Touch ID on your Mac"),
+                    AccessRequestEvent(ago(51.8), "You approved on your Mac"),
                     AccessRequestEvent(ago(51.7), "Signed in: username and password"),
                     AccessRequestEvent(ago(44), "Codex said it was done"),
                 ]),

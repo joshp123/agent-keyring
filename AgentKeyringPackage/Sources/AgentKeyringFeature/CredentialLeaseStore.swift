@@ -2,6 +2,9 @@ import AgentKeyringRelaySupport
 import AgentKeyringProtocol
 import Foundation
 import Observation
+import OSLog
+
+private let historyLogger = Logger(subsystem: "com.agentkeyring.app", category: "TaskHistory")
 
 public typealias LeaseFailure = RelayFailure
 
@@ -92,7 +95,21 @@ public final class CredentialLeaseStore {
         } catch {
             snapshot = nil
             needsHistoryReset = true
-            errorMessage = "Task history could not be opened. Task access on this Mac is stopped. Open Agent Keyring and choose Reset task history."
+            if let failure = error as? LeasePersistenceFailure {
+                historyLogger.error("Task history load failed: \(failure.rawValue, privacy: .public)")
+                let problem = switch failure {
+                case .missingCheckpoint: "The check for the record of what agents are using is missing."
+                case .missingSnapshot: "The record of what agents are using is missing, but its saved check is still here."
+                case .unreadableSnapshot: "The record of what agents are using couldn't be read."
+                case .snapshotMismatch: "The record of what agents are using doesn't match its saved check."
+                }
+                errorMessage = problem + " In Agent Keyring, choose Reset to let agents ask again. This ends their current access; your logins and rules stay."
+            } else {
+                let native = error as NSError
+                let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
+                historyLogger.error("Task history load failed: domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
+                errorMessage = "Agent Keyring can't open its record of what agents are using. In Agent Keyring, choose Reset to let them ask again. This ends their current access; your logins and rules stay."
+            }
             publish()
             throw LeaseFailure(.unavailable, errorMessage!)
         }

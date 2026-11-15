@@ -17,7 +17,7 @@ struct CredentialAuthorizationFailureTests {
     func notVerified(code: Int) {
         #expect(classify(NSError(domain: LAError.errorDomain, code: code)) == .notVerified)
         #expect(CredentialReleaseAuthorizationError.notVerified.errorDescription ==
-            "Touch ID or Apple Watch did not verify; retry the request.")
+            "Approval didn't confirm. Try again.")
     }
 
     @Test("Only user cancellation is a decline", arguments: [-2])

@@ -58,7 +58,7 @@ public enum SetupCopy {
         "Refused. Nothing was allowed. To try again, start again on \(enrolment.name)."
     }
 
-    public static let joiningFailed = "Touch ID didn't confirm. Nothing changed."
+    public static let joiningFailed = "Confirmation didn't finish. Nothing changed. Try again."
 
     // MARK: The Mac's relay (Machines window)
 
@@ -94,7 +94,7 @@ public enum SetupCopy {
     public static let automaticAllowed = "Can use Automatic logins"
     public static let asksEveryTime = "Asks you for every login"
     public static let remove = "Remove"
-    public static let removeWithTouchID = "Remove with Touch ID"
+    public static let removeWithTouchID = "Remove"
 
     public static func removePhoneTitle(_ name: String) -> String { "Remove \(name)?" }
     /// Honest about the limit: removal stops the phone approving, but cannot
@@ -118,7 +118,7 @@ public enum SetupCopy {
         return names.dropLast().joined(separator: ", ") + " and " + names.last!
     }
     public static let canApprove = "Devices that can approve"
-    public static let answersWithTouchID = "Answers with Touch ID"
+    public static let answersWithTouchID = "Answers on this Mac"
     public static let answersWithFaceID = "Answers with Face ID"
     public static let review = "Review"
 
@@ -161,7 +161,7 @@ public enum SetupCopy {
     public static let pairButton = "Pair"
     public static let pairingConnecting = "Connecting to your Mac mini…"
     public static let pairingCompareHere = "Compare this code with the one on your Mac:"
-    public static let pairingConfirmOnMac = "If every group matches, approve on your Mac with Touch ID. This screen moves on by itself."
+    public static let pairingConfirmOnMac = "If every group matches, approve on your Mac. This screen moves on by itself."
     public static func pairingThrough(_ address: String) -> String { "Through \(address)" }
     public static let pairingPaired = "Paired. Requests now reach this iPhone."
     public static let tryAgain = "Try again"

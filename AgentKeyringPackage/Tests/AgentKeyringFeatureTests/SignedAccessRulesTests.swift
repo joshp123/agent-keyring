@@ -182,6 +182,21 @@ struct SignedAccessRulesTests {
         #expect(try await fixture.store.load() == [fixture.loginID: .allowAutomatically])
     }
 
+    @Test("A failed confirmation explains why it cannot be saved")
+    func confirmationReportsHistoryFailure() async throws {
+        let fixture = SignedRulesFixture()
+        defer { fixture.cleanUp() }
+        let store = fixture.store
+        store.authorizeSave = { _, _ in
+            throw LeaseFailure(.unavailable, "The record of what agents are using is missing. Choose Reset.")
+        }
+        let controller = CredentialAccessController(store: store)
+        await controller.refresh(from: fixture.generation)
+        await controller.confirmRules()
+        #expect(controller.needsConfirmation)
+        #expect(controller.errorMessage == "The record of what agents are using is missing. Choose Reset.")
+    }
+
 }
 
 private struct SignedRulesUnlockedSession: CredentialSessionLockState {

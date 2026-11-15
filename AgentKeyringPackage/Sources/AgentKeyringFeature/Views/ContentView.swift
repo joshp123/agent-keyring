@@ -58,7 +58,7 @@ private struct LeaseHistoryRecoveryView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Agents are paused on this Mac", systemImage: "exclamationmark.circle")
                 .font(.headline)
-            Text("Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. This ends any access agents have now. Your logins and rules stay.")
+            Text(model.leaseStore.errorMessage ?? "Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. This ends any access agents have now. Your logins and rules stay.")
                 .font(.callout)
             if let failure { Text(failure).font(.callout).foregroundStyle(.red) }
             Button("Reset…") {

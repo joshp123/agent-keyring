@@ -62,5 +62,5 @@ public enum RulesCopy {
         "Logins set to Automatic are also kept on your Mac mini, with their two-factor codes. Anyone with admin rights there, agents included, can read them."
     public static let otherMachinesNeedRulesTitle = "Confirm rules for other machines"
     public static let otherMachinesNeedRulesDetail = "Your other machines need them"
-    public static let confirmButton = "Confirm with Touch ID"
+    public static let confirmButton = "Confirm"
 }

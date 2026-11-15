@@ -85,7 +85,7 @@ public enum LeaseScreenMapping {
             let how = switch lease.approvedBy {
             case .automaticRule: "Approved by rule"
             case .iphone: "You approved with Face ID"
-            default: "You approved with Touch ID"
+            default: "You approved on your Mac"
             }
             events.append(AccessRequestEvent(date(lease.approvedAtUnixSeconds), how))
         }

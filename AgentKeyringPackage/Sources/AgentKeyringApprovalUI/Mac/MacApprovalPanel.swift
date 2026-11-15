@@ -10,7 +10,10 @@ import AppKit
 import LocalAuthentication
 import LocalAuthenticationEmbeddedUI
 import Observation
+import OSLog
 import SwiftUI
+
+private let approvalLogger = Logger(subsystem: "com.agentkeyring.app", category: "Approval")
 
 /// Everything the Mac panel needs from the outside world.
 @MainActor
@@ -62,8 +65,10 @@ public final class MacApprovalModel {
                 request.state = try await backend.approve(requestID: request.id)
             } catch is CancellationError {
             } catch {
+                let native = error as NSError
+                approvalLogger.error("Approval failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
                 embeddedTouchID = nil
-                failure = "Touch ID didn't confirm. Nothing was shared."
+                failure = "Approval didn't finish. Nothing was shared. Try again."
             }
             touchWait = nil
         }
@@ -101,8 +106,10 @@ public final class MacApprovalModel {
         failure = nil
         do { request.state = try await send() }
         catch {
+            let native = error as NSError
+            approvalLogger.error("Answer failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
             request.state = previous
-            failure = choice == .approve ? "Touch ID didn't confirm. Nothing was shared." : "The denial wasn't saved. Try again."
+            failure = choice == .approve ? "Approval didn't finish. Nothing was shared. Try again." : "The denial wasn't saved. Try again."
         }
     }
 }

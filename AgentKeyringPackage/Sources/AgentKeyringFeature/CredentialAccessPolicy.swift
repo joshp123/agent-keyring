@@ -5,6 +5,31 @@ import OSLog
 
 private let accessRulesLogger = Logger(subsystem: "com.agentkeyring.app", category: "AccessRules")
 
+private func reportRulesFailure(_ error: Error, operation: String) {
+    let native = error as NSError
+    let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
+    accessRulesLogger.error("\(operation, privacy: .public) failed: domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
+}
+
+private func rulesFailureMessage(_ error: Error) -> String {
+    if let failure = error as? LeaseFailure { return failure.message }
+    if error is KeychainError {
+        return "macOS couldn't open the key for your rules. Unlock this Mac and try again."
+    }
+    let native = error as NSError
+    if native.domain == LAError.errorDomain {
+        switch LAError.Code(rawValue: native.code) {
+        case .userCancel, .appCancel, .systemCancel:
+            return "Confirmation was interrupted. Try again."
+        case .biometryNotAvailable, .companionNotAvailable, .biometryNotEnrolled:
+            return "Touch ID or Apple Watch isn't available. Check that one is ready and try again."
+        default:
+            return "macOS couldn't confirm you. Try again."
+        }
+    }
+    return "Agent Keyring couldn't save the rules. Try again. If it keeps happening, restart Agent Keyring."
+}
+
 public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable {
     case ask
     case allowAutomatically
@@ -106,7 +131,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         catch {
             pendingBlocksReadError = error
             errorMessage = "The iPhone blocks could not be read. Confirm your access rules before releasing logins."
-            accessRulesLogger.error("Pending iPhone blocks load failed")
+            reportRulesFailure(error, operation: "Pending iPhone blocks load")
         }
     }
 
@@ -186,7 +211,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         do { try pendingBlocksFile.save(pendingPhoneBlocks) }
         catch {
             errorMessage = "The login is blocked, but its iPhone block could not be saved for restart."
-            accessRulesLogger.error("Pending iPhone block save failed")
+            reportRulesFailure(error, operation: "Pending iPhone block save")
         }
         updateRowPolicies()
     }
@@ -229,7 +254,8 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
             try await store.save(proposedPolicies)
             try await reloadRules()
         } catch {
-            errorMessage = "The access change could not be saved. No rule was changed."
+            reportRulesFailure(error, operation: "Rule change")
+            errorMessage = rulesFailureMessage(error)
         }
     }
 
@@ -240,6 +266,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         do {
             guard try await store.load() == policies else { throw AccessRulesConfirmationRequired() }
         } catch {
+            reportRulesFailure(error, operation: "Rules verification")
             throw AgentBridgeFailure(.rulesNeedConfirmation, AccessRulesConfirmationRequired.message)
         }
     }
@@ -261,9 +288,9 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
             confirmationSnapshot = nil
             try await reloadRules()
         } catch {
+            reportRulesFailure(error, operation: "Rules confirmation")
             if confirmationSnapshot != nil { needsConfirmation = true }
-            errorMessage = needsConfirmation ? "Access rules could not be confirmed. Nothing will be released."
-                : "The update for your other machines could not be confirmed. Your rules on this Mac are kept."
+            errorMessage = rulesFailureMessage(error)
         }
     }
 

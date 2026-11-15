@@ -83,13 +83,13 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
     public var errorDescription: String? {
         switch self {
         case .unavailable:
-            "Touch ID or Apple Watch approval is not available."
+            "Approval isn't available. Check Touch ID or Apple Watch, then try again."
         case .denied:
             "\(MacOwner.firstName) declined the request."
         case .interrupted:
             "macOS interrupted the approval prompt; retry the request."
         case .notVerified:
-            "Touch ID or Apple Watch did not verify; retry the request."
+            "Approval didn't confirm. Try again."
         case .expired:
             "The request expired with no answer."
         case let .systemFailure(domain, code):

@@ -85,13 +85,15 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
             bytes = try Data(contentsOf: fileURL)
             signature = try Data(contentsOf: signatureURL)
         } catch {
-            accessRulesStoreLogger.error("Access rules load failed: unreadable file")
+            let native = error as NSError
+            accessRulesStoreLogger.error("Access rules load failed: unreadable file domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
             throw AccessRulesConfirmationRequired()
         }
         let contents: FileContents
         do { contents = try decodeContents(bytes) }
         catch {
-            accessRulesStoreLogger.error("Access rules load failed: decode failure")
+            let native = error as NSError
+            accessRulesStoreLogger.error("Access rules load failed: decode failure domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
             throw AccessRulesConfirmationRequired()
         }
         let validSignature: Bool
@@ -101,7 +103,7 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
             if nativeError.domain == NSOSStatusErrorDomain, nativeError.code == Int(errSecItemNotFound) {
                 accessRulesStoreLogger.error("Access rules load failed: missing key")
             } else {
-                accessRulesStoreLogger.error("Access rules load failed: bad signature")
+                accessRulesStoreLogger.error("Access rules load failed: verification domain=\(nativeError.domain, privacy: .public) code=\(nativeError.code, privacy: .public)")
             }
             throw AccessRulesConfirmationRequired()
         }
@@ -112,7 +114,9 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
         let signedHash: Data?
         do { signedHash = try signer.signedBytesHash() }
         catch {
-            accessRulesStoreLogger.error("Access rules load failed: hash mismatch")
+            let native = error as NSError
+            let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
+            accessRulesStoreLogger.error("Access rules load failed: saved check domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
             throw AccessRulesConfirmationRequired()
         }
         guard signedHash == Data(SHA256.hash(data: bytes)) else {

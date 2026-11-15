@@ -2,7 +2,17 @@ import CryptoKit
 import Darwin
 import Foundation
 import LocalAuthentication
+import OSLog
 import Security
+
+enum LeasePersistenceFailure: String, Error {
+    case missingCheckpoint
+    case missingSnapshot
+    case unreadableSnapshot
+    case snapshotMismatch
+}
+
+private let persistenceLogger = Logger(subsystem: "com.agentkeyring.app", category: "TaskHistory")
 
 /// Only the signed app can update the data-protection Keychain checkpoint.
 /// Snapshot files carry no secrets. Neither a file edit nor an older valid file
@@ -28,18 +38,29 @@ public final class LeasePersistence {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound {
             guard !(0...1).contains(where: { FileManager.default.fileExists(atPath: slotURL($0).path) }) else {
-                throw LeaseFailure(.unavailable, "The saved lease authority checkpoint is missing. Nothing was authorized.")
+                throw LeasePersistenceFailure.missingCheckpoint
             }
             return nil
         }
         guard status == errSecSuccess, let digest = result as? Data else { throw KeychainError(status: status) }
+        var hasSlot = false
+        var unreadableSlot = false
         for slot in 0...1 {
-            if let bytes = try? Data(contentsOf: slotURL(slot)), Data(SHA256.hash(data: bytes)) == digest {
+            guard FileManager.default.fileExists(atPath: slotURL(slot).path) else { continue }
+            hasSlot = true
+            do {
+                let bytes = try Data(contentsOf: slotURL(slot))
+                guard Data(SHA256.hash(data: bytes)) == digest else { continue }
                 currentSlot = slot
                 return bytes
+            } catch {
+                unreadableSlot = true
+                let error = error as NSError
+                persistenceLogger.error("Task history slot read failed: domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)")
             }
         }
-        throw LeaseFailure(.unavailable, "The saved lease authority state does not match its checkpoint. Nothing was authorized.")
+        if unreadableSlot { throw LeasePersistenceFailure.unreadableSnapshot }
+        throw hasSlot ? LeasePersistenceFailure.snapshotMismatch : LeasePersistenceFailure.missingSnapshot
     }
 
     public func save(_ bytes: Data) throws {
