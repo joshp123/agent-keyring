@@ -46,7 +46,7 @@ public final class LeaseApprovalBackend: MacApprovalBackend {
     public func embeddedTouchIDContext(requestID: String) -> LAContext? {
         if let context = contexts[requestID] { return context }
         let context = LAContext()
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else { return nil }
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else { return nil }
         context.touchIDAuthenticationAllowableReuseDuration = 0
         contexts[requestID] = context
         return context

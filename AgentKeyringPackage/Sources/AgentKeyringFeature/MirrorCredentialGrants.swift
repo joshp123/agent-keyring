@@ -11,7 +11,7 @@ extension MirrorAppModel {
         let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
         let confirmed = try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            return try await context.evaluatePolicy(.deviceOwnerAuthentication,
+            return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion,
                 localizedReason: "reset Agent Keyring's task history on this Mac and end its previous task access. Your logins and rules will be kept")
         } onCancel: { Task { @MainActor in cancelEvaluation() } }
         try Task.checkCancellation()

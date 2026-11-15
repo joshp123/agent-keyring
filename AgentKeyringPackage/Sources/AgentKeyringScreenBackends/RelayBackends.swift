@@ -149,7 +149,7 @@ public final class RelayApprovalBackend: MacApprovalBackend {
     public func embeddedTouchIDContext(requestID: String) -> LAContext? {
         if let context = contexts[requestID] { return context }
         let context = LAContext()
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else { return nil }
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else { return nil }
         contexts[requestID] = context
         return context
     }

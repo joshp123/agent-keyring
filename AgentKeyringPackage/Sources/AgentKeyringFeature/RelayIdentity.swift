@@ -73,7 +73,7 @@ public final class SecureEnclaveRelaySigner: RelayApproverSigning {
             }
             return value
         }
-        humanAccess = try access([.privateKeyUsage, .biometryAny])
+        humanAccess = try access([.privateKeyUsage, .biometryAny, .or, .companion])
         func load(_ account: String, control: SecAccessControl) throws -> SecureEnclave.P256.Signing.PrivateKey {
             if let bytes = try keychain.read(account) {
                 // The wrapper may be read while locked; the enclave key's own
@@ -85,7 +85,7 @@ public final class SecureEnclaveRelaySigner: RelayApproverSigning {
             try keychain.write(key.dataRepresentation, account: account)
             return key
         }
-        let human = try load("human", control: humanAccess)
+        let human = try load("human-biometry-or-companion.v2", control: humanAccess)
         let automatic = try load("delivery-after-first-unlock.v1", control: access(.privateKeyUsage, accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly))
         humanKey = human.dataRepresentation
         automaticKey = automatic.dataRepresentation
