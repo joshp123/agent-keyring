@@ -4,10 +4,8 @@ import LocalAuthentication
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
-    public func resetLeaseHistory() async throws {
+    public func resetLeaseHistory(context: LAContext) async throws {
         guard leaseStore.needsHistoryReset else { return }
-        let context = LAContext()
-        defer { context.invalidate() }
         let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
         let confirmed = try await withTaskCancellationHandler {
             try Task.checkCancellation()

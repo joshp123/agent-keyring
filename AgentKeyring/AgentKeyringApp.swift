@@ -1,5 +1,6 @@
 import AppKit
 import AuthenticationServices
+import LocalAuthentication
 import Sparkle
 import SwiftUI
 import AgentKeyringApprovalUI
@@ -111,6 +112,15 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApplication.shared.setActivationPolicy(.regular)
 
+        if accessControlFixture == nil {
+            Task { @MainActor in
+                await model.loadStatus()
+                if model.status == nil {
+                    presentation.requestMainWindow()
+                }
+            }
+        }
+
         guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
             let icon = NSImage(contentsOf: iconURL)
         else { return }
@@ -205,6 +215,118 @@ private enum AccessControlUITestFixture {
     }
 }
 
+private struct FirstRunHome: View {
+    @Environment(\.openWindow) private var openWindow
+    let model: MirrorAppModel
+
+    private var state: FirstRunState {
+        if model.isImporting || model.providerState == .requesting { return .importing }
+        if let status = model.status {
+            return .ready(logins: status.credentialItemCount, importedAt: status.importedAt)
+        }
+        switch model.providerState {
+        case .unknown: return .needsAllow
+        case .enabled: return .needsExport
+        case .denied: return .blocked
+        case .requesting: return .importing
+        }
+    }
+
+    var body: some View {
+        Group {
+            if model.leaseStore.needsHistoryReset {
+                HistoryRecovery(model: model)
+            } else if model.isLoading {
+                ProgressView().padding(40)
+            } else {
+                VStack(alignment: .leading) {
+                    MacFirstRunView(state: state, agentInstructions: AgentInstructions.snippet,
+                        allow: model.requestProviderEnablement, openPasswords: model.openPasswordsExport,
+                        openRules: { openWindow(id: "access") })
+                    if let notice = model.notice {
+                        Text(notice.text).font(.callout).padding(.horizontal, 28).padding(.bottom, 20)
+                    }
+                }
+            }
+        }
+        .task { await model.loadStatus() }
+        .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
+    }
+}
+
+private struct HistoryRecovery: View {
+    let model: MirrorAppModel
+    @State private var context: LAContext?
+    @State private var evaluation: Task<Void, Never>?
+    @State private var timeout: Task<Void, Never>?
+    @State private var attempt = UUID()
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Agents are paused on this Mac", systemImage: "exclamationmark.circle")
+                .font(.headline)
+            Text(model.leaseStore.errorMessage ?? "Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. This ends any access agents have now. Your logins and rules stay.")
+            if let failure { Text(failure).foregroundStyle(.red) }
+            if let context {
+                EmbeddedOwnerApproval(context: context, action: "reset the record")
+                    .id(ObjectIdentifier(context))
+                    .onAppear { waitForApproval(context) }
+                Button("Cancel") { stop() }
+            } else {
+                Button(failure == nil ? "Reset…" : "Try again") { begin() }
+                    .accessibilityIdentifier("reset-task-history")
+            }
+        }
+        .padding(28)
+        .frame(width: 560, alignment: .leading)
+        .onDisappear { stop() }
+    }
+
+    private func begin() {
+        failure = nil
+        let next = LAContext()
+        guard next.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else {
+            failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again."
+            return
+        }
+        attempt = UUID()
+        context = next
+    }
+
+    private func stop() {
+        attempt = UUID()
+        evaluation?.cancel()
+        timeout?.cancel()
+        context?.invalidate()
+        evaluation = nil
+        timeout = nil
+        context = nil
+    }
+
+    private func waitForApproval(_ current: LAContext) {
+        guard evaluation == nil, context === current else { return }
+        let id = attempt
+        timeout = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            guard attempt == id else { return }
+            stop()
+            failure = "Approval timed out. Try again."
+        }
+        evaluation = Task { @MainActor in
+            do {
+                try await model.resetLeaseHistory(context: current)
+                guard attempt == id else { return }
+                stop()
+            } catch {
+                guard attempt == id else { return }
+                stop()
+                failure = ownerAuthenticationFailure(error, fallback: "The record wasn't reset. Try again.")
+            }
+        }
+    }
+}
+
 @main
 struct AgentKeyringApp: App {
     @NSApplicationDelegateAdaptor(AgentKeyringAppDelegate.self)
@@ -218,7 +340,7 @@ struct AgentKeyringApp: App {
 
     var body: some Scene {
         Window("Agent Keyring", id: "main") {
-            ContentView(model: appDelegate.model)
+            FirstRunHome(model: appDelegate.model)
         }
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
