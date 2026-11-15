@@ -69,10 +69,8 @@ public enum RelayScreenMapping {
     public static func relayLink(_ update: RelayApproverUpdate) -> RelayLink {
         let relay = "the relay"
         if let pairing = update.pairing {
-            // Confirmed but not yet acknowledged: it is connecting, not comparing.
-            return pairing.answerIsQueued
-                ? .connecting(address: pairing.relayAddress)
-                : .comparing(code: pairing.fingerprint, address: pairing.relayAddress)
+            // The verified connection is answered in the standalone panel.
+            return .connecting(address: pairing.relayAddress)
         }
         return switch update.connection {
         case .notPaired: .notSetUp
