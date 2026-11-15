@@ -136,7 +136,7 @@ public final class MacDesignGallery {
         case .machinesComparing:
             MachinesSnapshot(relay: .comparing(code: "C3E1 5A90 7B24 0DF8 916C 2E47 B8A3 54D0", address: "mac-mini:17443"))
         default:
-            MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0, isApplying: true,
+            MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0,
                 waiting: [DesignExamples.machineEnrolment(now: now)],
                 machines: [
                     EnrolledMachine(id: "m-mini", name: "Mac mini", tailnetNode: "mac-mini", automaticAllowed: true),
@@ -169,15 +169,12 @@ public final class MacDesignGallery {
             ? history.filter { !$0.state.isInUse }
             : [DesignExamples.githubSignIn(now: now)] + history)
         var snapshot = MacMenuBarSnapshot(requests: requests,
-            passwords: ImportedPasswords(count: 542, importedAt: now.addingTimeInterval(-3 * 86_400)),
             relay: .connected(address: "mac-mini:17443"))
         if screen == .menuBarRemote {
             snapshot.requests = [DesignExamples.githubSignIn(now: now), DesignExamples.localSignIn(now: now)]
                 + history.filter { !$0.state.isInUse }
             snapshot.enrolments = [DesignExamples.machineEnrolment(now: now)]
             snapshot.relay = .offline(address: "mac-mini:17443")
-            snapshot.queuedAnswers = 1
-            snapshot.otherMachinesNeedRules = true
         }
         let model = MacMenuBarModel(backend: DesignMacBackend(menuBar: snapshot), initial: snapshot)
         // Drawn like a menu bar extra window: material, rounded, under the bar.

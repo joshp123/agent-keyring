@@ -88,7 +88,6 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
         return MacMenuBarSnapshot(
             requests: model.leaseStore.leases.map(model.accessRequest(for:)) + remoteWaiting
                 + relay.leases.map(RelayScreenMapping.accessRequest),
-            passwords: nil,
             enrolments: relay.enrolments.map(RelayScreenMapping.enrolment)
                 + relay.approverPairings.map(RelayScreenMapping.enrolment),
             relay: RelayScreenMapping.relayLink(relay),

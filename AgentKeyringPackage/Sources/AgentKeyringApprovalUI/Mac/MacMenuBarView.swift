@@ -9,40 +9,21 @@
 import Observation
 import SwiftUI
 
-public struct ImportedPasswords: Hashable, Sendable {
-    public var count: Int
-    public var importedAt: Date
-
-    public init(count: Int, importedAt: Date) {
-        self.count = count
-        self.importedAt = importedAt
-    }
-}
-
 public struct MacMenuBarSnapshot: Hashable, Sendable {
     /// Waiting, in use and recent requests, local and remote, in any order.
     public var requests: [AccessRequest]
-    public var passwords: ImportedPasswords?
     /// Machines and iPhones waiting to join.
     public var enrolments: [DeviceEnrolment]
     /// Nil until the relay is set up (release 3).
     public var relay: RelayLink?
-    public var queuedAnswers: Int
     public var taskHistoryNeedsReset: Bool
-    /// The relay is paired and its copy of the logins and rules waits for
-    /// Josh to confirm; the rules on this Mac are fine.
-    public var otherMachinesNeedRules: Bool
 
-    public init(requests: [AccessRequest], passwords: ImportedPasswords?, enrolments: [DeviceEnrolment] = [],
-        relay: RelayLink? = nil, queuedAnswers: Int = 0, taskHistoryNeedsReset: Bool = false,
-        otherMachinesNeedRules: Bool = false) {
+    public init(requests: [AccessRequest], enrolments: [DeviceEnrolment] = [],
+        relay: RelayLink? = nil, taskHistoryNeedsReset: Bool = false) {
         self.requests = requests
-        self.passwords = passwords
         self.enrolments = enrolments
         self.relay = relay
-        self.queuedAnswers = queuedAnswers
         self.taskHistoryNeedsReset = taskHistoryNeedsReset
-        self.otherMachinesNeedRules = otherMachinesNeedRules
     }
 }
 
@@ -60,12 +41,9 @@ public protocol MacMenuBarBackend: AnyObject {
 @Observable
 public final class MacMenuBarModel {
     public private(set) var requests: [AccessRequest]
-    public private(set) var passwords: ImportedPasswords?
     public private(set) var enrolments: [DeviceEnrolment]
     public private(set) var relay: RelayLink?
-    public private(set) var queuedAnswers: Int
     public private(set) var taskHistoryNeedsReset: Bool
-    public private(set) var otherMachinesNeedRules: Bool
     public var review: (String) -> Void = { _ in }
     public var reviewEnrolment: (String) -> Void = { _ in }
     public var openMachines: () -> Void = {}
@@ -78,12 +56,9 @@ public final class MacMenuBarModel {
 
     public init(backend: any MacMenuBarBackend, initial: MacMenuBarSnapshot) {
         self.requests = initial.requests
-        self.passwords = initial.passwords
         self.enrolments = initial.enrolments
         self.relay = initial.relay
-        self.queuedAnswers = initial.queuedAnswers
         self.taskHistoryNeedsReset = initial.taskHistoryNeedsReset
-        self.otherMachinesNeedRules = initial.otherMachinesNeedRules
         self.backend = backend
     }
 
@@ -96,12 +71,9 @@ public final class MacMenuBarModel {
     public func followUpdates() async {
         for await snapshot in backend.updates() {
             requests = snapshot.requests
-            passwords = snapshot.passwords
             enrolments = snapshot.enrolments
             relay = snapshot.relay
-            queuedAnswers = snapshot.queuedAnswers
             taskHistoryNeedsReset = snapshot.taskHistoryNeedsReset
-            otherMachinesNeedRules = snapshot.otherMachinesNeedRules
         }
     }
 

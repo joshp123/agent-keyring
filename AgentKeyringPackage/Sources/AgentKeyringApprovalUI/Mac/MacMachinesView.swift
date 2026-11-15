@@ -73,8 +73,6 @@ public struct MachinesSnapshot: Hashable, Sendable {
     public var relay: RelayLink
     /// Signed answers saved on this Mac, waiting for the relay.
     public var queuedAnswers: Int
-    /// A confirmed change to rules or machines the relay hasn't acknowledged yet.
-    public var isApplying: Bool
     public var waiting: [DeviceEnrolment]
     public var machines: [EnrolledMachine]
     public var approvers: [ApproverDevice]
@@ -83,12 +81,11 @@ public struct MachinesSnapshot: Hashable, Sendable {
     /// How long a request waits here before the Mac asks the iPhone (RFC 0006).
     public var askPhoneAfter: Duration
 
-    public init(relay: RelayLink, queuedAnswers: Int = 0, isApplying: Bool = false,
+    public init(relay: RelayLink, queuedAnswers: Int = 0,
         waiting: [DeviceEnrolment] = [], machines: [EnrolledMachine] = [], approvers: [ApproverDevice] = [],
         withdrawals: [PendingWithdrawal] = [], askPhoneAfter: Duration = .seconds(120)) {
         self.relay = relay
         self.queuedAnswers = queuedAnswers
-        self.isApplying = isApplying
         self.waiting = waiting
         self.machines = machines
         self.approvers = approvers
