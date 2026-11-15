@@ -87,7 +87,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         let automaticCount = rows.filter { $0.policy == .allowAutomatically }.count
         let blockedCount = rows.filter { $0.policy == .block }.count
         let askCount = rows.filter { $0.policy == .ask }.count
-        return "\(automaticCount) allowed automatically, \(blockedCount) blocked, \(askCount) ask each time"
+        return "\(askCount) Ask, \(automaticCount) Automatic, \(blockedCount) Blocked"
     }
 
     private var pendingPhoneBlocks: Set<UUID> = []
@@ -252,7 +252,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         for id in pendingPhoneBlocks where snapshot.policies[id] == nil { confirmedPolicies[id] = .block }
         let confirmedSnapshot = AccessRulesConfirmationSnapshot(policies: confirmedPolicies,
             reason: snapshot.reason, requiresPhonePairingAgain: snapshot.requiresPhonePairingAgain)
-        let reason = "confirm your Agent Keyring access rules: \(confirmationSummary)"
+        let reason = "save your rules for agents: \(confirmationSummary)"
         isSavingRules = true
         defer { isSavingRules = false }
         do {
