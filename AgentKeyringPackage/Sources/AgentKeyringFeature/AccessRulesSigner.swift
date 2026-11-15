@@ -17,7 +17,7 @@ public extension AccessRulesSigning {
 }
 
 public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
-    private let applicationTag = Data("AgentKeyring.access-rules.signing.v1".utf8)
+    private let applicationTag = Data("AgentKeyring.access-rules.signing.biometry-or-companion.v2".utf8)
     private let algorithm = SecKeyAlgorithm.ecdsaSignatureMessageX962SHA256
 
     public init() {}
@@ -30,6 +30,7 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
 
     public func sign(_ bytes: Data, reason: String, context: LAContext) async throws -> Data {
         context.touchIDAuthenticationAllowableReuseDuration = 0
+        context.localizedFallbackTitle = ""
         context.localizedReason = reason
         let key: SecKey
         do {
@@ -107,7 +108,7 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
     private func createKey(context: LAContext) throws -> SecKey {
         var error: Unmanaged<CFError>?
         guard let accessControl = SecAccessControlCreateWithFlags(
-            nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, [.privateKeyUsage, .userPresence], &error
+            nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, [.privateKeyUsage, .biometryAny, .or, .companion], &error
         ) else {
             throw error?.takeRetainedValue() as Error? ?? signingError(errSecInternalComponent)
         }
