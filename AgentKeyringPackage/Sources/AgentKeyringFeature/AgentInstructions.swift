@@ -2,5 +2,5 @@
 /// app's setup panel. It points at the bundled skill, which holds the details.
 public enum AgentInstructions {
     public static let snippet =
-        "For website logins and two-factor codes saved in Apple Passwords, use agent-keyring. Run `agent-keyring skill` first, and never ask the user to type a password."
+        "When you need one of my logins, use the agent-keyring command. Run `agent-keyring --help` to see how. Never ask me to type a password."
 }

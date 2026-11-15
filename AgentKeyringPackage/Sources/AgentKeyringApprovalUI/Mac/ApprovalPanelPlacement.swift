@@ -55,7 +55,7 @@ public enum ApprovalPanelPlacement {
 
     /// The frontmost app's frontmost ordinary window, in AppKit coordinates.
     /// Window bounds need no Screen Recording permission; titles would.
-    @MainActor static func focusedWindow() -> CGRect? {
+    @MainActor public static func focusedWindow() -> CGRect? {
         guard let app = NSWorkspace.shared.frontmostApplication,
             app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
             let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)

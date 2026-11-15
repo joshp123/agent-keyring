@@ -174,10 +174,9 @@ final class ApprovalPresenter {
         window.hidesOnDeactivate = false
         window.becomesKeyOnlyIfNeeded = true
         window.setContentSize(controller.view.fittingSize)
-        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-        if let visible = screen?.visibleFrame {
-            window.setFrameTopLeftPoint(NSPoint(x: visible.maxX - window.frame.width - 12, y: visible.maxY - 8))
-        }
+        window.setFrame(ApprovalPanelPlacement.frame(panel: window.frame.size,
+            focusedWindow: ApprovalPanelPlacement.focusedWindow(), pointer: NSEvent.mouseLocation,
+            visibleFrames: NSScreen.screens.map(\.visibleFrame)), display: false)
         relayPanel = window
         window.orderFrontRegardless()
     }
@@ -261,12 +260,12 @@ private struct RelayConnectionPrompt: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Connect this Mac to your Mac mini?").font(.headline)
-            Text("Agents on your other machines can then ask you for logins. Their requests go through your Mac mini.")
+            Text(SetupCopy.connectToMiniTitle).font(.headline)
+            Text(SetupCopy.connectToMiniBody)
                 .font(.callout).foregroundStyle(.secondary)
             if let failure = approval.failure { Text(failure).font(.callout).foregroundStyle(KeyringColour.denyText) }
             HStack(spacing: 10) {
-                Button("Not now") {
+                Button(SetupCopy.notNow) {
                     approval.stop()
                     do { try cancel(); done() }
                     catch { approval.failure = (error as? LocalizedError)?.errorDescription ?? "Couldn't cancel. Try again." }

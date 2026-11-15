@@ -148,7 +148,8 @@ extension MirrorAppModel {
         credentialExchangeLogger.info("Saved encrypted mirror with \(generation.items.count, privacy: .public) items")
         staleLogins.clear()
         let visibleGeneration = generationIncludingExample(generation) ?? generation
-        status = visibleGeneration.safeStatus
+        // The example login is for exercising requests, not an imported login.
+        status = generation.safeStatus
         leaseLogins = visibleGeneration.metadata.candidates
         await accessControl.refresh(from: visibleGeneration)
         do {
