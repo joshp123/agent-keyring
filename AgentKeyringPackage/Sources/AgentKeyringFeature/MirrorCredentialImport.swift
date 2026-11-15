@@ -153,7 +153,29 @@ extension MirrorAppModel {
         await accessControl.refresh(from: visibleGeneration)
         do {
             try await refreshLeasePolicy()
-            relayApprover.noteRulesChanged()
+            try relayApprover.load()
+            if relayApprover.state.keySet != nil {
+                let vault = RelayApproverVault(generation: visibleGeneration,
+                    policies: Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, accessControl.policy(for: $0.id)) }))
+                if try relayApprover.requiresPublicationConfirmation(vault) {
+                    do {
+                        try await relayApprover.publishCurrentRules(reason: "send your updated logins and rules to your Mac mini")
+                        if relayApprover.isApplying {
+                            notice = MirrorNotice(kind: .information,
+                                text: "Your logins were saved. Agent Keyring will send the updated list to your Mac mini when it reconnects.")
+                            return
+                        }
+                    } catch {
+                        relayApprover.noteRulesChanged()
+                        credentialExchangeLogger.error("Imported logins could not be sent to the relay")
+                        notice = MirrorNotice(kind: .warning,
+                            text: "Your logins were saved on this Mac, but other machines still have the previous list. Export from Apple Passwords again to send the updated list.")
+                        return
+                    }
+                } else {
+                    relayApprover.noteRulesChanged()
+                }
+            }
             notice = MirrorNotice(kind: .information,
                 text: "Import complete. Exported logins have been updated.")
         } catch {

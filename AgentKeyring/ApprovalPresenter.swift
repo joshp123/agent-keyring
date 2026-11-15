@@ -9,8 +9,10 @@ import AgentKeyringApprovalUI
 import AgentKeyringFeature
 import AgentKeyringProtocol
 import AgentKeyringScreenBackends
+import AppKit
 import Foundation
 import Observation
+import SwiftUI
 
 @MainActor
 final class ApprovalPresenter {
@@ -18,9 +20,11 @@ final class ApprovalPresenter {
         case local(String)
         case remote(String)
         case joining(String)
+        case relay
 
         var isRequest: Bool {
             if case .joining = self { return false }
+            if case .relay = self { return false }
             return true
         }
     }
@@ -30,6 +34,7 @@ final class ApprovalPresenter {
     private let remoteBackend: RelayApprovalBackend
     private let joiningBackend: RelayEnrolmentBackend
     private let panel = MacApprovalPanelController()
+    private var relayPanel: NSPanel?
     private var shownItem: Item?
     private var shownRequest: MacApprovalModel?
     private var following: Task<Void, Never>?
@@ -65,10 +70,11 @@ final class ApprovalPresenter {
         let relay = model.relayApprover
         let joining = relay.pendingEnrolments.map { Item.joining($0.id) }
             + relay.pendingApproverPairings.map { Item.joining($0.id) }
+        let relaySetup: [Item] = relay.pairing.map { $0.answerIsQueued ? [] : [.relay] } ?? []
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
         let remote = relay.requests.filter { $0.lease.state == .pending && !$0.answerIsQueued }
             .map { (Item.remote($0.id), $0.record.createdUnixSeconds) }
-        return joining + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
+        return relaySetup + joining + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
     }
 
     private func update(_ items: [Item]) {
@@ -90,10 +96,16 @@ final class ApprovalPresenter {
     private func show(_ item: Item) {
         // One approval at a time: a panel being replaced stops waiting for a touch.
         shownRequest?.stopWaitingForTouch()
+        panel.close()
+        relayPanel?.orderOut(nil)
+        relayPanel = nil
         closingAfterAnswer?.cancel()
         closingAfterAnswer = nil
         let more = waiting.filter { $0 != item && $0.isRequest }.count
         switch item {
+        case .relay:
+            showRelayPrompt()
+            shownRequest = nil
         case let .local(id):
             guard let lease = model.leaseStore.waitingRequests.first(where: { $0.leaseID == id }) else { return }
             showRequest(MacApprovalModel(request: model.accessRequest(for: lease), moreWaiting: more, backend: localBackend))
@@ -121,8 +133,75 @@ final class ApprovalPresenter {
         closingAfterAnswer?.cancel()
         closingAfterAnswer = nil
         panel.close()
+        relayPanel?.orderOut(nil)
+        relayPanel = nil
         shownItem = nil
         shownRequest = nil
         if let next = waiting.first { show(next) }
+    }
+
+    private func showRelayPrompt() {
+        let relay = model.relayApprover
+        let content = RelayConnectionPrompt(confirm: {
+            try await relay.confirmPairing(comparedFingerprint: "")
+        }, cancel: {
+            try relay.abandonPairing()
+        }, done: { [weak self] in self?.dismiss() })
+        let controller = NSHostingController(rootView: content)
+        controller.sizingOptions = [.preferredContentSize]
+        let window = NSPanel(contentRect: .zero, styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered, defer: false)
+        window.contentViewController = controller
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.hasShadow = true
+        window.level = .statusBar
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.hidesOnDeactivate = false
+        window.becomesKeyOnlyIfNeeded = true
+        window.setContentSize(controller.view.fittingSize)
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            window.setFrameTopLeftPoint(NSPoint(x: visible.maxX - window.frame.width - 12, y: visible.maxY - 8))
+        }
+        relayPanel = window
+        window.orderFrontRegardless()
+    }
+}
+
+private struct RelayConnectionPrompt: View {
+    let confirm: @MainActor () async throws -> Void
+    let cancel: @MainActor () throws -> Void
+    let done: @MainActor () -> Void
+    @State private var working = false
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Connect this Mac to your Mac mini?").font(.headline)
+            Text("Agents on your other machines can then ask you for logins. Their requests go through your Mac mini.")
+                .font(.callout).foregroundStyle(.secondary)
+            if let failure { Text(failure).font(.callout).foregroundStyle(KeyringColour.denyText) }
+            HStack(spacing: 10) {
+                Button("Not now") {
+                    do { try cancel(); done() }
+                    catch { failure = (error as? LocalizedError)?.errorDescription ?? "Couldn't cancel. Try again." }
+                }
+                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
+                Button("Connect") {
+                    working = true
+                    Task {
+                        defer { working = false }
+                        do { try await confirm(); done() }
+                        catch { failure = (error as? LocalizedError)?.errorDescription ?? "Couldn't connect. Try again." }
+                    }
+                }
+                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
+            }.disabled(working)
+        }
+        .padding(20)
+        .frame(width: 360)
+        .background(KeyringColour.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

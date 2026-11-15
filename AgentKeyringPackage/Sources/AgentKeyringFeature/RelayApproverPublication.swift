@@ -4,13 +4,14 @@ import Foundation
 import LocalAuthentication
 
 extension RelayApprover {
-    public func publishCurrentRules(context: LAContext = LAContext()) async throws {
+    public func publishCurrentRules(context: LAContext = LAContext(),
+        reason: String = "send your rules and machines to your Mac mini") async throws {
         try load()
         _ = try currentKeySet()
         try await prepareForPublication()
         try claimAuthorization("publication")
         defer { authorizationID = nil }
-        try await keys().1.authorize(context: context, reason: "send your rules and machines to your Mac mini")
+        try await keys().1.authorize(context: context, reason: reason)
         let vault = try await credentialSource()
         try Task.checkCancellation()
         try applyConfirmedRules(vault, context: context)

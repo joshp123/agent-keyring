@@ -88,14 +88,11 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
         return MacMenuBarSnapshot(
             requests: model.leaseStore.leases.map(model.accessRequest(for:)) + remoteWaiting
                 + relay.leases.map(RelayScreenMapping.accessRequest),
-            passwords: model.status.map { ImportedPasswords(count: $0.credentialItemCount, importedAt: $0.importedAt) },
+            passwords: nil,
             enrolments: relay.enrolments.map(RelayScreenMapping.enrolment)
                 + relay.approverPairings.map(RelayScreenMapping.enrolment),
             relay: RelayScreenMapping.relayLink(relay),
-            queuedAnswers: relay.queuedAnswerCount,
-            taskHistoryNeedsReset: model.leaseStore.needsHistoryReset,
-            otherMachinesNeedRules: relay.connection != .notPaired
-                && model.accessControl.needsRelayPublicationConfirmation && !model.accessControl.needsConfirmation)
+            taskHistoryNeedsReset: model.leaseStore.needsHistoryReset)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {
