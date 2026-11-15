@@ -5,6 +5,7 @@
 // script/capture_mac_design_screens.sh runs it on the Mac mini.
 //
 // usage: agent-keyring-design-gallery SCREEN light|dark
+//        agent-keyring-design-gallery render OUTDIR [SCREEN ...]
 // SCREEN "leaseApproval" or "leaseMenuBar" shows lease records mapped through
 // the real adapter instead of the mock examples.
 
@@ -13,6 +14,21 @@ import AppKit
 import SwiftUI
 
 let arguments = CommandLine.arguments
+
+// render OUTDIR [SCREEN ...]: every screen, light and dark, drawn to PNGs
+// without a window on screen or an icon in the Dock.
+if arguments.count >= 3, arguments[1] == "render" {
+    let application = NSApplication.shared
+    application.setActivationPolicy(.prohibited)
+    let directory = URL(filePath: arguments[2])
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let screens = arguments.count > 3 ? arguments[3...].compactMap(MacDesignScreen.init(rawValue:)) : MacDesignScreen.allCases
+    Task { @MainActor in
+        await MacDesignGallery.render(screens, to: directory)
+        exit(0)
+    }
+    application.run()
+}
 let leaseScreens: [String: MacDesignScreen] = ["leaseApproval": .approval, "leaseMenuBar": .menuBar]
 guard arguments.count >= 3, let screen = leaseScreens[arguments[1]] ?? MacDesignScreen(rawValue: arguments[1]) else {
     let names = MacDesignScreen.allCases.map(\.rawValue).joined(separator: ", ")

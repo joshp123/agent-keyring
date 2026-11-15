@@ -40,6 +40,8 @@ public final class MacDesignGallery {
     private let requests: [AccessRequest]?
     private var windows: [NSWindow] = []
     private let now = Date.now
+    /// Set by `render`: build the screen's window but never put it on screen.
+    private var offScreen = false
 
     /// - Parameter requests: shown instead of the mock examples, for example
     ///   requests mapped from real lease records. The approval panel shows the
@@ -50,7 +52,7 @@ public final class MacDesignGallery {
     }
 
     public func show() {
-        showBackdrop()
+        if !offScreen { showBackdrop() }
         switch screen {
         case .approval, .approvalReply, .approvalApproved, .approvalDenied, .approvalAgentProcess, .approvalLocal,
             .approvalQueued:
@@ -104,6 +106,10 @@ public final class MacDesignGallery {
             model.isReplying = true
             model.replyDraft = reply
         }
+        if offScreen {
+            windows.append(KeyringPanel.floating(MacApprovalPanelView(model: model)))
+            return
+        }
         let controller = MacApprovalPanelController()
         controller.show(model)
         retained.append(controller)
@@ -115,6 +121,11 @@ public final class MacDesignGallery {
             ? DesignExamples.iPhoneEnrolment(now: now) : DesignExamples.machineEnrolment(now: now)
         if screen == .enrolmentIPhoneReplacing { enrolment.replacesPhone = "Josh's iPhone" }
         let model = MacEnrolmentModel(enrolment: enrolment, backend: DesignMacBackend(enrolment: enrolment))
+        if offScreen {
+            windows.append(KeyringPanel.floating(MacEnrolmentPanelView(model: model)))
+            if screen == .enrolmentJoined { Task { await model.approve() } }
+            return
+        }
         let controller = MacApprovalPanelController()
         controller.show(model)
         retained.append(controller)
@@ -152,10 +163,7 @@ public final class MacDesignGallery {
         if let visible = NSScreen.main?.visibleFrame {
             window.setFrameTopLeftPoint(NSPoint(x: visible.minX + 24, y: visible.maxY - 24))
         }
-        window.level = .floating
-        window.makeKeyAndOrderFront(nil)
-        windows.append(window)
-        report(window)
+        present(window)
     }
 
     private func showMenuBar() {
@@ -180,6 +188,7 @@ public final class MacDesignGallery {
         if let visible = NSScreen.main?.visibleFrame {
             panel.setFrameTopLeftPoint(NSPoint(x: visible.maxX - panel.frame.width - 12, y: visible.maxY - 6))
         }
+        if offScreen { windows.append(panel); return }
         panel.makeKeyAndOrderFront(nil)
         windows.append(panel)
         report(panel)
@@ -211,13 +220,79 @@ public final class MacDesignGallery {
         if let visible = NSScreen.main?.visibleFrame {
             window.setFrameTopLeftPoint(NSPoint(x: visible.minX + 24, y: visible.maxY - 24))
         }
-        window.level = .floating
-        window.makeKeyAndOrderFront(nil)
-        windows.append(window)
-        report(window)
+        present(window)
     }
 
     private var retained: [AnyObject] = []
+
+    private func present(_ window: NSWindow) {
+        windows.append(window)
+        guard !offScreen else { return }
+        window.level = .floating
+        window.makeKeyAndOrderFront(nil)
+        report(window)
+    }
+
+    /// Draws each screen into `directory/SCREEN-light.png` and `-dark.png`
+    /// without putting a window on screen, so it can run while someone works
+    /// at this Mac. Panels sit on a plain backdrop; windows keep their title bar.
+    public static func render(_ screens: [MacDesignScreen], to directory: URL) async {
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = NSAppearance(named: appearanceName)!
+            NSApplication.shared.appearance = appearance
+            for screen in screens {
+                let gallery = MacDesignGallery(screen: screen)
+                gallery.offScreen = true
+                gallery.show()
+                guard let window = gallery.windows.last else { continue }
+                window.appearance = appearance
+                // Let .task load the backend's first snapshot and the layout settle.
+                try? await Task.sleep(for: .milliseconds(900))
+                window.contentView?.layoutSubtreeIfNeeded()
+                if let panel = window as? KeyringPanel, let content = panel.contentView {
+                    panel.setContentSize(content.fittingSize)
+                }
+                let suffix = appearanceName == .darkAqua ? "dark" : "light"
+                let url = directory.appending(path: "\(screen.rawValue)-\(suffix).png")
+                draw(window, isPanel: window is KeyringPanel, appearance: appearance, to: url)
+                print(url.path)
+                window.isReleasedWhenClosed = false
+            }
+        }
+    }
+
+    private static func draw(_ window: NSWindow, isPanel: Bool, appearance: NSAppearance, to url: URL) {
+        guard let view = isPanel ? window.contentView : window.contentView?.superview else { return }
+        view.layoutSubtreeIfNeeded()
+        let bounds = view.bounds
+        guard let content = view.bitmapImageRepForCachingDisplay(in: bounds) else { return }
+        view.cacheDisplay(in: bounds, to: content)
+        let margin: CGFloat = 24
+        let size = NSSize(width: bounds.width + 2 * margin, height: bounds.height + 2 * margin)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        appearance.performAsCurrentDrawingAppearance {
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            NSColor(white: isDark ? 0.16 : 0.88, alpha: 1).setFill()
+            NSRect(origin: .zero, size: size).fill()
+            let shadow = NSShadow()
+            shadow.shadowBlurRadius = 18
+            shadow.shadowOffset = NSSize(width: 0, height: -4)
+            shadow.shadowColor = NSColor.black.withAlphaComponent(isDark ? 0.6 : 0.25)
+            shadow.set()
+            let frame = NSRect(x: margin, y: margin, width: bounds.width, height: bounds.height)
+            let path = NSBezierPath(roundedRect: frame, xRadius: isPanel ? 14 : 10, yRadius: isPanel ? 14 : 10)
+            NSColor.windowBackgroundColor.setFill()
+            path.fill()
+            NSShadow().set()
+            path.addClip()
+            content.draw(in: frame)
+        }
+        image.unlockFocus()
+        guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+            let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: url)
+    }
 
     /// Prints the window's frame in top-left screen points, once laid out.
     private func report(_ window: NSWindow) {
