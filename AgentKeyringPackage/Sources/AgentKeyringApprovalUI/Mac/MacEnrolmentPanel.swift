@@ -113,6 +113,9 @@ public struct MacEnrolmentPanelView: View {
                 }
             }
 
+            // A machine's code is checked by the agent setting it up; only an
+            // iPhone, whose screen Josh holds, is compared by eye.
+            if model.enrolment.kind == .approver {
             Divider()
 
             VStack(alignment: .leading, spacing: 10) {
@@ -124,6 +127,7 @@ public struct MacEnrolmentPanelView: View {
                 Text(SetupCopy.allGroupsMustMatch)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
             }
 
             if model.enrolment.kind == .machine && model.outcome == nil {
@@ -167,12 +171,13 @@ public struct MacEnrolmentPanelView: View {
             Button("Close", action: model.close)
                 .buttonStyle(.quiet(height: 32))
         } else {
+            let isPhone = model.enrolment.kind == .approver
             HStack(spacing: 10) {
-                Button(SetupCopy.doesNotMatch) { Task { await model.refuse() } }
+                Button(isPhone ? SetupCopy.doesNotMatch : SetupCopy.dontAllow) { Task { await model.refuse() } }
                     .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
                 Button { Task { await model.approve() } } label: {
                     if model.isSending { ProgressView().controlSize(.small).tint(.white) }
-                    else { Label(SetupCopy.theyMatch, systemImage: "touchid") }
+                    else { Label(isPhone ? SetupCopy.theyMatch : SetupCopy.allow, systemImage: "touchid") }
                 }
                 .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
             }

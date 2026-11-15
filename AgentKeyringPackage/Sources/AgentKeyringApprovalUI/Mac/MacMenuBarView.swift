@@ -1,8 +1,9 @@
 // Written by AI on 2026.10.31 by model Claude Opus 5.5.
 //
-// The menu bar window: what is waiting, what agents are using now with a
-// way to end it, and the last few answers. Two ways out: the rules, and the
-// app. Nothing else, because nothing else is needed often.
+// The menu bar window answers three questions: is anything waiting for me,
+// what are agents using now (and can I stop it), and what did they use
+// lately. Plus a way to the rules. Connection state, login counts and
+// housekeeping stay out: none of them is something Josh acts on here.
 
 #if os(macOS)
 import Observation
@@ -86,16 +87,9 @@ public final class MacMenuBarModel {
         self.backend = backend
     }
 
-    /// Everything that needs Josh: waiting requests and devices waiting to join.
-    public var attentionCount: Int { waiting.count + enrolments.count + (taskHistoryNeedsReset ? 1 : 0)
-        + (otherMachinesNeedRules ? 1 : 0) }
-
-    /// One line when the relay needs attention; nil when all is well.
-    public var relayAttention: String? {
-        guard case let .offline(address) = relay else { return nil }
-        return SetupCopy.relayOffline(address)
-            + (queuedAnswers > 0 ? " " + SetupCopy.queuedAnswers(queuedAnswers) : "")
-    }
+    /// Everything that needs Josh: waiting requests, devices waiting to join,
+    /// and agents paused on this Mac.
+    public var attentionCount: Int { waiting.count + enrolments.count + (taskHistoryNeedsReset ? 1 : 0) }
 
     /// Follows the backend for as long as the app runs. Start it once at launch,
     /// not from the window, because the menu bar icon shows the waiting count.
@@ -173,11 +167,8 @@ public struct MacMenuBarView: View {
                 }
                 .padding(14)
             }
-            if !model.waiting.isEmpty || !model.enrolments.isEmpty || model.otherMachinesNeedRules {
+            if !model.waiting.isEmpty || !model.enrolments.isEmpty {
                 MenuSection(title: "Waiting for you") {
-                    if model.otherMachinesNeedRules {
-                        OtherMachinesRulesRow(review: model.openRules)
-                    }
                     ForEach(model.enrolments) { enrolment in
                         JoiningMenuRow(enrolment: enrolment) { model.reviewEnrolment(enrolment.id) }
                     }
@@ -207,18 +198,6 @@ public struct MacMenuBarView: View {
                     }
                 }
             }
-            if let attention = model.relayAttention {
-                Divider().padding(.top, 6)
-                Button(action: model.openMachines) {
-                    Label(attention, systemImage: "exclamationmark.circle")
-                        .font(.callout)
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-            }
             Divider().padding(.top, 6)
             footer
         }
@@ -228,12 +207,6 @@ public struct MacMenuBarView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            if let passwords = model.passwords {
-                Text("\(passwords.count) logins · imported \(passwords.importedAt.formatted(.relative(presentation: .named)))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
             Spacer()
             Button("Rules…", action: model.openRules)
                 .controlSize(.small)
@@ -321,31 +294,6 @@ private struct JoiningMenuRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(enrolment.name).font(.body.weight(.semibold))
                 Text(SetupCopy.joiningDetail(enrolment))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button(SetupCopy.review, action: review)
-                .buttonStyle(.borderedProminent)
-                .tint(KeyringColour.signal)
-                .controlSize(.small)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-    }
-}
-
-/// The rules window opens on its confirmation band.
-private struct OtherMachinesRulesRow: View {
-    let review: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: "slider.horizontal.3")
-                .foregroundStyle(KeyringColour.signal)
-                .frame(width: 8)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(RulesCopy.otherMachinesNeedRulesTitle).font(.body.weight(.semibold))
-                Text(RulesCopy.otherMachinesNeedRulesDetail)
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

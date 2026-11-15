@@ -18,6 +18,13 @@ public enum RelayLink: Hashable, Sendable {
     case offline(address: String)
 }
 
+extension RelayLink {
+    var isConnected: Bool {
+        if case .connected = self { return true }
+        return false
+    }
+}
+
 public struct EnrolledMachine: Identifiable, Hashable, Sendable {
     public let id: String
     public var name: String
@@ -187,10 +194,9 @@ public struct MacMachinesView: View {
 
     public var body: some View {
         Form {
-            Section(SetupCopy.relayHeading) {
-                relay
-                // Pending withdrawals say more than the spinner, so they replace it.
-                if model.snapshot.isApplying && model.snapshot.withdrawals.isEmpty { ApplyingLine() }
+            // Once connected, the link to the Mac mini is nothing Josh acts on, so it isn't shown.
+            if !model.snapshot.relay.isConnected {
+                Section(SetupCopy.relayHeading) { relay }
             }
 
             if !model.snapshot.withdrawals.isEmpty {
@@ -213,9 +219,7 @@ public struct MacMachinesView: View {
                 Section(SetupCopy.waitingToJoin) {
                     ForEach(model.snapshot.waiting) { enrolment in
                         HStack {
-                            MachineLabel(name: enrolment.name,
-                                detail: enrolment.tailnetNode.isEmpty
-                                    ? SetupCopy.joiningDetail(enrolment) : SetupCopy.tailnetNode(enrolment.tailnetNode),
+                            MachineLabel(name: enrolment.name, detail: SetupCopy.joiningDetail(enrolment),
                                 symbol: enrolment.kind == .machine ? "desktopcomputer" : "iphone")
                             Spacer()
                             Button(SetupCopy.review) { model.review(enrolment.id) }
@@ -265,8 +269,7 @@ public struct MacMachinesView: View {
                     ForEach(model.snapshot.machines) { machine in
                         HStack {
                             MachineLabel(name: machine.name,
-                                detail: "\(machine.tailnetNode) · " + (machine.automaticAllowed
-                                    ? SetupCopy.automaticAllowed : SetupCopy.asksEveryTime),
+                                detail: machine.automaticAllowed ? SetupCopy.automaticAllowed : SetupCopy.asksEveryTime,
                                 symbol: "desktopcomputer")
                             Spacer()
                             Button(SetupCopy.remove) { Task { await model.remove(machine.id) } }
@@ -314,23 +317,18 @@ public struct MacMachinesView: View {
                 ProgressView().controlSize(.small)
                 Text(SetupCopy.relayConnecting(address))
             }
-        case let .comparing(code, address):
+        case .comparing:
+            // The setup agent has already checked the code; Josh only decides.
             VStack(alignment: .leading, spacing: 10) {
-                Text(SetupCopy.compareWithSetupCode)
+                Text(SetupCopy.connectToMiniTitle)
                     .font(.headline)
-                Text(SetupCopy.setupCodeSource(address))
-                    .foregroundStyle(.secondary)
-                FingerprintGrid(code)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                Text(SetupCopy.allGroupsMustMatch)
-                    .font(.footnote)
+                Text(SetupCopy.connectToMiniBody)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    Button(SetupCopy.doesNotMatch) { Task { await model.cancelRelaySetup() } }
-                        .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 32))
+                    Button(SetupCopy.notNow) { Task { await model.cancelRelaySetup() } }
+                        .buttonStyle(.quiet(height: 32))
                     Button { Task { await model.confirmRelay() } } label: {
-                        Label(SetupCopy.theyMatch, systemImage: "touchid")
+                        Label(SetupCopy.connect, systemImage: "touchid")
                     }
                     .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 32))
                 }
