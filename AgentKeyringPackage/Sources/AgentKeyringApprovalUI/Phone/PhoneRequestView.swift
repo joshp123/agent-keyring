@@ -64,9 +64,8 @@ private struct PhoneAnswerArea: View {
     var body: some View {
         VStack(spacing: 14) {
             switch request.state {
-            case .waitingForYou where model.isReplying:
-                PhoneReplyComposer(model: model, request: request)
             case .waitingForYou, .sendingAnswer:
+                PhoneReplyField(model: model, request: request, disabled: sending != nil)
                 answerButtons
             default:
                 outcome
@@ -103,7 +102,14 @@ private struct PhoneAnswerArea: View {
             Button {
                 Task { await model.deny(request.id) }
             } label: {
-                if sending == .deny { ProgressView().tint(.white) } else { Text(AccessRequestCopy.deny) }
+                if sending == .deny {
+                    ProgressView().tint(.white)
+                } else if hasReply {
+                    // A denial with a reply is signed, so it takes Face ID.
+                    Label(AccessRequestCopy.denyAndSendReply, systemImage: "faceid")
+                } else {
+                    Text(AccessRequestCopy.deny)
+                }
             }
             .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny))
             .disabled(sending == .approve)
@@ -121,12 +127,10 @@ private struct PhoneAnswerArea: View {
             .disabled(sending == .deny)
         }
         .allowsHitTesting(sending == nil)
+    }
 
-        Button(AccessRequestCopy.denyAndReply) { model.isReplying = true }
-            .font(.body.weight(.medium))
-            .foregroundStyle(KeyringColour.denyText)
-            .disabled(sending != nil)
-            .frame(minHeight: 32)
+    private var hasReply: Bool {
+        !model.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @ViewBuilder private var outcome: some View {
@@ -166,39 +170,21 @@ private struct PhoneAnswerArea: View {
     }
 }
 
-/// Deny, with something to tell the agent, typed or dictated. Takes the
-/// place of the two answer buttons, so the request stays in view.
-private struct PhoneReplyComposer: View {
+/// Something to tell the agent, typed or dictated, sent with Deny. Always
+/// there above the answers, so a reply never hides behind another button.
+private struct PhoneReplyField: View {
     @Bindable var model: PhoneKeyringModel
     let request: AccessRequest
-    @FocusState private var focused: Bool
+    let disabled: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(AccessRequestCopy.replySheetTitle(request.agent))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(KeyringColour.denyText)
-
-            // The keyboard's own dictation key works here; there is no separate microphone.
-            TextField(AccessRequestCopy.replyPlaceholder, text: $model.replyDraft, axis: .vertical)
-                .lineLimit(2...6)
-                .focused($focused)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-                .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 16, style: .continuous))
-
-            HStack(spacing: 12) {
-                Button("Cancel") { model.isReplying = false }
-                .buttonStyle(.quiet())
-                .frame(maxWidth: 120)
-
-                Button(AccessRequestCopy.denyAndSend) {
-                    Task { await model.deny(request.id) }
-                }
-                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny))
-            }
-        }
-        .onAppear { focused = model.replyDraft.isEmpty }
+        // The keyboard's own dictation key works here; there is no separate microphone.
+        TextField(AccessRequestCopy.replyPlaceholder(request.agent), text: $model.replyDraft, axis: .vertical)
+            .lineLimit(1...5)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 14, style: .continuous))
+            .disabled(disabled)
     }
 }
 #endif

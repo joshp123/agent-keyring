@@ -102,10 +102,7 @@ public final class MacDesignGallery {
         let model = MacApprovalModel(request: request,
             moreWaiting: waiting.map { $0.count - 1 } ?? (screen == .approval ? 1 : 0),
             backend: DesignMacBackend(request: request))
-        if screen == .approvalReply {
-            model.isReplying = true
-            model.replyDraft = reply
-        }
+        if screen == .approvalReply { model.replyDraft = reply }
         if offScreen {
             windows.append(KeyringPanel.floating(MacApprovalPanelView(model: model)))
             return
@@ -258,6 +255,26 @@ public final class MacDesignGallery {
                 print(url.path)
                 window.isReleasedWhenClosed = false
             }
+        }
+    }
+
+    /// Draws any SwiftUI view as a titled window, off-screen, light and dark.
+    public static func render(_ content: some View, title: String, size: NSSize, name: String,
+        to directory: URL) async {
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = NSAppearance(named: appearanceName)!
+            NSApplication.shared.appearance = appearance
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.title = title
+            window.appearance = appearance
+            window.contentView = NSHostingView(rootView: content)
+            try? await Task.sleep(for: .milliseconds(900))
+            let suffix = appearanceName == .darkAqua ? "dark" : "light"
+            let url = directory.appending(path: "\(name)-\(suffix).png")
+            draw(window, isPanel: false, appearance: appearance, to: url)
+            print(url.path)
         }
     }
 
