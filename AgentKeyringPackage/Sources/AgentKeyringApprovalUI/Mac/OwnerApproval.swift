@@ -172,7 +172,7 @@ public struct OwnerApprovalBar: View {
                 .foregroundStyle(KeyringColour.denyText)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Button { approval.retry() } label: { Label("Try again", systemImage: "touchid") }
+                Button { approval.retry() } label: { Label("Try again", systemImage: ownerApprovalSymbol()) }
                     .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 32))
                 cancelButton
             }

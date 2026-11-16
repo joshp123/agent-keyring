@@ -185,18 +185,13 @@ public struct MacApprovalPanelView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             header
-            AccessRequestHeadline(request: model.request, siteFont: .title)
-            Divider()
-            AccessRequestFacts(request: model.request)
-            Divider()
-            AgentClaim(request: model.request, lineLimit: 4)
-            Divider()
+            RequestSummary(request: model.request)
             answers
         }
-        .padding(18)
-        .frame(width: 380)
+        .padding(16)
+        .frame(width: 360)
         .fixedSize(horizontal: false, vertical: true)
         .task { await model.followUpdates() }
         .onDisappear { model.stopWaitingForTouch() }
@@ -207,13 +202,14 @@ public struct MacApprovalPanelView: View {
             Image(systemName: "key.horizontal.fill")
                 .foregroundStyle(KeyringColour.signal)
             Text("Agent Keyring")
-                .font(.subheadline.weight(.semibold))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
             Spacer()
             if case let .waitingForYou(until) = model.request.state {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(AccessRequestCopy.remaining(until: until, now: context.date))
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(KeyringColour.signal)
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -247,8 +243,9 @@ public struct MacApprovalPanelView: View {
     /// the Deny button answers, so typing meant for another app can never deny.
     private var replyField: some View {
         TextField(AccessRequestCopy.replyPlaceholder(model.request.agent), text: $model.replyDraft, axis: .vertical)
-            .lineLimit(1...4)
+            .lineLimit(1...3)
             .textFieldStyle(.roundedBorder)
+            .font(.callout)
             .disabled(sending != nil || model.pendingDenialReply != nil)
     }
 
@@ -269,7 +266,8 @@ public struct MacApprovalPanelView: View {
                     Text(hasReply ? AccessRequestCopy.denyAndSendReply : AccessRequestCopy.deny)
                 }
             }
-            .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
+            .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 40))
+            .frame(width: hasReply || model.pendingDenialReply != nil ? 150 : 96)
             .disabled(sending == .approve)
 
             if let context = model.embeddedTouchID {
@@ -280,9 +278,9 @@ public struct MacApprovalPanelView: View {
                 Button {
                     model.retryAuthentication()
                 } label: {
-                    Label("Try again", systemImage: "touchid")
+                    Label("Try again", systemImage: ownerApprovalSymbol())
                 }
-                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
+                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 40))
                 .disabled(sending == .deny)
             }
         }
@@ -290,7 +288,7 @@ public struct MacApprovalPanelView: View {
 
         if model.moreWaiting > 0 {
             Text("\(model.moreWaiting) more waiting")
-                .font(.callout)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -322,6 +320,11 @@ public struct MacApprovalPanelView: View {
     }
 }
 
+/// Touch ID when the lid is open, otherwise the Watch.
+public func ownerApprovalSymbol(_ context: LAContext = LAContext()) -> String {
+    context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) ? "touchid" : "applewatch"
+}
+
 /// Approve without a click: the system Touch ID glyph, live, inside the panel.
 /// Touching the sensor while the panel is up approves.
 public struct EmbeddedOwnerApproval: View {
@@ -330,39 +333,57 @@ public struct EmbeddedOwnerApproval: View {
 
     public init(context: LAContext, action: String = "approve") { self.context = context; self.action = action }
 
+    private var symbol: String { ownerApprovalSymbol(context) }
+
     private var label: String {
         let touch = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
         let watch = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithCompanion, error: nil)
-        if touch && watch { return "Touch ID or Apple Watch to \(action)" }
-        return touch ? "Touch ID to \(action)" : "Apple Watch to \(action)"
+        if touch && watch { return "Touch ID or Watch to \(action)" }
+        return touch ? "Touch ID to \(action)" : "Double-click Watch to \(action)"
     }
 
     public var body: some View {
         HStack(spacing: 8) {
-            TouchIDGlyph(context: context)
-                .frame(width: 22, height: 22)
+            // Apple's live view must stay in the panel for the approval to run
+            // here and not in a dialog; it draws nothing useful at this size,
+            // so its symbol is drawn over it.
+            ZStack {
+                TouchIDGlyph(context: context)
+                Circle().fill(KeyringColour.approve)
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+            }
+            .frame(width: 22, height: 22)
             Text(label)
                 .font(.headline)
-                .foregroundStyle(KeyringColour.approveText)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
-        .frame(maxWidth: .infinity, minHeight: 36)
-        .overlay {
-            RoundedRectangle(cornerRadius: KeyringMetric.buttonCorner, style: .continuous)
-                .strokeBorder(KeyringColour.approve, lineWidth: 1.5)
-        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: 40)
+        .background(KeyringColour.approve, in: .rect(cornerRadius: KeyringMetric.buttonCorner, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)
     }
 }
 
+/// Apple's live Touch ID and Watch view. Left alone it draws far outside any
+/// frame it is given, so it is clipped to a small square.
 private struct TouchIDGlyph: NSViewRepresentable {
     let context: LAContext
 
-    func makeNSView(context representableContext: Context) -> LAAuthenticationView {
-        LAAuthenticationView(context: context, controlSize: .small)
+    func makeNSView(context representableContext: Context) -> NSView {
+        let disc = NSView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+        disc.wantsLayer = true
+        disc.layer?.masksToBounds = true
+        let glyph = LAAuthenticationView(context: context, controlSize: .mini)
+        glyph.frame = disc.bounds.insetBy(dx: 2, dy: 2)
+        glyph.autoresizingMask = [.width, .height]
+        disc.addSubview(glyph)
+        return disc
     }
 
-    func updateNSView(_ view: LAAuthenticationView, context representableContext: Context) {}
+    func updateNSView(_ view: NSView, context representableContext: Context) {}
 }
 
 /// Hosts the panel beside the window Josh is working in (see
@@ -415,9 +436,9 @@ final class KeyringPanel: NSPanel {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
-        // Buttons work without the panel taking the keyboard; only a click in
-        // the reply field makes it key.
-        panel.becomesKeyOnlyIfNeeded = true
+        // Any click in the panel is Josh's own, so it may take the keyboard;
+        // becomeKey decides where the keys go.
+        panel.becomesKeyOnlyIfNeeded = false
         panel.setContentSize(controller.view.fittingSize)
         return panel
     }
@@ -425,13 +446,74 @@ final class KeyringPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// Never hand the keyboard to a field on Josh's behalf, even when Agent
-    /// Keyring is the active app: SwiftUI would focus the reply field and
-    /// catch typing meant for elsewhere. A click in the field still focuses
-    /// it, because the click is handled after this.
+    /// Only a click in the reply box puts the caret there, and that first
+    /// click is enough: a click on a panel that isn't key would otherwise
+    /// only make it key, and the box would miss the typing. Any other way of
+    /// becoming key leaves no field focused, so typing meant for another app
+    /// goes nowhere.
     override func becomeKey() {
         super.becomeKey()
-        makeFirstResponder(nil)
+        guard let event = NSApp.currentEvent, event.type == .leftMouseDown, event.window === self,
+            let content = contentView,
+            let field = Self.textInputs(in: content).first(where: {
+                $0.convert($0.bounds, to: nil).contains(event.locationInWindow)
+            })
+        else {
+            makeFirstResponder(nil)
+            return
+        }
+        makeFirstResponder(field)
+    }
+
+    /// SwiftUI's hosting view answers hit tests itself, so the text box is
+    /// found by where it is drawn, not by hitTest.
+    private static func textInputs(in view: NSView) -> [NSView] {
+        (view is NSTextField || view is NSTextView ? [view] : []) + view.subviews.flatMap(textInputs)
+    }
+
+}
+#endif
+
+#if os(macOS)
+/// The decision in one read: who wants what, as whom, and why (the agent's
+/// own words, so in quotation marks). Facts that are the same on every
+/// request, like the 30-minute limit, aren't repeated here.
+struct RequestSummary: View {
+    let request: AccessRequest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            (Text(AccessRequestCopy.headlineLead(request) + " ")
+                + Text(request.login.site).bold())
+                .font(.title3)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(AccessRequestCopy.subline(request))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if case let .program(command) = request.access {
+                Text(command)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            if let warning = AccessRequestCopy.warning(request) {
+                Text(warning)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(KeyringColour.denyText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            (Text(AccessRequestCopy.claimHeading(request.agent) + ": ").foregroundStyle(.secondary)
+                + Text("“\(request.agentReason)”"))
+                .font(.callout)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 #endif
