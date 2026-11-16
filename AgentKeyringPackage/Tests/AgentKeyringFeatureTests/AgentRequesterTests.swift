@@ -6,10 +6,10 @@ import Testing
 
 @Suite("Harness attribution")
 struct AgentRequesterAttributionTests {
-    @Test("The socket peer's ancestry supplies the harness, session and folder", arguments: ["claude", "codex"])
-    func harnessAncestor(executable: String) throws {
+    @Test("The socket peer's ancestry supplies the harness, session and folder", arguments: ["claude", "codex"], ["agent-keyring", "client-mac"])
+    func harnessAncestor(executable: String, client: String) throws {
         let tree: [pid_t: (executablePath: String, parentPID: pid_t)] = [
-            100: ("/opt/bin/agent-keyring", 101), 101: ("/bin/zsh", 102),
+            100: ("/opt/bin/\(client)", 101), 101: ("/bin/zsh", 102),
             102: ("/usr/bin/python3", 103), 103: ("/opt/bin/\(executable)", 1),
         ]
         let start = HarnessProcessStartTime(seconds: 1_000, microseconds: 123)

@@ -42,7 +42,9 @@ public struct AgentRequester: Sendable {
     ) -> AgentRequester {
         let peerInformation = processInfo(peerProcessIdentifier)
         let peerName = peerInformation.map { URL(fileURLWithPath: $0.executablePath).lastPathComponent }
-        let startingPID = peerName == "agent-keyring" ? peerInformation!.parentPID : peerProcessIdentifier
+        // The isolated rehearsal distributes the same client as client-mac.
+        let startingPID = ["agent-keyring", "client-mac"].contains(peerName ?? "")
+            ? peerInformation!.parentPID : peerProcessIdentifier
         let ancestor = AgentDisplayLabel.firstAgentAncestor(startingPID: startingPID, processInfo: processInfo)
         let pid = ancestor?.processIdentifier ?? peerProcessIdentifier
         let startedAt = startTime(pid)
