@@ -29,6 +29,7 @@ public final class OwnerApproval: Identifiable {
     private var task: Task<Void, Never>?
     private var timeout: Task<Void, Never>?
     private var attempt = UUID()
+    private var finished = false
 
     /// - Parameters:
     ///   - perform: runs after Josh has approved, with the evaluated context.
@@ -48,7 +49,7 @@ public final class OwnerApproval: Identifiable {
     /// Called when the control appears: Josh's touch or Watch double-click
     /// now approves.
     public func begin() {
-        guard task == nil, let context else { return }
+        guard !finished, task == nil, let context else { return }
         let current = attempt
         timeout = Task {
             do { try await Task.sleep(for: timeoutDuration) } catch { return }
@@ -60,11 +61,13 @@ public final class OwnerApproval: Identifiable {
             do {
                 let approved = try await evaluate(context)
                 guard approved, attempt == current else { return }
+                try Task.checkCancellation()
                 context.interactionNotAllowed = true
                 timeout?.cancel()
                 try await perform(context)
                 guard attempt == current else { return }
                 task = nil
+                finished = true
                 finish(true)
             } catch is CancellationError {
             } catch {
@@ -85,13 +88,24 @@ public final class OwnerApproval: Identifiable {
     }
 
     public func retry() {
+        guard !finished else { return }
         stop()
         prepare()
     }
 
     public func cancel() {
+        guard !finished else { return }
+        finished = true
         stop()
         finish(false)
+    }
+
+    /// The presenter is replacing or withdrawing the question. Do not call
+    /// its decision callback, but ensure its context cannot approve later.
+    public func invalidate() {
+        guard !finished else { return }
+        finished = true
+        stop()
     }
 
     private func prepare() {
@@ -136,6 +150,7 @@ public struct OwnerApprovalBar: View {
         }
         .padding(12)
         .background(KeyringColour.signal.opacity(0.08), in: .rect(cornerRadius: 10))
+        .onDisappear { approval.cancel() }
     }
 
     @ViewBuilder private var controls: some View {

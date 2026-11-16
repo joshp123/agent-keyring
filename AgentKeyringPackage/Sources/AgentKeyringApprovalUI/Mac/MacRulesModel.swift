@@ -144,18 +144,29 @@ public final class MacRulesModel {
     /// rows back if Josh cancels.
     public func setRules(_ rules: [UUID: LoginRule]) {
         guard !rules.isEmpty else { return }
+        approval?.cancel()
         let previous = rows
+        let changed = rows.filter { rules[$0.id] != nil }
+        guard changed.count == rules.count else {
+            failure = "The login list changed. Review the rules and try again."
+            return
+        }
         for index in rows.indices { if let rule = rules[rows[index].id] { rows[index].rule = rule } }
         let sites = rows.filter { rules[$0.id] != nil }.map(\.site)
+        var note = changed.map { "\($0.site) — \($0.account): \(rules[$0.id]!.name)" }.joined(separator: "\n")
+        if changed.contains(where: { $0.rule != .automatic && rules[$0.id] == .automatic }) {
+            note += "\nIf this Mac is connected to your Mac mini: " + RulesCopy.automaticStoredOnMini
+        }
         ask(action: RulesCopy.changeAction(sites: sites, to: Set(rules.values).count == 1 ? rules.values.first : nil),
+            note: note,
             perform: { [backend] context in try await backend.setRules(rules, context: context) },
             done: { [weak self] approved in if !approved { self?.rows = previous } })
     }
 
-    private func ask(action: String, perform: @escaping @MainActor (LAContext) async throws -> Void,
+    private func ask(action: String, note: String? = nil, perform: @escaping @MainActor (LAContext) async throws -> Void,
         done: @escaping @MainActor (Bool) -> Void) {
         approval?.cancel()
-        approval = OwnerApproval(action: action, reason: RulesCopy.approvalReason, perform: perform) { [weak self] approved in
+        approval = OwnerApproval(action: action, note: note, reason: action, perform: perform) { [weak self] approved in
             self?.approval = nil
             done(approved)
         }

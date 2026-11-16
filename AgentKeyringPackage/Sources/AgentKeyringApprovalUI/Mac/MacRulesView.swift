@@ -145,7 +145,7 @@ private struct RulesTable: View {
                     Label("Set Rule", systemImage: "slider.horizontal.3")
                 }
                 .accessibilityIdentifier("set-rule")
-                .disabled(model.selection.isEmpty)
+                .disabled(model.selection.isEmpty || model.approval != nil)
                 .help("Set the rule for the selected logins")
             }
         }

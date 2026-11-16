@@ -103,6 +103,7 @@ final class ApprovalPresenter {
         shownRequest?.stopWaitingForTouch()
         shownEnrolment?.stopAuthentication()
         shownEnrolment = nil
+        question?.invalidate()
         question = nil
         panel.close()
         closingAfterAnswer?.cancel()
@@ -148,6 +149,7 @@ final class ApprovalPresenter {
         shownRequest?.stopWaitingForTouch()
         shownEnrolment?.stopAuthentication()
         shownEnrolment = nil
+        question?.invalidate()
         question = nil
         closingAfterAnswer?.cancel()
         closingAfterAnswer = nil
