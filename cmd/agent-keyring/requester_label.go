@@ -34,10 +34,11 @@ func requesterLabel() string {
 		case "codex", "codex-code-mode-host":
 			return "Codex"
 		}
-		wrapper := name == "sh" || name == "bash" || name == "zsh" || name == "dash" || name == "fish" || name == "env" || name == "node" || strings.HasPrefix(name, "python") || name == "ruby" || name == "perl"
-		if fallback == "" && wrapper && len(fields) > 3 {
+		interpreter := name == "sh" || name == "bash" || name == "zsh" || name == "dash" || name == "fish" || name == "node" || strings.HasPrefix(name, "python") || name == "ruby" || name == "perl"
+		wrapper := interpreter || name == "env"
+		if fallback == "" && interpreter && len(fields) > 3 {
 			script := fields[3]
-			if !strings.HasPrefix(script, "-") {
+			if !strings.HasPrefix(script, "-") && !strings.Contains(script, "=") && strings.ContainsAny(script, "/.") {
 				fallback = filepath.Base(script)
 			}
 		}

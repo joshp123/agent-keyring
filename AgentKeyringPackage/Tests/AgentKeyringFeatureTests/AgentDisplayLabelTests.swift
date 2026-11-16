@@ -23,7 +23,7 @@ struct AgentDisplayLabelTests {
         #expect(AgentDisplayLabel.parentExecutableName(startingPID: 100, processInfo: { tree[$0] }) == "Codex")
     }
 
-    @Test("An unknown agent uses the first non-wrapper executable")
+    @Test("A known agent above an unknown program takes precedence")
     func unknownAgent() {
         let tree: [pid_t: (executablePath: String, parentPID: pid_t)] = [
             100: ("/bin/zsh", 101),
@@ -31,7 +31,15 @@ struct AgentDisplayLabelTests {
             102: ("/opt/bin/MyAgent", 103),
             103: ("/opt/bin/claude", 1),
         ]
-        #expect(AgentDisplayLabel.parentExecutableName(startingPID: 100, processInfo: { tree[$0] }) == "MyAgent")
+        #expect(AgentDisplayLabel.parentExecutableName(startingPID: 100, processInfo: { tree[$0] }) == "Claude Code")
+    }
+
+    @Test("An interpreter started by launchd uses the script name")
+    func scriptFallback() {
+        let result = AgentDisplayLabel.firstAgentAncestor(startingPID: 100, processInfo: { _ in
+            ("/bin/bash", 1)
+        }, scriptInfo: { _ in "/jobs/daily-bank-download.sh" })
+        #expect(result.map { AgentDisplayLabel.executableLabel(path: $0.executablePath) } == "daily-bank-download.sh")
     }
 
     @Test("A chain containing only wrappers falls back to an agent")

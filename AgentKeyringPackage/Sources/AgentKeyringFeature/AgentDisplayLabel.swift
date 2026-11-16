@@ -41,7 +41,8 @@ public enum AgentDisplayLabel {
     }
 
     static func firstAgentAncestor(startingPID: pid_t,
-        processInfo: (pid_t) -> (executablePath: String, parentPID: pid_t)? = processInformation
+        processInfo: (pid_t) -> (executablePath: String, parentPID: pid_t)? = processInformation,
+        scriptInfo: (pid_t) -> String? = scriptName
     ) -> (processIdentifier: pid_t, executablePath: String)? {
         let wrapperNames: Set<String> = [
             "sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh",
@@ -50,19 +51,51 @@ public enum AgentDisplayLabel {
             "gtimeout", "nohup", "setsid", "sudo", "su", "terminal", "iterm2",
             "ghostty", "alacritty", "kitty", "wezterm", "wezterm-gui",
         ]
+        let interpreters: Set<String> = ["sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh", "node", "nodejs", "ruby", "perl", "bun", "deno"]
         var ancestorPID = startingPID
+        var fallback: (processIdentifier: pid_t, executablePath: String)?
         for _ in 0..<16 {
-            guard ancestorPID > 1, let ancestor = processInfo(ancestorPID) else { return nil }
+            guard ancestorPID > 1, let ancestor = processInfo(ancestorPID) else { break }
             let name = URL(fileURLWithPath: ancestor.executablePath).lastPathComponent
-            guard !name.isEmpty else { return nil }
+            guard !name.isEmpty else { break }
             let normalizedName = name.lowercased()
             let isVersionedPython = normalizedName.hasPrefix("python")
                 && normalizedName.dropFirst("python".count).allSatisfy { $0.isNumber || $0 == "." }
             if !wrapperNames.contains(normalizedName) && !isVersionedPython {
-                return (ancestorPID, ancestor.executablePath)
+                if ["claude", "claude helper", "claude helper (gpu)", "claude helper (plugin)",
+                    "claude helper (renderer)", "codex", "codex-code-mode-host", "chatgpt"].contains(normalizedName) {
+                    return (ancestorPID, ancestor.executablePath)
+                }
+                if fallback == nil { fallback = (ancestorPID, ancestor.executablePath) }
+            } else if fallback == nil, (interpreters.contains(normalizedName) || isVersionedPython), let script = scriptInfo(ancestorPID) {
+                fallback = (ancestorPID, script)
             }
             ancestorPID = ancestor.parentPID
         }
-        return nil
+        return fallback
+    }
+
+    /// Read argv from the kernel; use only a script path, never its arguments.
+    static func scriptName(_ pid: pid_t) -> String? {
+        var query = [CTL_KERN, KERN_PROCARGS2, pid]
+        var length = 0
+        guard sysctl(&query, UInt32(query.count), nil, &length, nil, 0) == 0,
+              length > MemoryLayout<Int32>.size else { return nil }
+        var data = [UInt8](repeating: 0, count: length)
+        guard sysctl(&query, UInt32(query.count), &data, &length, nil, 0) == 0 else { return nil }
+        var index = MemoryLayout<Int32>.size
+        while index < length && data[index] != 0 { index += 1 }
+        while index < length && data[index] == 0 { index += 1 }
+        var args: [String] = []
+        while index < length && args.count < 2 {
+            let start = index
+            while index < length && data[index] != 0 { index += 1 }
+            guard index > start else { break }
+            args.append(String(decoding: data[start..<index], as: UTF8.self))
+            index += 1
+        }
+        guard args.count == 2, !args[1].hasPrefix("-"), !args[1].contains("="),
+              args[1].contains("/") || args[1].contains(".") else { return nil }
+        return args[1]
     }
 }

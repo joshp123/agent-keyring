@@ -569,6 +569,7 @@ func (p *proof) serveApprover() {
 		case *pb.ApproverWork_Request:
 			request := new(pb.RequestRecord)
 			must(proto.Unmarshal(item.Request.Record, request))
+			fmt.Printf("Fixture requester claim: %q\n", request.AgentLabel)
 			for _, machine := range p.configuration.Machines {
 				if machine.RecipientId == request.RecipientId {
 					p.enrolled = &pb.EnrolmentRecord{RecipientId: machine.RecipientId, MachineLabel: machine.MachineLabel, ClientLabel: machine.ClientLabel, TailscaleNodeId: machine.TailscaleNodeId, TlsPublicKey: machine.TlsPublicKey, ReceiverPublicKey: machine.ReceiverPublicKey, ReceiverKeyId: machine.ReceiverKeyId}
