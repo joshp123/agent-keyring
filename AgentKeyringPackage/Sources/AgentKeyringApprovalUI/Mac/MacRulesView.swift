@@ -90,8 +90,14 @@ private struct RulesTable: View {
         VStack(spacing: 0) {
             if let confirmation = model.confirmation {
                 ConfirmRulesBanner(confirmation: confirmation, isConfirming: model.isConfirming) {
-                    Task { await model.confirmRules() }
+                    model.confirmRules()
                 }
+                Divider()
+            }
+            if let approval = model.approval {
+                OwnerApprovalBar(approval: approval)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                 Divider()
             }
             RulesHeader(filter: model.filter, shown: model.visibleRows.count, isApplying: model.isApplying)
@@ -109,7 +115,7 @@ private struct RulesTable: View {
 
                 TableColumn("Rule") { row in
                     RulePicker(rule: row.rule) { rule in
-                        Task { await model.setRule(rule, for: [row.id]) }
+                        model.setRule(rule, for: [row.id])
                     }
                 }
                 .width(min: 110, ideal: 120, max: 160)
@@ -123,17 +129,17 @@ private struct RulesTable: View {
             }
             .contextMenu(forSelectionType: UUID.self) { ids in
                 SetRuleMenuItems(count: ids.count) { rule in
-                    Task { await model.setRule(rule, for: ids) }
+                    model.setRule(rule, for: ids)
                 }
             }
-            .disabled(model.confirmation != nil)
+            .disabled(model.confirmation != nil || model.approval != nil)
         }
         .task { await model.followUpdates() }
         .toolbar {
             ToolbarItem {
                 Menu {
                     SetRuleMenuItems(count: model.selection.count) { rule in
-                        Task { await model.setRule(rule, for: model.selection) }
+                        model.setRule(rule, for: model.selection)
                     }
                 } label: {
                     Label("Set Rule", systemImage: "slider.horizontal.3")
@@ -202,7 +208,7 @@ private struct ConfirmRulesBanner: View {
             .font(.callout)
             Spacer()
             Button(action: confirm) {
-                Label(RulesCopy.confirmButton, systemImage: "touchid")
+                Text(RulesCopy.confirmButton)
             }
             .buttonStyle(.borderedProminent)
             .tint(KeyringColour.signal)

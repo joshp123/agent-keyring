@@ -1,5 +1,7 @@
 import AgentKeyringTestSupport
+import LocalAuthentication
 import Foundation
+import LocalAuthentication
 import Testing
 @testable import AgentKeyringFeature
 
@@ -16,7 +18,7 @@ struct SignedAccessRulesTests {
         #expect(!controller.needsConfirmation)
         #expect(controller.releaseDecision(for: fixture.loginID, field: .password) == .requestAuthorization)
         try await controller.ensureRulesConfirmed()
-        await controller.setPolicy(.ask, for: [fixture.loginID])
+        await controller.setPolicy(.ask, for: [fixture.loginID], context: LAContext())
         #expect(fixture.signer.signingReason == nil)
         #expect(!FileManager.default.fileExists(atPath: fixture.fileURL.path))
 
@@ -32,7 +34,7 @@ struct SignedAccessRulesTests {
         #expect(controller.policy(for: importedID) == .ask)
         #expect(controller.releaseDecision(for: importedID, field: .password) == .requestAuthorization)
         #expect(fixture.signer.signingReason == nil)
-        await controller.setPolicy(.block, for: [fixture.loginID])
+        await controller.setPolicy(.block, for: [fixture.loginID], context: LAContext())
         #expect(fixture.signer.signingReason != nil)
         #expect(try await fixture.store.load()[fixture.loginID] == .block)
         let signedBytes = try Data(contentsOf: fixture.fileURL)
@@ -48,7 +50,7 @@ struct SignedAccessRulesTests {
         #expect(controller.policy(for: anotherID) == .ask)
         #expect(controller.policy(for: fixture.loginID) == .block)
         #expect(try Data(contentsOf: fixture.fileURL) == signedBytes)
-        await controller.setPolicy(.ask, for: [fixture.loginID])
+        await controller.setPolicy(.ask, for: [fixture.loginID], context: LAContext())
         #expect(try await fixture.store.load().isEmpty)
     }
 
@@ -88,7 +90,7 @@ struct SignedAccessRulesTests {
         #expect(!controller.canConfirmRules)
         await controller.refresh(fromMetadata: nil)
         #expect(!controller.canConfirmRules)
-        await controller.confirmRules()
+        await controller.confirmRules(context: LAContext())
         #expect(try Data(contentsOf: fixture.fileURL) == snapshotBytes)
         await controller.refresh(from: fixture.generation)
         #expect(controller.canConfirmRules)
@@ -103,7 +105,7 @@ struct SignedAccessRulesTests {
             #expect(controller.rows == rows)
             #expect(controller.policy(for: fixture.loginID) == .block)
         }
-        await controller.confirmRules()
+        await controller.confirmRules(context: LAContext())
         #expect(try Data(contentsOf: fixture.fileURL) == snapshotBytes)
         #expect(try await fixture.store.load()[fixture.loginID] == .block)
         #expect(fixture.signer.signingReason == "set which of your logins agents may use: 0 without asking you, 1 never, 0 only after asking you")
@@ -115,7 +117,7 @@ struct SignedAccessRulesTests {
         try await confirmInitialAccessRules(in: fixture.store, policies: [fixture.loginID: .allowAutomatically])
         let oldBytes = try Data(contentsOf: fixture.fileURL)
         let oldSignature = try Data(contentsOf: fixture.signatureURL)
-        try await fixture.store.save([fixture.loginID: .block])
+        try await fixture.store.save([fixture.loginID: .block], context: LAContext())
         #expect(try await fixture.store.load()[fixture.loginID] == .block)
         try oldBytes.write(to: fixture.fileURL)
         try oldSignature.write(to: fixture.signatureURL)
@@ -152,7 +154,7 @@ struct SignedAccessRulesTests {
             try await controller.ensureRulesConfirmed()
             Issue.record("Corrupt rules passed the release gate")
         } catch let failure as AgentBridgeFailure { #expect(failure.code == .rulesNeedConfirmation) }
-        await controller.confirmRules()
+        await controller.confirmRules(context: LAContext())
         #expect(!controller.needsConfirmation)
         #expect(!controller.confirmationResetsUnreadableRules)
         #expect(try await fixture.store.load().isEmpty)
@@ -173,7 +175,7 @@ struct SignedAccessRulesTests {
         #expect(controller.needsConfirmation)
         #expect(controller.rows.first?.policy == policy)
         #expect(controller.releaseDecision(for: fixture.loginID, field: .username) == .needsConfirmation)
-        await controller.confirmRules()
+        await controller.confirmRules(context: LAContext())
         #expect(!controller.needsConfirmation)
         #expect(controller.policy(for: fixture.loginID) == policy)
         #expect(try await fixture.store.load()[fixture.loginID, default: .ask] == policy)
@@ -256,7 +258,7 @@ struct SignedAccessRulesTests {
         await controller.refresh(from: fixture.generation)
         #expect(controller.needsConfirmation)
         #expect(controller.rows.first?.policy == .allowAutomatically)
-        await controller.confirmRules()
+        await controller.confirmRules(context: LAContext())
         #expect(!controller.needsConfirmation)
         #expect(try await fixture.store.load() == [fixture.loginID: .allowAutomatically])
     }
@@ -273,7 +275,7 @@ struct SignedAccessRulesTests {
         }
         let controller = CredentialAccessController(store: store)
         await controller.refresh(from: fixture.generation)
-        await controller.confirmRules()
+        await controller.confirmRules(context: LAContext())
         #expect(controller.needsConfirmation)
         #expect(controller.errorMessage == "The record of what agents are using is missing. Choose Reset.")
     }
@@ -282,7 +284,7 @@ struct SignedAccessRulesTests {
 
 private struct UnavailableRulesSigner: AccessRulesSigning {
     func signedBytesHash() throws -> Data? { throw CocoaError(.fileReadNoPermission) }
-    func sign(_ bytes: Data, reason: String) async throws -> Data { throw CocoaError(.fileReadNoPermission) }
+    func sign(_ bytes: Data, reason: String, context: LAContext) async throws -> Data { throw CocoaError(.fileReadNoPermission) }
     func verify(_ signature: Data, for bytes: Data) throws -> Bool { false }
 }
 

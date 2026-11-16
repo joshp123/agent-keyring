@@ -135,17 +135,19 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
 
     public init() {}
 
+    /// Without a context from Josh's panel there is nowhere to ask him except
+    /// a macOS dialog, which Agent Keyring never shows.
     public func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
-        try await authorize(request, context: LAContext(), activateApplication: true, onPromptStarted: onPromptStarted)
+        throw CredentialReleaseAuthorizationError.unavailable
     }
 
     public func authorize(_ request: CredentialReleaseAuthorizationRequest, context: LAContext,
         onPromptStarted: @escaping () -> Void) async throws {
-        try await authorize(request, context: context, activateApplication: false, onPromptStarted: onPromptStarted)
+        try await evaluate(request, context: context, onPromptStarted: onPromptStarted)
     }
 
-    private func authorize(_ request: CredentialReleaseAuthorizationRequest, context: LAContext,
-        activateApplication: Bool, onPromptStarted: @escaping () -> Void) async throws {
+    private func evaluate(_ request: CredentialReleaseAuthorizationRequest, context: LAContext,
+        onPromptStarted: @escaping () -> Void) async throws {
         try Task.checkCancellation()
         guard request.authorizationDeadline > Date() else {
             throw CredentialReleaseAuthorizationError.expired
@@ -180,8 +182,6 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
             timeoutTask.cancel()
             if activeContext === context { activeContext = nil }
         }
-
-        if activateApplication { NSApplication.shared.activate(ignoringOtherApps: true) }
         let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
         do {
             onPromptStarted()

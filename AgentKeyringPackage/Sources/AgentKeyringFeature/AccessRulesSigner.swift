@@ -4,16 +4,10 @@ import LocalAuthentication
 import Security
 
 public protocol AccessRulesSigning: Sendable {
-    func sign(_ bytes: Data, reason: String) async throws -> Data
+    /// `context` is one Josh has approved in Agent Keyring's own window.
     func sign(_ bytes: Data, reason: String, context: LAContext) async throws -> Data
     func verify(_ signature: Data, for bytes: Data) throws -> Bool
     func signedBytesHash() throws -> Data?
-}
-
-public extension AccessRulesSigning {
-    func sign(_ bytes: Data, reason: String, context: LAContext) async throws -> Data {
-        try await sign(bytes, reason: reason)
-    }
 }
 
 public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
@@ -21,12 +15,6 @@ public struct SecureEnclaveAccessRulesSigner: AccessRulesSigning {
     private let algorithm = SecKeyAlgorithm.ecdsaSignatureMessageX962SHA256
 
     public init() {}
-
-    public func sign(_ bytes: Data, reason: String) async throws -> Data {
-        let context = LAContext()
-        defer { context.invalidate() }
-        return try await sign(bytes, reason: reason, context: context)
-    }
 
     public func sign(_ bytes: Data, reason: String, context: LAContext) async throws -> Data {
         context.touchIDAuthenticationAllowableReuseDuration = 0

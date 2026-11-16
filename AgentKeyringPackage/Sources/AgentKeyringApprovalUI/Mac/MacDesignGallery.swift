@@ -30,11 +30,21 @@ public enum MacDesignScreen: String, CaseIterable, Sendable {
     case machines
     case machinesSetUp
     case machinesRemovingPhone
-    case machinesComparing
     case menuBarRemote
     case firstRunAllow
     case firstRunExport
     case firstRunReady
+    // These start a real approval, so they render only on a Mac with neither
+    // Touch ID nor an Apple Watch, such as the Mac mini.
+    case rulesChanging
+    case machinesRemoving
+    case questionConnect
+    case questionImported
+
+    var startsApproval: Bool {
+        [.rulesChanging, .machinesRemoving, .questionConnect, .questionImported, .enrolment, .enrolmentIPhone,
+            .enrolmentIPhoneReplacing, .enrolmentJoined].contains(self)
+    }
 }
 
 @MainActor
@@ -66,12 +76,18 @@ public final class MacDesignGallery {
             showRules()
         case .enrolment, .enrolmentIPhone, .enrolmentIPhoneReplacing, .enrolmentJoined:
             showEnrolment()
-        case .machines, .machinesSetUp, .machinesComparing, .machinesRemovingPhone:
+        case .machines, .machinesSetUp, .machinesRemovingPhone:
             showMachines()
         case .menuBarRemote:
             showMenuBar()
         case .firstRunAllow, .firstRunExport, .firstRunReady:
             showFirstRun()
+        case .rulesChanging:
+            showRules()
+        case .machinesRemoving:
+            showMachines()
+        case .questionConnect, .questionImported:
+            showQuestion()
         }
     }
 
@@ -141,8 +157,6 @@ public final class MacDesignGallery {
     private func showMachines() {
         var snapshot: MachinesSnapshot = switch screen {
         case .machinesSetUp: MachinesSnapshot(relay: .notSetUp)
-        case .machinesComparing:
-            MachinesSnapshot(relay: .comparing(code: "C3E1 5A90 7B24 0DF8 916C 2E47 B8A3 54D0", address: "mac-mini:17443"))
         default:
             MachinesSnapshot(relay: .connected(address: "mac-mini:17443"), queuedAnswers: 0,
                 waiting: [DesignExamples.machineEnrolment(now: now)],
@@ -161,6 +175,7 @@ public final class MacDesignGallery {
         }
         let model = MacMachinesModel(backend: DesignMacBackend(machines: snapshot), initial: snapshot)
         if screen == .machinesSetUp { model.addressDraft = "mac-mini:17443" }
+        if screen == .machinesRemoving, let machine = snapshot.machines.last { model.remove(machine) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: screen == .machines || screen == .machinesRemovingPhone ? 720 : 420),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Machines"
@@ -208,7 +223,9 @@ public final class MacDesignGallery {
         }
         let snapshot = LoginRulesSnapshot(rows: rows, confirmation: confirmation, isApplying: screen == .rulesApplying)
         let model = MacRulesModel(backend: DesignMacBackend(rules: snapshot), initial: snapshot)
-        if screen != .rules {
+        if screen == .rulesChanging {
+            model.setRule(.automatic, for: [rows[1].id])
+        } else if screen != .rules {
             model.filter = .all
         } else {
             model.selection = Set(model.visibleRows.prefix(3).dropFirst().map(\.id))
@@ -226,6 +243,15 @@ public final class MacDesignGallery {
     }
 
     private var retained: [AnyObject] = []
+
+    private func showQuestion() {
+        let (title, message) = screen == .questionConnect
+            ? (SetupCopy.connectToMiniTitle, SetupCopy.connectToMiniBody)
+            : (SetupCopy.sendImportedTitle, SetupCopy.sendImportedBody)
+        let approval = OwnerApproval(action: SetupCopy.allow.lowercased(), reason: title, perform: { _ in }, finish: { _ in })
+        retained.append(approval)
+        windows.append(KeyringPanel.floating(MacQuestionPanelView(title: title, message: message, approval: approval)))
+    }
 
     /// The line Josh pastes into his agents' instructions. Proposed wording;
     /// the app takes it from AgentInstructions.snippet.
@@ -263,6 +289,11 @@ public final class MacDesignGallery {
             let appearance = NSAppearance(named: appearanceName)!
             NSApplication.shared.appearance = appearance
             for screen in screens {
+                if screen.startsApproval,
+                    LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) {
+                    print("skipped \(screen.rawValue): this Mac has Touch ID or an Apple Watch, and drawing it would start an approval")
+                    continue
+                }
                 let gallery = MacDesignGallery(screen: screen)
                 gallery.offScreen = true
                 gallery.show()
@@ -363,10 +394,9 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
 
     func updates() -> AsyncStream<MachinesSnapshot> { Self.once(machines) }
     func connect(host: String, port: UInt16) async throws {}
-    func confirmRelay(comparedCode: String) async throws {}
     func cancelRelaySetup() throws {}
-    func remove(machineID: String) async throws {}
-    func removePhone(keyID: String) async throws {}
+    func remove(machineID: String, context: LAContext) async throws {}
+    func removePhone(keyID: String, context: LAContext) async throws {}
     func setAskPhoneAfter(_ delay: Duration) {}
 
     private let request: AccessRequest?
@@ -420,13 +450,13 @@ final class DesignMacBackend: MacApprovalBackend, MacMenuBarBackend, LoginRulesB
         .denied(by: .mac, reply: nil, askAgainAfter: nil)
     }
 
-    func confirmRules() async throws {}
+    func confirmRules(context: LAContext) async throws {}
 
     func endAccess(requestID: String) async throws -> AccessRequestState {
         .ended(at: .now)
     }
 
-    func setRule(_ rule: LoginRule, for loginIDs: Set<UUID>) async throws {}
+    func setRules(_ rules: [UUID: LoginRule], context: LAContext) async throws {}
 }
 
 enum DesignRules {

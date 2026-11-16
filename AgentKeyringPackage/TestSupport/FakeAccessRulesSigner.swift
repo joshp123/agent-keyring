@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import LocalAuthentication
 import Synchronization
 import AgentKeyringFeature
 
@@ -19,7 +20,7 @@ public final class FakeAccessRulesSigner: AccessRulesSigning {
         latestHash = Mutex(signedBytes.map { Data(SHA256.hash(data: $0)) })
     }
 
-    public func sign(_ bytes: Data, reason: String) async throws -> Data {
+    public func sign(_ bytes: Data, reason: String, context: LAContext) async throws -> Data {
         guard !refusesSigning else { throw CocoaError(.userCancelled) }
         lastReason.withLock { $0 = reason }
         latestHash.withLock { $0 = Data(SHA256.hash(data: bytes)) }

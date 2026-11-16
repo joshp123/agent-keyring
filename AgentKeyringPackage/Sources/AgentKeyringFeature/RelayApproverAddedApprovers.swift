@@ -66,7 +66,7 @@ extension RelayApprover {
     }
 
     public func confirmApproverPairing(_ id: String, comparedFingerprint: String,
-        context: LAContext = LAContext(), onAuthenticated: @MainActor () -> Void = {},
+        context: LAContext, onAuthenticated: @MainActor () -> Void = {},
         onCommitted: @MainActor () -> Void = {}) async throws {
         try load()
         let queuedID = "approver-pairing:" + id

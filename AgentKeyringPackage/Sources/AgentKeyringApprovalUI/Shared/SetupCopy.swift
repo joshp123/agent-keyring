@@ -75,6 +75,8 @@ public enum SetupCopy {
     public static let connectToMiniTitle = "Let agents on your other machines use your logins?"
     public static let connectToMiniBody = "You still approve each request. Their requests reach you through your Mac mini."
     public static let notNow = "Not now"
+    public static let sendImportedTitle = "Let agents on your other machines use the logins you just imported?"
+    public static let sendImportedBody = "Until you allow this, they can only use the list you had before."
     public static let allow = "Allow"
     public static let dontAllow = "Don't allow"
 
@@ -94,9 +96,9 @@ public enum SetupCopy {
     public static let automaticAllowed = "Can use Automatic logins"
     public static let asksEveryTime = "Asks you for every login"
     public static let remove = "Remove"
-    public static let removeWithTouchID = "Remove"
 
-    public static func removePhoneTitle(_ name: String) -> String { "Remove \(name)?" }
+    public static func removePhoneAction(_ name: String) -> String { "stop \(name) approving agents' requests" }
+    public static func removeMachineAction(_ name: String) -> String { "stop agents on \(name) using your logins" }
     /// Honest about the limit: removal stops the phone approving, but cannot
     /// reach into it and erase what it already holds.
     public static let removePhoneMessage = "It stops approving once your other devices confirm. Passwords and two-factor codes already on it stay there, locked behind its Face ID. If someone else might have it, change those passwords and set up two-factor again."

@@ -88,7 +88,7 @@ extension RelayApprover {
         }
     }
 
-    public func approve(_ id: String, context: LAContext = LAContext(), onAuthenticated: @MainActor () -> Void = {}) async throws {
+    public func approve(_ id: String, context: LAContext, onAuthenticated: @MainActor () -> Void = {}) async throws {
         try load()
         if state.requests[id]?.decision != nil { await flushOutbox(); return }
         try claimAuthorization("request:" + id)
@@ -109,7 +109,7 @@ extension RelayApprover {
         await flushOutbox()
     }
 
-    public func deny(_ id: String, reply: String = "", context: LAContext = LAContext(), onAuthenticated: @MainActor () -> Void = {}) async throws {
+    public func deny(_ id: String, reply: String = "", context: LAContext, onAuthenticated: @MainActor () -> Void = {}) async throws {
         try load()
         if state.requests[id]?.decision != nil { await flushOutbox(); return }
         let hasReply = !reply.isEmpty

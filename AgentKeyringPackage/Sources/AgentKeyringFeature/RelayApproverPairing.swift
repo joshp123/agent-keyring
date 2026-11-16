@@ -67,7 +67,7 @@ extension RelayApprover {
         publish()
     }
 
-    public func confirmPairing(comparedFingerprint: String, context: LAContext = LAContext(),
+    public func confirmPairing(comparedFingerprint: String, context: LAContext,
         onAuthenticated: @MainActor () -> Void = {}) async throws {
         try load()
         guard let pending = state.pairing else { throw LeaseFailure(.notFound, "There is no pairing to confirm.") }
@@ -134,7 +134,7 @@ extension RelayApprover {
     }
 
     public func approveEnrolment(_ id: String, comparedFingerprint: String, automaticAllowed: Bool = false,
-        context: LAContext = LAContext(), onAuthenticated: @MainActor () -> Void = {},
+        context: LAContext, onAuthenticated: @MainActor () -> Void = {},
         onCommitted: @MainActor () -> Void = {}) async throws {
         try load()
         guard let bytes = state.pendingEnrolments[id] else {
@@ -234,7 +234,7 @@ extension RelayApprover {
 }
 
 extension RelayApprover {
-    public func denyEnrolment(_ id: String, context: LAContext = LAContext()) async throws {
+    public func denyEnrolment(_ id: String) async throws {
         try load()
         guard let bytes = state.pendingEnrolments[id] else { throw LeaseFailure(.notFound, "No such machine is waiting to enrol.") }
         let record = try validateEnrolment(bytes)
@@ -248,7 +248,7 @@ extension RelayApprover {
         await flushOutbox()
     }
 
-    public func revokeMachine(_ recipientID: String, context: LAContext = LAContext()) async throws {
+    public func revokeMachine(_ recipientID: String, context: LAContext) async throws {
         try load()
         guard let machineBytes = state.machines[recipientID] else { return }
         let machine = try Agentkeyring_V1_EnrolledMachine(serializedBytes: machineBytes)

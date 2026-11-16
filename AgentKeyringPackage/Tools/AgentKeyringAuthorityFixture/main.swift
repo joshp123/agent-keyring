@@ -84,7 +84,7 @@ struct AuthorityFixture {
                 switch command {
                 case "ask", "auto", "block":
                     let rule: CredentialAccessPolicy = command == "ask" ? .ask : command == "auto" ? .allowAutomatically : .block
-                    await access.setPolicy(rule, for: [MirrorItem.exampleCredentialID])
+                    await access.setPolicy(rule, for: [MirrorItem.exampleCredentialID], context: LAContext())
                 case "deny" where parts.count >= 2:
                     try model.denyLease(parts[1], reply: parts.count == 3 ? parts[2] : "")
                 case "approve" where parts.count == 2:

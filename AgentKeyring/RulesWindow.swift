@@ -24,7 +24,9 @@ struct RulesWindow: View {
             .frame(minWidth: 760, minHeight: 480)
             .onAppear { rules.openAssistant = { showingAssistant = true } }
             .sheet(isPresented: $showingAssistant) {
-                CredentialPolicyAssistantView(controller: model.accessControl)
+                CredentialPolicyAssistantView(controller: model.accessControl) { assignments in
+                    rules.setRules(assignments.mapValues(LoginRule.init))
+                }
             }
     }
 }

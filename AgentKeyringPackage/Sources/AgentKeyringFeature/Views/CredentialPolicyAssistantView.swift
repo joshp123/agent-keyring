@@ -10,15 +10,20 @@ public struct CredentialPolicyAssistantView: View {
     @State private var message: AssistantMessage?
     @State private var isApplying = false
     private let controller: CredentialAccessController
+    /// Hands the reviewed changes to the rules window, which asks for Touch ID
+    /// or Apple Watch where Josh is looking before anything is saved.
+    private let apply: ([UUID: CredentialAccessPolicy]) -> Void
     private let assistant = CredentialPolicyAssistant()
     private let initiallyShowsPrompt: Bool
 
     public init(
         controller: CredentialAccessController,
+        apply: @escaping ([UUID: CredentialAccessPolicy]) -> Void,
         initialResponse: String = "",
         initiallyShowsPrompt: Bool = false
     ) {
         self.controller = controller
+        self.apply = apply
         self.initiallyShowsPrompt = initiallyShowsPrompt
         _responseText = State(initialValue: initialResponse)
         _promptText = State(
@@ -116,16 +121,8 @@ public struct CredentialPolicyAssistantView: View {
 
     private func applyRecommendations() {
         guard let review else { return }
-        isApplying = true
-        Task {
-            await controller.setPolicies(review.assignments)
-            isApplying = false
-            if let errorMessage = controller.errorMessage {
-                message = .error(errorMessage)
-            } else {
-                dismiss()
-            }
-        }
+        apply(review.assignments)
+        dismiss()
     }
 }
 

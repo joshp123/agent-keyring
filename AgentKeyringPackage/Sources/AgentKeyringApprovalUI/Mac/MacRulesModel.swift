@@ -4,6 +4,7 @@
 // save rule changes; the view never touches the signed rules store.
 
 import Foundation
+import LocalAuthentication
 import Observation
 
 public struct LoginRuleRow: Identifiable, Hashable, Sendable {
@@ -59,14 +60,15 @@ public struct LoginRulesSnapshot: Hashable, Sendable {
     }
 }
 
-/// Saving rules needs Josh's confirmation (Touch ID) and can fail.
+/// Saving rules is signed with a context Josh has already approved in the
+/// rules window, so the backend never asks him itself.
 @MainActor
 public protocol LoginRulesBackend: AnyObject {
     /// The current logins and rules first, then each time they change.
     func updates() -> AsyncStream<LoginRulesSnapshot>
-    func setRule(_ rule: LoginRule, for loginIDs: Set<UUID>) async throws
-    /// Runs Touch ID and saves the rules as shown.
-    func confirmRules() async throws
+    func setRules(_ rules: [UUID: LoginRule], context: LAContext) async throws
+    /// Saves the rules as shown.
+    func confirmRules(context: LAContext) async throws
 }
 
 @MainActor
@@ -81,6 +83,10 @@ public final class MacRulesModel {
     public var selection = Set<UUID>()
     public var sortOrder = [KeyPathComparator(\LoginRuleRow.site)]
     public private(set) var failure: String?
+    #if os(macOS)
+    /// Set while a change waits for Touch ID or Apple Watch in this window.
+    public private(set) var approval: OwnerApproval?
+    #endif
     public var openAssistant: () -> Void = {}
 
     private let backend: any LoginRulesBackend
@@ -101,16 +107,16 @@ public final class MacRulesModel {
         }
     }
 
-    public func confirmRules() async {
+    #if os(macOS)
+    public func confirmRules() {
         isConfirming = true
-        defer { isConfirming = false }
-        do {
-            try await backend.confirmRules()
-            confirmation = nil
-        } catch {
-            failure = "Rules weren't confirmed: \(error.localizedDescription)"
-        }
+        ask(action: RulesCopy.confirmAction, perform: { [backend] context in try await backend.confirmRules(context: context) },
+            done: { [weak self] approved in
+                self?.isConfirming = false
+                if approved { self?.confirmation = nil }
+            })
     }
+    #endif
 
     public func count(_ filter: LoginRuleFilter) -> Int {
         switch filter {
@@ -129,17 +135,32 @@ public final class MacRulesModel {
             .sorted(using: sortOrder)
     }
 
-    public func setRule(_ rule: LoginRule, for ids: Set<UUID>) async {
+    #if os(macOS)
+    public func setRule(_ rule: LoginRule, for ids: Set<UUID>) {
+        setRules(Dictionary(uniqueKeysWithValues: ids.map { ($0, rule) }))
+    }
+
+    /// Shows the change at once and asks for approval in the window; puts the
+    /// rows back if Josh cancels.
+    public func setRules(_ rules: [UUID: LoginRule]) {
+        guard !rules.isEmpty else { return }
         let previous = rows
-        for index in rows.indices where ids.contains(rows[index].id) {
-            rows[index].rule = rule
-        }
-        do { try await backend.setRule(rule, for: ids) }
-        catch {
-            rows = previous
-            failure = "Rules weren't saved: \(error.localizedDescription)"
+        for index in rows.indices { if let rule = rules[rows[index].id] { rows[index].rule = rule } }
+        let sites = rows.filter { rules[$0.id] != nil }.map(\.site)
+        ask(action: RulesCopy.changeAction(sites: sites, to: Set(rules.values).count == 1 ? rules.values.first : nil),
+            perform: { [backend] context in try await backend.setRules(rules, context: context) },
+            done: { [weak self] approved in if !approved { self?.rows = previous } })
+    }
+
+    private func ask(action: String, perform: @escaping @MainActor (LAContext) async throws -> Void,
+        done: @escaping @MainActor (Bool) -> Void) {
+        approval?.cancel()
+        approval = OwnerApproval(action: action, reason: RulesCopy.approvalReason, perform: perform) { [weak self] approved in
+            self?.approval = nil
+            done(approved)
         }
     }
+    #endif
 
     public func dismissFailure() { failure = nil }
 }

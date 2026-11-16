@@ -148,11 +148,11 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         try await store.pairedDevicePublicKeys()
     }
 
-    public func removePairedApprovalDevice(publicKey: Data) async throws {
+    public func removePairedApprovalDevice(publicKey: Data, context: LAContext) async throws {
         guard !isSavingRules else { throw AccessRulesSaveInProgress() }
         isSavingRules = true
         defer { isSavingRules = false }
-        try await store.removePairedDevice(publicKey: publicKey)
+        try await store.removePairedDevice(publicKey: publicKey, context: context)
         try await reloadRules()
     }
 
@@ -225,12 +225,14 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         pendingPhoneBlocks.contains(credentialID)
     }
 
-    public func setPolicy(_ policy: CredentialAccessPolicy, for credentialIDs: Set<UUID>) async {
+    /// `context` is one Josh has already approved where he was looking; the
+    /// save signs with it and never asks him again.
+    public func setPolicy(_ policy: CredentialAccessPolicy, for credentialIDs: Set<UUID>, context: LAContext) async {
         let assignments = Dictionary(uniqueKeysWithValues: credentialIDs.map { ($0, policy) })
-        await setPolicies(assignments)
+        await setPolicies(assignments, context: context)
     }
 
-    public func setPolicies(_ assignments: [UUID: CredentialAccessPolicy]) async {
+    public func setPolicies(_ assignments: [UUID: CredentialAccessPolicy], context: LAContext) async {
         guard !needsConfirmation else {
             accessRulesLogger.error("Access rule change rejected: confirmation required")
             errorMessage = AccessRulesConfirmationRequired.message
@@ -257,7 +259,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         for id in pendingPhoneBlocks where assignments[id] == nil { proposedPolicies[id] = .block }
         guard proposedPolicies != policies || !pendingPhoneBlocks.isEmpty else { return }
         do {
-            try await store.save(proposedPolicies)
+            try await store.save(proposedPolicies, context: context)
             try await reloadRules()
         } catch {
             reportRulesFailure(error, operation: "Rule change")
@@ -277,7 +279,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         }
     }
 
-    public func confirmRules() async {
+    public func confirmRules(context: LAContext) async {
         guard canConfirmRules else { return }
         let snapshot = confirmationSnapshot ?? AccessRulesConfirmationSnapshot(policies: policies,
             reason: .firstUse, requiresPhonePairingAgain: false)
@@ -289,7 +291,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         isSavingRules = true
         defer { isSavingRules = false }
         do {
-            try await store.save(confirmedSnapshot, reason: reason)
+            try await store.save(confirmedSnapshot, reason: reason, context: context)
             pendingBlocksReadError = nil
             confirmationSnapshot = nil
             try await reloadRules()

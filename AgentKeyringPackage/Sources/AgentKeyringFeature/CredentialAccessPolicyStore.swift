@@ -196,25 +196,27 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
         return contents
     }
 
-    public func save(_ policies: [UUID: CredentialAccessPolicy]) async throws {
-        try await persist(policies: policies, reason: "set which of your logins agents may use")
+    public func save(_ policies: [UUID: CredentialAccessPolicy], context: LAContext) async throws {
+        try await persist(policies: policies, context: context, reason: "set which of your logins agents may use")
     }
 
-    public func addPairedDevice(_ device: PairedApprovalDevice, confirmationCode: String? = nil) async throws {
-        try await persist(deviceChange: .add(device), reason: confirmationCode.map { "let \(device.name) approve agents' requests for your logins (code \($0))" }
+    public func addPairedDevice(_ device: PairedApprovalDevice, confirmationCode: String? = nil, context: LAContext) async throws {
+        try await persist(deviceChange: .add(device), context: context, reason: confirmationCode.map { "let \(device.name) approve agents' requests for your logins (code \($0))" }
             ?? "let your iPhone approve agents' requests for your logins")
     }
 
-    public func removePairedDevice(publicKey: Data) async throws {
-        try await persist(deviceChange: .remove(publicKey), reason: "stop your iPhone approving agents' requests")
+    public func removePairedDevice(publicKey: Data, context: LAContext) async throws {
+        try await persist(deviceChange: .remove(publicKey), context: context, reason: "stop your iPhone approving agents' requests")
     }
 
-    public func save(_ snapshot: AccessRulesConfirmationSnapshot, reason: String) async throws {
-        try await persist(policies: snapshot.policies, confirming: true, reason: reason)
+    public func save(_ snapshot: AccessRulesConfirmationSnapshot, reason: String, context: LAContext) async throws {
+        try await persist(policies: snapshot.policies, confirming: true, context: context, reason: reason)
     }
 
+    /// Signs with the caller's context, which Josh has approved in the window
+    /// that asked. The store never makes its own, so it can't open a dialog.
     private func persist(policies: [UUID: CredentialAccessPolicy]? = nil, confirming: Bool = false,
-        deviceChange: PairedDeviceChange? = nil, reason: String) async throws {
+        deviceChange: PairedDeviceChange? = nil, context: LAContext, reason: String) async throws {
         let contents: FileContents?
         do { contents = try loadVerifiedContents() }
         catch {
@@ -267,10 +269,10 @@ private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", c
         if fileManager.fileExists(atPath: fileURL.path) {
             try validateOwnedRegularFile(fileURL)
         }
-        let context = LAContext()
-        defer { context.invalidate() }
         try await authorizeSave?(context, signingReason)
-        let signature = try await signer.sign(bytes, reason: signingReason, context: context)
+        // LAContext is safe to use from any thread; the signer runs off the main actor.
+        nonisolated(unsafe) let signingContext = context
+        let signature = try await signer.sign(bytes, reason: signingReason, context: signingContext)
         try await commitSave?(savedPolicies, CredentialLeaseStore.SavedRules(bytes: bytes, signature: signature), context)
         do {
             if fileManager.fileExists(atPath: signatureURL.path) { try validateOwnedRegularFile(signatureURL) }

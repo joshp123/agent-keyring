@@ -139,7 +139,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                     }
                 )
                 do {
-                    try await fixturePolicyStore.save(assignments)
+                    try await fixturePolicyStore.save(assignments, context: LAContext())
                     await model.accessControl.refresh(from: accessControlFixture)
                     presentation.requestAccessWindow()
                 } catch {

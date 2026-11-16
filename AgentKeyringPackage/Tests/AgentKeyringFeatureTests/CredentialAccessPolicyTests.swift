@@ -1,5 +1,7 @@
 import AgentKeyringTestSupport
+import LocalAuthentication
 import CryptoKit
+import LocalAuthentication
 import Darwin
 import Foundation
 import Testing
@@ -24,10 +26,10 @@ struct CredentialAccessPolicyTests {
         )
         #expect(controller.releaseDecision(for: credentialID, field: .username) == .release)
 
-        await controller.setPolicy(.allowAutomatically, for: [credentialID])
+        await controller.setPolicy(.allowAutomatically, for: [credentialID], context: LAContext())
         #expect(controller.releaseDecision(for: credentialID, field: .password) == .release)
 
-        await controller.setPolicy(.block, for: [credentialID])
+        await controller.setPolicy(.block, for: [credentialID], context: LAContext())
         #expect(controller.releaseDecision(for: credentialID, field: .username) == .block)
         #expect(controller.releaseDecision(for: credentialID, field: .password) == .block)
     }
@@ -43,7 +45,7 @@ struct CredentialAccessPolicyTests {
         let controller = CredentialAccessController(store: fixture.store)
 
         await controller.refresh(from: first)
-        await controller.setPolicy(.allowAutomatically, for: [credentialID])
+        await controller.setPolicy(.allowAutomatically, for: [credentialID], context: LAContext())
 
         let reloaded = CredentialAccessController(store: fixture.store)
         await reloaded.refresh(from: fixture.generation(id: UUID(), credentialID: credentialID))
@@ -82,7 +84,7 @@ struct CredentialAccessPolicyTests {
         let firstID = first.items[0].id
         await controller.refresh(from: first)
 
-        await controller.setPolicies([firstID: .block])
+        await controller.setPolicies([firstID: .block], context: LAContext())
 
         #expect(controller.count(for: .ask) == 0)
         #expect(controller.count(for: .block) == 1)
@@ -126,7 +128,7 @@ struct CredentialAccessPolicyTests {
             if index >= 492 { return (item.id, .block) }
             return nil
         })
-        await controller.setPolicies(assignments)
+        await controller.setPolicies(assignments, context: LAContext())
 
         #expect(controller.count(for: .ask) == 440)
         #expect(controller.count(for: .allowAutomatically) == 52)
@@ -139,7 +141,7 @@ struct CredentialAccessPolicyTests {
         controller.selectedPolicy = .block
         #expect(controller.visibleRows.map(\.title) == ["Credential 522"])
 
-        await controller.setPolicy(.ask, for: [generation.items[521].id])
+        await controller.setPolicy(.ask, for: [generation.items[521].id], context: LAContext())
         #expect(controller.count(for: .ask) == 441)
         #expect(controller.count(for: .block) == 29)
     }
@@ -179,7 +181,7 @@ struct CredentialAccessPolicyTests {
         let store = fixture.store
         try await confirmInitialAccessRules(in: store)
         for policy in [CredentialAccessPolicy.block, .allowAutomatically, .ask] {
-            try await store.save([UUID(): policy])
+            try await store.save([UUID(): policy], context: LAContext())
             let bytes = try Data(contentsOf: fixture.fileURL)
             let signatureURL = await store.signatureURL
             #expect(try FakeAccessRulesSigner().verify(Data(contentsOf: signatureURL), for: bytes))
@@ -198,7 +200,7 @@ struct CredentialAccessPolicyTests {
         let signature = try Data(contentsOf: signatureURL)
         let store = CredentialAccessPolicyStore(fileURL: fixture.fileURL,
             signer: FakeAccessRulesSigner(refusesSigning: true, signedBytes: bytes))
-        await #expect(throws: CocoaError.self) { try await store.save([UUID(): .allowAutomatically]) }
+        await #expect(throws: CocoaError.self) { try await store.save([UUID(): .allowAutomatically], context: LAContext()) }
         #expect(try Data(contentsOf: fixture.fileURL) == bytes)
         #expect(try Data(contentsOf: signatureURL) == signature)
     }
@@ -215,7 +217,7 @@ struct CredentialAccessPolicyTests {
         await controller.refresh(from: generation)
         controller.stagePhoneBlock(for: chosenID)
         controller.stagePhoneBlock(for: otherID)
-        await controller.setPolicy(choice, for: [chosenID])
+        await controller.setPolicy(choice, for: [chosenID], context: LAContext())
         #expect(controller.policy(for: chosenID) == choice)
         #expect(!controller.hasPendingPhoneBlock(for: chosenID))
         #expect(!controller.hasPendingPhoneBlock(for: otherID))
@@ -240,7 +242,7 @@ struct CredentialAccessPolicyTests {
         try Data("bad test signature".utf8).write(to: fixture.fileURL.appendingPathExtension("signature"))
         await controller.refresh(from: generation)
         #expect(controller.canConfirmRules)
-        await controller.confirmRules()
+        await controller.confirmRules(context: LAContext())
         #expect(!controller.needsConfirmation)
         #expect(!controller.hasPendingPhoneBlock(for: chosenID))
         #expect(!controller.hasPendingPhoneBlock(for: otherID))
@@ -268,7 +270,7 @@ struct CredentialAccessPolicyTests {
         await restarted.refresh(from: generation)
         #expect(restarted.releaseDecision(for: blockedID, field: .password) == .block)
         #expect(try await restartedStore.load()[blockedID] == nil)
-        await restarted.setPolicy(.ask, for: [otherID])
+        await restarted.setPolicy(.ask, for: [otherID], context: LAContext())
         #expect(restarted.pendingPhoneBlockCount == 0)
         #expect(try await restartedStore.load()[blockedID] == .block)
         let relaunched = CredentialAccessController(store: fixture.store)
@@ -288,11 +290,11 @@ struct CredentialAccessPolicyTests {
         await controller.refresh(from: generation)
         #expect(!controller.hasPairedApprovalDevice)
         let device = PairedApprovalDevice(publicKey: P256.Signing.PrivateKey().publicKey, name: "Test iPhone")
-        try await fixture.store.addPairedDevice(device)
+        try await fixture.store.addPairedDevice(device, context: LAContext())
         await controller.refresh(from: generation)
         #expect(controller.hasPairedApprovalDevice)
         #expect(try await controller.pairedDevicePublicKeys() == [device.publicKey])
-        try await fixture.store.removePairedDevice(publicKey: device.publicKey)
+        try await fixture.store.removePairedDevice(publicKey: device.publicKey, context: LAContext())
         await controller.refresh(from: generation)
         #expect(!controller.hasPairedApprovalDevice)
     }

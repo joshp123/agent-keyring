@@ -1,6 +1,7 @@
 import AppKit
 import AuthenticationServices
 import Foundation
+import LocalAuthentication
 import OSLog
 
 private let credentialExchangeLogger = Logger(
@@ -10,6 +11,20 @@ private let credentialExchangeLogger = Logger(
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
+    /// Sends the imported list to the Mac mini, signed with a context Josh has
+    /// already approved in the panel.
+    public func sendImportedLogins(context: LAContext) async throws {
+        try await relayApprover.publishCurrentRules(context: context,
+            reason: "let agents on your other machines use the logins you just imported")
+        importedLoginsAwaitApproval = false
+    }
+
+    /// "Not now": the rules window keeps offering to send the list.
+    public func declineSendingImportedLogins() {
+        importedLoginsAwaitApproval = false
+        relayApprover.noteRulesChanged()
+    }
+
     public func receive(_ activity: NSUserActivity) {
         credentialExchangeLogger.info(
             "Received user activity type: \(activity.activityType, privacy: .public)"
@@ -159,20 +174,11 @@ extension MirrorAppModel {
                 let vault = RelayApproverVault(generation: visibleGeneration,
                     policies: Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, accessControl.policy(for: $0.id)) }))
                 if try relayApprover.requiresPublicationConfirmation(vault) {
-                    do {
-                        try await relayApprover.publishCurrentRules(reason: "let agents on your other machines use the logins you just imported")
-                        if relayApprover.isApplying {
-                            notice = MirrorNotice(kind: .information,
-                                text: "Your logins were saved. Agent Keyring will send the updated list to your Mac mini when it reconnects.")
-                            return
-                        }
-                    } catch {
-                        relayApprover.noteRulesChanged()
-                        credentialExchangeLogger.error("Imported logins could not be sent to the relay")
-                        notice = MirrorNotice(kind: .warning,
-                            text: "Your logins were saved on this Mac, but other machines still have the previous list. Export from Apple Passwords again to send the updated list.")
-                        return
-                    }
+                    // Josh approves sending the list in a panel beside his window.
+                    importedLoginsAwaitApproval = true
+                    notice = MirrorNotice(kind: .information,
+                        text: "Import complete. Agents on your other machines can use the new list once you allow it.")
+                    return
                 } else {
                     relayApprover.noteRulesChanged()
                 }

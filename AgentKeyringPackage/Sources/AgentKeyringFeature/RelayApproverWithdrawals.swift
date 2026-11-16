@@ -47,7 +47,7 @@ struct RelaySavedWithdrawal: Codable {
 }
 
 extension RelayApprover {
-    public func removePhone(_ keyID: String, context: LAContext = LAContext()) async throws {
+    public func removePhone(_ keyID: String, context: LAContext) async throws {
         try load()
         let queuedID = "remove-phone:" + keyID
         if state.outbox.contains(where: { $0.id == queuedID }) { await flushOutbox(); return }

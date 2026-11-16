@@ -1,19 +1,17 @@
 // Written by AI on 2026.10.31 by model Claude Opus 5.5.
 //
 // The Machines window (RFC 0007 U4): the Mac's link to the relay, set up
-// once by comparing a code, machines waiting to join, and machines that can
+// once by an agent, machines waiting to join, and machines that can
 // ask, each removable. Opened from the menu bar.
 
 #if os(macOS)
+import LocalAuthentication
 import Observation
 import SwiftUI
 
 public enum RelayLink: Hashable, Sendable {
     case notSetUp
     case connecting(address: String)
-    /// First setup: the code this Mac computed, to compare with the relay's
-    /// code that setup brings over SSH.
-    case comparing(code: String, address: String)
     case connected(address: String)
     case offline(address: String)
 }
@@ -99,14 +97,12 @@ public protocol MacMachinesBackend: AnyObject {
     /// The current snapshot first, then one each time anything changes.
     func updates() -> AsyncStream<MachinesSnapshot>
     func connect(host: String, port: UInt16) async throws
-    /// Josh compared the relay's code; Touch ID confirms.
-    func confirmRelay(comparedCode: String) async throws
     /// Abandons an unconfirmed first setup. Fails once it has been confirmed.
     func cancelRelaySetup() throws
     /// Removes a machine's right to ask, with Touch ID.
-    func remove(machineID: String) async throws
+    func remove(machineID: String, context: LAContext) async throws
     /// Removes an iPhone's right to approve, with Touch ID.
-    func removePhone(keyID: String) async throws
+    func removePhone(keyID: String, context: LAContext) async throws
     func setAskPhoneAfter(_ delay: Duration)
 }
 
@@ -145,21 +141,32 @@ public final class MacMachinesModel {
         }
     }
 
-    public func confirmRelay() async {
-        guard case let .comparing(code, _) = snapshot.relay else { return }
-        await run(SetupCopy.joiningFailed) { try await backend.confirmRelay(comparedCode: code) }
-    }
-
     public func cancelRelaySetup() async {
         await run("The setup couldn't be cancelled.") { try backend.cancelRelaySetup() }
     }
 
-    public func removePhone(_ keyID: String) async {
-        await run("The iPhone wasn't removed. Try again.") { try await backend.removePhone(keyID: keyID) }
+    /// Set while a removal waits for Touch ID or Apple Watch in this window.
+    public private(set) var approval: OwnerApproval?
+
+    public func removePhone(_ phone: ApproverDevice) {
+        ask(action: SetupCopy.removePhoneAction(phone.name), note: SetupCopy.removePhoneMessage,
+            reason: SetupCopy.removePhoneAction(phone.name)) { [backend] context in
+            try await backend.removePhone(keyID: phone.keyID, context: context)
+        }
     }
 
-    public func remove(_ machineID: String) async {
-        await run("The machine wasn't removed. Try again.") { try await backend.remove(machineID: machineID) }
+    public func remove(_ machine: EnrolledMachine) {
+        ask(action: SetupCopy.removeMachineAction(machine.name), note: nil,
+            reason: SetupCopy.removeMachineAction(machine.name)) { [backend] context in
+            try await backend.remove(machineID: machine.id, context: context)
+        }
+    }
+
+    private func ask(action: String, note: String?, reason: String, perform: @escaping @MainActor (LAContext) async throws -> Void) {
+        approval?.cancel()
+        approval = OwnerApproval(action: action, note: note, reason: reason, perform: perform) { [weak self] _ in
+            self?.approval = nil
+        }
     }
 
     public static let phoneDelays: [Duration] = [.seconds(30), .seconds(60), .seconds(120), .seconds(300), .seconds(540)]
@@ -183,7 +190,6 @@ public final class MacMachinesModel {
 
 public struct MacMachinesView: View {
     @Bindable var model: MacMachinesModel
-    @State private var phoneToRemove: ApproverDevice?
 
     public init(model: MacMachinesModel) {
         self.model = model
@@ -191,6 +197,9 @@ public struct MacMachinesView: View {
 
     public var body: some View {
         Form {
+            if let approval = model.approval {
+                Section { OwnerApprovalBar(approval: approval) }
+            }
             // Once connected, the link to the Mac mini is nothing Josh acts on, so it isn't shown.
             if !model.snapshot.relay.isConnected {
                 Section(SetupCopy.relayHeading) { relay }
@@ -236,7 +245,7 @@ public struct MacMachinesView: View {
                                 symbol: approver.isPhone ? "iphone" : "laptopcomputer")
                             if approver.isPhone {
                                 Spacer()
-                                Button(SetupCopy.remove) { phoneToRemove = approver }
+                                Button(SetupCopy.remove) { model.removePhone(approver) }
                                     .foregroundStyle(KeyringColour.denyText)
                                     .disabled(model.isWorking)
                             }
@@ -269,7 +278,7 @@ public struct MacMachinesView: View {
                                 detail: machine.automaticAllowed ? SetupCopy.automaticAllowed : SetupCopy.asksEveryTime,
                                 symbol: "desktopcomputer")
                             Spacer()
-                            Button(SetupCopy.remove) { Task { await model.remove(machine.id) } }
+                            Button(SetupCopy.remove) { model.remove(machine) }
                                 .foregroundStyle(KeyringColour.denyText)
                                 .disabled(model.isWorking)
                         }
@@ -280,14 +289,6 @@ public struct MacMachinesView: View {
         .formStyle(.grouped)
         .frame(minWidth: 520, idealWidth: 560, minHeight: 420)
         .task { await model.followUpdates() }
-        .confirmationDialog(phoneToRemove.map { SetupCopy.removePhoneTitle($0.name) } ?? "",
-            isPresented: removingPhone, titleVisibility: .visible, presenting: phoneToRemove) { phone in
-            Button(SetupCopy.removeWithTouchID, role: .destructive) {
-                Task { await model.removePhone(phone.keyID) }
-            }
-        } message: { _ in
-            Text(SetupCopy.removePhoneMessage)
-        }
         .alert("Something went wrong", isPresented: failureShown) {
             Button("OK") { model.dismissFailure() }
         } message: {
@@ -314,24 +315,6 @@ public struct MacMachinesView: View {
                 ProgressView().controlSize(.small)
                 Text(SetupCopy.relayConnecting(address))
             }
-        case .comparing:
-            // The setup agent has already checked the code; Josh only decides.
-            VStack(alignment: .leading, spacing: 10) {
-                Text(SetupCopy.connectToMiniTitle)
-                    .font(.headline)
-                Text(SetupCopy.connectToMiniBody)
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 10) {
-                    Button(SetupCopy.notNow) { Task { await model.cancelRelaySetup() } }
-                        .buttonStyle(.quiet(height: 32))
-                    Button { Task { await model.confirmRelay() } } label: {
-                        Label(SetupCopy.allow, systemImage: "touchid")
-                    }
-                    .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 32))
-                }
-                .disabled(model.isWorking)
-            }
-            .padding(.vertical, 4)
         case let .connected(address):
             StatusLine(symbol: "checkmark.circle.fill", colour: KeyringColour.approveText,
                 text: SetupCopy.relayConnected(address), detail: queuedDetail)
@@ -349,9 +332,6 @@ public struct MacMachinesView: View {
         Binding(get: { model.snapshot.askPhoneAfter }, set: { model.setAskPhoneAfter($0) })
     }
 
-    private var removingPhone: Binding<Bool> {
-        Binding(get: { phoneToRemove != nil }, set: { if !$0 { phoneToRemove = nil } })
-    }
 
     private var failureShown: Binding<Bool> {
         Binding(get: { model.failure != nil }, set: { if !$0 { model.dismissFailure() } })

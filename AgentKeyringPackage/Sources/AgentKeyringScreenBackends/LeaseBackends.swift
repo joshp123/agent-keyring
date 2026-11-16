@@ -151,13 +151,13 @@ public final class AccessRulesBackend: LoginRulesBackend {
         return stream(Observations { backend.snapshot() })
     }
 
-    public func setRule(_ rule: LoginRule, for loginIDs: Set<UUID>) async throws {
-        await controller.setPolicy(CredentialAccessPolicy(rule), for: loginIDs)
+    public func setRules(_ rules: [UUID: LoginRule], context: LAContext) async throws {
+        await controller.setPolicies(rules.mapValues(CredentialAccessPolicy.init), context: context)
         if let message = controller.errorMessage { throw RulesFailure(message: message) }
     }
 
-    public func confirmRules() async throws {
-        await controller.confirmRules()
+    public func confirmRules(context: LAContext) async throws {
+        await controller.confirmRules(context: context)
         // Done only when neither this Mac's rules nor the relay's copy waits for Josh.
         if controller.needsConfirmation || controller.needsRelayPublicationConfirmation {
             throw RulesFailure(message: controller.errorMessage ?? "Confirmation didn't finish. Try again.")
@@ -200,7 +200,7 @@ struct RulesFailure: LocalizedError {
 }
 
 extension LoginRule {
-    init(_ policy: CredentialAccessPolicy) {
+    public init(_ policy: CredentialAccessPolicy) {
         switch policy {
         case .ask: self = .ask
         case .allowAutomatically: self = .automatic

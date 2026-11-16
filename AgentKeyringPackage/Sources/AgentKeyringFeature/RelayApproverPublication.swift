@@ -4,8 +4,8 @@ import Foundation
 import LocalAuthentication
 
 extension RelayApprover {
-    public func publishCurrentRules(context: LAContext = LAContext(),
-        reason: String = "send your rules and machines to your Mac mini") async throws {
+    public func publishCurrentRules(context: LAContext,
+        reason: String = "let agents on your other machines use your current logins and rules") async throws {
         try load()
         _ = try currentKeySet()
         try await prepareForPublication()

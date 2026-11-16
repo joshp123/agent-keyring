@@ -22,11 +22,13 @@ final class ApprovalPresenter {
         case remote(String)
         case joining(String)
         case relay
+        case sendImported
 
         var isRequest: Bool {
-            if case .joining = self { return false }
-            if case .relay = self { return false }
-            return true
+            switch self {
+            case .local, .remote: true
+            case .joining, .relay, .sendImported: false
+            }
         }
     }
 
@@ -35,11 +37,10 @@ final class ApprovalPresenter {
     private let remoteBackend: RelayApprovalBackend
     private let joiningBackend: RelayEnrolmentBackend
     private let panel = MacApprovalPanelController()
-    private var relayPanel: NSPanel?
     private var shownItem: Item?
     private var shownRequest: MacApprovalModel?
     private var shownEnrolment: MacEnrolmentModel?
-    private var relayApproval: RelayConnectionApproval?
+    private var question: OwnerApproval?
     private var following: Task<Void, Never>?
     private var closingAfterAnswer: Task<Void, Never>?
 
@@ -77,7 +78,8 @@ final class ApprovalPresenter {
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
         let remote = relay.requests.filter { $0.lease.state == .pending && !$0.answerIsQueued }
             .map { (Item.remote($0.id), $0.record.createdUnixSeconds) }
-        return relaySetup + joining + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
+        let sendImported: [Item] = model.importedLoginsAwaitApproval ? [.sendImported] : []
+        return relaySetup + joining + sendImported + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
     }
 
     private func update(_ items: [Item]) {
@@ -101,18 +103,24 @@ final class ApprovalPresenter {
         shownRequest?.stopWaitingForTouch()
         shownEnrolment?.stopAuthentication()
         shownEnrolment = nil
-        relayApproval?.stop()
-        relayApproval = nil
+        question = nil
         panel.close()
-        relayPanel?.orderOut(nil)
-        relayPanel = nil
         closingAfterAnswer?.cancel()
         closingAfterAnswer = nil
         let more = waiting.filter { $0 != item && $0.isRequest }.count
         switch item {
         case .relay:
-            showRelayPrompt()
-            shownRequest = nil
+            let relay = model.relayApprover
+            ask(SetupCopy.connectToMiniTitle, SetupCopy.connectToMiniBody,
+                reason: "let agents on your other machines use your logins, with your approval, through your Mac mini",
+                perform: { context in try await relay.confirmPairing(comparedFingerprint: "", context: context) },
+                declined: { try? relay.abandonPairing() })
+        case .sendImported:
+            let model = model
+            ask(SetupCopy.sendImportedTitle, SetupCopy.sendImportedBody,
+                reason: "let agents on your other machines use the logins you just imported",
+                perform: { context in try await model.sendImportedLogins(context: context) },
+                declined: { model.declineSendingImportedLogins() })
         case let .local(id):
             guard let lease = model.leaseStore.waitingRequests.first(where: { $0.leaseID == id }) else { return }
             showRequest(MacApprovalModel(request: model.accessRequest(for: lease), moreWaiting: more, backend: localBackend))
@@ -140,151 +148,24 @@ final class ApprovalPresenter {
         shownRequest?.stopWaitingForTouch()
         shownEnrolment?.stopAuthentication()
         shownEnrolment = nil
-        relayApproval?.stop()
-        relayApproval = nil
+        question = nil
         closingAfterAnswer?.cancel()
         closingAfterAnswer = nil
         panel.close()
-        relayPanel?.orderOut(nil)
-        relayPanel = nil
         shownItem = nil
         shownRequest = nil
         if let next = waiting.first { show(next) }
     }
 
-    private func showRelayPrompt() {
-        let relay = model.relayApprover
-        let approval = RelayConnectionApproval()
-        relayApproval = approval
-        let content = RelayConnectionPrompt(approval: approval, confirm: { context in
-            try await relay.confirmPairing(comparedFingerprint: "", context: context) { approval.cancelTimeout() }
-        }, cancel: {
-            try relay.abandonPairing()
-        }, done: { [weak self] in self?.dismiss() })
-        let controller = NSHostingController(rootView: content)
-        controller.sizingOptions = [.preferredContentSize]
-        let window = NSPanel(contentRect: .zero, styleMask: [.nonactivatingPanel, .borderless],
-            backing: .buffered, defer: false)
-        window.contentViewController = controller
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = true
-        window.level = .statusBar
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.hidesOnDeactivate = false
-        window.becomesKeyOnlyIfNeeded = true
-        window.setContentSize(controller.view.fittingSize)
-        window.setFrame(ApprovalPanelPlacement.frame(panel: window.frame.size,
-            focusedWindow: ApprovalPanelPlacement.focusedWindow(), pointer: NSEvent.mouseLocation,
-            visibleFrames: NSScreen.screens.map(\.visibleFrame)), display: false)
-        relayPanel = window
-        window.orderFrontRegardless()
-    }
-}
-
-@MainActor @Observable
-private final class RelayConnectionApproval {
-    var context: LAContext? = makeContext()
-    var task: Task<Void, Never>?
-    var previous: Task<Void, Never>?
-    var timeout: Task<Void, Never>?
-    var id = UUID()
-    var failure: String?
-
-    init() {
-        if context == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
-    }
-
-    private static func makeContext() -> LAContext? {
-        let context = LAContext()
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) ? context : nil
-    }
-
-    func stop() {
-        id = UUID()
-        if let task { previous = task }
-        task?.cancel()
-        task = nil
-        timeout?.cancel()
-        timeout = nil
-        context?.invalidate()
-        context = nil
-    }
-
-    func retry() {
-        stop()
-        failure = nil
-        context = Self.makeContext()
-        if context == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
-    }
-
-    func cancelTimeout() {
-        timeout?.cancel()
-        timeout = nil
-    }
-
-    func wait(context: LAContext, confirm: @escaping @MainActor (LAContext) async throws -> Void,
-        done: @escaping @MainActor () -> Void) {
-        guard task == nil else { return }
-        let currentID = id
-        let previous = previous
-        self.previous = nil
-        timeout = Task {
-            do { try await Task.sleep(for: .seconds(60)) } catch { return }
-            guard id == currentID else { return }
-            stop()
-            failure = "Approval timed out. Try again."
+    /// A yes-or-no question beside Josh's window, approved in place.
+    private func ask(_ title: String, _ message: String, reason: String,
+        perform: @escaping @MainActor (LAContext) async throws -> Void, declined: @escaping @MainActor () -> Void) {
+        let approval = OwnerApproval(action: SetupCopy.allow.lowercased(), reason: reason, perform: perform) { [weak self] approved in
+            if !approved { declined() }
+            self?.dismiss()
         }
-        task = Task {
-            await previous?.value
-            guard !Task.isCancelled, id == currentID else { return }
-            do {
-                try await confirm(context)
-                guard !Task.isCancelled, id == currentID else { return }
-                done()
-            } catch {
-                guard !Task.isCancelled, id == currentID else { return }
-                failure = ownerAuthenticationFailure(error, fallback: "Couldn't connect. Try again.")
-                self.context = nil
-            }
-            if id == currentID { task = nil; timeout?.cancel(); timeout = nil }
-        }
-    }
-}
-
-private struct RelayConnectionPrompt: View {
-    @Bindable var approval: RelayConnectionApproval
-    let confirm: @MainActor (LAContext) async throws -> Void
-    let cancel: @MainActor () throws -> Void
-    let done: @MainActor () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(SetupCopy.connectToMiniTitle).font(.headline)
-            Text(SetupCopy.connectToMiniBody)
-                .font(.callout).foregroundStyle(.secondary)
-            if let failure = approval.failure { Text(failure).font(.callout).foregroundStyle(KeyringColour.denyText) }
-            HStack(spacing: 10) {
-                Button(SetupCopy.notNow) {
-                    approval.stop()
-                    do { try cancel(); done() }
-                    catch { approval.failure = (error as? LocalizedError)?.errorDescription ?? "Couldn't cancel. Try again." }
-                }
-                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 36))
-                if let context = approval.context {
-                    EmbeddedOwnerApproval(context: context, action: SetupCopy.allow.lowercased())
-                        .id(ObjectIdentifier(context))
-                        .onAppear { approval.wait(context: context, confirm: confirm, done: done) }
-                } else {
-                    Button("Try again") { approval.retry() }
-                        .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
-                }
-            }
-        }
-        .padding(20)
-        .frame(width: 360)
-        .background(KeyringColour.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onDisappear { approval.stop() }
+        question = approval
+        shownRequest = nil
+        panel.show(question: title, message: message, approval: approval)
     }
 }

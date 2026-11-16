@@ -49,7 +49,10 @@ public final class MirrorAppModel {
     let resolver: CredentialResolver
     public let leaseStore: CredentialLeaseStore
     @ObservationIgnored public lazy var relayApprover: RelayApprover = makeRelayApprover()
-    public var automaticallyPromptForLeases = true
+    /// Kept for the test fixtures; the app answers every request in its own panel.
+    public var automaticallyPromptForLeases = false
+    /// A new import changed the list the Mac mini holds; Josh hasn't yet allowed sending it.
+    public internal(set) var importedLoginsAwaitApproval = false
     var macApprovalTask: Task<Void, Never>?
     var isApprovingLease = false
     var attemptedMacApprovals = Set<String>()

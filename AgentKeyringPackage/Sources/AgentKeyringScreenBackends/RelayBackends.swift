@@ -214,7 +214,7 @@ public final class RelayEnrolmentBackend: MacEnrolmentBackend {
             try screenErrors { try relay.dismissApproverPairing(enrolmentID) }
             return
         }
-        try await screenErrors { try await relay.denyEnrolment(enrolmentID, context: LAContext()) }
+        try await screenErrors { try await relay.denyEnrolment(enrolmentID) }
     }
 }
 
@@ -254,20 +254,16 @@ public final class RelayMachinesBackend: MacMachinesBackend {
         try await screenErrors { try await relay.beginPairing(try RelayEndpoint(host: host, port: port)) }
     }
 
-    public func confirmRelay(comparedCode: String) async throws {
-        try await screenErrors { try await relay.confirmPairing(comparedFingerprint: comparedCode, context: LAContext()) }
-    }
-
     public func cancelRelaySetup() throws {
         try screenErrors { try relay.abandonPairing() }
     }
 
-    public func removePhone(keyID: String) async throws {
-        try await screenErrors { try await relay.removePhone(keyID, context: LAContext()) }
+    public func removePhone(keyID: String, context: LAContext) async throws {
+        try await screenErrors { try await relay.removePhone(keyID, context: context) }
     }
 
-    public func remove(machineID: String) async throws {
-        try await screenErrors { try await relay.revokeMachine(machineID, context: LAContext()) }
+    public func remove(machineID: String, context: LAContext) async throws {
+        try await screenErrors { try await relay.revokeMachine(machineID, context: context) }
     }
 
     /// The Mac's escalation delay (RFC 0006), stored on this Mac.

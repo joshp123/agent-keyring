@@ -63,4 +63,11 @@ public enum RulesCopy {
     public static let otherMachinesNeedRulesTitle = "Confirm rules for other machines"
     public static let otherMachinesNeedRulesDetail = "Your other machines need them"
     public static let confirmButton = "Confirm"
+    public static let confirmAction = "confirm these rules"
+    /// "set airbnb.com to Automatic", "set 3 logins to Blocked", "change 5 rules".
+    public static func changeAction(sites: [String], to rule: LoginRule?) -> String {
+        guard let rule else { return "change \(sites.count) rules" }
+        return sites.count == 1 ? "set \(sites[0]) to \(rule.name)" : "set \(sites.count) logins to \(rule.name)"
+    }
+    public static let approvalReason = "set which of your logins agents may use"
 }

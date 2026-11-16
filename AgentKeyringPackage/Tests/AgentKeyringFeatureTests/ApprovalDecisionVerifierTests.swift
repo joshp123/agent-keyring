@@ -1,5 +1,7 @@
 import CryptoKit
+import LocalAuthentication
 import AgentKeyringTestSupport
+import LocalAuthentication
 import Foundation
 import Synchronization
 import Testing
@@ -157,8 +159,8 @@ struct ApprovalDecisionVerifierTests {
         try await verifier.register(request)
         let decision = try fixture.decision(request.signedFields)
         await #expect(throws: ApprovalDecisionRefusal.unpairedDevice) { try await verifier.verify(decision) }
-        try await fixture.store.addPairedDevice(fixture.device)
-        try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey)
+        try await fixture.store.addPairedDevice(fixture.device, context: LAContext())
+        try await fixture.store.removePairedDevice(publicKey: fixture.device.publicKey, context: LAContext())
         await #expect(throws: ApprovalDecisionRefusal.unpairedDevice) { try await verifier.verify(decision) }
     }
 
@@ -197,7 +199,7 @@ struct PhoneApprovalFixture {
 
     func pair() async throws {
         try await confirmInitialAccessRules(in: store)
-        try await store.addPairedDevice(device)
+        try await store.addPairedDevice(device, context: LAContext())
     }
 
     func request(action: ApprovalAction = .fill) throws -> ApprovalRequest {
@@ -223,7 +225,7 @@ final class CryptoKitRulesTestSigner: AccessRulesSigning {
     var signingReason: String? { state.withLock { $0.reason } }
     func refuseSigning() { state.withLock { $0.refusesSigning = true } }
 
-    func sign(_ bytes: Data, reason: String) async throws -> Data {
+    func sign(_ bytes: Data, reason: String, context: LAContext) async throws -> Data {
         try state.withLock {
             if $0.refusesSigning { throw CocoaError(.userCancelled) }
             $0.hash = Data(SHA256.hash(data: bytes))
