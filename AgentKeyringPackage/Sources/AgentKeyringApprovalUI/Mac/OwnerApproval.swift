@@ -68,6 +68,8 @@ public final class OwnerApproval: Identifiable {
                 guard attempt == current else { return }
                 task = nil
                 finished = true
+                context.invalidate()
+                self.context = nil
                 finish(true)
             } catch is CancellationError {
             } catch {
