@@ -90,8 +90,10 @@ final class ApprovalPresenter {
         shownRequest?.moreWaiting = items.filter { $0 != shownItem && $0.isRequest }.count
         // Answered, withdrawn or timed out: show the outcome briefly, then move on.
         if !items.contains(shownItem), closingAfterAnswer == nil {
+            // A denial stays up long enough to take back with "Let it ask again".
+            let linger: Duration = shownRequest?.isHoldingOff == true ? .seconds(10) : .seconds(2.5)
             closingAfterAnswer = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(2.5))
+                try? await Task.sleep(for: linger)
                 guard !Task.isCancelled else { return }
                 self?.dismiss()
             }

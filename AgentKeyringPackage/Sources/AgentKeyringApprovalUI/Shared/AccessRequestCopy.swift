@@ -124,6 +124,11 @@ public enum AccessRequestCopy {
         "New requests from this machine are held off until \(clock(date))."
     }
     public static let letAskAgain = "Let it ask again"
+    /// Every denial Josh makes holds the login off for 30 minutes.
+    public static func heldOff(_ agent: RequestingAgent) -> String {
+        "\(agent.name) can't ask for this login again for 30 minutes unless you let it."
+    }
+    public static func mayAskAgain(_ agent: RequestingAgent) -> String { "\(agent.name) can ask again." }
 
     // MARK: States
 

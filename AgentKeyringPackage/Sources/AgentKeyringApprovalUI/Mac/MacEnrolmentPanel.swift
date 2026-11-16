@@ -57,7 +57,7 @@ public final class MacEnrolmentModel {
         self.contextFactory = contextFactory
         if enrolment.kind == .machine {
             authenticationContext = contextFactory()
-            if authenticationContext == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
+            if authenticationContext == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready." }
         }
     }
 
@@ -86,7 +86,7 @@ public final class MacEnrolmentModel {
         guard (enrolment.kind == .machine || phoneComparisonConfirmed), outcome == nil else { return }
         failure = nil
         authenticationContext = contextFactory()
-        if authenticationContext == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
+        if authenticationContext == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready." }
     }
 
     public func stopAuthentication() {
@@ -110,7 +110,7 @@ public final class MacEnrolmentModel {
             do { try await Task.sleep(for: authenticationTimeoutDuration) } catch { return }
             guard authenticationID == id, outcome == nil else { return }
             stopAuthentication()
-            failure = "Approval timed out. Try again."
+            failure = "Approval timed out."
         }
         authenticationTask = Task {
             await previous?.value

@@ -20,9 +20,9 @@ public func ownerAuthenticationFailure(_ error: Error, fallback: String) -> Stri
     if native.domain == LAError.errorDomain, let code = LAError.Code(rawValue: native.code) {
         switch code {
         case .systemCancel, .appCancel, .userCancel:
-            return "Approval was interrupted. Try again."
+            return "Approval was interrupted."
         case .companionNotAvailable, .biometryNotAvailable, .biometryNotEnrolled, .biometryNotPaired, .biometryDisconnected:
-            return "Touch ID or Apple Watch isn't available. Check that one is ready and try again."
+            return "Touch ID or Apple Watch isn't available. Check that one is ready."
         default: break
         }
     }
@@ -42,6 +42,8 @@ public protocol MacApprovalBackend: AnyObject {
     /// Runs Touch ID (or Apple Watch) and records the answer. Returns the new state.
     func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState
     func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState
+    /// Lifts the 30-minute hold-off a denial puts on this login, so the agent may ask again.
+    func allowAskingAgain(requestID: String) async throws -> AccessRequestState
 }
 
 @MainActor
@@ -71,7 +73,7 @@ public final class MacApprovalModel {
         self.moreWaiting = moreWaiting
         self.backend = backend
         self.embeddedTouchID = backend.embeddedTouchIDContext(requestID: request.id)
-        if embeddedTouchID == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
+        if embeddedTouchID == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready." }
     }
 
     /// Starts waiting for a touch, if the backend supports it. The request stays
@@ -86,7 +88,7 @@ public final class MacApprovalModel {
             guard touchWaitID == waitID, request.state.isWaitingForYou else { return }
             stopWaitingForTouch()
             embeddedTouchID = nil
-            failure = "Approval timed out. Try again."
+            failure = "Approval timed out."
         }
         touchWait = Task {
             await previous?.value
@@ -106,7 +108,7 @@ public final class MacApprovalModel {
                 let native = error as NSError
                 approvalLogger.error("Approval failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
                 embeddedTouchID = nil
-                failure = ownerAuthenticationFailure(error, fallback: "Approval didn't finish. Nothing was shared. Try again.")
+                failure = ownerAuthenticationFailure(error, fallback: "Approval didn't finish. Nothing was shared.")
             }
             if touchWaitID == waitID { touchWait = nil; timeout?.cancel(); timeout = nil }
         }
@@ -127,7 +129,7 @@ public final class MacApprovalModel {
         guard touchWait == nil else { return }
         failure = nil
         embeddedTouchID = backend.embeddedTouchIDContext(requestID: request.id)
-        if embeddedTouchID == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again." }
+        if embeddedTouchID == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready." }
     }
 
     /// Follows the request until the panel closes. Call from `.task`.
@@ -151,6 +153,24 @@ public final class MacApprovalModel {
         await answer(.deny) { try await backend.deny(requestID: request.id, reply: reply.isEmpty ? nil : reply, context: nil, onAuthenticated: {}) }
     }
 
+    public private(set) var askAgainFailure: String?
+    private var deniedHere = false
+    private var liftedHere = false
+    /// A denial holds the login off for 30 minutes unless Josh lifts it.
+    public var isHoldingOff: Bool {
+        guard case .denied = request.state, !liftedHere else { return false }
+        return deniedHere || request.state.isHoldingOffNewRequests(now: .now)
+    }
+
+    public func allowAskingAgain() async {
+        do {
+            request.state = try await backend.allowAskingAgain(requestID: request.id)
+            liftedHere = true
+        } catch {
+            askAgainFailure = "That didn't go through. Try again."
+        }
+    }
+
     public func cancelDenial() {
         stopWaitingForTouch()
         pendingDenialReply = nil
@@ -166,13 +186,17 @@ public final class MacApprovalModel {
         let previous = request.state
         request.state = .sendingAnswer(choice)
         failure = nil
-        do { request.state = try await send() }
+        do {
+            request.state = try await send()
+            failure = nil
+            if choice == .deny { deniedHere = true }
+        }
         catch {
             let native = error as NSError
             approvalLogger.error("Answer failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
             request.state = previous
             failure = (error as? LocalizedError)?.errorDescription
-                ?? (choice == .approve ? "Approval didn't finish. Nothing was shared. Try again." : "The denial wasn't saved. Try again.")
+                ?? (choice == .approve ? "Approval didn't finish. Nothing was shared." : "The denial wasn't saved. Try again.")
         }
     }
 }
@@ -220,13 +244,18 @@ public struct MacApprovalPanelView: View {
         case .waitingForYou, .sendingAnswer:
             replyField
             answerButtons
+            if let failure = model.failure {
+                Text(failure)
+                    .font(.callout)
+                    .foregroundStyle(KeyringColour.denyText)
+            }
         default:
             outcome
-        }
-        if let failure = model.failure {
-            Text(failure)
-                .font(.callout)
-                .foregroundStyle(KeyringColour.denyText)
+            if let failure = model.askAgainFailure {
+                Text(failure)
+                    .font(.callout)
+                    .foregroundStyle(KeyringColour.denyText)
+            }
         }
     }
 
@@ -313,10 +342,23 @@ public struct MacApprovalPanelView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+                if case .denied = model.request.state {
+                    Text(model.isHoldingOff ? AccessRequestCopy.heldOff(model.request.agent)
+                        : AccessRequestCopy.mayAskAgain(model.request.agent))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        Button("Close", action: model.close)
-            .buttonStyle(.quiet(height: 32))
+        HStack(spacing: 10) {
+            if case .denied = model.request.state, model.isHoldingOff {
+                Button(AccessRequestCopy.letAskAgain) { Task { await model.allowAskingAgain() } }
+                    .buttonStyle(.quiet(height: 32))
+            }
+            Button("Close", action: model.close)
+                .buttonStyle(.quiet(height: 32))
+        }
     }
 }
 

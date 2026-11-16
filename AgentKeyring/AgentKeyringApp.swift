@@ -287,7 +287,7 @@ private struct HistoryRecovery: View {
         failure = nil
         let next = LAContext()
         guard next.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else {
-            failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again."
+            failure = "Touch ID or Apple Watch isn't available. Check that one is ready."
             return
         }
         attempt = UUID()
@@ -311,7 +311,7 @@ private struct HistoryRecovery: View {
             do { try await Task.sleep(for: .seconds(60)) } catch { return }
             guard attempt == id else { return }
             stop()
-            failure = "Approval timed out. Try again."
+            failure = "Approval timed out."
         }
         evaluation = Task { @MainActor in
             do {
@@ -321,7 +321,7 @@ private struct HistoryRecovery: View {
             } catch {
                 guard attempt == id else { return }
                 stop()
-                failure = ownerAuthenticationFailure(error, fallback: "The record wasn't reset. Try again.")
+                failure = ownerAuthenticationFailure(error, fallback: "The record wasn't reset.")
             }
         }
     }
