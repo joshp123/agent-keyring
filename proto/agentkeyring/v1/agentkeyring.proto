@@ -110,6 +110,7 @@ message RequestLeaseRequest {
   // persistent co-located receiver for that OS user. Remote requests name the
   // enrolled recipient. Caller must be permitted to use the resolved recipient.
   string recipient_id = 7;
+  string agent_label = 8;        // Requester's unverified process-ancestry claim.
 }
 
 message LeaseReference {

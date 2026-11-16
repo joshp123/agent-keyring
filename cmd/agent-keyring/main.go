@@ -384,7 +384,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		if requestID == "" {
 			requestID = receiver.NewID()
 		}
-		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: id, TaskRef: a.options["task"], Reason: a.options["reason"], Purpose: purpose, RequestId: requestID, Program: program}}})
+		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: id, TaskRef: a.options["task"], Reason: a.options["reason"], Purpose: purpose, RequestId: requestID, Program: program, AgentLabel: requesterLabel()}}})
 		if e != nil {
 			return 1, e
 		}

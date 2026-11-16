@@ -128,7 +128,7 @@ func expected(state *clientstate.State, lease string) (*pb.RequestLeaseRequest, 
 	return nil, errors.New("This machine has no saved request for that lease. Rejoin the original request on the machine that made it.")
 }
 func scopeMatches(request *pb.RequestLeaseRequest, record *pb.RequestRecord) bool {
-	return request.LoginId == record.LoginId && request.TaskRef == record.TaskRef && request.Purpose == record.Purpose && request.Reason == record.Reason && request.RecipientId == record.RecipientId && proto.Equal(request.Program, record.Program)
+	return request.LoginId == record.LoginId && request.TaskRef == record.TaskRef && request.Purpose == record.Purpose && request.Reason == record.Reason && request.AgentLabel == record.AgentLabel && request.RecipientId == record.RecipientId && proto.Equal(request.Program, record.Program)
 }
 func (c *Client) open(ctx context.Context, lease string, delivery *pb.SealedDelivery) (*pb.BundleContents, error) {
 	if delivery == nil || delivery.Decision == nil || delivery.Bundle == nil {

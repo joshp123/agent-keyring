@@ -269,7 +269,7 @@ func (s *Server) requestLease(tx *sql.Tx, p peer, r *pb.RequestLeaseRequest) (*p
 		l.Reply = "This login is blocked."
 		l.ApprovedBy = pb.ApprovedBy_APPROVED_BY_AUTOMATIC_RULE
 	}
-	record := &pb.RequestRecord{LeaseId: l.LeaseId, RequestId: r.RequestId, LoginId: r.LoginId, TaskRef: r.TaskRef, Purpose: r.Purpose, Reason: r.Reason, AgentLabel: enrolled.ClientLabel, RecipientId: p.recipient, Program: r.Program, CreatedUnixSeconds: now, PendingUntilUnixSeconds: now + 600, TailscaleNodeName: p.node.Name, TailscaleAddress: p.node.Address, Automatic: login.Rule == pb.AccessRule_ACCESS_RULE_AUTOMATIC}
+	record := &pb.RequestRecord{LeaseId: l.LeaseId, RequestId: r.RequestId, LoginId: r.LoginId, TaskRef: r.TaskRef, Purpose: r.Purpose, Reason: r.Reason, AgentLabel: r.AgentLabel, RecipientId: p.recipient, Program: r.Program, CreatedUnixSeconds: now, PendingUntilUnixSeconds: now + 600, TailscaleNodeName: p.node.Name, TailscaleAddress: p.node.Address, Automatic: login.Rule == pb.AccessRule_ACCESS_RULE_AUTOMATIC}
 	if _, err = tx.Exec("INSERT INTO leases(id,recipient,request,lease) VALUES(?,?,?,?)", l.LeaseId, p.recipient, marshal(record), marshal(l)); err != nil {
 		return nil, err
 	}
