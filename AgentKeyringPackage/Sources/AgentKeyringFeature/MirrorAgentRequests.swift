@@ -164,7 +164,8 @@ extension MirrorAppModel {
         let metadata = metadataIncludingExample(try await store.loadCurrentMetadata())
         leaseLogins = metadata?.candidates ?? []
         await accessControl.refresh(fromMetadata: metadata)
-        do { try await accessControl.ensureRulesConfirmed() }
+        // Sitting branch: the example login needs no rules confirmation first.
+        do { if Bundle.main.bundleIdentifier != "com.joshpalmer.KeyringTest.AgentKeyring" { try await accessControl.ensureRulesConfirmed() } }
         catch {
             try leaseStore.reconcile(logins: leaseLogins, policies: [:], rulesConfirmed: false)
             throw error

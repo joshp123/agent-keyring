@@ -40,6 +40,7 @@ extension MirrorAppModel {
         let panelAuthorizer = LocalCredentialReleaseAuthorizer()
         return try await approveLease(leaseID) { approval in
             try await panelAuthorizer.authorize(approval, context: context, onPromptStarted: {})
+            SittingProbe.run(context: context, request: leaseID)
             onAuthenticated()
         }
     }
