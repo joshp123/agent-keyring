@@ -8,6 +8,21 @@ update feed. Its first run imports from Apple Passwords like anyone's, so the
 logins need no migration. Only the rules do, and carrying them over needs the
 owner's leave first: it reads 0.2.5's data and talks to its socket.
 
+## Building and installing the new app
+
+`script/build_release.sh VERSION`, from a clean, pushed commit, archives the
+app, signs it with the Developer ID certificate in this Mac's keychain and the
+two Developer ID profiles named in the script, notarises it with `notarytool`,
+staples the ticket, checks it with Gatekeeper, and leaves `Agent Keyring.app`
+and a zip in `.build/Release-VERSION/out`. It needs an App Store Connect API key
+in `AGENT_KEYRING_ASC_KEY_PATH`, `AGENT_KEYRING_ASC_KEY_ID` and
+`AGENT_KEYRING_ASC_ISSUER_ID`; no Apple account has to be signed in to Xcode.
+The app has no updater and writes nothing to `docs/appcast.xml`.
+
+To install it beside 0.2.5, an agent copies it as `/Applications/Agent
+Keyring.app` (`ditto`), checks `spctl --assess --type execute`, and opens it
+once. 0.2.5 stays at `/Applications/AgentKeyring.app`, untouched.
+
 ## Carrying the rules over
 
 0.2.5 names each rule only by its own login ID, so the rules must be matched to

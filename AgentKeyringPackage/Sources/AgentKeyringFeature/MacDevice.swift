@@ -289,12 +289,20 @@ public final class MacDevice {
         }
     }
 
+    /// Every revision since ours, each checked against the one before: a
+    /// later one may be signed by a device this Mac has not seen sign yet.
     private func refreshMembers() async throws {
-        let response = try await call(.members(Agentkeyring_V2_Empty()))
-        guard case let .signed(document) = response.result, let current = members,
-            let newer = try? Sealing.verifiedMembers(document, current: current) else { return }
-        members = newer
-        saved?.members = try document.serializedData()
+        guard var current = members else { return }
+        let response = try await call(.membersSince(current.revision))
+        var latest: Data?
+        for document in response.membersChain.revisions {
+            guard let next = try? Sealing.verifiedMembers(document, current: current) else { break }
+            current = next
+            latest = try document.serializedData()
+        }
+        guard let latest else { return }
+        members = current
+        saved?.members = latest
         try persist()
     }
 

@@ -353,6 +353,10 @@ message RelayRequest {
     // Devices: a rule change for the iPhone or Watch to approve. Streams
     // Lease until it is answered or unanswered.
     Signed propose_rules = 23;
+    // Devices and machines: every Members revision after this one, oldest
+    // first, so each can be checked against the one before. Returns
+    // MembersChain.
+    uint64 members_since = 24;
   }
 }
 
@@ -369,6 +373,7 @@ message RelayResponse {
     Empty done = 9;
     Error error = 10;
     SelfTests self_tests = 12;
+    MembersChain members_chain = 13;
   }
   bool end_of_stream = 11;
 }
@@ -483,6 +488,10 @@ message SelfTestCheck {
   string name = 1;                 // For example "notifications" or "test request".
   bool passed = 2;
   string error = 3;                // When it failed: the error, in words.
+}
+
+message MembersChain {
+  repeated Signed revisions = 1;   // Oldest first.
 }
 
 message SelfTests {

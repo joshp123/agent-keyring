@@ -35,6 +35,7 @@ func (s *Server) publishMembers(who caller, document *pb.Signed) error {
 	}
 	return s.Store.update(func(data *saved) error {
 		data.Members = marshal(document)
+		data.MembersHistory = append(data.MembersHistory, data.Members)
 		s.Store.members = next
 		known := map[string]bool{}
 		for _, d := range next.Devices {
