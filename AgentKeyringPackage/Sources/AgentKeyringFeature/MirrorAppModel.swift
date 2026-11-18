@@ -112,7 +112,7 @@ public final class MirrorAppModel {
             return
         }
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
-        device?.start()
+        if (try? macKeys()) != nil { device?.start() }
     }
 
     public func setIncludeExampleCredential(_ enabled: Bool) async {

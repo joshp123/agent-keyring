@@ -135,6 +135,7 @@ public final class MacDevice {
                 self.connection = .connecting
                 do {
                     try await self.refreshMembers()
+                    self.connection = .connected
                     var request = Agentkeyring_V2_RelayRequest()
                     request.method = .watchWork(Agentkeyring_V2_Empty())
                     let joins = Task { await self.pollJoins() }
@@ -164,10 +165,21 @@ public final class MacDevice {
         }
     }
 
+    /// Also notices a connection that died without closing, since the work
+    /// stream itself is silent while nothing waits.
     private func pollJoins() async {
         while !Task.isCancelled {
-            if let response = try? await call(.pendingJoins(Agentkeyring_V2_Empty())) {
+            do {
+                let response = try await call(.pendingJoins(Agentkeyring_V2_Empty()))
                 joins = response.pendingJoins.joins.filter { !hiddenJoins.contains(Self.joinID($0)) }
+            } catch {
+                guard !Task.isCancelled else { return }
+                running?.cancel()
+                running = nil
+                connection = .unreachable
+                try? await Task.sleep(for: .seconds(5))
+                start()
+                return
             }
             try? await Task.sleep(for: .seconds(3))
         }
