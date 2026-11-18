@@ -4,6 +4,8 @@
 // notification (Approve, Deny, Deny and Explain).
 
 import AgentKeyringApprovalUI
+import AgentKeyringPhoneApprover
+import AgentKeyringRelaySupport
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -11,10 +13,17 @@ import UserNotifications
 @main
 struct AgentKeyringPhoneApp: App {
     @UIApplicationDelegateAdaptor(PhoneAppDelegate.self) private var delegate
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             PhoneRootView(model: delegate.model)
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    if phase == .active { delegate.relay?.start() } else if phase == .background { delegate.relay?.stop() }
+                }
+                .onChange(of: delegate.model.snapshot.setup) { _, setup in
+                    if setup != .scanCode { UIApplication.shared.registerForRemoteNotifications() }
+                }
         }
     }
 }
@@ -22,6 +31,8 @@ struct AgentKeyringPhoneApp: App {
 @MainActor
 final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     let backend: any PhoneBackend
+    /// The real backend; nil when the app runs on Paper's sample (`-Sample YES`).
+    let relay: PhoneRelayBackend?
     let model: PhoneModel
 
     /// Approve on the Lock Screen either finishes there (Face ID unlocks the
@@ -31,13 +42,37 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     private let approvesOnLockScreen = UserDefaults.standard.bool(forKey: "ApproveOnLockScreen")
 
     override init() {
-        let sample = PhoneSampleBackend(setup: Self.sampleSetup)
-        backend = sample
-        model = PhoneModel(backend: sample, initial: sample.current)
+        if UserDefaults.standard.bool(forKey: "Sample") {
+            let sample = PhoneSampleBackend(setup: Self.sampleSetup)
+            backend = sample; relay = nil
+            model = PhoneModel(backend: sample, initial: sample.current)
+        } else {
+            #if targetEnvironment(simulator)
+            let keys: any PhoneDeviceKeys = PhoneSoftwareKeys()
+            #else
+            let keys: any PhoneDeviceKeys = PhoneEnclaveKeys()
+            #endif
+            let real = PhoneRelayBackend(directory: Self.sharedDirectory, keys: keys,
+                                         identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v2") })
+            backend = real; relay = real
+            model = PhoneModel(backend: real, initial: real.snapshot)
+        }
         super.init()
         // For comparing screens with Paper in the simulator: -SampleTab logins, -SampleShow r1.
         if let tab = UserDefaults.standard.string(forKey: "SampleTab").flatMap(PhoneTab.init(rawValue:)) { model.tab = tab }
         model.shownRequestID = UserDefaults.standard.string(forKey: "SampleShow")
+    }
+
+    /// Shared with the notification service extension when the app group is signed in; else the app's own.
+    private static var sharedDirectory: URL {
+        let group = "group." + (Bundle.main.bundleIdentifier ?? "")
+        return (FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) ?? .applicationSupportDirectory)
+            .appending(path: "AgentKeyring", directoryHint: .isDirectory)
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let production = (Bundle.main.object(forInfoDictionaryKey: "AgentKeyringAPNSEnvironment") as? String) == "production"
+        Task { try? await relay?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production) }
     }
 
     /// `-SampleSetup scanCode` starts the sample at that step of first run.
