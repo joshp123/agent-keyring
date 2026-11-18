@@ -60,7 +60,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             defaults.set(given, forKey: "ApproveOnLockScreen")
         }
         // Paper's way is the default; if iOS refuses it, the app offers itself instead.
-        return defaults.object(forKey: "ApproveOnLockScreen") as? Bool ?? true
+        return defaults.object(forKey: "ApproveOnLockScreen") == nil ? true : defaults.bool(forKey: "ApproveOnLockScreen")
     }()
 
     override init() {
