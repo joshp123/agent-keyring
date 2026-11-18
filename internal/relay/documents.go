@@ -75,6 +75,9 @@ func (s *Server) publishCatalogue(document *pb.Signed) error {
 func (s *Server) publishSealedLogins(batch *pb.SealedLogins) error {
 	members, catalogue := s.Store.documents()
 	byOpener := map[string]map[string][]byte{}
+	for _, opener := range batch.ClearedOpeners {
+		byOpener[opener] = map[string][]byte{}
+	}
 	for _, sealed := range batch.Logins {
 		if device(members, sealed.OpenerId) == nil && machine(members, sealed.OpenerId) == nil {
 			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login names an opener that is not a device or machine.")

@@ -25,12 +25,6 @@ public struct AgentRequester: Sendable {
         processStartTime.map { HarnessSession(processIdentifier: processIdentifier, processStartTime: $0) }
     }
 
-    public var approvalContext: ApprovalRequesterContext {
-        ApprovalRequesterContext(session: session, workingDirectory: workingDirectory)
-    }
-
-    public var displayLabel: String { name }
-
     public static func from(peer: AgentBridgePeer) -> AgentRequester {
         attribution(peerProcessIdentifier: peer.processIdentifier)
     }

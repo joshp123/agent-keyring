@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	heldOffFor   = 30 * time.Minute
-	joinWithin   = 10 * time.Minute
+	heldOffFor = 30 * time.Minute
+	joinWithin = 10 * time.Minute
 )
 
 type Server struct {
@@ -70,7 +70,7 @@ func (s *Server) ownSPKI() []byte {
 }
 
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
-	config := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{s.Certificate}, ClientAuth: tls.RequireAnyClientCert}
+	config := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{s.Certificate}, ClientAuth: tls.RequestClientCert}
 	go s.keepDeadlines(ctx)
 	go func() { <-ctx.Done(); listener.Close() }()
 	for {
@@ -92,10 +92,10 @@ func (s *Server) handle(ctx context.Context, conn *tls.Conn) {
 		return
 	}
 	peer := conn.ConnectionState().PeerCertificates
-	if len(peer) != 1 {
+	if len(peer) > 1 {
 		return
 	}
-	who := caller{spki: peer[0].RawSubjectPublicKeyInfo}
+	who := caller{}
 	if s.Lookup != nil {
 		lookupContext, cancel := context.WithTimeout(ctx, 5*time.Second)
 		node, err := s.Lookup(lookupContext, conn.RemoteAddr().String())
@@ -106,6 +106,11 @@ func (s *Server) handle(ctx context.Context, conn *tls.Conn) {
 		}
 		who.node = node.Name
 	}
+	if len(peer) == 0 {
+		s.serveWatchAnswer(ctx, conn) // HTTPS with no client certificate: only the Watch's answers.
+		return
+	}
+	who.spki = peer[0].RawSubjectPublicKeyInfo
 	members, _ := s.Store.documents()
 	if members != nil {
 		for _, d := range members.Devices {
@@ -192,8 +197,8 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 		}
 		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Approval{Approval: approval}, EndOfStream: true})
 	case *pb.RelayRequest_End:
-		if err := isMachine(); err != nil {
-			return err
+		if who.machine == nil && who.device == nil {
+			return isMachine()
 		}
 		lease, err := s.end(ctx, who, method.End.RequestId)
 		if err != nil {
@@ -251,6 +256,24 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 			return err
 		}
 		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Lease{Lease: lease}, EndOfStream: true})
+	case *pb.RelayRequest_TestRequest:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		return s.testRequest(ctx, who, send)
+	case *pb.RelayRequest_ReportSelfTest:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		if err := s.reportSelfTest(who, method.ReportSelfTest); err != nil {
+			return err
+		}
+		return send(done())
+	case *pb.RelayRequest_SelfTests:
+		if who.machine == nil && who.device == nil {
+			return isMachine()
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_SelfTests{SelfTests: s.selfTests()}, EndOfStream: true})
 	case *pb.RelayRequest_RegisterPush:
 		if err := isDevice(); err != nil {
 			return err
@@ -288,8 +311,13 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 	case *pb.RelayRequest_Join:
 		return s.join(ctx, who, method.Join, send)
 	case *pb.RelayRequest_PendingJoins:
-		if err := isDevice(); err != nil {
-			return err
+		// Before anyone has set the relay up, the first device sees the
+		// machine it is setting up beside it; a join shows nowhere without a
+		// proof that device checks.
+		if members, _ := s.Store.documents(); members != nil {
+			if err := isDevice(); err != nil {
+				return err
+			}
 		}
 		return send(&pb.RelayResponse{Result: &pb.RelayResponse_PendingJoins{PendingJoins: s.pendingJoins()}, EndOfStream: true})
 	}
@@ -313,4 +341,3 @@ func (s *Server) sendDocument(members bool, send func(*pb.RelayResponse) error) 
 	}
 	return send(signed(document))
 }
-

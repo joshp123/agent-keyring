@@ -6,6 +6,8 @@
 //
 //	test-device init    --state DIR --relay HOST:PORT   create keys, members, catalogue, sealed logins
 //	test-device approve-joins --state DIR               approve every waiting machine, Automatic allowed
+//	test-device invite  --state DIR                     print a one-time link for one machine or device to join
+//	test-device self-test --state DIR                   ask for a test request, approve it, report
 //	test-device answer  --state DIR (--approve | --deny WORDS | --deny-plain | --ignore)
 //	                                                    answer the next waiting request
 package main
@@ -15,9 +17,12 @@ import (
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,6 +30,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
@@ -46,14 +52,15 @@ var catalogueLogins = []*pb.Login{
 }
 
 type saved struct {
-	Relay       string `json:"relay"`
-	RelaySPKI   []byte `json:"relay_spki"`
-	Certificate []byte `json:"certificate"`
-	TLSKey      []byte `json:"tls_key"`
-	Signing     []byte `json:"signing"`
-	Reply       []byte `json:"reply"`
-	Opening     []byte `json:"opening"`
-	Revision    uint64 `json:"revision"`
+	Relay       string   `json:"relay"`
+	RelaySPKI   []byte   `json:"relay_spki"`
+	Certificate []byte   `json:"certificate"`
+	TLSKey      []byte   `json:"tls_key"`
+	Signing     []byte   `json:"signing"`
+	Reply       []byte   `json:"reply"`
+	Opening     []byte   `json:"opening"`
+	Revision    uint64   `json:"revision"`
+	Secrets     [][]byte `json:"secrets,omitempty"` // Invitations not yet used.
 }
 
 type device struct {
@@ -87,6 +94,10 @@ func main() {
 		err = initialise(ctx, *state, *relay)
 	case "approve-joins":
 		err = withDevice(*state, func(d *device) error { return d.approveJoins(ctx) })
+	case "invite":
+		err = withDevice(*state, func(d *device) error { return d.invite() })
+	case "self-test":
+		err = withDevice(*state, func(d *device) error { return d.selfTest(ctx) })
 	case "answer":
 		err = withDevice(*state, func(d *device) error { return d.answer(ctx, *approve, *deny, *denyPlain, *ignore) })
 	default:
@@ -287,6 +298,10 @@ func (d *device) approveJoins(ctx context.Context) error {
 	var joined []*pb.Machine
 	var devices []*pb.Device
 	for _, pending := range response.GetPendingJoins().GetJoins() {
+		if !d.useInvitation(pending.GetRequest()) {
+			fmt.Printf("Ignoring a join with no valid invitation (Tailscale node %s).\n", pending.TailscaleNodeName)
+			continue
+		}
 		if joining := pending.GetRequest().GetDevice(); joining != nil {
 			members.Devices = append(members.Devices, joining)
 			devices = append(devices, joining)
@@ -386,4 +401,79 @@ func (d *device) answer(ctx context.Context, approve bool, deny string, denyPlai
 	}
 	fmt.Println("Answered:", response.GetLease().GetState())
 	return nil
+}
+
+// selfTest is a device's first-run check: it asks the relay for a test
+// request, approves it with a signed answer and no delivery, and reports.
+func (d *device) selfTest(ctx context.Context) error {
+	outcome := make(chan *pb.Lease, 1)
+	go d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_TestRequest{TestRequest: &pb.Empty{}}}, nil, func(response *pb.RelayResponse) bool {
+		if lease := response.GetLease(); lease != nil && lease.State != pb.LeaseState_LEASE_STATE_WAITING {
+			outcome <- lease
+			return false
+		}
+		return true
+	})
+	var work *pb.Work
+	err := d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_WatchWork{WatchWork: &pb.Empty{}}}, nil, func(response *pb.RelayResponse) bool {
+		if w := response.GetWork(); w != nil && w.Outcome == nil {
+			if request, err := keyring.ParseRequest(w.Request); err == nil && request.ForDeviceKeyId == d.self.KeyId {
+				work = w
+				return false
+			}
+		}
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	payload, _ := proto.Marshal(&pb.Answer{Domain: keyring.AnswerDomain, RequestSha256: keyring.SHA256(work.Request), Choice: pb.Choice_CHOICE_APPROVE,
+		DecidedUnixSeconds: now.Unix(), NotAfterUnixSeconds: now.Unix() + 60})
+	answer, err := keyring.Sign(payload, d.self.KeyId, keyring.SoftwareSigner(d.signing))
+	if err != nil {
+		return err
+	}
+	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Answer{Answer: &pb.AnswerUpload{Answer: answer}}}, nil); err != nil {
+		return err
+	}
+	lease := <-outcome
+	report, _ := proto.Marshal(&pb.SelfTestReport{Domain: keyring.SelfTestDomain, DeviceKeyId: d.self.KeyId, TestedUnixSeconds: now.Unix(),
+		Checks: []*pb.SelfTestCheck{{Name: "test request", Passed: lease.State == pb.LeaseState_LEASE_STATE_APPROVED}}})
+	signed, err := keyring.Sign(report, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply))
+	if err != nil {
+		return err
+	}
+	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_ReportSelfTest{ReportSelfTest: signed}}, nil); err != nil {
+		return err
+	}
+	fmt.Println("Test request:", lease.State)
+	return nil
+}
+
+// invite makes a one-time invitation, as the Mac does for a machine.
+func (d *device) invite() error {
+	host, portText, err := net.SplitHostPort(d.Relay)
+	if err != nil {
+		return err
+	}
+	port, _ := strconv.Atoi(portText)
+	secret := make([]byte, 32)
+	rand.Read(secret)
+	d.Secrets = append(d.Secrets, secret)
+	sum := sha256.Sum256(d.RelaySPKI)
+	raw, _ := proto.Marshal(&pb.JoinInvite{RelayHost: host, RelayPort: uint32(port), RelayTlsSha256: sum[:], InviterKeyId: d.self.KeyId,
+		Secret: secret, ExpiresUnixSeconds: time.Now().Add(10 * time.Minute).Unix()})
+	fmt.Println("agentkeyring://join?invite=" + base64.RawURLEncoding.EncodeToString(raw))
+	return nil
+}
+
+func (d *device) useInvitation(join *pb.JoinRequest) bool {
+	for i, secret := range d.Secrets {
+		if hmac.Equal(keyring.JoinProof(secret, join), join.Proof) {
+			d.Secrets = append(d.Secrets[:i], d.Secrets[i+1:]...)
+			return true
+		}
+	}
+	return false
 }

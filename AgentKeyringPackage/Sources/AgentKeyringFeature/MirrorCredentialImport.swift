@@ -11,18 +11,16 @@ private let credentialExchangeLogger = Logger(
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
-    /// Sends the imported list to the Mac mini, signed with a context Josh has
-    /// already approved in the panel.
+    /// Sends the new catalogue and the copies sealed to the other devices,
+    /// signed with a context Josh has just approved in the panel.
     public func sendImportedLogins(context: LAContext) async throws {
-        try await relayApprover.publishCurrentRules(context: context,
-            reason: "let agents on your other machines use the logins you just imported")
+        try await device?.publish(context: context)
         importedLoginsAwaitApproval = false
     }
 
-    /// "Not now": the rules window keeps offering to send the list.
+    /// "Not now": the other devices keep the previous list until the next change.
     public func declineSendingImportedLogins() {
         importedLoginsAwaitApproval = false
-        relayApprover.noteRulesChanged()
     }
 
     public func receive(_ activity: NSUserActivity) {
@@ -76,7 +74,7 @@ extension MirrorAppModel {
     }
 
     public func openPasswordsExport() {
-        notice = MirrorNotice(kind: .information, text: MirrorSyncReminders.exportInstruction)
+        awaitingExport = true
         openPasswords()
     }
 
@@ -115,7 +113,7 @@ extension MirrorAppModel {
     func importCredentials(token: UUID) async {
         isImporting = true
         notice = nil
-        defer { isImporting = false }
+        defer { isImporting = false; awaitingExport = false }
 
         credentialExchangeLogger.info("Credential import started")
 
@@ -136,65 +134,72 @@ extension MirrorAppModel {
             return
         }
 
+        await importBatch(mapper.map(exportedData, scope: .unknown), hadExistingMirror: hadExistingMirror)
+    }
+
+    func importBatch(_ importBatch: MirrorImportBatch, hadExistingMirror: Bool) async {
         let generation: MirrorGeneration
         do {
-            let previousGeneration = try await store.loadCurrent()
-            let importBatch = mapper.map(exportedData, scope: .unknown)
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
-            generation = try merger.merge(previous: previousGeneration, importBatch: importBatch)
-            credentialExchangeLogger.info("Merge completed with \(generation.items.count, privacy: .public) items")
-            try await store.save(generation)
+            generation = try merger.merge(previous: try await store.loadCurrent(), importBatch: importBatch)
+            // Seal only what arrived: a login missing from this export keeps
+            // its earlier copies, and the saved list holds no secrets to seal.
+            let arrived = Set(importBatch.items.map(\.sourceIdentity))
+            let fresh = generation.items.filter { arrived.contains($0.sourceIdentity) }
+            let kept = Set(generation.items.filter { !arrived.contains($0.sourceIdentity) }.map(\.id.uuidString))
+                .union([MirrorItem.exampleCredentialID.uuidString])
+            var sealed = try await store.sealed().filter { kept.contains($0.loginID) }
+            for item in fresh {
+                sealed += try sealCopies(of: item.secret, automatic: accessControl.policy(for: item.id) == .allowAutomatically)
+            }
+            try await store.save(generation, sealed: sealed)
         } catch {
-            let nsError = error as NSError
-            credentialExchangeLogger.error(
-                "Mirror update failed [\(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public)]"
-            )
+            credentialExchangeLogger.error("Sealing the import failed: \(String(describing: error), privacy: .public)")
             notice = MirrorNotice(
                 kind: .error,
                 text: hadExistingMirror
-                    ? "Passwords transferred the credentials, but the encrypted mirror could not be updated. Your existing mirror was not changed."
-                    : "Passwords transferred the credentials, but Agent Keyring could not create the encrypted mirror."
+                    ? "Passwords transferred the logins, but Agent Keyring could not seal them. Your earlier import was not changed."
+                    : "Passwords transferred the logins, but Agent Keyring could not seal them."
             )
             return
         }
 
         credentialExchangeLogger.info("Saved encrypted mirror with \(generation.items.count, privacy: .public) items")
-        staleLogins.clear()
         let visibleGeneration = generationIncludingExample(generation) ?? generation
         // The example login is for exercising requests, not an imported login.
         status = generation.safeStatus
         leaseLogins = visibleGeneration.metadata.candidates
         await accessControl.refresh(from: visibleGeneration)
-        do {
-            try await refreshLeasePolicy()
-            try relayApprover.load()
-            if relayApprover.state.keySet != nil {
-                let vault = RelayApproverVault(generation: visibleGeneration,
-                    policies: Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, accessControl.policy(for: $0.id)) }))
-                if try relayApprover.requiresPublicationConfirmation(vault) {
-                    // Josh approves sending the list in a panel beside his window.
-                    importedLoginsAwaitApproval = true
-                    notice = MirrorNotice(kind: .information,
-                        text: "Import complete. Agents on your other machines can use the new list once you allow it.")
-                    return
-                } else {
-                    relayApprover.noteRulesChanged()
-                }
-            }
+        try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
+        offerSelfTestIfNeeded()
+        if device?.isJoined == true {
+            // Josh approves sending the list in a panel beside his window.
+            importedLoginsAwaitApproval = true
             notice = MirrorNotice(kind: .information,
-                text: "Import complete. Exported logins have been updated.")
-        } catch {
-            let error = error as NSError
-            credentialExchangeLogger.error(
-                "Mirror saved; access rules could not be applied [\(error.domain, privacy: .public)/\(error.code, privacy: .public)]"
-            )
-            let nextStep = leaseStore.needsHistoryReset
-                ? "Reset task history in Agent Keyring to restore agent access."
-                : "Confirm your access rules in Agent Keyring before agents use them."
-            notice = MirrorNotice(kind: .warning,
-                text: "Import complete. Your logins were saved. \(nextStep)")
+                text: "Import complete. Your iPhone and other machines get the new list once you allow it.")
+        } else {
+            notice = MirrorNotice(kind: .information, text: "Import complete. Exported logins have been updated.")
         }
     }
 }
+
+#if DEBUG
+@available(macOS 26.0, *)
+extension MirrorAppModel {
+    /// For trying first run on a Mac whose Passwords holds real logins: the
+    /// same import, with made-up example.com logins in place of the export.
+    public func importMadeUpLogins() async {
+        isImporting = true
+        defer { isImporting = false; awaitingExport = false }
+        let items = ["mail.example.com", "shop.example.com", "bank.example.net"].map { site in
+            MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "made-up", accountID: Data("made-up".utf8),
+                itemID: Data(site.utf8)), title: site, origins: ["https://\(site)"],
+                credentials: [.password(userName: "josh@example.com", password: "made-up-password-for-\(site)")])
+        }
+        await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: "made-up",
+            exporterDisplayName: "Made-up logins", items: items, skippedCredentialCount: 0), hadExistingMirror: status != nil)
+    }
+}
+#endif

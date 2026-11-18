@@ -53,34 +53,28 @@ agent-keyring exec "$lease" --field password
 
 ## On another machine
 
-The setup agent does the verification. The user only approves on their Mac. Use authenticated SSH to the actual machines, independently of the relay connection. Never take a code from the relay's network response or from the approving Mac and pass it back as if it came from the other machine. Stop on any mismatch; do not try to work around it.
-
-To connect the Mac to a new relay, run its bundled command on the Mac:
+To set up the user's always-on machine (the one that runs the relay, such as a Mac mini), start the relay there, then on the Mac:
 
 ```sh
-agent-keyring setup-relay --relay RELAY_HOST:PORT
-# On the relay host over SSH, read the current relay process log entry
-# "compare pairing fingerprint on approver". Use the entire fingerprint:
-agent-keyring verify-relay --code 'XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX'
+link=$(agent-keyring setup-relay --relay RELAY_HOST:PORT --reason "You asked me to set up Agent Keyring on the Mac mini.")
 ```
 
-Read the log from the relay process on the expected SSH host; do not use an old entry. The Mac now offers the user one approval. Check `agent-keyring relay-status` until it says `connected` before enrolling machines. `waiting` means the answer or connection is still pending; `not-started` means setup was cancelled or has not begun. Do not start a second setup while waiting.
-
-To add another machine on the user's tailnet, run its standalone command on that machine over SSH and leave it waiting:
+On the always-on machine, over SSH, run its standalone command with that link and leave it waiting:
 
 ```sh
-agent-keyring enrol --name "build server" --relay RELAY_HOST:17443
+agent-keyring enrol --name "Mac mini" --invite "$link"
 ```
 
-Read the `AGENT_KEYRING_ENROL_CODE=` line from that SSH session. On the approving Mac, use the same machine name and the complete code:
+The Mac then shows the user one request to add that machine. Check `agent-keyring relay-status` on the Mac until it says `connected`.
+
+To add another machine later, get a one-time link from the Mac and enrol with it the same way:
 
 ```sh
-agent-keyring verify-machine --name "build server" --code 'XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX'
+link=$(agent-keyring invite)          # on the Mac; valid for 10 minutes, for one machine
+agent-keyring enrol --name "build server" --invite "$link"   # on the machine
 ```
 
-The Mac offers the user one approval. Wait for the enrol command to finish. If the approver keys change, the command prints a new code: verify that new code from the SSH session. If the Mac has not received the enrolment yet, retry verification of the same code. Find the relay address and process log yourself. After enrolment, the commands above work the same. Answers can take longer, because the user may approve on their iPhone.
-
-Enrolment records the relay as this machine's authority, even if the Mac app is installed. Commands keep using that relay when it is unavailable; they do not switch to a local copy. On a Mac using its own imported logins, the client records the local app instead.
+Each machine is one request on the Mac. After that, the commands above work the same on that machine. Answers can take longer, because the user may approve on their iPhone.
 
 ## When it doesn't work
 

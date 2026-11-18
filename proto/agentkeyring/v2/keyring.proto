@@ -33,9 +33,14 @@
 // other's exact SubjectPublicKeyInfo; one method per connection; frames are a
 // 4-byte unsigned big-endian length then a serialized protobuf.
 // RelayRequest selects the method; each RelayResponse has end_of_stream set on
-// its last frame. Frames are at most 4 MiB. Nothing is reachable from outside the tailnet. The Watch
-// never connects: its work arrives in a push, and the iPhone forwards its
-// answers.
+// its last frame. Frames are at most 4 MiB. Nothing is reachable from outside the tailnet.
+//
+// The Watch cannot open raw TLS connections, so it posts its answers over
+// HTTPS to the same address and port: "POST /v2/answer" with a serialized
+// AnswerUpload as the body, no client certificate, the relay pinned by
+// Members.relay_tls_public_key. Only a signed answer from a WATCH device is
+// taken there. The reply is 200 with a serialized Lease, or 4xx with the
+// error in words. Its work arrives in a push.
 
 syntax = "proto3";
 
@@ -181,6 +186,10 @@ message Request {
   string task = 10;                // The agent's grouping of requests into one job.
   int64 asked_unix_seconds = 11;
   int64 answer_by_unix_seconds = 12;  // After this the request is unanswered.
+  // A device's own test request (test_request): it names no login and no
+  // machine, goes only to this device, and is approved by a signed Answer
+  // with no delivery.
+  string for_device_key_id = 13;
 }
 
 // A device's answer, the payload of a Signed by that device's signing key.
@@ -269,6 +278,7 @@ message Work {
   // Set once the request has ended: answered here or elsewhere, or no answer
   // in time. Show the outcome and clear the request.
   Lease outcome = 3;
+  Login login = 4;                 // The login from the signed catalogue: its title, account and sites.
 }
 
 // The push. Apple carries nothing readable about a request. The relay sends:
@@ -316,6 +326,11 @@ message RelayRequest {
     // Joining: a machine or device not yet in Members. Streams JoinStatus.
     JoinRequest join = 18;
     Empty pending_joins = 19;              // Devices: returns PendingJoins.
+    // Devices: a request with no login, for this device only, pushed like
+    // any other. Streams Lease until it is answered or unanswered.
+    Empty test_request = 20;
+    Signed report_self_test = 21;          // Devices: SelfTestReport, signed by the reply key.
+    Empty self_tests = 22;                 // Devices and machines: returns SelfTests.
   }
 }
 
@@ -331,6 +346,7 @@ message RelayResponse {
     PendingJoins pending_joins = 8;
     Empty done = 9;
     Error error = 10;
+    SelfTests self_tests = 12;
   }
   bool end_of_stream = 11;
 }
@@ -372,16 +388,19 @@ message UseReport {
 
 message SealedLogins {
   repeated SealedLogin logins = 1;
+  // In publish_sealed_logins: openers whose every copy is replaced, even by
+  // none (a machine whose last Automatic login became Ask).
+  repeated string cleared_openers = 2;
 }
 
-// Sent by the device that answered, or by the iPhone for its Watch, unchanged.
+// Sent by the device that answered.
 message AnswerUpload {
   // Approve: signed with a device's signing key. Deny with words: with its
   // signing key or its reply key.
   Signed answer = 1;
   Delivery delivery = 2;           // Approve only.
-  // Plain denial with no words, unsigned, from a device's own connection or
-  // forwarded by the iPhone for its Watch. Grants nothing.
+  // Plain denial with no words, unsigned, from a device's own connection.
+  // Grants nothing. The Watch always signs, with its reply key and no words.
   string deny_request_id = 3;
 }
 
@@ -398,6 +417,51 @@ message JoinRequest {
     Machine machine = 1;           // machine_id and keys of the joining machine.
     Device device = 2;             // A device; the iPhone sends one for its Watch.
   }
+  // HMAC-SHA256 under JoinInvite.secret over the joiner's keys, each part a
+  // 4-byte big-endian length then its bytes:
+  //   a machine: "agentkeyring.join.v2", "machine", label, machine_id,
+  //              tls_public_key, receiving_public_key
+  //   a device:  "agentkeyring.join.v2", "device", label, key_id, kind as a
+  //              decimal number, signing_public_key, opening_public_key,
+  //              tls_public_key, reply_key_id, reply_public_key
+  // Strings as UTF-8. A device shows only a join whose proof checks against
+  // an invitation it issued; the relay cannot make one.
+  bytes proof = 3;
+}
+
+// An invitation from an approving device. The Mac keeps the current one in
+// iCloud Keychain for the owner's new iPhone (a synchronizable generic
+// password: access group "7M8BR7R488.com.joshpalmer.AgentKeyring.shared",
+// service "com.joshpalmer.AgentKeyring.invitation", account "relay", value
+// this message serialized), and gives it to an agent setting up a machine as
+// "agentkeyring://join?invite=" followed by this message in base64url. Each
+// secret admits one joiner; the inviting device then issues a new one.
+message JoinInvite {
+  string relay_host = 1;
+  uint32 relay_port = 2;
+  bytes relay_tls_sha256 = 3;      // SHA-256 of the relay's TLS public key (SPKI).
+  string inviter_key_id = 4;       // The inviting device's key id: Members must be signed by it.
+  bytes secret = 5;                // 32 random bytes.
+  int64 expires_unix_seconds = 6;
+}
+
+// What a device found when it tested itself, the payload of a Signed by its
+// reply key. The relay keeps the latest per device and logs it.
+message SelfTestReport {
+  string domain = 1;               // "agentkeyring.selftest.v2"
+  string device_key_id = 2;
+  int64 tested_unix_seconds = 3;
+  repeated SelfTestCheck checks = 4;
+}
+
+message SelfTestCheck {
+  string name = 1;                 // For example "notifications" or "test request".
+  bool passed = 2;
+  string error = 3;                // When it failed: the error, in words.
+}
+
+message SelfTests {
+  repeated Signed reports = 1;
 }
 
 message JoinStatus {

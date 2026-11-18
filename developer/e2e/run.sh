@@ -61,9 +61,9 @@ agent() { # agent HOST ARGS...: the command as an agent on that machine runs it
 device init --relay "$address"
 
 echo "Both machines ask to join; the device approves them."
-agent "$machine_a" enrol --name "Machine A" --relay "$address" >"$work/join-a" 2>&1 &
+agent "$machine_a" enrol --name "Machine A" --invite "$(device invite)" >"$work/join-a" 2>&1 &
 join_a=$!
-agent "$machine_b" enrol --name "Machine B" --relay "$address" >"$work/join-b" 2>&1 &
+agent "$machine_b" enrol --name "Machine B" --invite "$(device invite)" >"$work/join-b" 2>&1 &
 join_b=$!
 for _ in $(seq 1 40); do
 	device approve-joins >/dev/null 2>&1 || true

@@ -11,14 +11,14 @@ buildGoModule {
       ../go.sum
       ../cmd/agent-keyring-relay
       ../internal/apns
-      ../internal/authority
-      ../internal/clientstate
+      ../internal/keyring
       ../internal/relay
-      ../internal/relaycrypto
+      ../internal/tlsid
+      ../internal/wire
       ../gen/go
     ];
   };
-  vendorHash = "sha256-xBYVO/CVICitGaeUd5SDBeZuFRuATqTGoFx54stAqMg=";
+  vendorHash = "sha256-hcXBIIdX0YYs1R59zuawLSqA/AUpHAHORLJNl6VeSME=";
   subPackages = [ "cmd/agent-keyring-relay" ];
   env.CGO_ENABLED = "0";
   doCheck = false;

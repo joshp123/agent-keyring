@@ -24,18 +24,20 @@ type saved struct {
 	Catalogue []byte                       `json:"catalogue,omitempty"` // Signed Catalogue.
 	Sealed    map[string]map[string][]byte `json:"sealed"`              // Opener id, login id: SealedLogin.
 	Requests  map[string]*request          `json:"requests"`
-	HeldOff   map[string]int64             `json:"held_off"`   // Machine id "/" login id: until.
-	Pushes    map[string][]byte            `json:"pushes"`     // Device key id: PushRegistration.
-	Joins     map[string]*join             `json:"joins"`      // Joiner id.
+	HeldOff   map[string]int64             `json:"held_off"` // Machine id "/" login id: until.
+	Pushes    map[string][]byte            `json:"pushes"`   // Device key id: PushRegistration.
+	Joins     map[string]*join             `json:"joins"`    // Joiner id.
 	Uses      []use                        `json:"uses,omitempty"`
+	SelfTests map[string][]byte            `json:"self_tests,omitempty"` // Device key id: Signed SelfTestReport.
 }
 
 type request struct {
 	Request         []byte        `json:"request"` // Exact Request bytes.
 	MachineID       string        `json:"machine_id"`
+	ForDevice       string        `json:"for_device,omitempty"` // A device's own test request.
 	ClientRequestID string        `json:"client_request_id,omitempty"`
 	State           pb.LeaseState `json:"state"`
-	Answer          []byte        `json:"answer,omitempty"`   // AnswerUpload, as received.
+	Answer          []byte        `json:"answer,omitempty"` // AnswerUpload, as received.
 	AnsweredBy      string        `json:"answered_by,omitempty"`
 	AnswerBy        int64         `json:"answer_by"`
 	NotAfter        int64         `json:"not_after,omitempty"`
@@ -157,6 +159,9 @@ func (s *Store) documents() (*pb.Members, *pb.Catalogue) {
 	defer s.mu.Unlock()
 	return s.members, s.catalogue
 }
+
+// documentsLocked is documents for code already inside read or update.
+func (s *Store) documentsLocked() (*pb.Members, *pb.Catalogue) { return s.members, s.catalogue }
 
 func (s *Store) findLogin(loginID string) *pb.Login {
 	_, catalogue := s.documents()

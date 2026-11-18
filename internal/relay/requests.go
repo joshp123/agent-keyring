@@ -98,7 +98,7 @@ func (s *Server) ask(ctx context.Context, who caller, ask *pb.AskRequest) (*pb.L
 // someone else's exists.
 func owned(data *saved, who caller, id string) (*request, error) {
 	r := data.Requests[id]
-	if r == nil || r.MachineID != who.machine.MachineId {
+	if r == nil || who.machine == nil || r.MachineID != who.machine.MachineId {
 		return nil, fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "No such request from this machine.")
 	}
 	return r, nil
@@ -164,11 +164,20 @@ func (s *Server) collect(who caller, id string) (*pb.Approval, error) {
 	return approval, result
 }
 
+// end stops a request: the machine that asked, when it is done or stops
+// asking; or a device, which can end an approval early (Stop).
 func (s *Server) end(ctx context.Context, who caller, id string) (*pb.Lease, error) {
 	var lease *pb.Lease
 	var wasWaiting bool
 	err := s.Store.update(func(data *saved) error {
 		r, err := owned(data, who, id)
+		if err != nil && who.device != nil && data.Requests[id] != nil && data.Requests[id].ForDevice == "" {
+			r, err = data.Requests[id], nil
+			if r.State != pb.LeaseState_LEASE_STATE_APPROVED {
+				lease = r.lease(id)
+				return nil
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -182,10 +191,89 @@ func (s *Server) end(ctx context.Context, who caller, id string) (*pb.Lease, err
 		lease = r.lease(id)
 		return nil
 	})
-	if err == nil && wasWaiting {
+	if err == nil && lease != nil {
 		go s.pushAll(context.WithoutCancel(ctx), id)
 	}
+	_ = wasWaiting
 	return lease, err
+}
+
+// testRequest makes a request with no login for the calling device only,
+// pushes it like any other, and streams it until it is answered.
+func (s *Server) testRequest(ctx context.Context, who caller, send func(*pb.RelayResponse) error) error {
+	now := s.now()
+	id := newID()
+	answerBy := now.Add(s.answerWithin()).Unix()
+	s.Store.update(func(data *saved) error {
+		data.Requests[id] = &request{ForDevice: who.device.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: answerBy,
+			Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id, Purpose: pb.Purpose_PURPOSE_AGENT_PROCESS,
+				Reason: "A test from Agent Keyring. No login is used.", Agent: "Agent Keyring", ForDeviceKeyId: who.device.KeyId,
+				AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: answerBy})}
+		return nil
+	})
+	slog.Info("test request", "id", id, "device", who.device.Label)
+	go s.pushAll(context.WithoutCancel(ctx), id)
+	var last pb.LeaseState
+	for {
+		var lease *pb.Lease
+		changed := s.Store.read(func(data *saved) {
+			if r := data.Requests[id]; r != nil {
+				lease = r.lease(id)
+			}
+		})
+		if lease == nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "The test request is gone.")
+		}
+		final := lease.State != pb.LeaseState_LEASE_STATE_WAITING
+		if lease.State != last {
+			if err := send(&pb.RelayResponse{Result: &pb.RelayResponse_Lease{Lease: lease}, EndOfStream: final}); err != nil || final {
+				return nil
+			}
+			last = lease.State
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-changed:
+		}
+	}
+}
+
+// reportSelfTest keeps a device's latest self-test, signed by its reply key.
+func (s *Server) reportSelfTest(who caller, document *pb.Signed) error {
+	members, _ := s.Store.documents()
+	signer, err := keyring.Verify(document, members, true)
+	report := &pb.SelfTestReport{}
+	if err != nil || unmarshal(document.Payload, report) != nil || report.Domain != keyring.SelfTestDomain || report.DeviceKeyId != signer.KeyId {
+		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A self-test report is signed by the device it describes.")
+	}
+	var failed []string
+	for _, check := range report.Checks {
+		if !check.Passed {
+			failed = append(failed, check.Name+": "+check.Error)
+		}
+	}
+	slog.Info("self-test", "device", signer.Label, "checks", len(report.Checks), "failed", strings.Join(failed, "; "))
+	return s.Store.update(func(data *saved) error {
+		if data.SelfTests == nil {
+			data.SelfTests = map[string][]byte{}
+		}
+		data.SelfTests[signer.KeyId] = marshal(document)
+		return nil
+	})
+}
+
+func (s *Server) selfTests() *pb.SelfTests {
+	result := &pb.SelfTests{}
+	s.Store.read(func(data *saved) {
+		for _, raw := range data.SelfTests {
+			document := &pb.Signed{}
+			if unmarshal(raw, document) == nil {
+				result.Reports = append(result.Reports, document)
+			}
+		}
+	})
+	return result
 }
 
 // answer records the first answer to a request and refuses the rest.
@@ -226,7 +314,11 @@ func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload
 				return nil
 			}
 			choice, answeredBy, reply = answer.Choice, signer.Label, answer.Reply
-			if choice == pb.Choice_CHOICE_APPROVE {
+			if r.ForDevice != "" {
+				if r.ForDevice != signer.KeyId {
+					return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the device that asked for a test may answer it.")
+				}
+			} else if choice == pb.Choice_CHOICE_APPROVE {
 				parsed := &pb.Request{}
 				unmarshal(r.Request, parsed)
 				login := loginIn(catalogue, parsed.LoginId)
@@ -245,6 +337,9 @@ func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload
 				return fail(pb.ErrorCode_ERROR_CODE_INVALID, "An answer approves or denies.")
 			}
 		}
+		if upload.DenyRequestId != "" && r.ForDevice != "" && r.ForDevice != who.device.KeyId {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "No such request.")
+		}
 		if r.State != pb.LeaseState_LEASE_STATE_WAITING {
 			lease = r.lease(id)
 			return fail(pb.ErrorCode_ERROR_CODE_CONFLICT, "This request has already ended: "+strings.ToLower(strings.TrimPrefix(r.State.String(), "LEASE_STATE_"))+".")
@@ -253,8 +348,12 @@ func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload
 		if upload.Answer != nil {
 			r.Answer = marshal(upload)
 		}
-		if choice == pb.Choice_CHOICE_APPROVE {
+		if choice == pb.Choice_CHOICE_APPROVE && r.ForDevice != "" {
+			r.State, r.Ended = pb.LeaseState_LEASE_STATE_APPROVED, now.Unix()
+		} else if choice == pb.Choice_CHOICE_APPROVE {
 			r.State, r.NotAfter = pb.LeaseState_LEASE_STATE_APPROVED, notAfter
+		} else if r.ForDevice != "" {
+			r.State, r.Ended = pb.LeaseState_LEASE_STATE_DENIED, now.Unix()
 		} else {
 			parsed := &pb.Request{}
 			unmarshal(r.Request, parsed)
@@ -379,6 +478,10 @@ func (s *Server) work(device *pb.Device, id string, data *saved) (*pb.Work, erro
 		work := &pb.Work{Request: r.Request}
 		parsed := &pb.Request{}
 		unmarshal(r.Request, parsed)
+		if parsed.LoginId != "" {
+			_, catalogue := s.Store.documentsLocked()
+			work.Login = loginIn(catalogue, parsed.LoginId)
+		}
 		if raw := data.Sealed[device.KeyId][parsed.LoginId]; raw != nil {
 			work.SealedLogin = &pb.SealedLogin{}
 			unmarshal(raw, work.SealedLogin)
@@ -404,6 +507,9 @@ func (s *Server) watchWork(ctx context.Context, who caller, send func(*pb.RelayR
 		var batch []*pb.Work
 		changed := s.Store.read(func(data *saved) {
 			for id, r := range data.Requests {
+				if r.ForDevice != "" && r.ForDevice != who.device.KeyId {
+					continue
+				}
 				previous, known := sent[id]
 				if (!known && r.State == pb.LeaseState_LEASE_STATE_WAITING) || (known && previous != r.State) {
 					if work, err := s.work(who.device, id, data); err == nil {

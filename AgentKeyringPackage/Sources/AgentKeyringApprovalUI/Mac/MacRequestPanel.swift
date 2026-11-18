@@ -46,6 +46,49 @@ struct MacApprovalPanelView: View {
     private var asking: some View {
         VStack(spacing: 14) {
             header
+            if let setUp { setUpBody(setUp) } else { requestBody }
+            if setUp != nil {
+                HStack { Spacer(); denyButton }
+            } else {
+                replyRow
+            }
+            approveLine
+            if let failure = model.failure, !ReviewRendering.isOn {
+                Text(failure).font(.system(size: 13)).foregroundStyle(RequestToken.deny)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
+            RequestToken.line.frame(height: 1)
+            Text(footer)
+                .font(.system(size: 12)).foregroundStyle(RequestToken.ink2)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
+    }
+
+    private var setUp: (lead: String, detail: String, footer: String)? {
+        if case let .setUp(lead, detail, footer) = request.access { return (lead, detail, footer) }
+        return nil
+    }
+
+    private func setUpBody(_ setUp: (lead: String, detail: String, footer: String)) -> some View {
+        VStack(spacing: 10) {
+            VStack(spacing: 1) {
+                Text(setUp.lead).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+                Text(request.login.site)
+                    .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
+                    .foregroundStyle(RequestToken.ink).lineLimit(1).minimumScaleFactor(0.6).frame(height: 38)
+                Text(setUp.detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+            }
+            if !request.agentReason.isEmpty {
+                Text("“\(request.agentReason)”")
+                    .font(.system(size: 15)).foregroundStyle(RequestToken.ink)
+                    .multilineTextAlignment(.center).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.top, 6).padding(.bottom, 2)
+    }
+
+    private var requestBody: some View {
             VStack(spacing: 10) {
                 VStack(spacing: 1) {
                     Text(request.agent.isLocal ? "\(agent) on this Mac wants" : "\(agent) on \(request.agent.machine) wants")
@@ -63,18 +106,6 @@ struct MacApprovalPanelView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 6).padding(.bottom, 2)
-            replyRow
-            approveLine
-            if let failure = model.failure, !ReviewRendering.isOn {
-                Text(failure).font(.system(size: 13)).foregroundStyle(RequestToken.deny)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            }
-            RequestToken.line.frame(height: 1)
-            Text(footer)
-                .font(.system(size: 12)).foregroundStyle(RequestToken.ink2)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
     }
 
     private var header: some View {
@@ -123,16 +154,20 @@ struct MacApprovalPanelView: View {
                 .frame(height: 36)
                 .background(RequestToken.fill, in: Capsule())
                 .disabled(sending != nil)
-            Button { Task { await model.deny() } } label: {
-                Text(sending == .deny ? "Denying…" : "Deny")
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.onAnswer)
-                    .padding(.horizontal, 18).frame(height: 36)
-                    .background(RequestToken.deny, in: Capsule())
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(sending != nil)
+            denyButton
         }
+    }
+
+    private var denyButton: some View {
+        Button { Task { await model.deny() } } label: {
+            Text(sending == .deny ? "Denying…" : "Deny")
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.onAnswer)
+                .padding(.horizontal, setUp != nil ? 22 : 18).frame(height: 36)
+                .background(RequestToken.deny, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(sending != nil)
     }
 
     private var touchIDAvailable: Bool {
@@ -177,6 +212,7 @@ struct MacApprovalPanelView: View {
     }
 
     private var footer: String {
+        if let setUp { return setUp.footer }
         if case .agentProcess = request.access { return "\(agent) can keep the password once it has seen it." }
         return "\(agent) can use this login for this task, 30 minutes at most."
     }

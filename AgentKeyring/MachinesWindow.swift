@@ -11,9 +11,9 @@ struct MachinesWindow: View {
     @State private var machines: MacMachinesModel
     private let approvals: ApprovalPresenter
 
-    init(relay: RelayApprover, routing: ApprovalRoutingSettings, approvals: ApprovalPresenter) {
+    init(model: MirrorAppModel, approvals: ApprovalPresenter) {
         self.approvals = approvals
-        let backend = RelayMachinesBackend(relay: relay, routing: routing)
+        let backend = RelayMachinesBackend(model: model)
         self.machines = MacMachinesModel(backend: backend, initial: backend.snapshot())
     }
 

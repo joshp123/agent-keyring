@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"hash"
 	"slices"
+	"strconv"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
@@ -34,6 +35,7 @@ const (
 	MembersDomain   = "agentkeyring.members.v2"
 	CatalogueDomain = "agentkeyring.catalogue.v2"
 	RequestDomain   = "agentkeyring.request.v2"
+	SelfTestDomain  = "agentkeyring.selftest.v2"
 	AnswerDomain    = "agentkeyring.answer.v2"
 	ApprovalSeconds = 1800
 )
@@ -53,7 +55,10 @@ var (
 )
 
 // KeyID is lowercase hex SHA-256 of public key bytes.
-func KeyID(publicKey []byte) string { sum := sha256.Sum256(publicKey); return hex.EncodeToString(sum[:]) }
+func KeyID(publicKey []byte) string {
+	sum := sha256.Sum256(publicKey)
+	return hex.EncodeToString(sum[:])
+}
 
 func SHA256(data []byte) []byte { sum := sha256.Sum256(data); return sum[:] }
 
@@ -401,4 +406,22 @@ func OneTimeCodes(secret *pb.LoginSecret, start, end int64) ([]*pb.TimedCode, er
 		codes = append(codes, &pb.TimedCode{ValidFromUnixSeconds: step, ValidUntilUnixSeconds: min(step+period, end), Code: fmt.Sprintf("%0*d", digits, value)})
 	}
 	return codes, nil
+}
+
+// JoinProof proves a joiner holds the secret of an invitation
+// (proto/agentkeyring/v2/keyring.proto, JoinRequest.proof).
+func JoinProof(secret []byte, joining *pb.JoinRequest) []byte {
+	var message []byte
+	switch {
+	case joining.GetMachine() != nil:
+		m := joining.GetMachine()
+		message = lengthPrefixed("agentkeyring.join.v2", "machine", m.Label, m.MachineId, string(m.TlsPublicKey), string(m.ReceivingPublicKey))
+	case joining.GetDevice() != nil:
+		d := joining.GetDevice()
+		message = lengthPrefixed("agentkeyring.join.v2", "device", d.Label, d.KeyId, strconv.Itoa(int(d.Kind)), string(d.SigningPublicKey),
+			string(d.OpeningPublicKey), string(d.TlsPublicKey), d.ReplyKeyId, string(d.ReplyPublicKey))
+	}
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(message)
+	return mac.Sum(nil)
 }
