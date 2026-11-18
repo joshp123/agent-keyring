@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "AgentKeyringFeature",
-    platforms: [.macOS(.v26), .iOS(.v26)],
+    platforms: [.macOS(.v26), .iOS(.v26), .watchOS(.v26)],
     products: [
         .executable(name: "agent-keyring-upgrade-state", targets: ["AgentKeyringUpgradeState"]),
         .executable(name: "agent-keyring-phone-fixture", targets: ["AgentKeyringPhoneFixture"]),
@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "AgentKeyringPhoneApprover", targets: ["AgentKeyringPhoneApprover"]),
         .library(name: "AgentKeyringCredentialImport", targets: ["AgentKeyringCredentialImport"]),
         .library(name: "AgentKeyringProtocol", targets: ["AgentKeyringProtocol"]),
+        .library(name: "AgentKeyringSealing", targets: ["AgentKeyringSealing"]),
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
         .library(name: "AgentKeyringApprovalUI", targets: ["AgentKeyringApprovalUI"]),
         .library(name: "AgentKeyringScreenBackends", targets: ["AgentKeyringScreenBackends"]),
@@ -30,6 +31,8 @@ let package = Package(
         .target(name: "AgentKeyringPhoneApprover", dependencies: ["AgentKeyringRelaySupport", "AgentKeyringApprovalUI"]),
         .target(name: "AgentKeyringCredentialImport"),
         .target(name: "AgentKeyringProtocol", dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")]),
+        // Sealed logins and signed answers, shared by the Mac, iPhone and Watch apps.
+        .target(name: "AgentKeyringSealing", dependencies: ["AgentKeyringProtocol"]),
         .target(name: "AgentKeyringApprovalCore"),
         .target(name: "AgentKeyringApprovalUI"),
         // Joins the lease store and access rules to the screens (RFC 0007, U2 and U3).
@@ -38,6 +41,7 @@ let package = Package(
         .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),
         .executableTarget(name: "AgentKeyringAuthorityFixture", dependencies: ["AgentKeyringFeature", "AgentKeyringTestSupport"], path: "Tools/AgentKeyringAuthorityFixture"),
         .executableTarget(name: "AgentKeyringRelayApproverFixture", dependencies: ["AgentKeyringFeature", "AgentKeyringTestSupport"], path: "Tools/AgentKeyringRelayApproverFixture"),
+        .testTarget(name: "AgentKeyringSealingTests", dependencies: ["AgentKeyringSealing", "AgentKeyringProtocol"]),
         .testTarget(name: "AgentKeyringPhoneApproverTests", dependencies: ["AgentKeyringPhoneApprover", "AgentKeyringFeature"]),
         .testTarget(name: "AgentKeyringFeatureTests", dependencies: ["AgentKeyringTestSupport", "AgentKeyringFeature", "AgentKeyringApprovalCore", "AgentKeyringApprovalUI"]),
     ]

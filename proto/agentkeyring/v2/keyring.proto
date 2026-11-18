@@ -1,0 +1,441 @@
+// Written by AI on 2026.11.18 by model claude opus 5.5.
+//
+// Agent Keyring, version 2: sealed logins and the relay.
+//
+// Each login's secret is sealed separately to the opening key of each device
+// that may approve it (iPhone, Watch, MacBook), and to each machine allowed to
+// use it with no question (Automatic). Site and account stay readable in the
+// catalogue. Approving means a device opens the one sealed login and seals it
+// again for the machine that asked, valid for 30 minutes at most. The relay
+// stores sealed logins, requests and answers, and wakes the devices; it can
+// open nothing.
+//
+// Keys. Every key is P-256. A device holds two keys in its Secure Enclave,
+// usable only after Face ID, Touch ID, or (Watch) while unlocked on the wrist:
+// a signing key, which signs approvals and the documents below, and an opening
+// key, to which logins are sealed. One approval unlocks both. It also holds two
+// keys usable whenever it is unlocked, with no face or finger: a reply key,
+// which signs only denials with words (iOS hands a typed reply to the app where
+// Face ID cannot be shown), and a notice key, to which the relay seals what a
+// push shows. A machine holds a software receiving key, to which approvals are
+// sealed. Devices other than the Watch, and machines, also hold a TLS key for
+// their connection to the relay. Key ids are lowercase hex SHA-256 of the
+// public key bytes named below.
+//
+// Signatures. ECDSA P-256 with SHA-256, DER encoded, over the exact payload
+// bytes in Signed. Verifiers parse those bytes; nobody re-encodes them.
+//
+// Sealing. HPKE (RFC 9180) base mode, DHKEM(P-256, HKDF-SHA256), HKDF-SHA256,
+// AES-256-GCM. CryptoKit: HPKE.Ciphersuite.P256_SHA256_AES_GCM_256. Go:
+// crypto/hpke. The info and associated data are given with each sealed message.
+//
+// Wire. Mutual TLS 1.3 with self-signed certificates, each side pinning the
+// other's exact SubjectPublicKeyInfo; one method per connection; frames are a
+// 4-byte unsigned big-endian length then a serialized protobuf.
+// RelayRequest selects the method; each RelayResponse has end_of_stream set on
+// its last frame. Frames are at most 4 MiB. Nothing is reachable from outside the tailnet. The Watch
+// never connects: its work arrives in a push, and the iPhone forwards its
+// answers.
+
+syntax = "proto3";
+
+package agentkeyring.v2;
+
+option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2;agentkeyringv2";
+
+// ---- Signed documents ----------------------------------------------------
+
+// The one envelope for everything signed. The payload's own domain field says
+// what it is; a verifier refuses a payload whose domain it did not expect.
+message Signed {
+  bytes payload = 1;
+  bytes signature = 2;
+  // Device.key_id, when signed with the device's signing key; or Device.reply_key_id,
+  // when signed with its reply key, which is valid only on an Answer that denies.
+  string signer_key_id = 3;
+}
+
+// Who may approve and who may ask. Revision 1 is signed by a device it lists.
+// Revision n+1 is valid only if signed by a device listed in the revision the
+// verifier already holds, with its signing key. Any device may sign: Josh
+// removes a lost MacBook from his iPhone. Verifiers keep the highest valid
+// revision and refuse a lower one.
+message Members {
+  string domain = 1;  // "agentkeyring.members.v2"
+  uint64 revision = 2;
+  repeated Device devices = 3;
+  repeated Machine machines = 4;
+  bytes relay_tls_public_key = 5;  // SPKI DER; machines and devices pin it.
+}
+
+message Device {
+  string key_id = 1;               // SHA-256 of signing_public_key.
+  DeviceKind kind = 2;
+  string label = 3;                // As the person named it, e.g. "MacBook Pro".
+  bytes signing_public_key = 4;    // X9.63 uncompressed.
+  bytes opening_public_key = 5;    // X9.63 uncompressed. Logins are sealed to it.
+  bytes tls_public_key = 6;        // SPKI DER. Empty for the Watch.
+  string reply_key_id = 7;         // SHA-256 of reply_public_key.
+  bytes reply_public_key = 8;      // X9.63 uncompressed. Signs only denials with words.
+}
+
+enum DeviceKind {
+  DEVICE_KIND_UNSPECIFIED = 0;
+  DEVICE_KIND_MAC = 1;
+  DEVICE_KIND_IPHONE = 2;
+  DEVICE_KIND_WATCH = 3;
+}
+
+message Machine {
+  string machine_id = 1;           // SHA-256 of tls_public_key.
+  string label = 2;                // e.g. "Mac mini".
+  bytes tls_public_key = 3;        // SPKI DER.
+  bytes receiving_public_key = 4;  // X9.63 uncompressed. Approvals are sealed to it.
+  // May hold Automatic logins. Sealing them to this machine is what grants
+  // them; this flag tells devices to do so on import and rule changes.
+  bool automatic_allowed = 5;
+}
+
+// The logins and their rules: names readable, secrets never. Signed by any
+// device in the current Members, with its signing key. Same revision rule as
+// Members. A Catalogue signed by a MacBook must leave every login that was
+// phone_and_watch_only exactly as it was, so only the iPhone or Watch can
+// change those.
+message Catalogue {
+  string domain = 1;  // "agentkeyring.catalogue.v2"
+  uint64 revision = 2;
+  repeated Login logins = 3;
+  int64 imported_unix_seconds = 4;
+}
+
+message Login {
+  string login_id = 1;             // Stable across imports.
+  string title = 2;
+  repeated string sites = 3;       // Saved sites; the delivery is limited to these.
+  string account = 4;
+  bool has_one_time_code = 5;
+  Rule rule = 6;
+  // Only the iPhone and the Watch may approve: the login is not sealed to any
+  // MacBook. Devices refuse to approve it otherwise.
+  bool phone_and_watch_only = 7;
+}
+
+enum Rule {
+  RULE_UNSPECIFIED = 0;
+  RULE_ASK = 1;
+  RULE_AUTOMATIC = 2;              // Also sealed to machines with automatic_allowed.
+  RULE_BLOCKED = 3;                // Devices refuse to open it for anyone.
+}
+
+// ---- Sealed logins ---------------------------------------------------------
+
+// One login sealed to one key: a device's opening key, or a machine's
+// receiving key for an Automatic login.
+// info = "agentkeyring.login.v2"
+// aad  = uint32 BE length || opener_id UTF-8 || uint32 BE length || login_id UTF-8
+// plaintext = serialized LoginSecret, whose login_id must equal login_id here.
+message SealedLogin {
+  string login_id = 1;
+  string opener_id = 2;            // Device.key_id or Machine.machine_id.
+  bytes encapsulated_key = 3;
+  bytes ciphertext = 4;
+}
+
+message LoginSecret {
+  string login_id = 1;
+  string username = 2;
+  string password = 3;
+  bytes totp_seed = 4;             // Empty when the login has no one-time code.
+  int32 totp_period_seconds = 5;   // Default 30.
+  int32 totp_digits = 6;           // Default 6.
+  string totp_algorithm = 7;       // "SHA1" (default), "SHA256" or "SHA512".
+}
+
+// ---- Requests and answers --------------------------------------------------
+
+enum Purpose {
+  PURPOSE_UNSPECIFIED = 0;
+  PURPOSE_BROWSER_SIGN_IN = 1;     // The command fills a sign-in page.
+  PURPOSE_PROGRAM = 2;             // The command passes it to one named program.
+  PURPOSE_AGENT_PROCESS = 3;       // The agent reads it, and may keep it.
+}
+
+message ProgramCommand {
+  string executable = 1;           // Absolute path on the asking machine.
+  repeated string arguments = 2;
+}
+
+// Written once by the relay from the asking machine's request. Devices show
+// what they parse from these exact bytes, check the login against their own
+// catalogue and the machine against their own Members, and answer over them.
+message Request {
+  string domain = 1;               // "agentkeyring.request.v2"
+  string request_id = 2;           // Chosen by the relay, unique.
+  string login_id = 3;
+  string machine_id = 4;           // The machine whose TLS key made the request.
+  Purpose purpose = 5;
+  ProgramCommand program = 6;      // PURPOSE_PROGRAM only.
+  string reason = 7;               // The agent's own words.
+  string agent = 8;                // The agent's claim, e.g. "Codex".
+  string project = 9;              // The agent's claim: its Git repository's name.
+  string task = 10;                // The agent's grouping of requests into one job.
+  int64 asked_unix_seconds = 11;
+  int64 answer_by_unix_seconds = 12;  // After this the request is unanswered.
+}
+
+// A device's answer, the payload of a Signed by that device's signing key.
+// A plain denial with no reply may instead be sent unsigned over a device's
+// own connection (see AnswerUpload), so Deny needs no Face ID or Touch ID.
+message Answer {
+  string domain = 1;               // "agentkeyring.answer.v2"
+  bytes request_sha256 = 2;        // SHA-256 of the exact Request bytes.
+  Choice choice = 3;
+  int64 decided_unix_seconds = 4;
+  int64 not_after_unix_seconds = 5;  // Approve: at most decided + 1800.
+  string reply = 6;                // Deny: the person's words to the agent.
+  bytes delivery_sha256 = 7;       // Approve: SHA-256 of Delivery.ciphertext.
+}
+
+enum Choice {
+  CHOICE_UNSPECIFIED = 0;
+  CHOICE_APPROVE = 1;
+  CHOICE_DENY = 2;
+}
+
+// The approved login, sealed to the asking machine's receiving key.
+// info = "agentkeyring.delivery.v2"; aad = Answer.request_sha256
+// plaintext = serialized DeliveryContents.
+message Delivery {
+  bytes encapsulated_key = 1;
+  bytes ciphertext = 2;
+}
+
+message DeliveryContents {
+  string request_id = 1;
+  string login_id = 2;
+  repeated string sites = 3;       // The command refuses any other site.
+  string username = 4;
+  string password = 5;
+  // One code per time step until not_after. The seed never leaves the device.
+  repeated TimedCode one_time_codes = 6;
+  int64 not_after_unix_seconds = 7;
+}
+
+message TimedCode {
+  int64 valid_from_unix_seconds = 1;
+  int64 valid_until_unix_seconds = 2;
+  string code = 3;
+}
+
+// ---- What the asking machine sees ------------------------------------------
+
+message Lease {
+  string request_id = 1;
+  string login_id = 2;
+  LeaseState state = 3;
+  int64 answer_by_unix_seconds = 4;
+  int64 not_after_unix_seconds = 5;  // Set once approved.
+  string answered_by = 6;            // Device.label, once answered.
+  string reply = 7;                  // Display only; show the words from collect's signed answer.
+  int64 retry_not_before_unix_seconds = 8;  // A denial holds the login off for 30 minutes.
+}
+
+enum LeaseState {
+  LEASE_STATE_UNSPECIFIED = 0;
+  LEASE_STATE_WAITING = 1;         // Asked, not yet answered.
+  LEASE_STATE_APPROVED = 2;        // Collect the delivery.
+  LEASE_STATE_DENIED = 3;
+  LEASE_STATE_UNANSWERED = 4;      // Nobody answered by answer_by.
+  LEASE_STATE_ENDED = 5;           // The agent said it was done, or 30 minutes passed.
+  LEASE_STATE_CANCELLED = 6;       // The agent stopped asking.
+}
+
+// Everything the asking machine needs to check an answer itself: an approval,
+// to open its delivery, or a denial with words, to show them as signed.
+message Approval {
+  bytes request = 1;               // The exact Request bytes.
+  Signed answer = 2;               // Verify against the machine's own Members.
+  Delivery delivery = 3;           // Approvals only.
+}
+
+// ---- What a device is given -------------------------------------------------
+
+// One request for one device: on its watch_work stream, from get_work, and
+// sealed in the push that wakes it. For the Watch this is everything it needs,
+// beside the Members and Catalogue the iPhone keeps in step on it.
+message Work {
+  bytes request = 1;               // The exact Request bytes.
+  SealedLogin sealed_login = 2;    // This login, sealed to this device. Absent if it may not approve it.
+  // Set once the request has ended: answered here or elsewhere, or no answer
+  // in time. Show the outcome and clear the request.
+  Lease outcome = 3;
+}
+
+// The push. Apple carries nothing readable about a request. The relay sends:
+//   aps.alert            {"title": "Agent Keyring", "body": "A request is waiting."}
+//   aps.category         "REQUEST"
+//   aps.interruption-level  "time-sensitive"
+//   aps.mutable-content  1
+//   aps.thread-id        the request id
+//   akr                  base64 of a serialized Notice
+// with the header apns-collapse-id set to the request id, so the push for the
+// outcome replaces the one for the request. The app's notification service
+// extension opens the Notice with the device's notice key and writes the
+// alert from the Work in it; the relay sends one push per device.
+// info = "agentkeyring.notice.v2"; aad = the device's Device.key_id UTF-8
+// plaintext = serialized Work.
+message Notice {
+  bytes encapsulated_key = 1;
+  bytes ciphertext = 2;
+}
+
+// ---- The relay's methods ---------------------------------------------------
+
+message RelayRequest {
+  oneof method {
+    // Asking machines.
+    AskRequest ask = 1;
+    RequestReference watch = 2;            // Streams Lease until it is final.
+    RequestReference collect = 3;          // Returns Approval once approved, or denied with words.
+    RequestReference end = 4;              // Done with it, or stop asking.
+    FindRequest find = 5;                  // Returns FindResult from the catalogue.
+    Empty automatic_logins = 6;            // Returns SealedLogins sealed to this machine.
+    UseReport report_use = 7;              // An Automatic login was used.
+    // Devices (by TLS key) and machines alike.
+    Empty members = 8;                     // Returns Signed (Members).
+    Empty catalogue = 9;                   // Returns Signed (Catalogue).
+    // Devices.
+    Empty watch_work = 10;                 // Streams Work: the waiting ones, then each new one or answer.
+    RequestReference get_work = 11;        // Returns Work for this device.
+    AnswerUpload answer = 12;
+    PushRegistration register_push = 13;
+    Signed publish_members = 14;
+    Signed publish_catalogue = 15;
+    SealedLogins publish_sealed_logins = 16;  // Replaces every sealed login for the openers named.
+    Empty sealed_logins = 17;              // Returns SealedLogins sealed to this device.
+    // Joining: a machine or device not yet in Members. Streams JoinStatus.
+    JoinRequest join = 18;
+    Empty pending_joins = 19;              // Devices: returns PendingJoins.
+  }
+}
+
+message RelayResponse {
+  oneof result {
+    Lease lease = 1;
+    Approval approval = 2;
+    FindResult find = 3;
+    SealedLogins sealed_logins = 4;
+    Signed signed = 5;
+    Work work = 6;
+    JoinStatus join = 7;
+    PendingJoins pending_joins = 8;
+    Empty done = 9;
+    Error error = 10;
+  }
+  bool end_of_stream = 11;
+}
+
+message Empty {}
+
+message RequestReference {
+  string request_id = 1;
+}
+
+// The relay refuses a reason over 400 bytes, and agent, project or task over
+// 100, so that a Work still fits in a push.
+message AskRequest {
+  string login_id = 1;
+  Purpose purpose = 2;
+  ProgramCommand program = 3;
+  string reason = 4;
+  string agent = 5;
+  string project = 6;
+  string task = 7;
+  // The machine's retry key: the same key returns the same request.
+  string client_request_id = 8;
+}
+
+message FindRequest {
+  string query = 1;                // Words matched against title, sites and account.
+}
+
+message FindResult {
+  repeated Login logins = 1;
+}
+
+message UseReport {
+  string login_id = 1;
+  string agent = 2;
+  string reason = 3;
+  int64 used_unix_seconds = 4;
+}
+
+message SealedLogins {
+  repeated SealedLogin logins = 1;
+}
+
+// Sent by the device that answered, or by the iPhone for its Watch, unchanged.
+message AnswerUpload {
+  // Approve: signed with a device's signing key. Deny with words: with its
+  // signing key or its reply key.
+  Signed answer = 1;
+  Delivery delivery = 2;           // Approve only.
+  // Plain denial with no words, unsigned, from a device's own connection or
+  // forwarded by the iPhone for its Watch. Grants nothing.
+  string deny_request_id = 3;
+}
+
+message PushRegistration {
+  string device_key_id = 1;        // The iPhone registers its Watch's token too.
+  bytes apns_token = 2;
+  string apns_topic = 3;           // The app's bundle identifier.
+  bool apns_production = 4;        // Must match how the app was signed.
+  bytes notice_public_key = 5;     // X9.63 uncompressed. Pushes are sealed to it.
+}
+
+message JoinRequest {
+  oneof joining {
+    Machine machine = 1;           // machine_id and keys of the joining machine.
+    Device device = 2;             // A device; the iPhone sends one for its Watch.
+  }
+}
+
+message JoinStatus {
+  JoinState state = 1;
+  // Approved: the Members that lists the joiner. Check it is signed and lists
+  // exactly the keys sent, then pin it and its relay key.
+  Signed members = 2;
+}
+
+enum JoinState {
+  JOIN_STATE_UNSPECIFIED = 0;
+  JOIN_STATE_WAITING = 1;          // Shown on the devices; nobody has answered.
+  JOIN_STATE_APPROVED = 2;
+  JOIN_STATE_REFUSED = 3;
+  JOIN_STATE_EXPIRED = 4;          // Ten minutes passed.
+}
+
+message PendingJoins {
+  repeated PendingJoin joins = 1;
+}
+
+message PendingJoin {
+  JoinRequest request = 1;
+  string tailscale_node_name = 2;  // From the relay's Tailscale lookup of the connection.
+  int64 asked_unix_seconds = 3;
+}
+
+message Error {
+  ErrorCode code = 1;
+  string message = 2;              // Safe text, never a secret.
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_INVALID = 1;
+  ERROR_CODE_NOT_ALLOWED = 2;      // Unknown key, blocked login, or not this caller's.
+  ERROR_CODE_NOT_FOUND = 3;
+  ERROR_CODE_CONFLICT = 4;         // Already answered, or a stale revision.
+  ERROR_CODE_HELD_OFF = 5;         // Denied less than 30 minutes ago.
+  ERROR_CODE_UNAVAILABLE = 6;
+}
