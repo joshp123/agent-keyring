@@ -37,6 +37,8 @@ public final class CredentialLeaseStore {
         var lease: Data
         var automatic: Bool
         var requester: CredentialLeaseRequester? = nil
+        /// Approved on the iPhone or Watch, not in this Mac's panel.
+        var onDevices = false
     }
     private struct Suppression: Codable {
         var until: Int64
@@ -54,6 +56,8 @@ public final class CredentialLeaseStore {
     /// Each approved login, opened at approval and kept only in memory for
     /// its lease. Automatic leases open the Mac's own copy at each delivery.
     private var opened: [String: Agentkeyring_V2_LoginSecret] = [:]
+    /// One-time codes the iPhone or Watch sent with an approval, which carries no seed.
+    private var openedCodes: [String: [Agentkeyring_V2_TimedCode]] = [:]
     public private(set) var leases: [Agentkeyring_V1_Lease] = []
     public private(set) var errorMessage: String?
     @ObservationIgnored private var deadlineTask: Task<Void, Never>?
@@ -62,7 +66,10 @@ public final class CredentialLeaseStore {
     public init(persistence: LeasePersistence = LeasePersistence()) {
         self.persistence = persistence
     }
-    public var waitingRequests: [Agentkeyring_V1_Lease] { leases.filter { $0.state == .pending } }
+    /// The requests waiting for an answer in this Mac's panel.
+    public var waitingRequests: [Agentkeyring_V1_Lease] {
+        leases.filter { $0.state == .pending && snapshot?.leases[$0.leaseID]?.onDevices != true }
+    }
     public var activeLeases: [Agentkeyring_V1_Lease] { leases.filter { $0.state == .active } }
 
     public func load() throws {
@@ -188,7 +195,8 @@ public final class CredentialLeaseStore {
             lease.state = .pending
             lease.statusLines = ["Waiting for approval in Agent Keyring."]
         }
-        let saved = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically, requester: requester)
+        let saved = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically, requester: requester,
+            onDevices: policy == .askOnPhone)
         next.leases[lease.leaseID] = saved
         next.requests[request.requestID] = RequestRecord(request: try request.serializedData(), leaseID: lease.leaseID)
         try commit(next)
@@ -218,6 +226,26 @@ public final class CredentialLeaseStore {
         try saveLease(lease)
         return lease
     }
+
+    /// The iPhone or Watch approved: what it sent, held in memory for the lease.
+    func approveFromDevices(_ leaseID: String, contents: Agentkeyring_V2_DeliveryContents) throws {
+        var lease = try get(leaseID)
+        guard lease.state == .pending else { return }
+        lease.state = .active
+        lease.approvedBy = .iphone
+        lease.approvedAtUnixSeconds = Self.now
+        lease.notAfterUnixSeconds = contents.notAfterUnixSeconds
+        lease.statusLines = []
+        var secret = Agentkeyring_V2_LoginSecret()
+        secret.loginID = contents.loginID
+        secret.username = contents.username
+        secret.password = contents.password
+        opened[leaseID] = secret
+        openedCodes[leaseID] = contents.oneTimeCodes
+        try saveLease(lease)
+    }
+
+    func openedCodes(for leaseID: String) -> [Agentkeyring_V2_TimedCode]? { openedCodes[leaseID] }
 
     /// The login opened for this lease; nil for an Automatic lease, which opens the Mac's own copy.
     func openedLogin(for leaseID: String) -> Agentkeyring_V2_LoginSecret? { opened[leaseID] }
@@ -407,6 +435,7 @@ public final class CredentialLeaseStore {
             (try? Agentkeyring_V1_Lease(serializedBytes: entry.lease)).flatMap { $0.state == .active ? id : nil }
         } ?? [])
         opened = opened.filter { active.contains($0.key) }
+        openedCodes = openedCodes.filter { active.contains($0.key) }
         leases = (snapshot?.leases.values.compactMap { try? Agentkeyring_V1_Lease(serializedBytes: $0.lease) } ?? [])
             .sorted { $0.pendingUntilUnixSeconds > $1.pendingUntilUnixSeconds }
         for observer in observers.values { observer.yield(leases) }

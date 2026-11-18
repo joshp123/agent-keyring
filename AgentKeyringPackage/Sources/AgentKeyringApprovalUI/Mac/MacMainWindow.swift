@@ -48,18 +48,14 @@ public struct MachineRow: Identifiable, Hashable, Sendable {
     public var isAlwaysOn: Bool
     public var automatic: Bool
     public var lastTested: Date?
-    /// The Automatic logins this machine has been given, by site.
-    public var automaticLogins: [String]
 
-    public init(id: String, name: String, isThisMac: Bool, isAlwaysOn: Bool, automatic: Bool, lastTested: Date?,
-        automaticLogins: [String]) {
+    public init(id: String, name: String, isThisMac: Bool, isAlwaysOn: Bool, automatic: Bool, lastTested: Date?) {
         self.id = id
         self.name = name
         self.isThisMac = isThisMac
         self.isAlwaysOn = isAlwaysOn
         self.automatic = automatic
         self.lastTested = lastTested
-        self.automaticLogins = automaticLogins
     }
 }
 
@@ -86,6 +82,8 @@ public struct MainSnapshot: Hashable, Sendable {
 public protocol MainWindowBackend: AnyObject {
     func updates() -> AsyncStream<MainSnapshot>
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws
+    /// Changes from Ask on iPhone or Watch: sent there; true once approved.
+    func proposeRules(_ changes: [UUID: LoginRule]) async throws -> Bool
     func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws
     func remove(id: String, context: LAContext) async throws
     func importAgain()
@@ -147,12 +145,29 @@ public final class MacMainModel {
             return "The rules for \(changed.count) logins change."
         }
         return "\(row.site) changes from \(row.rule.name) to \(next.name)."
+            + (row.rule == .automatic ? " An agent that has already received its password still knows it." : "")
     }
 
     public func cancelChanges() {
         context?.invalidate()
         pending = [:]
         failure = nil
+    }
+
+    /// Sends a change only the iPhone or Watch may make, and waits for it.
+    public func sendToPhone() {
+        guard !isWorking else { return }
+        isWorking = true
+        failure = nil
+        Task {
+            defer { isWorking = false }
+            do {
+                if try await backend.proposeRules(pending) { pending = [:] }
+                else { failure = "Your iPhone or Watch did not approve the change. The rules are as they were." }
+            } catch {
+                failure = (error as? LocalizedError)?.errorDescription ?? "The change could not be sent to your iPhone or Watch."
+            }
+        }
     }
 
     public func save() { run { [pending, backend] context in try await backend.saveRules(pending, context: context) } done: { self.pending = [:] } }
@@ -319,11 +334,17 @@ private struct LoginsTab: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Pill(title: "Import Again", style: .quiet, action: model.importAgain)
             } else {
-                Text(model.pendingSentence + (model.needsPhone ? " Change it on your iPhone or Watch." : ""))
+                Text(model.pendingSentence)
                     .font(.system(size: 14)).foregroundStyle(RequestToken.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Pill(title: "Cancel", style: .quiet, action: model.cancelChanges)
-                if !model.needsPhone {
+                if model.needsPhone {
+                    Button(action: model.sendToPhone) {
+                        Label(model.isWorking ? "Waiting for your iPhone or Watch" : "Approve on your iPhone or Watch", systemImage: "iphone")
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                    }
+                    .buttonStyle(.plain).disabled(model.isWorking)
+                } else {
                     Pill(title: model.isWorking ? "Touch the sensor to save" : "Save with Touch ID", style: .approve, action: model.save)
                         .disabled(model.isWorking)
                 }
@@ -394,6 +415,9 @@ private struct DevicesTab: View {
                     }
                 }
             }
+            Text("When Can use Automatic logins is on, agents on that machine get logins set to Automatic without asking. It starts on for your always-on machine and off for every other machine. You approve each change with Touch ID. Switching it off stops the machine getting those logins at once, but a password an agent there has already received stays known to it.")
+                .font(.system(size: 12)).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 20).padding(.vertical, 10)
             if model.snapshot.joined {
                 Text("To add an iPhone, install Agent Keyring on it and open it. To add a machine, tell an agent to set up Agent Keyring on it.")
                     .font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
@@ -455,9 +479,6 @@ private struct DevicesTab: View {
         var parts: [String] = []
         if machine.isAlwaysOn { parts.append("Your always-on machine.") }
         if let tested = machine.lastTested { parts.append("Last tested at \(tested.formatted(date: .omitted, time: .shortened)).") }
-        if !machine.isThisMac, !machine.automaticLogins.isEmpty {
-            parts.append("Has Automatic logins for \(machine.automaticLogins.joined(separator: ", ")).")
-        }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 }

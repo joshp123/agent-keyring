@@ -28,7 +28,6 @@ struct AgentKeyringMenuWindow: View {
     let presentation: AgentKeyringPresentation
     let menuBar: MacMenuBarModel
     let approvals: ApprovalPresenter
-    let checkForUpdates: () -> Void
 
     var body: some View {
         MacMenuBarView(model: menuBar)
@@ -52,10 +51,6 @@ struct AgentKeyringMenuWindow: View {
                 menuBar.openAgentKeyring = {
                     dismiss()
                     presentation.requestMainWindow()
-                }
-                menuBar.checkForUpdates = {
-                    dismiss()
-                    checkForUpdates()
                 }
                 menuBar.quit = { NSApplication.shared.terminate(nil) }
             }

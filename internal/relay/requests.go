@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -213,6 +214,39 @@ func (s *Server) testRequest(ctx context.Context, who caller, send func(*pb.Rela
 	})
 	slog.Info("test request", "id", id, "device", who.device.Label)
 	go s.pushAll(context.WithoutCancel(ctx), id)
+	return s.followRequest(ctx, id, send)
+}
+
+// proposeRules records a rule change for the iPhone or Watch to approve,
+// pushes it to them, and streams it until it is answered.
+func (s *Server) proposeRules(ctx context.Context, who caller, document *pb.Signed, send func(*pb.RelayResponse) error) error {
+	members, _ := s.Store.documents()
+	signer, err := keyring.Verify(document, members, true)
+	proposal := &pb.RuleProposal{}
+	if err != nil || signer.KeyId != who.device.KeyId || unmarshal(document.Payload, proposal) != nil ||
+		proposal.Domain != keyring.ProposalDomain || len(proposal.Changes) == 0 {
+		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A rule proposal is signed by the device that sends it and names at least one change.")
+	}
+	now := s.now()
+	id := newID()
+	answerBy := now.Add(s.answerWithin()).Unix()
+	reason := "Change the rules for " + strconv.Itoa(len(proposal.Changes)) + " logins."
+	if len(proposal.Changes) == 1 {
+		reason = "Change the rule for one login."
+	}
+	s.Store.update(func(data *saved) error {
+		data.Requests[id] = &request{Proposal: marshal(document), ProposedBy: signer.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING,
+			AnswerBy: answerBy, Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id, Purpose: pb.Purpose_PURPOSE_AGENT_PROCESS,
+				Reason: reason, Agent: signer.Label, AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: answerBy})}
+		return nil
+	})
+	slog.Info("rule proposal", "id", id, "device", signer.Label, "changes", len(proposal.Changes))
+	go s.pushAll(context.WithoutCancel(ctx), id)
+	return s.followRequest(ctx, id, send)
+}
+
+// followRequest streams one request's lease until it is no longer waiting.
+func (s *Server) followRequest(ctx context.Context, id string, send func(*pb.RelayResponse) error) error {
 	var last pb.LeaseState
 	for {
 		var lease *pb.Lease
@@ -222,7 +256,7 @@ func (s *Server) testRequest(ctx context.Context, who caller, send func(*pb.Rela
 			}
 		})
 		if lease == nil {
-			return fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "The test request is gone.")
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "The request is gone.")
 		}
 		final := lease.State != pb.LeaseState_LEASE_STATE_WAITING
 		if lease.State != last {
@@ -314,7 +348,11 @@ func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload
 				return nil
 			}
 			choice, answeredBy, reply = answer.Choice, signer.Label, answer.Reply
-			if r.ForDevice != "" {
+			if len(r.Proposal) > 0 {
+				if choice == pb.Choice_CHOICE_APPROVE && signer.Kind == pb.DeviceKind_DEVICE_KIND_MAC {
+					return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the iPhone or Watch may make this rule change.")
+				}
+			} else if r.ForDevice != "" {
 				if r.ForDevice != signer.KeyId {
 					return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the device that asked for a test may answer it.")
 				}
@@ -348,11 +386,11 @@ func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload
 		if upload.Answer != nil {
 			r.Answer = marshal(upload)
 		}
-		if choice == pb.Choice_CHOICE_APPROVE && r.ForDevice != "" {
+		if choice == pb.Choice_CHOICE_APPROVE && (r.ForDevice != "" || len(r.Proposal) > 0) {
 			r.State, r.Ended = pb.LeaseState_LEASE_STATE_APPROVED, now.Unix()
 		} else if choice == pb.Choice_CHOICE_APPROVE {
 			r.State, r.NotAfter = pb.LeaseState_LEASE_STATE_APPROVED, notAfter
-		} else if r.ForDevice != "" {
+		} else if r.ForDevice != "" || len(r.Proposal) > 0 {
 			r.State, r.Ended = pb.LeaseState_LEASE_STATE_DENIED, now.Unix()
 		} else {
 			parsed := &pb.Request{}
@@ -478,6 +516,10 @@ func (s *Server) work(device *pb.Device, id string, data *saved) (*pb.Work, erro
 		work := &pb.Work{Request: r.Request}
 		parsed := &pb.Request{}
 		unmarshal(r.Request, parsed)
+		if len(r.Proposal) > 0 {
+			work.Proposal = &pb.Signed{}
+			unmarshal(r.Proposal, work.Proposal)
+		}
 		if parsed.LoginId != "" {
 			_, catalogue := s.Store.documentsLocked()
 			work.Login = loginIn(catalogue, parsed.LoginId)
@@ -507,7 +549,7 @@ func (s *Server) watchWork(ctx context.Context, who caller, send func(*pb.RelayR
 		var batch []*pb.Work
 		changed := s.Store.read(func(data *saved) {
 			for id, r := range data.Requests {
-				if r.ForDevice != "" && r.ForDevice != who.device.KeyId {
+				if (r.ForDevice != "" && r.ForDevice != who.device.KeyId) || r.ProposedBy == who.device.KeyId {
 					continue
 				}
 				previous, known := sent[id]
