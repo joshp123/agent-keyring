@@ -31,6 +31,7 @@ public struct PhoneRootView: View {
             }
         }
         .task { await model.followUpdates() }
+        .alert(model.failure ?? "", isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sheet(item: shownRequest) { request in
             PhoneRequestView(model: model, request: request)
         }
@@ -43,6 +44,10 @@ public struct PhoneRootView: View {
                                    footnote: PhoneCopy.watchFootnote, approve: { await model.approveDevice(device.id) },
                                    deny: { await model.denyDevice(device.id) })
         }
+    }
+
+    private var failureShown: Binding<Bool> {
+        Binding(get: { model.failure != nil && model.shownRequestID == nil }, set: { if !$0 { model.dismissFailure() } })
     }
 
     private var testShown: Binding<Bool> {

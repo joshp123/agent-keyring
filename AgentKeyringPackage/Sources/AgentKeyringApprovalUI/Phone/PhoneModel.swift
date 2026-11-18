@@ -182,7 +182,11 @@ public final class PhoneModel {
     }
 
     public func stop(_ id: String) async {
-        do { try await backend.stop(id) } catch { failure = PhoneCopy.stopFailed }
+        do { try await backend.stop(id) } catch {
+            var until: Date?
+            if case let .approved(_, end)? = request(id: id)?.state { until = end }
+            failure = PhoneCopy.stopFailed(until: until)
+        }
     }
 
     public func setRule(_ rule: PhoneLogin.Rule, forLogin id: String) async {

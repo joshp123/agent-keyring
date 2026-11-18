@@ -26,12 +26,14 @@ final class WatchLink: NSObject, WCSessionDelegate {
     func sendMembers() {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated,
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled,
-              let members = relay.signedMembers else { return }
-        try? WCSession.default.updateApplicationContext(["members": members])
+              let members = relay.signedMembers, let answerURL = relay.relayAnswerURL else { return }
+        let context: [String: Any] = ["members": members, "relayAnswerURL": answerURL]
+        try? WCSession.default.updateApplicationContext(context)
+        WCSession.default.transferUserInfo(context)
     }
 
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
-        let context = session.receivedApplicationContext.compactMapValues { $0 as? Data }
+        let context = Self.plain(session.receivedApplicationContext)
         let paired = session.isPaired && session.isWatchAppInstalled
         Task { @MainActor in
             self.relay.watchPaired = paired
@@ -41,18 +43,27 @@ final class WatchLink: NSObject, WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
-        let copy = context.compactMapValues { $0 as? Data }
+        let copy = Self.plain(context)
         Task { @MainActor in self.receive(copy) }
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        let copy = userInfo.compactMapValues { $0 as? Data }
+        let copy = Self.plain(userInfo)
         Task { @MainActor in self.receive(copy) }
     }
 
+    /// The Watch's keys and its self-test, as Data, so they can cross to the main actor.
+    nonisolated private static func plain(_ payload: [String: Any]) -> [String: Data] {
+        var result = payload.compactMapValues { $0 as? Data }
+        if let test = payload["watchSelfTest"] as? [String: Any] {
+            result["watchSelfTest"] = try? PropertyListSerialization.data(fromPropertyList: test, format: .binary, options: 0)
+        }
+        return result
+    }
+
     private func receive(_ payload: [String: Data]) {
-        guard let device = payload["watchDevice"], let push = payload["watchPush"] else { return }
-        relay.watchOffered(device: device, push: push)
+        if let device = payload["watchDevice"], let push = payload["watchPush"] { relay.watchOffered(device: device, push: push) }
+        if let test = payload["watchSelfTest"] { relay.watchTested(test) }
     }
 
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {

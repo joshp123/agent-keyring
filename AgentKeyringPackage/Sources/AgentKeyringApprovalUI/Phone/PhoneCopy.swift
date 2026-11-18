@@ -44,21 +44,23 @@ public enum PhoneCopy {
         let on = device.map { " on your \($0)" } ?? ""
         switch request.state {
         case let .approved(_, until): return "Approved\(on). \(request.agent.name) can use this login until \(clock(until)) at the latest."
+        case let .denied(_, reply?, _): return "Denied\(on). You told \(request.agent.name): \(quoted(reply))"
         case .denied: return "Denied\(on)."
-        case .unanswered: return "No answer. The request ended after 10 minutes. \(request.agent.name) can ask again."
+        case .unanswered: return "No answer. The request ended after 10 minutes, and \(request.agent.name) can ask again."
+        case .cancelled: return "Withdrawn. \(request.agent.name) stopped asking before you answered."
         default: return "This request has ended."
         }
     }
 
-    /// Not in Paper: shown if the request's words cannot be opened in time.
-    public static let notificationFallbackTitle = "An agent is asking to use a login"
+    /// Shown if the request's words cannot be opened in time.
+    public static let notificationFallbackTitle = "An agent wants to use a login."
     public static let notificationFallbackBody = "Open Agent Keyring to see the request."
 
     // The buttons iOS draws under a held notification.
     public static let approve = "Approve"
     public static let denyAndExplain = "Deny and Explain"
-    /// Not in Paper: the category is fixed, so it cannot name the agent.
-    public static let explainPlaceholder = "What should the agent do instead?"
+    /// The category is fixed, so it cannot name the agent.
+    public static let explainPlaceholder = replyPlaceholderShort
 
     // Activity.
     public static let activity = "Activity"
@@ -85,10 +87,11 @@ public enum PhoneCopy {
     public enum Outcome { case approved, denied, noAnswer }
     public static func outcome(_ state: AccessRequestState) -> (Outcome, String) {
         switch state {
+        case .approved(by: .automaticRule, _): (.approved, "Automatic")
         case .approved, .expired, .released, .ended: (.approved, "Approved")
-        case .denied, .blockedByRule: (.denied, "Denied")
+        case .blockedByRule: (.denied, "Blocked")
+        case .denied: (.denied, "Denied")
         case .unanswered: (.noAnswer, "No answer")
-        // Not in Paper: the agent stopped asking before anyone answered.
         case .cancelled, .waitingForYou, .sendingAnswer, .waitingForMac: (.noAnswer, "Withdrawn")
         }
     }
@@ -144,14 +147,17 @@ public enum PhoneCopy {
     public static let pairedWithThisIPhone = "Paired with this iPhone"
     public static let watchFootnote = "It will approve with one tap while it is on your wrist and unlocked. You can remove it at any time."
 
-    // Failures. Not in Paper.
-    public static let answerFailed = "Your answer didn’t reach Agent Keyring. Try again."
-    public static let stopFailed = "Couldn’t stop it. It stops by itself after 30 minutes."
-    public static let changeFailed = "Couldn’t make that change. Try again."
+    // Failures.
+    public static let answerFailed = "Your answer wasn’t sent. Try again."
+    public static func stopFailed(until: Date?) -> String {
+        "Couldn’t stop it. Try again." + (until.map { " It ends by itself at \(clock($0))." } ?? "")
+    }
+    public static let changeFailed = "That change wasn’t saved. Try again."
     public static let ok = "OK"
     public static func removeQuestion(_ name: String) -> String { "Remove \(name)?" }
     public static func removeDetail(_ device: PhoneDevice) -> String {
-        device.role == .approves ? "It will no longer be able to approve requests." : "Its agents will no longer be able to ask for logins."
+        device.role == .approves ? "It will no longer approve requests. You can add it again."
+            : "Agents on it will no longer be able to ask to use your logins."
     }
 
     public static func clock(_ date: Date) -> String {

@@ -35,6 +35,8 @@ struct PhoneSavedState: Codable {
     var pushSeen = false
     /// He approved first run's test request with Face ID.
     var testApproved = false
+    /// What the Watch found when it tested itself, as its app sent it (a property list).
+    var watchSelfTest: Data?
     /// Why joining stopped, in one plain line, if it did.
     var joinProblem: String?
     /// The Watch's Device and PushRegistration, serialized, as its app sent them, until it is added or refused.
@@ -138,8 +140,7 @@ public final class PhoneRelayBackend: PhoneBackend {
                                      logins: logins, devices: devices)
         snapshot.joined = true
         snapshot.asksAboutNotifications = !state.notificationsAsked
-        // The test request opens once notifications are answered.
-        snapshot.testRequest = state.notificationsAsked && state.notificationsAllowed && !state.testApproved ? "test" : nil
+        snapshot.testRequest = state.testApproved ? nil : testWork.flatMap { try? Sealing.parseRequest($0.request).requestID }
         snapshot.deviceRequest = pendingWatch.map { PhoneDeviceRequest(id: $0.keyID, name: $0.label, detail: PhoneCopy.pairedWithThisIPhone) }
         return snapshot
     }
@@ -169,6 +170,13 @@ public final class PhoneRelayBackend: PhoneBackend {
             lines.append(L(id: "watch", mark: .notYet, title: PhoneCopy.addWatch, detail: PhoneCopy.addWatchOpen))
         }
         return PhoneSetup(lines: lines, isReady: state.notificationsAllowed && state.pushSeen && state.testApproved && reachable)
+    }
+
+    /// The relay's test request for this iPhone, once it has arrived and while it waits.
+    private var testWork: Work? {
+        state.work.values.lazy.compactMap { try? Work(serializedBytes: $0) }.first { work in
+            !work.hasOutcome && (try? Sealing.parseRequest(work.request))?.forDeviceKeyID == state.deviceKeyID
+        }
     }
 
     /// A Watch is paired with this iPhone and has the app; set by the app from WatchConnectivity.
@@ -387,9 +395,9 @@ public final class PhoneRelayBackend: PhoneBackend {
         return work
     }
 
-    /// Version 2 has no way yet for a device to end an approval early.
+    /// Ends an approval early; the machine's next use of the login fails.
     public func stop(_ requestID: String) async throws {
-        throw KeyringRelayError(code: .unavailable, message: "Not in the protocol yet.")
+        _ = try await relay().call(Self.method { $0.end.requestID = requestID })
     }
 
     /// Rule changes need sealing for other openers; not built yet.
@@ -414,27 +422,32 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     // MARK: Joining and first run
 
-    /// The invitation the Mac app leaves in iCloud Keychain: the same link as
-    /// its QR code, so first run needs nothing scanned. Nil when there is none,
-    /// for example in the simulator, which has no iCloud Keychain.
+    /// The invitation the Mac app leaves in iCloud Keychain, serialized
+    /// `JoinInvite`, as an `agentkeyring://join?invite=` link. Nil when there
+    /// is none, for example in the simulator, which has no iCloud Keychain.
     public func invitation() -> String? {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation",
-                                    kSecAttrAccount as String: "join", kSecAttrSynchronizable as String: true,
+                                    kSecAttrAccount as String: "relay", kSecAttrSynchronizable as String: true,
+                                    kSecAttrAccessGroup as String: "7M8BR7R488.com.joshpalmer.AgentKeyring.shared",
                                     kSecUseDataProtectionKeychain as String: true, kSecReturnData as String: true]
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        let base64url = data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return "agentkeyring://join?invite=" + base64url
     }
 
-    /// The link: `agentkeyring://join?host=…&port=…&relay=<SHA-256 of the relay's TLS key, hex>`.
+    /// Joins once per invitation. If this iPhone is not admitted, the Mac issues a
+    /// new invitation, and the app tries again with it the next time it opens.
     public func join(invitation: String) async throws {
         guard state.deviceKeyID == nil, !joining else { return }
         joining = true
         defer { joining = false }
         do { try await joinNow(invitation) } catch {
             var next = state
-            next.joinProblem = (error as? KeyringRelayError)?.code == .notAllowed ? PhoneCopy.noMac : PhoneCopy.cantReachRelay
+            next.joinProblem = (error as? KeyringRelayError).map { $0.code == .unavailable ? PhoneCopy.cantReachRelay : PhoneCopy.noMac }
+                ?? PhoneCopy.cantReachRelay
             save(next)
             PhoneDiagnostics.note("Join failed: \(error)")
             throw error
@@ -443,13 +456,18 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     private var joining = false
 
-    private func joinNow(_ invitation: String) async throws {
-        guard let url = URLComponents(string: invitation), url.scheme == "agentkeyring", url.host == "join",
-              let host = url.queryItems?.first(where: { $0.name == "host" })?.value,
-              let port = url.queryItems?.first(where: { $0.name == "port" })?.value.flatMap(UInt16.init),
-              let relayHex = url.queryItems?.first(where: { $0.name == "relay" })?.value, let relaySHA = Data(hex: relayHex) else {
-            throw KeyringRelayError(code: .invalid, message: "That is not an Agent Keyring code.")
+    /// Joins with an invitation link: `agentkeyring://join?invite=<JoinInvite, base64url>`.
+    private func joinNow(_ link: String) async throws {
+        guard let url = URLComponents(string: link), url.scheme == "agentkeyring", url.host == "join",
+              let encoded = url.queryItems?.first(where: { $0.name == "invite" })?.value,
+              let bytes = Data(base64URL: encoded), let invite = try? Agentkeyring_V2_JoinInvite(serializedBytes: bytes),
+              !invite.relayHost.isEmpty, invite.relayPort > 0, invite.relayPort <= UInt32(UInt16.max) else {
+            throw KeyringRelayError(code: .invalid, message: "That is not an Agent Keyring invitation.")
         }
+        guard invite.expiresUnixSeconds > Int64(Date().timeIntervalSince1970) else {
+            throw KeyringRelayError(code: .notAllowed, message: "The invitation has expired.")
+        }
+        let host = invite.relayHost, port = UInt16(invite.relayPort), relaySHA = invite.relayTlsSha256
         var next = state
         next.endpoint = try RelayEndpoint(host: host, port: port)
         next.joinProblem = nil
@@ -463,13 +481,16 @@ public final class PhoneRelayBackend: PhoneBackend {
         device.tlsPublicKey = try identity().publicKeySPKI
         device.replyPublicKey = try keys.replyPublicKey()
         device.replyKeyID = Sealing.keyID(device.replyPublicKey)
-        for try await response in try relay(pinSHA256: relaySHA).stream(Self.method { $0.join.device = device }) {
+        var joining = Agentkeyring_V2_JoinRequest()
+        joining.device = device
+        joining.proof = Sealing.joinProof(secret: invite.secret, joining: joining)
+        for try await response in try relay(pinSHA256: relaySHA).stream(Self.method { $0.join = joining }) {
             guard case let .join(status) = response.result else { continue }
             switch status.state {
             case .waiting: continue
             case .approved:
                 let members = try Sealing.verifiedMembers(status.members, current: nil)
-                guard members.devices.contains(where: { $0 == device }),
+                guard status.members.signerKeyID == invite.inviterKeyID, members.devices.contains(where: { $0 == device }),
                       Data(SHA256.hash(data: members.relayTlsPublicKey)) == relaySHA else {
                     throw KeyringRelayError(code: .notAllowed, message: "The approval does not match this iPhone.")
                 }
@@ -492,7 +513,31 @@ public final class PhoneRelayBackend: PhoneBackend {
         next.notificationsAsked = true
         next.notificationsAllowed = allowed
         save(next)
+        if allowed { askForTest() }
     }
+
+    /// Asks the relay for this iPhone's test request: it arrives pushed, like any
+    /// request, which shows that requests reach the phone, and opens as a sheet.
+    private func askForTest() {
+        guard !state.testApproved, !testing else { return }
+        testing = true
+        Task {
+            defer { testing = false }
+            do {
+                for try await response in try relay().stream(Self.method { $0.testRequest = .init() }) {
+                    guard case let .lease(lease) = response.result, lease.state != .waiting else { continue }
+                    if lease.state == .approved {
+                        var next = state
+                        next.testApproved = true
+                        save(next)
+                    }
+                    await reportSelfTest()
+                }
+            } catch { PhoneDiagnostics.note("Test request failed: \(error)") }
+        }
+    }
+
+    private var testing = false
 
     /// Any push reached this iPhone: requests can wake it.
     public func pushArrived() {
@@ -502,28 +547,74 @@ public final class PhoneRelayBackend: PhoneBackend {
         save(next)
     }
 
-    /// First run's test, with one Face ID: the chip's signing key signs and
-    /// its opening key opens one of this iPhone's own sealed logins from the
-    /// relay. Nothing is delivered anywhere.
+    /// First run's test request, approved with one Face ID: a signed answer with
+    /// no delivery. The same Face ID also opens one of this iPhone's sealed logins,
+    /// so both chip keys are tested.
     public func approveTest() async throws {
+        guard let work = testWork else { return }
         let context = LAContext()
         defer { context.invalidate() }
         try await keys.authorize(context, reason: "Approve the test request.")
-        let probe = Data("agentkeyring.self-test.v1".utf8)
-        let signature = try keys.sign(probe, context: context)
-        let key = try P256.Signing.PublicKey(x963Representation: keys.signingPublicKey())
-        guard key.isValidSignature(try P256.Signing.ECDSASignature(derRepresentation: signature), for: probe) else {
-            throw KeyringRelayError(code: .invalid, message: "The chip's signature did not check.")
+        var answer = Agentkeyring_V2_Answer()
+        answer.domain = "agentkeyring.answer.v2"
+        answer.requestSha256 = Sealing.sha256(work.request)
+        answer.choice = .approve
+        answer.decidedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        answer.notAfterUnixSeconds = answer.decidedUnixSeconds + 60
+        var upload = AnswerUpload()
+        upload.answer = try Sealing.signed(answer.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
+        let relay = try relay()
+        if case let .sealedLogins(mine) = try? await relay.call(Self.method { $0.sealedLogins = .init() }).result, let first = mine.logins.first {
+            do { _ = try keys.open(first, context: context); openingWorks = true }
+            catch { openingWorks = false; PhoneDiagnostics.note("The opening key did not open a sealed login: \(error)") }
         }
-        guard case let .sealedLogins(mine) = try await relay().call(Self.method { $0.sealedLogins = .init() }).result else {
-            throw KeyringRelayError(code: .unavailable, message: "The relay sent no sealed logins.")
-        }
-        if let first = mine.logins.first { _ = try keys.open(first, context: context) }
-        PhoneDiagnostics.note("Self-test: Face ID, signing and opening (\(mine.logins.count) sealed logins) passed")
-        var next = state
-        next.testApproved = true
-        save(next)
+        _ = try await relay.call(Self.method { $0.answer = upload })
     }
+
+    private var openingWorks: Bool?
+
+    /// What this iPhone found, signed with its reply key, for the relay to keep.
+    public func reportSelfTest() async {
+        guard let keyID = state.deviceKeyID else { return }
+        func check(_ name: String, _ passed: Bool, _ error: String = "") -> Agentkeyring_V2_SelfTestCheck {
+            var check = Agentkeyring_V2_SelfTestCheck()
+            check.name = name; check.passed = passed; check.error = passed ? "" : error
+            return check
+        }
+        var report = Agentkeyring_V2_SelfTestReport()
+        report.domain = "agentkeyring.selftest.v2"
+        report.deviceKeyID = keyID
+        report.testedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        report.checks = [
+            check("joined", true),
+            check("notifications", state.notificationsAllowed, "notifications are off"),
+            check("push reached this iPhone", state.pushSeen, "no push has arrived"),
+            check("test request", state.testApproved, "not approved"),
+            check("opening key", openingWorks ?? false, openingWorks == nil ? "no sealed login to open" : "did not open"),
+        ]
+        if let data = state.watchSelfTest,
+           let watch = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            for (name, value) in watch.sorted(by: { $0.key < $1.key }) {
+                if let passed = value as? Bool { report.checks.append(check("watch " + name, passed, "false")) }
+                if name == "problem", let problem = value as? String, !problem.isEmpty { report.checks.append(check("watch problem", false, problem)) }
+            }
+        }
+        do {
+            let signed = try Sealing.signed(report.serializedData(), by: Sealing.keyID(keys.replyPublicKey())) { try keys.signReply($0) }
+            _ = try await relay().call(Self.method { $0.reportSelfTest = signed })
+        } catch { PhoneDiagnostics.note("Self-test report not sent: \(error)") }
+    }
+
+    /// The Watch's own self-test, as its app sent it; reported with this iPhone's.
+    public func watchTested(_ plist: Data) {
+        var next = state
+        next.watchSelfTest = plist
+        save(next)
+        Task { await reportSelfTest() }
+    }
+
+    /// Where the Watch posts its answers: the relay's own address, over HTTPS.
+    public var relayAnswerURL: String? { state.endpoint.map { "https://\($0.host):\($0.port)/v2/answer" } }
 
     public func approveDevice(_ id: String) async throws { try await allowWatch() }
 
@@ -642,6 +733,13 @@ public final class PhoneRelayBackend: PhoneBackend {
 }
 
 extension Data {
+    /// Base64url with no padding, as invitation links carry it.
+    init?(base64URL: String) {
+        var text = base64URL.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        text += String(repeating: "=", count: (4 - text.count % 4) % 4)
+        self.init(base64Encoded: text)
+    }
+
     init?(hex: String) {
         guard hex.count % 2 == 0 else { return nil }
         var bytes = [UInt8]()
