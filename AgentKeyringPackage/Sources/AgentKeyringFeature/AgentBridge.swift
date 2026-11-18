@@ -84,100 +84,25 @@ public struct AgentBridgeRequest: Codable, Equatable, Sendable {
     }
 }
 
-public struct AgentMirrorSummary: Codable, Equatable, Sendable {
-    public let importedAt: Date
-    public let ageSeconds: Int
-    public let credentialCount: Int
-
-    public init(importedAt: Date, ageSeconds: Int, credentialCount: Int) {
-        self.importedAt = importedAt
-        self.ageSeconds = ageSeconds
-        self.credentialCount = credentialCount
-    }
-}
-
-public enum AgentApprovalPhase: String, Codable, Sendable {
-    case waitingForUnlock
-    case awaitingApproval
-}
-
-public enum ApprovalPromptProvider: String, Codable, Sendable {
-    case mac
-    case iPhone
-}
-
-public struct AgentApprovalProgress: Codable, Equatable, Sendable {
-    public let waitingSince: Date
-    public let askedAt: Date?
-    public let phase: AgentApprovalPhase
-
-    public let provider: ApprovalPromptProvider?
-    public let phoneScheduledAt: Date?
-    public let macWasLocked: Bool?
-    public let macWasAsleep: Bool?
-    public let approvedAt: Date?
-    public let approvedOn: ApprovalPromptProvider?
-    public let iPhoneFailure: IPhoneApprovalFailure?
-
-    public init(waitingSince: Date, askedAt: Date? = nil, phase: AgentApprovalPhase,
-        provider: ApprovalPromptProvider? = nil, phoneScheduledAt: Date? = nil,
-        macWasLocked: Bool? = nil, macWasAsleep: Bool? = nil, approvedAt: Date? = nil, approvedOn: ApprovalPromptProvider? = nil,
-        iPhoneFailure: IPhoneApprovalFailure? = nil) {
-        self.waitingSince = waitingSince
-        self.askedAt = askedAt
-        self.phase = phase
-        self.provider = provider
-        self.phoneScheduledAt = phoneScheduledAt
-        self.macWasLocked = macWasLocked
-        self.macWasAsleep = macWasAsleep
-        self.approvedAt = approvedAt
-        self.approvedOn = approvedOn
-        self.iPhoneFailure = iPhoneFailure
-    }
-}
-
-public enum AgentBridgeWaitStatus: Sendable {
-    case progress(AgentApprovalProgress)
-    case stillWaiting(progress: AgentApprovalProgress)
-}
-
 public struct AgentBridgeResponse: Codable, Equatable, Sendable {
     public let version: Int
     public let id: UUID
     public let ok: Bool
     public let error: AgentBridgeErrorCode?
     public let message: String?
-    public let mirror: AgentMirrorSummary?
-    public let candidates: [CredentialCandidate]?
-    public let filledField: AgentCredentialField?
-    public let copiedField: AgentCredentialField?
-    public let clipboardExpiresAt: Date?
-    public let approvalProgress: AgentApprovalProgress?
 
     public init(
         version: Int = 1,
         id: UUID,
         ok: Bool,
         error: AgentBridgeErrorCode? = nil,
-        message: String? = nil,
-        mirror: AgentMirrorSummary? = nil,
-        candidates: [CredentialCandidate]? = nil,
-        filledField: AgentCredentialField? = nil,
-        copiedField: AgentCredentialField? = nil,
-        clipboardExpiresAt: Date? = nil,
-        approvalProgress: AgentApprovalProgress? = nil
+        message: String? = nil
     ) {
         self.version = version
         self.id = id
         self.ok = ok
         self.error = error
         self.message = message
-        self.mirror = mirror
-        self.candidates = candidates
-        self.filledField = filledField
-        self.copiedField = copiedField
-        self.clipboardExpiresAt = clipboardExpiresAt
-        self.approvalProgress = approvalProgress
     }
 }
 

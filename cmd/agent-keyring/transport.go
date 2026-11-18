@@ -76,6 +76,18 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 		}
 		return client.Authority(), nil
 	}
+	// A command bundled in an app serves that app, even beside another copy.
+	if bundled := contentsPath(); runtime.GOOS == "darwin" && bundled != "" && bundleID(bundled) != "" {
+		if _, err := os.Stat(filepath.Join(bundled, "MacOS/AgentKeyring")); err == nil {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return authority.Client{}, err
+			}
+			local.Socket = filepath.Join(home, "Library/Containers", bundleID(bundled), "Data/agent.sock")
+			local.Start = func(ctx context.Context) error { return startApp(ctx, bundled) }
+			return local, nil
+		}
+	}
 	if state.LocalAuthority == nil && runtime.GOOS == "darwin" {
 		contents := "/Applications/AgentKeyring.app/Contents"
 		if _, err := os.Stat(filepath.Join(contents, "MacOS/AgentKeyring")); err != nil {
@@ -108,5 +120,5 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 		local.Start = func(ctx context.Context) error { return startApp(ctx, selected.ApplicationContents) }
 		return local, nil
 	}
-	return authority.Client{}, errors.New("No authority is selected. Install the Mac app here, or run 'agent-keyring enrol --name NAME --relay HOST:PORT' to use your relay.")
+	return authority.Client{}, errors.New("No authority is selected. Install the Mac app here, or run 'agent-keyring enrol --name NAME --invite LINK' with a link from 'agent-keyring invite' on the Mac.")
 }

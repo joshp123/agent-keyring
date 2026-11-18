@@ -136,29 +136,34 @@ public enum SetupCopy {
     }
 }
 
-/// Every sentence of the first-run window (MacFirstRunView).
+/// Every sentence of the first-run window (MacFirstRunView), from the Paper
+/// board "First run".
 public enum FirstRunCopy {
-    public static let title = "Let your agents sign in as you"
-    public static let intro = "When an agent needs a login, it asks Agent Keyring for one from Apple Passwords. You approve each request with Touch ID or your Watch."
-    public static let importHeading = "First, bring in your logins"
+    public static let title = "Agent Keyring"
+    public static let intro = "Your AI agents ask you before they use one of your saved logins. You approve or deny on your Mac, iPhone or Watch."
+    public static let importHeading = "Import your logins"
     public static let allowBody = "macOS asks you once to let Apple Passwords send logins to Agent Keyring."
     public static let allowButton = "Allow"
-    public static let exportBody = "In Passwords, choose File › Export All Items to App › Agent Keyring. Agent Keyring keeps an encrypted copy on this Mac, and reads nothing from Passwords except what you export."
+    public static let exportBody = "Agent Keyring needs a copy of your logins from Apple Passwords, and only you can start the export. In Passwords, choose File > Export All Items to App > Agent Keyring."
     public static let exportButton = "Open Passwords"
     public static let importing = "Importing your logins…"
     public static let blockedBody = "Apple Passwords can't send logins to this copy of Agent Keyring. It needs a different Apple developer profile."
-
-    public static let readyTitle = "Ready"
-    public static func readyIntro(_ count: Int) -> String {
-        "Agents can now ask for any of your \(count) logins. You're asked every time, unless you change a login's rule."
-    }
-    public static let whenAgentAsksHeading = "When an agent asks"
-    public static let whenAgentAsksBody = "A request appears near the window you're working in. Approve it with Touch ID or your Watch, or press Deny. To tell the agent what to do instead, type it before you press Deny."
-    public static let tellAgentsHeading = "Tell your agents"
-    public static let tellAgentsBody = "Paste this into AGENTS.md or CLAUDE.md."
+    public static func imported(_ count: Int) -> String { "\(count) logins imported" }
+    public static let importedDetail = "Each is set to Ask, so agents ask you every time."
+    public static let approveTest = "Approve the test request"
+    public static let approveTestDetail = "It is beside your pointer. Click its green button, then touch the sensor."
+    public static let readyTitle = "Ready on this Mac"
+    public static let readyBody = "Agents on this Mac can now ask to use your logins. You approve here with Touch ID while the lid is open."
+    public static let menuBarHint = "Click the keyhole in the menu bar to see requests and the logins agents are using."
+    public static let macWorks = "This Mac works"
+    public static func lastTested(_ time: String) -> String { "Last tested at \(time)." }
+    public static let awayHeading = "To approve away from this Mac"
+    public static let alwaysOn = "An always-on machine"
+    public static let alwaysOnBody = "A computer of yours that is always running, such as a Mac mini. Agents on your other machines ask through it, and it passes requests on to your iPhone and Watch. An agent sets it up. Give any agent this task, then approve the request that appears here:"
+    public static let alwaysOnTask = "Set up Agent Keyring on my always-on machine."
+    public static let alwaysOnReady = "Connected. Agents on your other machines can ask."
+    public static let phoneAndWatch = "Your iPhone and Watch"
+    public static let phoneAndWatchBody = "When the always-on machine is ready, install Agent Keyring on your iPhone and open it."
     public static let copy = "Copy"
     public static let copied = "Copied"
-    public static func imported(_ ago: String) -> String { "Imported from Apple Passwords \(ago)." }
-    public static let importAgain = "Import Again…"
-    public static let rules = "Rules…"
 }

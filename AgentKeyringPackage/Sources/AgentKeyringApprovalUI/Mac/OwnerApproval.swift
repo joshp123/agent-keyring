@@ -22,6 +22,8 @@ public final class OwnerApproval: Identifiable {
     let reason: String
     public private(set) var context: LAContext?
     public private(set) var failure: String?
+    /// From the click until macOS's dialog is answered.
+    public var isWaiting: Bool { task != nil }
     var timeoutDuration: Duration = .seconds(60)
 
     private let perform: @MainActor (LAContext) async throws -> Void
@@ -46,8 +48,7 @@ public final class OwnerApproval: Identifiable {
         prepare()
     }
 
-    /// Called when the control appears: Josh's touch or Watch double-click
-    /// now approves.
+    /// Josh clicked: macOS's own dialog asks for Touch ID or the Watch.
     public func begin() {
         guard !finished, task == nil, let context else { return }
         let current = attempt
@@ -156,11 +157,9 @@ public struct OwnerApprovalBar: View {
     }
 
     @ViewBuilder private var controls: some View {
-        if let context = approval.context {
+        if approval.context != nil {
             HStack(spacing: 10) {
-                EmbeddedOwnerApproval(context: context, action: approval.action)
-                    .id(ObjectIdentifier(context))
-                    .onAppear { approval.begin() }
+                TouchIDButton(action: approval.action, isWaiting: approval.isWaiting) { approval.begin() }
                 cancelButton
             }
         } else {

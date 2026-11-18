@@ -19,9 +19,7 @@ extension MirrorItem {
 
 extension MirrorGeneration {
     var metadata: MirrorMetadata {
-        MirrorMetadata(safeStatus: safeStatus, candidates: items.map {
-            CredentialResolver().candidate(for: $0)
-        })
+        MirrorMetadata(safeStatus: safeStatus, candidates: items.map(\.candidate))
     }
 
     public var safeStatus: SafeMirrorStatus {

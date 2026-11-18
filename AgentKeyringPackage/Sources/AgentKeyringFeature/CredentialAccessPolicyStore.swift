@@ -1,310 +1,39 @@
-import CryptoKit
-import Darwin
 import Foundation
-import LocalAuthentication
-import OSLog
-import Security
 
-private let accessRulesStoreLogger = Logger(subsystem: "com.agentkeyring.app", category: "AccessRules")
-
-@MainActor public final class CredentialAccessPolicyStore: PairedDevicePublicKeyProviding {
+/// Which logins agents may use: a plain file in the app's container. It needs
+/// no signature: switching a login to Automatic in this file alone does
+/// nothing, because an Automatic login opens only from a copy sealed to this
+/// Mac's receiving key, and that copy is made only after Josh's Touch ID.
+@MainActor public final class CredentialAccessPolicyStore {
     private struct Record: Codable, Equatable {
         let credentialID: UUID
         let policy: CredentialAccessPolicy
     }
 
-    private struct FileContents: Codable, Equatable {
+    private struct FileContents: Codable {
         let version: Int
         let records: [Record]
-        let pairedDevices: [PairedApprovalDevice]?
-
-        var policies: [UUID: CredentialAccessPolicy] {
-            Dictionary(uniqueKeysWithValues: records.map { ($0.credentialID, $0.policy) })
-        }
-
-        var devices: [PairedApprovalDevice] { pairedDevices ?? [] }
     }
 
     public let fileURL: URL
-    public var signatureURL: URL { fileURL.appendingPathExtension("signature") }
-    private let fileManager: FileManager
-    private let signer: any AccessRulesSigning
-    var authority: CredentialLeaseStore?
-    var authorizeSave: (@MainActor (LAContext, String) async throws -> Void)?
-    var commitSave: (@MainActor ([UUID: CredentialAccessPolicy], CredentialLeaseStore.SavedRules, LAContext) async throws -> Void)?
 
-    private enum PairedDeviceChange {
-        case add(PairedApprovalDevice)
-        case remove(Data)
-    }
-
-    public init(
-        fileURL: URL = CredentialAccessPolicyStore.defaultFileURL(),
-        fileManager: FileManager = .default,
-        signer: any AccessRulesSigning = SecureEnclaveAccessRulesSigner()
-    ) {
+    public init(fileURL: URL = URL.applicationSupportDirectory.appending(path: "AgentKeyring/access-policies.json")) {
         self.fileURL = fileURL
-        self.fileManager = fileManager
-        self.signer = signer
-    }
-
-    nonisolated public static func defaultFileURL(fileManager: FileManager = .default) -> URL {
-        let applicationSupport =
-            fileManager.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first
-            ?? fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
-        return
-            applicationSupport
-            .appendingPathComponent("AgentKeyring", isDirectory: true)
-            .appendingPathComponent("access-policies.json", isDirectory: false)
     }
 
     public func load() throws -> [UUID: CredentialAccessPolicy] {
-        try loadVerifiedContents().policies
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [:] }
+        let contents = try JSONDecoder().decode(FileContents.self, from: Data(contentsOf: fileURL))
+        return Dictionary(contents.records.map { ($0.credentialID, $0.policy) }, uniquingKeysWith: { _, last in last })
     }
 
-    public func loadPairedDevices() throws -> [PairedApprovalDevice] {
-        try loadVerifiedContents().devices
-    }
-
-    public func pairedDevicePublicKeys() throws -> [Data] {
-        try loadPairedDevices().map(\.publicKey)
-    }
-
-    private func loadVerifiedContents() throws -> FileContents {
-        try authority?.load()
-        if let saved = authority?.savedRules { return try decodeContents(saved.bytes) }
-        // Only a genuinely new store has neither files nor a protected record of
-        // previously signed rules. Never let deleting the files erase a block.
-        if try isMissing(fileURL), try isMissing(signatureURL) {
-            do {
-                if try signer.signedBytesHash() == nil {
-                    return FileContents(version: 2, records: [], pairedDevices: [])
-                }
-                accessRulesStoreLogger.error("Access rules load failed: signed rules files are missing")
-            } catch {
-                let native = error as NSError
-                let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
-                accessRulesStoreLogger.error("Access rules load failed: saved check domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
-            }
-            throw AccessRulesConfirmationRequired()
-        }
-        let bytes: Data
-        let signature: Data
-        do {
-            try validateOwnedRegularFile(fileURL)
-            try validateOwnedRegularFile(signatureURL)
-            bytes = try Data(contentsOf: fileURL)
-            signature = try Data(contentsOf: signatureURL)
-        } catch {
-            let native = error as NSError
-            accessRulesStoreLogger.error("Access rules load failed: unreadable file domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
-            throw AccessRulesConfirmationRequired()
-        }
-        let contents: FileContents
-        do { contents = try decodeContents(bytes) }
-        catch {
-            let native = error as NSError
-            accessRulesStoreLogger.error("Access rules load failed: decode failure domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
-            throw AccessRulesConfirmationRequired()
-        }
-        let validSignature: Bool
-        do { validSignature = try signer.verify(signature, for: bytes) }
-        catch {
-            let nativeError = error as NSError
-            if nativeError.domain == NSOSStatusErrorDomain, nativeError.code == Int(errSecItemNotFound) {
-                accessRulesStoreLogger.error("Access rules load failed: missing key")
-            } else {
-                accessRulesStoreLogger.error("Access rules load failed: verification domain=\(nativeError.domain, privacy: .public) code=\(nativeError.code, privacy: .public)")
-            }
-            throw AccessRulesConfirmationRequired()
-        }
-        guard validSignature else {
-            accessRulesStoreLogger.error("Access rules load failed: bad signature")
-            throw AccessRulesConfirmationRequired()
-        }
-        let signedHash: Data?
-        do { signedHash = try signer.signedBytesHash() }
-        catch {
-            let native = error as NSError
-            let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
-            accessRulesStoreLogger.error("Access rules load failed: saved check domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
-            throw AccessRulesConfirmationRequired()
-        }
-        guard signedHash == Data(SHA256.hash(data: bytes)) else {
-            accessRulesStoreLogger.error("Access rules load failed: hash mismatch")
-            throw AccessRulesConfirmationRequired()
-        }
-        return contents
-    }
-
-    public func snapshotForConfirmation() throws -> AccessRulesConfirmationSnapshot {
-        let contents: FileContents?
-        do {
-            try validateOwnedRegularFile(fileURL)
-            contents = try decodeContents(Data(contentsOf: fileURL))
-        } catch {
-            contents = nil
-        }
-        let reason: AccessRulesConfirmationReason
-        if try isMissing(fileURL), try isMissing(signatureURL) {
-            do { reason = try signer.signedBytesHash() == nil ? .firstUse : .missing }
-            catch { reason = .unverified }
-        } else if contents?.version == 1, !fileManager.fileExists(atPath: signatureURL.path) {
-            reason = .upgrade
-        } else {
-            reason = .unverified
-        }
-        return AccessRulesConfirmationSnapshot(policies: contents?.policies ?? [:], reason: reason,
-            requiresPhonePairingAgain: contents?.devices.isEmpty == false)
-    }
-
-    private static func encodedContents(_ policies: [UUID: CredentialAccessPolicy], devices: [PairedApprovalDevice]) throws -> Data {
-        let records = policies.filter { $0.value != .ask }
-            .map { Record(credentialID: $0.key, policy: $0.value) }
+    public func save(_ policies: [UUID: CredentialAccessPolicy]) throws {
+        let records = policies.filter { $0.value != .ask }.map { Record(credentialID: $0.key, policy: $0.value) }
             .sorted { $0.credentialID.uuidString < $1.credentialID.uuidString }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let sortedDevices = devices.sorted { $0.publicKey.lexicographicallyPrecedes($1.publicKey) }
-        return try encoder.encode(FileContents(version: 2, records: records, pairedDevices: sortedDevices))
-    }
-
-    private func decodeContents(_ bytes: Data) throws -> FileContents {
-        let contents = try JSONDecoder().decode(
-            FileContents.self,
-            from: bytes
-        )
-        guard (contents.version == 1 && contents.pairedDevices == nil)
-            || (contents.version == 2 && contents.pairedDevices != nil)
-        else { throw CocoaError(.fileReadCorruptFile) }
-        var credentialIDs = Set<UUID>()
-        for record in contents.records {
-            guard credentialIDs.insert(record.credentialID).inserted else {
-                throw CocoaError(.fileReadCorruptFile)
-            }
-        }
-        var publicKeys = Set<Data>()
-        for device in contents.devices {
-            guard publicKeys.insert(device.publicKey).inserted,
-                (try? P256.Signing.PublicKey(x963Representation: device.publicKey)) != nil else {
-                throw CocoaError(.fileReadCorruptFile)
-            }
-        }
-        return contents
-    }
-
-    public func save(_ policies: [UUID: CredentialAccessPolicy], context: LAContext) async throws {
-        try await persist(policies: policies, context: context, reason: "set which of your logins agents may use")
-    }
-
-    public func addPairedDevice(_ device: PairedApprovalDevice, confirmationCode: String? = nil, context: LAContext) async throws {
-        try await persist(deviceChange: .add(device), context: context, reason: confirmationCode.map { "let \(device.name) approve agents' requests for your logins (code \($0))" }
-            ?? "let your iPhone approve agents' requests for your logins")
-    }
-
-    public func removePairedDevice(publicKey: Data, context: LAContext) async throws {
-        try await persist(deviceChange: .remove(publicKey), context: context, reason: "stop your iPhone approving agents' requests")
-    }
-
-    public func save(_ snapshot: AccessRulesConfirmationSnapshot, reason: String, context: LAContext) async throws {
-        try await persist(policies: snapshot.policies, confirming: true, context: context, reason: reason)
-    }
-
-    /// Signs with the caller's context, which Josh has approved in the window
-    /// that asked. The store never makes its own, so it can't open a dialog.
-    private func persist(policies: [UUID: CredentialAccessPolicy]? = nil, confirming: Bool = false,
-        deviceChange: PairedDeviceChange? = nil, context: LAContext, reason: String) async throws {
-        let contents: FileContents?
-        do { contents = try loadVerifiedContents() }
-        catch {
-            guard confirming else { throw error }
-            contents = nil
-        }
-        // Snapshots contain only policies. Device keys always come from the store verified
-        // here, so a stale confirmation cannot restore a removed key or bless an injected one.
-        var devices = contents?.devices ?? []
-        switch deviceChange {
-        case .add(let device):
-            guard !devices.contains(where: { $0.publicKey == device.publicKey }) else {
-                throw PairedDeviceStoreError.alreadyPaired
-            }
-            _ = try P256.Signing.PublicKey(x963Representation: device.publicKey)
-            devices.append(device)
-        case .remove(let publicKey):
-            guard devices.contains(where: { $0.publicKey == publicKey }) else {
-                throw PairedDeviceStoreError.notPaired
-            }
-            devices.removeAll { $0.publicKey == publicKey }
-        case nil: break
-        }
-        let pendingBlocksFile = PendingIPhoneBlocks(rulesFileURL: fileURL)
-        let pendingBlocks = try pendingBlocksFile.load()
-        var savedPolicies = policies ?? contents?.policies ?? [:]
-        if policies == nil {
-            for id in pendingBlocks { savedPolicies[id] = .block }
-        }
-        let bytes = try Self.encodedContents(savedPolicies, devices: devices)
-        var signingReason = reason
-        if authority?.relayState.keySet != nil,
-            savedPolicies.contains(where: { $0.value == .allowAutomatically && contents?.policies[$0.key] != .allowAutomatically }) {
-            signingReason += ". Automatic logins are also stored on your Mac mini, where anyone with admin access, including agents, can read them."
-        }
-        if confirming && (try? snapshotForConfirmation().requiresPhonePairingAgain) == true {
-            signingReason += ". Your previously paired iPhone must be paired again."
-        }
-        let directoryURL = fileURL.deletingLastPathComponent()
-        try fileManager.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: directoryURL.path
-        )
-
-        if fileManager.fileExists(atPath: fileURL.path) {
-            try validateOwnedRegularFile(fileURL)
-        }
-        try await authorizeSave?(context, signingReason)
-        // LAContext is safe to use from any thread; the signer runs off the main actor.
-        nonisolated(unsafe) let signingContext = context
-        let signature = try await signer.sign(bytes, reason: signingReason, context: signingContext)
-        try await commitSave?(savedPolicies, CredentialLeaseStore.SavedRules(bytes: bytes, signature: signature), context)
-        do {
-            if fileManager.fileExists(atPath: signatureURL.path) { try validateOwnedRegularFile(signatureURL) }
-            try bytes.write(to: fileURL, options: [.atomic])
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-            try signature.write(to: signatureURL, options: [.atomic])
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: signatureURL.path)
-            try pendingBlocksFile.save(try pendingBlocksFile.load().subtracting(pendingBlocks))
-        } catch {
-            // Once the authority transaction commits, these files are only an
-            // upgrade compatibility copy. Their failure cannot undo the rules.
-            guard commitSave != nil else { throw error }
-            accessRulesStoreLogger.error("Could not refresh the compatibility copy of the saved rules: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    private func validateOwnedRegularFile(_ url: URL) throws {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-        let attributes = try fileManager.attributesOfItem(atPath: url.path)
-        guard values.isRegularFile == true,
-            values.isSymbolicLink != true,
-            let owner = attributes[.ownerAccountID] as? NSNumber,
-            owner.uint32Value == getuid()
-        else {
-            throw CocoaError(.fileReadNoPermission)
-        }
-    }
-
-    private func isMissing(_ url: URL) throws -> Bool {
-        var info = stat()
-        if lstat(url.path, &info) == 0 { return false }
-        if errno == ENOENT { return true }
-        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        try encoder.encode(FileContents(version: 3, records: records)).write(to: fileURL, options: .atomic)
     }
 }

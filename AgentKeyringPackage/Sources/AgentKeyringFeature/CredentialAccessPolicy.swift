@@ -5,17 +5,8 @@ import OSLog
 
 private let accessRulesLogger = Logger(subsystem: "com.agentkeyring.app", category: "AccessRules")
 
-private func reportRulesFailure(_ error: Error, operation: String) {
-    let native = error as NSError
-    let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
-    accessRulesLogger.error("\(operation, privacy: .public) failed: domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
-}
-
 private func rulesFailureMessage(_ error: Error) -> String {
     if let failure = error as? LeaseFailure { return failure.message }
-    if error is KeychainError {
-        return "macOS couldn't open the key for your rules. Unlock this Mac and try again."
-    }
     let native = error as NSError
     if native.domain == LAError.errorDomain {
         switch LAError.Code(rawValue: native.code) {
@@ -36,20 +27,9 @@ public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Se
     case block
 }
 
-public enum CredentialReleaseDecision: Equatable, Sendable {
-    case needsConfirmation
-    case requestAuthorization
-    case release
-    case block
-}
-
 public struct AccessRulesSaveInProgress: Error, LocalizedError, Sendable {
     public init() {}
     public var errorDescription: String? { "Access rules are already being saved. Wait for that save to finish." }
-}
-
-public struct AccessRulesConfirmationRequired: Error, Sendable {
-    public static var message: String { "Agent Keyring's access rules need \(MacOwner.firstName)'s confirmation in the app before anything is released." }
 }
 
 public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
@@ -68,23 +48,13 @@ public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
     }
 }
 
-public enum AccessRulesConfirmationReason: Equatable, Sendable {
-    case firstUse
-    case upgrade
-    case unverified
-    case missing
-}
-
-public struct AccessRulesConfirmationSnapshot: Sendable {
-    let policies: [UUID: CredentialAccessPolicy]
-    let reason: AccessRulesConfirmationReason
-    let requiresPhonePairingAgain: Bool
-}
-
 @MainActor
 @Observable
-public final class CredentialAccessController: PairedDevicePublicKeyProviding {
-    public var onRulesChanged: (@MainActor () -> Void)?
+public final class CredentialAccessController {
+    /// Runs before a change is saved, with the context Josh approved: seals
+    /// or withdraws the Automatic copies and publishes the catalogue.
+    var beforeSave: (@MainActor (_ old: [UUID: CredentialAccessPolicy], _ new: [UUID: CredentialAccessPolicy], LAContext) async throws -> Void)?
+    var onRulesChanged: (@MainActor () -> Void)?
 
     public var searchText = "" {
         didSet { recomputeVisibleRows() }
@@ -96,64 +66,19 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
         didSet { recomputeVisibleRows() }
     }
 
-    public private(set) var hasPairedApprovalDevice = false
-    public private(set) var pairedApprovalDevices: [PairedApprovalDevice] = []
     public private(set) var rows: [AccessCredentialRow] = []
     public private(set) var visibleRows: [AccessCredentialRow] = []
     public private(set) var errorMessage: String?
-    public private(set) var needsConfirmation = true
     public private(set) var isSavingRules = false
-    public private(set) var confirmationResetsUnreadableRules = false
-    public private(set) var confirmationReason: AccessRulesConfirmationReason = .firstUse
-    public private(set) var confirmationRequiresPhonePairingAgain = false
     public private(set) var hasLoadedLoginList = false
-    public internal(set) var needsRelayPublicationConfirmation = false
-    public var canConfirmRules: Bool { (needsConfirmation || needsRelayPublicationConfirmation) && hasLoadedLoginList && !isSavingRules }
-    public var confirmationSummary: String {
-        let automaticCount = rows.filter { $0.policy == .allowAutomatically }.count
-        let blockedCount = rows.filter { $0.policy == .block }.count
-        let askCount = rows.filter { $0.policy == .ask }.count
-        return "\(automaticCount) without asking you, \(blockedCount) never, \(askCount) only after asking you"
-    }
-
-    private var pendingPhoneBlocks: Set<UUID> = []
-    public var pendingPhoneBlockCount: Int { pendingPhoneBlocks.count }
-    private let pendingBlocksFile: PendingIPhoneBlocks
-    private var pendingBlocksReadError: (any Error)?
     private let store: CredentialAccessPolicyStore
     private var policies: [UUID: CredentialAccessPolicy] = [:]
-    private var confirmationSnapshot: AccessRulesConfirmationSnapshot?
     private var currentGenerationID: UUID?
 
     public init(store: CredentialAccessPolicyStore = CredentialAccessPolicyStore()) {
         self.store = store
-        pendingBlocksFile = PendingIPhoneBlocks(rulesFileURL: store.fileURL)
-        do { pendingPhoneBlocks = try pendingBlocksFile.load() }
-        catch {
-            pendingBlocksReadError = error
-            errorMessage = "The iPhone blocks could not be read. Confirm your access rules before releasing logins."
-            reportRulesFailure(error, operation: "Pending iPhone blocks load")
-        }
-    }
-
-    func connectAuthority(_ authority: CredentialLeaseStore,
-        authorize: @escaping @MainActor (LAContext, String) async throws -> Void,
-        commit: @escaping @MainActor ([UUID: CredentialAccessPolicy], CredentialLeaseStore.SavedRules, LAContext) async throws -> Void) {
-        store.authority = authority
-        store.authorizeSave = authorize
-        store.commitSave = commit
-    }
-
-    public func pairedDevicePublicKeys() async throws -> [Data] {
-        try await store.pairedDevicePublicKeys()
-    }
-
-    public func removePairedApprovalDevice(publicKey: Data, context: LAContext) async throws {
-        guard !isSavingRules else { throw AccessRulesSaveInProgress() }
-        isSavingRules = true
-        defer { isSavingRules = false }
-        try await store.removePairedDevice(publicKey: publicKey, context: context)
-        try await reloadRules()
+        do { policies = try store.load() }
+        catch { errorMessage = "The saved rules could not be read. Every login asks first until you set them again." }
     }
 
     public func refresh(from generation: MirrorGeneration?) async {
@@ -161,15 +86,6 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     public func refresh(fromMetadata metadata: MirrorMetadata?) async {
-        if confirmationSnapshot != nil, hasLoadedLoginList { return }
-        if confirmationSnapshot == nil {
-            do { try await reloadRules() }
-            catch {
-                errorMessage = confirmationReason == .missing
-                    ? "Your saved rules are missing. Review and confirm your rules before agents can use logins."
-                    : AccessRulesConfirmationRequired.message
-            }
-        }
         guard let metadata else {
             currentGenerationID = nil
             rows = []
@@ -193,36 +109,7 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     public func policy(for credentialID: UUID) -> CredentialAccessPolicy {
-        pendingPhoneBlocks.contains(credentialID) ? .block : policies[credentialID, default: .ask]
-    }
-
-    public func releaseDecision(
-        for credentialID: UUID,
-        field: AgentCredentialField
-    ) -> CredentialReleaseDecision {
-        guard !needsConfirmation else { return .needsConfirmation }
-        return switch policy(for: credentialID) {
-        case .block:
-            .block
-        case .allowAutomatically:
-            .release
-        case .ask:
-            field.requiresUserApproval ? .requestAuthorization : .release
-        }
-    }
-
-    public func stagePhoneBlock(for credentialID: UUID) {
-        pendingPhoneBlocks.insert(credentialID)
-        do { try pendingBlocksFile.save(pendingPhoneBlocks) }
-        catch {
-            errorMessage = "The login is blocked, but its iPhone block could not be saved for restart."
-            reportRulesFailure(error, operation: "Pending iPhone block save")
-        }
-        updateRowPolicies()
-    }
-
-    public func hasPendingPhoneBlock(for credentialID: UUID) -> Bool {
-        pendingPhoneBlocks.contains(credentialID)
+        policies[credentialID, default: .ask]
     }
 
     /// `context` is one Josh has already approved where he was looking; the
@@ -233,103 +120,29 @@ public final class CredentialAccessController: PairedDevicePublicKeyProviding {
     }
 
     public func setPolicies(_ assignments: [UUID: CredentialAccessPolicy], context: LAContext) async {
-        guard !needsConfirmation else {
-            accessRulesLogger.error("Access rule change rejected: confirmation required")
-            errorMessage = AccessRulesConfirmationRequired.message
-            return
-        }
         guard !assignments.isEmpty, !isSavingRules else { return }
         let knownIDs = Set(rows.map(\.id))
         guard assignments.keys.allSatisfy(knownIDs.contains) else {
             errorMessage = "The access change included an unknown credential. No rule was changed."
             return
         }
-        var proposedPolicies = policies
+        var proposed = policies
+        for (id, policy) in assignments { proposed[id] = policy == .ask ? nil : policy }
+        guard proposed != policies else { return }
         isSavingRules = true
         defer { isSavingRules = false }
         errorMessage = nil
-
-        for (id, policy) in assignments {
-            if policy == .ask {
-                proposedPolicies.removeValue(forKey: id)
-            } else {
-                proposedPolicies[id] = policy
-            }
-        }
-        for id in pendingPhoneBlocks where assignments[id] == nil { proposedPolicies[id] = .block }
-        guard proposedPolicies != policies || !pendingPhoneBlocks.isEmpty else { return }
         do {
-            try await store.save(proposedPolicies, context: context)
-            try await reloadRules()
-        } catch {
-            reportRulesFailure(error, operation: "Rule change")
-            errorMessage = rulesFailureMessage(error)
-        }
-    }
-
-    public func ensureRulesConfirmed() async throws {
-        guard !needsConfirmation else {
-            throw AgentBridgeFailure(.rulesNeedConfirmation, AccessRulesConfirmationRequired.message)
-        }
-        do {
-            guard try await store.load() == policies else { throw AccessRulesConfirmationRequired() }
-        } catch {
-            reportRulesFailure(error, operation: "Rules verification")
-            throw AgentBridgeFailure(.rulesNeedConfirmation, AccessRulesConfirmationRequired.message)
-        }
-    }
-
-    public func confirmRules(context: LAContext) async {
-        guard canConfirmRules else { return }
-        let snapshot = confirmationSnapshot ?? AccessRulesConfirmationSnapshot(policies: policies,
-            reason: .firstUse, requiresPhonePairingAgain: false)
-        var confirmedPolicies = snapshot.policies
-        for id in pendingPhoneBlocks where snapshot.policies[id] == nil { confirmedPolicies[id] = .block }
-        let confirmedSnapshot = AccessRulesConfirmationSnapshot(policies: confirmedPolicies,
-            reason: snapshot.reason, requiresPhonePairingAgain: snapshot.requiresPhonePairingAgain)
-        let reason = "set which of your logins agents may use: \(confirmationSummary)"
-        isSavingRules = true
-        defer { isSavingRules = false }
-        do {
-            try await store.save(confirmedSnapshot, reason: reason, context: context)
-            pendingBlocksReadError = nil
-            confirmationSnapshot = nil
-            try await reloadRules()
-        } catch {
-            reportRulesFailure(error, operation: "Rules confirmation")
-            if confirmationSnapshot != nil { needsConfirmation = true }
-            errorMessage = rulesFailureMessage(error)
-        }
-    }
-
-    private func reloadRules() async throws {
-        hasPairedApprovalDevice = false
-        pairedApprovalDevices = []
-        do {
-            if let pendingBlocksReadError { throw pendingBlocksReadError }
-            pendingPhoneBlocks = try pendingBlocksFile.load()
-            policies = try await store.load()
-            pairedApprovalDevices = try await store.loadPairedDevices()
-            hasPairedApprovalDevice = !pairedApprovalDevices.isEmpty
-            needsConfirmation = false
-            confirmationResetsUnreadableRules = false
-            confirmationRequiresPhonePairingAgain = false
-            errorMessage = nil
-        } catch {
-            needsConfirmation = true
-            if confirmationSnapshot == nil {
-                let snapshot = try await store.snapshotForConfirmation()
-                confirmationSnapshot = snapshot
-                policies = snapshot.policies
-                confirmationReason = snapshot.reason
-                confirmationResetsUnreadableRules = snapshot.reason == .unverified || snapshot.reason == .missing
-                confirmationRequiresPhonePairingAgain = snapshot.requiresPhonePairingAgain
-            }
+            try await beforeSave?(policies, proposed, context)
+            try store.save(proposed)
+            policies = proposed
             updateRowPolicies()
-            throw error
+        } catch {
+            errorMessage = rulesFailureMessage(error)
         }
-        updateRowPolicies()
     }
+
+    public var allPolicies: [UUID: CredentialAccessPolicy] { policies }
 
     private func updateRowPolicies() {
         onRulesChanged?()
