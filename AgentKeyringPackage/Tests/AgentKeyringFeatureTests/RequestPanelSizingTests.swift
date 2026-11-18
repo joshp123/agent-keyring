@@ -13,7 +13,7 @@ import Testing
     ReviewRendering.isOn = true
     var request = AccessRequest(id: "r", login: RequestedLogin(site: "example.com", account: "josh@example.com"),
         agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: "100.64.0.2", folder: "/tmp/bookkeeping"),
-        access: .signIn, agentReason: "You asked me to download October’s invoice.", askedAt: .now,
+        access: .login, agentReason: "You asked me to download October’s invoice.", askedAt: .now,
         state: .waitingForYou(until: .now.addingTimeInterval(600)))
     let view = ReviewRendering.panel(request)
     _ = view

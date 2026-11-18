@@ -43,8 +43,7 @@ message OperationReceipt {
   // No outcome means Started: inspect before deliberately repeating it.
   oneof outcome {
     agentkeyring.v1.FillOutcome fill = 5;
-    agentkeyring.v1.ProgramOutcome program = 6;
     bool read_delivered = 7;
   }
-  optional int32 exit_code = 8;
+  reserved 6, 8;                // A program's outcome and exit code.
 }

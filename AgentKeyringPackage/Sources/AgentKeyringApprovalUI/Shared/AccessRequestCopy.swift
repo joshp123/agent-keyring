@@ -14,9 +14,7 @@ public enum AccessRequestCopy {
     public static func headlineLead(_ request: AccessRequest) -> String {
         let who = request.agent.isLocal ? request.agent.name : "\(request.agent.name) on \(request.agent.machine)"
         return switch request.access {
-        case .signIn: "\(who) wants to sign in to"
-        case let .program(command): "\(who) wants to give \(programName(command)) the password for"
-        case .agentProcess: "\(who) wants to see the password for"
+        case .login: "\(who) wants to sign in to"
         case let .setUp(lead, _, _, _): lead
         }
     }
@@ -26,16 +24,6 @@ public enum AccessRequestCopy {
         let account = "as \(request.login.account)"
         guard !request.agent.isLocal else { return account }
         return "\(account) · \(request.agent.address)"
-    }
-
-    /// Said only when approving has a consequence the question doesn't show.
-    public static func warning(_ request: AccessRequest) -> String? {
-        switch request.access {
-        case .signIn: nil
-        case .program: nil
-        case .agentProcess: "\(request.agent.name) can keep the password once it has seen it."
-        case .setUp: nil
-        }
     }
 
     public static func headlineAccount(_ request: AccessRequest) -> String {
@@ -52,9 +40,7 @@ public enum AccessRequestCopy {
     public static func notificationSubtitle(_ request: AccessRequest) -> String {
         let who = "\(request.agent.name) on \(request.agent.isLocal ? "your Mac" : request.agent.machine)"
         return switch request.access {
-        case .signIn: "\(who) wants to sign in as \(request.login.account)"
-        case let .program(command): "\(who) wants to give \(programName(command)) the password for \(request.login.account)"
-        case .agentProcess: "\(who) wants to see the password for \(request.login.account)"
+        case .login: "\(who) wants to sign in as \(request.login.account)"
         case let .setUp(lead, detail, _, _): "\(lead) \(request.login.site). \(detail)."
         }
     }
@@ -66,7 +52,6 @@ public enum AccessRequestCopy {
 
     public static let machineLabel = "Machine"
     public static let lastsLabel = "Lasts"
-    public static let commandLabel = "Command"
 
     public static func machine(_ agent: RequestingAgent) -> String {
         agent.isLocal ? "This Mac" : "\(agent.machine) · \(agent.address)"
@@ -80,20 +65,7 @@ public enum AccessRequestCopy {
     /// Under the outcome while an answer waits to reach the relay.
     public static let answerQueued = "Saved. It goes to your Mac mini as soon as it can be reached."
 
-    /// How long an approval lasts. Once an agent has seen a password, ending
-    /// the approval can't take it back, so that case says so.
-    public static func lasts(_ request: AccessRequest) -> String {
-        switch request.access {
-        case .signIn, .program, .setUp: "Up to 30 minutes"
-        case .agentProcess: "Up to 30 minutes. Once \(request.agent.name) has seen the password, it can keep it."
-        }
-    }
-
-    /// "gh" from "gh auth login --with-token" or "/usr/local/bin/gh auth …".
-    public static func programName(_ command: String) -> String {
-        let executable = command.split(separator: " ").first.map(String.init) ?? command
-        return executable.split(separator: "/").last.map(String.init) ?? executable
-    }
+    public static func lasts(_ request: AccessRequest) -> String { "Up to 30 minutes" }
 
     // MARK: The agent's claim
 

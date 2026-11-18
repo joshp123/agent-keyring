@@ -136,11 +136,10 @@ message RequestRecord {
   string request_id = 2;
   string login_id = 3;
   string task_ref = 4;
-  Purpose purpose = 5;
+  reserved 5, 9;                // Purpose and program.
   string reason = 6;            // Agent's claim.
   string agent_label = 7;       // Agent's claim.
   string recipient_id = 8;      // Enrolled recipient the relay authenticated.
-  ProgramCommand program = 9;
   int64 created_unix_seconds = 10;
   int64 pending_until_unix_seconds = 11;
   // From Tailscale WhoIs on the connection, not from the request.

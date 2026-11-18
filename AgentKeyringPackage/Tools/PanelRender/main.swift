@@ -9,7 +9,7 @@ let out = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/tmp/
 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 let request = AccessRequest(id: "r", login: RequestedLogin(site: "example.com", account: "josh@example.com"),
     agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: "100.64.0.2", folder: "~/code/bookkeeping", project: "bookkeeping"),
-    access: .signIn, agentReason: "You asked me to download October’s invoice.", askedAt: .now,
+    access: .login, agentReason: "You asked me to download October’s invoice.", askedAt: .now,
     state: .waitingForYou(until: .now.addingTimeInterval(600)))
 var plainFolder = request; plainFolder.agent.project = nil; plainFolder.agent.folder = "~/Downloads/a-very-long-folder-name-for-invoices"
 var home = request; home.agent.project = nil; home.agent.folder = "~"

@@ -49,9 +49,6 @@ func (s *Server) ask(ctx context.Context, who caller, ask *pb.AskRequest) (*pb.L
 	if strings.TrimSpace(ask.Reason) == "" {
 		return nil, fail(pb.ErrorCode_ERROR_CODE_INVALID, "Give a reason: it is shown to Josh when he decides.")
 	}
-	if (ask.Purpose == pb.Purpose_PURPOSE_PROGRAM) != (ask.Program != nil) || ask.Purpose == pb.Purpose_PURPOSE_UNSPECIFIED {
-		return nil, fail(pb.ErrorCode_ERROR_CODE_INVALID, "A program request names its program; other requests do not.")
-	}
 	login := s.Store.findLogin(ask.LoginId)
 	if login == nil {
 		return nil, fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "No such login. Use 'agent-keyring find' for its ID.")
@@ -77,7 +74,7 @@ func (s *Server) ask(ctx context.Context, who caller, ask *pb.AskRequest) (*pb.L
 		}
 		id = newID()
 		requestBytes := marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id, LoginId: ask.LoginId, MachineId: who.machine.MachineId,
-			Purpose: ask.Purpose, Program: ask.Program, Reason: ask.Reason, Agent: ask.Agent, Project: ask.Project, Task: ask.Task,
+			Reason: ask.Reason, Agent: ask.Agent, Project: ask.Project, Task: ask.Task,
 			AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: now.Add(s.answerWithin()).Unix()})
 		fresh = &request{Request: requestBytes, MachineID: who.machine.MachineId, ClientRequestID: ask.ClientRequestId,
 			State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: now.Add(s.answerWithin()).Unix()}
@@ -207,7 +204,7 @@ func (s *Server) testRequest(ctx context.Context, who caller, send func(*pb.Rela
 	answerBy := now.Add(s.answerWithin()).Unix()
 	s.Store.update(func(data *saved) error {
 		data.Requests[id] = &request{ForDevice: who.device.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: answerBy,
-			Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id, Purpose: pb.Purpose_PURPOSE_AGENT_PROCESS,
+			Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id,
 				Reason: "A test from Agent Keyring. No login is used.", Agent: "Agent Keyring", ForDeviceKeyId: who.device.KeyId,
 				AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: answerBy})}
 		return nil
@@ -236,7 +233,7 @@ func (s *Server) proposeRules(ctx context.Context, who caller, document *pb.Sign
 	}
 	s.Store.update(func(data *saved) error {
 		data.Requests[id] = &request{Proposal: marshal(document), ProposedBy: signer.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING,
-			AnswerBy: answerBy, Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id, Purpose: pb.Purpose_PURPOSE_AGENT_PROCESS,
+			AnswerBy: answerBy, Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id,
 				Reason: reason, Agent: signer.Label, AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: answerBy})}
 		return nil
 	})

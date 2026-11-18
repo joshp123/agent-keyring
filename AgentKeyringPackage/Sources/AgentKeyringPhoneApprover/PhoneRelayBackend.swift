@@ -210,8 +210,7 @@ public final class PhoneRelayBackend: PhoneBackend {
             login: RequestedLogin(site: login.map(Self.site) ?? request.loginID, account: login?.account ?? ""),
             agent: RequestingAgent(name: request.agent.isEmpty ? "An agent" : request.agent, machine: machine.label, address: "",
                                    project: request.project.isEmpty ? nil : request.project),
-            access: request.purpose == .program ? .program(([request.program.executable] + request.program.arguments).joined(separator: " "))
-                : request.purpose == .agentProcess ? .agentProcess : .signIn,
+            access: .login,
             agentReason: request.reason, askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: state)
     }
 
@@ -888,7 +887,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         return (AccessRequest(id: request.requestID, login: RequestedLogin(site: site(login), account: login.account),
                               agent: RequestingAgent(name: request.agent, machine: machine.label, address: "",
                                                      project: request.project.isEmpty ? nil : request.project),
-                              access: .signIn, agentReason: request.reason,
+                              access: .login, agentReason: request.reason,
                               askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: outcome),
                 work.hasOutcome ? members.devices.first { $0.label == work.outcome.answeredBy }.flatMap { shortName($0.kind) } : nil)
     }

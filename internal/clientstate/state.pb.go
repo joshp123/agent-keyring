@@ -321,10 +321,8 @@ type OperationReceipt struct {
 	// Types that are valid to be assigned to Outcome:
 	//
 	//	*OperationReceipt_Fill
-	//	*OperationReceipt_Program
 	//	*OperationReceipt_ReadDelivered
 	Outcome       isOperationReceipt_Outcome `protobuf_oneof:"outcome"`
-	ExitCode      *int32                     `protobuf:"varint,8,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -403,15 +401,6 @@ func (x *OperationReceipt) GetFill() v1.FillOutcome {
 	return v1.FillOutcome(0)
 }
 
-func (x *OperationReceipt) GetProgram() v1.ProgramOutcome {
-	if x != nil {
-		if x, ok := x.Outcome.(*OperationReceipt_Program); ok {
-			return x.Program
-		}
-	}
-	return v1.ProgramOutcome(0)
-}
-
 func (x *OperationReceipt) GetReadDelivered() bool {
 	if x != nil {
 		if x, ok := x.Outcome.(*OperationReceipt_ReadDelivered); ok {
@@ -419,13 +408,6 @@ func (x *OperationReceipt) GetReadDelivered() bool {
 		}
 	}
 	return false
-}
-
-func (x *OperationReceipt) GetExitCode() int32 {
-	if x != nil && x.ExitCode != nil {
-		return *x.ExitCode
-	}
-	return 0
 }
 
 type isOperationReceipt_Outcome interface {
@@ -436,17 +418,11 @@ type OperationReceipt_Fill struct {
 	Fill v1.FillOutcome `protobuf:"varint,5,opt,name=fill,proto3,enum=agentkeyring.v1.FillOutcome,oneof"`
 }
 
-type OperationReceipt_Program struct {
-	Program v1.ProgramOutcome `protobuf:"varint,6,opt,name=program,proto3,enum=agentkeyring.v1.ProgramOutcome,oneof"`
-}
-
 type OperationReceipt_ReadDelivered struct {
 	ReadDelivered bool `protobuf:"varint,7,opt,name=read_delivered,json=readDelivered,proto3,oneof"`
 }
 
 func (*OperationReceipt_Fill) isOperationReceipt_Outcome() {}
-
-func (*OperationReceipt_Program) isOperationReceipt_Outcome() {}
 
 func (*OperationReceipt_ReadDelivered) isOperationReceipt_Outcome() {}
 
@@ -480,19 +456,15 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\x05scope\x18\x01 \x01(\v2$.agentkeyring.v1.RequestLeaseRequestR\x05scope\x12\x19\n" +
 	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12F\n" +
 	" automatic_not_after_unix_seconds\x18\x03 \x01(\x03R\x1cautomaticNotAfterUnixSeconds\x12\x14\n" +
-	"\x05ended\x18\x04 \x01(\bR\x05ended\"\xeb\x02\n" +
+	"\x05ended\x18\x04 \x01(\bR\x05ended\"\x8a\x02\n" +
 	"\x10OperationReceipt\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x16\n" +
 	"\x06digest\x18\x03 \x01(\fR\x06digest\x12=\n" +
 	"\x1blease_deadline_unix_seconds\x18\x04 \x01(\x03R\x18leaseDeadlineUnixSeconds\x122\n" +
-	"\x04fill\x18\x05 \x01(\x0e2\x1c.agentkeyring.v1.FillOutcomeH\x00R\x04fill\x12;\n" +
-	"\aprogram\x18\x06 \x01(\x0e2\x1f.agentkeyring.v1.ProgramOutcomeH\x00R\aprogram\x12'\n" +
-	"\x0eread_delivered\x18\a \x01(\bH\x00R\rreadDelivered\x12 \n" +
-	"\texit_code\x18\b \x01(\x05H\x01R\bexitCode\x88\x01\x01B\t\n" +
-	"\aoutcomeB\f\n" +
-	"\n" +
-	"_exit_codeB8Z6github.com/joshp123/agent-keyring/internal/clientstateb\x06proto3"
+	"\x04fill\x18\x05 \x01(\x0e2\x1c.agentkeyring.v1.FillOutcomeH\x00R\x04fill\x12'\n" +
+	"\x0eread_delivered\x18\a \x01(\bH\x00R\rreadDeliveredB\t\n" +
+	"\aoutcomeJ\x04\b\x06\x10\aJ\x04\b\b\x10\tB8Z6github.com/joshp123/agent-keyring/internal/clientstateb\x06proto3"
 
 var (
 	file_internal_clientstate_state_proto_rawDescOnce sync.Once
@@ -515,7 +487,6 @@ var file_internal_clientstate_state_proto_goTypes = []any{
 	(*OperationReceipt)(nil),       // 4: agentkeyring.clientstate.OperationReceipt
 	(*v1.RequestLeaseRequest)(nil), // 5: agentkeyring.v1.RequestLeaseRequest
 	(v1.FillOutcome)(0),            // 6: agentkeyring.v1.FillOutcome
-	(v1.ProgramOutcome)(0),         // 7: agentkeyring.v1.ProgramOutcome
 }
 var file_internal_clientstate_state_proto_depIdxs = []int32{
 	3, // 0: agentkeyring.clientstate.State.requests:type_name -> agentkeyring.clientstate.ExpectedRequest
@@ -523,12 +494,11 @@ var file_internal_clientstate_state_proto_depIdxs = []int32{
 	2, // 2: agentkeyring.clientstate.State.local_authority:type_name -> agentkeyring.clientstate.LocalAuthority
 	5, // 3: agentkeyring.clientstate.ExpectedRequest.scope:type_name -> agentkeyring.v1.RequestLeaseRequest
 	6, // 4: agentkeyring.clientstate.OperationReceipt.fill:type_name -> agentkeyring.v1.FillOutcome
-	7, // 5: agentkeyring.clientstate.OperationReceipt.program:type_name -> agentkeyring.v1.ProgramOutcome
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_internal_clientstate_state_proto_init() }
@@ -538,7 +508,6 @@ func file_internal_clientstate_state_proto_init() {
 	}
 	file_internal_clientstate_state_proto_msgTypes[4].OneofWrappers = []any{
 		(*OperationReceipt_Fill)(nil),
-		(*OperationReceipt_Program)(nil),
 		(*OperationReceipt_ReadDelivered)(nil),
 	}
 	type x struct{}

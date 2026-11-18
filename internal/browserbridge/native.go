@@ -255,9 +255,6 @@ func (h *host) fill(request *Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if lease.Purpose != pb.Purpose_PURPOSE_BROWSER_SIGN_IN {
-		return nil, errors.New("This lease does not approve browser sign-in.")
-	}
 	prepared, err := h.browser(&ExtensionRequest{Action: Action_ACTION_PREPARE, Target: request.Target, Fields: command.Fields, Submit: command.Submit})
 	if err != nil {
 		return nil, err

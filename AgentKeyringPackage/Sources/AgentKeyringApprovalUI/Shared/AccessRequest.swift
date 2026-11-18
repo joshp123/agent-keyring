@@ -80,16 +80,10 @@ public struct RequestingAgent: Hashable, Sendable {
     }
 }
 
-/// Lease purpose.
+/// What a request asks for.
 public enum RequestedAccess: Hashable, Sendable {
-    /// PURPOSE_BROWSER_SIGN_IN: Agent Keyring fills the sign-in form itself.
-    case signIn
-    /// PURPOSE_PROGRAM: the value goes on standard input to the approved
-    /// command, shown as typed, for example "gh auth login --with-token".
-    case program(String)
-    /// PURPOSE_AGENT_PROCESS: the value goes to the agent's own code. No
-    /// protection beyond keeping it out of the transcript.
-    case agentProcess
+    /// A login, which the agent may fill or read for this task, 30 minutes at most.
+    case login
     /// Not a login: the test request, or a machine or device asking to be
     /// added. The panel shows `lead`, the request's site in large type (the
     /// name), `detail`, the agent's reason if any, and `footer`; `denied` is
