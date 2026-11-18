@@ -69,4 +69,4 @@ Screens: `approvalLocal-*.png`, `approvalQueued-*.png`, `enrolment*.png`, `machi
 
 The views are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Mac`. Since release 2, the Mac app uses all three: the panel answers lease requests in place of the system Touch ID prompt, the menu bar window follows the lease store, and the rules window wraps the existing access-rules controller. RFC 0007 says how, and lists the one-look, one-touch check that proves the panel on the MacBook.
 
-Screenshots come from the design gallery (`Tools/AgentKeyringDesignGallery`) on the Mac mini. Most use mock data; `lease*.png` are mapped from lease records through the same adapter the app uses.
+Screenshots are historical design examples.

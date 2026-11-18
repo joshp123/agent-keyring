@@ -111,4 +111,4 @@ A notification says a request is waiting. Tapping it opens the request screen; e
 
 ## Built and not built
 
-The screens are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone`, fed by `PhoneKeyringModel`, which follows `PhoneKeyringBackend`'s update stream. The release 4 phone backend (`AgentKeyringPhone/PhoneImportBackend.swift`) feeds them in the app; launch with `-designScenario <name>` to open any state on mock data. `real-*.png` is the app with nothing paired.
+The screens are real SwiftUI in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone`, fed by `PhoneKeyringModel`, which follows `PhoneKeyringBackend`'s update stream. The release 4 phone backend (`AgentKeyringPhone/PhoneImportBackend.swift`) feeds them in the app; the mock scenario launcher has been removed. `real-*.png` is the app with nothing paired.

@@ -8,14 +8,11 @@ import SwiftUI
 
 public struct PhoneRootView: View {
     @Bindable var model: PhoneKeyringModel
-    @State private var path: [String]
-    @State private var isPairing: Bool
+    @State private var path: [String] = []
+    @State private var isPairing = false
 
-    public init(model: PhoneKeyringModel, openRequestID: String? = nil,
-        openPairing: Bool = PhoneDesignScenario.fromLaunchArguments()?.opensPairing ?? false) {
+    public init(model: PhoneKeyringModel) {
         self.model = model
-        _path = State(initialValue: openRequestID.map { [$0] } ?? [])
-        _isPairing = State(initialValue: openPairing)
     }
 
     public var body: some View {
