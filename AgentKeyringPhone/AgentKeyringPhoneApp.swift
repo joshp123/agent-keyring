@@ -6,6 +6,7 @@
 import AgentKeyringApprovalUI
 import AgentKeyringPhoneApprover
 import AgentKeyringRelaySupport
+import LocalAuthentication
 import OSLog
 import SwiftUI
 import UIKit
@@ -18,6 +19,12 @@ struct AgentKeyringPhoneApp: App {
 
     var body: some Scene {
         WindowGroup {
+            if UserDefaults.standard.bool(forKey: "SampleCard"), let request = delegate.model.request(id: "r1") {
+                // The held notification's layout alone, at Paper's 386 pt, for comparing with the board.
+                PhoneNotificationCard(request: request)
+                    .frame(width: 386).background(.background, in: .rect(cornerRadius: 28))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).background(Color(white: 0.5))
+            } else {
             PhoneRootView(model: delegate.model)
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     if phase == .active { delegate.relay?.start() } else if phase == .background { delegate.relay?.stop() }
@@ -27,6 +34,7 @@ struct AgentKeyringPhoneApp: App {
                 .onChange(of: delegate.model.snapshot.setup, initial: true) { _, setup in
                     if setup != .scanCode { UIApplication.shared.registerForRemoteNotifications() }
                 }
+            }
         }
     }
 }
@@ -42,7 +50,15 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     /// phone, and that unlock is reused for the approval) or opens the app
     /// first. Which one iOS allows is settled on a real iPhone; launch with
     /// `-ApproveOnLockScreen YES` to try the first.
-    private let approvesOnLockScreen = UserDefaults.standard.bool(forKey: "ApproveOnLockScreen")
+    /// Kept in the app's own defaults, because iOS relaunches the app without its arguments to handle an action.
+    private let approvesOnLockScreen: Bool = {
+        let defaults = UserDefaults.standard
+        if let given = defaults.volatileDomain(forName: UserDefaults.argumentDomain)["ApproveOnLockScreen"] {
+            defaults.set(given, forKey: "ApproveOnLockScreen")
+        }
+        return defaults.bool(forKey: "ApproveOnLockScreen")
+    }()
+    private let log = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Answer")
 
     override init() {
         if UserDefaults.standard.bool(forKey: "Sample") {
@@ -103,6 +119,20 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.setNotificationCategories([requestCategory])
+        #if targetEnvironment(simulator)
+        // The simulator's extension cannot reach the app's software keys, so with
+        // -CheckNotices YES the app opens the relay's real notices itself, as the extension does on a device.
+        if UserDefaults.standard.bool(forKey: "CheckNotices") {
+            Task {
+                for note in await center.deliveredNotifications() {
+                    let words = PhoneRelayBackend.notifiedRequest(note.request.content.userInfo, shared: PhoneSharedContext(accessGroup: nil)) {
+                        try PhoneSoftwareKeys().openNotice($0, deviceKeyID: $1)
+                    }
+                    log.notice("Notice check: \(words.map { "\($0.request.login.site) / \(PhoneCopy.notificationSubtitle($0.request.agent)) / \(PhoneCopy.notificationBody($0.request)) / outcome by \($0.answeredBy ?? "-")" } ?? "not opened", privacy: .public)")
+                }
+            }
+        }
+        #endif
         return true
     }
 
@@ -127,16 +157,24 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let userInfo = response.notification.request.content.userInfo
         let action = response.actionIdentifier
         let reply = (response as? UNTextInputNotificationResponse)?.userText
-        guard let id = PhoneNotification.requestID(userInfo) else { return }
+        // If the extension could not open the notice, the thread is still the request id.
+        let thread = response.notification.request.content.threadIdentifier
+        guard let id = PhoneNotification.requestID(userInfo) ?? (thread.isEmpty ? nil : thread) else { return }
         await answer(id, action: action, reply: reply)
     }
 
     private func answer(_ id: String, action: String, reply: String?) async {
         switch action {
         case PhoneNotification.approveAction:
-            if approvesOnLockScreen {
-                do { try await backend.approve(id, reusingUnlock: true) }
-                catch { model.shownRequestID = id }
+            if approvesOnLockScreen, let relay {
+                do {
+                    try await relay.approveFromLockScreen(id)
+                    log.notice("Approved from the Lock Screen with the unlock's Face ID")
+                } catch {
+                    let code = (error as? LAError)?.code.rawValue ?? (error as NSError).code
+                    log.error("Approve on the Lock Screen failed: \((error as NSError).domain, privacy: .public) \(code, privacy: .public)")
+                    await askToOpen(id)
+                }
             } else {
                 model.shownRequestID = id
                 await model.approve(id, reusingUnlock: true)
@@ -151,8 +189,21 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
     }
 
+    /// Approve could not finish on the Lock Screen: a notification for the same
+    /// request whose tap opens it in the app.
+    private func askToOpen(_ id: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = model.request(id: id)?.login.site ?? PhoneCopy.appName
+        content.body = PhoneCopy.openToApprove
+        content.threadIdentifier = id
+        content.userInfo = ["id": id]
+        content.interruptionLevel = .timeSensitive
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "open-" + id, content: content, trigger: nil))
+    }
+
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        // With the app open, a request shows in the app; only its banner is needed, not the outcome's.
+        notification.request.content.categoryIdentifier == PhoneNotification.requestCategory ? [.banner, .list, .sound] : [.list]
     }
 }

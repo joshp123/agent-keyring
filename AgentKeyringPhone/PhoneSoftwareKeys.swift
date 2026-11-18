@@ -6,6 +6,7 @@
 
 #if targetEnvironment(simulator)
 import AgentKeyringPhoneApprover
+import AgentKeyringProtocol
 import AgentKeyringSealing
 import CryptoKit
 import Foundation
@@ -33,5 +34,8 @@ struct PhoneSoftwareKeys: PhoneDeviceKeys {
     func sign(_ bytes: Data, context: LAContext) throws -> Data { try signing("signing").signature(for: bytes).derRepresentation }
     func open(_ sealed: SealedLogin, context: LAContext) throws -> LoginSecret { try Sealing.open(sealed, with: agreement("opening")) }
     func signReply(_ bytes: Data) throws -> Data { try signing("reply").signature(for: bytes).derRepresentation }
+    func openNotice(_ notice: Agentkeyring_V2_Notice, deviceKeyID: String) throws -> Agentkeyring_V2_Work {
+        try Sealing.openNotice(notice, deviceKeyID: deviceKeyID, with: agreement("notice"))
+    }
 }
 #endif

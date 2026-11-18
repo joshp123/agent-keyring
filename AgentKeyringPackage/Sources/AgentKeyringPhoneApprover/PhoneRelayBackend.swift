@@ -273,6 +273,17 @@ public final class PhoneRelayBackend: PhoneBackend {
     // MARK: Answers
 
     public func approve(_ requestID: String, reusingUnlock: Bool) async throws {
+        try await approve(requestID, reusingUnlock: reusingUnlock, prompting: true)
+    }
+
+    /// Approve pressed on the Lock Screen, handled in the background: only the
+    /// Face ID that unlocked the phone a moment ago may count. Fails rather than
+    /// show Face ID, which iOS does not allow in the background.
+    public func approveFromLockScreen(_ requestID: String) async throws {
+        try await approve(requestID, reusingUnlock: true, prompting: false)
+    }
+
+    private func approve(_ requestID: String, reusingUnlock: Bool, prompting: Bool) async throws {
         let work = try await currentWork(requestID)
         let request = try Sealing.parseRequest(work.request)
         guard let members, let catalogue,
@@ -284,6 +295,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         let context = LAContext()
         defer { context.invalidate() }
         if reusingUnlock { context.touchIDAuthenticationAllowableReuseDuration = 10 }
+        context.interactionNotAllowed = !prompting
         try await keys.authorize(context, reason: "Let \(request.agent) on \(machine.label) use \(Self.site(login)) for up to 30 minutes.")
         let secret = try keys.open(work.sealedLogin, context: context)
         let upload = try Sealing.approve(
@@ -430,23 +442,30 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// opened, the login and machine named from the saved Catalogue and Members.
     nonisolated public static func notifiedRequest(_ userInfo: [AnyHashable: Any], shared: PhoneSharedContext,
                                        open: (Agentkeyring_V2_Notice, String) throws -> Agentkeyring_V2_Work) -> (request: AccessRequest, answeredBy: String?)? {
+        let log = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Notice")
+        func fail(_ step: String) -> (request: AccessRequest, answeredBy: String?)? {
+            log.error("Could not name the request: \(step, privacy: .public)")
+            return nil
+        }
         guard let base64 = userInfo["akr"] as? String, let bytes = Data(base64Encoded: base64),
-              let notice = try? Agentkeyring_V2_Notice(serializedBytes: bytes),
-              let saved = shared.read(),
-              let keyID = saved.deviceKeyID, let work = try? open(notice, keyID),
-              let members = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) }).flatMap({ try? Members(serializedBytes: $0.payload) })
-        else { return nil }
+              let notice = try? Agentkeyring_V2_Notice(serializedBytes: bytes) else { return fail("no notice in the push") }
+        guard let saved = shared.read() else { return fail("the shared keychain item is missing") }
+        guard let keyID = saved.deviceKeyID else { return fail("no device key id saved") }
+        let work: Agentkeyring_V2_Work
+        do { work = try open(notice, keyID) } catch { return fail("the notice did not open: \(error)") }
+        guard let members = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) }).flatMap({ try? Members(serializedBytes: $0.payload) })
+        else { return fail("no Members saved") }
         let catalogue = saved.catalogue.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Catalogue(serializedBytes: $0.payload) }
-        guard let request = try? Sealing.parseRequest(work.request),
-              let machine = members.machines.first(where: { $0.machineID == request.machineID }),
-              let login = catalogue?.logins.first(where: { $0.loginID == request.loginID }) else { return nil }
+        guard let request = try? Sealing.parseRequest(work.request) else { return fail("the request did not parse") }
+        guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { return fail("unknown machine") }
+        guard let login = catalogue?.logins.first(where: { $0.loginID == request.loginID }) else { return fail("login not in the saved catalogue") }
         let outcome = work.hasOutcome ? state(work.outcome, now: Int64(Date().timeIntervalSince1970))
             : .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds)))
         return (AccessRequest(id: request.requestID, login: RequestedLogin(site: site(login), account: login.account),
-                             agent: RequestingAgent(name: request.agent, machine: machine.label, address: "",
-                                                    project: request.project.isEmpty ? nil : request.project),
-                             access: .signIn, agentReason: request.reason,
-                             askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: outcome),
+                              agent: RequestingAgent(name: request.agent, machine: machine.label, address: "",
+                                                     project: request.project.isEmpty ? nil : request.project),
+                              access: .signIn, agentReason: request.reason,
+                              askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: outcome),
                 work.hasOutcome ? members.devices.first { $0.label == work.outcome.answeredBy }.flatMap { shortName($0.kind) } : nil)
     }
 
