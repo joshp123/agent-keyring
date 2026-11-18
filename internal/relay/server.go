@@ -1,60 +1,78 @@
-// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+// Written by AI on 2026.11.18 by model claude opus 5.5.
 package relay
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
-	"database/sql"
-	"encoding/hex"
+	"crypto/x509"
 	"errors"
 	"log/slog"
 	"net"
-	"sync"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
+	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/apns"
-	"github.com/joshp123/agent-keyring/internal/authority"
-	"github.com/joshp123/agent-keyring/internal/relaycrypto"
-	"google.golang.org/protobuf/proto"
+	"github.com/joshp123/agent-keyring/internal/wire"
+)
+
+const (
+	heldOffFor   = 30 * time.Minute
+	joinWithin   = 10 * time.Minute
 )
 
 type Server struct {
-	Push        *apns.Sender
 	Store       *Store
+	Push        *apns.Sender // Nil: no pushes; devices see work on their stream.
 	Certificate tls.Certificate
 	Lookup      NodeLookup
-	Log         *slog.Logger
-	pushReady   chan struct{}
-	macWatchers map[string]int // Guarded by Store.mu; pinned MAC WatchWork streams.
+	Now         func() time.Time
+	// How long a request waits for an answer: 10 minutes, shorter only in tests.
+	AnswerWithin time.Duration
 }
-type peer struct {
-	spki                []byte
-	node                Node
-	recipient, approver string
-	retired             bool
+
+func (s *Server) answerWithin() time.Duration {
+	if s.AnswerWithin > 0 {
+		return s.AnswerWithin
+	}
+	return 10 * time.Minute
+}
+
+// caller is who a connection belongs to, by the TLS key it presented.
+type caller struct {
+	spki    []byte
+	device  *pb.Device  // A device in Members.
+	machine *pb.Machine // A machine in Members.
+	node    string      // Tailscale node name.
+}
+
+type failure struct {
+	code    pb.ErrorCode
+	message string
+}
+
+func (f failure) Error() string { return f.message }
+
+func fail(code pb.ErrorCode, message string) error { return failure{code, message} }
+
+func (s *Server) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+func (s *Server) ownSPKI() []byte {
+	parsed, err := x509.ParseCertificate(s.Certificate.Certificate[0])
+	if err != nil {
+		return nil
+	}
+	return parsed.RawSubjectPublicKeyInfo
 }
 
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
-	if s.Lookup == nil {
-		return errors.New("Tailscale node lookup is required")
-	}
-	if s.Log == nil {
-		s.Log = slog.Default()
-	}
-	stop := context.AfterFunc(ctx, func() { listener.Close() })
-	defer stop()
-	s.pushReady = make(chan struct{}, 1)
-	s.macWatchers = make(map[string]int)
-	var active sync.WaitGroup
-	active.Add(1)
-	go func() { defer active.Done(); s.maintain(ctx) }()
-	if s.Push != nil {
-		active.Add(1)
-		go func() { defer active.Done(); s.sendPushes(ctx) }()
-	}
-	defer active.Wait()
+	config := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{s.Certificate}, ClientAuth: tls.RequireAnyClientCert}
+	go s.keepDeadlines(ctx)
+	go func() { <-ctx.Done(); listener.Close() }()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -63,285 +81,236 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 			}
 			return err
 		}
-		active.Add(1)
-		go func() { defer active.Done(); s.serveConnection(ctx, conn) }()
+		go s.handle(ctx, tls.Server(conn, config))
 	}
 }
-func (s *Server) serveConnection(ctx context.Context, raw net.Conn) {
-	defer raw.Close()
-	stop := context.AfterFunc(ctx, func() { raw.Close() })
-	defer stop()
-	raw.SetDeadline(time.Now().Add(15 * time.Second))
-	conn := tls.Server(raw, &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{s.Certificate}, ClientAuth: tls.RequireAnyClientCert})
+
+func (s *Server) handle(ctx context.Context, conn *tls.Conn) {
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if err := conn.HandshakeContext(ctx); err != nil {
 		return
 	}
-	certificates := conn.ConnectionState().PeerCertificates
-	if len(certificates) != 1 {
+	peer := conn.ConnectionState().PeerCertificates
+	if len(peer) != 1 {
 		return
 	}
-	if time.Now().Before(certificates[0].NotBefore) || time.Now().After(certificates[0].NotAfter) {
-		return
-	}
-	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	node, err := s.Lookup(lookupCtx, raw.RemoteAddr().String())
-	cancel()
-	if err != nil {
-		authority.WriteFrame(conn, wireError(denied("Cannot verify the connecting Tailscale node.")))
-		return
-	}
-	p := peer{spki: certificates[0].RawSubjectPublicKeyInfo, node: node}
-	request := new(pb.RelayWireRequest)
-	if authority.ReadFrame(conn, request) != nil {
-		return
-	}
-	closeWatcher, err := s.trackMacWatcher(p, request)
-	if err != nil {
-		authority.WriteFrame(conn, wireError(err))
-		return
-	}
-	defer closeWatcher()
-	// One request per connection. Each stream drains its durable snapshot, then
-	// sleeps until a committed change wakes it.
-	raw.SetReadDeadline(time.Time{})
-	disconnected := make(chan struct{})
-	go func() {
-		// No second method is valid on this connection. Reading detects a
-		// disconnected idle watcher without waiting for another work item.
-		var extra [1]byte
-		conn.Read(extra[:])
-		close(disconnected)
-		raw.Close()
-	}()
-	seen := map[string][]byte{}
-	for {
-		response, more, wake, err := s.dispatch(p, request, seen)
+	who := caller{spki: peer[0].RawSubjectPublicKeyInfo}
+	if s.Lookup != nil {
+		lookupContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		node, err := s.Lookup(lookupContext, conn.RemoteAddr().String())
+		cancel()
 		if err != nil {
-			s.Log.Warn("relay request refused", "error", err)
-			response = wireError(err)
-			more = false
+			slog.Warn("refused a connection Tailscale could not identify", "address", conn.RemoteAddr().String())
+			return
 		}
-		if response != nil {
-			raw.SetWriteDeadline(time.Now().Add(15 * time.Second))
-			if authority.WriteFrame(conn, response) != nil {
-				return
+		who.node = node.Name
+	}
+	members, _ := s.Store.documents()
+	if members != nil {
+		for _, d := range members.Devices {
+			if len(d.TlsPublicKey) > 0 && string(d.TlsPublicKey) == string(who.spki) {
+				who.device = d
 			}
 		}
-		if !more {
-			return
+		for _, m := range members.Machines {
+			if string(m.TlsPublicKey) == string(who.spki) {
+				who.machine = m
+			}
 		}
-		if response != nil {
-			continue
+	}
+	request := &pb.RelayRequest{}
+	if err := wire.Read(conn, request); err != nil {
+		return
+	}
+	conn.SetDeadline(time.Time{})
+	connectionContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() { // A closed connection ends any stream.
+		buffer := make([]byte, 1)
+		conn.Read(buffer)
+		cancel()
+	}()
+	send := func(response *pb.RelayResponse) error {
+		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return wire.Write(conn, response)
+	}
+	err := s.dispatch(connectionContext, who, request, send)
+	if err != nil {
+		var known failure
+		if !errors.As(err, &known) {
+			slog.Error("request failed", "error", err)
+			known = failure{pb.ErrorCode_ERROR_CODE_UNAVAILABLE, "The relay could not do that. Try again."}
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-disconnected:
-			return
-		case <-wake:
-		}
+		send(&pb.RelayResponse{Result: &pb.RelayResponse_Error{Error: &pb.Error{Code: known.code, Message: known.message}}, EndOfStream: true})
 	}
 }
-func (s *Server) dispatch(p peer, r *pb.RelayWireRequest, seen map[string][]byte) (response *pb.RelayWireResponse, more bool, wake <-chan struct{}, err error) {
-	s.Store.mu.Lock()
-	defer func() { wake = s.Store.changed; s.Store.mu.Unlock() }()
-	tx, before, err := s.Store.begin()
-	if err != nil {
-		return nil, false, nil, err
-	}
-	defer tx.Rollback()
-	if err = s.expire(tx); err != nil {
-		return nil, false, nil, err
-	}
-	p, err = authenticate(tx, p)
-	if err != nil {
-		return nil, false, nil, err
-	}
-	if p.retired {
-		switch r.Request.(type) {
-		case *pb.RelayWireRequest_GetApproverKeyChain, *pb.RelayWireRequest_GetConfiguration, *pb.RelayWireRequest_GetConfigurationUpdates, *pb.RelayWireRequest_PublishUpdateReceipt:
-		default:
-			return nil, false, nil, denied("This device was removed; only signed public updates remain available.")
-		}
-	}
-	if (p.approver != "" && r.GetWatchWork() != nil) || (p.recipient != "" && r.GetClient().GetWatchLease() != nil) {
-		update, e := nextTrustUpdate(tx, p, seen)
-		if e != nil {
-			return nil, false, nil, e
-		}
-		if update != nil {
-			if p.approver != "" {
-				response = workResponse(&pb.ApproverWork{Item: &pb.ApproverWork_TrustUpdate{TrustUpdate: update}})
-			} else {
-				response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_TrustUpdate{TrustUpdate: update}}
-			}
-			return response, true, nil, s.Store.commit(tx, before)
-		}
-	}
-	switch request := r.Request.(type) {
-	case *pb.RelayWireRequest_Enrol:
-		response, more, err = s.enrol(tx, p, request.Enrol, seen)
-	case *pb.RelayWireRequest_PairApprover:
-		response, more, err = s.pair(tx, p, request.PairApprover, seen)
-		if response.GetEnrolStatus() != nil {
-			response.GetEnrolStatus().AutomaticKeys = s.automaticKeys()
-		}
-	case *pb.RelayWireRequest_ConfirmPairing:
-		response, err = s.confirm(tx, p, request.ConfirmPairing)
-	case *pb.RelayWireRequest_GetAutomaticKeys:
-		response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_AutomaticKeys{AutomaticKeys: s.automaticKeys()}, EndOfStream: true}
-	default:
-		if p.recipient == "" && p.approver == "" && !p.retired {
-			return nil, false, nil, denied("This TLS key is not enrolled. Run enrol first.")
-		}
-		switch request := r.Request.(type) {
-		case *pb.RelayWireRequest_Client:
-			if p.recipient == "" {
-				err = denied("This connection is not an enrolled receiver.")
-				break
-			}
-			response, more, err = s.client(tx, p, request.Client, seen)
-		case *pb.RelayWireRequest_GetApproverKeys:
-			keys, _, e := currentKeys(tx)
-			err = e
-			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ApproverKeys{ApproverKeys: keys}, EndOfStream: true}
-		case *pb.RelayWireRequest_GetApproverKeyChain:
-			chain := new(pb.ApproverKeyChain)
-			rows, e := tx.Query("SELECT value FROM objects WHERE kind='keychain' AND id>? ORDER BY id", revisionID(request.GetApproverKeyChain.FromRevision))
-			if e != nil {
-				err = e
-				break
-			}
-			for rows.Next() {
-				var data []byte
-				if err = rows.Scan(&data); err != nil {
-					break
-				}
-				keys := new(pb.SignedApproverKeySet)
-				if err = proto.Unmarshal(data, keys); err != nil {
-					break
-				}
-				chain.KeySets = append(chain.KeySets, keys)
-			}
-			if err == nil {
-				err = rows.Err()
-			}
-			rows.Close()
-			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ApproverKeyChain{ApproverKeyChain: chain}, EndOfStream: true}
-		case *pb.RelayWireRequest_GetConfigurationUpdates:
-			value, e := configurationUpdates(tx, p, request.GetConfigurationUpdates.AfterRevision)
-			err = e
-			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_ConfigurationUpdates{ConfigurationUpdates: value}, EndOfStream: true}
-		case *pb.RelayWireRequest_PublishUpdateReceipt:
-			err = publishUpdateReceipt(tx, p, request.PublishUpdateReceipt)
-			response = publishAck()
-		case *pb.RelayWireRequest_AcknowledgeUpdateReceipts:
-			err = acknowledgeUpdateReceipts(tx, p, request.AcknowledgeUpdateReceipts)
-			response = publishAck()
-		case *pb.RelayWireRequest_GetUpdateReceipts:
-			_, keys, e := currentKeys(tx)
-			err = e
-			if err == nil && p.approver != keys.RuleOwnerKeyId {
-				err = denied("Only the rule owner may collect device receipts.")
-			}
-			if err == nil {
-				var value *pb.UpdateReceipts
-				value, err = getUpdateReceipts(tx, request.GetUpdateReceipts)
-				response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_UpdateReceipts{UpdateReceipts: value}, EndOfStream: true}
-			}
-		case *pb.RelayWireRequest_GetConfiguration:
-			value, _, e := configuration(tx)
-			err = e
-			if value == nil && err == nil {
-				err = missing("No configuration published yet.")
-			}
-			response = &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Configuration{Configuration: value}, EndOfStream: true}
-		default:
-			if p.approver == "" {
-				err = denied("Only a pinned approver may call this method.")
-				break
-			}
-			response, more, err = s.approver(tx, p, r, seen)
-		}
-	}
-	if err != nil {
-		return nil, false, nil, err
-	}
-	if response != nil {
-		for _, lease := range []*pb.Lease{response.GetClient().GetLease(), response.GetDecision().GetLease(), response.GetLease(), response.GetWork().GetLease()} {
-			if err = attachRemoteSignedDenial(tx, lease); err != nil {
-				return nil, false, nil, err
-			}
-		}
-	}
-	if err = s.escalateOffline(tx); err != nil {
-		return nil, false, nil, err
-	}
-	err = s.Store.commit(tx, before)
-	return response, more, nil, err
-}
-func authenticate(tx *sql.Tx, p peer) (peer, error) {
-	_, keys, err := currentKeys(tx)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return p, err
-	}
-	for _, key := range keys.GetKeys() {
-		if bytes.Equal(key.TlsPublicKey, p.spki) {
-			// Pairing records retain the observed tailnet node for pinned approvers too.
-			var node string
-			if err := tx.QueryRow("SELECT node FROM pairings WHERE id=?", key.KeyId).Scan(&node); err != nil {
-				return p, err
-			}
-			if node != p.node.ID {
-				return p, denied("Approver TLS key belongs to a different Tailscale node.")
-			}
-			p.approver = key.KeyId
-			return p, nil
-		}
-	}
-	_, config, err := configuration(tx)
-	if err != nil {
-		return p, err
-	}
-	for _, machine := range config.Machines {
-		if bytes.Equal(machine.TlsPublicKey, p.spki) {
-			if machine.TailscaleNodeId != p.node.ID {
-				return p, denied("Receiver TLS key belongs to a different Tailscale node.")
-			}
-			p.recipient = machine.RecipientId
-			return p, nil
-		}
-	}
-	var retiredNode string
-	retiredErr := tx.QueryRow("SELECT node FROM retired_devices WHERE spki=?", p.spki).Scan(&retiredNode)
-	if retiredErr == nil {
-		if retiredNode != p.node.ID {
-			return p, denied("Retired identity belongs to a different Tailscale node.")
-		}
-		p.retired = true
-		return p, nil
-	}
-	if !errors.Is(retiredErr, sql.ErrNoRows) {
-		return p, retiredErr
-	}
-	// A pending enrolment is also bound to its observed node before approval.
-	var node string
-	err = tx.QueryRow("SELECT node FROM enrolments WHERE spki=?", p.spki).Scan(&node)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return p, err
-	}
-	if err == nil && node != p.node.ID {
-		return p, denied("Receiver TLS key belongs to a different Tailscale node.")
-	}
 
-	return p, nil
+func done() *pb.RelayResponse {
+	return &pb.RelayResponse{Result: &pb.RelayResponse_Done{Done: &pb.Empty{}}, EndOfStream: true}
 }
-func changed(seen map[string][]byte, id string, message proto.Message) bool {
-	data := marshal(message)
-	if bytes.Equal(seen[id], data) {
-		return false
+
+func signed(document *pb.Signed) *pb.RelayResponse {
+	return &pb.RelayResponse{Result: &pb.RelayResponse_Signed{Signed: document}, EndOfStream: true}
+}
+
+func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequest, send func(*pb.RelayResponse) error) error {
+	isMachine := func() error {
+		if who.machine == nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "This machine has not joined. Run 'agent-keyring enrol'.")
+		}
+		return nil
 	}
-	seen[id] = data
-	return true
+	isDevice := func() error {
+		if who.device == nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "This device has not joined.")
+		}
+		return nil
+	}
+	switch method := request.Method.(type) {
+	case *pb.RelayRequest_Ask:
+		if err := isMachine(); err != nil {
+			return err
+		}
+		lease, err := s.ask(ctx, who, method.Ask)
+		if err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Lease{Lease: lease}, EndOfStream: true})
+	case *pb.RelayRequest_Watch:
+		if err := isMachine(); err != nil {
+			return err
+		}
+		return s.watch(ctx, who, method.Watch.RequestId, send)
+	case *pb.RelayRequest_Collect:
+		if err := isMachine(); err != nil {
+			return err
+		}
+		approval, err := s.collect(who, method.Collect.RequestId)
+		if err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Approval{Approval: approval}, EndOfStream: true})
+	case *pb.RelayRequest_End:
+		if err := isMachine(); err != nil {
+			return err
+		}
+		lease, err := s.end(ctx, who, method.End.RequestId)
+		if err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Lease{Lease: lease}, EndOfStream: true})
+	case *pb.RelayRequest_Find:
+		if who.machine == nil && who.device == nil {
+			return isMachine()
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Find{Find: s.find(method.Find.Query)}, EndOfStream: true})
+	case *pb.RelayRequest_AutomaticLogins:
+		if err := isMachine(); err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_SealedLogins{SealedLogins: s.sealedFor(who.machine.MachineId)}, EndOfStream: true})
+	case *pb.RelayRequest_ReportUse:
+		if err := isMachine(); err != nil {
+			return err
+		}
+		if err := s.reportUse(who, method.ReportUse); err != nil {
+			return err
+		}
+		return send(done())
+	case *pb.RelayRequest_Members:
+		if who.machine == nil && who.device == nil {
+			return isMachine()
+		}
+		return s.sendDocument(true, send)
+	case *pb.RelayRequest_Catalogue:
+		if who.machine == nil && who.device == nil {
+			return isMachine()
+		}
+		return s.sendDocument(false, send)
+	case *pb.RelayRequest_WatchWork:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		return s.watchWork(ctx, who, send)
+	case *pb.RelayRequest_GetWork:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		work, err := s.work(who.device, method.GetWork.RequestId, nil)
+		if err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Work{Work: work}, EndOfStream: true})
+	case *pb.RelayRequest_Answer:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		lease, err := s.answer(ctx, who, method.Answer)
+		if err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Lease{Lease: lease}, EndOfStream: true})
+	case *pb.RelayRequest_RegisterPush:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		if err := s.registerPush(who, method.RegisterPush); err != nil {
+			return err
+		}
+		return send(done())
+	case *pb.RelayRequest_PublishMembers:
+		if err := s.publishMembers(who, method.PublishMembers); err != nil {
+			return err
+		}
+		return send(done())
+	case *pb.RelayRequest_PublishCatalogue:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		if err := s.publishCatalogue(method.PublishCatalogue); err != nil {
+			return err
+		}
+		return send(done())
+	case *pb.RelayRequest_PublishSealedLogins:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		if err := s.publishSealedLogins(method.PublishSealedLogins); err != nil {
+			return err
+		}
+		return send(done())
+	case *pb.RelayRequest_SealedLogins:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_SealedLogins{SealedLogins: s.sealedFor(who.device.KeyId)}, EndOfStream: true})
+	case *pb.RelayRequest_Join:
+		return s.join(ctx, who, method.Join, send)
+	case *pb.RelayRequest_PendingJoins:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_PendingJoins{PendingJoins: s.pendingJoins()}, EndOfStream: true})
+	}
+	return fail(pb.ErrorCode_ERROR_CODE_INVALID, "Unknown method. Update the app and the command together.")
 }
-func hashID(data []byte) string { return hex.EncodeToString(relaycrypto.Hash(data)) }
+
+func (s *Server) sendDocument(members bool, send func(*pb.RelayResponse) error) error {
+	var raw []byte
+	s.Store.read(func(data *saved) {
+		raw = data.Catalogue
+		if members {
+			raw = data.Members
+		}
+	})
+	if len(raw) == 0 {
+		return fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "Nothing has been published yet.")
+	}
+	document := &pb.Signed{}
+	if err := unmarshal(raw, document); err != nil {
+		return err
+	}
+	return send(signed(document))
+}
+

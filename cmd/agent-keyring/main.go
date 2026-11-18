@@ -505,6 +505,9 @@ func leaseState(state pb.LeaseState) string {
 	return "unknown"
 }
 func leaseError(lease *pb.Lease) error {
+	if lease.State == pb.LeaseState_LEASE_STATE_UNANSWERED {
+		return errors.New("No answer. Nobody answered within 10 minutes. This is not a refusal. You can ask again.")
+	}
 	text := "This lease is " + leaseState(lease.State) + "."
 	if lease.Reply != "" {
 		text += " Reply: " + safe(lease.Reply)

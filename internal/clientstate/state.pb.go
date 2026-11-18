@@ -87,20 +87,19 @@ func (x *PrivateKeys) GetReceiverPrivateKey() []byte {
 }
 
 type State struct {
-	state                 protoimpl.MessageState    `protogen:"open.v1"`
-	RelayAddress          string                    `protobuf:"bytes,1,opt,name=relay_address,json=relayAddress,proto3" json:"relay_address,omitempty"`
-	RelaySpki             []byte                    `protobuf:"bytes,2,opt,name=relay_spki,json=relaySpki,proto3" json:"relay_spki,omitempty"`
-	RecipientId           string                    `protobuf:"bytes,3,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
-	ReceiverKeyId         string                    `protobuf:"bytes,4,opt,name=receiver_key_id,json=receiverKeyId,proto3" json:"receiver_key_id,omitempty"`
-	Approvers             *v1.SignedApproverKeySet  `protobuf:"bytes,5,opt,name=approvers,proto3" json:"approvers,omitempty"`
-	Requests              []*ExpectedRequest        `protobuf:"bytes,8,rep,name=requests,proto3" json:"requests,omitempty"`
-	MachineLabel          string                    `protobuf:"bytes,11,opt,name=machine_label,json=machineLabel,proto3" json:"machine_label,omitempty"`
-	Configuration         *v1.SignedConfiguration   `protobuf:"bytes,12,opt,name=configuration,proto3" json:"configuration,omitempty"`
-	Operations            []*OperationReceipt       `protobuf:"bytes,13,rep,name=operations,proto3" json:"operations,omitempty"`
-	LocalAuthority        *LocalAuthority           `protobuf:"bytes,14,opt,name=local_authority,json=localAuthority,proto3" json:"local_authority,omitempty"`
-	PendingUpdateReceipts []*v1.SignedUpdateReceipt `protobuf:"bytes,15,rep,name=pending_update_receipts,json=pendingUpdateReceipts,proto3" json:"pending_update_receipts,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RelayAddress   string                 `protobuf:"bytes,1,opt,name=relay_address,json=relayAddress,proto3" json:"relay_address,omitempty"`
+	RelaySpki      []byte                 `protobuf:"bytes,2,opt,name=relay_spki,json=relaySpki,proto3" json:"relay_spki,omitempty"`
+	RecipientId    string                 `protobuf:"bytes,3,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"` // This machine's id in Members.
+	Requests       []*ExpectedRequest     `protobuf:"bytes,8,rep,name=requests,proto3" json:"requests,omitempty"`
+	MachineLabel   string                 `protobuf:"bytes,11,opt,name=machine_label,json=machineLabel,proto3" json:"machine_label,omitempty"`
+	Operations     []*OperationReceipt    `protobuf:"bytes,13,rep,name=operations,proto3" json:"operations,omitempty"`
+	LocalAuthority *LocalAuthority        `protobuf:"bytes,14,opt,name=local_authority,json=localAuthority,proto3" json:"local_authority,omitempty"`
+	// The newest Members this machine has checked, as a serialized
+	// agentkeyring.v2.Signed. Answers are verified against it.
+	Members       []byte `protobuf:"bytes,16,opt,name=members,proto3" json:"members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *State) Reset() {
@@ -154,20 +153,6 @@ func (x *State) GetRecipientId() string {
 	return ""
 }
 
-func (x *State) GetReceiverKeyId() string {
-	if x != nil {
-		return x.ReceiverKeyId
-	}
-	return ""
-}
-
-func (x *State) GetApprovers() *v1.SignedApproverKeySet {
-	if x != nil {
-		return x.Approvers
-	}
-	return nil
-}
-
 func (x *State) GetRequests() []*ExpectedRequest {
 	if x != nil {
 		return x.Requests
@@ -180,13 +165,6 @@ func (x *State) GetMachineLabel() string {
 		return x.MachineLabel
 	}
 	return ""
-}
-
-func (x *State) GetConfiguration() *v1.SignedConfiguration {
-	if x != nil {
-		return x.Configuration
-	}
-	return nil
 }
 
 func (x *State) GetOperations() []*OperationReceipt {
@@ -203,9 +181,9 @@ func (x *State) GetLocalAuthority() *LocalAuthority {
 	return nil
 }
 
-func (x *State) GetPendingUpdateReceipts() []*v1.SignedUpdateReceipt {
+func (x *State) GetMembers() []byte {
 	if x != nil {
-		return x.PendingUpdateReceipts
+		return x.Members
 	}
 	return nil
 }
@@ -263,11 +241,15 @@ func (x *LocalAuthority) GetBundleId() string {
 }
 
 type ExpectedRequest struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Scope         *v1.RequestLeaseRequest `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
-	LeaseId       string                  `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState  `protogen:"open.v1"`
+	Scope   *v1.RequestLeaseRequest `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
+	LeaseId string                  `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	// Automatic logins only: this machine opens its own sealed copy, with no
+	// request to the relay, until this time.
+	AutomaticNotAfterUnixSeconds int64 `protobuf:"varint,3,opt,name=automatic_not_after_unix_seconds,json=automaticNotAfterUnixSeconds,proto3" json:"automatic_not_after_unix_seconds,omitempty"`
+	Ended                        bool  `protobuf:"varint,4,opt,name=ended,proto3" json:"ended,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *ExpectedRequest) Reset() {
@@ -312,6 +294,20 @@ func (x *ExpectedRequest) GetLeaseId() string {
 		return x.LeaseId
 	}
 	return ""
+}
+
+func (x *ExpectedRequest) GetAutomaticNotAfterUnixSeconds() int64 {
+	if x != nil {
+		return x.AutomaticNotAfterUnixSeconds
+	}
+	return 0
+}
+
+func (x *ExpectedRequest) GetEnded() bool {
+	if x != nil {
+		return x.Ended
+	}
+	return false
 }
 
 type OperationReceipt struct {
@@ -458,34 +454,33 @@ var File_internal_clientstate_state_proto protoreflect.FileDescriptor
 
 const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\n" +
-	" internal/clientstate/state.proto\x12\x18agentkeyring.clientstate\x1a\"agentkeyring/v1/agentkeyring.proto\x1a\x1bagentkeyring/v1/relay.proto\"\x88\x01\n" +
+	" internal/clientstate/state.proto\x12\x18agentkeyring.clientstate\x1a\"agentkeyring/v1/agentkeyring.proto\"\x88\x01\n" +
 	"\vPrivateKeys\x12'\n" +
 	"\x0fcertificate_pem\x18\x01 \x01(\fR\x0ecertificatePem\x12\x1e\n" +
 	"\vtls_key_pem\x18\x02 \x01(\fR\ttlsKeyPem\x120\n" +
-	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xa8\x05\n" +
+	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xc3\x03\n" +
 	"\x05State\x12#\n" +
 	"\rrelay_address\x18\x01 \x01(\tR\frelayAddress\x12\x1d\n" +
 	"\n" +
 	"relay_spki\x18\x02 \x01(\fR\trelaySpki\x12!\n" +
-	"\frecipient_id\x18\x03 \x01(\tR\vrecipientId\x12&\n" +
-	"\x0freceiver_key_id\x18\x04 \x01(\tR\rreceiverKeyId\x12C\n" +
-	"\tapprovers\x18\x05 \x01(\v2%.agentkeyring.v1.SignedApproverKeySetR\tapprovers\x12E\n" +
+	"\frecipient_id\x18\x03 \x01(\tR\vrecipientId\x12E\n" +
 	"\brequests\x18\b \x03(\v2).agentkeyring.clientstate.ExpectedRequestR\brequests\x12#\n" +
 	"\rmachine_label\x18\v \x01(\tR\fmachineLabel\x12J\n" +
-	"\rconfiguration\x18\f \x01(\v2$.agentkeyring.v1.SignedConfigurationR\rconfiguration\x12J\n" +
 	"\n" +
 	"operations\x18\r \x03(\v2*.agentkeyring.clientstate.OperationReceiptR\n" +
 	"operations\x12Q\n" +
-	"\x0flocal_authority\x18\x0e \x01(\v2(.agentkeyring.clientstate.LocalAuthorityR\x0elocalAuthority\x12\\\n" +
-	"\x17pending_update_receipts\x18\x0f \x03(\v2$.agentkeyring.v1.SignedUpdateReceiptR\x15pendingUpdateReceiptsJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
+	"\x0flocal_authority\x18\x0e \x01(\v2(.agentkeyring.clientstate.LocalAuthorityR\x0elocalAuthority\x12\x18\n" +
+	"\amembers\x18\x10 \x01(\fR\amembersJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
 	"J\x04\b\n" +
-	"\x10\v\"`\n" +
+	"\x10\vJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10\"`\n" +
 	"\x0eLocalAuthority\x121\n" +
 	"\x14application_contents\x18\x01 \x01(\tR\x13applicationContents\x12\x1b\n" +
-	"\tbundle_id\x18\x02 \x01(\tR\bbundleId\"h\n" +
+	"\tbundle_id\x18\x02 \x01(\tR\bbundleId\"\xc6\x01\n" +
 	"\x0fExpectedRequest\x12:\n" +
 	"\x05scope\x18\x01 \x01(\v2$.agentkeyring.v1.RequestLeaseRequestR\x05scope\x12\x19\n" +
-	"\blease_id\x18\x02 \x01(\tR\aleaseId\"\xeb\x02\n" +
+	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12F\n" +
+	" automatic_not_after_unix_seconds\x18\x03 \x01(\x03R\x1cautomaticNotAfterUnixSeconds\x12\x14\n" +
+	"\x05ended\x18\x04 \x01(\bR\x05ended\"\xeb\x02\n" +
 	"\x10OperationReceipt\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x16\n" +
@@ -513,33 +508,27 @@ func file_internal_clientstate_state_proto_rawDescGZIP() []byte {
 
 var file_internal_clientstate_state_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_internal_clientstate_state_proto_goTypes = []any{
-	(*PrivateKeys)(nil),             // 0: agentkeyring.clientstate.PrivateKeys
-	(*State)(nil),                   // 1: agentkeyring.clientstate.State
-	(*LocalAuthority)(nil),          // 2: agentkeyring.clientstate.LocalAuthority
-	(*ExpectedRequest)(nil),         // 3: agentkeyring.clientstate.ExpectedRequest
-	(*OperationReceipt)(nil),        // 4: agentkeyring.clientstate.OperationReceipt
-	(*v1.SignedApproverKeySet)(nil), // 5: agentkeyring.v1.SignedApproverKeySet
-	(*v1.SignedConfiguration)(nil),  // 6: agentkeyring.v1.SignedConfiguration
-	(*v1.SignedUpdateReceipt)(nil),  // 7: agentkeyring.v1.SignedUpdateReceipt
-	(*v1.RequestLeaseRequest)(nil),  // 8: agentkeyring.v1.RequestLeaseRequest
-	(v1.FillOutcome)(0),             // 9: agentkeyring.v1.FillOutcome
-	(v1.ProgramOutcome)(0),          // 10: agentkeyring.v1.ProgramOutcome
+	(*PrivateKeys)(nil),            // 0: agentkeyring.clientstate.PrivateKeys
+	(*State)(nil),                  // 1: agentkeyring.clientstate.State
+	(*LocalAuthority)(nil),         // 2: agentkeyring.clientstate.LocalAuthority
+	(*ExpectedRequest)(nil),        // 3: agentkeyring.clientstate.ExpectedRequest
+	(*OperationReceipt)(nil),       // 4: agentkeyring.clientstate.OperationReceipt
+	(*v1.RequestLeaseRequest)(nil), // 5: agentkeyring.v1.RequestLeaseRequest
+	(v1.FillOutcome)(0),            // 6: agentkeyring.v1.FillOutcome
+	(v1.ProgramOutcome)(0),         // 7: agentkeyring.v1.ProgramOutcome
 }
 var file_internal_clientstate_state_proto_depIdxs = []int32{
-	5,  // 0: agentkeyring.clientstate.State.approvers:type_name -> agentkeyring.v1.SignedApproverKeySet
-	3,  // 1: agentkeyring.clientstate.State.requests:type_name -> agentkeyring.clientstate.ExpectedRequest
-	6,  // 2: agentkeyring.clientstate.State.configuration:type_name -> agentkeyring.v1.SignedConfiguration
-	4,  // 3: agentkeyring.clientstate.State.operations:type_name -> agentkeyring.clientstate.OperationReceipt
-	2,  // 4: agentkeyring.clientstate.State.local_authority:type_name -> agentkeyring.clientstate.LocalAuthority
-	7,  // 5: agentkeyring.clientstate.State.pending_update_receipts:type_name -> agentkeyring.v1.SignedUpdateReceipt
-	8,  // 6: agentkeyring.clientstate.ExpectedRequest.scope:type_name -> agentkeyring.v1.RequestLeaseRequest
-	9,  // 7: agentkeyring.clientstate.OperationReceipt.fill:type_name -> agentkeyring.v1.FillOutcome
-	10, // 8: agentkeyring.clientstate.OperationReceipt.program:type_name -> agentkeyring.v1.ProgramOutcome
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	3, // 0: agentkeyring.clientstate.State.requests:type_name -> agentkeyring.clientstate.ExpectedRequest
+	4, // 1: agentkeyring.clientstate.State.operations:type_name -> agentkeyring.clientstate.OperationReceipt
+	2, // 2: agentkeyring.clientstate.State.local_authority:type_name -> agentkeyring.clientstate.LocalAuthority
+	5, // 3: agentkeyring.clientstate.ExpectedRequest.scope:type_name -> agentkeyring.v1.RequestLeaseRequest
+	6, // 4: agentkeyring.clientstate.OperationReceipt.fill:type_name -> agentkeyring.v1.FillOutcome
+	7, // 5: agentkeyring.clientstate.OperationReceipt.program:type_name -> agentkeyring.v1.ProgramOutcome
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_internal_clientstate_state_proto_init() }
