@@ -48,18 +48,14 @@ public struct MachineRow: Identifiable, Hashable, Sendable {
     public var isAlwaysOn: Bool
     public var automatic: Bool
     public var lastTested: Date?
-    /// The Automatic logins this machine has been given, by site.
-    public var automaticLogins: [String]
 
-    public init(id: String, name: String, isThisMac: Bool, isAlwaysOn: Bool, automatic: Bool, lastTested: Date?,
-        automaticLogins: [String]) {
+    public init(id: String, name: String, isThisMac: Bool, isAlwaysOn: Bool, automatic: Bool, lastTested: Date?) {
         self.id = id
         self.name = name
         self.isThisMac = isThisMac
         self.isAlwaysOn = isAlwaysOn
         self.automatic = automatic
         self.lastTested = lastTested
-        self.automaticLogins = automaticLogins
     }
 }
 
@@ -147,6 +143,7 @@ public final class MacMainModel {
             return "The rules for \(changed.count) logins change."
         }
         return "\(row.site) changes from \(row.rule.name) to \(next.name)."
+            + (row.rule == .automatic ? " An agent that has already received its password still knows it." : "")
     }
 
     public func cancelChanges() {
@@ -394,6 +391,9 @@ private struct DevicesTab: View {
                     }
                 }
             }
+            Text("When Can use Automatic logins is on, agents on that machine get logins set to Automatic without asking. It starts on for your always-on machine and off for every other machine. You approve each change with Touch ID. Switching it off stops the machine getting those logins at once, but a password an agent there has already received stays known to it.")
+                .font(.system(size: 12)).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 20).padding(.vertical, 10)
             if model.snapshot.joined {
                 Text("To add an iPhone, install Agent Keyring on it and open it. To add a machine, tell an agent to set up Agent Keyring on it.")
                     .font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
@@ -455,9 +455,6 @@ private struct DevicesTab: View {
         var parts: [String] = []
         if machine.isAlwaysOn { parts.append("Your always-on machine.") }
         if let tested = machine.lastTested { parts.append("Last tested at \(tested.formatted(date: .omitted, time: .shortened)).") }
-        if !machine.isThisMac, !machine.automaticLogins.isEmpty {
-            parts.append("Has Automatic logins for \(machine.automaticLogins.joined(separator: ", ")).")
-        }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 }

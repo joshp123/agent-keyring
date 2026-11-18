@@ -33,16 +33,6 @@ if [[ "$SOURCE_COMMIT" != "$UPSTREAM_COMMIT" ]]; then
   exit 1
 fi
 
-latest_build=""
-if [[ -f "$ROOT_DIR/docs/appcast.xml" ]]; then
-  latest_build="$(/usr/bin/grep -o 'sparkle:version="[0-9]*"' "$ROOT_DIR/docs/appcast.xml" \
-    | /usr/bin/head -n 1 | /usr/bin/tr -cd '0-9' || true)"
-fi
-if [[ -n "$latest_build" && "$BUILD_NUMBER" -le "$latest_build" ]]; then
-  echo "Build $BUILD_NUMBER must be newer than appcast build $latest_build." >&2
-  exit 1
-fi
-
 team_id="$(awk -F= '/^[[:space:]]*AGENT_KEYRING_TEAM_ID[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2}' "$ROOT_DIR/Config/Local.xcconfig")"
 if [[ -z "$team_id" ]]; then
   echo "Config/Local.xcconfig does not contain AGENT_KEYRING_TEAM_ID." >&2
@@ -115,34 +105,5 @@ fi
 
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
-sparkle_tools="$($ROOT_DIR/script/fetch_sparkle_tools.sh)"
-configured_public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$ROOT_DIR/AgentKeyring/Info.plist")"
-signing_public_key="$("$sparkle_tools/generate_keys" -p)"
-if [[ "$configured_public_key" != "$signing_public_key" ]]; then
-  echo "The Sparkle signing key does not match SUPublicEDKey." >&2
-  exit 1
-fi
-if [[ -f "$ROOT_DIR/docs/appcast.xml" ]]; then
-  /bin/cp "$ROOT_DIR/docs/appcast.xml" "$UPDATE_DIR/appcast.xml"
-fi
-/usr/bin/tail -n +5 "$ROOT_DIR/Distribution/ReleaseNotes.md" > "$UPDATE_DIR/Agent-Keyring-$VERSION.md"
-"$sparkle_tools/generate_appcast" \
-  --download-url-prefix "https://github.com/joshp123/agent-keyring/releases/download/v$VERSION/" \
-  --link 'https://github.com/joshp123/agent-keyring' \
-  --embed-release-notes \
-  --maximum-versions 5 \
-  --maximum-deltas 0 \
-  -o "$ROOT_DIR/docs/appcast.xml" \
-  "$UPDATE_DIR"
-
-expected_url="https://github.com/joshp123/agent-keyring/releases/download/v$VERSION/Agent-Keyring-$VERSION.zip"
-zip_size="$(/usr/bin/stat -f %z "$ZIP_PATH")"
-/usr/bin/grep -Fq "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$ROOT_DIR/docs/appcast.xml"
-/usr/bin/grep -Fq "<sparkle:version>$BUILD_NUMBER</sparkle:version>" "$ROOT_DIR/docs/appcast.xml"
-/usr/bin/grep -Fq "url=\"$expected_url\"" "$ROOT_DIR/docs/appcast.xml"
-/usr/bin/grep -Fq "length=\"$zip_size\"" "$ROOT_DIR/docs/appcast.xml"
-/usr/bin/grep -Eq 'sparkle:edSignature="[A-Za-z0-9+/=]+"' "$ROOT_DIR/docs/appcast.xml"
-
 echo "Release artefacts are ready:"
 echo "  $ZIP_PATH"
-echo "  $ROOT_DIR/docs/appcast.xml"

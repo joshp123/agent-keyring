@@ -92,12 +92,6 @@ extension MirrorAppModel {
         accessControl.adopt(next)
     }
 
-    /// Which logins each machine has been given a copy of, by login id.
-    public func automaticCopiesByMachine() -> [String: [String]] {
-        guard let machines = device?.members?.machines.map(\.machineID) else { return [:] }
-        return Dictionary(grouping: sealedCache.filter { machines.contains($0.openerID) }, by: \.openerID).mapValues { $0.map(\.loginID) }
-    }
-
     /// The logins and their rules, as the other devices see them.
     func catalogueLogins() -> [Agentkeyring_V2_Login] {
         leaseLogins.map { login in

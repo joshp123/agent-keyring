@@ -523,7 +523,7 @@ public final class MacDevice {
         guard var next = members, let index = next.machines.firstIndex(where: { $0.machineID == machineID }),
             machineID != keys.machineID else { return }
         let label = next.machines[index].label
-        try await confirm(context, reason: allowed ? "let \(label) use Automatic logins" : "stop \(label) getting Automatic logins")
+        try await confirm(context, reason: allowed ? "let \(label) use Automatic logins" : "stop \(label) using Automatic logins")
         next.machines[index].automaticAllowed = allowed
         try await publishMembers(next, context: context)
         var sealed = try await store.sealed().filter { $0.openerID != machineID }

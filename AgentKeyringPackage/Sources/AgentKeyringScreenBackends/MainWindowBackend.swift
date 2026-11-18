@@ -32,16 +32,13 @@ public final class AppMainWindowBackend: MainWindowBackend {
                     lastTested: d.keyID == device?.ownDeviceID ? macTested : tested[d.keyID], isThisMac: d.keyID == device?.ownDeviceID)
             }
         } ?? [DeviceRow(id: "this-mac", name: Host.current().localizedName ?? "Mac", kind: .mac, lastTested: macTested, isThisMac: true)]
-        let sites = Dictionary(uniqueKeysWithValues: logins.map { ($0.id.uuidString, $0.site) })
-        let copies = model.automaticCopiesByMachine()
         let machines: [MachineRow] = members.map { members in
             members.machines.map { m in
                 MachineRow(id: m.machineID, name: m.label, isThisMac: m.machineID == device?.ownMachineID,
-                    isAlwaysOn: m.machineID == device?.alwaysOnMachineID, automatic: m.automaticAllowed, lastTested: nil,
-                    automaticLogins: (copies[m.machineID] ?? []).compactMap { sites[$0] }.sorted())
+                    isAlwaysOn: m.machineID == device?.alwaysOnMachineID, automatic: m.automaticAllowed, lastTested: nil)
             }
         } ?? [MachineRow(id: "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true, isAlwaysOn: false,
-            automatic: true, lastTested: nil, automaticLogins: [])]
+            automatic: true, lastTested: nil)]
         return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, devices: devices, machines: machines,
             joined: device?.isJoined == true)
     }
