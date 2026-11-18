@@ -15,13 +15,13 @@ struct MachineApprovalTests {
         let model = MacEnrolmentModel(enrolment: joining, backend: backend, contextFactory: { LAContext() })
         let first = try #require(model.authenticationContext)
         model.waitForAuthentication()
-        await Task.yield()
+        for _ in 0..<200 where backend.options.count < 1 { try await Task.sleep(for: .milliseconds(10)) }
         #expect(backend.options == [false])
         model.allowAutomatic = true
         let second = try #require(model.authenticationContext)
         #expect(first !== second)
         model.waitForAuthentication()
-        await Task.yield()
+        for _ in 0..<200 where backend.options.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
         #expect(backend.options == [false, true])
         await model.refuse()
         #expect(model.outcome == .refused)
@@ -36,7 +36,8 @@ struct MachineApprovalTests {
         let model = MacEnrolmentModel(enrolment: joining, backend: backend, contextFactory: { LAContext() })
         model.authenticationTimeoutDuration = .milliseconds(10)
         model.waitForAuthentication()
-        try await Task.sleep(for: .milliseconds(100))
+        // Under a loaded test run the 10 ms timer can fire late; wait for it, up to 2 s.
+        for _ in 0..<200 where model.failure == nil { try await Task.sleep(for: .milliseconds(10)) }
         #expect(model.failure == "Approval timed out.")
         #expect(model.outcome == nil)
         #expect(model.authenticationContext == nil)

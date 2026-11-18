@@ -383,15 +383,21 @@ final class RequestPanel: NSPanel {
     }
 }
 
+/// The panel is never key until clicked, so the first click must reach the
+/// button under it, not only make the panel key.
+final class FirstClickHostingView: NSHostingView<AnyView> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 /// Holds the request panel's view and keeps its height fitted to the content
 /// without the window and SwiftUI resizing each other in a loop.
 @MainActor
 final class RequestPanelHost {
     let panel = RequestPanel()
-    private let hosting: NSHostingView<AnyView>
+    private let hosting: FirstClickHostingView
 
     init(model: MacApprovalModel) {
-        hosting = NSHostingView(rootView: AnyView(EmptyView()))
+        hosting = FirstClickHostingView(rootView: AnyView(EmptyView()))
         // Only report a size; never let SwiftUI resize the window itself.
         hosting.sizingOptions = [.intrinsicContentSize]
         hosting.rootView = AnyView(MacApprovalPanelView(model: model)
