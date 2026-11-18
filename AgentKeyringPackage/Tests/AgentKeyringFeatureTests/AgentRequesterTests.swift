@@ -6,7 +6,7 @@ import Testing
 
 @Suite("Harness attribution")
 struct AgentRequesterAttributionTests {
-    @Test("The socket peer's ancestry supplies the harness, session and folder", arguments: ["claude", "codex"], ["agent-keyring", "client-mac"])
+    @Test("The socket peer's ancestry supplies the harness and session; the command supplies the folder", arguments: ["claude", "codex"], ["agent-keyring", "client-mac"])
     func harnessAncestor(executable: String, client: String) throws {
         let tree: [pid_t: (executablePath: String, parentPID: pid_t)] = [
             100: ("/opt/bin/\(client)", 101), 101: ("/bin/zsh", 102),
@@ -15,7 +15,7 @@ struct AgentRequesterAttributionTests {
         let start = HarnessProcessStartTime(seconds: 1_000, microseconds: 123)
         let requester = AgentRequester.attribution(peerProcessIdentifier: 100, processInfo: { tree[$0] },
             startTime: { pid in #expect(pid == 103); return start },
-            folder: { pid in #expect(pid == 103); return "/fixture/project" })
+            folder: { pid in #expect(pid == 100); return "/fixture/project" })
         #expect(requester.name == (executable == "claude" ? "Claude Code" : "Codex"))
         #expect(requester.displayLabel == requester.name)
         #expect(requester.session == HarnessSession(processIdentifier: 103, processStartTime: start))
