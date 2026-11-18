@@ -119,6 +119,7 @@ public final class MacDevice {
         setup = Setup(endpoint: endpoint, agent: agent, reason: reason)
         let invite = invitation(endpoint: endpoint, pin: observed, lasting: 600)
         setupSecret = invite.secret
+        leaveDeviceInvitation(endpoint: endpoint, pin: observed)
         setupWatch?.cancel()
         setupWatch = Task { [weak self] in
             while let self, !Task.isCancelled, self.setup != nil, self.setup?.machine == nil {
@@ -151,6 +152,9 @@ public final class MacDevice {
     /// and the always-on machine and this Mac the first machines, at this relay.
     public func confirmSetup(context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard let setup, var always = setup.machine, let pin = setupPin else { return }
+        // The always-on machine runs his unattended jobs: it is allowed the
+        // logins he sets to Automatic, and the request says so.
+        always.automaticAllowed = true
         try await confirm(context, reason: "add \(always.label) as your always-on machine")
         onAuthenticated()
         var members = Agentkeyring_V2_Members()
@@ -187,7 +191,7 @@ public final class MacDevice {
 
     public func start() {
         guard saved != nil, running == nil else { return }
-        if invitations.isEmpty { leaveDeviceInvitation() }
+        leaveDeviceInvitation()
         running = Task { [weak self] in
             while let self, !Task.isCancelled, let relay = self.relay {
                 self.connection = .connecting
@@ -315,17 +319,36 @@ public final class MacDevice {
     /// Leaves an invitation for a new iPhone in iCloud Keychain, where only
     /// Agent Keyring's own apps on Josh's devices can read it. Replaced at
     /// each launch and after each device joins.
-    func leaveDeviceInvitation() {
-        guard let invite = try? invitation(lasting: 7 * 86400), let value = try? invite.serializedData() else { return }
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecUseDataProtectionKeychain as String: true,
-            kSecAttrSynchronizable as String: true, kSecAttrAccessGroup as String: "7M8BR7R488.com.joshpalmer.AgentKeyring.shared",
-            kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation", kSecAttrAccount as String: "relay"]
-        SecItemDelete(query as CFDictionary)
-        var item = query
+    private var invitationItem: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecUseDataProtectionKeychain as String: true,
+         kSecAttrSynchronizable as String: true,
+         kSecAttrAccessGroup as String: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringSharedKeychainGroup") as? String ?? "",
+         kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation", kSecAttrAccount as String: "relay"]
+    }
+
+    /// Keeps an invitation for a new iPhone in iCloud Keychain, where only
+    /// Agent Keyring's own apps on Josh's devices can read it. The one there
+    /// is kept while it is this Mac's and unexpired; a new one replaces it
+    /// after a device joins, or when there is none.
+    func leaveDeviceInvitation(endpoint: RelayEndpoint? = nil, pin: Data? = nil, replacing: Bool = false) {
+        guard let endpoint = endpoint ?? saved?.endpoint, let pin = pin ?? saved?.pin else { return }
+        var query = invitationItem
+        query[kSecReturnData as String] = true
+        var found: CFTypeRef?
+        if !replacing, SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let bytes = found as? Data,
+            let current = try? Agentkeyring_V2_JoinInvite(serializedBytes: bytes), current.inviterKeyID == keys.deviceKeyID,
+            current.relayTlsSha256 == Sealing.sha256(pin), current.expiresUnixSeconds > Int64(Date().timeIntervalSince1970) + 86400 {
+            invitations[current.secret] = Date(timeIntervalSince1970: TimeInterval(current.expiresUnixSeconds))
+            return
+        }
+        guard let value = try? invitation(endpoint: endpoint, pin: pin, lasting: 7 * 86400).serializedData() else { return }
+        SecItemDelete(invitationItem as CFDictionary)
+        var item = invitationItem
         item[kSecValueData as String] = value
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(item as CFDictionary, nil)
-        if status != errSecSuccess { deviceLogger.error("Could not leave the iPhone's invitation in iCloud Keychain: \(status, privacy: .public)") }
+        if status == errSecSuccess { deviceLogger.notice("Left an invitation for a new iPhone in iCloud Keychain.") }
+        else { deviceLogger.error("Could not leave the iPhone's invitation in iCloud Keychain: \(status, privacy: .public)") }
     }
 
     public static func joinID(_ join: Agentkeyring_V2_PendingJoin) -> String {
@@ -444,7 +467,7 @@ public final class MacDevice {
         if let secret = invitations.keys.first(where: { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof }) {
             invitations.removeValue(forKey: secret)
         }
-        if case .device? = join.request.joining { leaveDeviceInvitation() }
+        if case .device? = join.request.joining { leaveDeviceInvitation(replacing: true) }
     }
 
     /// "Not now": the relay lets the request run out after ten minutes.
