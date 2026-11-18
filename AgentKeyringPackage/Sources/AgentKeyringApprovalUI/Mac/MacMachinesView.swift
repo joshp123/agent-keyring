@@ -76,19 +76,16 @@ public struct MachinesSnapshot: Hashable, Sendable {
     public var approvers: [ApproverDevice]
     /// Unfinished only; a withdrawal leaves the list once every device confirms.
     public var withdrawals: [PendingWithdrawal]
-    /// How long a request waits here before the Mac asks the iPhone (RFC 0006).
-    public var askPhoneAfter: Duration
 
     public init(relay: RelayLink, queuedAnswers: Int = 0,
         waiting: [DeviceEnrolment] = [], machines: [EnrolledMachine] = [], approvers: [ApproverDevice] = [],
-        withdrawals: [PendingWithdrawal] = [], askPhoneAfter: Duration = .seconds(120)) {
+        withdrawals: [PendingWithdrawal] = []) {
         self.relay = relay
         self.queuedAnswers = queuedAnswers
         self.waiting = waiting
         self.machines = machines
         self.approvers = approvers
         self.withdrawals = withdrawals
-        self.askPhoneAfter = askPhoneAfter
     }
 }
 
@@ -103,7 +100,6 @@ public protocol MacMachinesBackend: AnyObject {
     func remove(machineID: String, context: LAContext) async throws
     /// Removes an iPhone's right to approve, with Touch ID.
     func removePhone(keyID: String, context: LAContext) async throws
-    func setAskPhoneAfter(_ delay: Duration)
 }
 
 @MainActor
@@ -169,12 +165,6 @@ public final class MacMachinesModel {
         }
     }
 
-    public static let phoneDelays: [Duration] = [.seconds(30), .seconds(60), .seconds(120), .seconds(300), .seconds(540)]
-
-    public func setAskPhoneAfter(_ delay: Duration) {
-        snapshot.askPhoneAfter = delay
-        backend.setAskPhoneAfter(delay)
-    }
 
     public func dismissFailure() { failure = nil }
 
@@ -251,19 +241,8 @@ public struct MacMachinesView: View {
                             }
                         }
                     }
-                    if model.snapshot.approvers.contains(where: \.isPhone) {
-                        Picker(SetupCopy.askPhoneAfterOnMac, selection: phoneDelay) {
-                            ForEach(MacMachinesModel.phoneDelays, id: \.self) { delay in
-                                Text(SetupCopy.delay(delay)).tag(delay)
-                            }
-                        }
-                    }
                 } header: {
                     Text(SetupCopy.canApprove)
-                } footer: {
-                    if model.snapshot.approvers.contains(where: \.isPhone) {
-                        Text(SetupCopy.macDelayFooter)
-                    }
                 }
             }
 
@@ -328,9 +307,6 @@ public struct MacMachinesView: View {
         model.snapshot.queuedAnswers > 0 ? SetupCopy.queuedAnswers(model.snapshot.queuedAnswers) : nil
     }
 
-    private var phoneDelay: Binding<Duration> {
-        Binding(get: { model.snapshot.askPhoneAfter }, set: { model.setAskPhoneAfter($0) })
-    }
 
 
     private var failureShown: Binding<Bool> {

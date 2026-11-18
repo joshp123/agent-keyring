@@ -38,41 +38,31 @@ public final class MirrorAppModel {
     public internal(set) var providerState = ProviderEnablementState.unknown
     public internal(set) var notice: MirrorNotice?
     public let accessControl: CredentialAccessController
-
-    let staleLogins: PossiblyStaleLogins
     public var syncReminders: MirrorSyncReminders?
 
-    let store: EncryptedSnapshotStore
+    let store: LoginStore
     let mapper: CredentialExchangeMapper
     let credentialImporter: any CredentialImporting
     let merger: SnapshotMerger
-    let resolver: CredentialResolver
     public let leaseStore: CredentialLeaseStore
-    @ObservationIgnored public lazy var relayApprover: RelayApprover = makeRelayApprover()
-    /// Kept for the test fixtures; the app answers every request in its own panel.
-    public var automaticallyPromptForLeases = false
-    /// A new import changed the list the Mac mini holds; Josh hasn't yet allowed sending it.
+    /// This Mac on the relay, once its keys exist. Nil when the Mac has no Secure Enclave.
+    public private(set) var device: MacDevice?
+    @ObservationIgnored private var keys: MacKeys?
+    /// A new import changed the logins the other devices hold; Josh hasn't yet allowed sending them.
     public internal(set) var importedLoginsAwaitApproval = false
-    var macApprovalTask: Task<Void, Never>?
     var isApprovingLease = false
-    var attemptedMacApprovals = Set<String>()
     public internal(set) var leaseLogins: [CredentialCandidate] = []
-    public let approvalRoutingSettings: ApprovalRoutingSettings
-    let authorizer: any CredentialReleaseAuthorizing
     let bridge: AgentBridgeDirectory
     public private(set) var includeExampleCredential: Bool
     private let settings: UserDefaults
     var handledTokens = Set<UUID>()
     var agentListener: AgentBridgeServer?
-    public internal(set) var lastAgentActivity: AgentRequestActivity?
 
     public init(
-        store: EncryptedSnapshotStore = EncryptedSnapshotStore(),
+        store: LoginStore = LoginStore(),
         credentialImporter: any CredentialImporting = SystemCredentialImporter(),
         mapper: CredentialExchangeMapper = CredentialExchangeMapper(),
         merger: SnapshotMerger = SnapshotMerger(),
-        resolver: CredentialResolver = CredentialResolver(),
-        authorizer: any CredentialReleaseAuthorizing = LocalCredentialReleaseAuthorizer(),
         bridge: AgentBridgeDirectory = AgentBridgeDirectory(),
         accessControl: CredentialAccessController = CredentialAccessController(),
         leaseStore: CredentialLeaseStore = CredentialLeaseStore(),
@@ -82,46 +72,31 @@ public final class MirrorAppModel {
         self.credentialImporter = credentialImporter
         self.mapper = mapper
         self.merger = merger
-        self.resolver = resolver
-        self.authorizer = authorizer
         self.bridge = bridge
         self.accessControl = accessControl
         self.settings = settings
-        let routingSettings = ApprovalRoutingSettings(defaults: settings)
-        self.approvalRoutingSettings = routingSettings
         self.leaseStore = leaseStore
-        self.staleLogins = PossiblyStaleLogins(settings: settings)
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
-        self.accessControl.connectAuthority(leaseStore, authorize: { [weak self] context, reason in
-            guard let self else { throw CancellationError() }
-            try self.relayApprover.load()
-            if self.relayApprover.state.keySet != nil {
-                try await self.relayApprover.prepareForPublication()
-                try await self.relayApprover.keys().1.authorize(context: context, reason: reason)
-            }
-        }, commit: { [weak self] policies, rules, context in
-            guard let self else { throw CancellationError() }
-            let imported = try await self.store.loadCurrent()
-            guard let generation = self.generationIncludingExample(imported) else {
-                throw LeaseFailure(.unavailable, "The saved logins could not be opened.")
-            }
-            try Task.checkCancellation()
-            try self.relayApprover.applyConfirmedRules(RelayApproverVault(generation: generation, policies: policies),
-                context: context, rules: rules)
-        })
-        self.accessControl.onRulesChanged = { [weak self] in
-            guard let self else { return }
-            self.relayApprover.noteRulesChanged()
-            do {
-                try self.leaseStore.reconcile(logins: self.leaseLogins,
-                    policies: Dictionary(uniqueKeysWithValues: self.leaseLogins.map { ($0.id, self.accessControl.policy(for: $0.id)) }),
-                    rulesConfirmed: !self.accessControl.needsConfirmation)
-            } catch {
-                if !self.leaseStore.needsHistoryReset {
-                    self.notice = MirrorNotice(kind: .error, text: "Lease access could not be updated. New deliveries will check the saved rules.")
-                }
-            }
+        accessControl.beforeSave = { [weak self] old, new, context in
+            try await self?.applyRuleChange(from: old, to: new, context: context)
         }
+        accessControl.onRulesChanged = { [weak self] in
+            guard let self else { return }
+            try? self.leaseStore.reconcile(logins: self.leaseLogins, policies: self.currentPolicies)
+        }
+    }
+
+    var currentPolicies: [UUID: CredentialAccessPolicy] {
+        Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, accessControl.policy(for: $0.id)) })
+    }
+
+    /// The Mac's chip keys, made on first use.
+    func macKeys() throws -> MacKeys {
+        if let keys { return keys }
+        let made = try MacKeys()
+        keys = made
+        device = MacDevice(keys: made, store: store) { [weak self] in self?.catalogueLogins() ?? [] }
+        return made
     }
 
     public func loadStatus() async {
@@ -131,16 +106,13 @@ public final class MirrorAppModel {
             status = importedMetadata?.safeStatus
             leaseLogins = metadataIncludingExample(importedMetadata)?.candidates ?? []
             await accessControl.refresh(fromMetadata: metadataIncludingExample(importedMetadata))
+            try await sealExampleIfNeeded()
         } catch {
-            notice = MirrorNotice(
-                kind: .error,
-                text: "The encrypted mirror could not be opened. Apple Passwords was not changed."
-            )
+            notice = MirrorNotice(kind: .error, text: "Agent Keyring's saved logins could not be opened. Apple Passwords was not changed.")
             return
         }
-        do { try await refreshLeasePolicy() }
-        catch { /* The rules and task-history screens show their own recovery action. */ }
-        relayApprover.start()
+        try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
+        device?.start()
     }
 
     public func setIncludeExampleCredential(_ enabled: Bool) async {

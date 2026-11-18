@@ -118,27 +118,6 @@ struct SnapshotMergerTests {
         try await checkRuleAfterImport(first, second, expectedPolicy: .allowAutomatically)
     }
 
-    @Test("Publication needs confirmation for an added login, but not a password-only refresh", arguments: [false, true], [false, true])
-    func publicationAfterRefresh(addLogin: Bool, defaultRules: Bool) throws {
-        let first = try merger().merge(previous: nil, importBatch: batch(items: [item(index: 1)]))
-        var imported = [item(index: 1, password: "refreshed-password")]
-        if addLogin { imported.append(item(index: 2)) }
-        let second = try merger().merge(previous: first, importBatch: batch(items: imported))
-        let rules: [UUID: CredentialAccessPolicy] = defaultRules ? [:] : [first.items[0].id: .allowAutomatically]
-        let approver = RelayApprover { throw CocoaError(.fileReadUnknown) }
-        var published = try approver.configurationContents(RelayApproverVault(generation: first, policies: rules), machines: [:])
-        #expect(published.logins.first?.rule == (defaultRules ? .ask : .automatic))
-        published.domain = "agentkeyring.configuration.v1"
-        published.revision = 12
-        published.mirrorRefreshedUnixSeconds = 1_000
-        // Use the stored configuration bytes, including after an app upgrade:
-        // no old generation-based cache can force a second confirmation.
-        let restored = try Agentkeyring_V1_Configuration(serializedBytes: published.serializedData())
-        let changed = try approver.publicationDigest(restored)
-            != approver.publicationDigest(RelayApproverVault(generation: second, policies: rules), machines: [:])
-        #expect(changed == addLogin)
-    }
-
     @Test("Duplicate accounts keep distinct source identities without rejecting the import")
     func ambiguousMatchFails() throws {
         let first = try merger().merge(
@@ -166,19 +145,13 @@ struct SnapshotMergerTests {
         expectedPolicy: CredentialAccessPolicy) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("rules.json"),
-            signer: FakeAccessRulesSigner())
-        try await confirmInitialAccessRules(in: store, policies: [first.items[0].id: .allowAutomatically])
+        let store = CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("rules.json"))
+        try store.save([first.items[0].id: .allowAutomatically])
         let controller = CredentialAccessController(store: store)
-        await controller.refresh(from: first)
-        #expect(controller.releaseDecision(for: first.items[0].id, field: .password) == .release)
         await controller.refresh(from: second)
-        try await controller.ensureRulesConfirmed()
         for item in second.items {
             let expected = item.id == first.items[0].id ? CredentialAccessPolicy.allowAutomatically : expectedPolicy
             #expect(controller.policy(for: item.id) == expected)
-            #expect(controller.releaseDecision(for: item.id, field: .password)
-                == (expected == .allowAutomatically ? .release : .requestAuthorization))
         }
     }
 

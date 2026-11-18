@@ -2797,10 +2797,13 @@ func (x *UseReport) GetUsedUnixSeconds() int64 {
 }
 
 type SealedLogins struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Logins        []*SealedLogin         `protobuf:"bytes,1,rep,name=logins,proto3" json:"logins,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Logins []*SealedLogin         `protobuf:"bytes,1,rep,name=logins,proto3" json:"logins,omitempty"`
+	// In publish_sealed_logins: openers whose every copy is replaced, even by
+	// none (a machine whose last Automatic login became Ask).
+	ClearedOpeners []string `protobuf:"bytes,2,rep,name=cleared_openers,json=clearedOpeners,proto3" json:"cleared_openers,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SealedLogins) Reset() {
@@ -2836,6 +2839,13 @@ func (*SealedLogins) Descriptor() ([]byte, []int) {
 func (x *SealedLogins) GetLogins() []*SealedLogin {
 	if x != nil {
 		return x.Logins
+	}
+	return nil
+}
+
+func (x *SealedLogins) GetClearedOpeners() []string {
+	if x != nil {
+		return x.ClearedOpeners
 	}
 	return nil
 }
@@ -3466,9 +3476,10 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\blogin_id\x18\x01 \x01(\tR\aloginId\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12*\n" +
-	"\x11used_unix_seconds\x18\x04 \x01(\x03R\x0fusedUnixSeconds\"D\n" +
+	"\x11used_unix_seconds\x18\x04 \x01(\x03R\x0fusedUnixSeconds\"m\n" +
 	"\fSealedLogins\x124\n" +
-	"\x06logins\x18\x01 \x03(\v2\x1c.agentkeyring.v2.SealedLoginR\x06logins\"\x9e\x01\n" +
+	"\x06logins\x18\x01 \x03(\v2\x1c.agentkeyring.v2.SealedLoginR\x06logins\x12'\n" +
+	"\x0fcleared_openers\x18\x02 \x03(\tR\x0eclearedOpeners\"\x9e\x01\n" +
 	"\fAnswerUpload\x12/\n" +
 	"\x06answer\x18\x01 \x01(\v2\x17.agentkeyring.v2.SignedR\x06answer\x125\n" +
 	"\bdelivery\x18\x02 \x01(\v2\x19.agentkeyring.v2.DeliveryR\bdelivery\x12&\n" +

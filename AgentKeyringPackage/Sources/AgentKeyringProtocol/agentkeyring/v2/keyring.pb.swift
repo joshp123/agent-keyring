@@ -1353,6 +1353,10 @@ public nonisolated struct Agentkeyring_V2_SealedLogins: Sendable {
 
   public var logins: [Agentkeyring_V2_SealedLogin] = []
 
+  /// In publish_sealed_logins: openers whose every copy is replaced, even by
+  /// none (a machine whose last Automatic login became Ask).
+  public var clearedOpeners: [String] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3280,7 +3284,7 @@ nonisolated extension Agentkeyring_V2_UseReport: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SealedLogins"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{3}cleared_openers\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3289,6 +3293,7 @@ nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, Swift
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.logins) }()
+      case 2: try { try decoder.decodeRepeatedStringField(value: &self.clearedOpeners) }()
       default: break
       }
     }
@@ -3298,11 +3303,15 @@ nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, Swift
     if !self.logins.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.logins, fieldNumber: 1)
     }
+    if !self.clearedOpeners.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.clearedOpeners, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V2_SealedLogins, rhs: Agentkeyring_V2_SealedLogins) -> Bool {
     if lhs.logins != rhs.logins {return false}
+    if lhs.clearedOpeners != rhs.clearedOpeners {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

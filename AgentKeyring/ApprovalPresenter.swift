@@ -47,13 +47,12 @@ final class ApprovalPresenter {
     init(model: MirrorAppModel) {
         self.model = model
         self.localBackend = LeaseApprovalBackend(model: model)
-        self.remoteBackend = RelayApprovalBackend(relay: model.relayApprover)
-        self.joiningBackend = RelayEnrolmentBackend(relay: model.relayApprover)
+        self.remoteBackend = RelayApprovalBackend(model: model)
+        self.joiningBackend = RelayEnrolmentBackend(model: model)
     }
 
     /// Takes over Mac approvals from the system prompt and follows both stores.
     func start() {
-        model.automaticallyPromptForLeases = false
         let observations = Observations { [weak self] in self?.waiting ?? [] }
         following = Task { [weak self] in
             for await items in observations { self?.update(items) }
@@ -71,13 +70,11 @@ final class ApprovalPresenter {
     }
 
     private var waiting: [Item] {
-        let relay = model.relayApprover
-        let joining = relay.pendingEnrolments.map { Item.joining($0.id) }
-            + relay.pendingApproverPairings.map { Item.joining($0.id) }
-        let relaySetup: [Item] = relay.pairing.map { $0.answerIsQueued ? [] : [.relay] } ?? []
+        let device = model.device
+        let joining = device?.joins.map { Item.joining(MacDevice.joinID($0)) } ?? []
+        let relaySetup: [Item] = device?.setupWaiting == nil ? [] : [.relay]
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
-        let remote = relay.requests.filter { $0.lease.state == .pending && !$0.answerIsQueued }
-            .map { (Item.remote($0.id), $0.record.createdUnixSeconds) }
+        let remote = (device?.waitingRequests ?? []).map { (Item.remote($0.requestID), $0.askedUnixSeconds) }
         let sendImported: [Item] = model.importedLoginsAwaitApproval ? [.sendImported] : []
         return relaySetup + joining + sendImported + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
     }
@@ -113,11 +110,11 @@ final class ApprovalPresenter {
         let more = waiting.filter { $0 != item && $0.isRequest }.count
         switch item {
         case .relay:
-            let relay = model.relayApprover
+            guard let device = model.device else { return }
             ask(SetupCopy.connectToMiniTitle, SetupCopy.connectToMiniBody,
                 reason: "let agents on your other machines use your logins, with your approval, through your Mac mini",
-                perform: { context in try await relay.confirmPairing(comparedFingerprint: "", context: context) },
-                declined: { try? relay.abandonPairing() })
+                perform: { context in try await device.confirmSetup(context: context) },
+                declined: { device.abandonSetup() })
         case .sendImported:
             let model = model
             ask(SetupCopy.sendImportedTitle, SetupCopy.sendImportedBody,

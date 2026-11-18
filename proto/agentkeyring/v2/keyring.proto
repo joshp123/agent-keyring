@@ -372,6 +372,9 @@ message UseReport {
 
 message SealedLogins {
   repeated SealedLogin logins = 1;
+  // In publish_sealed_logins: openers whose every copy is replaced, even by
+  // none (a machine whose last Automatic login became Ask).
+  repeated string cleared_openers = 2;
 }
 
 // Sent by the device that answered, or by the iPhone for its Watch, unchanged.

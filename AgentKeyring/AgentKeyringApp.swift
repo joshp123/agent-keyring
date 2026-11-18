@@ -6,9 +6,6 @@ import SwiftUI
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
 import AgentKeyringScreenBackends
-#if DEBUG
-import AgentKeyringTestSupport
-#endif
 
 @MainActor
 private final class CheckForUpdatesViewModel: ObservableObject {
@@ -42,7 +39,6 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     private var syncNotifier: SystemMirrorSyncNotifier?
     private var syncTask: Task<Void, Never>?
     private let accessControlFixture: MirrorGeneration?
-    private let fixturePolicyStore: CredentialAccessPolicyStore?
     private(set) lazy var approvals = ApprovalPresenter(model: model)
     private(set) lazy var menuBar: MacMenuBarModel = {
         let backend = LeaseMenuBarBackend(model: model)
@@ -59,31 +55,24 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                     "AgentKeyringUITest-\(ProcessInfo.processInfo.processIdentifier)",
                     isDirectory: true
                 )
-            let policyStore = CredentialAccessPolicyStore(
-                fileURL: fixtureDirectory.appendingPathComponent("access-policies.json"),
-                signer: FakeAccessRulesSigner()
-            )
-            self.fixturePolicyStore = policyStore
-            let accessControl = CredentialAccessController(store: policyStore)
+            let policyStore = CredentialAccessPolicyStore(fileURL: fixtureDirectory.appendingPathComponent("access-policies.json"))
+            let fixture = AccessControlUITestFixture.generation()
+            try? policyStore.save(Dictionary(uniqueKeysWithValues: fixture.items.enumerated().compactMap {
+                index, item -> (UUID, CredentialAccessPolicy)? in
+                if (440..<492).contains(index) { return (item.id, .allowAutomatically) }
+                return index >= 492 ? (item.id, .block) : nil
+            }))
             let settings = UserDefaults(suiteName: "AgentKeyringUITest")!
             settings.set(false, forKey: "includeExampleCredential")
-            self.accessControlFixture = AccessControlUITestFixture.generation()
-            self.model = MirrorAppModel(
-                store: EncryptedSnapshotStore(
-                    directoryURL: fixtureDirectory.appendingPathComponent("vault"),
-                    keyProvider: StaticVaultKeyProvider(keyData: Data(repeating: 0x45, count: 32))
-                ),
-                accessControl: accessControl,
-                settings: settings
-            )
+            self.accessControlFixture = fixture
+            self.model = MirrorAppModel(store: LoginStore(directory: fixtureDirectory.appendingPathComponent("logins")),
+                accessControl: CredentialAccessController(store: policyStore), settings: settings)
         } else {
             self.accessControlFixture = nil
-            self.fixturePolicyStore = nil
             self.model = MirrorAppModel()
         }
         #else
         self.accessControlFixture = nil
-        self.fixturePolicyStore = nil
         self.model = MirrorAppModel()
         #endif
         super.init()
@@ -110,17 +99,10 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        // Sitting branch: the test build stays out of the Dock, as designed.
-        NSApplication.shared.setActivationPolicy(Bundle.main.bundleIdentifier == "com.joshpalmer.KeyringTest.AgentKeyring" ? .accessory : .regular)
-        if Bundle.main.bundleIdentifier == "com.joshpalmer.KeyringTest.AgentKeyring" { SittingProbe.prepareAndRecord() }
-
         if accessControlFixture == nil {
             Task { @MainActor in
                 await model.loadStatus()
-                // Sitting branch: no first-run window, so nothing takes the screen at launch.
-                if model.status == nil, Bundle.main.bundleIdentifier != "com.joshpalmer.KeyringTest.AgentKeyring" {
-                    presentation.requestMainWindow()
-                }
+                if model.status == nil { presentation.requestMainWindow() }
             }
         }
 
@@ -129,28 +111,12 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         else { return }
         NSApplication.shared.applicationIconImage = icon
 
-        if let accessControlFixture, let fixturePolicyStore {
+        if let accessControlFixture {
             Task { @MainActor in
-                let assignments = Dictionary(
-                    uniqueKeysWithValues: accessControlFixture.items.enumerated().compactMap {
-                        index, item -> (UUID, CredentialAccessPolicy)? in
-                        if (440..<492).contains(index) {
-                            return (item.id, .allowAutomatically)
-                        }
-                        if index >= 492 { return (item.id, .block) }
-                        return nil
-                    }
-                )
-                do {
-                    try await fixturePolicyStore.save(assignments, context: LAContext())
-                    await model.accessControl.refresh(from: accessControlFixture)
-                    presentation.requestAccessWindow()
-                } catch {
-                    assertionFailure("Could not prepare signed UI-test rules: \(error)")
-                }
+                await model.accessControl.refresh(from: accessControlFixture)
+                presentation.requestAccessWindow()
             }
         }
-
     }
 
     func applicationShouldHandleReopen(
@@ -237,9 +203,7 @@ private struct FirstRunHome: View {
 
     var body: some View {
         Group {
-            if model.leaseStore.needsHistoryReset {
-                HistoryRecovery(model: model)
-            } else if model.isLoading {
+            if model.isLoading {
                 ProgressView().padding(40)
             } else {
                 VStack(alignment: .leading) {
@@ -254,79 +218,6 @@ private struct FirstRunHome: View {
         }
         .task { await model.loadStatus() }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
-    }
-}
-
-private struct HistoryRecovery: View {
-    let model: MirrorAppModel
-    @State private var context: LAContext?
-    @State private var evaluation: Task<Void, Never>?
-    @State private var timeout: Task<Void, Never>?
-    @State private var attempt = UUID()
-    @State private var failure: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Agents are paused on this Mac", systemImage: "exclamationmark.circle")
-                .font(.headline)
-            Text(model.leaseStore.errorMessage ?? "Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. This ends any access agents have now. Your logins and rules stay.")
-            if let failure { Text(failure).foregroundStyle(.red) }
-            if let context {
-                EmbeddedOwnerApproval(context: context, action: "reset the record")
-                    .id(ObjectIdentifier(context))
-                    .onAppear { waitForApproval(context) }
-                Button("Cancel") { stop() }
-            } else {
-                Button(failure == nil ? "Reset…" : "Try again") { begin() }
-                    .accessibilityIdentifier("reset-task-history")
-            }
-        }
-        .padding(28)
-        .frame(width: 560, alignment: .leading)
-        .onDisappear { stop() }
-    }
-
-    private func begin() {
-        failure = nil
-        let next = LAContext()
-        guard next.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else {
-            failure = "Touch ID or Apple Watch isn't available. Check that one is ready."
-            return
-        }
-        attempt = UUID()
-        context = next
-    }
-
-    private func stop() {
-        attempt = UUID()
-        evaluation?.cancel()
-        timeout?.cancel()
-        context?.invalidate()
-        evaluation = nil
-        timeout = nil
-        context = nil
-    }
-
-    private func waitForApproval(_ current: LAContext) {
-        guard evaluation == nil, context === current else { return }
-        let id = attempt
-        timeout = Task { @MainActor in
-            do { try await Task.sleep(for: .seconds(60)) } catch { return }
-            guard attempt == id else { return }
-            stop()
-            failure = "Approval timed out."
-        }
-        evaluation = Task { @MainActor in
-            do {
-                try await model.resetLeaseHistory(context: current)
-                guard attempt == id else { return }
-                stop()
-            } catch {
-                guard attempt == id else { return }
-                stop()
-                failure = ownerAuthenticationFailure(error, fallback: "The record wasn't reset.")
-            }
-        }
     }
 }
 
@@ -355,8 +246,7 @@ struct AgentKeyringApp: App {
         }
 
         Window("Machines", id: "machines") {
-            MachinesWindow(relay: appDelegate.model.relayApprover, routing: appDelegate.model.approvalRoutingSettings,
-                approvals: appDelegate.approvals)
+            MachinesWindow(model: appDelegate.model, approvals: appDelegate.approvals)
         }
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)

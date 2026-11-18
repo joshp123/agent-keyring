@@ -10,7 +10,7 @@ extension MirrorAppModel {
     public func startAgentListener() throws {
         guard agentListener == nil else { return }
         do { try leaseStore.load() }
-        catch { leaseLogger.error("Task history needs owner recovery; the socket will report how to reset it.") }
+        catch { leaseLogger.error("The record of agents' leases could not be saved: \(String(describing: error), privacy: .public)") }
         agentListener = try AgentBridgeServer(bridge: bridge) { [weak self] request, peer, reply in
             guard let self else { return }
             await self.handleLeaseRequest(request, peer: peer, reply: reply)
@@ -18,8 +18,6 @@ extension MirrorAppModel {
         Task { [weak self] in
             guard let self else { return }
             await self.loadStatus()
-            try? await self.refreshLeasePolicy()
-            self.startPendingMacApprovals()
         }
     }
 
@@ -34,20 +32,16 @@ extension MirrorAppModel {
                 var result = Agentkeyring_V1_SetupResponse()
                 switch setup.action {
                 case .startRelay:
-                    guard !setup.host.isEmpty, let port = UInt16(exactly: setup.port), port > 0,
-                        setup.code.isEmpty else { throw LeaseFailure(.invalidArgument, "Give a relay host and port.") }
-                    try await relayApprover.beginPairing(try RelayEndpoint(host: setup.host, port: port))
-                case .verifyRelay:
-                    try relayApprover.verifyRelayCode(setup.code)
-                case .verifyMachine:
-                    guard !setup.machineName.isEmpty else { throw LeaseFailure(.invalidArgument, "Give the machine name used for enrolment.") }
-                    result.machineName = try relayApprover.verifyMachineCode(setup.code, machineName: setup.machineName)
+                    guard !setup.host.isEmpty, let port = UInt16(exactly: setup.port), port > 0 else {
+                        throw LeaseFailure(.invalidArgument, "Give a relay host and port.")
+                    }
+                    _ = try macKeys()
+                    try await device!.beginSetup(try RelayEndpoint(host: setup.host, port: port))
                 case .relayStatus:
-                    try relayApprover.load()
-                    if relayApprover.connectionState == .connected { result.relayStatus = "connected" }
-                    else if relayApprover.state.pairing != nil || relayApprover.state.keySet != nil { result.relayStatus = "waiting" }
-                    else { result.relayStatus = "not-started" }
-                default: throw LeaseFailure(.invalidArgument, "Choose a setup action.")
+                    _ = try macKeys()
+                    result.relayStatus = device!.connection == .connected ? "connected"
+                        : device!.isJoined || device!.setupWaiting != nil ? "waiting" : "not-started"
+                default: throw LeaseFailure(.invalidArgument, "Choose a setup action: start-relay or relay-status.")
                 }
                 response.setup = result
             case let .findLogins(query):
@@ -82,8 +76,7 @@ extension MirrorAppModel {
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
-                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project), phoneDelaySeconds: approvalRoutingSettings.phoneDelaySeconds)
-                startPendingMacApprovals()
+                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project))
             case let .getLease(reference):
                 try await refreshLeasePolicy()
                 response.lease = try leaseStore.get(reference.leaseID)
@@ -106,36 +99,11 @@ extension MirrorAppModel {
             case let .endLease(reference):
                 response.lease = try leaseStore.end(reference.leaseID)
             case let .deliver(operation):
-                // Load values before the final policy check. There is no await
-                // between checking current policy, returning the values.
-                guard let generation = generationIncludingExample(try await store.loadCurrent()) else {
-                    throw LeaseFailure(.unavailable, "Import your logins from Apple Passwords first.")
-                }
-                let currentMetadata = try await refreshLeasePolicy()
-                guard currentMetadata?.id == generation.id else {
-                    throw LeaseFailure(.unavailable, "The imported logins changed while preparing this operation. Retry the same operation.")
-                }
-                response.delivery = try leaseStore.deliver(operation) { lease, fields in
-                    guard let loginID = UUID(uuidString: lease.loginID),
-                        let item = generation.items.first(where: { $0.id == loginID }) else {
-                        throw LeaseFailure(.notFound, "The selected login is unavailable.")
-                    }
-                    let candidate = resolver.candidate(for: item)
-                    guard fields.allSatisfy({ candidate.availableFields.contains($0.mirrorField) }) else {
-                        throw LeaseFailure(.invalidArgument, "The login does not have every requested field.")
-                    }
-                    var values = Agentkeyring_V1_CredentialValues()
-                    for field in fields {
-                        let value = try resolver.value(in: item, field: field.mirrorField)
-                        switch field {
-                        case .username: values.username = value
-                        case .password: values.password = value
-                        case .oneTimeCode: values.oneTimeCode = value
-                        default: break
-                        }
-                    }
-                    return values
-                }
+                try await refreshLeasePolicy()
+                let lease = try leaseStore.get(operation.leaseID)
+                let values = try await values(for: lease, fields: operation.fields)
+                // No suspension between this final check of the lease and returning the values.
+                response.delivery = try leaseStore.deliver(operation) { _, _ in values }
             case .fill, .executeProgram:
                 throw LeaseFailure(.invalidArgument, "Fill and ExecuteProgram run in the agent-keyring receiver. Use Deliver on the authority socket.")
             case nil: throw LeaseFailure(.invalidArgument, "Select an authority method.")
@@ -144,9 +112,7 @@ extension MirrorAppModel {
         } catch {
             let failure: LeaseFailure
             if let error = error as? LeaseFailure { failure = error }
-            else if error is AccessRulesConfirmationRequired || (error as? AgentBridgeFailure)?.code == .rulesNeedConfirmation {
-                failure = LeaseFailure(.permissionDenied, AccessRulesConfirmationRequired.message)
-            } else if error is CredentialResolverError { failure = LeaseFailure(.invalidArgument, "The login or requested field is unavailable.") }
+            else if error is CredentialResolverError { failure = LeaseFailure(.invalidArgument, "The login or requested field is unavailable.") }
             else {
                 leaseLogger.error("Authority request failed: \(String(describing: error), privacy: .private)")
                 failure = LeaseFailure(.unavailable, "Agent Keyring could not complete this request. Rejoin the same reference; do not request approval again.")
@@ -164,14 +130,7 @@ extension MirrorAppModel {
         let metadata = metadataIncludingExample(try await store.loadCurrentMetadata())
         leaseLogins = metadata?.candidates ?? []
         await accessControl.refresh(fromMetadata: metadata)
-        // Sitting branch: the example login needs no rules confirmation first.
-        do { if Bundle.main.bundleIdentifier != "com.joshpalmer.KeyringTest.AgentKeyring" { try await accessControl.ensureRulesConfirmed() } }
-        catch {
-            try leaseStore.reconcile(logins: leaseLogins, policies: [:], rulesConfirmed: false)
-            throw error
-        }
-        try leaseStore.reconcile(logins: leaseLogins,
-            policies: Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, accessControl.policy(for: $0.id)) }), rulesConfirmed: true)
+        try leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
         return metadata
     }
 }

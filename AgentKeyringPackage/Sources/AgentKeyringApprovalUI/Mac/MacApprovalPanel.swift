@@ -169,65 +169,29 @@ public func ownerApprovalSymbol(_ context: LAContext = LAContext()) -> String {
     context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) ? "touchid" : "applewatch"
 }
 
-/// Approve without a click: the system Touch ID glyph, live, inside the panel.
-/// Touching the sensor while the panel is up approves.
-public struct EmbeddedOwnerApproval: View {
-    public let context: LAContext
-    public let action: String
+/// The approve button outside the request panel: a click starts macOS's own
+/// Touch ID or Watch dialog, the same route the request panel uses.
+public struct TouchIDButton: View {
+    let action: String
+    let isWaiting: Bool
+    let start: () -> Void
 
-    public init(context: LAContext, action: String = "approve") { self.context = context; self.action = action }
-
-    private var symbol: String { ownerApprovalSymbol(context) }
-
-    private var label: String {
-        let touch = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-        let watch = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithCompanion, error: nil)
-        if touch && watch { return "Touch ID or Watch to \(action)" }
-        return touch ? "Touch ID to \(action)" : "Double-click Watch to \(action)"
+    public init(action: String, isWaiting: Bool, start: @escaping () -> Void) {
+        self.action = action
+        self.isWaiting = isWaiting
+        self.start = start
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
-            // Apple's live view must stay in the panel for the approval to run
-            // here and not in a dialog; it draws nothing useful at this size,
-            // so its symbol is drawn over it.
-            ZStack {
-                TouchIDGlyph(context: context)
-                Circle().fill(KeyringColour.approve)
-                Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-            }
-            .frame(width: 22, height: 22)
-            Text(label)
-                .font(.headline)
-                .foregroundStyle(.white)
+        Button(action: start) {
+            Label(isWaiting ? "Touch the sensor to \(action)" : "Click here, then touch the sensor to \(action)",
+                systemImage: ownerApprovalSymbol())
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 40)
-        .background(KeyringColour.approve, in: .rect(cornerRadius: KeyringMetric.buttonCorner, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(label)
+        .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 40))
+        .disabled(isWaiting)
     }
-}
-
-/// Apple's live Touch ID and Watch view. Left alone it draws far outside any
-/// frame it is given, so it is clipped to a small square.
-private struct TouchIDGlyph: NSViewRepresentable {
-    let context: LAContext
-
-    func makeNSView(context representableContext: Context) -> NSView {
-        let disc = NSView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
-        disc.wantsLayer = true
-        disc.layer?.masksToBounds = true
-        let glyph = LAAuthenticationView(context: context, controlSize: .mini)
-        glyph.frame = disc.bounds.insetBy(dx: 2, dy: 2)
-        glyph.autoresizingMask = [.width, .height]
-        disc.addSubview(glyph)
-        return disc
-    }
-
-    func updateNSView(_ view: NSView, context representableContext: Context) {}
 }
 
 /// Hosts the panel beside the window Josh is working in (see
