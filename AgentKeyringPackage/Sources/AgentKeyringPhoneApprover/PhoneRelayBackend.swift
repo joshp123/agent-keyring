@@ -545,6 +545,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         var next = state
         next.pushSeen = true
         save(next)
+        // The test may have finished first; the relay should see the push too.
+        if state.testApproved { Task { await reportSelfTest() } }
     }
 
     /// First run's test request, approved with one Face ID: a signed answer with
