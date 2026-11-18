@@ -234,7 +234,7 @@ public final class MacDevice {
 
     private func receive(_ work: Agentkeyring_V2_Work) {
         // Only the iPhone or Watch may answer these; this Mac never shows them.
-        guard let request = try? Sealing.parseRequest(work.request), !work.login.phoneAndWatchOnly else { return }
+        guard let request = try? Sealing.parseRequest(work.request), !work.login.phoneAndWatchOnly, !work.hasProposal else { return }
         if work.hasOutcome {
             waiting.removeValue(forKey: request.requestID)
             finished[request.requestID] = work
@@ -504,6 +504,24 @@ public final class MacDevice {
         case .unanswered: return .unanswered
         default: return .cancelled
         }
+    }
+
+    /// A rule change only the iPhone or Watch may make: proposed, signed with
+    /// the reply key (it grants nothing by itself), and waited for.
+    public func proposeRules(_ changes: [Agentkeyring_V2_RuleChange]) async throws -> Bool {
+        guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Watch.") }
+        var proposal = Agentkeyring_V2_RuleProposal()
+        proposal.domain = "agentkeyring.proposal.v2"
+        proposal.changes = changes
+        proposal.askedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        var request = Agentkeyring_V2_RelayRequest()
+        request.method = .proposeRules(try Sealing.signed(proposal.serializedData(), by: keys.replyKeyID) { try keys.signReply($0) })
+        var final = Agentkeyring_V2_LeaseState.waiting
+        try await relay.stream(request) { response in
+            if case let .lease(lease) = response.result { final = lease.state }
+        }
+        if final == .approved { await followCatalogue() }
+        return final == .approved
     }
 
     // MARK: Machines and devices joining

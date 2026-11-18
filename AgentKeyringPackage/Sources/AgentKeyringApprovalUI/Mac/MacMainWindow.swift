@@ -82,6 +82,8 @@ public struct MainSnapshot: Hashable, Sendable {
 public protocol MainWindowBackend: AnyObject {
     func updates() -> AsyncStream<MainSnapshot>
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws
+    /// Changes from Ask on iPhone or Watch: sent there; true once approved.
+    func proposeRules(_ changes: [UUID: LoginRule]) async throws -> Bool
     func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws
     func remove(id: String, context: LAContext) async throws
     func importAgain()
@@ -150,6 +152,22 @@ public final class MacMainModel {
         context?.invalidate()
         pending = [:]
         failure = nil
+    }
+
+    /// Sends a change only the iPhone or Watch may make, and waits for it.
+    public func sendToPhone() {
+        guard !isWorking else { return }
+        isWorking = true
+        failure = nil
+        Task {
+            defer { isWorking = false }
+            do {
+                if try await backend.proposeRules(pending) { pending = [:] }
+                else { failure = "Your iPhone or Watch did not approve the change. The rules are as they were." }
+            } catch {
+                failure = (error as? LocalizedError)?.errorDescription ?? "The change could not be sent to your iPhone or Watch."
+            }
+        }
     }
 
     public func save() { run { [pending, backend] context in try await backend.saveRules(pending, context: context) } done: { self.pending = [:] } }
@@ -316,11 +334,17 @@ private struct LoginsTab: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Pill(title: "Import Again", style: .quiet, action: model.importAgain)
             } else {
-                Text(model.pendingSentence + (model.needsPhone ? " Change it on your iPhone or Watch." : ""))
+                Text(model.pendingSentence)
                     .font(.system(size: 14)).foregroundStyle(RequestToken.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Pill(title: "Cancel", style: .quiet, action: model.cancelChanges)
-                if !model.needsPhone {
+                if model.needsPhone {
+                    Button(action: model.sendToPhone) {
+                        Label(model.isWorking ? "Waiting for your iPhone or Watch" : "Approve on your iPhone or Watch", systemImage: "iphone")
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                    }
+                    .buttonStyle(.plain).disabled(model.isWorking)
+                } else {
                     Pill(title: model.isWorking ? "Touch the sensor to save" : "Save with Touch ID", style: .approve, action: model.save)
                         .disabled(model.isWorking)
                 }

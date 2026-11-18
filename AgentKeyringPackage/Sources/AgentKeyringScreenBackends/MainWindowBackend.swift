@@ -5,6 +5,7 @@
 #if os(macOS)
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
+import AgentKeyringProtocol
 import Foundation
 import LocalAuthentication
 import Observation
@@ -59,6 +60,25 @@ public final class AppMainWindowBackend: MainWindowBackend {
         try await confirmed { try await OwnerConfirmation.confirm(context, reason: reason, until: .now.addingTimeInterval(600)) }
         await model.accessControl.setPolicies(changes.mapValues(CredentialAccessPolicy.init), context: context)
         if let message = model.accessControl.errorMessage { throw ScreenFailure(message: message) }
+    }
+
+    public func proposeRules(_ changes: [UUID: LoginRule]) async throws -> Bool {
+        guard let device = model.device, device.isJoined else {
+            throw ScreenFailure(message: "Add your iPhone first: only it or your Watch can make this change.")
+        }
+        let rows = Dictionary(uniqueKeysWithValues: model.accessControl.rows.map { ($0.id, $0) })
+        return try await device.proposeRules(changes.compactMap { id, rule in
+            guard rows[id] != nil else { return nil }
+            var change = Agentkeyring_V2_RuleChange()
+            change.loginID = id.uuidString
+            change.rule = switch rule {
+            case .ask, .askOnPhone: .ask
+            case .automatic: .automatic
+            case .blocked: .blocked
+            }
+            change.phoneAndWatchOnly = rule == .askOnPhone
+            return change
+        })
     }
 
     public func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {
