@@ -186,6 +186,16 @@ extension MirrorAppModel {
     }
 }
 
+@available(macOS 26.0, *)
+extension MirrorAppModel {
+    /// Only in a debug build, and only when launched with --import-made-up-logins.
+    public func importMadeUpLoginsIfAsked() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--import-made-up-logins"), status == nil { await importMadeUpLogins() }
+        #endif
+    }
+}
+
 #if DEBUG
 @available(macOS 26.0, *)
 extension MirrorAppModel {

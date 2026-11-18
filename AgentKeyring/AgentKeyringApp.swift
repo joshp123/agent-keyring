@@ -75,9 +75,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         do {
             Task { @MainActor in
                 await model.loadStatus()
-                #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--import-made-up-logins") { await model.importMadeUpLogins() }
-                #endif
+                await model.importMadeUpLoginsIfAsked()
                 if model.status == nil { presentation.requestMainWindow() }
             }
         }
@@ -144,6 +142,7 @@ private struct HomeWindow: View {
             main?.tab = presentation.tab
         }
         .onChange(of: presentation.mainWindowRequest) { main?.tab = presentation.tab }
+        .background(FloatingWhile(isOn: model.awaitingExport))
     }
 }
 
@@ -185,7 +184,6 @@ private struct FirstRunHome: View {
                 }
             }
         }
-        .background(FloatingWhile(isOn: model.awaitingExport))
         .task { await model.loadStatus() }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
     }
@@ -196,7 +194,11 @@ private struct FloatingWhile: NSViewRepresentable {
     let isOn: Bool
     func makeNSView(context: Context) -> NSView { NSView() }
     func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { view.window?.level = isOn ? .floating : .normal }
+        DispatchQueue.main.async {
+            view.window?.level = isOn ? .floating : .normal
+            // Open on the Space he is working in, never on another one.
+            view.window?.collectionBehavior.insert(.moveToActiveSpace)
+        }
     }
 }
 
