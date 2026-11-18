@@ -19,6 +19,7 @@ public struct WatchRequest: Sendable, Equatable {
     public let site: String
     public let account: String
     public let sites: [String]
+    public let agent: String         // "Codex"
     public let wants: String         // "Codex on Mac mini wants"
     public let project: String?
     public let reason: String
@@ -44,12 +45,13 @@ public struct WatchRequest: Sendable, Equatable {
         guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { throw Unreadable.unknownMachine }
         // The push names the login from the signed catalogue; the saved one is a fallback.
         let login = work.hasLogin ? work.login : saved.signedCatalogue?.logins.first { $0.loginID == request.loginID }
-        let state: State = work.hasOutcome ? .ended(outcome(work.outcome, members: members)) : .waiting
         let agent = request.agent.isEmpty ? "An agent" : request.agent
+        let minutes = max(1, Int((request.answerByUnixSeconds - request.askedUnixSeconds) / 60))
+        let state: State = work.hasOutcome ? .ended(outcome(work.outcome, members: members, agent: agent, minutes: minutes)) : .waiting
         return WatchRequest(
             work: try work.serializedData(), id: request.requestID,
             site: login.map(site) ?? request.loginID, account: login?.account ?? "", sites: login?.sites ?? [],
-            wants: "\(agent) on \(machine.label) wants", project: request.project.isEmpty ? nil : request.project,
+            agent: agent, wants: "\(agent) on \(machine.label) wants", project: request.project.isEmpty ? nil : request.project,
             reason: request.reason, state: state)
     }
 
@@ -68,21 +70,28 @@ public struct WatchRequest: Sendable, Equatable {
         login.sites.first.flatMap { URL(string: $0)?.host ?? $0 } ?? login.title
     }
 
-    static func outcome(_ lease: Agentkeyring_V2_Lease, members: Members) -> String {
-        let by = members.devices.first { $0.label == lease.answeredBy }.map { device -> String in
+    /// The outcome as Paper's table words it ("The request", "Your answer").
+    static func outcome(_ lease: Agentkeyring_V2_Lease, members: Members, agent: String, minutes: Int) -> String {
+        let on = members.devices.first { $0.label == lease.answeredBy }.map { device -> String in
             switch device.kind {
-            case .watch: "your Watch"
-            case .iphone: "your iPhone"
-            case .mac: "your Mac"
-            default: device.label
+            case .watch: "on your Watch"
+            case .iphone: "on your iPhone"
+            case .mac: "on your Mac"
+            default: "on \(device.label)"
             }
         }
         switch lease.state {
-        case .approved: return by.map { "Approved on \($0)" } ?? "Approved"
-        case .denied: return by.map { "Denied on \($0)" } ?? "Denied"
-        case .unanswered: return "No answer"
-        case .cancelled: return "The agent stopped asking"
-        default: return "Ended"
+        case .approved, .ended:
+            return on.map { "Approved \($0)." } ?? "Approved."
+        case .denied:
+            let denied = on.map { "Denied \($0)." } ?? "Denied."
+            return lease.reply.isEmpty ? denied : "\(denied) You told \(agent): “\(lease.reply)”"
+        case .unanswered:
+            return "No answer. The request ended after \(minutes) minutes, and \(agent) can ask again."
+        case .cancelled:
+            return "Withdrawn. \(agent) stopped asking before you answered."
+        default:
+            return "Ended."
         }
     }
 }

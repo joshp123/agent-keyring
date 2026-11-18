@@ -1,10 +1,11 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
 // The request inside Apple's notification on the Watch (Paper, "The
-// request", Apple Watch): who is asking, the site, the account and the
-// agent's reason, with our own Deny and Approve. Apple's Deny and Explain
-// sits under it. The designer is redrawing this inside Apple's card; the
-// project line sits under the buttons until then, so both buttons fit.
+// request", Apple Watch row, under Apple's bar): who is asking, the site, the
+// account and two lines of the agent's reason, then our own Deny and Approve,
+// all on the first screen of an Ultra 3. Under the buttons, reached by
+// scrolling: the whole of a longer reason, and the project. Apple's Deny and
+// Explain sits below. After an answer the card shows it, then closes itself.
 
 import AgentKeyringWatchCore
 import SwiftUI
@@ -17,6 +18,7 @@ final class RequestModel {
     var unreadable = false
     var answer: String?
     var busy = false
+    var dismiss: () -> Void = {}
 
     func show(_ userInfo: [AnyHashable: Any]) {
         answer = nil
@@ -45,6 +47,8 @@ final class RequestModel {
             }
             answer = line
             busy = false
+            try? await Task.sleep(for: .seconds(1.2))
+            dismiss()
         }
     }
 }
@@ -68,6 +72,7 @@ final class RequestController: WKUserNotificationHostingController<RequestView> 
     override var body: RequestView { RequestView(model: model) }
 
     override func didReceive(_ notification: UNNotification) {
+        model.dismiss = { [weak self] in self?.performDismissAction() }
         model.show(notification.request.content.userInfo)
     }
 }
@@ -93,6 +98,8 @@ struct RequestView: View {
         .ignoresSafeArea(edges: .horizontal)
     }
 
+    @State private var reasonCut = false
+
     @ViewBuilder private func content(_ request: WatchRequest) -> some View {
         VStack(spacing: 0) {
             Text(request.wants).font(.system(size: 13)).foregroundStyle(Self.ink2)
@@ -101,7 +108,8 @@ struct RequestView: View {
                 Text(request.account).font(.system(size: 13)).foregroundStyle(Self.ink2)
             }
             if !request.reason.isEmpty {
-                Text("“\(request.reason)”").font(.system(size: 15)).padding(.top, 4)
+                Text("“\(request.reason)”").font(.system(size: 15)).lineLimit(2).padding(.top, 4)
+                    .background { CutCheck(text: "“\(request.reason)”", cut: $reasonCut) }
             }
             Group {
                 switch request.state {
@@ -121,13 +129,16 @@ struct RequestView: View {
                 }
             }
             .padding(.top, 8)
+            if reasonCut {
+                Text("“\(request.reason)”").font(.system(size: 15)).padding(.top, 20)
+            }
             if let project = request.project {
                 HStack(spacing: 5) {
                     Text("Project").foregroundStyle(Self.ink2)
                     Text(project).fontWeight(.semibold)
                 }
                 .font(.system(size: 13))
-                .padding(.top, 8)
+                .padding(.top, 20)
             }
         }
     }
@@ -135,9 +146,26 @@ struct RequestView: View {
     private func button(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 42)
+                .frame(maxWidth: .infinity, minHeight: 40)
                 .background(color, in: .capsule)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Tells whether a text cut at two lines lost words: it lays the whole text
+/// out at the same width, unseen, and compares the heights.
+struct CutCheck: View {
+    let text: String
+    @Binding var cut: Bool
+
+    var body: some View {
+        GeometryReader { shown in
+            Text(text).font(.system(size: 15)).fixedSize(horizontal: false, vertical: true)
+                .frame(width: shown.size.width).hidden()
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { whole in
+                    cut = whole > shown.size.height + 1
+                }
+        }
     }
 }

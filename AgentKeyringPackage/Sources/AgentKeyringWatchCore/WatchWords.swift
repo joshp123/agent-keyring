@@ -10,8 +10,8 @@ import UserNotifications
 public enum WatchWords {
     public static let requestCategory = "REQUEST"
     public static let denyAndExplain = "deny-and-explain"
-    public static let fallbackTitle = "An agent is asking to use a login"
-    public static let fallbackBody = "Raise your wrist to see the request."
+    public static let fallbackTitle = "Agent Keyring"
+    public static let fallbackBody = "An agent wants to use a login. Open Agent Keyring to see the request."
 
     public static func write(_ request: WatchRequest, into content: UNMutableNotificationContent) {
         content.threadIdentifier = request.id
@@ -19,9 +19,10 @@ public enum WatchWords {
         content.userInfo[WatchRequest.workKey] = request.work.base64EncodedString()
         switch request.state {
         case .waiting:
-            content.subtitle = request.wants + " this login"
-            content.body = [request.account, request.reason.isEmpty ? nil : "“\(request.reason)”"]
-                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+            // One sentence, who is asking first; Apple cuts it at three lines.
+            content.subtitle = ""
+            let what = request.account.isEmpty ? request.wants + " this login" : "\(request.wants) \(request.account)"
+            content.body = request.reason.isEmpty ? what + "." : "\(what): “\(request.reason)”"
             content.categoryIdentifier = requestCategory
             content.interruptionLevel = .timeSensitive
         case .ended(let outcome):
