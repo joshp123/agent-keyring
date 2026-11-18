@@ -108,10 +108,6 @@ public enum SetupCopy {
     public static let waitingForDevices = "Waiting for devices"
 
     #if os(macOS)
-    public static func withdrawalProgress(_ withdrawal: PendingWithdrawal) -> String {
-        let waiting = "Waiting for \(list(withdrawal.waitingFor))."
-        return withdrawal.confirmedOn.isEmpty ? waiting : "Done on \(list(withdrawal.confirmedOn)). " + waiting
-    }
     #endif
 
     /// "a", "a and b", "a, b and c".

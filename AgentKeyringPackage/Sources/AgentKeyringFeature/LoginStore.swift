@@ -14,9 +14,13 @@ public actor LoginStore {
     private var listURL: URL { directory.appending(path: "logins.json") }
     private var sealedURL: URL { directory.appending(path: "sealed.pb") }
 
+    private var onChange: (@Sendable () -> Void)?
+
     public init(directory: URL = URL.applicationSupportDirectory.appending(path: "AgentKeyring/logins")) {
         self.directory = directory
     }
+
+    func whenChanged(_ action: @escaping @Sendable () -> Void) { onChange = action }
 
     /// The last import, with no secrets in it.
     public func loadCurrent() throws -> MirrorGeneration? {
@@ -45,6 +49,7 @@ public actor LoginStore {
         var all = Agentkeyring_V2_SealedLogins()
         all.logins = sealed
         try all.serializedData().write(to: sealedURL, options: .atomic)
+        onChange?()
     }
 }
 

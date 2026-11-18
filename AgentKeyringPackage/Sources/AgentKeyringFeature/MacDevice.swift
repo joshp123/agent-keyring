@@ -28,6 +28,7 @@ public final class MacDevice {
         var pin: Data
         var members: Data       // Signed Members, checked when it arrived.
         var catalogueRevision: UInt64
+        var alwaysOnMachineID: String? = nil
     }
 
     public private(set) var connection = Connection.notSetUp
@@ -70,6 +71,8 @@ public final class MacDevice {
     /// The waiting requests, read from their bytes.
     public var waitingRequests: [Agentkeyring_V2_Request] { waiting.values.compactMap { try? Sealing.parseRequest($0.request) } }
     public var ownMachineID: String { keys.machineID }
+    public var ownDeviceID: String { keys.deviceKeyID }
+    public var alwaysOnMachineID: String? { saved?.alwaysOnMachineID }
 
     private static func parse(_ signed: Data) -> Agentkeyring_V2_Members? {
         guard let document = try? Agentkeyring_V2_Signed(serializedBytes: signed) else { return nil }
@@ -173,7 +176,8 @@ public final class MacDevice {
         members.machines = [keys.machine, always]
         members.relayTlsPublicKey = pin
         let signed = try Sealing.signed(members.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
-        saved = Saved(endpoint: setup.endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0)
+        saved = Saved(endpoint: setup.endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0,
+            alwaysOnMachineID: always.machineID)
         do {
             _ = try await call(.publishMembers(signed))
         } catch {
@@ -511,6 +515,31 @@ public final class MacDevice {
         next.devices.removeAll { $0.keyID == id && $0.keyID != keys.deviceKeyID }
         try await publishMembers(next, context: context)
         try await store.replaceSealed(try await store.sealed().filter { $0.openerID != id })
+    }
+
+    /// Lets a machine have the logins set to Automatic, or stops more reaching
+    /// it. Either way it is a new signed list of members, so Touch ID.
+    public func setAutomatic(_ machineID: String, allowed: Bool, context: LAContext) async throws {
+        guard var next = members, let index = next.machines.firstIndex(where: { $0.machineID == machineID }),
+            machineID != keys.machineID else { return }
+        let label = next.machines[index].label
+        try await confirm(context, reason: allowed ? "let \(label) use Automatic logins" : "stop \(label) getting Automatic logins")
+        next.machines[index].automaticAllowed = allowed
+        try await publishMembers(next, context: context)
+        var sealed = try await store.sealed().filter { $0.openerID != machineID }
+        if allowed { sealed += try await automaticCopies(for: next.machines[index]) }
+        try await store.replaceSealed(sealed)
+        var batch = Agentkeyring_V2_SealedLogins()
+        batch.clearedOpeners = [machineID]
+        batch.logins = sealed.filter { $0.openerID == machineID }
+        _ = try await call(.publishSealedLogins(batch))
+    }
+
+    /// Removes a machine or device; the system dialog is the confirmation.
+    public func removeConfirmed(_ id: String, context: LAContext) async throws {
+        let label = members?.machines.first { $0.machineID == id }?.label ?? members?.devices.first { $0.keyID == id }?.label ?? "it"
+        try await confirm(context, reason: "remove \(label)")
+        try await remove(id, context: context)
     }
 
     private func publishMembers(_ next: Agentkeyring_V2_Members, context: LAContext) async throws {
