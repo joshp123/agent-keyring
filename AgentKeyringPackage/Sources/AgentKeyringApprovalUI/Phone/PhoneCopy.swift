@@ -12,6 +12,8 @@ public enum PhoneCopy {
     public static func wants(_ agent: RequestingAgent) -> String { "\(agent.name) on \(agent.machine) wants" }
     public static func quoted(_ reason: String) -> String { "“\(reason)”" }
     public static func replyPlaceholder(_ agent: RequestingAgent) -> String { "What should \(agent.name) do instead?" }
+    /// Not in Paper: when the agent's name is too long for the box beside Deny.
+    public static let replyPlaceholderShort = "What should it do instead?"
     public static let deny = "Deny"
     public static let approveWithFaceID = "Approve with Face ID"
     public static func lasts(_ agent: RequestingAgent) -> String {

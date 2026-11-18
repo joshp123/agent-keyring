@@ -37,12 +37,24 @@ struct PhoneRequestView: View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
-                    TextField(PhoneCopy.replyPlaceholder(request.agent), text: $model.replyDraft, axis: .vertical)
+                    TextField("", text: $model.replyDraft, axis: .vertical)
                         .font(.subheadline)
                         .foregroundStyle(Phone.ink)
                         .lineLimit(1...4)
                         .focused($replyFocused)
                         .submitLabel(.send)
+                        .accessibilityLabel(PhoneCopy.replyPlaceholder(request.agent))
+                        .background(alignment: .leading) {
+                            if model.replyDraft.isEmpty {
+                                // The whole sentence, never cut off: the agent's name if it fits, else "it".
+                                ViewThatFits(in: .horizontal) {
+                                    Text(PhoneCopy.replyPlaceholder(request.agent))
+                                    Text(PhoneCopy.replyPlaceholderShort)
+                                }
+                                .font(.subheadline).foregroundStyle(Phone.ink2).lineLimit(1)
+                                .allowsHitTesting(false)
+                            }
+                        }
                     // iOS's own dictation is on the keyboard; the microphone here opens it.
                     Image(systemName: "mic.fill")
                         .font(.system(size: 17))
