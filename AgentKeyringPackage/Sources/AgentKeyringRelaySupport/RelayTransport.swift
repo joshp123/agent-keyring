@@ -108,10 +108,13 @@ public final class RelayConnection: @unchecked Sendable {
         try Task.checkCancellation()
     }
 
-    public func send(_ request: Agentkeyring_V1_RelayWireRequest) async throws {
+    public func send(_ request: Agentkeyring_V1_RelayWireRequest) async throws { try await sendFrame(request) }
+
+    /// One framed message, of any protocol version.
+    public func sendFrame(_ request: some SwiftProtobuf.Message) async throws {
         try requireTailnetPeer()
         let data = try request.serializedData()
-        guard !data.isEmpty, data.count <= 1_048_576 else { throw RelayFailure(.invalidArgument, "The relay request is too large.") }
+        guard !data.isEmpty, data.count <= 4_194_304 else { throw RelayFailure(.invalidArgument, "The relay request is too large.") }
         var size = UInt32(data.count).bigEndian
         let frame = withUnsafeBytes(of: &size) { Data($0) } + data
         try await withTaskCancellationHandler {
@@ -131,12 +134,17 @@ public final class RelayConnection: @unchecked Sendable {
     }
 
     public func next() async throws -> Agentkeyring_V1_RelayWireResponse {
-        let header = try await read(4)
-        let size = header.withUnsafeBytes { UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self)) }
-        guard size > 0, size <= 1_048_576 else { throw RelayFailure(.invalidArgument, "The relay sent an invalid frame.") }
-        let response = try await Agentkeyring_V1_RelayWireResponse(serializedBytes: read(Int(size)))
+        let response: Agentkeyring_V1_RelayWireResponse = try await nextFrame()
         if case let .error(error) = response.response { throw RelayFailure(error.code, error.message) }
         return response
+    }
+
+    /// The next framed message, of any protocol version. Frames are at most 4 MiB.
+    public func nextFrame<Response: SwiftProtobuf.Message>() async throws -> Response {
+        let header = try await read(4)
+        let size = header.withUnsafeBytes { UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self)) }
+        guard size > 0, size <= 4_194_304 else { throw RelayFailure(.invalidArgument, "The relay sent an invalid frame.") }
+        return try await Response(serializedBytes: read(Int(size)))
     }
 
     private func read(_ count: Int) async throws -> Data {
