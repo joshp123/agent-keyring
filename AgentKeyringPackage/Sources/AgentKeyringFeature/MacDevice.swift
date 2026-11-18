@@ -28,6 +28,7 @@ public final class MacDevice {
         var pin: Data
         var members: Data       // Signed Members, checked when it arrived.
         var catalogueRevision: UInt64
+        var alwaysOnMachineID: String? = nil
     }
 
     public private(set) var connection = Connection.notSetUp
@@ -44,6 +45,9 @@ public final class MacDevice {
     let store: LoginStore
     /// The logins and their rules as the catalogue, from the app's import and rules.
     let catalogueLogins: @MainActor () async throws -> [Agentkeyring_V2_Login]
+    /// A newer catalogue another device signed (a rule changed on the iPhone),
+    /// with this Mac's own Automatic copies as the relay now holds them.
+    var onCatalogue: (@MainActor (Agentkeyring_V2_Catalogue, [Agentkeyring_V2_SealedLogin]) async -> Void)?
     private var saved: Saved?
     private var setupPin: Data?
     private var hiddenJoins = Set<String>()
@@ -67,6 +71,8 @@ public final class MacDevice {
     /// The waiting requests, read from their bytes.
     public var waitingRequests: [Agentkeyring_V2_Request] { waiting.values.compactMap { try? Sealing.parseRequest($0.request) } }
     public var ownMachineID: String { keys.machineID }
+    public var ownDeviceID: String { keys.deviceKeyID }
+    public var alwaysOnMachineID: String? { saved?.alwaysOnMachineID }
 
     private static func parse(_ signed: Data) -> Agentkeyring_V2_Members? {
         guard let document = try? Agentkeyring_V2_Signed(serializedBytes: signed) else { return nil }
@@ -119,6 +125,7 @@ public final class MacDevice {
         setup = Setup(endpoint: endpoint, agent: agent, reason: reason)
         let invite = invitation(endpoint: endpoint, pin: observed, lasting: 600)
         setupSecret = invite.secret
+        leaveDeviceInvitation(endpoint: endpoint, pin: observed)
         setupWatch?.cancel()
         setupWatch = Task { [weak self] in
             while let self, !Task.isCancelled, self.setup != nil, self.setup?.machine == nil {
@@ -133,6 +140,12 @@ public final class MacDevice {
                         return
                     }
                     if case let .machine(machine)? = proven.first?.request.joining { self.setup?.machine = machine }
+                    let invited = response.pendingJoins.joins.filter { join in
+                        self.invitations.keys.contains { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof }
+                    }
+                    if !invited.isEmpty {
+                        deviceLogger.notice("\(invited.count, privacy: .public) proven join(s) wait for setup to finish.")
+                    }
                 }
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -151,7 +164,10 @@ public final class MacDevice {
     /// and the always-on machine and this Mac the first machines, at this relay.
     public func confirmSetup(context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard let setup, var always = setup.machine, let pin = setupPin else { return }
-        try await confirm(context, reason: "add \(always.label) as your always-on machine")
+        // The always-on machine runs his unattended jobs: it is allowed the
+        // logins he sets to Automatic, and the request says so.
+        always.automaticAllowed = true
+        try await confirm(context, reason: "add \(always.label) as your always-on machine and let it use Automatic logins")
         onAuthenticated()
         var members = Agentkeyring_V2_Members()
         members.domain = "agentkeyring.members.v2"
@@ -160,7 +176,8 @@ public final class MacDevice {
         members.machines = [keys.machine, always]
         members.relayTlsPublicKey = pin
         let signed = try Sealing.signed(members.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
-        saved = Saved(endpoint: setup.endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0)
+        saved = Saved(endpoint: setup.endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0,
+            alwaysOnMachineID: always.machineID)
         do {
             _ = try await call(.publishMembers(signed))
         } catch {
@@ -187,7 +204,7 @@ public final class MacDevice {
 
     public func start() {
         guard saved != nil, running == nil else { return }
-        if invitations.isEmpty { leaveDeviceInvitation() }
+        leaveDeviceInvitation()
         running = Task { [weak self] in
             while let self, !Task.isCancelled, let relay = self.relay {
                 self.connection = .connecting
@@ -195,6 +212,7 @@ public final class MacDevice {
                     try await self.refreshMembers()
                     self.connection = .connected
                     await self.refreshSelfTests()
+                    await self.followCatalogue()
                     var request = Agentkeyring_V2_RelayRequest()
                     request.method = .watchWork(Agentkeyring_V2_Empty())
                     let joins = Task { await self.pollJoins() }
@@ -227,7 +245,10 @@ public final class MacDevice {
     /// Also notices a connection that died without closing, since the work
     /// stream itself is silent while nothing waits.
     private func pollJoins() async {
+        var round = 0
         while !Task.isCancelled {
+            round += 1
+            if round % 10 == 0 { await followCatalogue() }
             do {
                 let response = try await call(.pendingJoins(Agentkeyring_V2_Empty()))
                 joins = invited(response.pendingJoins.joins).filter { !hiddenJoins.contains(Self.joinID($0)) }
@@ -242,6 +263,19 @@ public final class MacDevice {
             }
             try? await Task.sleep(for: .seconds(3))
         }
+    }
+
+    /// Takes rule changes made on another device.
+    func followCatalogue() async {
+        guard let members, let saved, let response = try? await call(.catalogue(Agentkeyring_V2_Empty())),
+            case let .signed(document) = response.result,
+            let catalogue = try? Sealing.verifiedCatalogue(document, members: members, current: nil),
+            catalogue.revision > saved.catalogueRevision, document.signerKeyID != keys.deviceKeyID else { return }
+        let mine = (try? await call(.automaticLogins(Agentkeyring_V2_Empty())))?.sealedLogins.logins
+            .filter { $0.openerID == keys.machineID } ?? []
+        self.saved?.catalogueRevision = catalogue.revision
+        try? persist()
+        await onCatalogue?(catalogue, mine)
     }
 
     private func refreshSelfTests() async {
@@ -293,8 +327,10 @@ public final class MacDevice {
     }
 
     private func invitation(lasting seconds: TimeInterval) throws -> Agentkeyring_V2_JoinInvite {
-        guard let saved else { throw RelayFailure(.unavailable, "Connect this Mac to the relay first: agent-keyring setup-relay.") }
-        return invitation(endpoint: saved.endpoint, pin: saved.pin, lasting: seconds)
+        if let saved { return invitation(endpoint: saved.endpoint, pin: saved.pin, lasting: seconds) }
+        // While the always-on machine is being set up, others may join too.
+        guard let setup, let setupPin else { throw RelayFailure(.unavailable, "Connect this Mac to the relay first: agent-keyring setup-relay.") }
+        return invitation(endpoint: setup.endpoint, pin: setupPin, lasting: seconds)
     }
 
     private func invitation(endpoint: RelayEndpoint, pin: Data, lasting seconds: TimeInterval) -> Agentkeyring_V2_JoinInvite {
@@ -315,17 +351,36 @@ public final class MacDevice {
     /// Leaves an invitation for a new iPhone in iCloud Keychain, where only
     /// Agent Keyring's own apps on Josh's devices can read it. Replaced at
     /// each launch and after each device joins.
-    func leaveDeviceInvitation() {
-        guard let invite = try? invitation(lasting: 7 * 86400), let value = try? invite.serializedData() else { return }
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecUseDataProtectionKeychain as String: true,
-            kSecAttrSynchronizable as String: true, kSecAttrAccessGroup as String: "7M8BR7R488.com.joshpalmer.AgentKeyring.shared",
-            kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation", kSecAttrAccount as String: "relay"]
-        SecItemDelete(query as CFDictionary)
-        var item = query
+    private var invitationItem: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecUseDataProtectionKeychain as String: true,
+         kSecAttrSynchronizable as String: true,
+         kSecAttrAccessGroup as String: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringSharedKeychainGroup") as? String ?? "",
+         kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation", kSecAttrAccount as String: "relay"]
+    }
+
+    /// Keeps an invitation for a new iPhone in iCloud Keychain, where only
+    /// Agent Keyring's own apps on Josh's devices can read it. The one there
+    /// is kept while it is this Mac's and unexpired; a new one replaces it
+    /// after a device joins, or when there is none.
+    func leaveDeviceInvitation(endpoint: RelayEndpoint? = nil, pin: Data? = nil, replacing: Bool = false) {
+        guard let endpoint = endpoint ?? saved?.endpoint, let pin = pin ?? saved?.pin else { return }
+        var query = invitationItem
+        query[kSecReturnData as String] = true
+        var found: CFTypeRef?
+        if !replacing, SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let bytes = found as? Data,
+            let current = try? Agentkeyring_V2_JoinInvite(serializedBytes: bytes), current.inviterKeyID == keys.deviceKeyID,
+            current.relayTlsSha256 == Sealing.sha256(pin), current.expiresUnixSeconds > Int64(Date().timeIntervalSince1970) + 86400 {
+            invitations[current.secret] = Date(timeIntervalSince1970: TimeInterval(current.expiresUnixSeconds))
+            return
+        }
+        guard let value = try? invitation(endpoint: endpoint, pin: pin, lasting: 7 * 86400).serializedData() else { return }
+        SecItemDelete(invitationItem as CFDictionary)
+        var item = invitationItem
         item[kSecValueData as String] = value
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(item as CFDictionary, nil)
-        if status != errSecSuccess { deviceLogger.error("Could not leave the iPhone's invitation in iCloud Keychain: \(status, privacy: .public)") }
+        if status == errSecSuccess { deviceLogger.notice("Left an invitation for a new iPhone in iCloud Keychain.") }
+        else { deviceLogger.error("Could not leave the iPhone's invitation in iCloud Keychain: \(status, privacy: .public)") }
     }
 
     public static func joinID(_ join: Agentkeyring_V2_PendingJoin) -> String {
@@ -444,7 +499,7 @@ public final class MacDevice {
         if let secret = invitations.keys.first(where: { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof }) {
             invitations.removeValue(forKey: secret)
         }
-        if case .device? = join.request.joining { leaveDeviceInvitation() }
+        if case .device? = join.request.joining { leaveDeviceInvitation(replacing: true) }
     }
 
     /// "Not now": the relay lets the request run out after ten minutes.
@@ -462,6 +517,31 @@ public final class MacDevice {
         try await store.replaceSealed(try await store.sealed().filter { $0.openerID != id })
     }
 
+    /// Lets a machine have the logins set to Automatic, or stops more reaching
+    /// it. Either way it is a new signed list of members, so Touch ID.
+    public func setAutomatic(_ machineID: String, allowed: Bool, context: LAContext) async throws {
+        guard var next = members, let index = next.machines.firstIndex(where: { $0.machineID == machineID }),
+            machineID != keys.machineID else { return }
+        let label = next.machines[index].label
+        try await confirm(context, reason: allowed ? "let \(label) use Automatic logins" : "stop \(label) getting Automatic logins")
+        next.machines[index].automaticAllowed = allowed
+        try await publishMembers(next, context: context)
+        var sealed = try await store.sealed().filter { $0.openerID != machineID }
+        if allowed { sealed += try await automaticCopies(for: next.machines[index]) }
+        try await store.replaceSealed(sealed)
+        var batch = Agentkeyring_V2_SealedLogins()
+        batch.clearedOpeners = [machineID]
+        batch.logins = sealed.filter { $0.openerID == machineID }
+        _ = try await call(.publishSealedLogins(batch))
+    }
+
+    /// Removes a machine or device; the system dialog is the confirmation.
+    public func removeConfirmed(_ id: String, context: LAContext) async throws {
+        let label = members?.machines.first { $0.machineID == id }?.label ?? members?.devices.first { $0.keyID == id }?.label ?? "it"
+        try await confirm(context, reason: "remove \(label)")
+        try await remove(id, context: context)
+    }
+
     private func publishMembers(_ next: Agentkeyring_V2_Members, context: LAContext) async throws {
         var next = next
         next.revision = (members?.revision ?? 0) + 1
@@ -476,7 +556,7 @@ public final class MacDevice {
 
     /// Signs the catalogue with Touch ID and sends it, with the sealed copies
     /// for the other devices and machines. This Mac's own copies stay here.
-    public func publish(context: LAContext, clearing: Set<String> = []) async throws {
+    public func publish(context: LAContext, withdrawn: Set<String> = []) async throws {
         guard var saved else { return }
         var catalogue = Agentkeyring_V2_Catalogue()
         catalogue.domain = "agentkeyring.catalogue.v2"
@@ -489,15 +569,15 @@ public final class MacDevice {
         self.saved = saved
         try persist()
         let others = Set((members?.devices.map(\.keyID) ?? []) + (members?.machines.map(\.machineID) ?? []))
-            .subtracting([keys.deviceKeyID, keys.machineID])
-        try await publishSealed(for: others, clearing: clearing.intersection(others))
+            .subtracting([keys.deviceKeyID])
+        try await publishSealed(for: others, withdrawn: withdrawn)
     }
 
-    private func publishSealed(for openers: Set<String>, clearing: Set<String> = []) async throws {
+    private func publishSealed(for openers: Set<String>, withdrawn: Set<String> = []) async throws {
         var batch = Agentkeyring_V2_SealedLogins()
-        batch.logins = try await store.sealed().filter { openers.contains($0.openerID) }
-        batch.clearedOpeners = clearing.sorted()
-        guard !batch.logins.isEmpty || !batch.clearedOpeners.isEmpty else { return }
+        batch.logins = try await store.sealed().filter { openers.contains($0.openerID) && !withdrawn.contains($0.loginID) }
+        batch.withdrawnLoginIds = withdrawn.sorted()
+        guard !batch.logins.isEmpty || !batch.withdrawnLoginIds.isEmpty else { return }
         _ = try await call(.publishSealedLogins(batch))
     }
 

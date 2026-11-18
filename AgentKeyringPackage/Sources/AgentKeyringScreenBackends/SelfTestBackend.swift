@@ -24,7 +24,7 @@ public final class SelfTestBackend: MacApprovalBackend {
         let state: AccessRequestState = switch model.selfTest {
         case .waiting, .notRun: .waitingForYou(until: .distantFuture)
         case let .passed(at): .approved(by: .mac, until: at)
-        case .failed: .denied(by: .mac, reply: nil, askAgainAfter: nil)
+        case .failed, .declined: .denied(by: .mac, reply: nil, askAgainAfter: nil)
         }
         return AccessRequest(id: Self.requestID, login: RequestedLogin(site: "Test request", account: "No login is used"),
             agent: RequestingAgent(name: "Agent Keyring", machine: "This Mac", address: "", isLocal: true),

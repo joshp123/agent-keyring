@@ -37,7 +37,7 @@ public final class AdditionBackend: MacApprovalBackend {
             request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
                 agent: RequestingAgent(name: setup.agent, machine: "This Mac", address: "", isLocal: true),
                 access: .setUp(lead: "\(setup.agent) on this Mac wants to add", detail: "as your always-on machine",
-                    footer: "Agents on \(machine.label) can then ask to use your logins. You can remove it at any time."),
+                    footer: "Agents on \(machine.label) can then ask to use your logins, and get any set to Automatic without asking. You can switch that off in Devices."),
                 agentReason: setup.reason, askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
         } else if let join = device.joins.first(where: { MacDevice.joinID($0) == id }) {
             let asked = Date(timeIntervalSince1970: TimeInterval(join.askedUnixSeconds))

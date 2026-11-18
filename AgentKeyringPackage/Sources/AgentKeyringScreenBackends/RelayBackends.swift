@@ -131,51 +131,6 @@ public final class RelayApprovalBackend: MacApprovalBackend {
     }
 }
 
-/// The Machines window.
-@available(macOS 26.0, *)
-@MainActor
-public final class RelayMachinesBackend: MacMachinesBackend {
-    private let model: MirrorAppModel
-
-    public init(model: MirrorAppModel) {
-        self.model = model
-    }
-
-    public func snapshot() -> MachinesSnapshot {
-        let device = model.device
-        let ownMachine = device?.ownMachineID
-        return MachinesSnapshot(
-            relay: RelayScreenMapping.relayLink(device),
-            waiting: device?.joins.map(RelayScreenMapping.enrolment) ?? [],
-            machines: (device?.members?.machines ?? []).filter { $0.machineID != ownMachine }.map {
-                EnrolledMachine(id: $0.machineID, name: $0.label, tailnetNode: "", automaticAllowed: $0.automaticAllowed)
-            },
-            approvers: (device?.members?.devices ?? []).map {
-                ApproverDevice(keyID: $0.keyID, name: $0.label, isPhone: $0.kind != .mac, lastTested: device?.lastTested[$0.keyID])
-            })
-    }
-
-    public func updates() -> AsyncStream<MachinesSnapshot> {
-        stream(Observations { [weak self] in self?.snapshot() ?? MachinesSnapshot(relay: .notSetUp) })
-    }
-
-    public func connect(host: String, port: UInt16) async throws {
-        throw ScreenFailure(message: "Give an agent this task: “Set up Agent Keyring on my always-on machine.” Then approve its request here.")
-    }
-
-    public func cancelRelaySetup() throws {
-        model.device?.abandonSetup()
-    }
-
-    public func removePhone(keyID: String, context: LAContext) async throws {
-        try await screenErrors { try await model.device?.remove(keyID, context: context) }
-    }
-
-    public func remove(machineID: String, context: LAContext) async throws {
-        try await screenErrors { try await model.device?.remove(machineID, context: context) }
-    }
-}
-
 /// A failure with words a person can read, for the screens' alerts.
 public struct ScreenFailure: LocalizedError {
     public let message: String

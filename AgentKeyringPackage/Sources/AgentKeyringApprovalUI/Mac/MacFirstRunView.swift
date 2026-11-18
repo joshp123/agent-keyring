@@ -24,6 +24,8 @@ public struct FirstRunState: Hashable, Sendable {
         case waiting
         case passed(Date)
         case failed(String)
+        /// Denied: a pale ring and Send It Again, since nothing is wrong.
+        case declined
     }
 
     public var imported: Import
@@ -41,12 +43,15 @@ public struct MacFirstRunView: View {
     let state: FirstRunState
     let allow: () -> Void
     let openPasswords: () -> Void
+    let sendTestAgain: () -> Void
     @State private var didCopy = false
 
-    public init(state: FirstRunState, allow: @escaping () -> Void, openPasswords: @escaping () -> Void) {
+    public init(state: FirstRunState, allow: @escaping () -> Void, openPasswords: @escaping () -> Void,
+        sendTestAgain: @escaping () -> Void) {
         self.state = state
         self.allow = allow
         self.openPasswords = openPasswords
+        self.sendTestAgain = sendTestAgain
     }
 
     public var body: some View {
@@ -104,6 +109,10 @@ public struct MacFirstRunView: View {
         case .waiting: Row(mark: .working, title: FirstRunCopy.approveTest, detail: FirstRunCopy.approveTestDetail)
         case let .passed(at): Row(mark: .done, title: FirstRunCopy.macWorks, detail: FirstRunCopy.lastTested(at.formatted(date: .omitted, time: .shortened)))
         case let .failed(message): Row(mark: .failed, title: FirstRunCopy.approveTest, detail: message)
+        case .declined:
+            Row(mark: .notYet, title: FirstRunCopy.notTested, detail: FirstRunCopy.notTestedDenied) {
+                PillButton(title: FirstRunCopy.sendAgain, action: sendTestAgain).padding(.top, 10)
+            }
         }
     }
 

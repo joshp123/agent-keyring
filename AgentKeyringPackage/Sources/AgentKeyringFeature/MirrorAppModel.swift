@@ -55,6 +55,8 @@ public final class MirrorAppModel {
     let bridge: AgentBridgeDirectory
     public private(set) var includeExampleCredential: Bool
     public internal(set) var selfTest = MacSelfTest.notRun
+    /// The sealed copies, for the screens: which machine holds which login.
+    var sealedCache: [Agentkeyring_V2_SealedLogin] = []
     /// From Open Passwords until the logins arrive: the window stays above Passwords.
     public internal(set) var awaitingExport = false
     let settings: UserDefaults
@@ -104,11 +106,14 @@ public final class MirrorAppModel {
         }
         keys = made
         device = MacDevice(keys: made, store: store) { [weak self] in self?.catalogueLogins() ?? [] }
+        device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
         return made
     }
 
     public func loadStatus() async {
         defer { isLoading = false }
+        await store.whenChanged { [weak self] in Task { @MainActor in await self?.refreshSealedCache() } }
+        await refreshSealedCache()
         do {
             let importedMetadata = try await store.loadCurrentMetadata()
             status = importedMetadata?.safeStatus
@@ -126,6 +131,8 @@ public final class MirrorAppModel {
         if (try? macKeys()) != nil { device?.start() }
         offerSelfTestIfNeeded()
     }
+
+    func refreshSealedCache() async { sealedCache = (try? await store.sealed()) ?? [] }
 
     public func setIncludeExampleCredential(_ enabled: Bool) async {
         includeExampleCredential = enabled

@@ -128,7 +128,7 @@ public struct AgentBridgeDirectory: Sendable {
     }
 
     public static func defaultRootURL(fileManager: FileManager = .default) -> URL {
-        if Bundle.main.bundleIdentifier?.hasSuffix(".AgentKeyring") == true {
+        if Bundle.main.bundleURL.pathExtension == "app" {
             return fileManager.homeDirectoryForCurrentUser
         }
         return fileManager.homeDirectoryForCurrentUser

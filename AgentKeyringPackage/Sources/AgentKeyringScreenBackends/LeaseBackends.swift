@@ -110,53 +110,11 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
     }
 }
 
-/// U3: the rules window over the existing access-rules controller, keeping
-/// its Touch ID confirmation. "Last used" is the last approval in the lease store.
-@available(macOS 26.0, *)
-@MainActor
-public final class AccessRulesBackend: LoginRulesBackend {
-    private let model: MirrorAppModel
-    private var controller: CredentialAccessController { model.accessControl }
-
-    public init(model: MirrorAppModel) {
-        self.model = model
-    }
-
-    public func snapshot() -> LoginRulesSnapshot {
-        let lastApproved = Dictionary(
-            model.leaseStore.leases.filter { $0.approvedAtUnixSeconds > 0 }
-                .map { ($0.loginID, Date(timeIntervalSince1970: TimeInterval($0.approvedAtUnixSeconds))) },
-            uniquingKeysWith: max)
-        let rows = controller.rows.map { row in
-            LoginRuleRow(id: row.id, site: row.website.isEmpty ? row.title : row.website, account: row.account,
-                rule: LoginRule(row.policy), lastUsed: lastApproved[row.id.uuidString])
-        }
-        return LoginRulesSnapshot(rows: rows, confirmation: nil, isApplying: controller.isSavingRules)
-    }
-
-    public func updates() -> AsyncStream<LoginRulesSnapshot> {
-        let backend = self
-        return stream(Observations { backend.snapshot() })
-    }
-
-    public func setRules(_ rules: [UUID: LoginRule], context: LAContext) async throws {
-        await controller.setPolicies(rules.mapValues(CredentialAccessPolicy.init), context: context)
-        if let message = controller.errorMessage { throw RulesFailure(message: message) }
-    }
-
-    /// Rules need no confirmation: each change is approved as it is made.
-    public func confirmRules(context: LAContext) async throws {}
-}
-
-struct RulesFailure: LocalizedError {
-    let message: String
-    var errorDescription: String? { message }
-}
-
 extension LoginRule {
     public init(_ policy: CredentialAccessPolicy) {
         switch policy {
         case .ask: self = .ask
+        case .askOnPhone: self = .askOnPhone
         case .allowAutomatically: self = .automatic
         case .block: self = .blocked
         }
@@ -167,6 +125,7 @@ extension CredentialAccessPolicy {
     init(_ rule: LoginRule) {
         switch rule {
         case .ask: self = .ask
+        case .askOnPhone: self = .askOnPhone
         case .automatic: self = .allowAutomatically
         case .blocked: self = .block
         }
