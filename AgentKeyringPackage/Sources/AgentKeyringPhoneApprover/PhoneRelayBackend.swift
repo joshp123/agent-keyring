@@ -204,7 +204,7 @@ public final class PhoneRelayBackend: PhoneBackend {
                         delay = 1
                     }
                 } catch is CancellationError { return }
-                catch { self.logger.error("Work stream ended: \(String(describing: error), privacy: .public)") }
+                catch { PhoneDiagnostics.note("Work stream ended: \(error)") }
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }
                 delay = min(delay * 2, 30)
             }
@@ -322,7 +322,9 @@ public final class PhoneRelayBackend: PhoneBackend {
         save(next)
         do {
             _ = try await relay().call(Self.method { $0.answer = upload })
+            PhoneDiagnostics.note("Answer sent to the relay: \(approving ? "approve" : upload.denyRequestID.isEmpty ? "deny with words" : "deny")")
         } catch {
+            PhoneDiagnostics.note("Answer not sent: \(error)")
             var undo = state
             undo.answered[requestID] = nil
             save(undo)
@@ -398,6 +400,7 @@ public final class PhoneRelayBackend: PhoneBackend {
                     throw KeyringRelayError(code: .notAllowed, message: "The approval does not match this iPhone.")
                 }
                 try accept(members: status.members)
+                PhoneDiagnostics.note("Joined the relay as \(device.keyID.prefix(16))")
                 var joined = state
                 joined.deviceKeyID = device.keyID
                 save(joined)
@@ -445,6 +448,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         let log = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Notice")
         func fail(_ step: String) -> (request: AccessRequest, answeredBy: String?)? {
             log.error("Could not name the request: \(step, privacy: .public)")
+            PhoneDiagnostics.note("Could not name the request: \(step)")
             return nil
         }
         guard let base64 = userInfo["akr"] as? String, let bytes = Data(base64Encoded: base64),

@@ -58,7 +58,6 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
         return defaults.bool(forKey: "ApproveOnLockScreen")
     }()
-    private let log = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Answer")
 
     override init() {
         if UserDefaults.standard.bool(forKey: "Sample") {
@@ -86,13 +85,15 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let production = (Bundle.main.object(forInfoDictionaryKey: "AgentKeyringAPNSEnvironment") as? String) == "production"
         Task {
-            do { try await relay?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production) }
-            catch { Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Push").error("Could not register for pushes: \(String(describing: error), privacy: .public)") }
+            do {
+                try await relay?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production)
+                PhoneDiagnostics.note("Push address registered with the relay")
+            } catch { PhoneDiagnostics.note("Could not register for pushes: \(error)") }
         }
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Push").error("Apple refused a push address: \(String(describing: error), privacy: .public)")
+        PhoneDiagnostics.note("Apple refused a push address: \(error)")
     }
 
     /// The keychain group the app shares with its notification service extension. None in the simulator.
@@ -119,20 +120,23 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.setNotificationCategories([requestCategory])
-        #if targetEnvironment(simulator)
-        // The simulator's extension cannot reach the app's software keys, so with
-        // -CheckNotices YES the app opens the relay's real notices itself, as the extension does on a device.
+        // With -CheckNotices YES the app opens the relay's notices on the Lock Screen
+        // itself, as the extension does, and notes what it read: the check for a
+        // sitting, and in the simulator the only way, as its extension cannot reach the app's keys.
         if UserDefaults.standard.bool(forKey: "CheckNotices") {
             Task {
                 for note in await center.deliveredNotifications() {
-                    let words = PhoneRelayBackend.notifiedRequest(note.request.content.userInfo, shared: PhoneSharedContext(accessGroup: nil)) {
+                    let words = PhoneRelayBackend.notifiedRequest(note.request.content.userInfo, shared: PhoneSharedContext(accessGroup: Self.keychainGroup)) {
+                        #if targetEnvironment(simulator)
                         try PhoneSoftwareKeys().openNotice($0, deviceKeyID: $1)
+                        #else
+                        try PhoneEnclaveKeys(accessGroup: Self.keychainGroup).openNotice($0, deviceKeyID: $1)
+                        #endif
                     }
-                    log.notice("Notice check: \(words.map { "\($0.request.login.site) / \(PhoneCopy.notificationSubtitle($0.request.agent)) / \(PhoneCopy.notificationBody($0.request)) / outcome by \($0.answeredBy ?? "-")" } ?? "not opened", privacy: .public)")
+                    PhoneDiagnostics.note("Notice check: \(words.map { "\($0.request.login.site) / \(PhoneCopy.notificationSubtitle($0.request.agent)) / \(PhoneCopy.notificationBody($0.request)) / outcome by \($0.answeredBy ?? "-")" } ?? "not opened")")
                 }
             }
         }
-        #endif
         return true
     }
 
@@ -169,21 +173,24 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             if approvesOnLockScreen, let relay {
                 do {
                     try await relay.approveFromLockScreen(id)
-                    log.notice("Approved from the Lock Screen with the unlock's Face ID")
+                    PhoneDiagnostics.note("Approve on the Lock Screen: approved, with the unlock's Face ID")
                 } catch {
                     let code = (error as? LAError)?.code.rawValue ?? (error as NSError).code
-                    log.error("Approve on the Lock Screen failed: \((error as NSError).domain, privacy: .public) \(code, privacy: .public)")
+                    PhoneDiagnostics.note("Approve on the Lock Screen: failed, \((error as NSError).domain) \(code); offered the app instead")
                     await askToOpen(id)
                 }
             } else {
                 model.shownRequestID = id
                 await model.approve(id, reusingUnlock: true)
+                PhoneDiagnostics.note("Approve opened the app; \(model.failure == nil ? "answered" : "failed: \(model.failure!)")")
             }
         case PhoneNotification.denyAction:
-            try? await backend.deny(id, reply: nil)
+            do { try await backend.deny(id, reply: nil); PhoneDiagnostics.note("Deny from the notification: sent") }
+            catch { PhoneDiagnostics.note("Deny from the notification: failed, \(error)") }
         case PhoneNotification.denyAndExplainAction:
             let words = reply?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            try? await backend.deny(id, reply: words.isEmpty ? nil : words)
+            do { try await backend.deny(id, reply: words.isEmpty ? nil : words); PhoneDiagnostics.note("Deny and Explain: sent, \(words.count) characters") }
+            catch { PhoneDiagnostics.note("Deny and Explain: failed, \(error)") }
         default:
             model.shownRequestID = id
         }
