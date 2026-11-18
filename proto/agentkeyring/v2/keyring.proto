@@ -285,7 +285,8 @@ message Work {
   Signed proposal = 5;
 }
 
-// A rule change a device proposes and only the iPhone or Watch may make, the
+// A rule change a device proposes and only the iPhone may make (the Watch
+// approves with one tap and no face, so it is not shown these), the
 // payload of a Signed by the proposer's reply key: it grants nothing until a
 // device that can make the change approves it.
 message RuleProposal {
@@ -350,7 +351,7 @@ message RelayRequest {
     Empty test_request = 20;
     Signed report_self_test = 21;          // Devices: SelfTestReport, signed by the reply key.
     Empty self_tests = 22;                 // Devices and machines: returns SelfTests.
-    // Devices: a rule change for the iPhone or Watch to approve. Streams
+    // Devices: a rule change for the iPhone to approve. Streams
     // Lease until it is answered or unanswered.
     Signed propose_rules = 23;
     // Devices and machines: every Members revision after this one, oldest

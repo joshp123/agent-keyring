@@ -925,7 +925,8 @@ public nonisolated struct Agentkeyring_V2_Work: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-/// A rule change a device proposes and only the iPhone or Watch may make, the
+/// A rule change a device proposes and only the iPhone may make (the Watch
+/// approves with one tap and no face, so it is not shown these), the
 /// payload of a Signed by the proposer's reply key: it grants nothing until a
 /// device that can make the change approves it.
 public nonisolated struct Agentkeyring_V2_RuleProposal: Sendable {
@@ -1190,7 +1191,7 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     set {method = .selfTests(newValue)}
   }
 
-  /// Devices: a rule change for the iPhone or Watch to approve. Streams
+  /// Devices: a rule change for the iPhone to approve. Streams
   /// Lease until it is answered or unanswered.
   public var proposeRules: Agentkeyring_V2_Signed {
     get {
@@ -1255,7 +1256,7 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     case reportSelfTest(Agentkeyring_V2_Signed)
     /// Devices and machines: returns SelfTests.
     case selfTests(Agentkeyring_V2_Empty)
-    /// Devices: a rule change for the iPhone or Watch to approve. Streams
+    /// Devices: a rule change for the iPhone to approve. Streams
     /// Lease until it is answered or unanswered.
     case proposeRules(Agentkeyring_V2_Signed)
     /// Devices and machines: every Members revision after this one, oldest

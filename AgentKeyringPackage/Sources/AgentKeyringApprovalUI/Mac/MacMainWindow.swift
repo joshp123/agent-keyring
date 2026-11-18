@@ -10,6 +10,8 @@ import LocalAuthentication
 import Observation
 import SwiftUI
 
+public enum ProposalOutcome: Sendable { case approved, denied, unanswered }
+
 public struct LoginRow: Identifiable, Hashable, Sendable {
     public let id: UUID
     public var site: String
@@ -82,8 +84,8 @@ public struct MainSnapshot: Hashable, Sendable {
 public protocol MainWindowBackend: AnyObject {
     func updates() -> AsyncStream<MainSnapshot>
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws
-    /// Changes from Ask on iPhone or Watch: sent there; true once approved.
-    func proposeRules(_ changes: [UUID: LoginRule]) async throws -> Bool
+    /// Changes away from Ask on iPhone or Watch: sent to the iPhone, and how it answered.
+    func proposeRules(_ changes: [UUID: LoginRule]) async throws -> ProposalOutcome
     func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws
     func remove(id: String, context: LAContext) async throws
     func importAgain()
@@ -134,14 +136,18 @@ public final class MacMainModel {
         pending[row.id] = rule == row.rule ? nil : rule
     }
 
-    /// Changes from Ask on iPhone or Watch can be approved only there.
-    public var needsPhone: Bool {
-        snapshot.logins.contains { pending[$0.id] != nil && $0.rule == .askOnPhone }
+    /// Only changes away from Ask on iPhone or Watch go to the iPhone; this Mac
+    /// makes every other change itself, with Touch ID.
+    private var phoneChanges: [UUID: LoginRule] {
+        pending.filter { id, _ in snapshot.logins.first { $0.id == id }?.rule == .askOnPhone }
     }
 
+    public var needsPhone: Bool { !phoneChanges.isEmpty }
+
     public var pendingSentence: String {
-        let changed = snapshot.logins.filter { pending[$0.id] != nil }
-        guard changed.count == 1, let row = changed.first, let next = pending[row.id] else {
+        let shown = needsPhone ? phoneChanges : pending
+        let changed = snapshot.logins.filter { shown[$0.id] != nil }
+        guard changed.count == 1, let row = changed.first, let next = shown[row.id] else {
             return "The rules for \(changed.count) logins change."
         }
         return "\(row.site) changes from \(row.rule.name) to \(next.name)."
@@ -154,18 +160,26 @@ public final class MacMainModel {
         failure = nil
     }
 
-    /// Sends a change only the iPhone or Watch may make, and waits for it.
+    /// Sends the changes away from Ask on iPhone or Watch to the iPhone and
+    /// waits; any other changes stay, to be saved here with Touch ID.
     public func sendToPhone() {
         guard !isWorking else { return }
+        let changes = phoneChanges
+        let sites = snapshot.logins.filter { changes[$0.id] != nil }.map(\.site)
+        let still = sites.count == 1 ? "\(sites[0]) is still set to Ask on iPhone or Watch."
+            : "\(sites.count) logins are still set to Ask on iPhone or Watch."
         isWorking = true
         failure = nil
         Task {
             defer { isWorking = false }
             do {
-                if try await backend.proposeRules(pending) { pending = [:] }
-                else { failure = "Your iPhone or Watch did not approve the change. The rules are as they were." }
+                switch try await backend.proposeRules(changes) {
+                case .approved: for id in changes.keys { pending[id] = nil }
+                case .denied: failure = "Denied on your iPhone. " + still
+                case .unanswered: failure = "No answer on your iPhone after 10 minutes. " + still
+                }
             } catch {
-                failure = (error as? LocalizedError)?.errorDescription ?? "The change could not be sent to your iPhone or Watch."
+                failure = (error as? LocalizedError)?.errorDescription ?? "The change could not be sent to your iPhone."
             }
         }
     }
@@ -340,7 +354,7 @@ private struct LoginsTab: View {
                 Pill(title: "Cancel", style: .quiet, action: model.cancelChanges)
                 if model.needsPhone {
                     Button(action: model.sendToPhone) {
-                        Label(model.isWorking ? "Waiting for your iPhone or Watch" : "Approve on your iPhone or Watch", systemImage: "iphone")
+                        Label(model.isWorking ? "Waiting for your iPhone" : "Approve it on your iPhone", systemImage: "iphone")
                             .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
                     }
                     .buttonStyle(.plain).disabled(model.isWorking)
