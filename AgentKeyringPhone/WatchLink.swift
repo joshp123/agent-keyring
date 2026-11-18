@@ -62,7 +62,9 @@ final class WatchLink: NSObject, WCSessionDelegate {
     }
 
     private func receive(_ payload: [String: Data]) {
-        if let device = payload["watchDevice"], let push = payload["watchPush"] { relay.watchOffered(device: device, push: push) }
+        if payload["watchDevice"] != nil || payload["watchPush"] != nil {
+            relay.watchOffered(device: payload["watchDevice"], push: payload["watchPush"])
+        }
         if let test = payload["watchSelfTest"] { relay.watchTested(test) }
     }
 
