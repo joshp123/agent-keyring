@@ -12,8 +12,9 @@ enum PhoneNoticeReader {
         if let request = PhoneNotification.decode(userInfo) { return (request, nil) }
         return nil
         #else
-        let keys = PhoneEnclaveKeys(accessGroup: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String)
-        return PhoneRelayBackend.notifiedRequest(userInfo, directory: PhoneShared.directory) { try keys.openNotice($0, deviceKeyID: $1) }
+        let group = Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String
+        let keys = PhoneEnclaveKeys(accessGroup: group)
+        return PhoneRelayBackend.notifiedRequest(userInfo, shared: PhoneSharedContext(accessGroup: group)) { try keys.openNotice($0, deviceKeyID: $1) }
         #endif
     }
 }

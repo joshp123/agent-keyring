@@ -52,9 +52,10 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             #if targetEnvironment(simulator)
             let keys: any PhoneDeviceKeys = PhoneSoftwareKeys()
             #else
-            let keys: any PhoneDeviceKeys = PhoneEnclaveKeys(accessGroup: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String)
+            let keys: any PhoneDeviceKeys = PhoneEnclaveKeys(accessGroup: Self.keychainGroup)
             #endif
-            let real = PhoneRelayBackend(directory: PhoneShared.directory, keys: keys,
+            let real = PhoneRelayBackend(directory: .applicationSupportDirectory.appending(path: "AgentKeyring", directoryHint: .isDirectory),
+                                         shared: PhoneSharedContext(accessGroup: Self.keychainGroup), keys: keys,
                                          identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v2") })
             backend = real; relay = real
             model = PhoneModel(backend: real, initial: real.snapshot)
@@ -68,6 +69,15 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let production = (Bundle.main.object(forInfoDictionaryKey: "AgentKeyringAPNSEnvironment") as? String) == "production"
         Task { try? await relay?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production) }
+    }
+
+    /// The keychain group the app shares with its notification service extension. None in the simulator.
+    static var keychainGroup: String? {
+        #if targetEnvironment(simulator)
+        nil
+        #else
+        Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String
+        #endif
     }
 
     /// `-SampleSetup scanCode` starts the sample at that step of first run.

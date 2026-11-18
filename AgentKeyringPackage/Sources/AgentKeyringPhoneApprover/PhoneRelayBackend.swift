@@ -14,6 +14,7 @@ import CryptoKit
 import Foundation
 import LocalAuthentication
 import OSLog
+import Security
 
 typealias Work = Agentkeyring_V2_Work
 typealias Lease = Agentkeyring_V2_Lease
@@ -32,18 +33,49 @@ struct PhoneSavedState: Codable {
     var watchAsked = false
 }
 
-/// Where the app and its notification service extension keep what both read.
-public enum PhoneShared {
-    public static var directory: URL {
-        let group = "group." + (Bundle.main.bundleIdentifier ?? "").replacingOccurrences(of: ".NotificationService", with: "")
-        return (FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) ?? .applicationSupportDirectory)
-            .appending(path: "AgentKeyring", directoryHint: .isDirectory)
+/// What the notification service extension needs to name a request: this
+/// iPhone's key id, the Members and the Catalogue. Kept in the keychain group
+/// the app shares with the extension, readable once the phone has been unlocked
+/// after starting up.
+public struct PhoneSharedContext {
+    let service = "com.joshpalmer.AgentKeyring.Phone.shared-context"
+    let accessGroup: String?
+
+    public init(accessGroup: String?) { self.accessGroup = accessGroup }
+
+    private var query: [String: Any] {
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                    kSecAttrAccount as String: "context", kSecUseDataProtectionKeychain as String: true]
+        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        return query
+    }
+
+    func write(_ state: PhoneSavedState) {
+        var shared = PhoneSavedState()
+        shared.deviceKeyID = state.deviceKeyID; shared.members = state.members; shared.catalogue = state.catalogue
+        guard let data = try? PropertyListEncoder().encode(shared) else { return }
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            SecItemAdd(add as CFDictionary, nil)
+        }
+    }
+
+    func read() -> PhoneSavedState? {
+        var read = query
+        read[kSecReturnData as String] = true
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(read as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        return try? PropertyListDecoder().decode(PhoneSavedState.self, from: data)
     }
 }
 
 @MainActor
 public final class PhoneRelayBackend: PhoneBackend {
     private let directory: URL
+    private let shared: PhoneSharedContext
     private let keys: any PhoneDeviceKeys
     private let identity: @MainActor () throws -> RelayTLSIdentity
     private var state = PhoneSavedState()
@@ -51,9 +83,10 @@ public final class PhoneRelayBackend: PhoneBackend {
     private var subscribers: [UUID: AsyncStream<PhoneSnapshot>.Continuation] = [:]
     private let logger = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Relay")
 
-    /// `directory` is shared with the notification service extension, which reads Members and Catalogue from it.
-    public init(directory: URL, keys: any PhoneDeviceKeys, identity: @escaping @MainActor () throws -> RelayTLSIdentity) {
+    public init(directory: URL, shared: PhoneSharedContext, keys: any PhoneDeviceKeys,
+                identity: @escaping @MainActor () throws -> RelayTLSIdentity) {
         self.directory = directory
+        self.shared = shared
         self.keys = keys
         self.identity = identity
         if let data = try? Data(contentsOf: stateURL), let saved = try? PropertyListDecoder().decode(PhoneSavedState.self, from: data) {
@@ -395,12 +428,11 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// The request a push is about, as the Lock Screen shows it: the notice
     /// opened, the login and machine named from the saved Catalogue and Members.
-    nonisolated public static func notifiedRequest(_ userInfo: [AnyHashable: Any], directory: URL,
+    nonisolated public static func notifiedRequest(_ userInfo: [AnyHashable: Any], shared: PhoneSharedContext,
                                        open: (Agentkeyring_V2_Notice, String) throws -> Agentkeyring_V2_Work) -> (request: AccessRequest, answeredBy: String?)? {
         guard let base64 = userInfo["akr"] as? String, let bytes = Data(base64Encoded: base64),
               let notice = try? Agentkeyring_V2_Notice(serializedBytes: bytes),
-              let data = try? Data(contentsOf: directory.appending(path: "phone-v2.plist")),
-              let saved = try? PropertyListDecoder().decode(PhoneSavedState.self, from: data),
+              let saved = shared.read(),
               let keyID = saved.deviceKeyID, let work = try? open(notice, keyID),
               let members = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) }).flatMap({ try? Members(serializedBytes: $0.payload) })
         else { return nil }
@@ -423,7 +455,9 @@ public final class PhoneRelayBackend: PhoneBackend {
     private var stateURL: URL { directory.appending(path: "phone-v2.plist") }
 
     private func save(_ next: PhoneSavedState) {
+        let sharedChanged = next.members != state.members || next.catalogue != state.catalogue || next.deviceKeyID != state.deviceKeyID
         state = next
+        if sharedChanged { shared.write(next) }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let encoder = PropertyListEncoder()
