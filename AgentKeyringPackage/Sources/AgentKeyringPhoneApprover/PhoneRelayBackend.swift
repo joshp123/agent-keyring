@@ -144,7 +144,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         snapshot.asksAboutNotifications = !state.notificationsAsked
         snapshot.testRequest = state.testApproved ? nil : testWork.flatMap { try? Sealing.parseRequest($0.request).requestID }
         snapshot.deviceRequest = pendingWatch.map { PhoneDeviceRequest(id: $0.keyID, name: $0.label, detail: PhoneCopy.pairedWithThisIPhone) }
-        snapshot.ruleProposal = proposalWork.flatMap { Self.ruleProposal($0.0, members, catalogue) }
+        snapshot.ruleChanges = ruleChangeWork.compactMap { Self.ruleProposal($0.work, members, catalogue) }
         return snapshot
     }
 
@@ -161,8 +161,14 @@ public final class PhoneRelayBackend: PhoneBackend {
             lines.append(L(id: "notifications", mark: .done, title: PhoneCopy.notificationsOn))
         }
         let reachable = connectionFailed == nil
-        lines.append(L(id: "reach", mark: !reachable ? .failed : (state.pushSeen ? .done : (state.notificationsAllowed ? .working : .notYet)),
-                       title: reachable ? PhoneCopy.requestsReach : PhoneCopy.cantReachRelay))
+        // A push seen proves it; a push address the relay holds is enough once Apple was late with it.
+        let reaches = state.pushSeen || (pushRegistered && noPushAddress)
+        if reachable && !reaches && noPushAddress {
+            lines.append(L(id: "reach", mark: .working, title: PhoneCopy.waitingForApple, detail: PhoneCopy.waitingForAppleDetail))
+        } else {
+            lines.append(L(id: "reach", mark: !reachable ? .failed : (reaches ? .done : (state.notificationsAllowed ? .working : .notYet)),
+                           title: reachable ? PhoneCopy.requestsReach : PhoneCopy.cantReachRelay))
+        }
         if let ended = state.testEnded, !state.testApproved {
             lines.append(L(id: "test", mark: .notYet, title: PhoneCopy.notTested,
                            detail: ended == "denied" ? PhoneCopy.testDenied : PhoneCopy.testUnanswered, action: .sendTestAgain))
@@ -177,7 +183,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         } else if watchPaired {
             lines.append(L(id: "watch", mark: .notYet, title: PhoneCopy.addWatch, detail: PhoneCopy.addWatchOpen))
         }
-        return PhoneSetup(lines: lines, isReady: state.notificationsAllowed && state.pushSeen && state.testApproved && reachable)
+        return PhoneSetup(lines: lines, isReady: state.notificationsAllowed && reaches && state.testApproved && reachable)
     }
 
     /// The relay's test request for this iPhone, once it has arrived and while it waits.
@@ -294,11 +300,23 @@ public final class PhoneRelayBackend: PhoneBackend {
         next.work[request.requestID] = try? work.serializedData()
         if work.hasOutcome { next.answered[request.requestID] = nil }
         save(next)
+        // A machine or login this iPhone has not seen yet: the lists changed since it last looked.
+        let unknownMachine = !request.machineID.isEmpty && members?.machines.contains { $0.machineID == request.machineID } == false
+        let unknownLogin = !request.loginID.isEmpty && catalogue?.logins.contains { $0.loginID == request.loginID } != true
+        if unknownMachine || unknownLogin { Task { try? await refreshMembersAndCatalogue() } }
     }
 
     private func refreshMembersAndCatalogue() async throws {
         let relay = try relay()
-        if case let .signed(signed) = try await relay.call(Self.method { $0.members = .init() }).result { try accept(members: signed) }
+        // Each revision since the one held, in turn: a later one may be signed by
+        // a device that only an earlier one added.
+        if let revision = members?.revision {
+            if case let .membersChain(chain) = try await relay.call(Self.method { $0.membersSince = revision }).result {
+                for document in chain.revisions { try accept(members: document) }
+            }
+        } else if case let .signed(signed) = try await relay.call(Self.method { $0.members = .init() }).result {
+            try accept(members: signed)
+        }
         if case let .signed(signed) = try await relay.call(Self.method { $0.catalogue = .init() }).result { try accept(catalogue: signed) }
     }
 
@@ -477,47 +495,60 @@ public final class PhoneRelayBackend: PhoneBackend {
         }
     }
 
-    /// A rule change another device proposed, waiting here.
-    private var proposalWork: (Work, Agentkeyring_V2_RuleProposal)? {
-        for data in state.work.values {
-            guard let work = try? Work(serializedBytes: data), !work.hasOutcome, work.hasProposal,
+    /// The rule changes the Mac sent, signed by a listed device, with their proposals.
+    private var ruleChangeWork: [(work: Work, proposal: Agentkeyring_V2_RuleProposal)] {
+        guard let members else { return [] }
+        return state.work.values.compactMap { data in
+            guard let work = try? Work(serializedBytes: data), work.hasProposal,
                   let proposal = try? Agentkeyring_V2_RuleProposal(serializedBytes: work.proposal.payload),
-                  proposal.domain == "agentkeyring.proposal.v2", let members,
-                  (try? Sealing.verify(work.proposal, members: members, allowReplyKey: true)) != nil else { continue }
+                  proposal.domain == "agentkeyring.proposal.v2",
+                  (try? Sealing.verify(work.proposal, members: members, allowReplyKey: true)) != nil else { return nil }
             return (work, proposal)
         }
-        return nil
     }
 
-    /// A proposal in words: who asked, and each login's new rule.
-    nonisolated static func ruleProposal(_ work: Work, _ members: Members, _ catalogue: Catalogue?) -> PhoneRuleProposal? {
+    private func waitingRuleChange(_ id: String) -> (work: Work, proposal: Agentkeyring_V2_RuleProposal)? {
+        ruleChangeWork.first { !$0.work.hasOutcome && (try? Sealing.parseRequest($0.work.request))?.requestID == id }
+    }
+
+    /// A rule change in words: who sent it, each login's rule now and the rule it asks for.
+    nonisolated static func ruleProposal(_ work: Work, _ members: Members, _ catalogue: Catalogue?,
+                                         answering: Bool = false) -> PhoneRuleProposal? {
         guard work.hasProposal, let request = try? Sealing.parseRequest(work.request),
               let proposal = try? Agentkeyring_V2_RuleProposal(serializedBytes: work.proposal.payload) else { return nil }
         let from = members.devices.first { $0.keyID == work.proposal.signerKeyID || $0.replyKeyID == work.proposal.signerKeyID }?.label ?? request.agent
-        let changes = proposal.changes.map { change in
-            let rule: PhoneLogin.Rule = change.rule == .automatic ? .automatic : change.rule == .blocked ? .blocked
-                : change.phoneAndWatchOnly ? .askOnIPhoneOrWatch : .ask
-            return PhoneRuleProposal.Change(site: catalogue?.logins.first { $0.loginID == change.loginID }.map(site) ?? change.loginID,
-                                            to: PhoneCopy.rule(rule))
+        func rule(_ rule: Agentkeyring_V2_Rule, _ phoneAndWatchOnly: Bool) -> PhoneLogin.Rule {
+            rule == .automatic ? .automatic : rule == .blocked ? .blocked : phoneAndWatchOnly ? .askOnIPhoneOrWatch : .ask
         }
-        return PhoneRuleProposal(id: request.requestID, from: from, changes: changes)
+        let changes = proposal.changes.map { change in
+            let login = catalogue?.logins.first { $0.loginID == change.loginID }
+            return PhoneRuleProposal.Change(site: login.map(site) ?? change.loginID, account: login?.account ?? "",
+                                            from: login.map { rule($0.rule, $0.phoneAndWatchOnly) } ?? .askOnIPhoneOrWatch,
+                                            to: rule(change.rule, change.phoneAndWatchOnly))
+        }
+        let now = Int64(Date().timeIntervalSince1970)
+        let state: AccessRequestState = work.hasOutcome ? Self.state(work.outcome, now: now)
+            : answering ? .sendingAnswer(.approve)
+            : request.answerByUnixSeconds > now ? .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds))) : .unanswered
+        return PhoneRuleProposal(id: request.requestID, from: from, changes: changes,
+                                 askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: state)
     }
 
-    /// A pushed proposal, for the notification service extension.
+    /// A pushed rule change, for the notification service extension.
     nonisolated public static func notifiedProposal(_ userInfo: [AnyHashable: Any], shared: PhoneSharedContext,
                                                     open: (Agentkeyring_V2_Notice, String) throws -> Agentkeyring_V2_Work) -> PhoneRuleProposal? {
         guard let base64 = userInfo["akr"] as? String, let bytes = Data(base64Encoded: base64),
               let notice = try? Agentkeyring_V2_Notice(serializedBytes: bytes), let saved = shared.read(),
-              let keyID = saved.deviceKeyID, let work = try? open(notice, keyID), work.hasProposal, !work.hasOutcome,
+              let keyID = saved.deviceKeyID, let work = try? open(notice, keyID), work.hasProposal,
               let members = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) }).flatMap({ try? Members(serializedBytes: $0.payload) })
         else { return nil }
         let catalogue = saved.catalogue.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Catalogue(serializedBytes: $0.payload) }
         return ruleProposal(work, members, catalogue)
     }
 
-    /// Approving a proposal publishes its rules, then answers it.
-    public func approveProposal() async throws {
-        guard let (work, proposal) = proposalWork else { return }
+    /// Approving a rule change publishes its rules, then answers it.
+    public func approveRuleChange(_ id: String) async throws {
+        guard let (work, proposal) = waitingRuleChange(id) else { return }
         let context = LAContext()
         defer { context.invalidate() }
         try await keys.authorize(context, reason: "Change the rules your Mac asked for.")
@@ -533,8 +564,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         _ = try await relay().call(Self.method { $0.answer = upload })
     }
 
-    public func denyProposal() async {
-        guard let (work, _) = proposalWork, let id = try? Sealing.parseRequest(work.request).requestID else { return }
+    public func denyRuleChange(_ id: String) async {
+        guard waitingRuleChange(id) != nil else { return }
         _ = try? await relay().call(Self.method { $0.answer = Sealing.plainDeny(requestID: id) })
     }
 
@@ -656,11 +687,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         if state.notificationsAllowed { askForTest() }
     }
 
-    private var noPushAddress = false
+    private var noPushAddress = false { didSet { publish() } }
 
     /// The relay has this launch's push address. The test request waits for it,
     /// so that its push can show that requests reach this iPhone.
-    private var pushRegistered = false
+    private var pushRegistered = false { didSet { publish() } }
 
     /// Asks the relay for this iPhone's test request: it arrives pushed, like any
     /// request, which shows that requests reach the phone, and opens as a sheet.

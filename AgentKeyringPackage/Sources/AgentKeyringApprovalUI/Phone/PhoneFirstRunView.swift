@@ -94,8 +94,12 @@ struct PhoneSimpleRequestView: View {
     let model: PhoneModel
     let lead: String
     let title: String
-    let detail: String
+    let detail: String?
+    /// A rule change's lines under the title: the change in semibold, then what it would allow.
+    var change: [String] = []
+    var allows: String? = nil
     let footnote: String
+    var dismissable = false
     let approve: () async -> Void
     let deny: () async -> Void
 
@@ -107,10 +111,20 @@ struct PhoneSimpleRequestView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 18)
-            VStack(spacing: 1) {
-                Text(lead).font(.subheadline).foregroundStyle(Phone.ink2)
-                Text(title).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
-                Text(detail).font(.subheadline).foregroundStyle(Phone.ink2)
+            VStack(spacing: 12) {
+                VStack(spacing: 1) {
+                    Text(lead).font(.subheadline).foregroundStyle(Phone.ink2)
+                    Text(title).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
+                    if let detail { Text(detail).font(.subheadline).foregroundStyle(Phone.ink2) }
+                }
+                if !change.isEmpty || allows != nil {
+                    VStack(spacing: 4) {
+                        ForEach(Array(change.enumerated()), id: \.offset) { index, line in
+                            Text(line).font(.title3.weight(index == 0 ? .semibold : .regular)).foregroundStyle(Phone.ink)
+                        }
+                        if let allows { Text(allows).font(.title3).foregroundStyle(Phone.ink) }
+                    }
+                }
             }
             .multilineTextAlignment(.center)
             .frame(maxHeight: .infinity)
@@ -132,7 +146,7 @@ struct PhoneSimpleRequestView: View {
         .padding(.bottom, 44)
         .background(Phone.surface)
         .ignoresSafeArea(.container, edges: .bottom)
-        .interactiveDismissDisabled()
+        .interactiveDismissDisabled(!dismissable)
     }
 }
 #endif

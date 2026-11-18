@@ -13,7 +13,7 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
     private var subscribers: [UUID: AsyncStream<PhoneSnapshot>.Continuation] = [:]
 
-    /// `step` is one of Paper's first-run iPhone screens: 4, 6, 7, 7-ready, 9, ready, notifications-off, or proposal (a rule change the Mac proposed); nil is the app in use.
+    /// `step` is one of Paper's first-run iPhone screens: 4, 6, 7, 7-ready, 9, ready, notifications-off, proposal or proposal-several (a rule change the Mac sent); nil is the app in use.
     public init(step: String? = nil, now: Date = .now) {
         snapshot = Self.paper(setup: .ready, now: now)
         if let step { Self.firstRun(step, into: &snapshot) }
@@ -53,8 +53,12 @@ public final class PhoneSampleBackend: PhoneBackend {
     public func notifications(allowed: Bool) async {}
     public func approveTest() async throws { Self.firstRun("7-ready", into: &snapshot) }
     public func denyTest() async {}
-    public func approveProposal() async throws { snapshot.ruleProposal = nil }
-    public func denyProposal() async { snapshot.ruleProposal = nil }
+    public func approveRuleChange(_ id: String) async throws { settle(id, .approved(by: .iPhone, until: .now)) }
+    public func denyRuleChange(_ id: String) async { settle(id, .denied(by: .iPhone, reply: nil, askAgainAfter: nil)) }
+    private func settle(_ id: String, _ state: AccessRequestState) {
+        guard let index = snapshot.ruleChanges.firstIndex(where: { $0.id == id }) else { return }
+        snapshot.ruleChanges[index].state = state
+    }
     public func sendTestAgain() async {}
     public func approveDevice(_ id: String) async throws { Self.firstRun("ready", into: &snapshot) }
     public func denyDevice(_ id: String) async { snapshot.deviceRequest = nil }
@@ -70,8 +74,19 @@ public final class PhoneSampleBackend: PhoneBackend {
         switch step {
         case "proposal":
             snapshot = paper(setup: .ready, now: .now)
-            snapshot.ruleProposal = PhoneRuleProposal(id: "p1", from: "MacBook Pro",
-                                                      changes: [.init(site: "bank.example", to: PhoneCopy.rule(.ask))])
+            snapshot.ruleChanges = [
+                PhoneRuleProposal(id: "p1", from: "MacBook Pro", changes: [.init(site: "bank.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .ask)],
+                                  askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600))),
+                PhoneRuleProposal(id: "p0", from: "MacBook Pro", changes: [.init(site: "mail.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .ask)],
+                                  askedAt: .now.addingTimeInterval(-420), state: .approved(by: .iPhone, until: .now)),
+            ]
+            return
+        case "proposal-several":
+            snapshot = paper(setup: .ready, now: .now)
+            snapshot.ruleChanges = [PhoneRuleProposal(id: "p2", from: "MacBook Pro", changes: [
+                .init(site: "bank.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .ask),
+                .init(site: "mail.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .automatic),
+            ], askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))]
             return
         case "4":
             snapshot.setup = PhoneSetup(lines: [L(id: "join", mark: .working, title: PhoneCopy.approveOnMac, detail: PhoneCopy.approveOnMacDetail)], isReady: false)
