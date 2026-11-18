@@ -29,8 +29,9 @@ extension MirrorAppModel {
 
     /// Offers the test once there are logins and this Mac has not passed it.
     func offerSelfTestIfNeeded() {
-        guard status != nil else { return }
-        if case .passed = selfTest { return }
+        // A test he passed or denied is not offered again by itself: a denial
+        // leaves "Send It Again" in the window.
+        guard status != nil, selfTest == .notRun else { return }
         selfTest = .waiting
     }
 
