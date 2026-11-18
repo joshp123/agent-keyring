@@ -137,6 +137,12 @@ public final class MacDevice {
                         return
                     }
                     if case let .machine(machine)? = proven.first?.request.joining { self.setup?.machine = machine }
+                    let invited = response.pendingJoins.joins.filter { join in
+                        self.invitations.keys.contains { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof }
+                    }
+                    if !invited.isEmpty {
+                        deviceLogger.notice("\(invited.count, privacy: .public) proven join(s) wait for setup to finish.")
+                    }
                 }
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -317,8 +323,10 @@ public final class MacDevice {
     }
 
     private func invitation(lasting seconds: TimeInterval) throws -> Agentkeyring_V2_JoinInvite {
-        guard let saved else { throw RelayFailure(.unavailable, "Connect this Mac to the relay first: agent-keyring setup-relay.") }
-        return invitation(endpoint: saved.endpoint, pin: saved.pin, lasting: seconds)
+        if let saved { return invitation(endpoint: saved.endpoint, pin: saved.pin, lasting: seconds) }
+        // While the always-on machine is being set up, others may join too.
+        guard let setup, let setupPin else { throw RelayFailure(.unavailable, "Connect this Mac to the relay first: agent-keyring setup-relay.") }
+        return invitation(endpoint: setup.endpoint, pin: setupPin, lasting: seconds)
     }
 
     private func invitation(endpoint: RelayEndpoint, pin: Data, lasting seconds: TimeInterval) -> Agentkeyring_V2_JoinInvite {
