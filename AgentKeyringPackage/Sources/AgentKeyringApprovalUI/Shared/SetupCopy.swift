@@ -65,9 +65,6 @@ public enum SetupCopy {
     public static let relayHeading = "Requests from other machines"
     public static let relayNotSetUp = "Agents on your other machines send their requests through Agent Keyring on your Mac mini. Connect this Mac to it once."
     public static let relayAddress = "Mac mini address"
-    /// The relay listens on port 17443 on the Mac mini, so this is usually right as it is.
-    public static let defaultRelayAddress = "mac-mini:17443"
-    public static let relayAddressExample = "mac-mini:17443"
     public static let relayAddressHint = "Its Tailscale name and port."
     public static let connect = "Connect"
     /// The agent setting up the mini checks its code for Josh (it reads it over
