@@ -6,6 +6,7 @@
 import AgentKeyringApprovalUI
 import AgentKeyringPhoneApprover
 import AgentKeyringRelaySupport
+import OSLog
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -23,7 +24,7 @@ struct AgentKeyringPhoneApp: App {
                 }
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
                 .onOpenURL { url in Task { await delegate.model.join(scannedCode: url.absoluteString) } }
-                .onChange(of: delegate.model.snapshot.setup) { _, setup in
+                .onChange(of: delegate.model.snapshot.setup, initial: true) { _, setup in
                     if setup != .scanCode { UIApplication.shared.registerForRemoteNotifications() }
                 }
         }
@@ -68,7 +69,14 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let production = (Bundle.main.object(forInfoDictionaryKey: "AgentKeyringAPNSEnvironment") as? String) == "production"
-        Task { try? await relay?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production) }
+        Task {
+            do { try await relay?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production) }
+            catch { Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Push").error("Could not register for pushes: \(String(describing: error), privacy: .public)") }
+        }
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Push").error("Apple refused a push address: \(String(describing: error), privacy: .public)")
     }
 
     /// The keychain group the app shares with its notification service extension. None in the simulator.
