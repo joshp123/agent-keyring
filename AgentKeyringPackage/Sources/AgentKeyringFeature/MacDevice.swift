@@ -233,7 +233,8 @@ public final class MacDevice {
     }
 
     private func receive(_ work: Agentkeyring_V2_Work) {
-        guard let request = try? Sealing.parseRequest(work.request) else { return }
+        // Only the iPhone or Watch may answer these; this Mac never shows them.
+        guard let request = try? Sealing.parseRequest(work.request), !work.login.phoneAndWatchOnly else { return }
         if work.hasOutcome {
             waiting.removeValue(forKey: request.requestID)
             finished[request.requestID] = work
@@ -461,6 +462,47 @@ public final class MacDevice {
             _ = try await call(.reportSelfTest(signed))
         } catch {
             deviceLogger.error("Could not report the self-test to the relay: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    // MARK: Asking the iPhone or Watch, as a machine
+
+    /// What the iPhone or Watch decided about a request from an agent on this Mac.
+    public enum DeviceAnswer {
+        case approved(Agentkeyring_V2_DeliveryContents)
+        case denied(reply: String)
+        case unanswered
+        case cancelled
+    }
+
+    /// An agent on this Mac asked for a login only the iPhone or Watch may
+    /// approve: this Mac asks the relay as the machine it also is, waits for
+    /// the answer, and opens the delivery with its receiving key.
+    public func askDevices(_ ask: Agentkeyring_V2_AskRequest) async throws -> DeviceAnswer {
+        guard let relay, let members else {
+            throw RelayFailure(.unavailable, "Only Josh's iPhone or Watch can approve this login, and this Mac is not connected to them.")
+        }
+        let asked = try await call(.ask(ask))
+        let requestID = asked.lease.requestID
+        var request = Agentkeyring_V2_RelayRequest()
+        var reference = Agentkeyring_V2_RequestReference()
+        reference.requestID = requestID
+        request.method = .watch(reference)
+        var final = asked.lease
+        if final.state == .waiting {
+            try await relay.stream(request) { response in
+                if case let .lease(lease) = response.result { final = lease }
+            }
+        }
+        switch final.state {
+        case .approved:
+            let approval = try await call(.collect(reference)).approval
+            return .approved(try Sealing.openDelivery(approval, members: members, with: keys.receiving))
+        case .denied:
+            let reply = (try? await call(.collect(reference)).approval).flatMap { try? Sealing.verifiedAnswer($0, members: members).reply } ?? ""
+            return .denied(reply: reply)
+        case .unanswered: return .unanswered
+        default: return .cancelled
         }
     }
 

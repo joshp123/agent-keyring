@@ -140,6 +140,13 @@ extension MirrorAppModel {
                 values.password = secret.password
             case .oneTimeCode:
                 let now = Int64(Date().timeIntervalSince1970)
+                if let codes = leaseStore.openedCodes(for: lease.leaseID) {
+                    guard let code = codes.first(where: { $0.validFromUnixSeconds <= now && now < $0.validUntilUnixSeconds }) else {
+                        throw LeaseFailure(.invalidArgument, "The login has no one-time code for now.")
+                    }
+                    values.oneTimeCode = code.code
+                    continue
+                }
                 guard !secret.totpSeed.isEmpty, let code = try OneTimeCodes.codes(for: secret, from: now, until: now + 1).first else {
                     throw LeaseFailure(.invalidArgument, "The login has no one-time code.")
                 }
