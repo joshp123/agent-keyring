@@ -147,9 +147,13 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
     /// it the usual way. True if a newer list arrived.
     func askForMembers() async -> Bool {
         let session = WCSession.default
+        // Opening a notification may have just started the app: its session activates a moment later.
+        activate()
+        for _ in 0..<30 where session.activationState != .activated { try? await Task.sleep(for: .milliseconds(100)) }
         guard session.activationState == .activated else { return false }
         let before = WatchStore().read()
         session.transferUserInfo(["askMembers": true])
+        for _ in 0..<30 where !session.isReachable { try? await Task.sleep(for: .milliseconds(100)) }
         guard session.isReachable else { return false }
         // The reply crosses as a property list: its members bytes and the answer address.
         let reply: Data? = await withCheckedContinuation { done in

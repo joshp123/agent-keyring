@@ -31,13 +31,16 @@ final class RequestModel {
         let copy = WatchUserInfo(userInfo)
         Task {
             _ = await WatchLink.shared.askForMembers()
-            do {
-                request = try WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read())
-            } catch {
-                request = nil
-                unreadable = true
-                WatchLink.shared.report(problem: "The Watch could not read a request: \(error)")
+            // The list may also come the slow way, once the iPhone app next runs.
+            for attempt in 0..<10 {
+                if let opened = try? WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) {
+                    request = opened; unreadable = false; return
+                }
+                if attempt == 0 { unreadable = true }
+                try? await Task.sleep(for: .seconds(1))
             }
+            do { _ = try WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) }
+            catch { WatchLink.shared.report(problem: "The Watch could not read a request: \(error)") }
         }
     }
 

@@ -13,9 +13,15 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
     private var host: UIHostingController<AnyView>?
 
     func didReceive(_ notification: UNNotification) {
-        guard let request = PhoneNotification.decode(notification.request.content.userInfo) else { return }
+        let content = notification.request.content
+        // If the request's words could not be opened, the card still says what iOS shows, never nothing.
+        let card = PhoneNotification.decode(content.userInfo).map { AnyView(PhoneNotificationCard(request: $0)) }
+            ?? AnyView(VStack(alignment: .leading, spacing: 2) {
+                Text(content.title).font(.headline)
+                Text(content.body).font(.body)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(16))
         host?.view.removeFromSuperview(); host?.removeFromParent()
-        let hosting = UIHostingController(rootView: AnyView(PhoneNotificationCard(request: request)))
+        let hosting = UIHostingController(rootView: card)
         hosting.sizingOptions = .preferredContentSize
         hosting.view.backgroundColor = .clear
         addChild(hosting)
