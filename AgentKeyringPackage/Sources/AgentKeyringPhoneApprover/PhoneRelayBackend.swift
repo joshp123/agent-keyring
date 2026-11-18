@@ -31,6 +31,9 @@ struct PhoneSavedState: Codable {
     var deviceKeyID: String?
     var notificationsAsked = false
     var watchAsked = false
+    /// The Watch's Device and PushRegistration, serialized, as its app sent them, until it is added.
+    var watchDevice: Data?
+    var watchPush: Data?
 }
 
 /// What the notification service extension needs to name a request: this
@@ -108,8 +111,9 @@ public final class PhoneRelayBackend: PhoneBackend {
     public var snapshot: PhoneSnapshot {
         guard let members else { return PhoneSnapshot(setup: .scanCode) }
         let catalogue = self.catalogue
-        // There is no Watch app yet, so first run does not offer the Watch.
-        let setup: PhoneSetup = !state.notificationsAsked ? .turnOnNotifications : .ready
+        // The Watch is offered once its app has sent its keys, whenever that is.
+        let setup: PhoneSetup = !state.notificationsAsked ? .turnOnNotifications
+            : (state.watchDevice != nil && !state.watchAsked ? .offerWatch : .ready)
         let requests = state.work.values.compactMap { try? Work(serializedBytes: $0) }.compactMap { accessRequest($0, members, catalogue) }
         let logins = (catalogue?.logins ?? []).map { login in
             PhoneLogin(id: login.loginID, site: Self.site(login), account: login.account,
@@ -274,17 +278,6 @@ public final class PhoneRelayBackend: PhoneBackend {
     // MARK: Answers
 
     public func approve(_ requestID: String, reusingUnlock: Bool) async throws {
-        try await approve(requestID, reusingUnlock: reusingUnlock, prompting: true)
-    }
-
-    /// Approve pressed on the Lock Screen, handled in the background: only the
-    /// Face ID that unlocked the phone a moment ago may count. Fails rather than
-    /// show Face ID, which iOS does not allow in the background.
-    public func approveFromLockScreen(_ requestID: String) async throws {
-        try await approve(requestID, reusingUnlock: true, prompting: false)
-    }
-
-    private func approve(_ requestID: String, reusingUnlock: Bool, prompting: Bool) async throws {
         let work = try await currentWork(requestID)
         let request = try Sealing.parseRequest(work.request)
         guard let members, let catalogue,
@@ -296,7 +289,6 @@ public final class PhoneRelayBackend: PhoneBackend {
         let context = LAContext()
         defer { context.invalidate() }
         if reusingUnlock { context.touchIDAuthenticationAllowableReuseDuration = 10 }
-        context.interactionNotAllowed = !prompting
         try await keys.authorize(context, reason: "Let \(request.agent) on \(machine.label) use \(Self.site(login)) for up to 30 minutes.")
         let secret = try keys.open(work.sealedLogin, context: context)
         let upload = try Sealing.approve(
@@ -370,7 +362,20 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     // MARK: Joining and first run
 
-    /// The code on the Mac: `agentkeyring://join?host=…&port=…&relay=<SHA-256 of the relay's TLS key, hex>`.
+    /// The invitation the Mac app leaves in iCloud Keychain: the same link as
+    /// its QR code, so first run needs nothing scanned. Nil when there is none,
+    /// for example in the simulator, which has no iCloud Keychain.
+    public func invitation() -> String? {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation",
+                                    kSecAttrAccount as String: "join", kSecAttrSynchronizable as String: true,
+                                    kSecUseDataProtectionKeychain as String: true, kSecReturnData as String: true]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// The link: `agentkeyring://join?host=…&port=…&relay=<SHA-256 of the relay's TLS key, hex>`.
     public func join(scannedCode: String) async throws {
         guard let url = URLComponents(string: scannedCode), url.scheme == "agentkeyring", url.host == "join",
               let host = url.queryItems?.first(where: { $0.name == "host" })?.value,
@@ -421,7 +426,46 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 
     /// Adding the Watch needs the Watch app; until then first run skips it.
-    public func allowWatch() async throws { skipWatch() }
+    /// The Watch's app sent its keys. Kept until he says yes or not now.
+    public func watchOffered(device: Data, push: Data) {
+        guard let parsed = try? Agentkeyring_V2_Device(serializedBytes: device), parsed.kind == .watch,
+              members?.devices.contains(where: { $0.keyID == parsed.keyID }) != true else { return }
+        var next = state
+        next.watchDevice = device; next.watchPush = push; next.watchAsked = false
+        save(next)
+    }
+
+    /// After one Face ID: the Watch joins the signed list of devices, gets
+    /// every login sealed to its own key, and its push address goes to the relay.
+    public func allowWatch() async throws {
+        guard var next = members, let deviceBytes = state.watchDevice, let pushBytes = state.watchPush else { return }
+        let watch = try Agentkeyring_V2_Device(serializedBytes: deviceBytes)
+        let push = try Agentkeyring_V2_PushRegistration(serializedBytes: pushBytes)
+        let watchKey = try P256.KeyAgreement.PublicKey(x963Representation: watch.openingPublicKey)
+        let context = LAContext()
+        defer { context.invalidate() }
+        try await keys.authorize(context, reason: "Let your Apple Watch approve requests.")
+        let relay = try relay()
+        guard case let .sealedLogins(mine) = try await relay.call(Self.method { $0.sealedLogins = .init() }).result else {
+            throw KeyringRelayError(code: .unavailable, message: "The relay sent no sealed logins.")
+        }
+        var forWatch = Agentkeyring_V2_SealedLogins()
+        forWatch.logins = try mine.logins.map { try Sealing.seal(keys.open($0, context: context), to: watchKey, openerID: watch.keyID) }
+        next.revision += 1
+        next.devices.append(watch)
+        let signed = try Sealing.signed(next.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
+        _ = try await relay.call(Self.method { $0.publishMembers = signed })
+        try accept(members: signed)
+        _ = try await relay.call(Self.method { $0.publishSealedLogins = forWatch })
+        _ = try await relay.call(Self.method { $0.registerPush = push })
+        PhoneDiagnostics.note("Watch added: \(forWatch.logins.count) logins sealed to it")
+        var done = state
+        done.watchAsked = true; done.watchDevice = nil; done.watchPush = nil
+        save(done)
+    }
+
+    /// The signed Members bytes, for the Watch.
+    public var signedMembers: Data? { state.members }
 
     public func skipWatch() {
         var next = state

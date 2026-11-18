@@ -7,6 +7,6 @@
     <key>com.apple.developer.usernotifications.time-sensitive</key>
     <true/>
     <key>keychain-access-groups</key>
-    <array><string>$(AppIdentifierPrefix)$(AGENT_KEYRING_BUNDLE_ID).shared</string></array>
+    <array><string>$(AppIdentifierPrefix)com.joshpalmer.AgentKeyring.shared</string></array>
 </dict>
 </plist>

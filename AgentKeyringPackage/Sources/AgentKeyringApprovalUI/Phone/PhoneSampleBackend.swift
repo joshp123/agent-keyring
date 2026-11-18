@@ -63,9 +63,7 @@ public final class PhoneSampleBackend: PhoneBackend {
         func at(_ hour: Int, _ minute: Int) -> Date {
             calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) ?? now
         }
-        // -SampleAgent "Claude Code" names the waiting request's agent, to check longer names fit.
-        let codexMini = RequestingAgent(name: UserDefaults.standard.string(forKey: "SampleAgent") ?? "Codex", machine: "Mac mini",
-                                        address: "", project: "bookkeeping")
+        let codexMini = RequestingAgent(name: "Codex", machine: "Mac mini", address: "", project: "bookkeeping")
         let claudeMac = RequestingAgent(name: "Claude Code", machine: "MacBook Pro", address: "")
         let codexLinux = RequestingAgent(name: "Codex", machine: "Linux server", address: "")
         let requests = [

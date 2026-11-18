@@ -50,8 +50,6 @@ public enum PhoneCopy {
         }
     }
 
-    /// Not in Paper: Approve could not finish on the Lock Screen.
-    public static let openToApprove = "Tap to approve with Face ID in Agent Keyring."
     /// Not in Paper: shown if the request's words cannot be opened in time.
     public static let notificationFallbackTitle = "An agent is asking to use a login"
     public static let notificationFallbackBody = "Open Agent Keyring to see the request."
