@@ -13,7 +13,7 @@ public struct PhoneRootView: View {
 
     public var body: some View {
         Group {
-            if model.snapshot.setup == .ready {
+            if model.snapshot.setup.isReady {
                 TabView(selection: $model.tab) {
                     Tab(value: PhoneTab.activity) { PhoneActivityView(model: model) } label: {
                         Label { Text(PhoneCopy.activity) } icon: { Image(uiImage: TabGlyph.outline("clock")) }
@@ -27,13 +27,44 @@ public struct PhoneRootView: View {
                 }
                 .tint(Phone.ink)
             } else {
-                PhoneFirstRunView(model: model)
+                PhoneSetupList(setup: model.snapshot.setup, model: model)
             }
         }
         .task { await model.followUpdates() }
+        .alert(model.failure ?? "", isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sheet(item: shownRequest) { request in
             PhoneRequestView(model: model, request: request)
         }
+        .sheet(isPresented: testShown) {
+            PhoneSimpleRequestView(model: model, lead: PhoneCopy.testFrom, title: PhoneCopy.testTitle, detail: PhoneCopy.noLoginUsed,
+                                   footnote: PhoneCopy.testFootnote, approve: { await model.approveTest() }, deny: { await model.denyTest() })
+        }
+        .sheet(item: proposalShown) { proposal in
+            PhoneSimpleRequestView(model: model, lead: PhoneCopy.proposalLead(proposal), title: PhoneCopy.proposalTitle(proposal),
+                                   detail: PhoneCopy.proposalDetail(proposal), footnote: PhoneCopy.proposalFootnote,
+                                   approve: { await model.approveProposal() }, deny: { await model.denyProposal() })
+        }
+        .sheet(item: deviceShown) { device in
+            PhoneSimpleRequestView(model: model, lead: PhoneCopy.newDevice, title: device.name, detail: device.detail,
+                                   footnote: PhoneCopy.watchFootnote, approve: { await model.approveDevice(device.id) },
+                                   deny: { await model.denyDevice(device.id) })
+        }
+    }
+
+    private var failureShown: Binding<Bool> {
+        Binding(get: { model.failure != nil && model.shownRequestID == nil }, set: { if !$0 { model.dismissFailure() } })
+    }
+
+    private var testShown: Binding<Bool> {
+        Binding(get: { model.snapshot.testRequest != nil && model.shownRequestID == nil }, set: { _ in })
+    }
+
+    private var proposalShown: Binding<PhoneRuleProposal?> {
+        Binding(get: { model.snapshot.testRequest == nil && model.shownRequestID == nil ? model.snapshot.ruleProposal : nil }, set: { _ in })
+    }
+
+    private var deviceShown: Binding<PhoneDeviceRequest?> {
+        Binding(get: { model.snapshot.testRequest == nil ? model.snapshot.deviceRequest : nil }, set: { _ in })
     }
 
     private var shownRequest: Binding<AccessRequest?> {
@@ -93,6 +124,15 @@ struct PhoneActivityView: View {
     let model: PhoneModel
 
     var body: some View {
+        // Until the first request, the finished first-run list says it is ready.
+        if model.snapshot.requests.isEmpty && !model.snapshot.setup.lines.isEmpty {
+            PhoneSetupList(setup: model.snapshot.setup, model: model)
+        } else {
+            requests
+        }
+    }
+
+    private var requests: some View {
         PhoneList(title: PhoneCopy.activity) {
             Section {
                 if model.waiting.isEmpty {

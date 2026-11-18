@@ -9,6 +9,8 @@
 //	test-device join    --state DIR --invite LINK      a second device that joins by invitation
 //	test-device invite  --state DIR                     print a one-time link for one machine or device to join
 //	test-device self-test --state DIR                   ask for a test request, approve it, report
+//	test-device propose --state DIR --login ID --rule ask|automatic|blocked|phone-and-watch
+//	                                                    propose a rule change, as the Mac's bar does, and wait for its answer
 //	test-device answer  --state DIR (--approve | --deny WORDS | --deny-plain | --ignore)
 //	                                                    answer the next waiting request
 package main
@@ -89,6 +91,8 @@ func main() {
 	deny := flags.String("deny", "", "deny the next request with these words")
 	denyPlain := flags.Bool("deny-plain", false, "deny the next request with no words")
 	ignore := flags.Bool("ignore", false, "see the next request and leave it unanswered")
+	login := flags.String("login", "", "login id (propose)")
+	rule := flags.String("rule", "", "ask, automatic, blocked or phone-and-watch (propose)")
 	flags.Parse(os.Args[2:])
 	ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
 	defer cancel()
@@ -104,6 +108,8 @@ func main() {
 		err = withDevice(*state, func(d *device) error { return d.invite() })
 	case "self-test":
 		err = withDevice(*state, func(d *device) error { return d.selfTest(ctx) })
+	case "propose":
+		err = withDevice(*state, func(d *device) error { return d.propose(ctx, *login, *rule) })
 	case "answer":
 		err = withDevice(*state, func(d *device) error { return d.answer(ctx, *approve, *deny, *denyPlain, *ignore) })
 	default:
@@ -504,6 +510,39 @@ func (d *device) selfTest(ctx context.Context) error {
 		return err
 	}
 	fmt.Println("Test request:", lease.State)
+	return nil
+}
+
+// propose sends one rule change for the iPhone or Watch to approve, signed
+// with the reply key as the Mac's bar does, and prints how it ended.
+func (d *device) propose(ctx context.Context, loginID, rule string) error {
+	change := &pb.RuleChange{LoginId: loginID}
+	switch rule {
+	case "ask":
+		change.Rule = pb.Rule_RULE_ASK
+	case "automatic":
+		change.Rule = pb.Rule_RULE_AUTOMATIC
+	case "blocked":
+		change.Rule = pb.Rule_RULE_BLOCKED
+	case "phone-and-watch":
+		change.Rule, change.PhoneAndWatchOnly = pb.Rule_RULE_ASK, true
+	default:
+		return errors.New("propose needs --login and --rule ask|automatic|blocked|phone-and-watch")
+	}
+	payload, _ := proto.Marshal(&pb.RuleProposal{Domain: keyring.ProposalDomain, Changes: []*pb.RuleChange{change}, AskedUnixSeconds: time.Now().Unix()})
+	signed, err := keyring.Sign(payload, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply))
+	if err != nil {
+		return err
+	}
+	var lease *pb.Lease
+	err = d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_ProposeRules{ProposeRules: signed}}, nil, func(response *pb.RelayResponse) bool {
+		lease = response.GetLease()
+		return lease == nil || lease.State == pb.LeaseState_LEASE_STATE_WAITING
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Println("Proposal:", lease.GetState(), "by", lease.GetAnsweredBy())
 	return nil
 }
 

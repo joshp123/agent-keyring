@@ -17,4 +17,14 @@ enum PhoneNoticeReader {
         return PhoneRelayBackend.notifiedRequest(userInfo, shared: PhoneSharedContext(accessGroup: group)) { try keys.openNotice($0, deviceKeyID: $1) }
         #endif
     }
+
+    static func proposal(_ userInfo: [AnyHashable: Any]) -> PhoneRuleProposal? {
+        #if targetEnvironment(simulator)
+        return nil
+        #else
+        let group = Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String
+        let keys = PhoneEnclaveKeys(accessGroup: group)
+        return PhoneRelayBackend.notifiedProposal(userInfo, shared: PhoneSharedContext(accessGroup: group)) { try keys.openNotice($0, deviceKeyID: $1) }
+        #endif
+    }
 }

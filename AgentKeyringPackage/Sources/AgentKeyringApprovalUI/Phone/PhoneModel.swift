@@ -49,12 +49,67 @@ public enum PhoneTab: String, Hashable, Sendable {
     case activity, logins, devices
 }
 
-/// Where first run has got to. `ready` shows the three tabs.
-public enum PhoneSetup: Hashable, Sendable {
-    case scanCode
-    case turnOnNotifications
-    case offerWatch
-    case ready
+/// One line of first run's self-ticking list (Paper, "First run").
+public struct PhoneSetupLine: Identifiable, Hashable, Sendable {
+    public enum Mark: Hashable, Sendable {
+        /// A tick.
+        case done
+        /// A dark ring: working, or waiting for him.
+        case working
+        /// A pale ring: not yet.
+        case notYet
+        /// A red mark, with one sentence in the detail.
+        case failed
+    }
+
+    public let id: String
+    public var mark: Mark
+    public var title: String
+    public var detail: String?
+    /// The line's one button, if it has one.
+    public enum Action: Hashable, Sendable { case openSettings, sendTestAgain }
+    public var action: Action?
+
+    public init(id: String, mark: Mark, title: String, detail: String? = nil, action: Action? = nil) {
+        self.id = id; self.mark = mark; self.title = title; self.detail = detail; self.action = action
+    }
+}
+
+public struct PhoneSetup: Hashable, Sendable {
+    public var lines: [PhoneSetupLine]
+    /// Joined, notifications on, requests reach it, and the test approved.
+    public var isReady: Bool
+
+    public init(lines: [PhoneSetupLine], isReady: Bool) { self.lines = lines; self.isReady = isReady }
+    public static let ready = PhoneSetup(lines: [], isReady: true)
+}
+
+/// A device asking to approve requests, answered here like a login request.
+public struct PhoneDeviceRequest: Identifiable, Hashable, Sendable {
+    public let id: String
+    /// "Apple Watch Ultra 3".
+    public var name: String
+    /// "Paired with this iPhone".
+    public var detail: String
+
+    public init(id: String, name: String, detail: String) { self.id = id; self.name = name; self.detail = detail }
+}
+
+/// A rule change another device proposed, which only this iPhone or the Watch may make.
+public struct PhoneRuleProposal: Identifiable, Hashable, Sendable {
+    public struct Change: Hashable, Sendable {
+        public var site: String
+        /// The new rule, in words: "Ask on iPhone or Watch".
+        public var to: String
+        public init(site: String, to: String) { self.site = site; self.to = to }
+    }
+
+    public let id: String
+    /// The device that proposed it, e.g. "MacBook Pro".
+    public var from: String
+    public var changes: [Change]
+
+    public init(id: String, from: String, changes: [Change]) { self.id = id; self.from = from; self.changes = changes }
 }
 
 public struct PhoneSnapshot: Hashable, Sendable {
@@ -62,9 +117,19 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var requests: [AccessRequest]
     public var logins: [PhoneLogin]
     public var devices: [PhoneDevice]
+    /// First run's test request, while it waits for Face ID.
+    public var testRequest: String?
+    public var deviceRequest: PhoneDeviceRequest?
+    public var ruleProposal: PhoneRuleProposal?
+    /// In the signed list of devices.
+    public var joined = false
+    /// Joined, and iOS has not yet been asked about notifications.
+    public var asksAboutNotifications = false
 
-    public init(setup: PhoneSetup, requests: [AccessRequest] = [], logins: [PhoneLogin] = [], devices: [PhoneDevice] = []) {
+    public init(setup: PhoneSetup, requests: [AccessRequest] = [], logins: [PhoneLogin] = [], devices: [PhoneDevice] = [],
+                testRequest: String? = nil, deviceRequest: PhoneDeviceRequest? = nil) {
         self.setup = setup; self.requests = requests; self.logins = logins; self.devices = devices
+        self.testRequest = testRequest; self.deviceRequest = deviceRequest
     }
 }
 
@@ -82,11 +147,21 @@ public protocol PhoneBackend: AnyObject {
     func setRule(_ rule: PhoneLogin.Rule, forLogin loginID: String) async throws
     /// Removing a device is signed by this iPhone after Face ID.
     func remove(device deviceID: String) async throws
-    /// The text of a code scanned from the Mac.
-    func join(scannedCode: String) async throws
-    func turnOnNotifications() async
-    func allowWatch() async throws
-    func skipWatch()
+    /// Joins from the Mac's invitation (an `agentkeyring://join` link).
+    func join(invitation: String) async throws
+    /// What iOS answered when asked about notifications.
+    func notifications(allowed: Bool) async
+    /// First run's test request: Face ID proves the chip and the round trip.
+    func approveTest() async throws
+    func denyTest() async
+    /// Sends the test request again after it was denied or ran out.
+    func sendTestAgain() async
+    /// A new device's request to approve requests: Face ID signs it in.
+    func approveDevice(_ id: String) async throws
+    func denyDevice(_ id: String) async
+    /// A rule change another device proposed: Face ID publishes the new rules.
+    func approveProposal() async throws
+    func denyProposal() async
 }
 
 @MainActor
@@ -132,7 +207,11 @@ public final class PhoneModel {
     }
 
     public func stop(_ id: String) async {
-        do { try await backend.stop(id) } catch { failure = PhoneCopy.stopFailed }
+        do { try await backend.stop(id) } catch {
+            var until: Date?
+            if case let .approved(_, end)? = request(id: id)?.state { until = end }
+            failure = PhoneCopy.stopFailed(until: until)
+        }
     }
 
     public func setRule(_ rule: PhoneLogin.Rule, forLogin id: String) async {
@@ -147,21 +226,31 @@ public final class PhoneModel {
         catch { failure = PhoneCopy.changeFailed }
     }
 
-    public func join(scannedCode: String) async {
-        do { try await backend.join(scannedCode: scannedCode) } catch { failure = PhoneCopy.joinFailed }
+    public func join(invitation: String) async {
+        try? await backend.join(invitation: invitation)
     }
 
-    /// iOS asks once; whatever the answer, first run moves on.
-    public func turnOnNotifications() async {
-        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-        await backend.turnOnNotifications()
+    /// iOS's own question, asked once, straight after joining.
+    public func askAboutNotifications() async {
+        let allowed = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        await backend.notifications(allowed: allowed)
     }
 
-    public func allowWatch() async {
-        do { try await backend.allowWatch() } catch { failure = PhoneCopy.watchFailed }
+    public func approveTest() async {
+        await answer(.approve) { try await backend.approveTest() }
     }
 
-    public func skipWatch() { backend.skipWatch() }
+    public func denyTest() async { await backend.denyTest() }
+    public func sendTestAgain() async { await backend.sendTestAgain() }
+
+    public func approveDevice(_ id: String) async {
+        await answer(.approve) { try await backend.approveDevice(id) }
+    }
+
+    public func denyDevice(_ id: String) async { await backend.denyDevice(id) }
+
+    public func approveProposal() async { await answer(.approve) { try await backend.approveProposal() } }
+    public func denyProposal() async { await backend.denyProposal() }
 
     public func dismissFailure() { failure = nil }
 
