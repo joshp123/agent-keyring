@@ -76,7 +76,7 @@ struct MacApprovalPanelView: View {
             .padding(.top, 6).padding(.bottom, 2)
             replyRow
             approveLine
-            if let failure = model.failure {
+            if let failure = model.failure, !ReviewRendering.isOn {
                 Text(failure).font(.system(size: 13)).foregroundStyle(RequestToken.deny)
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
@@ -139,6 +139,12 @@ struct MacApprovalPanelView: View {
     @ViewBuilder private var approveLine: some View {
         if sending == .approve {
             Text("Approving…").font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.approve)
+        } else if ReviewRendering.isOn {
+            HStack(spacing: 6) {
+                Image(systemName: "touchid").font(.system(size: 15, weight: .semibold))
+                Text(approveText).font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(RequestToken.approve).frame(height: 18)
         } else if let context = model.embeddedTouchID {
             HStack(spacing: 6) {
                 // Apple's own control does the work; it must stay visible and
@@ -218,6 +224,31 @@ struct MacApprovalPanelView: View {
         case .unanswered: "The request ended after 10 minutes. \(agent) can ask again."
         default: nil
         }
+    }
+}
+
+/// Draws the panel off screen for a design check, with no Touch ID.
+public enum ReviewRendering {
+    nonisolated(unsafe) public static var isOn = false
+
+    private final class Backend: MacApprovalBackend {
+        let request: AccessRequest
+        init(_ request: AccessRequest) { self.request = request }
+        func updates(requestID: String) -> AsyncStream<AccessRequest> { AsyncStream { $0.finish() } }
+        func embeddedTouchIDContext(requestID: String) -> LAContext? { nil }
+        func cancelAuthentication(requestID: String) {}
+        func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState { request.state }
+        func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState { request.state }
+        func allowAskingAgain(requestID: String) async throws -> AccessRequestState { request.state }
+    }
+
+    @MainActor public static func panel(_ request: AccessRequest, reply: String = "", active: Bool = false) -> some View {
+        isOn = true
+        let model = MacApprovalModel(request: request, backend: Backend(request))
+        model.replyDraft = reply
+        let activity = PanelActivity()
+        activity.isActive = active
+        return MacApprovalPanelView(model: model, activity: activity)
     }
 }
 
