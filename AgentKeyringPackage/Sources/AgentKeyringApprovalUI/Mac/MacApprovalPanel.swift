@@ -60,6 +60,8 @@ public final class MacApprovalModel {
     public private(set) var pendingDenialReply: String?
     /// Called when Josh is done with the panel.
     public var close: () -> Void = {}
+    /// Called once the request has an answer, from here or elsewhere.
+    public var answered: () -> Void = {}
 
     private let backend: any MacApprovalBackend
     private var touchWait: Task<Void, Never>?
@@ -102,6 +104,7 @@ public final class MacApprovalModel {
                 }
                 guard !Task.isCancelled, touchWaitID == waitID else { return }
                 request.state = state
+                if !state.isWaitingForYou { answered() }
             } catch is CancellationError {
             } catch {
                 guard !Task.isCancelled, touchWaitID == waitID else { return }
@@ -138,7 +141,7 @@ public final class MacApprovalModel {
             // An answer on its way stays on screen until the backend reports the outcome.
             if case .sendingAnswer = request.state, latest.state.isWaitingForYou { continue }
             request = latest
-            if !latest.state.isWaitingForYou { stopWaitingForTouch() }
+            if !latest.state.isWaitingForYou { stopWaitingForTouch(); answered() }
         }
     }
 
@@ -188,6 +191,7 @@ public final class MacApprovalModel {
         failure = nil
         do {
             request.state = try await send()
+            if !request.state.isWaitingForYou { answered() }
             failure = nil
             if choice == .deny { deniedHere = true }
         }
@@ -197,167 +201,6 @@ public final class MacApprovalModel {
             request.state = previous
             failure = (error as? LocalizedError)?.errorDescription
                 ?? (choice == .approve ? "Approval didn't finish. Nothing was shared." : "The denial wasn't saved. Try again.")
-        }
-    }
-}
-
-public struct MacApprovalPanelView: View {
-    @Bindable var model: MacApprovalModel
-
-    public init(model: MacApprovalModel) {
-        self.model = model
-    }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            RequestSummary(request: model.request)
-            answers
-        }
-        .padding(16)
-        .frame(width: 360)
-        .fixedSize(horizontal: false, vertical: true)
-        .task { await model.followUpdates() }
-        .onDisappear { model.stopWaitingForTouch() }
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "key.horizontal.fill")
-                .foregroundStyle(KeyringColour.signal)
-            Text("Agent Keyring")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-            if case let .waitingForYou(until) = model.request.state {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(AccessRequestCopy.remaining(until: until, now: context.date))
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var answers: some View {
-        switch model.request.state {
-        case .waitingForYou, .sendingAnswer:
-            replyField
-            answerButtons
-            if let failure = model.failure {
-                Text(failure)
-                    .font(.callout)
-                    .foregroundStyle(KeyringColour.denyText)
-            }
-        default:
-            outcome
-            if let failure = model.askAgainFailure {
-                Text(failure)
-                    .font(.callout)
-                    .foregroundStyle(KeyringColour.denyText)
-            }
-        }
-    }
-
-    private var sending: AnswerChoice? {
-        if case let .sendingAnswer(choice) = model.request.state { return choice }
-        return nil
-    }
-
-    private var hasReply: Bool {
-        !model.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// Takes focus only when Josh clicks into it. Return does nothing: only
-    /// the Deny button answers, so typing meant for another app can never deny.
-    private var replyField: some View {
-        TextField(AccessRequestCopy.replyPlaceholder(model.request.agent), text: $model.replyDraft, axis: .vertical)
-            .lineLimit(1...3)
-            .textFieldStyle(.roundedBorder)
-            .font(.callout)
-            .disabled(sending != nil || model.pendingDenialReply != nil)
-    }
-
-    @ViewBuilder private var answerButtons: some View {
-        HStack(spacing: 10) {
-            Button {
-                if model.pendingDenialReply != nil { model.cancelDenial() }
-                else { Task { await model.deny() } }
-            } label: {
-                if model.pendingDenialReply != nil {
-                    Text("Cancel")
-                } else if sending == .deny {
-                    ProgressView().controlSize(.small).tint(.white)
-                } else if hasReply && !model.request.agent.isLocal {
-                    // A reply to an agent on another machine is signed, so it takes Touch ID.
-                    Label(AccessRequestCopy.denyAndSendReply, systemImage: "touchid")
-                } else {
-                    Text(hasReply ? AccessRequestCopy.denyAndSendReply : AccessRequestCopy.deny)
-                }
-            }
-            .buttonStyle(DecisionButtonStyle(colour: KeyringColour.deny, height: 40))
-            .frame(width: hasReply || model.pendingDenialReply != nil ? 150 : 96)
-            .disabled(sending == .approve)
-
-            if let context = model.embeddedTouchID {
-                EmbeddedOwnerApproval(context: context, action: model.pendingDenialReply == nil ? "approve" : "send your reply")
-                    .id(ObjectIdentifier(context))
-                    .onAppear { model.waitForTouch() }
-            } else {
-                Button {
-                    model.retryAuthentication()
-                } label: {
-                    Label("Try again", systemImage: ownerApprovalSymbol())
-                }
-                .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 40))
-                .disabled(sending == .deny)
-            }
-        }
-        .allowsHitTesting(sending == nil)
-
-        if model.moreWaiting > 0 {
-            Text("\(model.moreWaiting) more waiting")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-    }
-
-    @ViewBuilder private var outcome: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: outcomeSymbol(model.request.state))
-                .font(.title3)
-                .foregroundStyle(outcomeColour(model.request.state) ?? .secondary)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(AccessRequestCopy.outcome(model.request) ?? "")
-                    .font(.body.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                if case let .denied(_, reply?, _) = model.request.state {
-                    Text("You replied: “\(reply)”")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                if model.request.answerIsQueued {
-                    Text(AccessRequestCopy.answerQueued)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                if case .denied = model.request.state {
-                    Text(model.isHoldingOff ? AccessRequestCopy.heldOff(model.request.agent)
-                        : AccessRequestCopy.mayAskAgain(model.request.agent))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        HStack(spacing: 10) {
-            if case .denied = model.request.state, model.isHoldingOff {
-                Button(AccessRequestCopy.letAskAgain) { Task { await model.allowAskingAgain() } }
-                    .buttonStyle(.quiet(height: 32))
-            }
-            Button("Close", action: model.close)
-                .buttonStyle(.quiet(height: 32))
         }
     }
 }
@@ -437,9 +280,15 @@ public final class MacApprovalPanelController {
 
     public init() {}
 
+    private var requestHost: RequestPanelHost?
+
     public func show(_ model: MacApprovalModel) {
-        showPanel(MacApprovalPanelView(model: model))
+        close()
+        let host = RequestPanelHost(model: model)
+        requestHost = host
         model.close = { [weak self] in self?.close() }
+        model.answered = { [weak host] in host?.panel.giveFocusBack() }
+        host.show()
     }
 
     func showPanel(_ content: some View) {
@@ -454,6 +303,11 @@ public final class MacApprovalPanelController {
 
     public func close() {
         panel?.orderOut(nil)
+        if let requestHost {
+            requestHost.panel.giveFocusBack()
+            requestHost.panel.orderOut(nil)
+            self.requestHost = nil
+        }
     }
 }
 
@@ -513,49 +367,5 @@ final class KeyringPanel: NSPanel {
         (view is NSTextField || view is NSTextView ? [view] : []) + view.subviews.flatMap(textInputs)
     }
 
-}
-#endif
-
-#if os(macOS)
-/// The decision in one read: who wants what, as whom, and why (the agent's
-/// own words, so in quotation marks). Facts that are the same on every
-/// request, like the 30-minute limit, aren't repeated here.
-struct RequestSummary: View {
-    let request: AccessRequest
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            (Text(AccessRequestCopy.headlineLead(request) + " ")
-                + Text(request.login.site).bold())
-                .font(.title3)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(AccessRequestCopy.subline(request))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if case let .program(command) = request.access {
-                Text(command)
-                    .font(.callout.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            if let warning = AccessRequestCopy.warning(request) {
-                Text(warning)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(KeyringColour.denyText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            (Text(AccessRequestCopy.claimHeading(request.agent) + ": ").foregroundStyle(.secondary)
-                + Text("“\(request.agentReason)”"))
-                .font(.callout)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
 }
 #endif

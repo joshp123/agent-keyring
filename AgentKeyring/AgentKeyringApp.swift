@@ -110,7 +110,8 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        NSApplication.shared.setActivationPolicy(.regular)
+        // Sitting branch: the test build stays out of the Dock, as designed.
+        NSApplication.shared.setActivationPolicy(Bundle.main.bundleIdentifier == "com.joshpalmer.KeyringTest.AgentKeyring" ? .accessory : .regular)
         if Bundle.main.bundleIdentifier == "com.joshpalmer.KeyringTest.AgentKeyring" { SittingProbe.prepareAndRecord() }
 
         if accessControlFixture == nil {

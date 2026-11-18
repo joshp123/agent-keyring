@@ -133,6 +133,13 @@ public extension CredentialReleaseAuthorizing {
 public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizing {
     private var activeContext: LAContext?
 
+    /// Touch ID or the Watch. The test build's "TouchIDOnly" setting leaves
+    /// the Watch out, so a rehearsal at night doesn't buzz it.
+    public static var policy: LAPolicy {
+        UserDefaults.standard.bool(forKey: "TouchIDOnly") ? .deviceOwnerAuthenticationWithBiometrics
+            : .deviceOwnerAuthenticationWithBiometricsOrCompanion
+    }
+
     public init() {}
 
     /// Without a context from Josh's panel there is nowhere to ask him except
@@ -155,7 +162,7 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
         context.touchIDAuthenticationAllowableReuseDuration = 0
         context.localizedFallbackTitle = ""
         context.localizedCancelTitle = "Cancel"
-        let policy = LAPolicy.deviceOwnerAuthenticationWithBiometricsOrCompanion
+        let policy = Self.policy
         var evaluationError: NSError?
 
         guard context.canEvaluatePolicy(policy, error: &evaluationError) else {
