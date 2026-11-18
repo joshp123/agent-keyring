@@ -92,8 +92,9 @@ public enum RequestedAccess: Hashable, Sendable {
     case agentProcess
     /// Not a login: the test request, or a machine or device asking to be
     /// added. The panel shows `lead`, the request's site in large type (the
-    /// name), `detail`, the agent's reason if any, and `footer`.
-    case setUp(lead: String, detail: String, footer: String)
+    /// name), `detail`, the agent's reason if any, and `footer`; `denied` is
+    /// the line under "Denied" once he has denied it.
+    case setUp(lead: String, detail: String, footer: String, denied: String)
 
     public static let longestLease: TimeInterval = 30 * 60
 }

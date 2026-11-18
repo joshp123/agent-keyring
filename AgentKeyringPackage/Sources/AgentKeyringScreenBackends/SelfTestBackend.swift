@@ -28,7 +28,8 @@ public final class SelfTestBackend: MacApprovalBackend {
         }
         return AccessRequest(id: Self.requestID, login: RequestedLogin(site: "Test request", account: "No login is used"),
             agent: RequestingAgent(name: "Agent Keyring", machine: "This Mac", address: "", isLocal: true),
-            access: .setUp(lead: "A test from Agent Keyring", detail: "No login is used", footer: "Approve it to finish setting up."),
+            access: .setUp(lead: "A test from Agent Keyring", detail: "No login is used", footer: "Approve it to finish setting up.",
+                denied: "This Mac is not tested yet."),
             agentReason: "", askedAt: .now, state: state)
     }
 

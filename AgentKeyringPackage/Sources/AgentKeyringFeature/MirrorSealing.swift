@@ -21,16 +21,6 @@ extension MirrorAppModel {
         return try openers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id) }
     }
 
-    /// The example login is added at run time, never imported, so it is sealed here.
-    func sealExampleIfNeeded() async throws {
-        guard let example = generationIncludingExample(nil)?.items.first(where: \.isExample) else { return }
-        let keys = try macKeys()
-        let sealed = try await store.sealed()
-        guard !sealed.contains(where: { $0.loginID == example.id.uuidString && $0.openerID == keys.deviceKeyID }) else { return }
-        try await store.replaceSealed(sealed + sealCopies(of: example.secret,
-            automatic: accessControl.policy(for: example.id) == .allowAutomatically))
-    }
-
     /// The Mac's own copy of a login, sealed to its chip key.
     func macCopy(of loginID: String) async throws -> Agentkeyring_V2_SealedLogin {
         let keys = try macKeys()

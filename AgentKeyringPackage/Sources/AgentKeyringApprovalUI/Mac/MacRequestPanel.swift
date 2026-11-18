@@ -65,12 +65,12 @@ struct MacApprovalPanelView: View {
         .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
     }
 
-    private var setUp: (lead: String, detail: String, footer: String)? {
-        if case let .setUp(lead, detail, footer) = request.access { return (lead, detail, footer) }
+    private var setUp: (lead: String, detail: String, footer: String, denied: String)? {
+        if case let .setUp(lead, detail, footer, denied) = request.access { return (lead, detail, footer, denied) }
         return nil
     }
 
-    private func setUpBody(_ setUp: (lead: String, detail: String, footer: String)) -> some View {
+    private func setUpBody(_ setUp: (lead: String, detail: String, footer: String, denied: String)) -> some View {
         VStack(spacing: 10) {
             VStack(spacing: 1) {
                 Text(setUp.lead).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
@@ -264,6 +264,7 @@ struct MacApprovalPanelView: View {
         switch request.state {
         case let .approved(_, until): "\(agent) can use this login until \(AccessRequestCopy.clock(until)) at the latest."
         case let .denied(_, reply?, _): "You told \(agent): “\(reply)”"
+        case .denied where setUp != nil: setUp?.denied
         case .denied: "\(agent) was told."
         case .unanswered: "The request ended after 10 minutes. \(agent) can ask again."
         default: nil

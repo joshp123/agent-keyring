@@ -37,7 +37,8 @@ public final class AdditionBackend: MacApprovalBackend {
             request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
                 agent: RequestingAgent(name: setup.agent, machine: "This Mac", address: "", isLocal: true),
                 access: .setUp(lead: "\(setup.agent) on this Mac wants to add", detail: "as your always-on machine",
-                    footer: "Agents on \(machine.label) can then ask to use your logins, and get any set to Automatic without asking. You can switch that off in Devices."),
+                    footer: "Agents on \(machine.label) can then ask to use your logins, and get any set to Automatic without asking. You can switch that off in Devices.",
+                    denied: "\(machine.label) was not added."),
                 agentReason: setup.reason, askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
         } else if let join = device.joins.first(where: { MacDevice.joinID($0) == id }) {
             let asked = Date(timeIntervalSince1970: TimeInterval(join.askedUnixSeconds))
@@ -48,13 +49,15 @@ public final class AdditionBackend: MacApprovalBackend {
                     access: .setUp(lead: "A new device wants to approve requests", detail: joining.kind == .watch
                         ? "Paired with your iPhone" : "Signed in to your Apple Account",
                         footer: joining.kind == .watch ? "It will approve when it is on your wrist and unlocked. You can remove it at any time."
-                            : "It will approve with Face ID. You can remove it at any time."),
+                            : "It will approve with Face ID. You can remove it at any time.",
+                        denied: "\(joining.label) was not added."),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case let .machine(machine)?:
                 request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
                     agent: RequestingAgent(name: "An agent", machine: machine.label, address: "", isLocal: false),
                     access: .setUp(lead: "An agent wants to add", detail: "as a machine that asks for your logins",
-                        footer: "Agents on \(machine.label) can then ask to use your logins. You can remove it at any time."),
+                        footer: "Agents on \(machine.label) can then ask to use your logins. You can remove it at any time.",
+                        denied: "\(machine.label) was not added."),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case nil: request = nil
             }

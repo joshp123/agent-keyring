@@ -17,7 +17,7 @@ public enum AccessRequestCopy {
         case .signIn: "\(who) wants to sign in to"
         case let .program(command): "\(who) wants to give \(programName(command)) the password for"
         case .agentProcess: "\(who) wants to see the password for"
-        case let .setUp(lead, _, _): lead
+        case let .setUp(lead, _, _, _): lead
         }
     }
 
@@ -55,7 +55,7 @@ public enum AccessRequestCopy {
         case .signIn: "\(who) wants to sign in as \(request.login.account)"
         case let .program(command): "\(who) wants to give \(programName(command)) the password for \(request.login.account)"
         case .agentProcess: "\(who) wants to see the password for \(request.login.account)"
-        case let .setUp(lead, detail, _): "\(lead) \(request.login.site). \(detail)."
+        case let .setUp(lead, detail, _, _): "\(lead) \(request.login.site). \(detail)."
         }
     }
 

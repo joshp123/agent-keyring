@@ -1,8 +1,6 @@
 import Foundation
 
 extension MirrorItem {
-    var isExample: Bool { id == Self.exampleCredentialID }
-
     var accountName: String? {
         let passwordNames = credentials.compactMap { credential -> String? in
             guard case let .password(userName, _) = credential else { return nil }
@@ -28,7 +26,7 @@ extension MirrorGeneration {
             importedAt: createdAt,
             sourceExportedAt: sourceExportedAt,
             scope: scope,
-            credentialItemCount: items.filter { !$0.isExample }.count,
+            credentialItemCount: items.count,
             skippedCredentialCount: skippedCredentialCount,
             skippedCredentialSummary: skippedCredentialSummary
         )

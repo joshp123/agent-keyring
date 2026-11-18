@@ -52,30 +52,69 @@ extension MirrorAppModel {
         Task { await importCredentials(token: token) }
     }
 
-    public func requestProviderEnablement() {
-        providerState = .requesting
-        notice = nil
-        ASSettingsHelper.requestToTurnOnCredentialProviderExtension { [weak self] enabled in
-            Task { @MainActor in
-                self?.providerState = enabled ? .enabled : .denied
-                self?.notice =
-                    enabled
-                    ? MirrorNotice(
-                        kind: .information,
-                        text: "Agent Keyring is ready as an export destination."
-                    )
-                    : MirrorNotice(
-                        kind: .warning,
-                        text:
-                            "Apple did not enable the extension. This build needs an eligible Apple Developer Program profile."
-                    )
-            }
+    /// Whether AutoFill from this app's extension is on. Each extension has its
+    /// own setting: 0.2.5's being on says nothing about this one.
+    func autoFillIsOn() async -> Bool {
+        await withCheckedContinuation { continuation in
+            ASCredentialIdentityStore.shared.getState { continuation.resume(returning: $0.isEnabled) }
         }
+    }
+
+    /// First run asks macOS as its window opens, unless loading found AutoFill
+    /// from Agent Keyring already on; then the import step shows at once.
+    public func askToTurnOnAutoFillIfNeeded() {
+        guard status == nil, providerState == .unknown else { return }
+        askToTurnOnAutoFill()
+    }
+
+    /// He may switch it on or off in System Settings while first run waits.
+    public func recheckAutoFill() async {
+        guard status == nil, providerState != .unknown, providerState != .requesting else { return }
+        if await autoFillIsOn() { providerState = .enabled } else if providerState == .enabled { providerState = .off }
+    }
+
+    /// macOS shows "Turn on AutoFill from “Agent Keyring”?" by itself; "Ask Again" calls this too.
+    public func askToTurnOnAutoFill() {
+        providerState = .requesting
+        canAskAgain = false
+        notice = nil
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            self?.canAskAgain = true
+        }
+        ASSettingsHelper.requestToTurnOnCredentialProviderExtension { [weak self] enabled in
+            Task { @MainActor in self?.providerState = enabled ? .enabled : .notNow }
+        }
+    }
+
+    /// 0.2.5, whose extension Passwords also lists as "Agent Keyring". Only
+    /// whether it is installed is asked of macOS; nothing of it is read.
+    public var oldAppInstalled: Bool {
+        guard let mine = Bundle.main.bundleIdentifier, mine.hasSuffix(".Mac") else { return false }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: String(mine.dropLast(4))) != nil
     }
 
     public func openPasswordsExport() {
         awaitingExport = true
+        watchForExportToOldApp()
         openPasswords()
+    }
+
+    /// Passwords opens the app he picked. If that is 0.2.5 while this one
+    /// waits, the logins most likely went there.
+    private func watchForExportToOldApp() {
+        guard exportWatch == nil, let mine = Bundle.main.bundleIdentifier, mine.hasSuffix(".Mac") else { return }
+        let old = String(mine.dropLast(4))
+        exportWatch = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let activated = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            MainActor.assumeIsolated {
+                guard let self, self.awaitingExport, activated == old else { return }
+                credentialExchangeLogger.notice("The old Agent Keyring came to the front while this app waited for the export")
+                self.notice = MirrorNotice(kind: .error, text: "No logins arrived from Passwords. They may have gone to the old Agent Keyring. In Passwords, choose File > Export All Items to App > Agent Keyring again, and pick the one with the blue keyhole.")
+            }
+        }
     }
 
     public func openPasswords() {
@@ -149,7 +188,6 @@ extension MirrorAppModel {
             let arrived = Set(importBatch.items.map(\.sourceIdentity))
             let fresh = generation.items.filter { arrived.contains($0.sourceIdentity) }
             let kept = Set(generation.items.filter { !arrived.contains($0.sourceIdentity) }.map(\.id.uuidString))
-                .union([MirrorItem.exampleCredentialID.uuidString])
             var sealed = try await store.sealed().filter { kept.contains($0.loginID) }
             for item in fresh {
                 let policy = accessControl.policy(for: item.id)
@@ -168,11 +206,9 @@ extension MirrorAppModel {
         }
 
         credentialExchangeLogger.info("Saved encrypted mirror with \(generation.items.count, privacy: .public) items")
-        let visibleGeneration = generationIncludingExample(generation) ?? generation
-        // The example login is for exercising requests, not an imported login.
         status = generation.safeStatus
-        leaseLogins = visibleGeneration.metadata.candidates
-        await accessControl.refresh(from: visibleGeneration)
+        leaseLogins = generation.metadata.candidates
+        await accessControl.refresh(from: generation)
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
         offerSelfTestIfNeeded()
         if device?.isJoined == true {

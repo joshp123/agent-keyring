@@ -49,7 +49,7 @@ extension MirrorAppModel {
                 }
                 response.setup = result
             case let .findLogins(query):
-                let metadata = metadataIncludingExample(try await store.loadCurrentMetadata())
+                let metadata = try await store.loadCurrentMetadata()
                 leaseLogins = metadata?.candidates ?? []
                 await accessControl.refresh(fromMetadata: metadata)
                 var result = Agentkeyring_V1_FindLoginsResponse()
@@ -169,7 +169,7 @@ extension MirrorAppModel {
 
     @discardableResult
     func refreshLeasePolicy() async throws -> MirrorMetadata? {
-        let metadata = metadataIncludingExample(try await store.loadCurrentMetadata())
+        let metadata = try await store.loadCurrentMetadata()
         leaseLogins = metadata?.candidates ?? []
         await accessControl.refresh(fromMetadata: metadata)
         try leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)

@@ -166,7 +166,7 @@ public final class CredentialAccessController {
     }
 
     public func count(for policy: CredentialAccessPolicy) -> Int {
-        rows.lazy.filter { $0.policy == policy && $0.id != MirrorItem.exampleCredentialID }.count
+        rows.lazy.filter { $0.policy == policy }.count
     }
 
     private func recomputeVisibleRows() {

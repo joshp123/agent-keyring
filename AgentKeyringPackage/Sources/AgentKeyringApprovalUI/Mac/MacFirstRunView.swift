@@ -11,12 +11,13 @@ import SwiftUI
 
 public struct FirstRunState: Hashable, Sendable {
     public enum Import: Hashable, Sendable {
-        /// macOS hasn't yet let Apple Passwords export to Agent Keyring.
-        case needsAllow
-        case needsExport
+        /// macOS is asking "Turn on AutoFill from “Agent Keyring”?".
+        case turnOn
+        /// AutoFill from Agent Keyring is off, so Passwords can't export to it.
+        case autoFillOff(chosenNotNow: Bool, canAskAgain: Bool)
+        /// `oldAppInstalled`: Passwords lists 0.2.5's extension under the same name.
+        case needsExport(oldAppInstalled: Bool)
         case importing
-        /// Apple refused the export extension for this build.
-        case blocked
         case done(logins: Int)
     }
 
@@ -41,15 +42,15 @@ public struct FirstRunState: Hashable, Sendable {
 
 public struct MacFirstRunView: View {
     let state: FirstRunState
-    let allow: () -> Void
+    let askAgain: () -> Void
     let openPasswords: () -> Void
     let sendTestAgain: () -> Void
     @State private var didCopy = false
 
-    public init(state: FirstRunState, allow: @escaping () -> Void, openPasswords: @escaping () -> Void,
+    public init(state: FirstRunState, askAgain: @escaping () -> Void, openPasswords: @escaping () -> Void,
         sendTestAgain: @escaping () -> Void) {
         self.state = state
-        self.allow = allow
+        self.askAgain = askAgain
         self.openPasswords = openPasswords
         self.sendTestAgain = sendTestAgain
     }
@@ -62,6 +63,15 @@ public struct MacFirstRunView: View {
                 Row(mark: .done, title: FirstRunCopy.imported(logins), detail: FirstRunCopy.importedDetail)
                 testRow
                 if case .passed = state.test { away }
+            } else if case .turnOn = state.imported {
+                Row(mark: .working, title: FirstRunCopy.turnOnTitle, detail: FirstRunCopy.turnOnBody)
+                Row(mark: .notYet, title: FirstRunCopy.importHeading)
+            } else if case let .autoFillOff(chosenNotNow, canAskAgain) = state.imported {
+                Row(mark: .notYet, title: FirstRunCopy.autoFillOffTitle,
+                    detail: chosenNotNow ? FirstRunCopy.autoFillNotNow : FirstRunCopy.autoFillOff) {
+                    PillButton(title: FirstRunCopy.askAgain, action: askAgain).disabled(!canAskAgain).padding(.top, 10)
+                }
+                Row(mark: .notYet, title: FirstRunCopy.importHeading)
             } else {
                 importStep
             }
@@ -87,17 +97,14 @@ public struct MacFirstRunView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(FirstRunCopy.importHeading).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
             switch state.imported {
-            case .needsAllow:
-                Detail(FirstRunCopy.allowBody)
-                PillButton(title: FirstRunCopy.allowButton, action: allow).padding(.top, 10)
-            case .needsExport:
+            case let .needsExport(oldAppInstalled):
                 Detail(FirstRunCopy.exportBody)
+                if oldAppInstalled { Detail(FirstRunCopy.twoApps).padding(.top, 6) }
                 PillButton(title: FirstRunCopy.exportButton, action: openPasswords).padding(.top, 10)
             case .importing:
                 HStack(spacing: 8) { ProgressView().controlSize(.small); Detail(FirstRunCopy.importing) }.padding(.top, 6)
-            case .blocked, .done:
-                Text(FirstRunCopy.blockedBody).font(.system(size: 14)).foregroundStyle(RequestToken.deny)
-                    .fixedSize(horizontal: false, vertical: true)
+            case .turnOn, .autoFillOff, .done:
+                EmptyView()
             }
         }
         .padding(.top, 18).padding(.bottom, 4)
@@ -180,10 +187,10 @@ private struct Row<Extra: View>: View {
     enum Mark { case done, working, notYet, failed }
     let mark: Mark
     let title: String
-    let detail: String
+    let detail: String?
     @ViewBuilder var extra: Extra
 
-    init(mark: Mark, title: String, detail: String, @ViewBuilder extra: () -> Extra = { EmptyView() }) {
+    init(mark: Mark, title: String, detail: String? = nil, @ViewBuilder extra: () -> Extra = { EmptyView() }) {
         self.mark = mark
         self.title = title
         self.detail = detail
@@ -196,7 +203,7 @@ private struct Row<Extra: View>: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(mark == .notYet ? RequestToken.ink2 : RequestToken.ink)
-                Detail(detail)
+                if let detail { Detail(detail) }
                 extra
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -224,6 +231,7 @@ private struct Row<Extra: View>: View {
 private struct PillButton: View {
     let title: String
     let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
@@ -231,6 +239,7 @@ private struct PillButton: View {
                 .padding(.horizontal, 16).frame(height: 32)
                 .background(RequestToken.ink, in: Capsule())
                 .contentShape(Capsule())
+                .opacity(isEnabled ? 1 : 0.4)
         }
         .buttonStyle(.plain)
     }

@@ -69,7 +69,6 @@ public struct MirrorItem: Codable, Equatable, Sendable {
         self.credentials = credentials
     }
 
-    public static let exampleCredentialID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1))
 
     func replacingID(_ id: UUID) -> MirrorItem {
         MirrorItem(

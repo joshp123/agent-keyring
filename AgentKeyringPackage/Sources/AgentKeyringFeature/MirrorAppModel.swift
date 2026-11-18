@@ -5,11 +5,17 @@ import Foundation
 import Observation
 import OSLog
 
+/// AutoFill from Agent Keyring, which macOS requires before Passwords lists
+/// the app as an export destination.
 public enum ProviderEnablementState: Equatable, Sendable {
     case unknown
+    /// macOS's question "Turn on AutoFill from “Agent Keyring”?" is up.
     case requesting
     case enabled
-    case denied
+    /// He answered Not Now.
+    case notNow
+    /// It was on, and he turned it off in System Settings.
+    case off
 }
 
 public enum MirrorNoticeKind: Equatable, Sendable {
@@ -36,6 +42,8 @@ public final class MirrorAppModel {
     public private(set) var isLoading = true
     public internal(set) var isImporting = false
     public internal(set) var providerState = ProviderEnablementState.unknown
+    /// macOS answers a second request only 10 seconds after the last one.
+    public internal(set) var canAskAgain = false
     public internal(set) var notice: MirrorNotice?
     public let accessControl: CredentialAccessController
     public var syncReminders: MirrorSyncReminders?
@@ -53,10 +61,12 @@ public final class MirrorAppModel {
     var isApprovingLease = false
     public internal(set) var leaseLogins: [CredentialCandidate] = []
     let bridge: AgentBridgeDirectory
-    public private(set) var includeExampleCredential: Bool
     public internal(set) var selfTest = MacSelfTest.notRun
     /// From Open Passwords until the logins arrive: the window stays above Passwords.
-    public internal(set) var awaitingExport = false
+    public internal(set) var awaitingExport = false {
+        didSet { if !awaitingExport, let exportWatch { NSWorkspace.shared.notificationCenter.removeObserver(exportWatch); self.exportWatch = nil } }
+    }
+    @ObservationIgnored var exportWatch: NSObjectProtocol?
     let settings: UserDefaults
     var handledTokens = Set<UUID>()
     var agentListener: AgentBridgeServer?
@@ -79,7 +89,6 @@ public final class MirrorAppModel {
         self.accessControl = accessControl
         self.settings = settings
         self.leaseStore = leaseStore
-        self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
         if let tested = settings.object(forKey: Self.testedAtKey) as? Date { selfTest = .passed(tested) }
         accessControl.beforeSave = { [weak self] old, new, context in
             try await self?.applyRuleChange(from: old, to: new, context: context)
@@ -113,24 +122,17 @@ public final class MirrorAppModel {
         do {
             let importedMetadata = try await store.loadCurrentMetadata()
             status = importedMetadata?.safeStatus
-            leaseLogins = metadataIncludingExample(importedMetadata)?.candidates ?? []
-            await accessControl.refresh(fromMetadata: metadataIncludingExample(importedMetadata))
+            leaseLogins = importedMetadata?.candidates ?? []
+            await accessControl.refresh(fromMetadata: importedMetadata)
         } catch {
             Logger(subsystem: "com.agentkeyring.app", category: "Import").error("Loading failed: \(String(describing: error), privacy: .public)")
             notice = MirrorNotice(kind: .error, text: "Agent Keyring's saved logins could not be opened. Apple Passwords was not changed.")
             return
         }
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
-        // The chip keys can be made only while the Mac is unlocked; until then
-        // this runs again at the next request or launch.
-        try? await sealExampleIfNeeded()
         if (try? macKeys()) != nil { device?.start() }
         offerSelfTestIfNeeded()
+        if status == nil, providerState == .unknown, await autoFillIsOn() { providerState = .enabled }
     }
 
-    public func setIncludeExampleCredential(_ enabled: Bool) async {
-        includeExampleCredential = enabled
-        settings.set(enabled, forKey: "includeExampleCredential")
-        await loadStatus()
-    }
 }
