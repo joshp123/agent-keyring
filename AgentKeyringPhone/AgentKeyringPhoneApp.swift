@@ -32,9 +32,9 @@ struct AgentKeyringPhoneApp: App {
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
                 .onOpenURL { url in Task { await delegate.model.join(scannedCode: url.absoluteString) } }
                 .onChange(of: delegate.model.snapshot.setup, initial: true) { _, setup in
-                    if setup != .scanCode { UIApplication.shared.registerForRemoteNotifications() }
+                    if setup != .scanCode { delegate.askForPushAddress() }
                     // Straight after joining, Apple's own question: the one tap iOS requires.
-                    if setup == .turnOnNotifications && delegate.relay != nil { Task { await delegate.model.turnOnNotifications(); await delegate.noteNotificationSettings() } }
+                    if setup == .turnOnNotifications { Task { await delegate.model.turnOnNotifications(); await delegate.noteNotificationSettings() } }
                 }
                 .task { await delegate.noteNotificationSettings() }
             }
@@ -86,7 +86,19 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         model.shownRequestID = UserDefaults.standard.string(forKey: "SampleShow")
     }
 
+    private var pushAddress: Data?
+
+    /// Asks Apple for this iPhone's push address, and notes if none has come 30 seconds later.
+    func askForPushAddress() {
+        UIApplication.shared.registerForRemoteNotifications()
+        Task {
+            try? await Task.sleep(for: .seconds(30))
+            if pushAddress == nil { PhoneDiagnostics.note("Apple has not given a push address after 30 seconds") }
+        }
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        pushAddress = deviceToken
         let production = (Bundle.main.object(forInfoDictionaryKey: "AgentKeyringAPNSEnvironment") as? String) == "production"
         Task {
             do {

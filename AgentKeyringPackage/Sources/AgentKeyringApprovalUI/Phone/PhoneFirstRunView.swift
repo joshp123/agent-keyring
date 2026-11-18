@@ -49,8 +49,8 @@ struct PhoneFirstRunView: View {
             Circle().fill(Phone.approve).frame(width: 64, height: 64)
                 .overlay(Image(systemName: "checkmark").font(.system(size: 28, weight: .bold)).foregroundStyle(Phone.onAnswer))
         } actions: {
-            Button(PhoneCopy.turnOnNotifications) { Task { await model.turnOnNotifications() } }
-                .buttonStyle(PillButtonStyle(fill: Phone.ink, text: Phone.surface))
+            // iOS's own question comes up over this screen by itself; there is nothing to tap here.
+            EmptyView()
         }
         .padding(.bottom, 12)
     }
