@@ -72,8 +72,15 @@ fi
 /usr/bin/plutil -create xml1 "$EXPORT_OPTIONS"
 /usr/libexec/PlistBuddy -c 'Add :method string developer-id' "$EXPORT_OPTIONS"
 /usr/libexec/PlistBuddy -c 'Add :destination string export' "$EXPORT_OPTIONS"
-/usr/libexec/PlistBuddy -c 'Add :signingStyle string automatic' "$EXPORT_OPTIONS"
+# Signed with the Developer ID certificate in this Mac's keychain and the
+# Developer ID profiles named here (an API key cannot use cloud signing).
+prefix="$(awk -F= '/^[[:space:]]*AGENT_KEYRING_BUNDLE_ID_PREFIX[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2}' "$ROOT_DIR/Config/Local.xcconfig")"
+/usr/libexec/PlistBuddy -c 'Add :signingStyle string manual' "$EXPORT_OPTIONS"
+/usr/libexec/PlistBuddy -c 'Add :signingCertificate string Developer ID Application' "$EXPORT_OPTIONS"
 /usr/libexec/PlistBuddy -c "Add :teamID string $team_id" "$EXPORT_OPTIONS"
+/usr/libexec/PlistBuddy -c 'Add :provisioningProfiles dict' "$EXPORT_OPTIONS"
+/usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$prefix.AgentKeyring.Mac string Agent Keyring Mac Developer ID" "$EXPORT_OPTIONS"
+/usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$prefix.AgentKeyring.Mac.CredentialProvider string Agent Keyring Mac Credential Provider Developer ID" "$EXPORT_OPTIONS"
 
 /usr/bin/xcodebuild \
   -exportArchive \
