@@ -349,8 +349,9 @@ func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload
 			}
 			choice, answeredBy, reply = answer.Choice, signer.Label, answer.Reply
 			if len(r.Proposal) > 0 {
-				if choice == pb.Choice_CHOICE_APPROVE && signer.Kind == pb.DeviceKind_DEVICE_KIND_MAC {
-					return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the iPhone or Watch may make this rule change.")
+				// The Watch approves with one tap and no face; this change guards his most important logins.
+				if choice == pb.Choice_CHOICE_APPROVE && signer.Kind != pb.DeviceKind_DEVICE_KIND_IPHONE {
+					return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the iPhone may make this rule change.")
 				}
 			} else if r.ForDevice != "" {
 				if r.ForDevice != signer.KeyId {
@@ -549,7 +550,8 @@ func (s *Server) watchWork(ctx context.Context, who caller, send func(*pb.RelayR
 		var batch []*pb.Work
 		changed := s.Store.read(func(data *saved) {
 			for id, r := range data.Requests {
-				if (r.ForDevice != "" && r.ForDevice != who.device.KeyId) || r.ProposedBy == who.device.KeyId {
+				if (r.ForDevice != "" && r.ForDevice != who.device.KeyId) || r.ProposedBy == who.device.KeyId ||
+					(len(r.Proposal) > 0 && who.device.Kind != pb.DeviceKind_DEVICE_KIND_IPHONE) {
 					continue
 				}
 				previous, known := sent[id]

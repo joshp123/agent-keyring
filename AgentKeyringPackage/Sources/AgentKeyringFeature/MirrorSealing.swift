@@ -50,10 +50,10 @@ extension MirrorAppModel {
         var withdrawn = Set<String>()
         for id in Set(old.keys).union(new.keys) where old[id] != new[id] {
             if old[id] == .askOnPhone {
-                throw LeaseFailure(.permissionDenied, "Change this login on your iPhone or Watch: only they can approve it.")
+                throw LeaseFailure(.permissionDenied, "Approve it on your iPhone: only it can change this login's rule.")
             }
-            if new[id] == .askOnPhone, device?.members?.devices.contains(where: { $0.kind != .mac }) != true {
-                throw LeaseFailure(.permissionDenied, "Add your iPhone first: until then nothing could approve this login.")
+            if new[id] == .askOnPhone, device?.members?.devices.contains(where: { $0.kind == .iphone }) != true {
+                throw LeaseFailure(.permissionDenied, "Add your iPhone first: only it can change this login's rule back.")
             }
             if new[id] == .askOnPhone { sealed.removeAll { $0.loginID == id.uuidString && $0.openerID == keys.deviceKeyID } }
         }

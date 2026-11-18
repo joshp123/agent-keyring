@@ -1849,7 +1849,8 @@ func (x *Work) GetProposal() *Signed {
 	return nil
 }
 
-// A rule change a device proposes and only the iPhone or Watch may make, the
+// A rule change a device proposes and only the iPhone may make (the Watch
+// approves with one tap and no face, so it is not shown these), the
 // payload of a Signed by the proposer's reply key: it grants nothing until a
 // device that can make the change approves it.
 type RuleProposal struct {
@@ -2424,7 +2425,7 @@ type RelayRequest_SelfTests struct {
 }
 
 type RelayRequest_ProposeRules struct {
-	// Devices: a rule change for the iPhone or Watch to approve. Streams
+	// Devices: a rule change for the iPhone to approve. Streams
 	// Lease until it is answered or unanswered.
 	ProposeRules *Signed `protobuf:"bytes,23,opt,name=propose_rules,json=proposeRules,proto3,oneof"`
 }
