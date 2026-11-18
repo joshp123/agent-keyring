@@ -295,6 +295,9 @@ final class RequestPanel: NSPanel {
     private var observers: [NSObjectProtocol] = []
     /// Another app came to the front, other than macOS's Touch ID dialog.
     var onOtherAppActivated: () -> Void = {}
+    /// A click went to another app, at this point on screen (AppKit coordinates).
+    var onClickElsewhere: (NSPoint) -> Void = { _ in }
+    private var clickMonitor: Any?
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: RequestToken.width, height: 200),
@@ -309,18 +312,41 @@ final class RequestPanel: NSPanel {
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
             object: nil, queue: .main) { [weak self] note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            guard app?.bundleIdentifier != "com.apple.LocalAuthentication.UIAgent" else { return }
+            guard app?.bundleIdentifier != Self.authenticationDialogBundleID else { return }
             MainActor.assumeIsolated { self?.onOtherAppActivated() }
         })
+        // A click back into the app that is already in front activates nothing,
+        // so clicks that go to other apps are watched too. Needs no permission.
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onClickElsewhere(NSEvent.mouseLocation) }
+        }
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
+    static let authenticationDialogBundleID = "com.apple.LocalAuthentication.UIAgent"
+
+    /// Whether a point (AppKit coordinates) is on macOS's Touch ID dialog.
+    static func isOnAuthenticationDialog(_ point: NSPoint) -> Bool {
+        let owners = Set(NSRunningApplication.runningApplications(withBundleIdentifier: authenticationDialogBundleID).map(\.processIdentifier))
+        guard !owners.isEmpty, let top = NSScreen.screens.first?.frame.maxY,
+            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
+        let flipped = CGPoint(x: point.x, y: top - point.y)
+        return windows.contains { window in
+            guard let owner = window[kCGWindowOwnerPID as String] as? pid_t, owners.contains(owner),
+                let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+                let rect = CGRect(dictionaryRepresentation: bounds) else { return false }
+            return rect.contains(flipped)
+        }
+    }
+
     override func orderOut(_ sender: Any?) {
         super.orderOut(sender)
         observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         observers = []
+        clickMonitor.map(NSEvent.removeMonitor)
+        clickMonitor = nil
     }
 
     func show(at frame: NSRect) {
@@ -408,6 +434,10 @@ final class RequestPanelHost {
         // macOS's dialog stops listening once another app is in front, but
         // stays on screen looking ready; close it and offer Approve again.
         panel.onOtherAppActivated = { [weak model] in model?.cancelApproval() }
+        panel.onClickElsewhere = { [weak model] point in
+            guard !RequestPanel.isOnAuthenticationDialog(point) else { return }
+            model?.cancelApproval()
+        }
     }
 
     /// Resizes once per real change of height, keeping the top edge in place.
