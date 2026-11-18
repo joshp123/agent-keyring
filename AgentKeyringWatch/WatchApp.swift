@@ -111,7 +111,7 @@ struct WatchHome: View {
         VStack(spacing: 6) {
             switch model.setup {
             case .waitingForIPhone:
-                Text("Open Agent Keyring on your iPhone to finish setting up.")
+                Text("Not set up yet. Set up Agent Keyring on your iPhone.")
                     .font(.system(size: 15)).multilineTextAlignment(.center)
             case .ready:
                 Text("Ready").font(.system(size: 28, weight: .bold))

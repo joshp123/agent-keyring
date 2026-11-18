@@ -124,7 +124,6 @@ public enum PhoneCopy {
     public static let approveOnMacDetail = "A request is waiting there. Click its green button, then touch the sensor."
     public static let macAdded = "Your Mac added this iPhone"
     public static let noMac = "No Mac found. Set up Agent Keyring on your Mac first."
-    public static let iCloudKeychainOff = "iCloud Keychain is off on this iPhone, so it can’t find your Mac. Turn it on in Settings."
     public static let notificationsOn = "Notifications are on"
     public static let notificationsOff = "Notifications are off"
     public static let notificationsOffDetail = "Requests can’t reach this iPhone until you turn them on in Settings."

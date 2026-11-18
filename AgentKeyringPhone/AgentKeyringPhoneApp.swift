@@ -19,19 +19,12 @@ struct AgentKeyringPhoneApp: App {
         WindowGroup {
             PhoneRootView(model: delegate.model)
                 .onChange(of: scenePhase, initial: true) { _, phase in
-                    if phase == .active {
-                        delegate.relay?.start()
-                        // Not admitted yet: the Mac may have issued a fresh invitation since.
-                        if !delegate.model.snapshot.joined, let link = delegate.relay?.invitation() {
-                            Task { await delegate.model.join(invitation: link) }
-                        }
-                    } else if phase == .background { delegate.relay?.stop() }
+                    // In front: follow the relay, or until joined keep looking for the Mac's invitation.
+                    if phase == .active { delegate.relay?.start() } else if phase == .background { delegate.relay?.stop() }
                 }
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
                 .onOpenURL { url in Task { await delegate.model.join(invitation: url.absoluteString) } }
                 .onChange(of: delegate.model.snapshot.joined, initial: true) { _, joined in
-                    // Joins by itself from the invitation the Mac left in iCloud Keychain.
-                    if !joined, let link = delegate.relay?.invitation() { Task { await delegate.model.join(invitation: link) } }
                     if joined { delegate.askForPushAddress() }
                 }
                 // The Watch learns of every change to the list of devices, its own admission first of all.

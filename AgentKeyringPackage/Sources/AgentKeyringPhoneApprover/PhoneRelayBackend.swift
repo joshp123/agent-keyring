@@ -39,8 +39,6 @@ struct PhoneSavedState: Codable {
     var testEnded: String?
     /// What the Watch found when it tested itself, as its app sent it (a property list).
     var watchSelfTest: Data?
-    /// Why joining stopped, in one plain line, if it did.
-    var joinProblem: String?
     /// The Watch's Device and PushRegistration, serialized, as its app sent them, until it is added or refused.
     var watchDevice: Data?
     var watchPush: Data?
@@ -120,9 +118,10 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     public var snapshot: PhoneSnapshot {
         guard let members, state.deviceKeyID != nil else {
-            let joining = PhoneSetupLine(id: "join", mark: state.joinProblem == nil ? .working : .failed,
-                                         title: state.joinProblem == nil ? PhoneCopy.approveOnMac : (state.joinProblem ?? ""),
-                                         detail: state.joinProblem == nil ? PhoneCopy.approveOnMacDetail : nil)
+            // The truth about what first run waits for: a Mac to invite this iPhone, or the Mac to approve it.
+            let joining = joinWaiting
+                ? PhoneSetupLine(id: "join", mark: .working, title: PhoneCopy.approveOnMac, detail: PhoneCopy.approveOnMacDetail)
+                : PhoneSetupLine(id: "join", mark: .working, title: PhoneCopy.noMac)
             return PhoneSnapshot(setup: PhoneSetup(lines: [joining], isReady: false))
         }
         let catalogue = self.catalogue
@@ -266,6 +265,7 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// Follows the relay's work stream while the app is open, reconnecting with backoff.
     public func start() {
+        guard state.deviceKeyID != nil else { lookForMac(); return }
         guard following == nil, state.endpoint != nil else { return }
         following = Task { [weak self] in
             var delay = 1
@@ -289,7 +289,10 @@ public final class PhoneRelayBackend: PhoneBackend {
         }
     }
 
-    public func stop() { following?.cancel(); following = nil }
+    public func stop() {
+        following?.cancel(); following = nil
+        looking?.cancel(); looking = nil
+    }
 
     func receive(_ work: Work) {
         guard let request = try? Sealing.parseRequest(work.request) else { return }
@@ -601,23 +604,42 @@ public final class PhoneRelayBackend: PhoneBackend {
         return "agentkeyring://join?invite=" + base64url
     }
 
-    /// Joins once per invitation. If this iPhone is not admitted, the Mac issues a
-    /// new invitation, and the app tries again with it the next time it opens.
-    public func join(invitation: String) async throws {
-        guard state.deviceKeyID == nil, !joining else { return }
-        joining = true
-        defer { joining = false }
-        do { try await joinNow(invitation) } catch {
-            var next = state
-            next.joinProblem = (error as? KeyringRelayError).map { $0.code == .unavailable ? PhoneCopy.cantReachRelay : PhoneCopy.noMac }
-                ?? PhoneCopy.cantReachRelay
-            save(next)
-            PhoneDiagnostics.note("Join failed: \(error)")
-            throw error
+    /// While the app is in front and this iPhone has not joined, it keeps looking
+    /// for the Mac's invitation and joins with it. An invitation whose relay does
+    /// not answer, has expired or whose join ended counts as not there yet, and is
+    /// tried again after a short wait, so a Mac set up later is found by itself.
+    private func lookForMac() {
+        guard looking == nil, state.deviceKeyID == nil else { return }
+        looking = Task { [weak self] in
+            var failed: (link: String, at: Date)?
+            while !Task.isCancelled {
+                guard let self, self.state.deviceKeyID == nil else { break }
+                if let link = self.linkInvitation ?? self.invitation(),
+                   failed == nil || failed?.link != link || Date().timeIntervalSince(failed!.at) > 30 {
+                    do { try await self.joinNow(link) } catch {
+                        failed = (link, Date())
+                        PhoneDiagnostics.note("No Mac yet: \(error)")
+                    }
+                }
+                if self.state.deviceKeyID != nil { break }
+                try? await Task.sleep(for: .seconds(3))
+            }
+            self?.looking = nil
         }
     }
 
-    private var joining = false
+    private var looking: Task<Void, Never>?
+    /// An invitation opened as a link (the simulator has no iCloud Keychain).
+    private var linkInvitation: String?
+    /// The relay holds this iPhone's join and the Mac has been asked.
+    private var joinWaiting = false { didSet { publish() } }
+
+    public func join(invitation: String) async throws {
+        guard state.deviceKeyID == nil else { return }
+        // The loop picks it up on its next look; a second join with the same keys would only race it.
+        linkInvitation = invitation
+        lookForMac()
+    }
 
     /// Joins with an invitation link: `agentkeyring://join?invite=<JoinInvite, base64url>`.
     private func joinNow(_ link: String) async throws {
@@ -630,11 +652,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         guard invite.expiresUnixSeconds > Int64(Date().timeIntervalSince1970) else {
             throw KeyringRelayError(code: .notAllowed, message: "The invitation has expired.")
         }
-        let host = invite.relayHost, port = UInt16(invite.relayPort), relaySHA = invite.relayTlsSha256
-        var next = state
-        next.endpoint = try RelayEndpoint(host: host, port: port)
-        next.joinProblem = nil
-        save(next)
+        let relaySHA = invite.relayTlsSha256
+        let endpoint = try RelayEndpoint(host: invite.relayHost, port: UInt16(invite.relayPort))
         var device = Agentkeyring_V2_Device()
         device.kind = .iphone
         device.label = "iPhone"
@@ -647,10 +666,12 @@ public final class PhoneRelayBackend: PhoneBackend {
         var joining = Agentkeyring_V2_JoinRequest()
         joining.device = device
         joining.proof = Sealing.joinProof(secret: invite.secret, joining: joining)
-        for try await response in try relay(pinSHA256: relaySHA).stream(Self.method { $0.join = joining }) {
+        defer { joinWaiting = false }
+        let relay = KeyringRelay(endpoint: endpoint, identity: try identity(), pin: nil, pinSHA256: relaySHA)
+        for try await response in try relay.stream(Self.method { $0.join = joining }) {
             guard case let .join(status) = response.result else { continue }
             switch status.state {
-            case .waiting: continue
+            case .waiting: joinWaiting = true
             case .approved:
                 let members = try Sealing.verifiedMembers(status.members, current: nil)
                 guard status.members.signerKeyID == invite.inviterKeyID, members.devices.contains(where: { $0 == device }),
@@ -660,13 +681,13 @@ public final class PhoneRelayBackend: PhoneBackend {
                 try accept(members: status.members)
                 PhoneDiagnostics.note("Joined the relay as \(device.keyID.prefix(16))")
                 var joined = state
+                joined.endpoint = endpoint
                 joined.deviceKeyID = device.keyID
                 save(joined)
                 start()
                 return
             default:
-                save(PhoneSavedState())
-                throw KeyringRelayError(code: .notAllowed, message: "The Mac did not add this iPhone.")
+                throw KeyringRelayError(code: .notAllowed, message: "The join ended: \(status.state).")
             }
         }
     }
