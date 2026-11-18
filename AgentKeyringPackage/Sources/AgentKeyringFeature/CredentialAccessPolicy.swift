@@ -144,6 +144,19 @@ public final class CredentialAccessController {
 
     public var allPolicies: [UUID: CredentialAccessPolicy] { policies }
 
+    /// Rules another device changed and signed: saved as they are, since that
+    /// device has already sealed or withdrawn the copies.
+    func adopt(_ next: [UUID: CredentialAccessPolicy]) {
+        guard next != policies else { return }
+        do {
+            try store.save(next)
+            policies = next
+            updateRowPolicies()
+        } catch {
+            errorMessage = rulesFailureMessage(error)
+        }
+    }
+
     private func updateRowPolicies() {
         onRulesChanged?()
         rows = rows.map { $0.changingPolicy(to: policy(for: $0.id)) }

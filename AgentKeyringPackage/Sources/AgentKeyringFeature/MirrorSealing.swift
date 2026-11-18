@@ -46,15 +46,38 @@ extension MirrorAppModel {
         let keys = try macKeys()
         let machines = Set([keys.machineID] + (device?.members?.machines.map(\.machineID) ?? []))
         var sealed = try await store.sealed()
+        var withdrawn = Set<String>()
         for id in Set(old.keys).union(new.keys) where (old[id] == .allowAutomatically) != (new[id] == .allowAutomatically) {
             let loginID = id.uuidString
             sealed.removeAll { $0.loginID == loginID && machines.contains($0.openerID) }
-            guard new[id] == .allowAutomatically else { continue }
+            guard new[id] == .allowAutomatically else { withdrawn.insert(loginID); continue }
             let secret = try keys.open(try await macCopy(of: loginID), context: context)
             sealed += try sealCopies(of: secret, automatic: true).filter { machines.contains($0.openerID) }
         }
         try await store.replaceSealed(sealed)
-        if device?.isJoined == true { try await device?.publish(context: context, clearing: machines) }
+        if device?.isJoined == true { try await device?.publish(context: context, withdrawn: withdrawn) }
+    }
+
+    /// A rule change from another device: its rules, and this Mac's Automatic
+    /// copies exactly as that device left them at the relay.
+    func adoptCatalogue(_ catalogue: Agentkeyring_V2_Catalogue, ownCopies: [Agentkeyring_V2_SealedLogin]) async {
+        guard let keys = try? macKeys() else { return }
+        var next: [UUID: CredentialAccessPolicy] = [:]
+        for login in catalogue.logins {
+            guard let id = UUID(uuidString: login.loginID) else { continue }
+            switch login.rule {
+            case .automatic: next[id] = .allowAutomatically
+            case .blocked: next[id] = .block
+            default: break
+            }
+        }
+        let automatic = Set(next.filter { $0.value == .allowAutomatically }.keys.map(\.uuidString))
+        if var sealed = try? await store.sealed() {
+            sealed.removeAll { $0.openerID == keys.machineID }
+            sealed += ownCopies.filter { automatic.contains($0.loginID) }
+            try? await store.replaceSealed(sealed)
+        }
+        accessControl.adopt(next)
     }
 
     /// The logins and their rules, as the other devices see them.

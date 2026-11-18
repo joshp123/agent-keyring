@@ -2239,7 +2239,7 @@ type RelayRequest_PublishCatalogue struct {
 }
 
 type RelayRequest_PublishSealedLogins struct {
-	PublishSealedLogins *SealedLogins `protobuf:"bytes,16,opt,name=publish_sealed_logins,json=publishSealedLogins,proto3,oneof"` // Replaces every sealed login for the openers named.
+	PublishSealedLogins *SealedLogins `protobuf:"bytes,16,opt,name=publish_sealed_logins,json=publishSealedLogins,proto3,oneof"` // Adds or replaces each copy given; see SealedLogins.
 }
 
 type RelayRequest_SealedLogins struct {
@@ -2892,8 +2892,11 @@ type SealedLogins struct {
 	// In publish_sealed_logins: openers whose every copy is replaced, even by
 	// none (a machine whose last Automatic login became Ask).
 	ClearedOpeners []string `protobuf:"bytes,2,rep,name=cleared_openers,json=clearedOpeners,proto3" json:"cleared_openers,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// In publish_sealed_logins: logins no longer Automatic. Every machine's
+	// copy of each is removed; devices' copies stay.
+	WithdrawnLoginIds []string `protobuf:"bytes,3,rep,name=withdrawn_login_ids,json=withdrawnLoginIds,proto3" json:"withdrawn_login_ids,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SealedLogins) Reset() {
@@ -2936,6 +2939,13 @@ func (x *SealedLogins) GetLogins() []*SealedLogin {
 func (x *SealedLogins) GetClearedOpeners() []string {
 	if x != nil {
 		return x.ClearedOpeners
+	}
+	return nil
+}
+
+func (x *SealedLogins) GetWithdrawnLoginIds() []string {
+	if x != nil {
+		return x.WithdrawnLoginIds
 	}
 	return nil
 }
@@ -3859,10 +3869,11 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\blogin_id\x18\x01 \x01(\tR\aloginId\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12*\n" +
-	"\x11used_unix_seconds\x18\x04 \x01(\x03R\x0fusedUnixSeconds\"m\n" +
+	"\x11used_unix_seconds\x18\x04 \x01(\x03R\x0fusedUnixSeconds\"\x9d\x01\n" +
 	"\fSealedLogins\x124\n" +
 	"\x06logins\x18\x01 \x03(\v2\x1c.agentkeyring.v2.SealedLoginR\x06logins\x12'\n" +
-	"\x0fcleared_openers\x18\x02 \x03(\tR\x0eclearedOpeners\"\x9e\x01\n" +
+	"\x0fcleared_openers\x18\x02 \x03(\tR\x0eclearedOpeners\x12.\n" +
+	"\x13withdrawn_login_ids\x18\x03 \x03(\tR\x11withdrawnLoginIds\"\x9e\x01\n" +
 	"\fAnswerUpload\x12/\n" +
 	"\x06answer\x18\x01 \x01(\v2\x17.agentkeyring.v2.SignedR\x06answer\x125\n" +
 	"\bdelivery\x18\x02 \x01(\v2\x19.agentkeyring.v2.DeliveryR\bdelivery\x12&\n" +

@@ -205,6 +205,7 @@ private struct FirstRunHome: View {
         let test: FirstRunState.Test = switch model.selfTest {
         case let .passed(at): .passed(at)
         case let .failed(message): .failed(message)
+        case .declined: .declined
         case .waiting, .notRun: .waiting
         }
         return FirstRunState(imported: imported, test: test, alwaysOnReady: model.device?.isJoined == true)
@@ -216,7 +217,8 @@ private struct FirstRunHome: View {
                 ProgressView().padding(40)
             } else {
                 VStack(alignment: .leading) {
-                    MacFirstRunView(state: state, allow: model.requestProviderEnablement, openPasswords: model.openPasswordsExport)
+                    MacFirstRunView(state: state, allow: model.requestProviderEnablement, openPasswords: model.openPasswordsExport,
+                        sendTestAgain: model.sendSelfTestAgain)
                     if let notice = model.notice, notice.kind != .information {
                         Text(notice.text).font(.callout).padding(.horizontal, 28).padding(.bottom, 20)
                     }

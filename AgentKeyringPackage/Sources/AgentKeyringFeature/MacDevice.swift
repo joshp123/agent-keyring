@@ -44,6 +44,9 @@ public final class MacDevice {
     let store: LoginStore
     /// The logins and their rules as the catalogue, from the app's import and rules.
     let catalogueLogins: @MainActor () async throws -> [Agentkeyring_V2_Login]
+    /// A newer catalogue another device signed (a rule changed on the iPhone),
+    /// with this Mac's own Automatic copies as the relay now holds them.
+    var onCatalogue: (@MainActor (Agentkeyring_V2_Catalogue, [Agentkeyring_V2_SealedLogin]) async -> Void)?
     private var saved: Saved?
     private var setupPin: Data?
     private var hiddenJoins = Set<String>()
@@ -155,7 +158,7 @@ public final class MacDevice {
         // The always-on machine runs his unattended jobs: it is allowed the
         // logins he sets to Automatic, and the request says so.
         always.automaticAllowed = true
-        try await confirm(context, reason: "add \(always.label) as your always-on machine")
+        try await confirm(context, reason: "add \(always.label) as your always-on machine and let it use Automatic logins")
         onAuthenticated()
         var members = Agentkeyring_V2_Members()
         members.domain = "agentkeyring.members.v2"
@@ -199,6 +202,7 @@ public final class MacDevice {
                     try await self.refreshMembers()
                     self.connection = .connected
                     await self.refreshSelfTests()
+                    await self.followCatalogue()
                     var request = Agentkeyring_V2_RelayRequest()
                     request.method = .watchWork(Agentkeyring_V2_Empty())
                     let joins = Task { await self.pollJoins() }
@@ -231,7 +235,10 @@ public final class MacDevice {
     /// Also notices a connection that died without closing, since the work
     /// stream itself is silent while nothing waits.
     private func pollJoins() async {
+        var round = 0
         while !Task.isCancelled {
+            round += 1
+            if round % 10 == 0 { await followCatalogue() }
             do {
                 let response = try await call(.pendingJoins(Agentkeyring_V2_Empty()))
                 joins = invited(response.pendingJoins.joins).filter { !hiddenJoins.contains(Self.joinID($0)) }
@@ -246,6 +253,19 @@ public final class MacDevice {
             }
             try? await Task.sleep(for: .seconds(3))
         }
+    }
+
+    /// Takes rule changes made on another device.
+    func followCatalogue() async {
+        guard let members, let saved, let response = try? await call(.catalogue(Agentkeyring_V2_Empty())),
+            case let .signed(document) = response.result,
+            let catalogue = try? Sealing.verifiedCatalogue(document, members: members, current: nil),
+            catalogue.revision > saved.catalogueRevision, document.signerKeyID != keys.deviceKeyID else { return }
+        let mine = (try? await call(.automaticLogins(Agentkeyring_V2_Empty())))?.sealedLogins.logins
+            .filter { $0.openerID == keys.machineID } ?? []
+        self.saved?.catalogueRevision = catalogue.revision
+        try? persist()
+        await onCatalogue?(catalogue, mine)
     }
 
     private func refreshSelfTests() async {
@@ -499,7 +519,7 @@ public final class MacDevice {
 
     /// Signs the catalogue with Touch ID and sends it, with the sealed copies
     /// for the other devices and machines. This Mac's own copies stay here.
-    public func publish(context: LAContext, clearing: Set<String> = []) async throws {
+    public func publish(context: LAContext, withdrawn: Set<String> = []) async throws {
         guard var saved else { return }
         var catalogue = Agentkeyring_V2_Catalogue()
         catalogue.domain = "agentkeyring.catalogue.v2"
@@ -512,15 +532,15 @@ public final class MacDevice {
         self.saved = saved
         try persist()
         let others = Set((members?.devices.map(\.keyID) ?? []) + (members?.machines.map(\.machineID) ?? []))
-            .subtracting([keys.deviceKeyID, keys.machineID])
-        try await publishSealed(for: others, clearing: clearing.intersection(others))
+            .subtracting([keys.deviceKeyID])
+        try await publishSealed(for: others, withdrawn: withdrawn)
     }
 
-    private func publishSealed(for openers: Set<String>, clearing: Set<String> = []) async throws {
+    private func publishSealed(for openers: Set<String>, withdrawn: Set<String> = []) async throws {
         var batch = Agentkeyring_V2_SealedLogins()
-        batch.logins = try await store.sealed().filter { openers.contains($0.openerID) }
-        batch.clearedOpeners = clearing.sorted()
-        guard !batch.logins.isEmpty || !batch.clearedOpeners.isEmpty else { return }
+        batch.logins = try await store.sealed().filter { openers.contains($0.openerID) && !withdrawn.contains($0.loginID) }
+        batch.withdrawnLoginIds = withdrawn.sorted()
+        guard !batch.logins.isEmpty || !batch.withdrawnLoginIds.isEmpty else { return }
         _ = try await call(.publishSealedLogins(batch))
     }
 
