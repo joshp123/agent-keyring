@@ -6,6 +6,8 @@
     <string>$(AGENT_KEYRING_APNS_ENVIRONMENT)</string>
     <key>CFBundleDisplayName</key>
     <string>Agent Keyring</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Scan the code on your Mac to add this iPhone.</string>
     <key>NSFaceIDUsageDescription</key>
     <string>Use Face ID to approve an agent’s request or sign your reply.</string>
 </dict>

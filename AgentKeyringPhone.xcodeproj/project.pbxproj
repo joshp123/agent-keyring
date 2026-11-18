@@ -1,33 +1,70 @@
 // !$*UTF8*$!
-{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
-A00000000000000000000001 = {isa = PBXProject; attributes = {LastUpgradeCheck = 2700; TargetAttributes = {A00000000000000000000002 = {DevelopmentTeam = 7M8BR7R488; ProvisioningStyle = Automatic; SystemCapabilities = {com.apple.Push = {enabled = 1;}; };};};}; buildConfigurationList = A00000000000000000000010; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en, Base); mainGroup = A00000000000000000000003; productRefGroup = A00000000000000000000004; projectDirPath = ""; projectRoot = ""; packageReferences = (A00000000000000000000020); targets = (A00000000000000000000002);};
-A00000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000011; buildPhases = (A00000000000000000000007, A00000000000000000000008, A00000000000000000000009); buildRules = (); dependencies = (); name = AgentKeyringPhone; packageProductDependencies = (A00000000000000000000027, F00000000000000000000001); productName = AgentKeyringPhone; productReference = A00000000000000000000006; productType = "com.apple.product-type.application";};
-A00000000000000000000003 = {isa = PBXGroup; children = (B10000000000000000000001, E00000000000000000000003, D00000000000000000000020, A00000000000000000000005, A00000000000000000000004); sourceTree = "<group>";};
-A00000000000000000000004 = {isa = PBXGroup; children = (A00000000000000000000006); name = Products; sourceTree = "<group>";};
-A00000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyringPhone/AgentKeyringPhoneApp.swift; sourceTree = "<group>";};
-A00000000000000000000006 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentKeyringPhone.app; sourceTree = BUILT_PRODUCTS_DIR;};
-A00000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E00000000000000000000004, D00000000000000000000022, A0000000000000000000000A); runOnlyForDeploymentPostprocessing = 0;};
-A00000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000028, F00000000000000000000002); runOnlyForDeploymentPostprocessing = 0;};
-A00000000000000000000009 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000002); runOnlyForDeploymentPostprocessing = 0;};
-A0000000000000000000000A = {isa = PBXBuildFile; fileRef = A00000000000000000000005;};
-B10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AgentKeyringPhone/AppIcon.icon; sourceTree = "<group>";};
-B10000000000000000000002 = {isa = PBXBuildFile; fileRef = B10000000000000000000001;};
-A00000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000012, A00000000000000000000013); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
-A00000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000014, A00000000000000000000015); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
-A00000000000000000000012 = {isa = XCBuildConfiguration; buildSettings = {}; name = Debug;};
-A00000000000000000000013 = {isa = XCBuildConfiguration; buildSettings = {}; name = Release;};
-A00000000000000000000014 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 7M8BR7R488; PRODUCT_BUNDLE_IDENTIFIER = com.joshpalmer.AgentKeyring.Phone; PRODUCT_NAME = AgentKeyringPhone; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; IPHONEOS_DEPLOYMENT_TARGET = 26.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_VERSION = 6.0; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = AgentKeyringPhone/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; AGENT_KEYRING_APNS_ENVIRONMENT = development;
-				CODE_SIGN_ENTITLEMENTS = AgentKeyringPhone/AgentKeyringPhone.entitlements; CURRENT_PROJECT_VERSION = 7; MARKETING_VERSION = 0.4.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf;}; name = Debug;};
-A00000000000000000000015 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 7M8BR7R488; PRODUCT_BUNDLE_IDENTIFIER = com.joshpalmer.AgentKeyring.Phone; PRODUCT_NAME = AgentKeyringPhone; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; IPHONEOS_DEPLOYMENT_TARGET = 26.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_VERSION = 6.0; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = AgentKeyringPhone/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; AGENT_KEYRING_APNS_ENVIRONMENT = development;
-				CODE_SIGN_ENTITLEMENTS = AgentKeyringPhone/AgentKeyringPhone.entitlements; CURRENT_PROJECT_VERSION = 7; MARKETING_VERSION = 0.4.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; SWIFT_OPTIMIZATION_LEVEL = "-O";}; name = Release;};
-A00000000000000000000020 = {isa = XCLocalSwiftPackageReference; relativePath = AgentKeyringPackage;};
-A00000000000000000000027 = {isa = XCSwiftPackageProductDependency; productName = AgentKeyringApprovalUI;};
-A00000000000000000000028 = {isa = PBXBuildFile; productRef = A00000000000000000000027;};
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 77;
+	objects = {
+		A00000000000000000000001 = {isa = PBXProject; attributes = {LastUpgradeCheck = 2700; BuildIndependentTargetsInParallel = 1;}; buildConfigurationList = A00000000000000000000010; developmentRegion = en; knownRegions = (en, Base); mainGroup = A00000000000000000000003; productRefGroup = A00000000000000000000004; projectDirPath = ""; projectRoot = ""; packageReferences = (A00000000000000000000020); targets = (A00000000000000000000002, B00000000000000000000002, C00000000000000000000002); preferredProjectObjectVersion = 77;};
+		A00000000000000000000003 = {isa = PBXGroup; children = (A00000000000000000000030, B00000000000000000000030, C00000000000000000000030, A00000000000000000000004); sourceTree = "<group>";};
+		A00000000000000000000004 = {isa = PBXGroup; children = (A00000000000000000000006, B00000000000000000000006, C00000000000000000000006); name = Products; sourceTree = "<group>";};
+		A00000000000000000000020 = {isa = XCLocalSwiftPackageReference; relativePath = AgentKeyringPackage;};
 
-D00000000000000000000020 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyringPhone/PhoneImportBackend.swift; sourceTree = "<group>";};
-D00000000000000000000022 = {isa = PBXBuildFile; fileRef = D00000000000000000000020;};
-E00000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentKeyringPhone/PhoneEnclaveKeys.swift; sourceTree = "<group>";};
-E00000000000000000000004 = {isa = PBXBuildFile; fileRef = E00000000000000000000003;};
-F00000000000000000000001 = {isa = XCSwiftPackageProductDependency; productName = AgentKeyringPhoneApprover;};
-F00000000000000000000002 = {isa = PBXBuildFile; productRef = F00000000000000000000001;};
-}; rootObject = A00000000000000000000001; }
+		/* The app */
+		A00000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000011; buildPhases = (A00000000000000000000007, A00000000000000000000008, A00000000000000000000009, A00000000000000000000040); buildRules = (); dependencies = (A00000000000000000000041, A00000000000000000000042); fileSystemSynchronizedGroups = (A00000000000000000000030); name = AgentKeyringPhone; packageProductDependencies = (A00000000000000000000027, A00000000000000000000029); productName = AgentKeyringPhone; productReference = A00000000000000000000006; productType = "com.apple.product-type.application";};
+		A00000000000000000000006 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentKeyringPhone.app; sourceTree = BUILT_PRODUCTS_DIR;};
+		A00000000000000000000030 = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A00000000000000000000031); path = AgentKeyringPhone; sourceTree = "<group>";};
+		A00000000000000000000031 = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (Info.plist, AgentKeyringPhone.entitlements); target = A00000000000000000000002;};
+		A00000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+		A00000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000028, A0000000000000000000002A); runOnlyForDeploymentPostprocessing = 0;};
+		A00000000000000000000009 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+		A00000000000000000000040 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (A00000000000000000000043, A00000000000000000000044); name = "Embed Foundation Extensions"; runOnlyForDeploymentPostprocessing = 0;};
+		A00000000000000000000043 = {isa = PBXBuildFile; fileRef = B00000000000000000000006; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); };};
+		A00000000000000000000044 = {isa = PBXBuildFile; fileRef = C00000000000000000000006; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); };};
+		A00000000000000000000041 = {isa = PBXTargetDependency; target = B00000000000000000000002; targetProxy = A00000000000000000000045;};
+		A00000000000000000000042 = {isa = PBXTargetDependency; target = C00000000000000000000002; targetProxy = A00000000000000000000046;};
+		A00000000000000000000045 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001; proxyType = 1; remoteGlobalIDString = B00000000000000000000002; remoteInfo = AgentKeyringPhoneNotificationService;};
+		A00000000000000000000046 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001; proxyType = 1; remoteGlobalIDString = C00000000000000000000002; remoteInfo = AgentKeyringPhoneNotificationContent;};
+		A00000000000000000000027 = {isa = XCSwiftPackageProductDependency; productName = AgentKeyringApprovalUI;};
+		A00000000000000000000028 = {isa = PBXBuildFile; productRef = A00000000000000000000027;};
+		A00000000000000000000029 = {isa = XCSwiftPackageProductDependency; productName = AgentKeyringPhoneApprover;};
+		A0000000000000000000002A = {isa = PBXBuildFile; productRef = A00000000000000000000029;};
+
+		/* The notification service extension: writes a request's words into its notification */
+		B00000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = B00000000000000000000011; buildPhases = (B00000000000000000000007, B00000000000000000000008); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (B00000000000000000000030); name = AgentKeyringPhoneNotificationService; packageProductDependencies = (B00000000000000000000027); productName = AgentKeyringPhoneNotificationService; productReference = B00000000000000000000006; productType = "com.apple.product-type.app-extension";};
+		B00000000000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentKeyringPhoneNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR;};
+		B00000000000000000000030 = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (B00000000000000000000031); path = AgentKeyringPhoneNotificationService; sourceTree = "<group>";};
+		B00000000000000000000031 = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (Info.plist); target = B00000000000000000000002;};
+		B00000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+		B00000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (B00000000000000000000028); runOnlyForDeploymentPostprocessing = 0;};
+		B00000000000000000000027 = {isa = XCSwiftPackageProductDependency; productName = AgentKeyringApprovalUI;};
+		B00000000000000000000028 = {isa = PBXBuildFile; productRef = B00000000000000000000027;};
+
+		/* The notification content extension: the layout of a held request */
+		C00000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = C00000000000000000000011; buildPhases = (C00000000000000000000007, C00000000000000000000008); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (C00000000000000000000030); name = AgentKeyringPhoneNotificationContent; packageProductDependencies = (C00000000000000000000027); productName = AgentKeyringPhoneNotificationContent; productReference = C00000000000000000000006; productType = "com.apple.product-type.app-extension";};
+		C00000000000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentKeyringPhoneNotificationContent.appex; sourceTree = BUILT_PRODUCTS_DIR;};
+		C00000000000000000000030 = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (C00000000000000000000031); path = AgentKeyringPhoneNotificationContent; sourceTree = "<group>";};
+		C00000000000000000000031 = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (Info.plist); target = C00000000000000000000002;};
+		C00000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+		C00000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (C00000000000000000000028); runOnlyForDeploymentPostprocessing = 0;};
+		C00000000000000000000027 = {isa = XCSwiftPackageProductDependency; productName = AgentKeyringApprovalUI;};
+		C00000000000000000000028 = {isa = PBXBuildFile; productRef = C00000000000000000000027;};
+
+		/* Build settings. Test builds pass AGENT_KEYRING_BUNDLE_ID=com.joshpalmer.KeyringTest.Phone. */
+		A00000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000012, A00000000000000000000013); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+		A00000000000000000000012 = {isa = XCBuildConfiguration; buildSettings = {AGENT_KEYRING_BUNDLE_ID = com.joshpalmer.AgentKeyring.Phone; AGENT_KEYRING_APNS_ENVIRONMENT = development; ALWAYS_SEARCH_USER_PATHS = NO; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 7M8BR7R488; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; IPHONEOS_DEPLOYMENT_TARGET = 26.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_VERSION = 6.0; GENERATE_INFOPLIST_FILE = YES; CURRENT_PROJECT_VERSION = 8; MARKETING_VERSION = 0.5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; ONLY_ACTIVE_ARCH = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES;}; name = Debug;};
+		A00000000000000000000013 = {isa = XCBuildConfiguration; buildSettings = {AGENT_KEYRING_BUNDLE_ID = com.joshpalmer.AgentKeyring.Phone; AGENT_KEYRING_APNS_ENVIRONMENT = development; ALWAYS_SEARCH_USER_PATHS = NO; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 7M8BR7R488; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; IPHONEOS_DEPLOYMENT_TARGET = 26.0; TARGETED_DEVICE_FAMILY = 1; SWIFT_VERSION = 6.0; GENERATE_INFOPLIST_FILE = YES; CURRENT_PROJECT_VERSION = 8; MARKETING_VERSION = 0.5.0; SWIFT_OPTIMIZATION_LEVEL = "-O"; ENABLE_USER_SCRIPT_SANDBOXING = YES;}; name = Release;};
+
+		A00000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000014, A00000000000000000000015); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+		A00000000000000000000014 = {isa = XCBuildConfiguration; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID)"; PRODUCT_NAME = AgentKeyringPhone; INFOPLIST_FILE = AgentKeyringPhone/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_ENTITLEMENTS = AgentKeyringPhone/AgentKeyringPhone.entitlements; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";}; name = Debug;};
+		A00000000000000000000015 = {isa = XCBuildConfiguration; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID)"; PRODUCT_NAME = AgentKeyringPhone; INFOPLIST_FILE = AgentKeyringPhone/Info.plist; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_ENTITLEMENTS = AgentKeyringPhone/AgentKeyringPhone.entitlements; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";}; name = Release;};
+
+		B00000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000014, B00000000000000000000015); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+		B00000000000000000000014 = {isa = XCBuildConfiguration; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID).NotificationService"; PRODUCT_NAME = AgentKeyringPhoneNotificationService; INFOPLIST_FILE = AgentKeyringPhoneNotificationService/Info.plist; SKIP_INSTALL = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";}; name = Debug;};
+		B00000000000000000000015 = {isa = XCBuildConfiguration; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID).NotificationService"; PRODUCT_NAME = AgentKeyringPhoneNotificationService; INFOPLIST_FILE = AgentKeyringPhoneNotificationService/Info.plist; SKIP_INSTALL = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";}; name = Release;};
+
+		C00000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (C00000000000000000000014, C00000000000000000000015); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+		C00000000000000000000014 = {isa = XCBuildConfiguration; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID).NotificationContent"; PRODUCT_NAME = AgentKeyringPhoneNotificationContent; INFOPLIST_FILE = AgentKeyringPhoneNotificationContent/Info.plist; SKIP_INSTALL = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";}; name = Debug;};
+		C00000000000000000000015 = {isa = XCBuildConfiguration; buildSettings = {PRODUCT_BUNDLE_IDENTIFIER = "$(AGENT_KEYRING_BUNDLE_ID).NotificationContent"; PRODUCT_NAME = AgentKeyringPhoneNotificationContent; INFOPLIST_FILE = AgentKeyringPhoneNotificationContent/Info.plist; SKIP_INSTALL = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";}; name = Release;};
+	};
+	rootObject = A00000000000000000000001;
+}
