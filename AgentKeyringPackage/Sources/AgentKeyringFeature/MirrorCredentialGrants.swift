@@ -22,14 +22,11 @@ extension MirrorAppModel {
         guard let login = leaseLogins.first(where: { $0.id.uuidString == lease.loginID }) else {
             throw LeaseFailure(.notFound, "The login is no longer available.")
         }
-        let reason = CredentialReleaseAuthorizationRequest.leaseReason(site: login.origins.first ?? login.title,
-            account: login.username ?? login.title, agent: leaseStore.requester(for: leaseID)?.name ?? lease.recipient.clientLabel)
-        let approval = CredentialReleaseAuthorizationRequest(destination: login.origins.first ?? login.title,
-            account: login.username ?? login.title, field: .password, credentialTitle: login.title,
-            expirationSeconds: 1800, authorizationDeadline: Date(timeIntervalSince1970: TimeInterval(lease.pendingUntilUnixSeconds)),
-            leaseDescription: reason)
+        let reason = ApprovalSentence.lease(site: login.origins.first ?? login.title, account: login.username ?? login.title,
+            agent: leaseStore.requester(for: leaseID)?.name ?? lease.recipient.clientLabel)
         let copy = try await macCopy(of: lease.loginID)
-        try await LocalCredentialReleaseAuthorizer().authorize(approval, context: context, onPromptStarted: {})
+        try await OwnerConfirmation.confirm(context, reason: reason,
+            until: Date(timeIntervalSince1970: TimeInterval(lease.pendingUntilUnixSeconds)))
         try Task.checkCancellation()
         // A rule may have changed while the dialog was up.
         guard accessControl.policy(for: login.id) != .block else { throw LeaseFailure(.permissionDenied, "This login is now blocked for agents.") }

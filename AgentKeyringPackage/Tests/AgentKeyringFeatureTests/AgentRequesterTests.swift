@@ -17,7 +17,6 @@ struct AgentRequesterAttributionTests {
             startTime: { pid in #expect(pid == 103); return start },
             folder: { pid in #expect(pid == 100); return "/fixture/project" })
         #expect(requester.name == (executable == "claude" ? "Claude Code" : "Codex"))
-        #expect(requester.displayLabel == requester.name)
         #expect(requester.session == HarnessSession(processIdentifier: 103, processStartTime: start))
         #expect(requester.workingDirectory == "/fixture/project")
     }

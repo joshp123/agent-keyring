@@ -218,7 +218,7 @@ public final class MacDevice {
         guard let copy = try await store.sealed().first(where: { $0.loginID == request.loginID && $0.openerID == keys.deviceKeyID }) else {
             throw RelayFailure(.permissionDenied, "This Mac cannot open this login. Approve it on your iPhone or Watch.")
         }
-        let reason = CredentialReleaseAuthorizationRequest.leaseReason(site: login.sites.first ?? login.title,
+        let reason = ApprovalSentence.lease(site: login.sites.first ?? login.title,
             account: login.account.isEmpty ? login.title : login.account, agent: request.agent, machine: asking.label)
         try await confirm(context, reason: reason, until: Date(timeIntervalSince1970: TimeInterval(request.answerByUnixSeconds)))
         let secret = try keys.open(copy, context: context)
@@ -241,9 +241,7 @@ public final class MacDevice {
 
     /// macOS's own dialog, with our sentence after "Agent Keyring is trying to".
     func confirm(_ context: LAContext, reason: String, until deadline: Date = .now.addingTimeInterval(600)) async throws {
-        let request = CredentialReleaseAuthorizationRequest(destination: "", account: "", field: .password,
-            authorizationDeadline: deadline, leaseDescription: reason)
-        try await LocalCredentialReleaseAuthorizer().authorize(request, context: context, onPromptStarted: {})
+        try await OwnerConfirmation.confirm(context, reason: reason, until: deadline)
         try Task.checkCancellation()
     }
 

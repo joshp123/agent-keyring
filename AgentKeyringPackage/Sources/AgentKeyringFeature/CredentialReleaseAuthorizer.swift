@@ -9,55 +9,10 @@ private let credentialAuthorizationLogger = Logger(
     category: "CredentialAuthorization"
 )
 
-public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
-    public let leaseDescription: String?
-    public let destination: String
-    public let account: String
-    public let field: AgentCredentialField
-    public let credentialTitle: String
-    public let fillsFocusedField: Bool
-    public let expirationSeconds: Int?
-    public let authorizationDeadline: Date
-    public let isPossiblyStale: Bool
-
-    public init(
-        destination: String,
-        account: String,
-        field: AgentCredentialField,
-        credentialTitle: String? = nil,
-        expirationSeconds: Int? = 30,
-        fillsFocusedField: Bool = false,
-        authorizationDeadline: Date = Date().addingTimeInterval(AgentBridgeRequest.lifetimeSeconds),
-        isPossiblyStale: Bool = false,
-        leaseDescription: String? = nil
-    ) {
-        self.leaseDescription = leaseDescription
-        self.destination = destination
-        self.account = account
-        self.field = field
-        self.credentialTitle = credentialTitle ?? account
-        self.fillsFocusedField = fillsFocusedField
-        self.expirationSeconds = expirationSeconds
-        self.authorizationDeadline = authorizationDeadline
-        self.isPossiblyStale = isPossiblyStale
-    }
-
-    public var localizedReason: String {
-        if let leaseDescription { return leaseDescription }
-        let value =
-            switch field {
-            case .username: "username"
-            case .password: "password"
-            case .totp: "verification code"
-            }
-        if fillsFocusedField { return "let an agent fill in your \(value) for \(account) on \(destination)" }
-        return "let an agent see your \(value) for \(account) on \(destination)"
-            + (isPossiblyStale ? ". This copy may be out of date; import again from Apple Passwords" : "")
-    }
-
-    /// Our words in macOS's dialog, after "Agent Keyring is trying to". The
-    /// machine is named only when it is not this Mac.
-    static func leaseReason(site: String, account: String, agent: String, machine: String? = nil) -> String {
+/// Our words in macOS's Touch ID dialog, after "Agent Keyring is trying to".
+public enum ApprovalSentence {
+    /// The machine is named only when it is not this Mac.
+    public static func lease(site: String, account: String, agent: String, machine: String? = nil) -> String {
         let site = URL(string: site)?.host() ?? site
         let who = (agent.isEmpty ? "an agent" : agent) + (machine.map { " on \($0)" } ?? "")
         return "let \(who) use your \(site) login, \(account)"
@@ -120,20 +75,10 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
     }
 }
 
+/// macOS's own dialog for Touch ID or the Watch. It appears only after Josh
+/// clicks to approve; the same context then opens and signs with the chip keys.
 @MainActor
-public protocol CredentialReleaseAuthorizing {
-    func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws
-    func cancelCurrentAuthorization()
-}
-
-public extension CredentialReleaseAuthorizing {
-    func cancelCurrentAuthorization() {}
-}
-
-@MainActor
-public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizing {
-    private var activeContext: LAContext?
-
+public enum OwnerConfirmation {
     /// Touch ID or the Watch. The test build's "TouchIDOnly" setting leaves
     /// the Watch out, so a rehearsal at night doesn't buzz it.
     public static var policy: LAPolicy {
@@ -141,108 +86,39 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
             : .deviceOwnerAuthenticationWithBiometricsOrCompanion
     }
 
-    public init() {}
-
-    /// macOS's dialog appears only after Josh clicks Approve in a panel, which
-    /// passes its context; nothing may ask him unprompted.
-    public func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
-        throw CredentialReleaseAuthorizationError.unavailable
-    }
-
-    public func authorize(_ request: CredentialReleaseAuthorizationRequest, context: LAContext,
-        onPromptStarted: @escaping () -> Void) async throws {
-        try await evaluate(request, context: context, onPromptStarted: onPromptStarted)
-    }
-
-    private func evaluate(_ request: CredentialReleaseAuthorizationRequest, context: LAContext,
-        onPromptStarted: @escaping () -> Void) async throws {
+    public static func confirm(_ context: LAContext, reason: String, until deadline: Date) async throws {
         try Task.checkCancellation()
-        guard request.authorizationDeadline > Date() else {
-            throw CredentialReleaseAuthorizationError.expired
-        }
+        guard deadline > Date() else { throw CredentialReleaseAuthorizationError.expired }
         context.touchIDAuthenticationAllowableReuseDuration = 0
         context.localizedFallbackTitle = ""
         context.localizedCancelTitle = "Cancel"
-        let policy = Self.policy
-        var evaluationError: NSError?
-
-        guard context.canEvaluatePolicy(policy, error: &evaluationError) else {
-            if let evaluationError {
-                credentialAuthorizationLogger.error(
-                    "Approval preflight failed: domain=\(evaluationError.domain, privacy: .public) code=\(evaluationError.code, privacy: .public)"
-                )
-                throw CredentialReleaseAuthorizationError.classifyNativeFailure(
-                    evaluationError, authorizationDeadline: request.authorizationDeadline)
-            } else {
-                credentialAuthorizationLogger.error("Approval preflight failed without an error code")
+        var preflight: NSError?
+        guard context.canEvaluatePolicy(policy, error: &preflight) else {
+            if let preflight {
+                credentialAuthorizationLogger.error("Approval preflight failed: domain=\(preflight.domain, privacy: .public) code=\(preflight.code, privacy: .public)")
+                throw CredentialReleaseAuthorizationError.classifyNativeFailure(preflight, authorizationDeadline: deadline)
             }
             throw CredentialReleaseAuthorizationError.unavailable
         }
-
-        activeContext = context
-        let remaining = request.authorizationDeadline.timeIntervalSinceNow
-        let timeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(max(0, remaining)))
-            guard !Task.isCancelled, self?.activeContext === context else { return }
-            context.invalidate()
+        let timeout = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+            if !Task.isCancelled { context.invalidate() }
         }
-        defer {
-            timeoutTask.cancel()
-            if activeContext === context { activeContext = nil }
-        }
+        defer { timeout.cancel() }
         let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
         do {
-            onPromptStarted()
             let confirmed = try await withTaskCancellationHandler {
-                try Task.checkCancellation()
-                return try await context.evaluatePolicy(policy, localizedReason: request.localizedReason)
-            } onCancel: {
-                Task { @MainActor in cancelEvaluation() }
-            }
+                try await context.evaluatePolicy(policy, localizedReason: reason)
+            } onCancel: { Task { @MainActor in cancelEvaluation() } }
             try Task.checkCancellation()
-            guard confirmed else {
-                throw CredentialReleaseAuthorizationError.notVerified
-            }
+            guard confirmed else { throw CredentialReleaseAuthorizationError.notVerified }
         } catch let error as CredentialReleaseAuthorizationError {
             throw error
         } catch {
             if Task.isCancelled { throw CancellationError() }
-            let nsError = error as NSError
-            credentialAuthorizationLogger.error(
-                "Approval evaluation failed: domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)"
-            )
-            throw CredentialReleaseAuthorizationError.classifyNativeFailure(
-                nsError, authorizationDeadline: request.authorizationDeadline
-            )
-        }
-    }
-
-    public func cancelCurrentAuthorization() {
-        activeContext?.invalidate()
-    }
-}
-
-extension AgentCredentialField {
-    var requiresUserApproval: Bool {
-        switch self {
-        case .username: false
-        case .password, .totp: true
-        }
-    }
-
-    var approvalDisplayName: String {
-        switch self {
-        case .username: "Username"
-        case .password: "Password"
-        case .totp: "Verification code"
-        }
-    }
-
-    var approvalSymbol: String {
-        switch self {
-        case .username: "person.text.rectangle"
-        case .password: "key.fill"
-        case .totp: "number.square.fill"
+            let native = error as NSError
+            credentialAuthorizationLogger.error("Approval evaluation failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
+            throw CredentialReleaseAuthorizationError.classifyNativeFailure(native, authorizationDeadline: deadline)
         }
     }
 }

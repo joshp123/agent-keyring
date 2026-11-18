@@ -112,7 +112,6 @@ extension MirrorAppModel {
         } catch {
             let failure: LeaseFailure
             if let error = error as? LeaseFailure { failure = error }
-            else if error is CredentialResolverError { failure = LeaseFailure(.invalidArgument, "The login or requested field is unavailable.") }
             else {
                 leaseLogger.error("Authority request failed: \(String(describing: error), privacy: .private)")
                 failure = LeaseFailure(.unavailable, "Agent Keyring could not complete this request. Rejoin the same reference; do not request approval again.")
