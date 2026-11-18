@@ -149,6 +149,15 @@ public enum PhoneCopy {
     public static let testFootnote = "Approve it to finish setting up."
     public static let newDevice = "A new device wants to approve requests"
     public static let pairedWithThisIPhone = "Paired with this iPhone"
+    /// Not in Paper: a rule change the Mac proposed.
+    public static func proposalLead(_ proposal: PhoneRuleProposal) -> String { "\(proposal.from) wants to change a rule" }
+    public static func proposalTitle(_ proposal: PhoneRuleProposal) -> String {
+        proposal.changes.count == 1 ? proposal.changes[0].site : "\(proposal.changes.count) logins"
+    }
+    public static func proposalDetail(_ proposal: PhoneRuleProposal) -> String {
+        proposal.changes.count == 1 ? "To \(proposal.changes[0].to)" : proposal.changes.map { "\($0.site): \($0.to)" }.joined(separator: "\n")
+    }
+    public static let proposalFootnote = "Only your iPhone or Watch can make this change."
     public static let watchFootnote = "It will approve with one tap while it is on your wrist and unlocked. You can remove it at any time."
 
     // Failures.

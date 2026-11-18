@@ -13,7 +13,7 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
     private var subscribers: [UUID: AsyncStream<PhoneSnapshot>.Continuation] = [:]
 
-    /// `step` is one of Paper's first-run iPhone screens: 4, 6, 7, 7-ready, 9, ready, notifications-off; nil is the app in use.
+    /// `step` is one of Paper's first-run iPhone screens: 4, 6, 7, 7-ready, 9, ready, notifications-off, or proposal (a rule change the Mac proposed); nil is the app in use.
     public init(step: String? = nil, now: Date = .now) {
         snapshot = Self.paper(setup: .ready, now: now)
         if let step { Self.firstRun(step, into: &snapshot) }
@@ -53,6 +53,8 @@ public final class PhoneSampleBackend: PhoneBackend {
     public func notifications(allowed: Bool) async {}
     public func approveTest() async throws { Self.firstRun("7-ready", into: &snapshot) }
     public func denyTest() async {}
+    public func approveProposal() async throws { snapshot.ruleProposal = nil }
+    public func denyProposal() async { snapshot.ruleProposal = nil }
     public func sendTestAgain() async {}
     public func approveDevice(_ id: String) async throws { Self.firstRun("ready", into: &snapshot) }
     public func denyDevice(_ id: String) async { snapshot.deviceRequest = nil }
@@ -66,6 +68,11 @@ public final class PhoneSampleBackend: PhoneBackend {
         let test = L(id: "test", mark: .done, title: PhoneCopy.testApproved)
         snapshot.requests = []; snapshot.testRequest = nil; snapshot.deviceRequest = nil
         switch step {
+        case "proposal":
+            snapshot = paper(setup: .ready, now: .now)
+            snapshot.ruleProposal = PhoneRuleProposal(id: "p1", from: "MacBook Pro",
+                                                      changes: [.init(site: "bank.example", to: PhoneCopy.rule(.ask))])
+            return
         case "4":
             snapshot.setup = PhoneSetup(lines: [L(id: "join", mark: .working, title: PhoneCopy.approveOnMac, detail: PhoneCopy.approveOnMacDetail)], isReady: false)
         case "6":

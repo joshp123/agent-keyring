@@ -95,6 +95,23 @@ public struct PhoneDeviceRequest: Identifiable, Hashable, Sendable {
     public init(id: String, name: String, detail: String) { self.id = id; self.name = name; self.detail = detail }
 }
 
+/// A rule change another device proposed, which only this iPhone or the Watch may make.
+public struct PhoneRuleProposal: Identifiable, Hashable, Sendable {
+    public struct Change: Hashable, Sendable {
+        public var site: String
+        /// The new rule, in words: "Ask on iPhone or Watch".
+        public var to: String
+        public init(site: String, to: String) { self.site = site; self.to = to }
+    }
+
+    public let id: String
+    /// The device that proposed it, e.g. "MacBook Pro".
+    public var from: String
+    public var changes: [Change]
+
+    public init(id: String, from: String, changes: [Change]) { self.id = id; self.from = from; self.changes = changes }
+}
+
 public struct PhoneSnapshot: Hashable, Sendable {
     public var setup: PhoneSetup
     public var requests: [AccessRequest]
@@ -103,6 +120,7 @@ public struct PhoneSnapshot: Hashable, Sendable {
     /// First run's test request, while it waits for Face ID.
     public var testRequest: String?
     public var deviceRequest: PhoneDeviceRequest?
+    public var ruleProposal: PhoneRuleProposal?
     /// In the signed list of devices.
     public var joined = false
     /// Joined, and iOS has not yet been asked about notifications.
@@ -141,6 +159,9 @@ public protocol PhoneBackend: AnyObject {
     /// A new device's request to approve requests: Face ID signs it in.
     func approveDevice(_ id: String) async throws
     func denyDevice(_ id: String) async
+    /// A rule change another device proposed: Face ID publishes the new rules.
+    func approveProposal() async throws
+    func denyProposal() async
 }
 
 @MainActor
@@ -227,6 +248,9 @@ public final class PhoneModel {
     }
 
     public func denyDevice(_ id: String) async { await backend.denyDevice(id) }
+
+    public func approveProposal() async { await answer(.approve) { try await backend.approveProposal() } }
+    public func denyProposal() async { await backend.denyProposal() }
 
     public func dismissFailure() { failure = nil }
 

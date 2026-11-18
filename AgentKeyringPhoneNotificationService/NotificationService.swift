@@ -15,6 +15,14 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
             contentHandler(request.content); return
         }
+        if let proposal = PhoneNoticeReader.proposal(content.userInfo) {
+            // Opening it shows the proposal in the app, where Face ID approves it.
+            content.threadIdentifier = proposal.id
+            content.title = PhoneCopy.proposalLead(proposal)
+            content.body = PhoneCopy.proposalTitle(proposal) + ": " + PhoneCopy.proposalDetail(proposal)
+            content.interruptionLevel = .timeSensitive
+            contentHandler(content); return
+        }
         guard let words = PhoneNoticeReader.words(content.userInfo) else {
             content.title = PhoneCopy.notificationFallbackTitle
             content.body = PhoneCopy.notificationFallbackBody

@@ -39,6 +39,11 @@ public struct PhoneRootView: View {
             PhoneSimpleRequestView(model: model, lead: PhoneCopy.testFrom, title: PhoneCopy.testTitle, detail: PhoneCopy.noLoginUsed,
                                    footnote: PhoneCopy.testFootnote, approve: { await model.approveTest() }, deny: { await model.denyTest() })
         }
+        .sheet(item: proposalShown) { proposal in
+            PhoneSimpleRequestView(model: model, lead: PhoneCopy.proposalLead(proposal), title: PhoneCopy.proposalTitle(proposal),
+                                   detail: PhoneCopy.proposalDetail(proposal), footnote: PhoneCopy.proposalFootnote,
+                                   approve: { await model.approveProposal() }, deny: { await model.denyProposal() })
+        }
         .sheet(item: deviceShown) { device in
             PhoneSimpleRequestView(model: model, lead: PhoneCopy.newDevice, title: device.name, detail: device.detail,
                                    footnote: PhoneCopy.watchFootnote, approve: { await model.approveDevice(device.id) },
@@ -52,6 +57,10 @@ public struct PhoneRootView: View {
 
     private var testShown: Binding<Bool> {
         Binding(get: { model.snapshot.testRequest != nil && model.shownRequestID == nil }, set: { _ in })
+    }
+
+    private var proposalShown: Binding<PhoneRuleProposal?> {
+        Binding(get: { model.snapshot.testRequest == nil && model.shownRequestID == nil ? model.snapshot.ruleProposal : nil }, set: { _ in })
     }
 
     private var deviceShown: Binding<PhoneDeviceRequest?> {
