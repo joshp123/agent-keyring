@@ -327,9 +327,21 @@ final class RequestPanel: NSPanel {
         orderFrontRegardless()
     }
 
+    /// Set while the rest of an ignored click arrives: its release must be
+    /// dropped too, or the button under it is left half pressed.
+    private var droppingClick = false
+
     override func sendEvent(_ event: NSEvent) {
-        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
-            Date().timeIntervalSince(shownAt) < 0.5 { return }
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            droppingClick = Date().timeIntervalSince(shownAt) < 0.5
+            if droppingClick { return }
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            if droppingClick { return }
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            if droppingClick { droppingClick = false; return }
+        default: break
+        }
         super.sendEvent(event)
     }
 
