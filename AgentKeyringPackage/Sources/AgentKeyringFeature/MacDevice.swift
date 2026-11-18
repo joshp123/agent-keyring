@@ -233,7 +233,8 @@ public final class MacDevice {
     }
 
     private func receive(_ work: Agentkeyring_V2_Work) {
-        guard let request = try? Sealing.parseRequest(work.request) else { return }
+        // Only the iPhone or Watch may answer these; this Mac never shows them.
+        guard let request = try? Sealing.parseRequest(work.request), !work.login.phoneAndWatchOnly, !work.hasProposal else { return }
         if work.hasOutcome {
             waiting.removeValue(forKey: request.requestID)
             finished[request.requestID] = work
@@ -464,6 +465,65 @@ public final class MacDevice {
         }
     }
 
+    // MARK: Asking the iPhone or Watch, as a machine
+
+    /// What the iPhone or Watch decided about a request from an agent on this Mac.
+    public enum DeviceAnswer {
+        case approved(Agentkeyring_V2_DeliveryContents)
+        case denied(reply: String)
+        case unanswered
+        case cancelled
+    }
+
+    /// An agent on this Mac asked for a login only the iPhone or Watch may
+    /// approve: this Mac asks the relay as the machine it also is, waits for
+    /// the answer, and opens the delivery with its receiving key.
+    public func askDevices(_ ask: Agentkeyring_V2_AskRequest) async throws -> DeviceAnswer {
+        guard let relay, let members else {
+            throw RelayFailure(.unavailable, "Only Josh's iPhone or Watch can approve this login, and this Mac is not connected to them.")
+        }
+        let asked = try await call(.ask(ask))
+        let requestID = asked.lease.requestID
+        var request = Agentkeyring_V2_RelayRequest()
+        var reference = Agentkeyring_V2_RequestReference()
+        reference.requestID = requestID
+        request.method = .watch(reference)
+        var final = asked.lease
+        if final.state == .waiting {
+            try await relay.stream(request) { response in
+                if case let .lease(lease) = response.result { final = lease }
+            }
+        }
+        switch final.state {
+        case .approved:
+            let approval = try await call(.collect(reference)).approval
+            return .approved(try Sealing.openDelivery(approval, members: members, with: keys.receiving))
+        case .denied:
+            let reply = (try? await call(.collect(reference)).approval).flatMap { try? Sealing.verifiedAnswer($0, members: members).reply } ?? ""
+            return .denied(reply: reply)
+        case .unanswered: return .unanswered
+        default: return .cancelled
+        }
+    }
+
+    /// A rule change only the iPhone or Watch may make: proposed, signed with
+    /// the reply key (it grants nothing by itself), and waited for.
+    public func proposeRules(_ changes: [Agentkeyring_V2_RuleChange]) async throws -> Bool {
+        guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Watch.") }
+        var proposal = Agentkeyring_V2_RuleProposal()
+        proposal.domain = "agentkeyring.proposal.v2"
+        proposal.changes = changes
+        proposal.askedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        var request = Agentkeyring_V2_RelayRequest()
+        request.method = .proposeRules(try Sealing.signed(proposal.serializedData(), by: keys.replyKeyID) { try keys.signReply($0) })
+        var final = Agentkeyring_V2_LeaseState.waiting
+        try await relay.stream(request) { response in
+            if case let .lease(lease) = response.result { final = lease.state }
+        }
+        if final == .approved { await followCatalogue() }
+        return final == .approved
+    }
+
     // MARK: Machines and devices joining
 
     /// Lets a machine or device join, after Josh's Touch ID. A machine allowed
@@ -523,7 +583,7 @@ public final class MacDevice {
         guard var next = members, let index = next.machines.firstIndex(where: { $0.machineID == machineID }),
             machineID != keys.machineID else { return }
         let label = next.machines[index].label
-        try await confirm(context, reason: allowed ? "let \(label) use Automatic logins" : "stop \(label) getting Automatic logins")
+        try await confirm(context, reason: allowed ? "let \(label) use Automatic logins" : "stop \(label) using Automatic logins")
         next.machines[index].automaticAllowed = allowed
         try await publishMembers(next, context: context)
         var sealed = try await store.sealed().filter { $0.openerID != machineID }

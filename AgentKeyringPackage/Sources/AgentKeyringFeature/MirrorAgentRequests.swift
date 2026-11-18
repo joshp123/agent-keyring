@@ -78,12 +78,12 @@ extension MirrorAppModel {
             case let .requestLease(incoming):
                 try await refreshLeasePolicy()
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
-                if let login, accessControl.policy(for: login.id) == .askOnPhone {
-                    throw LeaseFailure(.permissionDenied, "Only Josh's iPhone or Watch can approve this login, and agents on this Mac cannot ask them yet.")
-                }
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
                     requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project))
+                if let login, accessControl.policy(for: login.id) == .askOnPhone, response.lease.state == .pending {
+                    askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name)
+                }
             case let .getLease(reference):
                 try await refreshLeasePolicy()
                 response.lease = try leaseStore.get(reference.leaseID)
@@ -128,6 +128,42 @@ extension MirrorAppModel {
             response.error.message = failure.message
             response.endOfStream = true
             reply(response)
+        }
+    }
+
+    /// A login only the iPhone or Watch may approve: the request goes to them
+    /// through the relay, and the lease follows their answer.
+    func askDevices(for lease: Agentkeyring_V1_Lease, request: Agentkeyring_V1_RequestLeaseRequest, agent: String) {
+        var ask = Agentkeyring_V2_AskRequest()
+        ask.loginID = lease.loginID
+        ask.purpose = switch lease.purpose {
+        case .program: .program
+        case .agentProcess: .agentProcess
+        default: .browserSignIn
+        }
+        if lease.hasProgram {
+            ask.program.executable = lease.program.executable
+            ask.program.arguments = lease.program.arguments
+        }
+        ask.reason = lease.reason
+        ask.agent = agent
+        ask.project = request.project
+        ask.task = lease.taskRef
+        ask.clientRequestID = lease.leaseID
+        let leaseID = lease.leaseID
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let device = self.device else { throw LeaseFailure(.unavailable, "This Mac is not connected to your iPhone or Watch.") }
+                switch try await device.askDevices(ask) {
+                case let .approved(contents): try self.leaseStore.approveFromDevices(leaseID, contents: contents)
+                case let .denied(reply): _ = try self.leaseStore.deny(leaseID, reply: reply, approvedBy: .iphone)
+                case .unanswered, .cancelled: try self.leaseStore.expire()
+                }
+            } catch {
+                leaseLogger.error("Asking the iPhone or Watch failed: \(String(describing: error), privacy: .public)")
+                _ = try? self.leaseStore.end(leaseID)
+            }
         }
     }
 

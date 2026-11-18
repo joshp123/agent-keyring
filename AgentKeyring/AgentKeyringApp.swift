@@ -1,36 +1,10 @@
 import AppKit
 import AuthenticationServices
 import LocalAuthentication
-import Sparkle
 import SwiftUI
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
 import AgentKeyringScreenBackends
-
-@MainActor
-private final class CheckForUpdatesViewModel: ObservableObject {
-    @Published var canCheckForUpdates = false
-
-    init(updater: SPUUpdater) {
-        updater.publisher(for: \.canCheckForUpdates)
-            .assign(to: &$canCheckForUpdates)
-    }
-}
-
-private struct CheckForUpdatesView: View {
-    @ObservedObject private var viewModel: CheckForUpdatesViewModel
-    private let updater: SPUUpdater
-
-    init(updater: SPUUpdater) {
-        self.updater = updater
-        viewModel = CheckForUpdatesViewModel(updater: updater)
-    }
-
-    var body: some View {
-        Button("Check for Updates…", action: updater.checkForUpdates)
-            .disabled(!viewModel.canCheckForUpdates)
-    }
-}
 
 @MainActor
 final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
@@ -207,12 +181,6 @@ struct AgentKeyringApp: App {
     @NSApplicationDelegateAdaptor(AgentKeyringAppDelegate.self)
     private var appDelegate
 
-    private let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true,
-        updaterDelegate: nil,
-        userDriverDelegate: nil
-    )
-
     var body: some Scene {
         Window("Agent Keyring", id: "main") {
             HomeWindow(model: appDelegate.model, presentation: appDelegate.presentation)
@@ -220,17 +188,10 @@ struct AgentKeyringApp: App {
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
         .defaultLaunchBehavior(.suppressed)
-        .commands {
-            CommandGroup(after: .appInfo) {
-                CheckForUpdatesView(updater: updaterController.updater)
-            }
-        }
 
         MenuBarExtra {
             AgentKeyringMenuWindow(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar,
-                approvals: appDelegate.approvals) {
-                updaterController.checkForUpdates(nil)
-            }
+                approvals: appDelegate.approvals)
         } label: {
             AgentKeyringMenuBarLabel(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar)
         }

@@ -279,6 +279,25 @@ message Work {
   // in time. Show the outcome and clear the request.
   Lease outcome = 3;
   Login login = 4;                 // The login from the signed catalogue: its title, account and sites.
+  // Set for a rule change another device proposed (propose_rules). Approving
+  // it is publishing a catalogue with these rules, and the sealed or
+  // withdrawn copies they need, then a signed Answer with no delivery.
+  Signed proposal = 5;
+}
+
+// A rule change a device proposes and only the iPhone or Watch may make, the
+// payload of a Signed by the proposer's reply key: it grants nothing until a
+// device that can make the change approves it.
+message RuleProposal {
+  string domain = 1;               // "agentkeyring.proposal.v2"
+  repeated RuleChange changes = 2;
+  int64 asked_unix_seconds = 3;
+}
+
+message RuleChange {
+  string login_id = 1;
+  Rule rule = 2;
+  bool phone_and_watch_only = 3;
 }
 
 // The push. Apple carries nothing readable about a request. The relay sends:
@@ -331,6 +350,9 @@ message RelayRequest {
     Empty test_request = 20;
     Signed report_self_test = 21;          // Devices: SelfTestReport, signed by the reply key.
     Empty self_tests = 22;                 // Devices and machines: returns SelfTests.
+    // Devices: a rule change for the iPhone or Watch to approve. Streams
+    // Lease until it is answered or unanswered.
+    Signed propose_rules = 23;
   }
 }
 

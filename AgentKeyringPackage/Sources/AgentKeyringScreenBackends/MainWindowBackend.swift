@@ -5,6 +5,7 @@
 #if os(macOS)
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
+import AgentKeyringProtocol
 import Foundation
 import LocalAuthentication
 import Observation
@@ -32,16 +33,13 @@ public final class AppMainWindowBackend: MainWindowBackend {
                     lastTested: d.keyID == device?.ownDeviceID ? macTested : tested[d.keyID], isThisMac: d.keyID == device?.ownDeviceID)
             }
         } ?? [DeviceRow(id: "this-mac", name: Host.current().localizedName ?? "Mac", kind: .mac, lastTested: macTested, isThisMac: true)]
-        let sites = Dictionary(uniqueKeysWithValues: logins.map { ($0.id.uuidString, $0.site) })
-        let copies = model.automaticCopiesByMachine()
         let machines: [MachineRow] = members.map { members in
             members.machines.map { m in
                 MachineRow(id: m.machineID, name: m.label, isThisMac: m.machineID == device?.ownMachineID,
-                    isAlwaysOn: m.machineID == device?.alwaysOnMachineID, automatic: m.automaticAllowed, lastTested: nil,
-                    automaticLogins: (copies[m.machineID] ?? []).compactMap { sites[$0] }.sorted())
+                    isAlwaysOn: m.machineID == device?.alwaysOnMachineID, automatic: m.automaticAllowed, lastTested: nil)
             }
         } ?? [MachineRow(id: "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true, isAlwaysOn: false,
-            automatic: true, lastTested: nil, automaticLogins: [])]
+            automatic: true, lastTested: nil)]
         return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, devices: devices, machines: machines,
             joined: device?.isJoined == true)
     }
@@ -62,6 +60,25 @@ public final class AppMainWindowBackend: MainWindowBackend {
         try await confirmed { try await OwnerConfirmation.confirm(context, reason: reason, until: .now.addingTimeInterval(600)) }
         await model.accessControl.setPolicies(changes.mapValues(CredentialAccessPolicy.init), context: context)
         if let message = model.accessControl.errorMessage { throw ScreenFailure(message: message) }
+    }
+
+    public func proposeRules(_ changes: [UUID: LoginRule]) async throws -> Bool {
+        guard let device = model.device, device.isJoined else {
+            throw ScreenFailure(message: "Add your iPhone first: only it or your Watch can make this change.")
+        }
+        let rows = Dictionary(uniqueKeysWithValues: model.accessControl.rows.map { ($0.id, $0) })
+        return try await device.proposeRules(changes.compactMap { id, rule in
+            guard rows[id] != nil else { return nil }
+            var change = Agentkeyring_V2_RuleChange()
+            change.loginID = id.uuidString
+            change.rule = switch rule {
+            case .ask, .askOnPhone: .ask
+            case .automatic: .automatic
+            case .blocked: .blocked
+            }
+            change.phoneAndWatchOnly = rule == .askOnPhone
+            return change
+        })
     }
 
     public func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {

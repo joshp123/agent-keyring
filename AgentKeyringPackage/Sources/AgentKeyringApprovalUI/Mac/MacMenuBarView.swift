@@ -56,7 +56,6 @@ public final class MacMenuBarModel {
     public var openMachines: () -> Void = {}
     public var openRules: () -> Void = {}
     public var openAgentKeyring: () -> Void = {}
-    public var checkForUpdates: () -> Void = {}
     public var quit: () -> Void = {}
 
     private let backend: any MacMenuBarBackend
@@ -201,7 +200,6 @@ public struct MacMenuBarView: View {
                 if model.relay != nil {
                     Button("Machines…", action: model.openMachines)
                 }
-                Button("Check for Updates…", action: model.checkForUpdates)
                 Divider()
                 Button("Quit Agent Keyring", action: model.quit)
             } label: {

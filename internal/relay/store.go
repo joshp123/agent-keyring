@@ -35,6 +35,8 @@ type request struct {
 	Request         []byte        `json:"request"` // Exact Request bytes.
 	MachineID       string        `json:"machine_id"`
 	ForDevice       string        `json:"for_device,omitempty"` // A device's own test request.
+	Proposal        []byte        `json:"proposal,omitempty"`   // Signed RuleProposal.
+	ProposedBy      string        `json:"proposed_by,omitempty"`
 	ClientRequestID string        `json:"client_request_id,omitempty"`
 	State           pb.LeaseState `json:"state"`
 	Answer          []byte        `json:"answer,omitempty"` // AnswerUpload, as received.

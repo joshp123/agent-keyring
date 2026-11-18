@@ -269,6 +269,11 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 			return err
 		}
 		return send(done())
+	case *pb.RelayRequest_ProposeRules:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		return s.proposeRules(ctx, who, method.ProposeRules, send)
 	case *pb.RelayRequest_SelfTests:
 		if who.machine == nil && who.device == nil {
 			return isMachine()
