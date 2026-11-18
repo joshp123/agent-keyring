@@ -274,6 +274,24 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 			return err
 		}
 		return s.proposeRules(ctx, who, method.ProposeRules, send)
+	case *pb.RelayRequest_MembersSince:
+		if who.machine == nil && who.device == nil {
+			return isMachine()
+		}
+		chain := &pb.MembersChain{}
+		s.Store.read(func(data *saved) {
+			history := data.MembersHistory
+			if len(history) == 0 && len(data.Members) > 0 {
+				history = [][]byte{data.Members}
+			}
+			for _, raw := range history {
+				document, members := &pb.Signed{}, &pb.Members{}
+				if unmarshal(raw, document) == nil && unmarshal(document.Payload, members) == nil && members.Revision > method.MembersSince {
+					chain.Revisions = append(chain.Revisions, document)
+				}
+			}
+		})
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_MembersChain{MembersChain: chain}, EndOfStream: true})
 	case *pb.RelayRequest_SelfTests:
 		if who.machine == nil && who.device == nil {
 			return isMachine()

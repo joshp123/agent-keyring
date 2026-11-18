@@ -175,6 +175,52 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	})
 
+	t.Run("devices added after the machines joined approve for them", func(t *testing.T) {
+		second := t.TempDir()
+		joining := start(exec.Command(p.device, "join", "--state", second, "--invite", strings.TrimSpace(r.device("invite"))))
+		for joined := false; !joined; {
+			exec.Command(p.device, "approve-joins", "--state", r.deviceState).Run()
+			select {
+			case got := <-joining:
+				if got.err != nil {
+					t.Fatalf("the second device did not join: %v\n%s", got.err, got.stderr)
+				}
+				joined = true
+			case <-time.After(300 * time.Millisecond):
+			}
+		}
+		// A third device, added by the second, which the machines never saw sign anything.
+		third := t.TempDir()
+		invite, err := exec.Command(p.device, "invite", "--state", second).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		joining = start(exec.Command(p.device, "join", "--state", third, "--invite", strings.TrimSpace(string(invite))))
+		for joined := false; !joined; {
+			exec.Command(p.device, "approve-joins", "--state", second).Run()
+			select {
+			case got := <-joining:
+				if got.err != nil {
+					t.Fatalf("the third device did not join: %v\n%s", got.err, got.stderr)
+				}
+				joined = true
+			case <-time.After(300 * time.Millisecond):
+			}
+		}
+		asking := start(linux.command("lease", "login-ask", "--task", "second", "--reason", "Second device.", "--for", "agent-process"))
+		if out, err := exec.Command(p.device, "answer", "--state", third, "--approve").CombinedOutput(); err != nil {
+			t.Fatalf("the second device could not answer: %v\n%s", err, out)
+		}
+		got := wait(t, asking, "lease")
+		if got.err != nil {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		read := wait(t, start(linux.command("read", strings.TrimSpace(got.stdout), "--field", "password")), "read")
+		if read.err != nil || read.stdout != "example-ask-password" {
+			t.Fatalf("read: %v\n%s", read.err, read.stderr)
+		}
+	})
+
 	t.Run("nobody answers", func(t *testing.T) {
 		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Second try.", "--for", "agent-process"))
 		r.device("answer", "--ignore")

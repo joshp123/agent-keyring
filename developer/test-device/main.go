@@ -6,6 +6,7 @@
 //
 //	test-device init    --state DIR --relay HOST:PORT   create keys, members, catalogue, sealed logins
 //	test-device approve-joins --state DIR               approve every waiting machine, Automatic allowed
+//	test-device join    --state DIR --invite LINK      a second device that joins by invitation
 //	test-device invite  --state DIR                     print a one-time link for one machine or device to join
 //	test-device self-test --state DIR                   ask for a test request, approve it, report
 //	test-device answer  --state DIR (--approve | --deny WORDS | --deny-plain | --ignore)
@@ -13,6 +14,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/ecdsa"
@@ -35,6 +37,7 @@ import (
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/keyring"
+	"github.com/joshp123/agent-keyring/internal/remote"
 	"github.com/joshp123/agent-keyring/internal/tlsid"
 	"github.com/joshp123/agent-keyring/internal/wire"
 	"google.golang.org/protobuf/proto"
@@ -81,6 +84,7 @@ func main() {
 	flags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	state := flags.String("state", "", "state directory")
 	relay := flags.String("relay", "", "relay HOST:PORT (init)")
+	invite := flags.String("invite", "", "an invitation link (join)")
 	approve := flags.Bool("approve", false, "approve the next request")
 	deny := flags.String("deny", "", "deny the next request with these words")
 	denyPlain := flags.Bool("deny-plain", false, "deny the next request with no words")
@@ -92,6 +96,8 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		err = initialise(ctx, *state, *relay)
+	case "join":
+		err = joinAsDevice(ctx, *state, *invite)
 	case "approve-joins":
 		err = withDevice(*state, func(d *device) error { return d.approveJoins(ctx) })
 	case "invite":
@@ -116,6 +122,56 @@ func ecdsaKey(raw []byte) (*ecdsa.PrivateKey, error) {
 
 func publicBytes(key *ecdsa.PrivateKey) []byte {
 	return elliptic.Marshal(elliptic.P256(), key.X, key.Y) //nolint:staticcheck // X9.63 uncompressed, as CryptoKit writes.
+}
+
+func newDevice(directory, relay string) (*device, error) {
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return nil, err
+	}
+	certificate, tlsKey, err := tlsid.New("Agent Keyring test device")
+	if err != nil {
+		return nil, err
+	}
+	generate := func() []byte {
+		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		raw, _ := x509.MarshalECPrivateKey(key)
+		return raw
+	}
+	opening, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	d := &device{saved: saved{Relay: relay, Certificate: certificate, TLSKey: tlsKey, Signing: generate(), Reply: generate(), Opening: opening.Bytes()},
+		path: filepath.Join(directory, "device.json")}
+	return d, d.load()
+}
+
+// joinAsDevice is a second approving device, added after machines have joined.
+func joinAsDevice(ctx context.Context, directory, link string) error {
+	invite, err := remote.ParseInvite(link)
+	if err != nil {
+		return err
+	}
+	d, err := newDevice(directory, net.JoinHostPort(invite.RelayHost, strconv.Itoa(int(invite.RelayPort))))
+	if err != nil {
+		return err
+	}
+	join := &pb.JoinRequest{Joining: &pb.JoinRequest_Device{Device: d.self}}
+	join.Proof = keyring.JoinProof(invite.Secret, join)
+	var observed []byte
+	var status *pb.JoinStatus
+	if err := d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Join{Join: join}}, &observed, func(response *pb.RelayResponse) bool {
+		status = response.GetJoin()
+		return status.GetState() == pb.JoinState_JOIN_STATE_WAITING
+	}); err != nil {
+		return err
+	}
+	if sum := sha256.Sum256(observed); !bytes.Equal(sum[:], invite.RelayTlsSha256) || status.GetState() != pb.JoinState_JOIN_STATE_APPROVED {
+		return errors.New("not admitted by the relay the invitation names")
+	}
+	d.RelaySPKI = observed
+	fmt.Println("Joined as a second device.")
+	return d.write()
 }
 
 func initialise(ctx context.Context, directory, relay string) error {

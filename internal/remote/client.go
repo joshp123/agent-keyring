@@ -169,18 +169,26 @@ func (c *Client) members(ctx context.Context) (*pb.Members, error) {
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Members{Members: &pb.Empty{}}})
-	if err != nil || response.GetSigned() == nil {
+	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_MembersSince{MembersSince: pinned.Revision}})
+	if err != nil {
 		return pinned, nil // Checking needs only the pinned devices.
 	}
-	if newer, err := keyring.VerifiedMembers(response.GetSigned(), pinned); err == nil {
-		raw, _ := proto.Marshal(response.GetSigned())
-		if err := c.Store.Update(ctx, func(state *clientstate.State) error { state.Members = raw; return nil }); err != nil {
+	// Each revision must be signed by a device of the one before it.
+	current, latest := pinned, []byte(nil)
+	for _, document := range response.GetMembersChain().GetRevisions() {
+		next, err := keyring.VerifiedMembers(document, current)
+		if err != nil {
+			break
+		}
+		current = next
+		latest, _ = proto.Marshal(document)
+	}
+	if latest != nil {
+		if err := c.Store.Update(ctx, func(state *clientstate.State) error { state.Members = latest; return nil }); err != nil {
 			return nil, err
 		}
-		return newer, nil
 	}
-	return pinned, nil
+	return current, nil
 }
 
 func parseMembers(raw []byte) (*pb.Members, error) {
