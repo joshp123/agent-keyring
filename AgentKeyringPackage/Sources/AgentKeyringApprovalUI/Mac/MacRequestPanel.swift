@@ -147,29 +147,31 @@ struct MacApprovalPanelView: View {
         return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithCompanion, error: nil) ? .watch : .none
     }
 
-    /// One green button. Clicking it opens macOS's Touch ID or Watch dialog.
+    /// One green button. Clicking it opens macOS's Touch ID or Watch dialog;
+    /// while that is up, the button is outlined and says the rest of what to do.
     private var approveLine: some View {
         Button { model.approve() } label: {
             Text(approveText)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(RequestToken.onAnswer)
+                .foregroundStyle(isBusy ? RequestToken.approve : RequestToken.onAnswer)
                 .lineLimit(1)
+                .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity).frame(height: 44)
-                .background(RequestToken.approve, in: Capsule())
-                .opacity(isBusy ? 0.75 : 1)
+                .background(isBusy ? RequestToken.surface : RequestToken.approve, in: Capsule())
+                .overlay { if isBusy { Capsule().strokeBorder(RequestToken.approve, lineWidth: 1.5) } }
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .allowsHitTesting(!isBusy && approver != .none)
     }
 
-    private var isBusy: Bool { model.isWaitingForTouch || sending != nil }
+    private var isBusy: Bool { model.isWaitingForTouch || sending == .approve }
 
     private var approveText: String {
         if sending == .approve { return "Approving…" }
         switch approver {
-        case .touchID: return model.isWaitingForTouch ? "Waiting for Touch ID…" : "Click here, then touch the sensor to approve"
-        case .watch: return model.isWaitingForTouch ? "Waiting for your Watch…" : "Click here, then approve on your Watch"
+        case .touchID: return model.isWaitingForTouch ? "Touch the sensor to approve" : "Click here, then touch the sensor to approve"
+        case .watch: return model.isWaitingForTouch ? "Approve on your Watch" : "Click here, then approve on your Watch"
         case .none: return "Touch ID and your Watch aren't available"
         }
     }

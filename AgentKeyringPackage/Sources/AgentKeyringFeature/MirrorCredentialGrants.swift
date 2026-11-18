@@ -59,8 +59,7 @@ extension MirrorAppModel {
         }
         let site = login.origins.first ?? login.title
         let account = login.username ?? login.title
-        let reason = CredentialReleaseAuthorizationRequest.leaseReason(purpose: lease.purpose, site: site,
-            account: account, program: lease.program.executable,
+        let reason = CredentialReleaseAuthorizationRequest.leaseReason(site: site, account: account,
             agent: leaseStore.requester(for: leaseID)?.name ?? lease.recipient.clientLabel)
         let approval = CredentialReleaseAuthorizationRequest(destination: login.origins.first ?? login.title,
             account: login.username ?? login.title, field: .password, credentialTitle: login.title,

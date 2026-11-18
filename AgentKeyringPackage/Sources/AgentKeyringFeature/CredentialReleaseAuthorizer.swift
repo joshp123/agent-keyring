@@ -55,20 +55,12 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
             + (isPossiblyStale ? ". This copy may be out of date; import again from Apple Passwords" : "")
     }
 
-    static func leaseReason(purpose: Agentkeyring_V1_Purpose, site: String, account: String,
-        program: String, agent: String) -> String {
+    /// Our words in macOS's dialog, after "Agent Keyring is trying to". The
+    /// machine is named only when it is not this Mac.
+    static func leaseReason(site: String, account: String, agent: String, machine: String? = nil) -> String {
         let site = URL(string: site)?.host() ?? site
-        switch purpose {
-        case .browserSignIn:
-            return "let \(agent.isEmpty ? "an agent" : agent) sign in to \(site) as \(account)"
-        case .program:
-            let name = URL(fileURLWithPath: program).lastPathComponent
-            return "let \(agent.isEmpty ? "an agent" : agent) run \(name.isEmpty ? "a program" : name) with your \(site) login as \(account)"
-        case .agentProcess:
-            return "let \(agent.isEmpty ? "an agent" : agent) see your \(site) password for \(account). It can keep a copy"
-        default:
-            return "let an agent use your \(site) login for \(account)"
-        }
+        let who = (agent.isEmpty ? "an agent" : agent) + (machine.map { " on \($0)" } ?? "")
+        return "let \(who) use your \(site) login, \(account)"
     }
 }
 
