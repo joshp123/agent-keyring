@@ -1,149 +1,217 @@
-// Written by AI on 2026.11.16 by model Claude Opus 5.5.
+// Written by AI on 2026.11.16 by model Claude Opus 5.5; rebuilt on
+// 2026.11.18 from the Paper board "First run" (page "First run and the app").
 //
-// The window Agent Keyring opens on: before logins are imported, one step to
-// bring them in; afterwards, what happens when an agent asks and the line to
-// give agents. Nothing else, because nothing else is needed to start.
+// The window Agent Keyring opens on. Before the logins arrive, one step: the
+// export, which only Josh can start. Then a list that ticks itself: the
+// logins, the test request, and what is left for approving away from the Mac.
 
 #if os(macOS)
+import AppKit
 import SwiftUI
 
-public enum FirstRunState: Hashable, Sendable {
-    /// macOS hasn't yet let Apple Passwords export to Agent Keyring.
-    case needsAllow
-    case needsExport
-    case importing
-    /// Apple refused the export extension for this build.
-    case blocked
-    case ready(logins: Int, importedAt: Date)
+public struct FirstRunState: Hashable, Sendable {
+    public enum Import: Hashable, Sendable {
+        /// macOS hasn't yet let Apple Passwords export to Agent Keyring.
+        case needsAllow
+        case needsExport
+        case importing
+        /// Apple refused the export extension for this build.
+        case blocked
+        case done(logins: Int)
+    }
+
+    public enum Test: Hashable, Sendable {
+        case waiting
+        case passed(Date)
+        case failed(String)
+    }
+
+    public var imported: Import
+    public var test: Test
+    public var alwaysOnReady: Bool
+
+    public init(imported: Import, test: Test, alwaysOnReady: Bool) {
+        self.imported = imported
+        self.test = test
+        self.alwaysOnReady = alwaysOnReady
+    }
 }
 
 public struct MacFirstRunView: View {
     let state: FirstRunState
-    let agentInstructions: String
     let allow: () -> Void
     let openPasswords: () -> Void
-    let openRules: () -> Void
     @State private var didCopy = false
 
-    public init(state: FirstRunState, agentInstructions: String, allow: @escaping () -> Void,
-        openPasswords: @escaping () -> Void, openRules: @escaping () -> Void) {
+    public init(state: FirstRunState, allow: @escaping () -> Void, openPasswords: @escaping () -> Void) {
         self.state = state
-        self.agentInstructions = agentInstructions
         self.allow = allow
         self.openPasswords = openPasswords
-        self.openRules = openRules
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if case let .ready(logins, importedAt) = state {
-                ready(logins: logins, importedAt: importedAt)
+        VStack(alignment: .leading, spacing: 0) {
+            header.padding(.bottom, 20)
+            if case let .done(logins) = state.imported {
+                if case .passed = state.test { ready } else { EmptyView() }
+                Row(mark: .done, title: FirstRunCopy.imported(logins), detail: FirstRunCopy.importedDetail)
+                testRow
+                if case .passed = state.test { away }
             } else {
-                setUp
+                importStep
             }
         }
-        .padding(28)
+        .padding(.horizontal, 28).padding(.top, 8).padding(.bottom, 14)
         .frame(width: 560, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(KeyringColour.surface)
+        .background(RequestToken.surface)
     }
 
-    @ViewBuilder private var setUp: some View {
-        Heading(title: FirstRunCopy.title, intro: FirstRunCopy.intro)
-        Divider()
-        Section(title: FirstRunCopy.importHeading) {
-            switch state {
-            case .needsAllow:
-                Text(FirstRunCopy.allowBody)
-                PrimaryButton(title: FirstRunCopy.allowButton, action: allow)
-            case .needsExport:
-                Text(FirstRunCopy.exportBody)
-                PrimaryButton(title: FirstRunCopy.exportButton, action: openPasswords)
-            case .importing:
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(FirstRunCopy.importing)
-                }
-            case .blocked, .ready:
-                Text(FirstRunCopy.blockedBody).foregroundStyle(KeyringColour.denyText)
-            }
-        }
-    }
-
-    @ViewBuilder private func ready(logins: Int, importedAt: Date) -> some View {
-        Heading(title: FirstRunCopy.readyTitle, intro: FirstRunCopy.readyIntro(logins))
-        Divider()
-        Section(title: FirstRunCopy.whenAgentAsksHeading) {
-            Text(FirstRunCopy.whenAgentAsksBody)
-        }
-        Section(title: FirstRunCopy.tellAgentsHeading) {
-            Text(FirstRunCopy.tellAgentsBody)
-            HStack(alignment: .top, spacing: 10) {
-                Text(agentInstructions)
-                    .font(.callout.monospaced())
-                    .textSelection(.enabled)
+    private var header: some View {
+        HStack(spacing: 16) {
+            Image(nsImage: NSApplication.shared.applicationIconImage).resizable().frame(width: 56, height: 56)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(FirstRunCopy.title).font(.system(size: 22, weight: .bold)).tracking(-0.015 * 22).foregroundStyle(RequestToken.ink)
+                Text(FirstRunCopy.intro).font(.system(size: 15)).foregroundStyle(RequestToken.ink2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Button(didCopy ? FirstRunCopy.copied : FirstRunCopy.copy) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(agentInstructions, forType: .string)
-                    didCopy = true
-                }
-                .controlSize(.small)
             }
-            .padding(12)
-            .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 8))
         }
-        Divider()
-        HStack(spacing: 12) {
-            Text(FirstRunCopy.imported(importedAt.formatted(.relative(presentation: .named))))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Button(FirstRunCopy.importAgain, action: openPasswords)
-                .buttonStyle(.link)
-                .font(.callout)
-            Spacer()
-            Button(FirstRunCopy.rules, action: openRules)
+    }
+
+    @ViewBuilder private var importStep: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(FirstRunCopy.importHeading).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
+            switch state.imported {
+            case .needsAllow:
+                Detail(FirstRunCopy.allowBody)
+                PillButton(title: FirstRunCopy.allowButton, action: allow).padding(.top, 10)
+            case .needsExport:
+                Detail(FirstRunCopy.exportBody)
+                PillButton(title: FirstRunCopy.exportButton, action: openPasswords).padding(.top, 10)
+            case .importing:
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Detail(FirstRunCopy.importing) }.padding(.top, 6)
+            case .blocked, .done:
+                Text(FirstRunCopy.blockedBody).font(.system(size: 14)).foregroundStyle(RequestToken.deny)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .padding(.top, 18).padding(.bottom, 4)
+        .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
+    }
+
+    @ViewBuilder private var testRow: some View {
+        switch state.test {
+        case .waiting: Row(mark: .working, title: FirstRunCopy.approveTest, detail: FirstRunCopy.approveTestDetail)
+        case let .passed(at): Row(mark: .done, title: FirstRunCopy.macWorks, detail: FirstRunCopy.lastTested(at.formatted(date: .omitted, time: .shortened)))
+        case let .failed(message): Row(mark: .failed, title: FirstRunCopy.approveTest, detail: message)
+        }
+    }
+
+    private var ready: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(FirstRunCopy.readyTitle).font(.system(size: 22, weight: .bold)).tracking(-0.015 * 22).foregroundStyle(RequestToken.ink)
+            Detail(FirstRunCopy.readyBody)
+            HStack(spacing: 8) {
+                Image(systemName: "key.horizontal").font(.system(size: 13)).foregroundStyle(RequestToken.ink)
+                Text(FirstRunCopy.menuBarHint).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 6)
+        }
+        .padding(.vertical, 18)
+        .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
+    }
+
+    @ViewBuilder private var away: some View {
+        Text(FirstRunCopy.awayHeading).font(.system(size: 12, weight: .semibold)).foregroundStyle(RequestToken.ink2)
+            .padding(.top, 18).padding(.bottom, 8)
+        if state.alwaysOnReady {
+            Row(mark: .done, title: FirstRunCopy.alwaysOn, detail: FirstRunCopy.alwaysOnReady)
+        } else {
+            Row(mark: .notYet, title: FirstRunCopy.alwaysOn, detail: FirstRunCopy.alwaysOnBody) {
+                HStack(spacing: 8) {
+                    Text("“\(FirstRunCopy.alwaysOnTask)”").font(.system(size: 14)).foregroundStyle(RequestToken.ink)
+                        .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                        .background(RequestToken.fill, in: .rect(cornerRadius: 10))
+                    PillButton(title: didCopy ? FirstRunCopy.copied : FirstRunCopy.copy) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(FirstRunCopy.alwaysOnTask, forType: .string)
+                        didCopy = true
+                    }
+                }
+                .padding(.top, 10)
+            }
+        }
+        Row(mark: .notYet, title: FirstRunCopy.phoneAndWatch, detail: FirstRunCopy.phoneAndWatchBody)
     }
 }
 
-private struct Heading: View {
+private struct Detail: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text).font(.system(size: 14)).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A tick, a dark ring (working, or waiting for him), a pale ring (not yet) or a red mark.
+private struct Row<Extra: View>: View {
+    enum Mark { case done, working, notYet, failed }
+    let mark: Mark
     let title: String
-    let intro: String
+    let detail: String
+    @ViewBuilder var extra: Extra
+
+    init(mark: Mark, title: String, detail: String, @ViewBuilder extra: () -> Extra = { EmptyView() }) {
+        self.mark = mark
+        self.title = title
+        self.detail = detail
+        self.extra = extra()
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.largeTitle.weight(.bold)).tracking(-0.6)
-            Text(intro).font(.title3).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 14) {
+            symbol.frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(mark == .notYet ? RequestToken.ink2 : RequestToken.ink)
+                Detail(detail)
+                extra
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 14)
+        .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
+    }
+
+    @ViewBuilder private var symbol: some View {
+        switch mark {
+        case .done:
+            Circle().fill(RequestToken.approve).overlay {
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .heavy)).foregroundStyle(RequestToken.onAnswer)
+            }
+        case .working: Circle().strokeBorder(RequestToken.ink, lineWidth: 3)
+        case .notYet: Circle().strokeBorder(Color(light: 0xC9C9D0, dark: 0x5A5A60), lineWidth: 2)
+        case .failed:
+            Circle().fill(RequestToken.deny).overlay {
+                Image(systemName: "exclamationmark").font(.system(size: 12, weight: .heavy)).foregroundStyle(RequestToken.onAnswer)
+            }
         }
     }
 }
 
-private struct Section<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline)
-            content
-                .font(.body)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
-private struct PrimaryButton: View {
+private struct PillButton: View {
     let title: String
     let action: () -> Void
 
     var body: some View {
-        Button(title, action: action)
-            .buttonStyle(DecisionButtonStyle(colour: KeyringColour.signal, height: 36))
-            .frame(maxWidth: 200)
-            .padding(.top, 4)
+        Button(action: action) {
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.surface)
+                .padding(.horizontal, 16).frame(height: 32)
+                .background(RequestToken.ink, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 #endif

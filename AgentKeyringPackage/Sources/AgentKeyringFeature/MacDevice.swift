@@ -321,6 +321,26 @@ public final class MacDevice {
         }
     }
 
+    /// Tells the relay what this Mac's own test found, signed by its reply key.
+    func reportSelfTest(passed: Bool, error: String) async {
+        guard isJoined else { return }
+        var check = Agentkeyring_V2_SelfTestCheck()
+        check.name = "test request"
+        check.passed = passed
+        check.error = error
+        var report = Agentkeyring_V2_SelfTestReport()
+        report.domain = "agentkeyring.selftest.v2"
+        report.deviceKeyID = keys.deviceKeyID
+        report.testedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        report.checks = [check]
+        do {
+            let signed = try Sealing.signed(report.serializedData(), by: keys.replyKeyID) { try keys.signReply($0) }
+            _ = try await call(.reportSelfTest(signed))
+        } catch {
+            deviceLogger.error("Could not report the self-test to the relay: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     // MARK: Machines and devices joining
 
     /// Lets a machine or device join, after Josh's Touch ID. A machine allowed

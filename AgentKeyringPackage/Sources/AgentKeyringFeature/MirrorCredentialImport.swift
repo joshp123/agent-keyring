@@ -74,7 +74,7 @@ extension MirrorAppModel {
     }
 
     public func openPasswordsExport() {
-        notice = MirrorNotice(kind: .information, text: MirrorSyncReminders.exportInstruction)
+        awaitingExport = true
         openPasswords()
     }
 
@@ -113,7 +113,7 @@ extension MirrorAppModel {
     func importCredentials(token: UUID) async {
         isImporting = true
         notice = nil
-        defer { isImporting = false }
+        defer { isImporting = false; awaitingExport = false }
 
         credentialExchangeLogger.info("Credential import started")
 
@@ -134,9 +134,12 @@ extension MirrorAppModel {
             return
         }
 
+        await importBatch(mapper.map(exportedData, scope: .unknown), hadExistingMirror: hadExistingMirror)
+    }
+
+    func importBatch(_ importBatch: MirrorImportBatch, hadExistingMirror: Bool) async {
         let generation: MirrorGeneration
         do {
-            let importBatch = mapper.map(exportedData, scope: .unknown)
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
@@ -173,6 +176,7 @@ extension MirrorAppModel {
         leaseLogins = visibleGeneration.metadata.candidates
         await accessControl.refresh(from: visibleGeneration)
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
+        offerSelfTestIfNeeded()
         if device?.isJoined == true {
             // Josh approves sending the list in a panel beside his window.
             importedLoginsAwaitApproval = true
@@ -183,3 +187,22 @@ extension MirrorAppModel {
         }
     }
 }
+
+#if DEBUG
+@available(macOS 26.0, *)
+extension MirrorAppModel {
+    /// For trying first run on a Mac whose Passwords holds real logins: the
+    /// same import, with made-up example.com logins in place of the export.
+    public func importMadeUpLogins() async {
+        isImporting = true
+        defer { isImporting = false; awaitingExport = false }
+        let items = ["mail.example.com", "shop.example.com", "bank.example.net"].map { site in
+            MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "made-up", accountID: Data("made-up".utf8),
+                itemID: Data(site.utf8)), title: site, origins: ["https://\(site)"],
+                credentials: [.password(userName: "josh@example.com", password: "made-up-password-for-\(site)")])
+        }
+        await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: "made-up",
+            exporterDisplayName: "Made-up logins", items: items, skippedCredentialCount: 0), hadExistingMirror: status != nil)
+    }
+}
+#endif

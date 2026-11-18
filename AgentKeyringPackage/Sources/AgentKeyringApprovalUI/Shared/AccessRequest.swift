@@ -90,6 +90,8 @@ public enum RequestedAccess: Hashable, Sendable {
     /// PURPOSE_AGENT_PROCESS: the value goes to the agent's own code. No
     /// protection beyond keeping it out of the transcript.
     case agentProcess
+    /// First run's test request: no login is used.
+    case test
 
     public static let longestLease: TimeInterval = 30 * 60
 }

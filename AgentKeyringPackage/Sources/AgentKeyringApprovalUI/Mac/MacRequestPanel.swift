@@ -46,6 +46,37 @@ struct MacApprovalPanelView: View {
     private var asking: some View {
         VStack(spacing: 14) {
             header
+            if request.access == .test { testBody } else { requestBody }
+            if request.access == .test {
+                HStack { Spacer(); denyButton }
+            } else {
+                replyRow
+            }
+            approveLine
+            if let failure = model.failure, !ReviewRendering.isOn {
+                Text(failure).font(.system(size: 13)).foregroundStyle(RequestToken.deny)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
+            RequestToken.line.frame(height: 1)
+            Text(footer)
+                .font(.system(size: 12)).foregroundStyle(RequestToken.ink2)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
+    }
+
+    private var testBody: some View {
+        VStack(spacing: 1) {
+            Text("A test from Agent Keyring").font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+            Text("Test request")
+                .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
+                .foregroundStyle(RequestToken.ink).frame(height: 38)
+            Text("No login is used").font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+        }
+        .padding(.top, 6).padding(.bottom, 2)
+    }
+
+    private var requestBody: some View {
             VStack(spacing: 10) {
                 VStack(spacing: 1) {
                     Text(request.agent.isLocal ? "\(agent) on this Mac wants" : "\(agent) on \(request.agent.machine) wants")
@@ -63,18 +94,6 @@ struct MacApprovalPanelView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 6).padding(.bottom, 2)
-            replyRow
-            approveLine
-            if let failure = model.failure, !ReviewRendering.isOn {
-                Text(failure).font(.system(size: 13)).foregroundStyle(RequestToken.deny)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            }
-            RequestToken.line.frame(height: 1)
-            Text(footer)
-                .font(.system(size: 12)).foregroundStyle(RequestToken.ink2)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
     }
 
     private var header: some View {
@@ -123,16 +142,20 @@ struct MacApprovalPanelView: View {
                 .frame(height: 36)
                 .background(RequestToken.fill, in: Capsule())
                 .disabled(sending != nil)
-            Button { Task { await model.deny() } } label: {
-                Text(sending == .deny ? "Denying…" : "Deny")
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.onAnswer)
-                    .padding(.horizontal, 18).frame(height: 36)
-                    .background(RequestToken.deny, in: Capsule())
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(sending != nil)
+            denyButton
         }
+    }
+
+    private var denyButton: some View {
+        Button { Task { await model.deny() } } label: {
+            Text(sending == .deny ? "Denying…" : "Deny")
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.onAnswer)
+                .padding(.horizontal, request.access == .test ? 22 : 18).frame(height: 36)
+                .background(RequestToken.deny, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(sending != nil)
     }
 
     private var touchIDAvailable: Bool {
@@ -177,6 +200,7 @@ struct MacApprovalPanelView: View {
     }
 
     private var footer: String {
+        if request.access == .test { return "Approve it to finish setting up." }
         if case .agentProcess = request.access { return "\(agent) can keep the password once it has seen it." }
         return "\(agent) can use this login for this task, 30 minutes at most."
     }

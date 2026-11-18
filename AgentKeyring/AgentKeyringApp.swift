@@ -102,6 +102,9 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         if accessControlFixture == nil {
             Task { @MainActor in
                 await model.loadStatus()
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--import-made-up-logins") { await model.importMadeUpLogins() }
+                #endif
                 if model.status == nil { presentation.requestMainWindow() }
             }
         }
@@ -185,20 +188,26 @@ private enum AccessControlUITestFixture {
 }
 
 private struct FirstRunHome: View {
-    @Environment(\.openWindow) private var openWindow
     let model: MirrorAppModel
 
     private var state: FirstRunState {
-        if model.isImporting || model.providerState == .requesting { return .importing }
-        if let status = model.status {
-            return .ready(logins: status.credentialItemCount, importedAt: status.importedAt)
+        let imported: FirstRunState.Import
+        if model.isImporting || model.providerState == .requesting { imported = .importing }
+        else if let status = model.status { imported = .done(logins: status.credentialItemCount) }
+        else {
+            switch model.providerState {
+            case .unknown: imported = .needsAllow
+            case .enabled: imported = .needsExport
+            case .denied: imported = .blocked
+            case .requesting: imported = .importing
+            }
         }
-        switch model.providerState {
-        case .unknown: return .needsAllow
-        case .enabled: return .needsExport
-        case .denied: return .blocked
-        case .requesting: return .importing
+        let test: FirstRunState.Test = switch model.selfTest {
+        case let .passed(at): .passed(at)
+        case let .failed(message): .failed(message)
+        case .waiting, .notRun: .waiting
         }
+        return FirstRunState(imported: imported, test: test, alwaysOnReady: model.device?.isJoined == true)
     }
 
     var body: some View {
@@ -207,17 +216,25 @@ private struct FirstRunHome: View {
                 ProgressView().padding(40)
             } else {
                 VStack(alignment: .leading) {
-                    MacFirstRunView(state: state, agentInstructions: AgentInstructions.snippet,
-                        allow: model.requestProviderEnablement, openPasswords: model.openPasswordsExport,
-                        openRules: { openWindow(id: "access") })
-                    if let notice = model.notice {
+                    MacFirstRunView(state: state, allow: model.requestProviderEnablement, openPasswords: model.openPasswordsExport)
+                    if let notice = model.notice, notice.kind != .information {
                         Text(notice.text).font(.callout).padding(.horizontal, 28).padding(.bottom, 20)
                     }
                 }
             }
         }
+        .background(FloatingWhile(isOn: model.awaitingExport))
         .task { await model.loadStatus() }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
+    }
+}
+
+/// Keeps the window above Passwords while Josh follows its menu path.
+private struct FloatingWhile: NSViewRepresentable {
+    let isOn: Bool
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { view.window?.level = isOn ? .floating : .normal }
     }
 }
 
