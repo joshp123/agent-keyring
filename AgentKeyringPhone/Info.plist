@@ -6,6 +6,15 @@
     <string>$(AppIdentifierPrefix)$(AGENT_KEYRING_BUNDLE_ID).shared</string>
     <key>AgentKeyringAPNSEnvironment</key>
     <string>$(AGENT_KEYRING_APNS_ENVIRONMENT)</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Agent Keyring join code</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>agentkeyring</string></array>
+        </dict>
+    </array>
     <key>CFBundleDisplayName</key>
     <string>Agent Keyring</string>
     <key>NSCameraUsageDescription</key>

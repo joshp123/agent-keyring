@@ -285,7 +285,13 @@ func (d *device) approveJoins(ctx context.Context) error {
 		return err
 	}
 	var joined []*pb.Machine
+	var devices []*pb.Device
 	for _, pending := range response.GetPendingJoins().GetJoins() {
+		if joining := pending.GetRequest().GetDevice(); joining != nil {
+			members.Devices = append(members.Devices, joining)
+			devices = append(devices, joining)
+			fmt.Printf("Approving device %q (Tailscale node %s).\n", joining.Label, pending.TailscaleNodeName)
+		}
 		if m := pending.GetRequest().GetMachine(); m != nil {
 			m.AutomaticAllowed = true
 			members.Machines = append(members.Machines, m)
@@ -293,8 +299,8 @@ func (d *device) approveJoins(ctx context.Context) error {
 			fmt.Printf("Approving %q (Tailscale node %s).\n", m.Label, pending.TailscaleNodeName)
 		}
 	}
-	if len(joined) == 0 {
-		return errors.New("no machine is waiting to join")
+	if len(joined) == 0 && len(devices) == 0 {
+		return errors.New("nothing is waiting to join")
 	}
 	members.Revision++
 	if err := d.publishMembers(ctx, members); err != nil {
@@ -302,6 +308,11 @@ func (d *device) approveJoins(ctx context.Context) error {
 	}
 	for _, m := range joined {
 		if err := d.seal(ctx, m.MachineId, m.ReceivingPublicKey, true); err != nil {
+			return err
+		}
+	}
+	for _, joining := range devices {
+		if err := d.seal(ctx, joining.KeyId, joining.OpeningPublicKey, false); err != nil {
 			return err
 		}
 	}

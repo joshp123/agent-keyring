@@ -21,6 +21,8 @@ struct AgentKeyringPhoneApp: App {
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     if phase == .active { delegate.relay?.start() } else if phase == .background { delegate.relay?.stop() }
                 }
+                // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
+                .onOpenURL { url in Task { await delegate.model.join(scannedCode: url.absoluteString) } }
                 .onChange(of: delegate.model.snapshot.setup) { _, setup in
                     if setup != .scanCode { UIApplication.shared.registerForRemoteNotifications() }
                 }
