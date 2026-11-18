@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "AgentKeyringCredentialImport", targets: ["AgentKeyringCredentialImport"]),
         .library(name: "AgentKeyringProtocol", targets: ["AgentKeyringProtocol"]),
         .library(name: "AgentKeyringSealing", targets: ["AgentKeyringSealing"]),
+        .library(name: "AgentKeyringWatchCore", targets: ["AgentKeyringWatchCore"]),
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
         .library(name: "AgentKeyringApprovalUI", targets: ["AgentKeyringApprovalUI"]),
         .library(name: "AgentKeyringScreenBackends", targets: ["AgentKeyringScreenBackends"]),
@@ -27,6 +28,7 @@ let package = Package(
         .target(name: "AgentKeyringProtocol", dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")]),
         // Sealed logins and signed answers, shared by the Mac, iPhone and Watch apps.
         .target(name: "AgentKeyringSealing", dependencies: ["AgentKeyringProtocol"]),
+        .target(name: "AgentKeyringWatchCore", dependencies: ["AgentKeyringSealing", "AgentKeyringProtocol"]),
         .target(name: "AgentKeyringApprovalCore"),
         .target(name: "AgentKeyringApprovalUI"),
         // Joins the lease store and access rules to the screens (RFC 0007, U2 and U3).

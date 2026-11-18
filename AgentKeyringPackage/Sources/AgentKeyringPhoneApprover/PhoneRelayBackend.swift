@@ -770,21 +770,42 @@ public final class PhoneRelayBackend: PhoneBackend {
         save(next)
     }
 
-    /// The Watch's app sent its keys. Kept until he says yes or not now.
-    public func watchOffered(device: Data, push: Data) {
-        guard let parsed = try? Agentkeyring_V2_Device(serializedBytes: device), parsed.kind == .watch,
-              members?.devices.contains(where: { $0.keyID == parsed.keyID }) != true else { return }
+    /// The Watch's app sent its keys, its push address, or both. The keys are
+    /// kept until he says yes or not now; the push address can come later, on a
+    /// real Watch too, and goes to the relay as soon as the Watch is listed.
+    public func watchOffered(device: Data?, push: Data?) {
+        let parsed = device.flatMap { try? Agentkeyring_V2_Device(serializedBytes: $0) }
+        let pushKeyID = push.flatMap { try? Agentkeyring_V2_PushRegistration(serializedBytes: $0) }?.deviceKeyID
+        let listed = members?.devices.first { $0.kind == .watch && $0.keyID == (parsed?.keyID ?? pushKeyID) }
+        if listed != nil {
+            if let push { Task { await registerWatchPush(push) } }
+            return
+        }
+        guard let parsed, parsed.kind == .watch, let device else {
+            if let push { var next = state; next.watchPush = push; save(next) }
+            return
+        }
         var next = state
-        next.watchDevice = device; next.watchPush = push
+        next.watchDevice = device
+        if let push { next.watchPush = push }
         save(next)
+    }
+
+    private func registerWatchPush(_ bytes: Data) async {
+        do {
+            let push = try Agentkeyring_V2_PushRegistration(serializedBytes: bytes)
+            _ = try await relay().call(Self.method { $0.registerPush = push })
+            var done = state
+            done.watchPush = nil
+            save(done)
+        } catch { PhoneDiagnostics.note("Watch push address not registered: \(error)") }
     }
 
     /// After one Face ID: the Watch joins the signed list of devices, gets
     /// every login sealed to its own key, and its push address goes to the relay.
     public func allowWatch() async throws {
-        guard var next = members, let deviceBytes = state.watchDevice, let pushBytes = state.watchPush else { return }
+        guard var next = members, let deviceBytes = state.watchDevice else { return }
         let watch = try Agentkeyring_V2_Device(serializedBytes: deviceBytes)
-        let push = try Agentkeyring_V2_PushRegistration(serializedBytes: pushBytes)
         let watchKey = try P256.KeyAgreement.PublicKey(x963Representation: watch.openingPublicKey)
         let context = LAContext()
         defer { context.invalidate() }
@@ -801,11 +822,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         _ = try await relay.call(Self.method { $0.publishMembers = signed })
         try accept(members: signed)
         _ = try await relay.call(Self.method { $0.publishSealedLogins = forWatch })
-        _ = try await relay.call(Self.method { $0.registerPush = push })
         PhoneDiagnostics.note("Watch added: \(forWatch.logins.count) logins sealed to it")
         var done = state
-        done.watchDevice = nil; done.watchPush = nil
+        done.watchDevice = nil
         save(done)
+        if let push = state.watchPush { await registerWatchPush(push) }
     }
 
     /// The signed Members bytes, for the Watch.
