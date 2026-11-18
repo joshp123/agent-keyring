@@ -135,6 +135,9 @@ public final class MacApprovalModel {
         if embeddedTouchID == nil { failure = "Touch ID or Apple Watch isn't available. Check that one is ready." }
     }
 
+    /// Test only: replaces the request as an update from the backend would.
+    func replace(_ latest: AccessRequest) async { request = latest }
+
     /// Follows the request until the panel closes. Call from `.task`.
     public func followUpdates() async {
         for await latest in backend.updates(requestID: request.id) {
