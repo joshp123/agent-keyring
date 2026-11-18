@@ -44,7 +44,7 @@ struct EmbeddedApprovalTests {
         model.waitForTouch()
         await Task.yield()
         await Task.yield()
-        #expect(model.failure == "Approval was interrupted. Try again.")
+        #expect(model.failure == "Approval was interrupted.")
         #expect(model.embeddedTouchID == nil)
         #expect(model.request.state.isWaitingForYou)
         backend.approvalError = nil
@@ -60,7 +60,7 @@ struct EmbeddedApprovalTests {
         model.authenticationTimeoutDuration = .milliseconds(10)
         model.waitForTouch()
         try await Task.sleep(for: .milliseconds(100))
-        #expect(model.failure == "Approval timed out. Try again.")
+        #expect(model.failure == "Approval timed out.")
         #expect(model.embeddedTouchID == nil)
         #expect(model.request.state.isWaitingForYou)
         model.retryAuthentication()
@@ -110,7 +110,7 @@ struct EmbeddedApprovalTests {
         model.authenticationTimeoutDuration = .milliseconds(10)
         model.waitForAuthentication()
         try await Task.sleep(for: .milliseconds(100))
-        #expect(model.failure == "Approval timed out. Try again.")
+        #expect(model.failure == "Approval timed out.")
         #expect(model.outcome == nil)
         #expect(model.authenticationContext == nil)
         model.restartAuthentication()
@@ -152,6 +152,7 @@ private final class RequestBackend: MacApprovalBackend {
         denials.append(context != nil)
         return .denied(by: .mac, reply: reply, askAgainAfter: nil)
     }
+    func allowAskingAgain(requestID: String) async throws -> AccessRequestState { .denied(by: .mac, reply: nil, askAgainAfter: nil) }
 }
 
 @MainActor

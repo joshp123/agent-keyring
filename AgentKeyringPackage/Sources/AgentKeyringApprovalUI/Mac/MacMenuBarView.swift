@@ -341,18 +341,17 @@ private struct RecentMenuRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer()
+            if request.state.isHoldingOffNewRequests(now: .now) {
+                Button(AccessRequestCopy.letAskAgain, action: allowAskingAgain)
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
             Text(AccessRequestCopy.outcomeWord(request.state))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(outcomeColour(request.state) ?? .secondary)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 3)
-        .contentShape(.rect)
-        .contextMenu {
-            if request.state.isHoldingOffNewRequests(now: .now) {
-                Button(AccessRequestCopy.letAskAgain, action: allowAskingAgain)
-            }
-        }
     }
 }
 #endif

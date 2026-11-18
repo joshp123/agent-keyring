@@ -125,6 +125,7 @@ public final class RelayApprovalBackend: MacApprovalBackend {
     private var contexts: [String: LAContext] = [:]
     /// Answers given here, kept until the relay's report replaces them.
     public private(set) var answered: [String: AnswerChoice] = [:]
+    private var deniedLeases: [String: Agentkeyring_V1_Lease] = [:]
 
     public init(relay: RelayApprover) {
         self.relay = relay
@@ -166,11 +167,19 @@ public final class RelayApprovalBackend: MacApprovalBackend {
 
     public func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
         if reply?.isEmpty == false && context == nil { throw CredentialReleaseAuthorizationError.unavailable }
+        deniedLeases[requestID] = relay.requests.first { $0.id == requestID }?.lease
         defer { if contexts[requestID] === context { contexts[requestID] = nil } }
         // A plain denial needs no Touch ID; a reply is signed with one.
         try await screenErrors { try await relay.deny(requestID, reply: reply ?? "", context: context ?? LAContext(), onAuthenticated: onAuthenticated) }
         answered[requestID] = .deny
         return .denied(by: .mac, reply: reply, askAgainAfter: nil)
+    }
+
+    public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
+        // The relay may drop a request once it is denied, so keep its lease from the denial.
+        guard let lease = relay.requests.first(where: { $0.id == requestID })?.lease ?? deniedLeases[requestID] else { throw CredentialReleaseAuthorizationError.unavailable }
+        try await screenErrors { try await relay.clearDenial(loginID: lease.loginID, recipientID: lease.recipient.recipientID) }
+        return current(requestID)?.state ?? .denied(by: .mac, reply: nil, askAgainAfter: nil)
     }
 }
 

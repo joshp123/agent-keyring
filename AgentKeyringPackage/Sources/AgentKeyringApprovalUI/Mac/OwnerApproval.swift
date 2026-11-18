@@ -55,7 +55,7 @@ public final class OwnerApproval: Identifiable {
             do { try await Task.sleep(for: timeoutDuration) } catch { return }
             guard attempt == current else { return }
             stop()
-            failure = "Approval timed out. Try again."
+            failure = "Approval timed out."
         }
         task = Task {
             do {
@@ -75,7 +75,7 @@ public final class OwnerApproval: Identifiable {
             } catch {
                 guard attempt == current else { return }
                 stop()
-                failure = ownerAuthenticationFailure(error, fallback: "That didn't finish. Nothing changed. Try again.")
+                failure = ownerAuthenticationFailure(error, fallback: "That didn't finish. Nothing changed.")
             }
         }
     }
@@ -114,7 +114,7 @@ public final class OwnerApproval: Identifiable {
         failure = nil
         let next = LAContext()
         guard next.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else {
-            failure = "Touch ID or Apple Watch isn't available. Check that one is ready and try again."
+            failure = "Touch ID or Apple Watch isn't available. Check that one is ready."
             return
         }
         attempt = UUID()
@@ -172,7 +172,7 @@ public struct OwnerApprovalBar: View {
                 .foregroundStyle(KeyringColour.denyText)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Button { approval.retry() } label: { Label("Try again", systemImage: "touchid") }
+                Button { approval.retry() } label: { Label("Try again", systemImage: ownerApprovalSymbol()) }
                     .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 32))
                 cancelButton
             }

@@ -20,6 +20,22 @@ public enum AccessRequestCopy {
         }
     }
 
+    /// Under the question: the account, and for another machine its address.
+    public static func subline(_ request: AccessRequest) -> String {
+        let account = "as \(request.login.account)"
+        guard !request.agent.isLocal else { return account }
+        return "\(account) · \(request.agent.address)"
+    }
+
+    /// Said only when approving has a consequence the question doesn't show.
+    public static func warning(_ request: AccessRequest) -> String? {
+        switch request.access {
+        case .signIn: nil
+        case .program: nil
+        case .agentProcess: "\(request.agent.name) can keep the password once it has seen it."
+        }
+    }
+
     public static func headlineAccount(_ request: AccessRequest) -> String {
         "as \(request.login.account)"
     }
@@ -108,6 +124,11 @@ public enum AccessRequestCopy {
         "New requests from this machine are held off until \(clock(date))."
     }
     public static let letAskAgain = "Let it ask again"
+    /// Every denial Josh makes holds the login off for 30 minutes.
+    public static func heldOff(_ agent: RequestingAgent) -> String {
+        "\(agent.name) can't ask for this login again for 30 minutes unless you let it."
+    }
+    public static func mayAskAgain(_ agent: RequestingAgent) -> String { "\(agent.name) can ask again." }
 
     // MARK: States
 

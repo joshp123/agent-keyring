@@ -53,26 +53,29 @@ public enum ApprovalPanelPlacement {
         return r
     }
 
-    /// The frontmost app's frontmost ordinary window, in AppKit coordinates.
-    /// Window bounds need no Screen Recording permission; titles would.
+    /// The window Josh is working in: the front window of the front app, or,
+    /// when Agent Keyring itself is in front, the front window of any other
+    /// app. Never one of Agent Keyring's own. Window bounds need no Screen
+    /// Recording permission; titles would.
     @MainActor public static func focusedWindow() -> CGRect? {
-        guard let app = NSWorkspace.shared.frontmostApplication,
-            app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
-            let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
                 as? [[String: Any]],
             let mainHeight = NSScreen.screens.first?.frame.height
         else { return nil }
-        for info in list {
-            guard info[kCGWindowOwnerPID as String] as? pid_t == app.processIdentifier,
+        let ordinary = list.compactMap { info -> (pid_t, CGRect)? in
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
                 info[kCGWindowLayer as String] as? Int == 0,
                 let bounds = info[kCGWindowBounds as String] as? NSDictionary,
                 let rect = CGRect(dictionaryRepresentation: bounds),
                 rect.width > 200, rect.height > 150
-            else { continue }
+            else { return nil }
             // Quartz measures from the top of the main screen; AppKit from its bottom.
-            return CGRect(x: rect.minX, y: mainHeight - rect.maxY, width: rect.width, height: rect.height)
+            return (pid, CGRect(x: rect.minX, y: mainHeight - rect.maxY, width: rect.width, height: rect.height))
         }
-        return nil
+        // The list runs front to back.
+        return (ordinary.first { $0.0 == frontPID } ?? ordinary.first)?.1
     }
 }
 #endif

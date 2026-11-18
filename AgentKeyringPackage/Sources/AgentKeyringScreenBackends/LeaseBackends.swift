@@ -65,6 +65,12 @@ public final class LeaseApprovalBackend: MacApprovalBackend {
         cancelAuthentication(requestID: requestID)
         return model.accessRequest(for: try model.denyLease(requestID, reply: reply ?? "")).state
     }
+
+    public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
+        let lease = try model.leaseStore.get(requestID)
+        try model.leaseStore.clearDenial(loginID: lease.loginID)
+        return model.accessRequest(for: try model.leaseStore.get(requestID)).state
+    }
 }
 
 /// U3: the menu bar window over every lease and the import status.

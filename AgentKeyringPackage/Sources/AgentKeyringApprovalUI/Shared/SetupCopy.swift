@@ -58,7 +58,7 @@ public enum SetupCopy {
         "Refused. Nothing was allowed. To try again, start again on \(enrolment.name)."
     }
 
-    public static let joiningFailed = "Confirmation didn't finish. Nothing changed. Try again."
+    public static let joiningFailed = "Confirmation didn't finish. Nothing changed."
 
     // MARK: The Mac's relay (Machines window)
 
