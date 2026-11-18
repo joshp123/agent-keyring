@@ -33,7 +33,7 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 		for keyID, raw := range data.Pushes {
 			d := device(members, keyID)
 			registration := &pb.PushRegistration{}
-			if d == nil || unmarshal(raw, registration) != nil || (r.ForDevice != "" && r.ForDevice != d.KeyId) || r.ProposedBy == d.KeyId {
+			if d == nil || unmarshal(raw, registration) != nil || (r.ForDevice != "" && r.ForDevice != d.KeyId) || r.ProposedBy == d.KeyId || (len(r.Proposal) > 0 && d.Kind != pb.DeviceKind_DEVICE_KIND_IPHONE) {
 				continue
 			}
 			if work, err := s.work(d, id, data); err == nil {

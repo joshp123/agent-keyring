@@ -514,10 +514,11 @@ public final class MacDevice {
         }
     }
 
-    /// A rule change only the iPhone or Watch may make: proposed, signed with
-    /// the reply key (it grants nothing by itself), and waited for.
-    public func proposeRules(_ changes: [Agentkeyring_V2_RuleChange]) async throws -> Bool {
-        guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Watch.") }
+    /// A change away from Ask on iPhone or Watch, which only the iPhone may
+    /// make: proposed, signed with the reply key (it grants nothing by
+    /// itself), and waited for. The relay gives it 10 minutes, as a login request.
+    public func proposeRules(_ changes: [Agentkeyring_V2_RuleChange]) async throws -> Agentkeyring_V2_LeaseState {
+        guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone.") }
         var proposal = Agentkeyring_V2_RuleProposal()
         proposal.domain = "agentkeyring.proposal.v2"
         proposal.changes = changes
@@ -529,7 +530,7 @@ public final class MacDevice {
             if case let .lease(lease) = response.result { final = lease.state }
         }
         if final == .approved { await followCatalogue() }
-        return final == .approved
+        return final
     }
 
     // MARK: Machines and devices joining
