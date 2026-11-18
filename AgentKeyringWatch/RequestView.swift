@@ -22,13 +22,25 @@ final class RequestModel {
 
     func show(_ userInfo: [AnyHashable: Any]) {
         answer = nil
-        do {
-            request = try WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: WatchStore().read())
-            unreadable = false
-        } catch {
-            request = nil
-            unreadable = true
-            WatchLink.shared.report(problem: "The Watch could not read a request: \(error)")
+        unreadable = false
+        if let opened = try? WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: WatchStore().read()) {
+            request = opened
+            return
+        }
+        // The Watch may not have the latest list of devices: ask its iPhone, then read it again.
+        let copy = WatchUserInfo(userInfo)
+        Task {
+            _ = await WatchLink.shared.askForMembers()
+            // The list may also come the slow way, once the iPhone app next runs.
+            for attempt in 0..<10 {
+                if let opened = try? WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) {
+                    request = opened; unreadable = false; return
+                }
+                if attempt == 0 { unreadable = true }
+                try? await Task.sleep(for: .seconds(1))
+            }
+            do { _ = try WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) }
+            catch { WatchLink.shared.report(problem: "The Watch could not read a request: \(error)") }
         }
     }
 
@@ -51,6 +63,12 @@ final class RequestModel {
             dismiss()
         }
     }
+}
+
+/// A notification's user info, carried across to the main actor.
+struct WatchUserInfo: @unchecked Sendable {
+    let value: [AnyHashable: Any]
+    init(_ value: [AnyHashable: Any]) { self.value = value }
 }
 
 /// Asks watchOS for time to finish sending if the wrist drops.

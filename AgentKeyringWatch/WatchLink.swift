@@ -122,8 +122,48 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         let next = saved.merging(members: payload["members"] as? Data, catalogue: payload["catalogue"] as? Data,
                                  answerURL: payload["relayAnswerURL"] as? String)
         if next != saved { store.write(next) }
-        let listed = next.lists((try? WatchKeys().keyID()) ?? "")
-        Task { @MainActor in WatchModel.shared.setup = listed ? .ready : .waitingForIPhone }
+        Task { await refreshSetup() }
+    }
+
+    /// The Watch's one line: not added yet, a problem he can fix, waiting for Apple, or Ready.
+    func refreshSetup() async {
+        let listed = WatchStore().read().lists((try? WatchKeys().keyID()) ?? "")
+        var error: NSError?
+        let passcode = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        let asked = settings.authorizationStatus != .notDetermined
+        let allowed = settings.authorizationStatus == .authorized
+        let hasAddress = pushToken != nil
+        let setup: WatchModel.Setup = !listed ? .waitingForIPhone
+            : !passcode ? .failed("Your Watch has no passcode, so it can’t approve. Set one in the Watch app on your iPhone.")
+            : asked && !allowed ? .failed("Notifications are off on your Watch, so requests can’t reach it. Turn them on in the Watch app on your iPhone.")
+            : !hasAddress ? .waitingForApple
+            : .ready
+        await MainActor.run { WatchModel.shared.setup = setup }
+    }
+
+    /// Asks the iPhone for the current list of devices, for a request this Watch
+    /// cannot read: the iPhone answers at once if it can be woken, and also sends
+    /// it the usual way. True if a newer list arrived.
+    func askForMembers() async -> Bool {
+        let session = WCSession.default
+        // Opening a notification may have just started the app: its session activates a moment later.
+        activate()
+        for _ in 0..<30 where session.activationState != .activated { try? await Task.sleep(for: .milliseconds(100)) }
+        guard session.activationState == .activated else { return false }
+        let before = WatchStore().read()
+        session.transferUserInfo(["askMembers": true])
+        for _ in 0..<30 where !session.isReachable { try? await Task.sleep(for: .milliseconds(100)) }
+        guard session.isReachable else { return false }
+        // The reply crosses as a property list: its members bytes and the answer address.
+        let reply: Data? = await withCheckedContinuation { done in
+            session.sendMessage(["askMembers": true], replyHandler: {
+                done.resume(returning: try? PropertyListSerialization.data(fromPropertyList: $0, format: .binary, options: 0))
+            }, errorHandler: { _ in done.resume(returning: nil) })
+        }
+        guard let reply, let payload = try? PropertyListSerialization.propertyList(from: reply, format: nil) as? [String: Any] else { return false }
+        receive(payload)
+        return WatchStore().read() != before
     }
 
     func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {

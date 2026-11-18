@@ -179,7 +179,9 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         if notification.request.trigger is UNPushNotificationTrigger { await MainActor.run { relay?.pushArrived() } }
-        // With the app open, a request shows in the app; only its banner is needed, not the outcome's.
-        return notification.request.content.categoryIdentifier == PhoneNotification.requestCategory ? [.banner, .list, .sound] : [.list]
+        // With the app open, a request or rule change shows a banner; an outcome does not.
+        let content = notification.request.content
+        return content.categoryIdentifier == PhoneNotification.requestCategory || content.interruptionLevel == .timeSensitive
+            ? [.banner, .list, .sound] : [.list]
     }
 }

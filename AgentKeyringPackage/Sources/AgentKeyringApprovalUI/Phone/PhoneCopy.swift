@@ -130,6 +130,9 @@ public enum PhoneCopy {
     public static let notificationsOffDetail = "Requests can’t reach this iPhone until you turn them on in Settings."
     public static let openSettings = "Open Settings"
     public static let requestsReach = "Requests reach this iPhone"
+    /// Apple has given no push address yet: requests still arrive while the app is open.
+    public static let waitingForApple = "Requests appear only while Agent Keyring is open"
+    public static let waitingForAppleDetail = "This iPhone is still waiting for Apple. You need do nothing unless this lasts; then check the internet connection."
     public static let cantReachRelay = "This iPhone can’t reach Mac mini. Check that Tailscale is on."
     public static let noAlwaysOn = "Your Mac has no always-on machine yet, so requests can’t reach this iPhone. Add one on your Mac."
     public static let testApproved = "You approved the test request with Face ID"
@@ -149,15 +152,48 @@ public enum PhoneCopy {
     public static let testFootnote = "Approve it to finish setting up."
     public static let newDevice = "A new device wants to approve requests"
     public static let pairedWithThisIPhone = "Paired with this iPhone"
-    /// Not in Paper: a rule change the Mac proposed.
-    public static func proposalLead(_ proposal: PhoneRuleProposal) -> String { "\(proposal.from) wants to change a rule" }
-    public static func proposalTitle(_ proposal: PhoneRuleProposal) -> String {
-        proposal.changes.count == 1 ? proposal.changes[0].site : "\(proposal.changes.count) logins"
+    // A rule change the Mac sent (Paper, "Logins and rules").
+    public static func ruleChangeLead(_ c: PhoneRuleProposal) -> String {
+        c.changes.count == 1 ? "\(c.from) wants to change the rule for" : "\(c.from) wants to change the rules for"
     }
-    public static func proposalDetail(_ proposal: PhoneRuleProposal) -> String {
-        proposal.changes.count == 1 ? "To \(proposal.changes[0].to)" : proposal.changes.map { "\($0.site): \($0.to)" }.joined(separator: "\n")
+    public static func ruleChangeTitle(_ c: PhoneRuleProposal) -> String {
+        c.changes.count == 1 ? c.changes[0].site : "\(c.changes.count) logins"
     }
-    public static let proposalFootnote = "Only your iPhone or Watch can make this change."
+    /// The account under the site; none for several logins.
+    public static func ruleChangeAccount(_ c: PhoneRuleProposal) -> String? { c.changes.count == 1 ? c.changes[0].account : nil }
+    /// The lines under the title: the change first, then what it would allow.
+    public static func ruleChangeLines(_ c: PhoneRuleProposal) -> (change: [String], allows: String) {
+        guard let first = c.changes.first else { return ([], "") }
+        if c.changes.count == 1 {
+            return (["From \(rule(first.from)) to \(rule(first.to))"], allows(first.to, from: c.from))
+        }
+        return (["From \(rule(first.from)):"] + c.changes.map { "\($0.site) to \(rule($0.to))" },
+                "\(c.from) could then change them again with Touch ID.")
+    }
+    static func allows(_ to: PhoneLogin.Rule, from device: String) -> String {
+        switch to {
+        case .ask: "\(device) could then approve requests for this login with Touch ID."
+        case .automatic: "Agents on machines you allow could then get this login without asking."
+        case .blocked: "No agent could then use this login, and \(device) could change its rule again with Touch ID."
+        case .askOnIPhoneOrWatch: ""
+        }
+    }
+    public static func ruleChangeFootnote(_ c: PhoneRuleProposal) -> String { "Deny it if you did not make this change on \(c.from)." }
+    public static func ruleChangeNotificationTitle(_ c: PhoneRuleProposal) -> String {
+        c.changes.count == 1 ? "\(c.from) wants to change a rule" : "\(c.from) wants to change \(c.changes.count) rules"
+    }
+    public static func ruleChangeNotificationBody(_ c: PhoneRuleProposal) -> String {
+        guard let first = c.changes.first else { return "" }
+        switch c.changes.count {
+        case 1: return "\(first.site), from \(rule(first.from)) to \(rule(first.to))."
+        case 2: return "\(first.site) and \(c.changes[1].site), from \(rule(first.from))."
+        default: return "\(first.site) and \(c.changes.count - 1) more, from \(rule(first.from))."
+        }
+    }
+    /// Not in Paper for several logins with different new rules: the first one's rule is named.
+    private static func ruleChangeTo(_ c: PhoneRuleProposal) -> String { c.changes.first.map { rule($0.to) } ?? "" }
+    public static func ruleChangeWaitingDetail(_ c: PhoneRuleProposal) -> String { "\(c.from) · rule change to \(ruleChangeTo(c))" }
+    public static func ruleChangeHistoryDetail(_ c: PhoneRuleProposal) -> String { "\(clock(c.askedAt)) · Rule change to \(ruleChangeTo(c))" }
     public static let watchFootnote = "It will approve with one tap while it is on your wrist and unlocked. You can remove it at any time."
 
     // Failures.

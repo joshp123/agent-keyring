@@ -31,7 +31,7 @@ struct AgentKeyringWatchApp: App {
 final class WatchModel {
     static let shared = WatchModel()
 
-    enum Setup: Equatable { case waitingForIPhone, ready, failed(String) }
+    enum Setup: Equatable { case waitingForIPhone, waitingForApple, ready, failed(String) }
     var setup: Setup = WatchStore().read().lists((try? WatchKeys().keyID()) ?? "") ? .ready : .waitingForIPhone
 }
 
@@ -48,6 +48,7 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         // Apple asks the person once, the first time the app is in front.
         Task {
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            await WatchLink.shared.refreshSetup()
             await WatchLink.shared.sendHandOver()
         }
     }
@@ -56,12 +57,12 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
     /// sits under it. It is marked destructive, so a Double Tap cannot choose it.
     static let requestCategory = UNNotificationCategory(identifier: WatchWords.requestCategory, actions: [
         UNTextInputNotificationAction(identifier: WatchWords.denyAndExplain, title: "Deny and Explain", options: [.destructive],
-                                      textInputButtonTitle: "Done", textInputPlaceholder: "What should the agent do instead?"),
+                                      textInputButtonTitle: "Done", textInputPlaceholder: "What should it do instead?"),
     ], intentIdentifiers: [])
 
     func didRegisterForRemoteNotifications(withDeviceToken deviceToken: Data) {
         WatchLink.shared.pushToken = deviceToken
-        Task { await WatchLink.shared.sendHandOver() }
+        Task { await WatchLink.shared.refreshSetup(); await WatchLink.shared.sendHandOver() }
     }
 
     func didFailToRegisterForRemoteNotificationsWithError(_ error: Error) {
@@ -114,6 +115,9 @@ struct WatchHome: View {
                     .font(.system(size: 15)).multilineTextAlignment(.center)
             case .ready:
                 Text("Ready").font(.system(size: 28, weight: .bold))
+            case .waitingForApple:
+                Text("Waiting for Apple").font(.system(size: 20, weight: .semibold))
+                Text("Requests can’t reach your Watch yet.").font(.system(size: 15)).multilineTextAlignment(.center)
             case .failed(let line):
                 Text(line).font(.system(size: 15)).multilineTextAlignment(.center)
             }

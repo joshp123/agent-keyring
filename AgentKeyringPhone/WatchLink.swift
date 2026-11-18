@@ -22,6 +22,11 @@ final class WatchLink: NSObject, WCSessionDelegate {
         WCSession.default.activate()
     }
 
+    private var membersContext: [String: Any]? {
+        guard let members = relay.signedMembers, let answerURL = relay.relayAnswerURL else { return nil }
+        return ["members": members, "relayAnswerURL": answerURL]
+    }
+
     /// Sends the current signed Members to the Watch.
     func sendMembers() {
         let session = WCSession.default
@@ -30,7 +35,7 @@ final class WatchLink: NSObject, WCSessionDelegate {
             PhoneDiagnostics.note("Members not sent to the Watch: activated \(WCSession.default.activationState == .activated), paired \(WCSession.default.isPaired), installed \(WCSession.default.isWatchAppInstalled), members \(relay.signedMembers != nil)")
             return
         }
-        let context: [String: Any] = ["members": members, "relayAnswerURL": answerURL]
+        let context: [String: Any] = membersContext ?? ["members": members, "relayAnswerURL": answerURL]
         do { try session.updateApplicationContext(context) } catch { PhoneDiagnostics.note("Members not sent to the Watch: \(error)") }
         session.transferUserInfo(context)
         PhoneDiagnostics.note("Members sent to the Watch (\(members.count) bytes)")
@@ -53,7 +58,21 @@ final class WatchLink: NSObject, WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
         let copy = Self.plain(userInfo)
-        Task { @MainActor in self.receive(copy) }
+        let asks = userInfo["askMembers"] != nil
+        Task { @MainActor in
+            self.receive(copy)
+            if asks { PhoneDiagnostics.note("The Watch asked for Members"); self.sendMembers() }
+        }
+    }
+
+    /// The Watch has a request it cannot read: it asks for the current list straight away.
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any],
+                             replyHandler: @escaping ([String: Any]) -> Void) {
+        let reply = UncheckedReply(replyHandler)
+        Task { @MainActor in
+            PhoneDiagnostics.note("The Watch asked for Members at once")
+            reply.call(self.membersContext ?? [:])
+        }
     }
 
     /// The Watch's keys and its self-test, as Data, so they can cross to the main actor.
@@ -79,4 +98,9 @@ final class WatchLink: NSObject, WCSessionDelegate {
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
     nonisolated func sessionDidDeactivate(_ session: WCSession) { session.activate() }
+}
+
+struct UncheckedReply: @unchecked Sendable {
+    let call: ([String: Any]) -> Void
+    init(_ call: @escaping ([String: Any]) -> Void) { self.call = call }
 }
