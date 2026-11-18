@@ -54,7 +54,13 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     private(set) var watch: WatchLink?
 
     override init() {
-        if UserDefaults.standard.bool(forKey: "Sample") {
+        // Paper's sample exists only in debug builds, for comparing screens in the simulator.
+        #if DEBUG
+        let sampled = UserDefaults.standard.bool(forKey: "Sample")
+        #else
+        let sampled = false
+        #endif
+        if sampled {
             let sample = PhoneSampleBackend(step: UserDefaults.standard.string(forKey: "SampleStep"))
             backend = sample; relay = nil
             model = PhoneModel(backend: sample, initial: sample.current)
@@ -72,9 +78,11 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
         super.init()
         if let relay { watch = WatchLink(relay: relay) }
+        #if DEBUG
         // For comparing screens with Paper in the simulator: -SampleTab logins, -SampleShow r1.
         if let tab = UserDefaults.standard.string(forKey: "SampleTab").flatMap(PhoneTab.init(rawValue:)) { model.tab = tab }
         model.shownRequestID = UserDefaults.standard.string(forKey: "SampleShow")
+        #endif
     }
 
     private var pushAddress: Data?

@@ -81,4 +81,20 @@ public struct PhoneNotificationCard: View {
         .padding(.bottom, 18)
     }
 }
+/// The held notification when the request's words could not be opened: iOS's own title and text, never a blank card.
+public struct PhoneNotificationFallbackCard: View {
+    let title: String
+    let text: String
+
+    public init(title: String, text: String) { self.title = title; self.text = text }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.headline).foregroundStyle(Phone.ink)
+            Text(text).font(.body).foregroundStyle(Phone.ink2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+    }
+}
 #endif
