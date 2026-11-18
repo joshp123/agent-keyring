@@ -114,22 +114,39 @@ public enum PhoneCopy {
     public static let remove = "Remove"
     public static let cancel = "Cancel"
 
-    // First run.
+    // First run (Paper, "First run").
     public static let firstRunLead = "Approve or deny your AI agents’ requests on this iPhone."
-    public static let pointCamera = "Point the camera at the code on your Mac."
-    public static let canApprove = "This iPhone can approve"
-    public static let turnOnNotificationsLead = "Turn on notifications so that requests reach you while the iPhone is locked."
-    public static let turnOnNotifications = "Turn On Notifications"
-    public static let watchQuestion = "Let your Apple Watch approve too?"
-    public static let watchLead = "On the Watch you approve with one tap, while it is unlocked on your wrist."
-    public static let allowWithFaceID = "Allow with Face ID"
-    public static let notNow = "Not Now"
+    public static let readyLead = "This iPhone is ready. Requests appear here."
+    public static let approveOnMac = "Approve this iPhone on your Mac"
+    public static let approveOnMacDetail = "A request is waiting there. Click its green button, then touch the sensor."
+    public static let macAdded = "Your Mac added this iPhone"
+    public static let noMac = "No Mac found. Set up Agent Keyring on your Mac first."
+    public static let iCloudKeychainOff = "iCloud Keychain is off on this iPhone, so it can’t find your Mac. Turn it on in Settings."
+    public static let notificationsOn = "Notifications are on"
+    public static let notificationsOff = "Notifications are off"
+    public static let notificationsOffDetail = "Requests can’t reach this iPhone until you turn them on in Settings."
+    public static let openSettings = "Open Settings"
+    public static let requestsReach = "Requests reach this iPhone"
+    public static let cantReachRelay = "This iPhone can’t reach Mac mini. Check that Tailscale is on."
+    public static let noAlwaysOn = "Your Mac has no always-on machine yet, so requests can’t reach this iPhone. Add one on your Mac."
+    public static let testApproved = "You approved the test request with Face ID"
+    public static let addWatch = "Add your Watch"
+    public static let addWatchOpen = "Open Agent Keyring on your Watch."
+    public static let addWatchApprove = "Approve the Watch’s request with Face ID."
+    public static func deviceWorks(_ name: String) -> String { "\(name) works" }
+
+    // The test request and a new device's request, as sheets.
+    public static let testFrom = "A test from Agent Keyring"
+    public static let testTitle = "Test request"
+    public static let noLoginUsed = "No login is used"
+    public static let testFootnote = "Approve it to finish setting up."
+    public static let newDevice = "A new device wants to approve requests"
+    public static let pairedWithThisIPhone = "Paired with this iPhone"
+    public static let watchFootnote = "It will approve with one tap while it is on your wrist and unlocked. You can remove it at any time."
 
     // Failures. Not in Paper.
     public static let answerFailed = "Your answer didn’t reach Agent Keyring. Try again."
     public static let stopFailed = "Couldn’t stop it. It stops by itself after 30 minutes."
-    public static let joinFailed = "That code didn’t work. Show a new code on your Mac and try again."
-    public static let watchFailed = "Couldn’t add your Watch. Try again from Devices."
     public static let changeFailed = "Couldn’t make that change. Try again."
     public static let ok = "OK"
     public static func removeQuestion(_ name: String) -> String { "Remove \(name)?" }

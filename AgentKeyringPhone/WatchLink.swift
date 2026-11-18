@@ -32,7 +32,9 @@ final class WatchLink: NSObject, WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
         let context = session.receivedApplicationContext.compactMapValues { $0 as? Data }
+        let paired = session.isPaired && session.isWatchAppInstalled
         Task { @MainActor in
+            self.relay.watchPaired = paired
             self.receive(context)
             self.sendMembers()
         }
@@ -51,6 +53,11 @@ final class WatchLink: NSObject, WCSessionDelegate {
     private func receive(_ payload: [String: Data]) {
         guard let device = payload["watchDevice"], let push = payload["watchPush"] else { return }
         relay.watchOffered(device: device, push: push)
+    }
+
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        let paired = session.isPaired && session.isWatchAppInstalled
+        Task { @MainActor in self.relay.watchPaired = paired; self.sendMembers() }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}

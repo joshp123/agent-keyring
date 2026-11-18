@@ -13,8 +13,10 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
     private var subscribers: [UUID: AsyncStream<PhoneSnapshot>.Continuation] = [:]
 
-    public init(setup: PhoneSetup = .ready, now: Date = .now) {
-        snapshot = Self.paper(setup: setup, now: now)
+    /// `step` is one of Paper's first-run iPhone screens: 4, 6, 7, 7-ready, 9, ready, notifications-off; nil is the app in use.
+    public init(step: String? = nil, now: Date = .now) {
+        snapshot = Self.paper(setup: .ready, now: now)
+        if let step { Self.firstRun(step, into: &snapshot) }
     }
 
     public var current: PhoneSnapshot { snapshot }
@@ -47,10 +49,43 @@ public final class PhoneSampleBackend: PhoneBackend {
         snapshot.devices.removeAll { $0.id == deviceID }
     }
 
-    public func join(scannedCode: String) async throws { snapshot.setup = .turnOnNotifications }
-    public func turnOnNotifications() async { snapshot.setup = .offerWatch }
-    public func allowWatch() async throws { snapshot.setup = .ready }
-    public func skipWatch() { snapshot.setup = .ready }
+    public func join(invitation: String) async throws {}
+    public func notifications(allowed: Bool) async {}
+    public func approveTest() async throws { Self.firstRun("7-ready", into: &snapshot) }
+    public func approveDevice(_ id: String) async throws { Self.firstRun("ready", into: &snapshot) }
+    public func denyDevice(_ id: String) async { snapshot.deviceRequest = nil }
+
+    /// Paper's first-run iPhone screens, with no requests yet.
+    static func firstRun(_ step: String, into snapshot: inout PhoneSnapshot) {
+        typealias L = PhoneSetupLine
+        let added = L(id: "join", mark: .done, title: PhoneCopy.macAdded)
+        let notes = L(id: "notifications", mark: .done, title: PhoneCopy.notificationsOn)
+        let reach = L(id: "reach", mark: .done, title: PhoneCopy.requestsReach)
+        let test = L(id: "test", mark: .done, title: PhoneCopy.testApproved)
+        snapshot.requests = []; snapshot.testRequest = nil; snapshot.deviceRequest = nil
+        switch step {
+        case "4":
+            snapshot.setup = PhoneSetup(lines: [L(id: "join", mark: .working, title: PhoneCopy.approveOnMac, detail: PhoneCopy.approveOnMacDetail)], isReady: false)
+        case "6":
+            snapshot.setup = PhoneSetup(lines: [added, L(id: "notifications", mark: .working, title: PhoneCopy.notificationsOn)], isReady: false)
+        case "notifications-off":
+            snapshot.setup = PhoneSetup(lines: [added, L(id: "notifications", mark: .failed, title: PhoneCopy.notificationsOff,
+                                                         detail: PhoneCopy.notificationsOffDetail, opensSettings: true)], isReady: false)
+        case "7":
+            snapshot.setup = PhoneSetup(lines: [added, notes, reach, L(id: "test", mark: .working, title: PhoneCopy.testApproved)], isReady: false)
+            snapshot.testRequest = "test"
+        case "7-ready":
+            snapshot.setup = PhoneSetup(lines: [added, notes, reach, test,
+                                                L(id: "watch", mark: .notYet, title: PhoneCopy.addWatch, detail: PhoneCopy.addWatchOpen)], isReady: true)
+        case "9":
+            snapshot.setup = PhoneSetup(lines: [added, notes, reach, test,
+                                                L(id: "watch", mark: .working, title: PhoneCopy.addWatch, detail: PhoneCopy.addWatchApprove)], isReady: true)
+            snapshot.deviceRequest = PhoneDeviceRequest(id: "watch", name: "Apple Watch Ultra 3", detail: PhoneCopy.pairedWithThisIPhone)
+        default:
+            snapshot.setup = PhoneSetup(lines: [added, notes, reach, test,
+                                                L(id: "watch", mark: .done, title: PhoneCopy.deviceWorks("Apple Watch Ultra 3"))], isReady: true)
+        }
+    }
 
     private func update(_ id: String, to state: () -> AccessRequestState) {
         guard let index = snapshot.requests.firstIndex(where: { $0.id == id }) else { return }

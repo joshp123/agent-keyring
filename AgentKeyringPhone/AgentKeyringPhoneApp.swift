@@ -22,13 +22,15 @@ struct AgentKeyringPhoneApp: App {
                     if phase == .active { delegate.relay?.start() } else if phase == .background { delegate.relay?.stop() }
                 }
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
-                .onOpenURL { url in Task { await delegate.model.join(scannedCode: url.absoluteString) } }
-                .onChange(of: delegate.model.snapshot.setup, initial: true) { _, setup in
-                    // Joins by itself from the invitation the Mac left in iCloud Keychain; the camera is only the fallback.
-                    if setup == .scanCode, let link = delegate.relay?.invitation() { Task { await delegate.model.join(scannedCode: link) } }
-                    if setup != .scanCode { delegate.askForPushAddress(); delegate.watch?.sendMembers() }
-                    // Straight after joining, Apple's own question: the one tap iOS requires.
-                    if setup == .turnOnNotifications { Task { await delegate.model.turnOnNotifications(); await delegate.noteNotificationSettings() } }
+                .onOpenURL { url in Task { await delegate.model.join(invitation: url.absoluteString) } }
+                .onChange(of: delegate.model.snapshot.joined, initial: true) { _, joined in
+                    // Joins by itself from the invitation the Mac left in iCloud Keychain.
+                    if !joined, let link = delegate.relay?.invitation() { Task { await delegate.model.join(invitation: link) } }
+                    if joined { delegate.askForPushAddress(); delegate.watch?.sendMembers() }
+                }
+                // Straight after joining, iOS's own question: the one tap iOS requires.
+                .onChange(of: delegate.model.snapshot.asksAboutNotifications, initial: true) { _, asks in
+                    if asks { Task { await delegate.model.askAboutNotifications(); await delegate.noteNotificationSettings() } }
                 }
                 .task { await delegate.noteNotificationSettings() }
         }
@@ -45,7 +47,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     override init() {
         if UserDefaults.standard.bool(forKey: "Sample") {
-            let sample = PhoneSampleBackend(setup: Self.sampleSetup)
+            let sample = PhoneSampleBackend(step: UserDefaults.standard.string(forKey: "SampleStep"))
             backend = sample; relay = nil
             model = PhoneModel(backend: sample, initial: sample.current)
         } else {
@@ -102,16 +104,6 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         #endif
     }
 
-    /// `-SampleSetup scanCode` starts the sample at that step of first run.
-    private static var sampleSetup: PhoneSetup {
-        switch UserDefaults.standard.string(forKey: "SampleSetup") {
-        case "scanCode": .scanCode
-        case "turnOnNotifications": .turnOnNotifications
-        case "offerWatch": .offerWatch
-        default: .ready
-        }
-    }
-
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let center = UNUserNotificationCenter.current()
@@ -141,6 +133,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                                            didReceive response: UNNotificationResponse) async {
         let userInfo = response.notification.request.content.userInfo
         let action = response.actionIdentifier
+        await MainActor.run { relay?.pushArrived() }
         let reply = (response as? UNTextInputNotificationResponse)?.userText
         // If the extension could not open the notice, the thread is still the request id.
         let thread = response.notification.request.content.threadIdentifier
@@ -177,7 +170,8 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        if notification.request.trigger is UNPushNotificationTrigger { await MainActor.run { relay?.pushArrived() } }
         // With the app open, a request shows in the app; only its banner is needed, not the outcome's.
-        notification.request.content.categoryIdentifier == PhoneNotification.requestCategory ? [.banner, .list, .sound] : [.list]
+        return notification.request.content.categoryIdentifier == PhoneNotification.requestCategory ? [.banner, .list, .sound] : [.list]
     }
 }
