@@ -96,25 +96,15 @@ extension MirrorAppModel {
 
     public func openPasswordsExport() {
         awaitingExport = true
-        watchForExportToOldApp()
-        openPasswords()
-    }
-
-    /// Passwords opens the app he picked. If that is 0.2.5 while this one
-    /// waits, the logins most likely went there.
-    private func watchForExportToOldApp() {
-        guard exportWatch == nil, let mine = Bundle.main.bundleIdentifier, mine.hasSuffix(".Mac") else { return }
-        let old = String(mine.dropLast(4))
-        exportWatch = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            let activated = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
-            MainActor.assumeIsolated {
-                guard let self, self.awaitingExport, activated == old else { return }
-                credentialExchangeLogger.notice("The old Agent Keyring came to the front while this app waited for the export")
-                self.notice = MirrorNotice(kind: .error, text: "No logins arrived from Passwords. They may have gone to the old Agent Keyring. In Passwords, choose File > Export All Items to App > Agent Keyring again, and pick the one with the blue keyhole.")
-            }
+        exportTimeout?.cancel()
+        exportTimeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(300))
+            guard !Task.isCancelled, let self, self.awaitingExport, !self.isImporting else { return }
+            self.notice = MirrorNotice(kind: .error, text: self.oldAppInstalled
+                ? "No logins arrived from Passwords. They may have gone to the old Agent Keyring. In Passwords, choose File > Export All Items to App > Agent Keyring again, and pick the one with the blue keyhole."
+                : "No logins arrived from Passwords. In Passwords, choose File > Export All Items to App > Agent Keyring again.")
         }
+        openPasswords()
     }
 
     public func openPasswords() {
