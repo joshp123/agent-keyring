@@ -55,8 +55,9 @@ def main():
     if list(app.rglob('*.appex')):
         parser.error('An extension remains in the test package.')
     info = dict(source_info)
-    info.update(CFBundleDisplayName='Agent Keyring Test', CFBundleName='Agent Keyring Test',
-                SUEnableAutomaticChecks=False, SUAutomaticallyUpdate=False,
+    # The bundle identity keeps the test apart from the installed app; the
+    # name stays the product's, so macOS's dialogs read as they will ship.
+    info.update(SUEnableAutomaticChecks=False, SUAutomaticallyUpdate=False,
                 SUFeedURL='https://127.0.0.1:9/agent-keyring-test-disabled.xml')
     (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     shutil.copyfile(args.profile, app / 'Contents/embedded.provisionprofile')
@@ -98,7 +99,7 @@ def main():
     manifest = {'source_commit': args.source_commit, 'bundle_id': BUNDLE_ID,
                 'profile_uuid': profile['UUID'], 'signing_identity': args.identity.upper(),
                 'app_path': str(app), 'changes_from_release': [
-                    'Dedicated test bundle identity and display name',
+                    'Dedicated test bundle identity',
                     'Credential extension omitted', 'Automatic updates disabled; release feed replaced by loopback port 9'],
                 'sha256': {name: sha256(app / name) for name in relative_files}}
     (app.parent / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')

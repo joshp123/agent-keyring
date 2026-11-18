@@ -61,3 +61,13 @@ func requesterLabel() string {
 	}
 	return fallback
 }
+
+// requesterProject is the main folder's name of the Git repository the
+// command runs in, the same for every checkout of it; empty outside one.
+func requesterProject() string {
+	out, err := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(filepath.Dir(strings.TrimSpace(string(out))))
+}

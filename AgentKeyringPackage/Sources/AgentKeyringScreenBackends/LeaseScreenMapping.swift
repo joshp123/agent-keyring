@@ -27,6 +27,7 @@ public enum LeaseScreenMapping {
                 machine: machine,
                 address: requester?.networkAddress ?? "",
                 folder: requester?.workingDirectory.map(abbreviatingHome),
+                project: requester?.project,
                 isLocal: true),
             access: access(lease),
             agentReason: lease.reason,
@@ -110,9 +111,11 @@ public enum LeaseScreenMapping {
     }
 
     static func abbreviatingHome(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
-        let trimmedHome = home.hasSuffix("/") ? String(home.dropLast()) : home
-        return path.hasPrefix(trimmedHome) ? "~" + path.dropFirst(trimmedHome.count) : path
+        // The sandbox's home is the app's container; the agent's is the user's.
+        guard let entry = getpwuid(getuid()), let dir = entry.pointee.pw_dir else { return path }
+        let home = String(cString: dir)
+        if path == home { return "~" }
+        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
     static func date(_ unixSeconds: Int64) -> Date {

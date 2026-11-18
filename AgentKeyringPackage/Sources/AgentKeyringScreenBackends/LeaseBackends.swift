@@ -21,8 +21,9 @@ extension MirrorAppModel {
     }
 }
 
-/// U2: the approval panel answers through the store, with Touch ID evaluated
-/// in the panel's own context so a touch alone approves.
+/// U2: the approval panel answers through the store. Approving asks for
+/// Touch ID or the Watch in macOS's own dialog; the same context then opens
+/// the login and signs the answer.
 @available(macOS 26.0, *)
 @MainActor
 public final class LeaseApprovalBackend: MacApprovalBackend {
@@ -40,28 +41,23 @@ public final class LeaseApprovalBackend: MacApprovalBackend {
         })
     }
 
-    /// Nil only when neither Touch ID nor Apple Watch is available.
-    public func embeddedTouchIDContext(requestID: String) -> LAContext? {
-        if let context = contexts[requestID] { return context }
-        let context = LAContext()
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else { return nil }
-        context.touchIDAuthenticationAllowableReuseDuration = 0
-        contexts[requestID] = context
-        return context
-    }
-
     public func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
-        guard let context = contexts[requestID] else { throw CredentialReleaseAuthorizationError.unavailable }
+        let context = LAContext()
+        contexts[requestID] = context
         defer { if contexts[requestID] === context { contexts[requestID] = nil } }
-        let lease = try await model.approveLeaseWithTouchID(requestID, context: context, onAuthenticated: onAuthenticated)
-        return model.accessRequest(for: lease).state
+        do {
+            let lease = try await model.approveLeaseWithTouchID(requestID, context: context, onAuthenticated: onAuthenticated)
+            return model.accessRequest(for: lease).state
+        } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
+            throw CancellationError()
+        }
     }
 
     public func cancelAuthentication(requestID: String) {
         contexts.removeValue(forKey: requestID)?.invalidate()
     }
 
-    public func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
+    public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         cancelAuthentication(requestID: requestID)
         return model.accessRequest(for: try model.denyLease(requestID, reply: reply ?? "")).state
     }

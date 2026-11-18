@@ -48,7 +48,9 @@ public struct AgentRequester: Sendable {
         let ancestor = AgentDisplayLabel.firstAgentAncestor(startingPID: startingPID, processInfo: processInfo)
         let pid = ancestor?.processIdentifier ?? peerProcessIdentifier
         let startedAt = startTime(pid)
-        let currentFolder = folder(pid)
+        // The folder the command runs in, where the command also finds the
+        // Git project it sends.
+        let currentFolder = folder(peerProcessIdentifier)
         // Attribute a stable process incarnation, never a PID that changed during the read.
         let unchanged = startedAt != nil && startedAt == startTime(pid)
         return AgentRequester(name: ancestor.map { AgentDisplayLabel.executableLabel(path: $0.executablePath) } ?? "an agent",

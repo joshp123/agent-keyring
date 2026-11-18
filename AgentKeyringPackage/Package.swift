@@ -23,6 +23,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-protobuf.git", exact: "1.38.1")
     ],
     targets: [
+        .executableTarget(name: "PanelRender", dependencies: ["AgentKeyringApprovalUI"], path: "Tools/PanelRender"),
         .executableTarget(name: "AgentKeyringUpgradeState", dependencies: ["AgentKeyringFeature"], path: "Tools/AgentKeyringUpgradeState"),
         .executableTarget(name: "AgentKeyringPhoneFixture", dependencies: ["AgentKeyringPhoneApprover"], path: "Tools/AgentKeyringPhoneFixture"),
         .target(name: "AgentKeyringRelaySupport", dependencies: ["AgentKeyringProtocol", "AgentKeyringCredentialImport"]),

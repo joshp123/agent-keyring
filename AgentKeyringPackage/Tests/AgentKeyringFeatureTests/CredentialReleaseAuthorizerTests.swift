@@ -18,15 +18,14 @@ struct CredentialReleaseAuthorizerTests {
         )
     }
 
-    @Test("The native prompt says what each request permits")
+    @Test("macOS's dialog names the agent, the site and the account, and the machine unless it is this Mac")
     func leaseReasons() {
-        func reason(_ purpose: Agentkeyring_V1_Purpose) -> String {
-            CredentialReleaseAuthorizationRequest.leaseReason(purpose: purpose, site: "https://example.com/login",
-                account: "josh", program: "/usr/local/bin/gh", agent: "Codex")
-        }
-        #expect(reason(.browserSignIn) == "let Codex sign in to example.com as josh")
-        #expect(reason(.program) == "let Codex pass your example.com password for josh to gh")
-        #expect(reason(.agentProcess) == "let Codex see your example.com password for josh. It can keep a copy")
+        #expect(CredentialReleaseAuthorizationRequest.leaseReason(site: "https://example.com/login",
+            account: "josh@example.com", agent: "Codex", machine: "Mac mini")
+            == "let Codex on Mac mini use your example.com login, josh@example.com")
+        #expect(CredentialReleaseAuthorizationRequest.leaseReason(site: "https://example.com/login",
+            account: "josh@example.com", agent: "Claude Code")
+            == "let Claude Code use your example.com login, josh@example.com")
     }
 
     @Test("Only secret-bearing fields need approval")

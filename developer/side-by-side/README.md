@@ -28,7 +28,7 @@ DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer xcodebuild \
   -workspace AgentKeyring.xcworkspace -scheme AgentKeyring -configuration Release \
   -destination 'generic/platform=macOS' -derivedDataPath "$proof/DerivedData" \
   AGENT_KEYRING_BUNDLE_ID_PREFIX=com.joshpalmer.KeyringTest \
-  AGENT_KEYRING_TEAM_ID=7M8BR7R488 PRODUCT_DISPLAY_NAME='Agent Keyring Test' \
+  AGENT_KEYRING_TEAM_ID=7M8BR7R488 \
   MARKETING_VERSION=0.4.1 CURRENT_PROJECT_VERSION=202611010812 \
   CODE_SIGNING_ALLOWED=NO build
 ```
@@ -54,7 +54,7 @@ pass. Copy its `Contents/embedded.provisionprofile` out, then trash the unused
 ```sh
 python3 developer/side-by-side/prepare.py \
   --source-app "$proof/unsigned/AgentKeyring.app" \
-  --output "$HOME/AgentKeyring-Tests/round12/Agent Keyring Test.app" \
+  --output "$HOME/AgentKeyring-Tests/round12/Agent Keyring.app" \
   --source-commit "$source_commit" --profile "$profile" --identity "$development_sha1"
 ```
 
@@ -69,7 +69,7 @@ Estimated attention: 5–8 minutes, depending on the panels; up to four touches.
 Use the app's built-in **example.com** login. No Apple Passwords export, real
 account, real password or test mirror is needed for this reduced scope.
 
-1. Open **Agent Keyring Test** by its full path. Check the menu bar, Rules and
+1. Open the test **Agent Keyring** by its full path. Check the menu bar, Rules and
    Machines windows. Check the test PID's executable path and socket owner.
    The test has its own container, preference domain and exact Keychain group.
 2. A fresh Codex, then Claude, uses its bundled CLI to lease the example login
@@ -90,7 +90,7 @@ or the real agent skills:
 export AGENT_KEYRING_SOCKET="$HOME/Library/Containers/com.joshpalmer.KeyringTest.AgentKeyring/Data/agent.sock"
 export AGENT_KEYRING_STATE_DIR="$proof/receiver-codex" # a fresh directory per agent
 unset AGENT_KEYRING_RELAY
-cli="$HOME/AgentKeyring-Tests/round12/Agent Keyring Test.app/Contents/Helpers/agent-keyring"
+cli="$HOME/AgentKeyring-Tests/round12/Agent Keyring.app/Contents/Helpers/agent-keyring"
 "$cli" skill
 ```
 

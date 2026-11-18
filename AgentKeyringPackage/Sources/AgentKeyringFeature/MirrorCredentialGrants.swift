@@ -32,14 +32,15 @@ extension MirrorAppModel {
         }
     }
 
-    /// The panel owns this context and displays its biometric controls. The
-    /// authority evaluates that exact context without activating another UI.
+    /// Evaluating this context shows macOS's Touch ID or Watch dialog; the
+    /// same context then opens the login and signs the answer.
     @discardableResult
     public func approveLeaseWithTouchID(_ leaseID: String, context: LAContext,
         onAuthenticated: @MainActor () -> Void = {}) async throws -> Agentkeyring_V1_Lease {
         let panelAuthorizer = LocalCredentialReleaseAuthorizer()
         return try await approveLease(leaseID) { approval in
             try await panelAuthorizer.authorize(approval, context: context, onPromptStarted: {})
+            SittingProbe.run(context: context, request: leaseID)
             onAuthenticated()
         }
     }
@@ -58,8 +59,7 @@ extension MirrorAppModel {
         }
         let site = login.origins.first ?? login.title
         let account = login.username ?? login.title
-        let reason = CredentialReleaseAuthorizationRequest.leaseReason(purpose: lease.purpose, site: site,
-            account: account, program: lease.program.executable,
+        let reason = CredentialReleaseAuthorizationRequest.leaseReason(site: site, account: account,
             agent: leaseStore.requester(for: leaseID)?.name ?? lease.recipient.clientLabel)
         let approval = CredentialReleaseAuthorizationRequest(destination: login.origins.first ?? login.title,
             account: login.username ?? login.title, field: .password, credentialTitle: login.title,

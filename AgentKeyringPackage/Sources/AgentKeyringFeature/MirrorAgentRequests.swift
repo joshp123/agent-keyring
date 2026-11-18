@@ -82,7 +82,7 @@ extension MirrorAppModel {
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
-                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer)), phoneDelaySeconds: approvalRoutingSettings.phoneDelaySeconds)
+                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project), phoneDelaySeconds: approvalRoutingSettings.phoneDelaySeconds)
                 startPendingMacApprovals()
             case let .getLease(reference):
                 try await refreshLeasePolicy()
@@ -164,7 +164,8 @@ extension MirrorAppModel {
         let metadata = metadataIncludingExample(try await store.loadCurrentMetadata())
         leaseLogins = metadata?.candidates ?? []
         await accessControl.refresh(fromMetadata: metadata)
-        do { try await accessControl.ensureRulesConfirmed() }
+        // Sitting branch: the example login needs no rules confirmation first.
+        do { if Bundle.main.bundleIdentifier != "com.joshpalmer.KeyringTest.AgentKeyring" { try await accessControl.ensureRulesConfirmed() } }
         catch {
             try leaseStore.reconcile(logins: leaseLogins, policies: [:], rulesConfirmed: false)
             throw error

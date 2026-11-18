@@ -1,0 +1,78 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.18431,0.38431,0.96078,1.00000",
+      "srgb:0.06275,0.25098,0.84706,1.00000"
+    ],
+    "orientation": {
+      "start": {
+        "x": 0.5,
+        "y": 0.0
+      },
+      "stop": {
+        "x": 0.5,
+        "y": 1.0
+      }
+    }
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.13725,0.13725,0.15294,1.00000",
+          "srgb:0.04706,0.04706,0.05490,1.00000"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.5,
+            "y": 0.0
+          },
+          "stop": {
+            "x": 0.5,
+            "y": 1.0
+          }
+        }
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Someone at the keyhole",
+      "specular": false,
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      },
+      "layers": [
+        {
+          "name": "Eyes",
+          "image-name": "eyes.svg",
+          "glass": false
+        },
+        {
+          "name": "Body",
+          "image-name": "body.svg",
+          "glass": false,
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.29804,0.49020,1.00000,1.00000"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "iOS"
+    ]
+  }
+}

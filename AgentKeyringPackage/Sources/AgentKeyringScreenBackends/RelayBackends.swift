@@ -145,16 +145,9 @@ public final class RelayApprovalBackend: MacApprovalBackend {
         })
     }
 
-    public func embeddedTouchIDContext(requestID: String) -> LAContext? {
-        if let context = contexts[requestID] { return context }
-        let context = LAContext()
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else { return nil }
-        contexts[requestID] = context
-        return context
-    }
-
     public func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
-        guard let context = contexts[requestID] else { throw CredentialReleaseAuthorizationError.unavailable }
+        let context = LAContext()
+        contexts[requestID] = context
         defer { if contexts[requestID] === context { contexts[requestID] = nil } }
         try await screenErrors { try await relay.approve(requestID, context: context, onAuthenticated: onAuthenticated) }
         answered[requestID] = .approve
@@ -165,12 +158,13 @@ public final class RelayApprovalBackend: MacApprovalBackend {
         contexts.removeValue(forKey: requestID)?.invalidate()
     }
 
-    public func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
-        if reply?.isEmpty == false && context == nil { throw CredentialReleaseAuthorizationError.unavailable }
+    public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         deniedLeases[requestID] = relay.requests.first { $0.id == requestID }?.lease
+        let context = LAContext()
+        contexts[requestID] = context
         defer { if contexts[requestID] === context { contexts[requestID] = nil } }
         // A plain denial needs no Touch ID; a reply is signed with one.
-        try await screenErrors { try await relay.deny(requestID, reply: reply ?? "", context: context ?? LAContext(), onAuthenticated: onAuthenticated) }
+        try await screenErrors { try await relay.deny(requestID, reply: reply ?? "", context: context) }
         answered[requestID] = .deny
         return .denied(by: .mac, reply: reply, askAgainAfter: nil)
     }

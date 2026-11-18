@@ -55,20 +55,12 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
             + (isPossiblyStale ? ". This copy may be out of date; import again from Apple Passwords" : "")
     }
 
-    static func leaseReason(purpose: Agentkeyring_V1_Purpose, site: String, account: String,
-        program: String, agent: String) -> String {
+    /// Our words in macOS's dialog, after "Agent Keyring is trying to". The
+    /// machine is named only when it is not this Mac.
+    static func leaseReason(site: String, account: String, agent: String, machine: String? = nil) -> String {
         let site = URL(string: site)?.host() ?? site
-        switch purpose {
-        case .browserSignIn:
-            return "let \(agent.isEmpty ? "an agent" : agent) sign in to \(site) as \(account)"
-        case .program:
-            let name = URL(fileURLWithPath: program).lastPathComponent
-            return "let \(agent.isEmpty ? "an agent" : agent) pass your \(site) password for \(account) to \(name.isEmpty ? "a program" : name)"
-        case .agentProcess:
-            return "let \(agent.isEmpty ? "an agent" : agent) see your \(site) password for \(account). It can keep a copy"
-        default:
-            return "let an agent use your \(site) login for \(account)"
-        }
+        let who = (agent.isEmpty ? "an agent" : agent) + (machine.map { " on \($0)" } ?? "")
+        return "let \(who) use your \(site) login, \(account)"
     }
 }
 
@@ -94,6 +86,15 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
             "The request expired with no answer."
         case let .systemFailure(domain, code):
             "Credential approval failed (\(domain == LAError.errorDomain ? "LocalAuthentication" : domain) \(code)). Nothing was released."
+        }
+    }
+
+    /// Cancel or Escape in macOS's dialog, or the app closing it: not an answer.
+    public var isCancel: Bool {
+        switch self {
+        case .denied, .interrupted: true
+        case let .systemFailure(domain, code): domain == LAError.errorDomain && code == LAError.Code.appCancel.rawValue
+        default: false
         }
     }
 
@@ -133,10 +134,17 @@ public extension CredentialReleaseAuthorizing {
 public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizing {
     private var activeContext: LAContext?
 
+    /// Touch ID or the Watch. The test build's "TouchIDOnly" setting leaves
+    /// the Watch out, so a rehearsal at night doesn't buzz it.
+    public static var policy: LAPolicy {
+        UserDefaults.standard.bool(forKey: "TouchIDOnly") ? .deviceOwnerAuthenticationWithBiometrics
+            : .deviceOwnerAuthenticationWithBiometricsOrCompanion
+    }
+
     public init() {}
 
-    /// Without a context from Josh's panel there is nowhere to ask him except
-    /// a macOS dialog, which Agent Keyring never shows.
+    /// macOS's dialog appears only after Josh clicks Approve in a panel, which
+    /// passes its context; nothing may ask him unprompted.
     public func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
         throw CredentialReleaseAuthorizationError.unavailable
     }
@@ -155,7 +163,7 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
         context.touchIDAuthenticationAllowableReuseDuration = 0
         context.localizedFallbackTitle = ""
         context.localizedCancelTitle = "Cancel"
-        let policy = LAPolicy.deviceOwnerAuthenticationWithBiometricsOrCompanion
+        let policy = Self.policy
         var evaluationError: NSError?
 
         guard context.canEvaluatePolicy(policy, error: &evaluationError) else {

@@ -97,10 +97,10 @@ extension RelayApprover {
         guard before.policy != .block else { throw LeaseFailure(.permissionDenied, "This login is blocked.") }
         let signer = try keys().1
         let candidate = CredentialResolver().candidate(for: before.item)
-        let reason = CredentialReleaseAuthorizationRequest.leaseReason(purpose: before.record.purpose,
+        let reason = CredentialReleaseAuthorizationRequest.leaseReason(
             site: before.item.origins.first ?? before.item.title, account: candidate.username ?? before.item.title,
-            program: before.record.program.executable,
-            agent: before.record.agentLabel.isEmpty ? before.machine.clientLabel : before.record.agentLabel)
+            agent: before.record.agentLabel.isEmpty ? before.machine.clientLabel : before.record.agentLabel,
+            machine: before.machine.machineLabel)
         try await signer.authorize(context: context, reason: reason)
         onAuthenticated()
         let vault = try await credentialSource()
