@@ -31,20 +31,23 @@ public struct WatchSaved: Codable, Sendable, Equatable {
     /// The Watch is set up once a Members the iPhone signed lists it.
     public func lists(_ keyID: String) -> Bool { signedMembers?.devices.contains { $0.keyID == keyID } ?? false }
 
-    /// Takes what the iPhone sent, keeping only a Members newer than ours and
-    /// signed by a device ours lists.
+    /// Takes what the iPhone sent. A Members comes only from this Watch's own
+    /// paired iPhone, over Watch Connectivity, so the Watch takes any newer one
+    /// that is signed by a device it names itself. Unlike a machine, it need
+    /// not follow every revision in between: it may have missed some while asleep.
     public func merging(members newMembers: Data?, catalogue newCatalogue: Data?, answerURL newURL: String?) -> WatchSaved {
-        var next = self
+        var merged = self
         if let newMembers, let document = try? SignedDocument(serializedBytes: newMembers),
-           (try? Sealing.verifiedMembers(document, current: signedMembers)) != nil {
-            next.members = newMembers
+           let next = try? Sealing.verifiedMembers(document, current: nil),
+           next.revision > (signedMembers?.revision ?? 0) {
+            merged.members = newMembers
         }
-        if let newCatalogue, let document = try? SignedDocument(serializedBytes: newCatalogue), let members = next.signedMembers,
+        if let newCatalogue, let document = try? SignedDocument(serializedBytes: newCatalogue), let members = merged.signedMembers,
            (try? Sealing.verifiedCatalogue(document, members: members, current: signedCatalogue)) != nil {
-            next.catalogue = newCatalogue
+            merged.catalogue = newCatalogue
         }
-        if let newURL, !newURL.isEmpty { next.answerURL = newURL }
-        return next
+        if let newURL, !newURL.isEmpty { merged.answerURL = newURL }
+        return merged
     }
 }
 
