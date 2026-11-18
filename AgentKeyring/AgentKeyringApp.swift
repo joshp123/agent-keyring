@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import AuthenticationServices
 import LocalAuthentication
 import SwiftUI
@@ -26,6 +27,9 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if UserDefaults.standard.bool(forKey: "TouchIDOnly") {
+            Logger(subsystem: "com.agentkeyring.app", category: "Approval").notice("TouchIDOnly: approvals use Touch ID only; the Watch is never asked.")
+        }
         // Before the socket opens, so no request reaches the old system prompt.
         approvals.start()
         // At launch, not when the window opens: the icon shows the waiting count.
@@ -163,16 +167,12 @@ private struct FirstRunHome: View {
     }
 }
 
-/// Keeps the window above Passwords while Josh follows its menu path.
+/// Keeps the window above Passwords while he follows its menu path.
 private struct FloatingWhile: NSViewRepresentable {
     let isOn: Bool
     func makeNSView(context: Context) -> NSView { NSView() }
     func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async {
-            view.window?.level = isOn ? .floating : .normal
-            // Open on the Space he is working in, never on another one.
-            view.window?.collectionBehavior.insert(.moveToActiveSpace)
-        }
+        DispatchQueue.main.async { view.window?.level = isOn ? .floating : .normal }
     }
 }
 

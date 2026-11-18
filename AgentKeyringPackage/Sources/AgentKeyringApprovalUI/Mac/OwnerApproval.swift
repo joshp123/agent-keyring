@@ -10,6 +10,13 @@ import LocalAuthentication
 import Observation
 import SwiftUI
 
+/// Touch ID or the Watch. "TouchIDOnly" (a launch argument, -TouchIDOnly YES)
+/// leaves the Watch out, so a rehearsal never asks his wrist.
+var ownerApprovalPolicy: LAPolicy {
+    UserDefaults.standard.bool(forKey: "TouchIDOnly") ? .deviceOwnerAuthenticationWithBiometrics
+        : .deviceOwnerAuthenticationWithBiometricsOrCompanion
+}
+
 @MainActor
 @Observable
 public final class OwnerApproval: Identifiable {
@@ -86,7 +93,7 @@ public final class OwnerApproval: Identifiable {
         context.localizedFallbackTitle = ""
         let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
         return try await withTaskCancellationHandler {
-            try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, localizedReason: reason)
+            try await context.evaluatePolicy(ownerApprovalPolicy, localizedReason: reason)
         } onCancel: { Task { @MainActor in cancelEvaluation() } }
     }
 
@@ -114,7 +121,7 @@ public final class OwnerApproval: Identifiable {
     private func prepare() {
         failure = nil
         let next = LAContext()
-        guard next.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometricsOrCompanion, error: nil) else {
+        guard next.canEvaluatePolicy(ownerApprovalPolicy, error: nil) else {
             failure = "Touch ID or Apple Watch isn't available. Check that one is ready."
             return
         }
