@@ -32,8 +32,10 @@ struct AgentKeyringPhoneApp: App {
                 .onChange(of: delegate.model.snapshot.joined, initial: true) { _, joined in
                     // Joins by itself from the invitation the Mac left in iCloud Keychain.
                     if !joined, let link = delegate.relay?.invitation() { Task { await delegate.model.join(invitation: link) } }
-                    if joined { delegate.askForPushAddress(); delegate.watch?.sendMembers() }
+                    if joined { delegate.askForPushAddress() }
                 }
+                // The Watch learns of every change to the list of devices, its own admission first of all.
+                .onChange(of: delegate.model.snapshot.devices, initial: true) { delegate.watch?.sendMembers() }
                 // Straight after joining, iOS's own question: the one tap iOS requires.
                 .onChange(of: delegate.model.snapshot.asksAboutNotifications, initial: true) { _, asks in
                     if asks { Task { await delegate.model.askAboutNotifications(); await delegate.noteNotificationSettings() } }
@@ -82,7 +84,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         UIApplication.shared.registerForRemoteNotifications()
         Task {
             try? await Task.sleep(for: .seconds(30))
-            if pushAddress == nil { PhoneDiagnostics.note("Apple has not given a push address after 30 seconds") }
+            if pushAddress == nil { PhoneDiagnostics.note("Apple has not given a push address after 30 seconds"); relay?.pushAddressMissing() }
         }
     }
 

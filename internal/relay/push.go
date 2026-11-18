@@ -59,7 +59,9 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 			"akr": base64.StdEncoding.EncodeToString(marshal(notice)),
 		})
 		result, err := s.Push.Send(ctx, t.registration.ApnsToken, t.registration.ApnsTopic, t.registration.ApnsProduction, id, expires, payload)
-		if err != nil {
+		if err == nil {
+			slog.Info("push accepted by Apple", "id", id, "device", t.registration.DeviceKeyId, "topic", t.registration.ApnsTopic, "production", t.registration.ApnsProduction)
+		} else {
 			slog.Warn("push not delivered", "device", t.registration.DeviceKeyId, "status", result.Status, "reason", result.Reason)
 			if result.InvalidToken {
 				s.Store.update(func(data *saved) error { delete(data.Pushes, t.registration.DeviceKeyId); return nil })

@@ -119,6 +119,7 @@ func (s *Server) registerPush(who caller, registration *pb.PushRegistration) err
 	if len(registration.ApnsToken) == 0 || registration.ApnsTopic == "" || len(registration.NoticePublicKey) == 0 {
 		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A push registration needs a token, a topic and a notice key.")
 	}
+	slog.Info("push address registered", "device", target.Label, "topic", registration.ApnsTopic, "production", registration.ApnsProduction)
 	return s.Store.update(func(data *saved) error {
 		data.Pushes[registration.DeviceKeyId] = marshal(registration)
 		return nil
