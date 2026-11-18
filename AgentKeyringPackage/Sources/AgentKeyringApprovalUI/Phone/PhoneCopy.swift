@@ -123,7 +123,11 @@ public enum PhoneCopy {
     public static let approveOnMac = "Approve this iPhone on your Mac"
     public static let approveOnMacDetail = "A request is waiting there. Click its green button, then touch the sensor."
     public static let macAdded = "Your Mac added this iPhone"
-    public static let noMac = "No Mac found. Set up Agent Keyring on your Mac first."
+    public static let waitingForMac = "Waiting for your Mac"
+    public static let waitingForMacDetail = "Set up Agent Keyring on your Mac first. This iPhone then finds it by itself."
+    /// After two minutes with no invitation: the one cause the app cannot see.
+    public static let noMacYet = "No Mac found yet"
+    public static let noMacYetDetail = "If Agent Keyring is set up on your Mac, check that iCloud Keychain is on, on this iPhone and on the Mac."
     public static let notificationsOn = "Notifications are on"
     public static let notificationsOff = "Notifications are off"
     public static let notificationsOffDetail = "Requests can’t reach this iPhone until you turn them on in Settings."

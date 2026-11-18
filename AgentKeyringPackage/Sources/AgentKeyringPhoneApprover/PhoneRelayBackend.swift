@@ -121,7 +121,9 @@ public final class PhoneRelayBackend: PhoneBackend {
             // The truth about what first run waits for: a Mac to invite this iPhone, or the Mac to approve it.
             let joining = joinWaiting
                 ? PhoneSetupLine(id: "join", mark: .working, title: PhoneCopy.approveOnMac, detail: PhoneCopy.approveOnMacDetail)
-                : PhoneSetupLine(id: "join", mark: .working, title: PhoneCopy.noMac)
+                : Date().timeIntervalSince(lookingSince ?? Date()) < 120
+                    ? PhoneSetupLine(id: "join", mark: .working, title: PhoneCopy.waitingForMac, detail: PhoneCopy.waitingForMacDetail)
+                    : PhoneSetupLine(id: "join", mark: .working, title: PhoneCopy.noMacYet, detail: PhoneCopy.noMacYetDetail)
             return PhoneSnapshot(setup: PhoneSetup(lines: [joining], isReady: false))
         }
         let catalogue = self.catalogue
@@ -610,6 +612,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// tried again after a short wait, so a Mac set up later is found by itself.
     private func lookForMac() {
         guard looking == nil, state.deviceKeyID == nil else { return }
+        if lookingSince == nil { lookingSince = Date() }
         looking = Task { [weak self] in
             var failed: (link: String, at: Date)?
             while !Task.isCancelled {
@@ -622,6 +625,7 @@ public final class PhoneRelayBackend: PhoneBackend {
                     }
                 }
                 if self.state.deviceKeyID != nil { break }
+                self.publish()  // the line changes after two minutes
                 try? await Task.sleep(for: .seconds(3))
             }
             self?.looking = nil
@@ -629,6 +633,8 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 
     private var looking: Task<Void, Never>?
+    /// When this launch began looking for the Mac.
+    private var lookingSince: Date?
     /// An invitation opened as a link (the simulator has no iCloud Keychain).
     private var linkInvitation: String?
     /// The relay holds this iPhone's join and the Mac has been asked.
