@@ -108,10 +108,6 @@ public enum SetupCopy {
     public static let waitingForDevices = "Waiting for devices"
 
     #if os(macOS)
-    public static func withdrawalProgress(_ withdrawal: PendingWithdrawal) -> String {
-        let waiting = "Waiting for \(list(withdrawal.waitingFor))."
-        return withdrawal.confirmedOn.isEmpty ? waiting : "Done on \(list(withdrawal.confirmedOn)). " + waiting
-    }
     #endif
 
     /// "a", "a and b", "a, b and c".
@@ -152,6 +148,9 @@ public enum FirstRunCopy {
     public static let importedDetail = "Each is set to Ask, so agents ask you every time."
     public static let approveTest = "Approve the test request"
     public static let approveTestDetail = "It is beside your pointer. Click its green button, then touch the sensor."
+    public static let notTested = "This Mac is not tested yet"
+    public static let notTestedDenied = "You denied the test request, so Touch ID has not been tried."
+    public static let sendAgain = "Send It Again"
     public static let readyTitle = "Ready on this Mac"
     public static let readyBody = "Agents on this Mac can now ask to use your logins. You approve here with Touch ID while the lid is open."
     public static let menuBarHint = "Click the keyhole in the menu bar to see requests and the logins agents are using."

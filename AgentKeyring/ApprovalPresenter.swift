@@ -36,12 +36,11 @@ final class ApprovalPresenter {
     private let model: MirrorAppModel
     private let localBackend: LeaseApprovalBackend
     private let remoteBackend: RelayApprovalBackend
-    private let joiningBackend: RelayEnrolmentBackend
+    private let additionBackend: AdditionBackend
     private let selfTestBackend: SelfTestBackend
     private let panel = MacApprovalPanelController()
     private var shownItem: Item?
     private var shownRequest: MacApprovalModel?
-    private var shownEnrolment: MacEnrolmentModel?
     private var question: OwnerApproval?
     private var following: Task<Void, Never>?
     private var closingAfterAnswer: Task<Void, Never>?
@@ -50,7 +49,7 @@ final class ApprovalPresenter {
         self.model = model
         self.localBackend = LeaseApprovalBackend(model: model)
         self.remoteBackend = RelayApprovalBackend(model: model)
-        self.joiningBackend = RelayEnrolmentBackend(model: model)
+        self.additionBackend = AdditionBackend(model: model)
         self.selfTestBackend = SelfTestBackend(model: model)
     }
 
@@ -75,7 +74,7 @@ final class ApprovalPresenter {
     private var waiting: [Item] {
         let device = model.device
         let joining = device?.joins.map { Item.joining(MacDevice.joinID($0)) } ?? []
-        let relaySetup: [Item] = device?.setupWaiting == nil ? [] : [.relay]
+        let relaySetup: [Item] = device?.setup?.machine == nil ? [] : [.relay]
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
         let remote = (device?.waitingRequests ?? []).map { (Item.remote($0.requestID), $0.askedUnixSeconds) }
         let sendImported: [Item] = model.importedLoginsAwaitApproval ? [.sendImported] : []
@@ -104,8 +103,6 @@ final class ApprovalPresenter {
     private func show(_ item: Item) {
         // One approval at a time: a panel being replaced stops waiting for a touch.
         shownRequest?.cancelApproval()
-        shownEnrolment?.stopAuthentication()
-        shownEnrolment = nil
         question?.invalidate()
         question = nil
         panel.close()
@@ -114,14 +111,8 @@ final class ApprovalPresenter {
         let more = waiting.filter { $0 != item && $0.isRequest }.count
         switch item {
         case .relay:
-            guard let device = model.device else { return }
-            ask(SetupCopy.connectToMiniTitle, SetupCopy.connectToMiniBody,
-                reason: "let agents on your other machines use your logins, with your approval, through your Mac mini",
-                perform: { [model] context in
-                    try await device.confirmSetup(context: context)
-                    await model.reportLastSelfTest()
-                },
-                declined: { device.abandonSetup() })
+            guard let request = additionBackend.request(AdditionBackend.setupID) else { return }
+            showRequest(MacApprovalModel(request: request, moreWaiting: more, backend: additionBackend))
         case .sendImported:
             let model = model
             ask(SetupCopy.sendImportedTitle, SetupCopy.sendImportedBody,
@@ -137,12 +128,8 @@ final class ApprovalPresenter {
             guard let request = remoteBackend.current(id) else { return }
             showRequest(MacApprovalModel(request: request, moreWaiting: more, backend: remoteBackend))
         case let .joining(id):
-            guard let enrolment = joiningBackend.current(id) else { return }
-            let joining = MacEnrolmentModel(enrolment: enrolment, backend: joiningBackend)
-            panel.show(joining)
-            joining.close = { [weak self] in self?.dismiss() }
-            shownEnrolment = joining
-            shownRequest = nil
+            guard let request = additionBackend.request(id) else { return }
+            showRequest(MacApprovalModel(request: request, moreWaiting: more, backend: additionBackend))
         }
         shownItem = item
     }
@@ -155,8 +142,6 @@ final class ApprovalPresenter {
 
     private func dismiss() {
         shownRequest?.cancelApproval()
-        shownEnrolment?.stopAuthentication()
-        shownEnrolment = nil
         question?.invalidate()
         question = nil
         closingAfterAnswer?.cancel()

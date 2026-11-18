@@ -1,36 +1,10 @@
 import AppKit
 import AuthenticationServices
 import LocalAuthentication
-import Sparkle
 import SwiftUI
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
 import AgentKeyringScreenBackends
-
-@MainActor
-private final class CheckForUpdatesViewModel: ObservableObject {
-    @Published var canCheckForUpdates = false
-
-    init(updater: SPUUpdater) {
-        updater.publisher(for: \.canCheckForUpdates)
-            .assign(to: &$canCheckForUpdates)
-    }
-}
-
-private struct CheckForUpdatesView: View {
-    @ObservedObject private var viewModel: CheckForUpdatesViewModel
-    private let updater: SPUUpdater
-
-    init(updater: SPUUpdater) {
-        self.updater = updater
-        viewModel = CheckForUpdatesViewModel(updater: updater)
-    }
-
-    var body: some View {
-        Button("Check for Updates…", action: updater.checkForUpdates)
-            .disabled(!viewModel.canCheckForUpdates)
-    }
-}
 
 @MainActor
 final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
@@ -38,7 +12,6 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     let model: MirrorAppModel
     private var syncNotifier: SystemMirrorSyncNotifier?
     private var syncTask: Task<Void, Never>?
-    private let accessControlFixture: MirrorGeneration?
     private(set) lazy var approvals = ApprovalPresenter(model: model)
     private(set) lazy var menuBar: MacMenuBarModel = {
         let backend = LeaseMenuBarBackend(model: model)
@@ -48,33 +21,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         let presentation = AgentKeyringPresentation()
         self.presentation = presentation
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ui-testing-access-control") {
-            let fixtureDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent(
-                    "AgentKeyringUITest-\(ProcessInfo.processInfo.processIdentifier)",
-                    isDirectory: true
-                )
-            let policyStore = CredentialAccessPolicyStore(fileURL: fixtureDirectory.appendingPathComponent("access-policies.json"))
-            let fixture = AccessControlUITestFixture.generation()
-            try? policyStore.save(Dictionary(uniqueKeysWithValues: fixture.items.enumerated().compactMap {
-                index, item -> (UUID, CredentialAccessPolicy)? in
-                if (440..<492).contains(index) { return (item.id, .allowAutomatically) }
-                return index >= 492 ? (item.id, .block) : nil
-            }))
-            let settings = UserDefaults(suiteName: "AgentKeyringUITest")!
-            settings.set(false, forKey: "includeExampleCredential")
-            self.accessControlFixture = fixture
-            self.model = MirrorAppModel(store: LoginStore(directory: fixtureDirectory.appendingPathComponent("logins")),
-                accessControl: CredentialAccessController(store: policyStore), settings: settings)
-        } else {
-            self.accessControlFixture = nil
-            self.model = MirrorAppModel()
-        }
-        #else
-        self.accessControlFixture = nil
         self.model = MirrorAppModel()
-        #endif
         super.init()
     }
 
@@ -85,7 +32,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         Task { [menuBar] in await menuBar.followUpdates() }
         do { try model.startAgentListener() }
         catch { NSLog("Agent Keyring could not start the agent socket: %@", String(describing: error)) }
-        if accessControlFixture == nil {
+        do {
             let notifier = SystemMirrorSyncNotifier { [weak self] in
                 self?.model.openPasswordsExport()
             }
@@ -99,12 +46,10 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        if accessControlFixture == nil {
+        do {
             Task { @MainActor in
                 await model.loadStatus()
-                #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--import-made-up-logins") { await model.importMadeUpLogins() }
-                #endif
+                await model.importMadeUpLoginsIfAsked()
                 if model.status == nil { presentation.requestMainWindow() }
             }
         }
@@ -114,12 +59,6 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         else { return }
         NSApplication.shared.applicationIconImage = icon
 
-        if let accessControlFixture {
-            Task { @MainActor in
-                await model.accessControl.refresh(from: accessControlFixture)
-                presentation.requestAccessWindow()
-            }
-        }
     }
 
     func applicationShouldHandleReopen(
@@ -132,10 +71,6 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    func loadAccessRules() async {
-        if let accessControlFixture { await model.accessControl.refresh(from: accessControlFixture) }
-        else { await model.loadStatus() }
-    }
 
     func application(
         _ application: NSApplication,
@@ -153,37 +88,35 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
 
 }
 
-private enum AccessControlUITestFixture {
-    static func generation() -> MirrorGeneration {
-        let items = (1...522).map(item)
-        return MirrorGeneration(
-            id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 10)),
-            previousGenerationID: nil,
-            createdAt: Date(timeIntervalSince1970: 2_000),
-            sourceExportedAt: Date(timeIntervalSince1970: 1_900),
-            scope: .full,
-            exporterIdentifier: "com.apple.Passwords",
-            exporterDisplayName: "Passwords",
-            items: items,
-            skippedCredentialCount: 0
-        )
+/// First run until this Mac has passed its test, then the Logins and Devices tabs.
+private struct HomeWindow: View {
+    let model: MirrorAppModel
+    let presentation: AgentKeyringPresentation
+    @State private var main: MacMainModel?
+
+    private var setUp: Bool {
+        if model.status == nil { return false }
+        if case .passed = model.selfTest { return true }
+        return false
     }
 
-    private static func item(number: Int) -> MirrorItem {
-        let high = UInt8((number >> 8) & 0xFF)
-        let low = UInt8(number & 0xFF)
-        let id = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, high, low))
-        return MirrorItem(
-            id: id,
-            sourceIdentity: MirrorSourceIdentity(
-                exporterIdentifier: "com.apple.Passwords",
-                accountID: Data("account-\(number)".utf8),
-                itemID: Data("item-\(number)".utf8)
-            ),
-            title: "Credential \(number)",
-            origins: ["https://service-\(number).example/login"],
-            credentials: [.password(userName: "account-\(number)", password: "SYNTHETIC")]
-        )
+    var body: some View {
+        Group {
+            if setUp {
+                if let main { MacMainWindowView(model: main) } else { ProgressView().padding(40) }
+            } else {
+                FirstRunHome(model: model)
+            }
+        }
+        .onAppear {
+            if main == nil {
+                let backend = AppMainWindowBackend(model: model)
+                main = MacMainModel(backend: backend, initial: backend.snapshot())
+            }
+            main?.tab = presentation.tab
+        }
+        .onChange(of: presentation.mainWindowRequest) { main?.tab = presentation.tab }
+        .background(FloatingWhile(isOn: model.awaitingExport))
     }
 }
 
@@ -205,6 +138,7 @@ private struct FirstRunHome: View {
         let test: FirstRunState.Test = switch model.selfTest {
         case let .passed(at): .passed(at)
         case let .failed(message): .failed(message)
+        case .declined: .declined
         case .waiting, .notRun: .waiting
         }
         return FirstRunState(imported: imported, test: test, alwaysOnReady: model.device?.isJoined == true)
@@ -216,14 +150,14 @@ private struct FirstRunHome: View {
                 ProgressView().padding(40)
             } else {
                 VStack(alignment: .leading) {
-                    MacFirstRunView(state: state, allow: model.requestProviderEnablement, openPasswords: model.openPasswordsExport)
+                    MacFirstRunView(state: state, allow: model.requestProviderEnablement, openPasswords: model.openPasswordsExport,
+                        sendTestAgain: model.sendSelfTestAgain)
                     if let notice = model.notice, notice.kind != .information {
                         Text(notice.text).font(.callout).padding(.horizontal, 28).padding(.bottom, 20)
                     }
                 }
             }
         }
-        .background(FloatingWhile(isOn: model.awaitingExport))
         .task { await model.loadStatus() }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
     }
@@ -234,7 +168,11 @@ private struct FloatingWhile: NSViewRepresentable {
     let isOn: Bool
     func makeNSView(context: Context) -> NSView { NSView() }
     func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { view.window?.level = isOn ? .floating : .normal }
+        DispatchQueue.main.async {
+            view.window?.level = isOn ? .floating : .normal
+            // Open on the Space he is working in, never on another one.
+            view.window?.collectionBehavior.insert(.moveToActiveSpace)
+        }
     }
 }
 
@@ -243,61 +181,17 @@ struct AgentKeyringApp: App {
     @NSApplicationDelegateAdaptor(AgentKeyringAppDelegate.self)
     private var appDelegate
 
-    private let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true,
-        updaterDelegate: nil,
-        userDriverDelegate: nil
-    )
-
     var body: some Scene {
         Window("Agent Keyring", id: "main") {
-            FirstRunHome(model: appDelegate.model)
+            HomeWindow(model: appDelegate.model, presentation: appDelegate.presentation)
         }
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
         .defaultLaunchBehavior(.suppressed)
-        .commands {
-            CommandGroup(after: .appInfo) {
-                CheckForUpdatesView(updater: updaterController.updater)
-            }
-        }
-
-        Window("Machines", id: "machines") {
-            MachinesWindow(model: appDelegate.model, approvals: appDelegate.approvals)
-        }
-        .windowResizability(.contentSize)
-        .restorationBehavior(.disabled)
-
-        Window("Rules", id: "access") {
-            RulesWindow(model: appDelegate.model)
-                .task { await appDelegate.loadAccessRules() }
-        }
-        .windowResizability(.contentSize)
-        .restorationBehavior(.disabled)
-        .defaultWindowPlacement { _, context in
-            let display = context.defaultDisplay.visibleRect
-            return WindowPlacement(
-                size: CGSize(
-                    width: min(960, display.width),
-                    height: min(680, display.height)
-                )
-            )
-        }
-        .windowIdealPlacement { _, context in
-            let display = context.defaultDisplay.visibleRect
-            return WindowPlacement(
-                size: CGSize(
-                    width: min(1_080, display.width),
-                    height: min(740, display.height)
-                )
-            )
-        }
 
         MenuBarExtra {
             AgentKeyringMenuWindow(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar,
-                approvals: appDelegate.approvals) {
-                updaterController.checkForUpdates(nil)
-            }
+                approvals: appDelegate.approvals)
         } label: {
             AgentKeyringMenuBarLabel(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar)
         }

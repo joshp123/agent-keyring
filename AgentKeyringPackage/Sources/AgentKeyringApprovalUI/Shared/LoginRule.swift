@@ -7,29 +7,34 @@ import SwiftUI
 
 public enum LoginRule: String, CaseIterable, Hashable, Sendable {
     case ask
+    /// Agents ask every time, and only the iPhone or Watch can approve.
+    case askOnPhone
     case automatic
     case blocked
 
     public var name: String {
         switch self {
         case .ask: "Ask"
+        case .askOnPhone: "Ask on iPhone or Watch"
         case .automatic: "Automatic"
         case .blocked: "Blocked"
         }
     }
 
-    /// One sentence on what the rule does. Shown above the list it filters.
+    /// One sentence on what the rule does, as the rule menu shows it.
     public var explanation: String {
         switch self {
-        case .ask: "Agents ask you before each task. New logins start here."
-        case .automatic: "Agents get these without asking you, for up to 30 minutes at a time."
-        case .blocked: "Agents can't use these. You won't be asked."
+        case .ask: "Agents ask you every time."
+        case .askOnPhone: "Agents ask every time. Only your iPhone or Watch can approve."
+        case .automatic: "Agents on machines you allow get it without asking."
+        case .blocked: "No agent can use it."
         }
     }
 
     public var symbol: String {
         switch self {
         case .ask: "questionmark.circle.fill"
+        case .askOnPhone: "iphone"
         case .automatic: "checkmark.circle.fill"
         case .blocked: "minus.circle.fill"
         }
@@ -37,7 +42,7 @@ public enum LoginRule: String, CaseIterable, Hashable, Sendable {
 
     public var colour: Color {
         switch self {
-        case .ask: KeyringColour.signal
+        case .ask, .askOnPhone: KeyringColour.signal
         case .automatic: KeyringColour.approveText
         case .blocked: KeyringColour.denyText
         }

@@ -12,9 +12,10 @@ import LocalAuthentication
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
-    func sealCopies(of secret: Agentkeyring_V2_LoginSecret, automatic: Bool) throws -> [Agentkeyring_V2_SealedLogin] {
+    /// A login set to Ask on iPhone or Watch has no copy for this Mac at all.
+    func sealCopies(of secret: Agentkeyring_V2_LoginSecret, automatic: Bool, phoneOnly: Bool = false) throws -> [Agentkeyring_V2_SealedLogin] {
         let keys = try macKeys()
-        var openers: [(id: String, key: P256.KeyAgreement.PublicKey)] = [(keys.deviceKeyID, keys.openingPublicKey)]
+        var openers: [(id: String, key: P256.KeyAgreement.PublicKey)] = phoneOnly ? [] : [(keys.deviceKeyID, keys.openingPublicKey)]
         if automatic { openers.append((keys.machineID, keys.receiving.publicKey)) }
         openers += device?.otherOpeners(automatic: automatic) ?? []
         return try openers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id) }
@@ -46,15 +47,49 @@ extension MirrorAppModel {
         let keys = try macKeys()
         let machines = Set([keys.machineID] + (device?.members?.machines.map(\.machineID) ?? []))
         var sealed = try await store.sealed()
+        var withdrawn = Set<String>()
+        for id in Set(old.keys).union(new.keys) where old[id] != new[id] {
+            if old[id] == .askOnPhone {
+                throw LeaseFailure(.permissionDenied, "Change this login on your iPhone or Watch: only they can approve it.")
+            }
+            if new[id] == .askOnPhone, device?.members?.devices.contains(where: { $0.kind != .mac }) != true {
+                throw LeaseFailure(.permissionDenied, "Add your iPhone first: until then nothing could approve this login.")
+            }
+            if new[id] == .askOnPhone { sealed.removeAll { $0.loginID == id.uuidString && $0.openerID == keys.deviceKeyID } }
+        }
         for id in Set(old.keys).union(new.keys) where (old[id] == .allowAutomatically) != (new[id] == .allowAutomatically) {
             let loginID = id.uuidString
             sealed.removeAll { $0.loginID == loginID && machines.contains($0.openerID) }
-            guard new[id] == .allowAutomatically else { continue }
+            guard new[id] == .allowAutomatically else { withdrawn.insert(loginID); continue }
             let secret = try keys.open(try await macCopy(of: loginID), context: context)
             sealed += try sealCopies(of: secret, automatic: true).filter { machines.contains($0.openerID) }
         }
         try await store.replaceSealed(sealed)
-        if device?.isJoined == true { try await device?.publish(context: context, clearing: machines) }
+        if device?.isJoined == true { try await device?.publish(context: context, withdrawn: withdrawn) }
+    }
+
+    /// A rule change from another device: its rules, and this Mac's Automatic
+    /// copies exactly as that device left them at the relay.
+    func adoptCatalogue(_ catalogue: Agentkeyring_V2_Catalogue, ownCopies: [Agentkeyring_V2_SealedLogin]) async {
+        guard let keys = try? macKeys() else { return }
+        var next: [UUID: CredentialAccessPolicy] = [:]
+        for login in catalogue.logins {
+            guard let id = UUID(uuidString: login.loginID) else { continue }
+            switch login.rule {
+            case .automatic: next[id] = .allowAutomatically
+            case .blocked: next[id] = .block
+            default: if login.phoneAndWatchOnly { next[id] = .askOnPhone }
+            }
+        }
+        let automatic = Set(next.filter { $0.value == .allowAutomatically }.keys.map(\.uuidString))
+        if var sealed = try? await store.sealed() {
+            sealed.removeAll { $0.openerID == keys.machineID }
+            let phoneOnly = Set(next.filter { $0.value == .askOnPhone }.keys.map(\.uuidString))
+            sealed.removeAll { $0.openerID == keys.deviceKeyID && phoneOnly.contains($0.loginID) }
+            sealed += ownCopies.filter { automatic.contains($0.loginID) }
+            try? await store.replaceSealed(sealed)
+        }
+        accessControl.adopt(next)
     }
 
     /// The logins and their rules, as the other devices see them.
@@ -67,10 +102,11 @@ extension MirrorAppModel {
             item.account = login.username ?? ""
             item.hasOneTimeCode_p = login.availableFields.contains(.totp)
             item.rule = switch accessControl.policy(for: login.id) {
-            case .ask: .ask
+            case .ask, .askOnPhone: .ask
             case .allowAutomatically: .automatic
             case .block: .blocked
             }
+            item.phoneAndWatchOnly = accessControl.policy(for: login.id) == .askOnPhone
             return item
         }
     }
@@ -104,6 +140,13 @@ extension MirrorAppModel {
                 values.password = secret.password
             case .oneTimeCode:
                 let now = Int64(Date().timeIntervalSince1970)
+                if let codes = leaseStore.openedCodes(for: lease.leaseID) {
+                    guard let code = codes.first(where: { $0.validFromUnixSeconds <= now && now < $0.validUntilUnixSeconds }) else {
+                        throw LeaseFailure(.invalidArgument, "The login has no one-time code for now.")
+                    }
+                    values.oneTimeCode = code.code
+                    continue
+                }
                 guard !secret.totpSeed.isEmpty, let code = try OneTimeCodes.codes(for: secret, from: now, until: now + 1).first else {
                     throw LeaseFailure(.invalidArgument, "The login has no one-time code.")
                 }

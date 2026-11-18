@@ -68,7 +68,7 @@ public enum RelayScreenMapping {
 
     public static func relayLink(_ device: MacDevice?) -> RelayLink {
         guard let device else { return .notSetUp }
-        if let waiting = device.setupWaiting { return .connecting(address: waiting.host) }
+        if let setup = device.setup { return .connecting(address: setup.endpoint.host) }
         return switch device.connection {
         case .notSetUp: .notSetUp
         case .connecting: .connecting(address: "the relay")
@@ -128,85 +128,6 @@ public final class RelayApprovalBackend: MacApprovalBackend {
 
     public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
         throw ScreenFailure(message: "A denial on another machine holds the login off for 30 minutes. It cannot be lifted from this Mac yet.")
-    }
-}
-
-/// Machines and devices joining, in the enrolment panel.
-@available(macOS 26.0, *)
-@MainActor
-public final class RelayEnrolmentBackend: MacEnrolmentBackend {
-    private let model: MirrorAppModel
-
-    public init(model: MirrorAppModel) {
-        self.model = model
-    }
-
-    public func current(_ enrolmentID: String) -> DeviceEnrolment? {
-        model.device?.joins.first { MacDevice.joinID($0) == enrolmentID }.map(RelayScreenMapping.enrolment)
-    }
-
-    public func updates(enrolmentID: String) -> AsyncStream<DeviceEnrolment?> {
-        stream(Observations { [weak self] in self?.current(enrolmentID) })
-    }
-
-    public func approve(enrolmentID: String, comparedCode: String, allowAutomatic: Bool, context: LAContext?,
-        onAuthenticated: @MainActor () -> Void, onCommitted: @MainActor () -> Void) async throws {
-        guard let context, let device = model.device else { throw CredentialReleaseAuthorizationError.unavailable }
-        try await screenErrors {
-            try await device.approveJoin(enrolmentID, allowAutomatic: allowAutomatic, context: context, onAuthenticated: onAuthenticated)
-        }
-        onCommitted()
-    }
-
-    /// "Don't allow": hidden here; the relay lets the request run out after ten minutes.
-    public func refuse(enrolmentID: String) async throws {
-        model.device?.hideJoin(enrolmentID)
-    }
-}
-
-/// The Machines window.
-@available(macOS 26.0, *)
-@MainActor
-public final class RelayMachinesBackend: MacMachinesBackend {
-    private let model: MirrorAppModel
-
-    public init(model: MirrorAppModel) {
-        self.model = model
-    }
-
-    public func snapshot() -> MachinesSnapshot {
-        let device = model.device
-        let ownMachine = device?.ownMachineID
-        return MachinesSnapshot(
-            relay: RelayScreenMapping.relayLink(device),
-            waiting: device?.joins.map(RelayScreenMapping.enrolment) ?? [],
-            machines: (device?.members?.machines ?? []).filter { $0.machineID != ownMachine }.map {
-                EnrolledMachine(id: $0.machineID, name: $0.label, tailnetNode: "", automaticAllowed: $0.automaticAllowed)
-            },
-            approvers: (device?.members?.devices ?? []).map {
-                ApproverDevice(keyID: $0.keyID, name: $0.label, isPhone: $0.kind != .mac)
-            })
-    }
-
-    public func updates() -> AsyncStream<MachinesSnapshot> {
-        stream(Observations { [weak self] in self?.snapshot() ?? MachinesSnapshot(relay: .notSetUp) })
-    }
-
-    public func connect(host: String, port: UInt16) async throws {
-        guard let device = model.device else { throw ScreenFailure(message: "This Mac has no Secure Enclave keys.") }
-        try await screenErrors { try await device.beginSetup(try RelayEndpoint(host: host, port: port)) }
-    }
-
-    public func cancelRelaySetup() throws {
-        model.device?.abandonSetup()
-    }
-
-    public func removePhone(keyID: String, context: LAContext) async throws {
-        try await screenErrors { try await model.device?.remove(keyID, context: context) }
-    }
-
-    public func remove(machineID: String, context: LAContext) async throws {
-        try await screenErrors { try await model.device?.remove(machineID, context: context) }
     }
 }
 

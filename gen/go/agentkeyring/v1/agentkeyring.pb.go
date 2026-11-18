@@ -2252,6 +2252,7 @@ type SetupRequest struct {
 	Port          uint32                 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
 	Code          string                 `protobuf:"bytes,4,opt,name=code,proto3" json:"code,omitempty"`
 	MachineName   string                 `protobuf:"bytes,5,opt,name=machine_name,json=machineName,proto3" json:"machine_name,omitempty"`
+	Reason        string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"` // START_RELAY: the agent's words, shown with the request.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2317,6 +2318,13 @@ func (x *SetupRequest) GetCode() string {
 func (x *SetupRequest) GetMachineName() string {
 	if x != nil {
 		return x.MachineName
+	}
+	return ""
+}
+
+func (x *SetupRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
 	}
 	return ""
 }
@@ -2565,13 +2573,14 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\rend_of_stream\x18\x06 \x01(\bR\vendOfStreamB\n" +
 	"\n" +
 	"\bresponseJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"\"\xa2\x02\n" +
+	"\"\xba\x02\n" +
 	"\fSetupRequest\x12<\n" +
 	"\x06action\x18\x01 \x01(\x0e2$.agentkeyring.v1.SetupRequest.ActionR\x06action\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\rR\x04port\x12\x12\n" +
 	"\x04code\x18\x04 \x01(\tR\x04code\x12!\n" +
-	"\fmachine_name\x18\x05 \x01(\tR\vmachineName\"u\n" +
+	"\fmachine_name\x18\x05 \x01(\tR\vmachineName\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"u\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vSTART_RELAY\x10\x01\x12\x10\n" +

@@ -35,6 +35,7 @@ func (s *Server) publishMembers(who caller, document *pb.Signed) error {
 	}
 	return s.Store.update(func(data *saved) error {
 		data.Members = marshal(document)
+		data.MembersHistory = append(data.MembersHistory, data.Members)
 		s.Store.members = next
 		known := map[string]bool{}
 		for _, d := range next.Devices {
@@ -71,13 +72,11 @@ func (s *Server) publishCatalogue(document *pb.Signed) error {
 	})
 }
 
-// publishSealedLogins replaces every sealed login for each opener named.
+// publishSealedLogins adds or replaces each copy given, empties each opener
+// cleared, and removes the machines' copies of each login withdrawn.
 func (s *Server) publishSealedLogins(batch *pb.SealedLogins) error {
 	members, catalogue := s.Store.documents()
 	byOpener := map[string]map[string][]byte{}
-	for _, opener := range batch.ClearedOpeners {
-		byOpener[opener] = map[string][]byte{}
-	}
 	for _, sealed := range batch.Logins {
 		if device(members, sealed.OpenerId) == nil && machine(members, sealed.OpenerId) == nil {
 			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login names an opener that is not a device or machine.")
@@ -91,8 +90,21 @@ func (s *Server) publishSealedLogins(batch *pb.SealedLogins) error {
 		byOpener[sealed.OpenerId][sealed.LoginId] = marshal(sealed)
 	}
 	return s.Store.update(func(data *saved) error {
+		for _, opener := range batch.ClearedOpeners {
+			data.Sealed[opener] = map[string][]byte{}
+		}
 		for opener, logins := range byOpener {
-			data.Sealed[opener] = logins
+			if data.Sealed[opener] == nil {
+				data.Sealed[opener] = map[string][]byte{}
+			}
+			for id, raw := range logins {
+				data.Sealed[opener][id] = raw
+			}
+		}
+		for _, m := range members.GetMachines() {
+			for _, id := range batch.WithdrawnLoginIds {
+				delete(data.Sealed[m.MachineId], id)
+			}
 		}
 		return nil
 	})

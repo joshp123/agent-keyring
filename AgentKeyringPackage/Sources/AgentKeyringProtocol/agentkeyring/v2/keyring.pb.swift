@@ -906,11 +906,59 @@ public nonisolated struct Agentkeyring_V2_Work: @unchecked Sendable {
   /// Clears the value of `login`. Subsequent reads from it will return its default value.
   public mutating func clearLogin() {_uniqueStorage()._login = nil}
 
+  /// Set for a rule change another device proposed (propose_rules). Approving
+  /// it is publishing a catalogue with these rules, and the sealed or
+  /// withdrawn copies they need, then a signed Answer with no delivery.
+  public var proposal: Agentkeyring_V2_Signed {
+    get {_storage._proposal ?? Agentkeyring_V2_Signed()}
+    set {_uniqueStorage()._proposal = newValue}
+  }
+  /// Returns true if `proposal` has been explicitly set.
+  public var hasProposal: Bool {_storage._proposal != nil}
+  /// Clears the value of `proposal`. Subsequent reads from it will return its default value.
+  public mutating func clearProposal() {_uniqueStorage()._proposal = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+/// A rule change a device proposes and only the iPhone or Watch may make, the
+/// payload of a Signed by the proposer's reply key: it grants nothing until a
+/// device that can make the change approves it.
+public nonisolated struct Agentkeyring_V2_RuleProposal: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// "agentkeyring.proposal.v2"
+  public var domain: String = String()
+
+  public var changes: [Agentkeyring_V2_RuleChange] = []
+
+  public var askedUnixSeconds: Int64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V2_RuleChange: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var loginID: String = String()
+
+  public var rule: Agentkeyring_V2_Rule = .unspecified
+
+  public var phoneAndWatchOnly: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 /// The push. Apple carries nothing readable about a request. The relay sends:
@@ -1078,7 +1126,7 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     set {method = .publishCatalogue(newValue)}
   }
 
-  /// Replaces every sealed login for the openers named.
+  /// Adds or replaces each copy given; see SealedLogins.
   public var publishSealedLogins: Agentkeyring_V2_SealedLogins {
     get {
       if case .publishSealedLogins(let v)? = method {return v}
@@ -1142,6 +1190,27 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     set {method = .selfTests(newValue)}
   }
 
+  /// Devices: a rule change for the iPhone or Watch to approve. Streams
+  /// Lease until it is answered or unanswered.
+  public var proposeRules: Agentkeyring_V2_Signed {
+    get {
+      if case .proposeRules(let v)? = method {return v}
+      return Agentkeyring_V2_Signed()
+    }
+    set {method = .proposeRules(newValue)}
+  }
+
+  /// Devices and machines: every Members revision after this one, oldest
+  /// first, so each can be checked against the one before. Returns
+  /// MembersChain.
+  public var membersSince: UInt64 {
+    get {
+      if case .membersSince(let v)? = method {return v}
+      return 0
+    }
+    set {method = .membersSince(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Method: Equatable, Sendable {
@@ -1171,7 +1240,7 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     case registerPush(Agentkeyring_V2_PushRegistration)
     case publishMembers(Agentkeyring_V2_Signed)
     case publishCatalogue(Agentkeyring_V2_Signed)
-    /// Replaces every sealed login for the openers named.
+    /// Adds or replaces each copy given; see SealedLogins.
     case publishSealedLogins(Agentkeyring_V2_SealedLogins)
     /// Returns SealedLogins sealed to this device.
     case sealedLogins(Agentkeyring_V2_Empty)
@@ -1186,6 +1255,13 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     case reportSelfTest(Agentkeyring_V2_Signed)
     /// Devices and machines: returns SelfTests.
     case selfTests(Agentkeyring_V2_Empty)
+    /// Devices: a rule change for the iPhone or Watch to approve. Streams
+    /// Lease until it is answered or unanswered.
+    case proposeRules(Agentkeyring_V2_Signed)
+    /// Devices and machines: every Members revision after this one, oldest
+    /// first, so each can be checked against the one before. Returns
+    /// MembersChain.
+    case membersSince(UInt64)
 
   }
 
@@ -1287,6 +1363,14 @@ public nonisolated struct Agentkeyring_V2_RelayResponse: Sendable {
     set {result = .selfTests(newValue)}
   }
 
+  public var membersChain: Agentkeyring_V2_MembersChain {
+    get {
+      if case .membersChain(let v)? = result {return v}
+      return Agentkeyring_V2_MembersChain()
+    }
+    set {result = .membersChain(newValue)}
+  }
+
   public var endOfStream: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -1303,6 +1387,7 @@ public nonisolated struct Agentkeyring_V2_RelayResponse: Sendable {
     case done(Agentkeyring_V2_Empty)
     case error(Agentkeyring_V2_Error)
     case selfTests(Agentkeyring_V2_SelfTests)
+    case membersChain(Agentkeyring_V2_MembersChain)
 
   }
 
@@ -1422,6 +1507,10 @@ public nonisolated struct Agentkeyring_V2_SealedLogins: Sendable {
   /// In publish_sealed_logins: openers whose every copy is replaced, even by
   /// none (a machine whose last Automatic login became Ask).
   public var clearedOpeners: [String] = []
+
+  /// In publish_sealed_logins: logins no longer Automatic. Every machine's
+  /// copy of each is removed; devices' copies stay.
+  public var withdrawnLoginIds: [String] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1605,6 +1694,19 @@ public nonisolated struct Agentkeyring_V2_SelfTestCheck: Sendable {
 
   /// When it failed: the error, in words.
   public var error: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V2_MembersChain: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Oldest first.
+  public var revisions: [Agentkeyring_V2_Signed] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2583,13 +2685,14 @@ nonisolated extension Agentkeyring_V2_Approval: SwiftProtobuf.Message, SwiftProt
 
 nonisolated extension Agentkeyring_V2_Work: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Work"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{3}sealed_login\0\u{1}outcome\0\u{1}login\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}request\0\u{3}sealed_login\0\u{1}outcome\0\u{1}login\0\u{1}proposal\0")
 
   fileprivate class _StorageClass {
     var _request: Data = Data()
     var _sealedLogin: Agentkeyring_V2_SealedLogin? = nil
     var _outcome: Agentkeyring_V2_Lease? = nil
     var _login: Agentkeyring_V2_Login? = nil
+    var _proposal: Agentkeyring_V2_Signed? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -2604,6 +2707,7 @@ nonisolated extension Agentkeyring_V2_Work: SwiftProtobuf.Message, SwiftProtobuf
       _sealedLogin = source._sealedLogin
       _outcome = source._outcome
       _login = source._login
+      _proposal = source._proposal
     }
   }
 
@@ -2626,6 +2730,7 @@ nonisolated extension Agentkeyring_V2_Work: SwiftProtobuf.Message, SwiftProtobuf
         case 2: try { try decoder.decodeSingularMessageField(value: &_storage._sealedLogin) }()
         case 3: try { try decoder.decodeSingularMessageField(value: &_storage._outcome) }()
         case 4: try { try decoder.decodeSingularMessageField(value: &_storage._login) }()
+        case 5: try { try decoder.decodeSingularMessageField(value: &_storage._proposal) }()
         default: break
         }
       }
@@ -2650,6 +2755,9 @@ nonisolated extension Agentkeyring_V2_Work: SwiftProtobuf.Message, SwiftProtobuf
       try { if let v = _storage._login {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
       } }()
+      try { if let v = _storage._proposal {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -2663,10 +2771,91 @@ nonisolated extension Agentkeyring_V2_Work: SwiftProtobuf.Message, SwiftProtobuf
         if _storage._sealedLogin != rhs_storage._sealedLogin {return false}
         if _storage._outcome != rhs_storage._outcome {return false}
         if _storage._login != rhs_storage._login {return false}
+        if _storage._proposal != rhs_storage._proposal {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V2_RuleProposal: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RuleProposal"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{1}changes\0\u{3}asked_unix_seconds\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.domain) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.changes) }()
+      case 3: try { try decoder.decodeSingularInt64Field(value: &self.askedUnixSeconds) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.domain.isEmpty {
+      try visitor.visitSingularStringField(value: self.domain, fieldNumber: 1)
+    }
+    if !self.changes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.changes, fieldNumber: 2)
+    }
+    if self.askedUnixSeconds != 0 {
+      try visitor.visitSingularInt64Field(value: self.askedUnixSeconds, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V2_RuleProposal, rhs: Agentkeyring_V2_RuleProposal) -> Bool {
+    if lhs.domain != rhs.domain {return false}
+    if lhs.changes != rhs.changes {return false}
+    if lhs.askedUnixSeconds != rhs.askedUnixSeconds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V2_RuleChange: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RuleChange"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{1}rule\0\u{3}phone_and_watch_only\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.loginID) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.rule) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.phoneAndWatchOnly) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.loginID.isEmpty {
+      try visitor.visitSingularStringField(value: self.loginID, fieldNumber: 1)
+    }
+    if self.rule != .unspecified {
+      try visitor.visitSingularEnumField(value: self.rule, fieldNumber: 2)
+    }
+    if self.phoneAndWatchOnly != false {
+      try visitor.visitSingularBoolField(value: self.phoneAndWatchOnly, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V2_RuleChange, rhs: Agentkeyring_V2_RuleChange) -> Bool {
+    if lhs.loginID != rhs.loginID {return false}
+    if lhs.rule != rhs.rule {return false}
+    if lhs.phoneAndWatchOnly != rhs.phoneAndWatchOnly {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2709,7 +2898,7 @@ nonisolated extension Agentkeyring_V2_Notice: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentkeyring_V2_RelayRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ask\0\u{1}watch\0\u{1}collect\0\u{1}end\0\u{1}find\0\u{3}automatic_logins\0\u{3}report_use\0\u{1}members\0\u{1}catalogue\0\u{3}watch_work\0\u{3}get_work\0\u{1}answer\0\u{3}register_push\0\u{3}publish_members\0\u{3}publish_catalogue\0\u{3}publish_sealed_logins\0\u{3}sealed_logins\0\u{1}join\0\u{3}pending_joins\0\u{3}test_request\0\u{3}report_self_test\0\u{3}self_tests\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ask\0\u{1}watch\0\u{1}collect\0\u{1}end\0\u{1}find\0\u{3}automatic_logins\0\u{3}report_use\0\u{1}members\0\u{1}catalogue\0\u{3}watch_work\0\u{3}get_work\0\u{1}answer\0\u{3}register_push\0\u{3}publish_members\0\u{3}publish_catalogue\0\u{3}publish_sealed_logins\0\u{3}sealed_logins\0\u{1}join\0\u{3}pending_joins\0\u{3}test_request\0\u{3}report_self_test\0\u{3}self_tests\0\u{3}propose_rules\0\u{3}members_since\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3003,6 +3192,27 @@ nonisolated extension Agentkeyring_V2_RelayRequest: SwiftProtobuf.Message, Swift
           self.method = .selfTests(v)
         }
       }()
+      case 23: try {
+        var v: Agentkeyring_V2_Signed?
+        var hadOneofValue = false
+        if let current = self.method {
+          hadOneofValue = true
+          if case .proposeRules(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.method = .proposeRules(v)
+        }
+      }()
+      case 24: try {
+        var v: UInt64?
+        try decoder.decodeSingularUInt64Field(value: &v)
+        if let v = v {
+          if self.method != nil {try decoder.handleConflictingOneOf()}
+          self.method = .membersSince(v)
+        }
+      }()
       default: break
       }
     }
@@ -3102,6 +3312,14 @@ nonisolated extension Agentkeyring_V2_RelayRequest: SwiftProtobuf.Message, Swift
       guard case .selfTests(let v)? = self.method else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 22)
     }()
+    case .proposeRules?: try {
+      guard case .proposeRules(let v)? = self.method else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 23)
+    }()
+    case .membersSince?: try {
+      guard case .membersSince(let v)? = self.method else { preconditionFailure() }
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 24)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -3116,7 +3334,7 @@ nonisolated extension Agentkeyring_V2_RelayRequest: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentkeyring_V2_RelayResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}lease\0\u{1}approval\0\u{1}find\0\u{3}sealed_logins\0\u{1}signed\0\u{1}work\0\u{1}join\0\u{3}pending_joins\0\u{1}done\0\u{1}error\0\u{3}end_of_stream\0\u{3}self_tests\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}lease\0\u{1}approval\0\u{1}find\0\u{3}sealed_logins\0\u{1}signed\0\u{1}work\0\u{1}join\0\u{3}pending_joins\0\u{1}done\0\u{1}error\0\u{3}end_of_stream\0\u{3}self_tests\0\u{3}members_chain\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3268,6 +3486,19 @@ nonisolated extension Agentkeyring_V2_RelayResponse: SwiftProtobuf.Message, Swif
           self.result = .selfTests(v)
         }
       }()
+      case 13: try {
+        var v: Agentkeyring_V2_MembersChain?
+        var hadOneofValue = false
+        if let current = self.result {
+          hadOneofValue = true
+          if case .membersChain(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.result = .membersChain(v)
+        }
+      }()
       default: break
       }
     }
@@ -3324,9 +3555,17 @@ nonisolated extension Agentkeyring_V2_RelayResponse: SwiftProtobuf.Message, Swif
     if self.endOfStream != false {
       try visitor.visitSingularBoolField(value: self.endOfStream, fieldNumber: 11)
     }
-    try { if case .selfTests(let v)? = self.result {
+    switch self.result {
+    case .selfTests?: try {
+      guard case .selfTests(let v)? = self.result else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
-    } }()
+    }()
+    case .membersChain?: try {
+      guard case .membersChain(let v)? = self.result else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 13)
+    }()
+    default: break
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3563,7 +3802,7 @@ nonisolated extension Agentkeyring_V2_UseReport: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SealedLogins"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{3}cleared_openers\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{3}cleared_openers\0\u{3}withdrawn_login_ids\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3573,6 +3812,7 @@ nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, Swift
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.logins) }()
       case 2: try { try decoder.decodeRepeatedStringField(value: &self.clearedOpeners) }()
+      case 3: try { try decoder.decodeRepeatedStringField(value: &self.withdrawnLoginIds) }()
       default: break
       }
     }
@@ -3585,12 +3825,16 @@ nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, Swift
     if !self.clearedOpeners.isEmpty {
       try visitor.visitRepeatedStringField(value: self.clearedOpeners, fieldNumber: 2)
     }
+    if !self.withdrawnLoginIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.withdrawnLoginIds, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V2_SealedLogins, rhs: Agentkeyring_V2_SealedLogins) -> Bool {
     if lhs.logins != rhs.logins {return false}
     if lhs.clearedOpeners != rhs.clearedOpeners {return false}
+    if lhs.withdrawnLoginIds != rhs.withdrawnLoginIds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3897,6 +4141,36 @@ nonisolated extension Agentkeyring_V2_SelfTestCheck: SwiftProtobuf.Message, Swif
     if lhs.name != rhs.name {return false}
     if lhs.passed != rhs.passed {return false}
     if lhs.error != rhs.error {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V2_MembersChain: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".MembersChain"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}revisions\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.revisions) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.revisions.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.revisions, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V2_MembersChain, rhs: Agentkeyring_V2_MembersChain) -> Bool {
+    if lhs.revisions != rhs.revisions {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

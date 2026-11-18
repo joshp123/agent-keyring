@@ -9,6 +9,13 @@
 import Observation
 import SwiftUI
 
+public enum RelayLink: Hashable, Sendable {
+    case notSetUp
+    case connecting(address: String)
+    case connected(address: String)
+    case offline(address: String)
+}
+
 public struct MacMenuBarSnapshot: Hashable, Sendable {
     /// Waiting, in use and recent requests, local and remote, in any order.
     public var requests: [AccessRequest]
@@ -49,7 +56,6 @@ public final class MacMenuBarModel {
     public var openMachines: () -> Void = {}
     public var openRules: () -> Void = {}
     public var openAgentKeyring: () -> Void = {}
-    public var checkForUpdates: () -> Void = {}
     public var quit: () -> Void = {}
 
     private let backend: any MacMenuBarBackend
@@ -194,7 +200,6 @@ public struct MacMenuBarView: View {
                 if model.relay != nil {
                     Button("Machines…", action: model.openMachines)
                 }
-                Button("Check for Updates…", action: model.checkForUpdates)
                 Divider()
                 Button("Quit Agent Keyring", action: model.quit)
             } label: {

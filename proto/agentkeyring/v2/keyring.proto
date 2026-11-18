@@ -279,6 +279,25 @@ message Work {
   // in time. Show the outcome and clear the request.
   Lease outcome = 3;
   Login login = 4;                 // The login from the signed catalogue: its title, account and sites.
+  // Set for a rule change another device proposed (propose_rules). Approving
+  // it is publishing a catalogue with these rules, and the sealed or
+  // withdrawn copies they need, then a signed Answer with no delivery.
+  Signed proposal = 5;
+}
+
+// A rule change a device proposes and only the iPhone or Watch may make, the
+// payload of a Signed by the proposer's reply key: it grants nothing until a
+// device that can make the change approves it.
+message RuleProposal {
+  string domain = 1;               // "agentkeyring.proposal.v2"
+  repeated RuleChange changes = 2;
+  int64 asked_unix_seconds = 3;
+}
+
+message RuleChange {
+  string login_id = 1;
+  Rule rule = 2;
+  bool phone_and_watch_only = 3;
 }
 
 // The push. Apple carries nothing readable about a request. The relay sends:
@@ -321,7 +340,7 @@ message RelayRequest {
     PushRegistration register_push = 13;
     Signed publish_members = 14;
     Signed publish_catalogue = 15;
-    SealedLogins publish_sealed_logins = 16;  // Replaces every sealed login for the openers named.
+    SealedLogins publish_sealed_logins = 16;  // Adds or replaces each copy given; see SealedLogins.
     Empty sealed_logins = 17;              // Returns SealedLogins sealed to this device.
     // Joining: a machine or device not yet in Members. Streams JoinStatus.
     JoinRequest join = 18;
@@ -331,6 +350,13 @@ message RelayRequest {
     Empty test_request = 20;
     Signed report_self_test = 21;          // Devices: SelfTestReport, signed by the reply key.
     Empty self_tests = 22;                 // Devices and machines: returns SelfTests.
+    // Devices: a rule change for the iPhone or Watch to approve. Streams
+    // Lease until it is answered or unanswered.
+    Signed propose_rules = 23;
+    // Devices and machines: every Members revision after this one, oldest
+    // first, so each can be checked against the one before. Returns
+    // MembersChain.
+    uint64 members_since = 24;
   }
 }
 
@@ -347,6 +373,7 @@ message RelayResponse {
     Empty done = 9;
     Error error = 10;
     SelfTests self_tests = 12;
+    MembersChain members_chain = 13;
   }
   bool end_of_stream = 11;
 }
@@ -391,6 +418,9 @@ message SealedLogins {
   // In publish_sealed_logins: openers whose every copy is replaced, even by
   // none (a machine whose last Automatic login became Ask).
   repeated string cleared_openers = 2;
+  // In publish_sealed_logins: logins no longer Automatic. Every machine's
+  // copy of each is removed; devices' copies stay.
+  repeated string withdrawn_login_ids = 3;
 }
 
 // Sent by the device that answered.
@@ -458,6 +488,10 @@ message SelfTestCheck {
   string name = 1;                 // For example "notifications" or "test request".
   bool passed = 2;
   string error = 3;                // When it failed: the error, in words.
+}
+
+message MembersChain {
+  repeated Signed revisions = 1;   // Oldest first.
 }
 
 message SelfTests {

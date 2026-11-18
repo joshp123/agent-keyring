@@ -23,6 +23,8 @@ private func rulesFailureMessage(_ error: Error) -> String {
 
 public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable {
     case ask
+    /// Only the iPhone or Watch can approve; this Mac holds no copy.
+    case askOnPhone
     case allowAutomatically
     case block
 }
@@ -143,6 +145,19 @@ public final class CredentialAccessController {
     }
 
     public var allPolicies: [UUID: CredentialAccessPolicy] { policies }
+
+    /// Rules another device changed and signed: saved as they are, since that
+    /// device has already sealed or withdrawn the copies.
+    func adopt(_ next: [UUID: CredentialAccessPolicy]) {
+        guard next != policies else { return }
+        do {
+            try store.save(next)
+            policies = next
+            updateRowPolicies()
+        } catch {
+            errorMessage = rulesFailureMessage(error)
+        }
+    }
 
     private func updateRowPolicies() {
         onRulesChanged?()

@@ -20,21 +20,27 @@ import (
 // saved is everything the relay keeps, written whole to one private file on
 // every change. One person's requests are few, so this stays small.
 type saved struct {
-	Members   []byte                       `json:"members,omitempty"`   // Signed Members.
-	Catalogue []byte                       `json:"catalogue,omitempty"` // Signed Catalogue.
-	Sealed    map[string]map[string][]byte `json:"sealed"`              // Opener id, login id: SealedLogin.
-	Requests  map[string]*request          `json:"requests"`
-	HeldOff   map[string]int64             `json:"held_off"` // Machine id "/" login id: until.
-	Pushes    map[string][]byte            `json:"pushes"`   // Device key id: PushRegistration.
-	Joins     map[string]*join             `json:"joins"`    // Joiner id.
-	Uses      []use                        `json:"uses,omitempty"`
-	SelfTests map[string][]byte            `json:"self_tests,omitempty"` // Device key id: Signed SelfTestReport.
+	Members []byte `json:"members,omitempty"` // Signed Members.
+	// Every revision, oldest first: a machine or device that pinned an older
+	// one checks each in turn, since a later one may be signed by a device
+	// it does not know yet.
+	MembersHistory [][]byte                     `json:"members_history,omitempty"`
+	Catalogue      []byte                       `json:"catalogue,omitempty"` // Signed Catalogue.
+	Sealed         map[string]map[string][]byte `json:"sealed"`              // Opener id, login id: SealedLogin.
+	Requests       map[string]*request          `json:"requests"`
+	HeldOff        map[string]int64             `json:"held_off"` // Machine id "/" login id: until.
+	Pushes         map[string][]byte            `json:"pushes"`   // Device key id: PushRegistration.
+	Joins          map[string]*join             `json:"joins"`    // Joiner id.
+	Uses           []use                        `json:"uses,omitempty"`
+	SelfTests      map[string][]byte            `json:"self_tests,omitempty"` // Device key id: Signed SelfTestReport.
 }
 
 type request struct {
 	Request         []byte        `json:"request"` // Exact Request bytes.
 	MachineID       string        `json:"machine_id"`
 	ForDevice       string        `json:"for_device,omitempty"` // A device's own test request.
+	Proposal        []byte        `json:"proposal,omitempty"`   // Signed RuleProposal.
+	ProposedBy      string        `json:"proposed_by,omitempty"`
 	ClientRequestID string        `json:"client_request_id,omitempty"`
 	State           pb.LeaseState `json:"state"`
 	Answer          []byte        `json:"answer,omitempty"` // AnswerUpload, as received.

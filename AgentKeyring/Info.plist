@@ -20,6 +20,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>AgentKeyringSharedKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.shared</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMultipleInstancesProhibited</key>
@@ -32,17 +34,5 @@
 	<array>
 		<string>ASCredentialExchangeActivity</string>
 	</array>
-	<key>SUEnableDownloaderService</key>
-	<true/>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUAutomaticallyUpdate</key>
-	<true/>
-	<key>SUEnableInstallerLauncherService</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://joshp123.github.io/agent-keyring/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>plozm79Eiw9FXBlXYpZOHStIYydwLn+5iYV+DQ1aVFw=</string>
 </dict>
 </plist>

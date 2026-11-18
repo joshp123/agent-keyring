@@ -19,6 +19,8 @@ public enum MacSelfTest: Equatable, Sendable {
     case waiting
     case passed(Date)
     case failed(String)
+    /// He denied the test request: nothing is wrong, it is simply not tested.
+    case declined
 }
 
 @available(macOS 26.0, *)
@@ -68,8 +70,12 @@ extension MirrorAppModel {
         if case .passed = selfTest { await device?.reportSelfTest(passed: true, error: "") }
     }
 
-    /// Denied: the test is offered again next time Agent Keyring opens.
     public func declineSelfTest() {
-        selfTest = .notRun
+        selfTest = .declined
+    }
+
+    /// "Send It Again".
+    public func sendSelfTestAgain() {
+        selfTest = .waiting
     }
 }
