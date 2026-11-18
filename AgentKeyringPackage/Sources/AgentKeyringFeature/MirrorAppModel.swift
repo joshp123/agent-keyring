@@ -43,7 +43,7 @@ public final class MirrorAppModel {
     public internal(set) var isImporting = false
     public internal(set) var providerState = ProviderEnablementState.unknown
     /// macOS answers a second request only 10 seconds after the last one.
-    public internal(set) var canAskAgain = false
+    public internal(set) var canAskAgain = true
     public internal(set) var notice: MirrorNotice?
     public let accessControl: CredentialAccessController
     public var syncReminders: MirrorSyncReminders?

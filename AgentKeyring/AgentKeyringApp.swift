@@ -54,10 +54,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 await model.loadStatus()
                 await model.importMadeUpLoginsIfAsked()
-                if model.status == nil {
-                    presentation.requestMainWindow()
-                    model.askToTurnOnAutoFillIfNeeded()
-                }
+                if model.status == nil { presentation.requestMainWindow() }
             }
         }
 
@@ -165,7 +162,10 @@ private struct FirstRunHome: View {
                 }
             }
         }
-        .task { await model.loadStatus() }
+        .task {
+            await model.loadStatus()
+            model.askToTurnOnAutoFillIfNeeded()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.recheckAutoFill() }
         }
