@@ -408,8 +408,55 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 
     /// Rule changes need sealing for other openers; not built yet.
+    /// Changes a login's rule: the next Catalogue, signed after Face ID, and the
+    /// sealed copies the new rule needs. Automatic seals the login to every machine
+    /// allowed Automatic logins; leaving Automatic withdraws those copies; leaving
+    /// "Ask on iPhone or Watch" seals it again to each Mac.
     public func setRule(_ rule: PhoneLogin.Rule, forLogin loginID: String) async throws {
-        throw KeyringRelayError(code: .unavailable, message: "Not built yet.")
+        guard let members, var next = catalogue, let index = next.logins.firstIndex(where: { $0.loginID == loginID }) else { return }
+        let old = next.logins[index]
+        var login = old
+        switch rule {
+        case .ask: login.rule = .ask; login.phoneAndWatchOnly = false
+        case .askOnIPhoneOrWatch: login.rule = .ask; login.phoneAndWatchOnly = true
+        case .automatic: login.rule = .automatic; login.phoneAndWatchOnly = false
+        case .blocked: login.rule = .blocked; login.phoneAndWatchOnly = false
+        }
+        guard login != old else { return }
+        let context = LAContext()
+        defer { context.invalidate() }
+        try await keys.authorize(context, reason: "Set \(Self.site(old)) to \(PhoneCopy.rule(rule)).")
+        let relay = try relay()
+        var batch = Agentkeyring_V2_SealedLogins()
+        let needsSecret = login.rule == .automatic && old.rule != .automatic || old.phoneAndWatchOnly && !login.phoneAndWatchOnly
+        if needsSecret {
+            guard case let .sealedLogins(mine) = try await relay.call(Self.method { $0.sealedLogins = .init() }).result,
+                  let sealed = mine.logins.first(where: { $0.loginID == loginID }) else {
+                throw KeyringRelayError(code: .notFound, message: "This iPhone holds no copy of that login.")
+            }
+            let secret = try keys.open(sealed, context: context)
+            if login.rule == .automatic && old.rule != .automatic {
+                for machine in members.machines where machine.automaticAllowed {
+                    batch.logins.append(try Sealing.seal(secret, to: P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey),
+                                                         openerID: machine.machineID))
+                }
+            }
+            if old.phoneAndWatchOnly && !login.phoneAndWatchOnly {
+                for mac in members.devices where mac.kind == .mac {
+                    batch.logins.append(try Sealing.seal(secret, to: P256.KeyAgreement.PublicKey(x963Representation: mac.openingPublicKey),
+                                                         openerID: mac.keyID))
+                }
+            }
+        }
+        if old.rule == .automatic && login.rule != .automatic { batch.withdrawnLoginIds = [loginID] }
+        next.logins[index] = login
+        next.revision += 1
+        let signed = try Sealing.signed(next.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
+        _ = try await relay.call(Self.method { $0.publishCatalogue = signed })
+        try accept(catalogue: signed)
+        if !batch.logins.isEmpty || !batch.withdrawnLoginIds.isEmpty {
+            _ = try await relay.call(Self.method { $0.publishSealedLogins = batch })
+        }
     }
 
     /// Removes a device or machine: the next Members, signed after Face ID.
