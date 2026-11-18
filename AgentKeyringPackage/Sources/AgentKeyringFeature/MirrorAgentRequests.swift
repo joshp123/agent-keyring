@@ -36,14 +36,15 @@ extension MirrorAppModel {
                         throw LeaseFailure(.invalidArgument, "Give a relay host and port.")
                     }
                     _ = try macKeys()
-                    try await device!.beginSetup(try RelayEndpoint(host: setup.host, port: port))
+                    result.invite = try await device!.beginSetup(try RelayEndpoint(host: setup.host, port: port),
+                        agent: AgentRequester.from(peer: peer).name, reason: setup.reason)
                 case .invite:
                     _ = try macKeys()
                     result.invite = try device!.inviteMachine()
                 case .relayStatus:
                     _ = try macKeys()
                     result.relayStatus = device!.connection == .connected ? "connected"
-                        : device!.isJoined || device!.setupWaiting != nil ? "waiting" : "not-started"
+                        : device!.isJoined || device!.setup != nil ? "waiting" : "not-started"
                 default: throw LeaseFailure(.invalidArgument, "Choose a setup action: start-relay or relay-status.")
                 }
                 response.setup = result

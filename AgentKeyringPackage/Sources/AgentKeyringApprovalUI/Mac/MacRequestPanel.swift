@@ -46,8 +46,8 @@ struct MacApprovalPanelView: View {
     private var asking: some View {
         VStack(spacing: 14) {
             header
-            if request.access == .test { testBody } else { requestBody }
-            if request.access == .test {
+            if let setUp { setUpBody(setUp) } else { requestBody }
+            if setUp != nil {
                 HStack { Spacer(); denyButton }
             } else {
                 replyRow
@@ -65,13 +65,25 @@ struct MacApprovalPanelView: View {
         .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
     }
 
-    private var testBody: some View {
-        VStack(spacing: 1) {
-            Text("A test from Agent Keyring").font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
-            Text("Test request")
-                .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
-                .foregroundStyle(RequestToken.ink).frame(height: 38)
-            Text("No login is used").font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+    private var setUp: (lead: String, detail: String, footer: String)? {
+        if case let .setUp(lead, detail, footer) = request.access { return (lead, detail, footer) }
+        return nil
+    }
+
+    private func setUpBody(_ setUp: (lead: String, detail: String, footer: String)) -> some View {
+        VStack(spacing: 10) {
+            VStack(spacing: 1) {
+                Text(setUp.lead).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+                Text(request.login.site)
+                    .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
+                    .foregroundStyle(RequestToken.ink).lineLimit(1).minimumScaleFactor(0.6).frame(height: 38)
+                Text(setUp.detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+            }
+            if !request.agentReason.isEmpty {
+                Text("“\(request.agentReason)”")
+                    .font(.system(size: 15)).foregroundStyle(RequestToken.ink)
+                    .multilineTextAlignment(.center).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.top, 6).padding(.bottom, 2)
     }
@@ -150,7 +162,7 @@ struct MacApprovalPanelView: View {
         Button { Task { await model.deny() } } label: {
             Text(sending == .deny ? "Denying…" : "Deny")
                 .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.onAnswer)
-                .padding(.horizontal, request.access == .test ? 22 : 18).frame(height: 36)
+                .padding(.horizontal, setUp != nil ? 22 : 18).frame(height: 36)
                 .background(RequestToken.deny, in: Capsule())
                 .contentShape(Capsule())
         }
@@ -200,7 +212,7 @@ struct MacApprovalPanelView: View {
     }
 
     private var footer: String {
-        if request.access == .test { return "Approve it to finish setting up." }
+        if let setUp { return setUp.footer }
         if case .agentProcess = request.access { return "\(agent) can keep the password once it has seen it." }
         return "\(agent) can use this login for this task, 30 minutes at most."
     }

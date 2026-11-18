@@ -88,7 +88,7 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
         return MacMenuBarSnapshot(
             requests: model.leaseStore.leases.map(model.accessRequest(for:)) + remote,
             enrolments: device?.joins.map(RelayScreenMapping.enrolment) ?? [],
-            relay: device?.isJoined == true || device?.setupWaiting != nil ? RelayScreenMapping.relayLink(device) : nil)
+            relay: device?.isJoined == true || device?.setup != nil ? RelayScreenMapping.relayLink(device) : nil)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {

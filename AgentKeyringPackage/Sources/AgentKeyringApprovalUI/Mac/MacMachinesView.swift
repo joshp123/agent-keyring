@@ -42,11 +42,14 @@ public struct ApproverDevice: Hashable, Sendable {
     public var keyID: String
     public var name: String
     public var isPhone: Bool
+    /// When the device last tested itself, as the relay keeps it.
+    public var lastTested: Date?
 
-    public init(keyID: String = "", name: String, isPhone: Bool) {
+    public init(keyID: String = "", name: String, isPhone: Bool, lastTested: Date? = nil) {
         self.keyID = keyID
         self.name = name
         self.isPhone = isPhone
+        self.lastTested = lastTested
     }
 }
 
@@ -231,7 +234,8 @@ public struct MacMachinesView: View {
                     ForEach(model.snapshot.approvers, id: \.self) { approver in
                         HStack {
                             MachineLabel(name: approver.name,
-                                detail: approver.isPhone ? SetupCopy.answersWithFaceID : SetupCopy.answersWithTouchID,
+                                detail: (approver.isPhone ? SetupCopy.answersWithFaceID : SetupCopy.answersWithTouchID)
+                                    + (approver.lastTested.map { " Last tested at \($0.formatted(date: .omitted, time: .shortened))." } ?? ""),
                                 symbol: approver.isPhone ? "iphone" : "laptopcomputer")
                             if approver.isPhone {
                                 Spacer()

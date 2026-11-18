@@ -31,14 +31,14 @@ public final class MacDevice {
     }
 
     public private(set) var connection = Connection.notSetUp
-    /// Set by an agent's `agent-keyring setup-relay`: Josh confirms in a panel before anything is signed.
-    public private(set) var setupWaiting: RelayEndpoint?
     /// Requests from agents on other machines that nobody has answered yet.
     public private(set) var waiting: [String: Agentkeyring_V2_Work] = [:]
     /// Requests answered here or elsewhere, newest outcome last, for the menu bar.
     public private(set) var finished: [String: Agentkeyring_V2_Work] = [:]
     public private(set) var joins: [Agentkeyring_V2_PendingJoin] = []
     public private(set) var members: Agentkeyring_V2_Members?
+    /// Each device's last self-test that passed, by key id, as the relay keeps them.
+    public private(set) var lastTested: [String: Date] = [:]
 
     let keys: MacKeys
     let store: LoginStore
@@ -92,31 +92,76 @@ public final class MacDevice {
 
     // MARK: Setting up
 
-    /// An agent ran `agent-keyring setup-relay`: note the relay's key and ask Josh.
-    public func beginSetup(_ endpoint: RelayEndpoint) async throws {
+    /// An agent on this Mac is setting up the always-on machine that runs the relay.
+    public struct Setup: Equatable {
+        public let endpoint: RelayEndpoint
+        public let agent: String
+        public let reason: String
+        /// The always-on machine, once its join proves the setup invitation.
+        public internal(set) var machine: Agentkeyring_V2_Machine?
+    }
+
+    public private(set) var setup: Setup?
+    private var setupSecret: Data?
+    @ObservationIgnored private var setupWatch: Task<Void, Never>?
+
+    /// An agent ran `agent-keyring setup-relay`: note the relay's key, and give
+    /// the agent an invitation for the always-on machine. The request appears
+    /// beside the pointer once that machine asks to join with it.
+    public func beginSetup(_ endpoint: RelayEndpoint, agent: String, reason: String) async throws -> String {
+        guard saved == nil else { throw RelayFailure(.conflict, "This Mac is already connected to a relay.") }
         var observed = Data()
         var request = Agentkeyring_V2_RelayRequest()
         request.method = .members(Agentkeyring_V2_Empty())
         _ = try? await KeyringRelay(endpoint: endpoint, identity: keys.tls, pin: nil).call(request) { observed = $0 }
         guard !observed.isEmpty else { throw RelayFailure(.unavailable, "The relay could not be reached at \(endpoint.host).") }
         setupPin = observed
-        setupWaiting = endpoint
+        setup = Setup(endpoint: endpoint, agent: agent, reason: reason)
+        let invite = invitation(endpoint: endpoint, pin: observed, lasting: 600)
+        setupSecret = invite.secret
+        setupWatch?.cancel()
+        setupWatch = Task { [weak self] in
+            while let self, !Task.isCancelled, self.setup != nil, self.setup?.machine == nil {
+                var request = Agentkeyring_V2_RelayRequest()
+                request.method = .pendingJoins(Agentkeyring_V2_Empty())
+                if let response = try? await KeyringRelay(endpoint: endpoint, identity: self.keys.tls, pin: observed).call(request),
+                    let secret = self.setupSecret {
+                    let proven = response.pendingJoins.joins.filter { Sealing.joinProof(secret: secret, joining: $0.request) == $0.request.proof }
+                    if Set(proven.map(Self.joinID)).count > 1 {
+                        deviceLogger.error("Two machines proved the setup invitation; setup is cancelled.")
+                        self.abandonSetup()
+                        return
+                    }
+                    if case let .machine(machine)? = proven.first?.request.joining { self.setup?.machine = machine }
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+        return "agentkeyring://join?invite=" + (try invite.serializedData()).base64URLEncoded
     }
 
-    public func abandonSetup() { setupWaiting = nil; setupPin = nil }
+    public func abandonSetup() {
+        setupWatch?.cancel()
+        setup = nil
+        setupPin = nil
+        setupSecret = nil
+    }
 
-    /// Josh confirmed with Touch ID: this Mac becomes the first device, and the
-    /// machine its own agents run on, at this relay.
-    public func confirmSetup(context: LAContext) async throws {
-        guard let endpoint = setupWaiting, let pin = setupPin else { return }
+    /// Josh clicked and touched the sensor: this Mac becomes the first device,
+    /// and the always-on machine and this Mac the first machines, at this relay.
+    public func confirmSetup(context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
+        guard let setup, var always = setup.machine, let pin = setupPin else { return }
+        try await confirm(context, reason: "add \(always.label) as your always-on machine")
+        onAuthenticated()
+        always.automaticAllowed = true
         var members = Agentkeyring_V2_Members()
         members.domain = "agentkeyring.members.v2"
         members.revision = 1
         members.devices = [keys.device]
-        members.machines = [keys.machine]
+        members.machines = [keys.machine, always]
         members.relayTlsPublicKey = pin
         let signed = try Sealing.signed(members.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
-        saved = Saved(endpoint: endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0)
+        saved = Saved(endpoint: setup.endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0)
         do {
             _ = try await call(.publishMembers(signed))
         } catch {
@@ -125,9 +170,18 @@ public final class MacDevice {
         }
         self.members = members
         try persist()
-        setupWaiting = nil
+        try await store.replaceSealed(try await store.sealed() + (await automaticCopies(for: always)))
+        abandonSetup()
         try await publish(context: context)
         start()
+    }
+
+    /// The Automatic logins sealed for a machine, from this Mac's own copies: no Touch ID needed.
+    private func automaticCopies(for machine: Agentkeyring_V2_Machine) async throws -> [Agentkeyring_V2_SealedLogin] {
+        let key = try P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)
+        return try await store.sealed().filter { $0.openerID == keys.machineID }.map {
+            try Sealing.seal(try Sealing.open($0, with: keys.receiving), to: key, openerID: machine.machineID)
+        }
     }
 
     // MARK: Staying connected
@@ -141,6 +195,7 @@ public final class MacDevice {
                 do {
                     try await self.refreshMembers()
                     self.connection = .connected
+                    await self.refreshSelfTests()
                     var request = Agentkeyring_V2_RelayRequest()
                     request.method = .watchWork(Agentkeyring_V2_Empty())
                     let joins = Task { await self.pollJoins() }
@@ -190,6 +245,16 @@ public final class MacDevice {
         }
     }
 
+    private func refreshSelfTests() async {
+        guard let members, let response = try? await call(.selfTests(Agentkeyring_V2_Empty())) else { return }
+        for document in response.selfTests.reports {
+            guard let signer = try? Sealing.verify(document, members: members, allowReplyKey: true),
+                let report = try? Agentkeyring_V2_SelfTestReport(serializedBytes: document.payload),
+                report.deviceKeyID == signer.keyID, report.checks.allSatisfy(\.passed) else { continue }
+            lastTested[signer.keyID] = Date(timeIntervalSince1970: TimeInterval(report.testedUnixSeconds))
+        }
+    }
+
     private func refreshMembers() async throws {
         let response = try await call(.members(Agentkeyring_V2_Empty()))
         guard case let .signed(document) = response.result, let current = members,
@@ -230,14 +295,18 @@ public final class MacDevice {
 
     private func invitation(lasting seconds: TimeInterval) throws -> Agentkeyring_V2_JoinInvite {
         guard let saved else { throw RelayFailure(.unavailable, "Connect this Mac to the relay first: agent-keyring setup-relay.") }
+        return invitation(endpoint: saved.endpoint, pin: saved.pin, lasting: seconds)
+    }
+
+    private func invitation(endpoint: RelayEndpoint, pin: Data, lasting seconds: TimeInterval) -> Agentkeyring_V2_JoinInvite {
         var secret = Data(count: 32)
         _ = secret.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
         let expires = Date.now.addingTimeInterval(seconds)
         invitations[secret] = expires
         var invite = Agentkeyring_V2_JoinInvite()
-        invite.relayHost = saved.endpoint.host
-        invite.relayPort = UInt32(saved.endpoint.port)
-        invite.relayTlsSha256 = Sealing.sha256(saved.pin)
+        invite.relayHost = endpoint.host
+        invite.relayPort = UInt32(endpoint.port)
+        invite.relayTlsSha256 = Sealing.sha256(pin)
         invite.inviterKeyID = keys.deviceKeyID
         invite.secret = secret
         invite.expiresUnixSeconds = Int64(expires.timeIntervalSince1970)
@@ -358,12 +427,7 @@ public final class MacDevice {
             machine.automaticAllowed = allowAutomatic
             next.machines.removeAll { $0.machineID == machine.machineID }
             next.machines.append(machine)
-            if allowAutomatic {
-                let key = try P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)
-                for copy in sealed where copy.openerID == keys.machineID {
-                    sealed.append(try Sealing.seal(try Sealing.open(copy, with: keys.receiving), to: key, openerID: machine.machineID))
-                }
-            }
+            if allowAutomatic { sealed += try await automaticCopies(for: machine) }
         case let .device(device)?:
             next.devices.removeAll { $0.keyID == device.keyID }
             next.devices.append(device)
