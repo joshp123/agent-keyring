@@ -54,7 +54,10 @@ public final class MirrorAppModel {
     public internal(set) var leaseLogins: [CredentialCandidate] = []
     let bridge: AgentBridgeDirectory
     public private(set) var includeExampleCredential: Bool
-    private let settings: UserDefaults
+    public internal(set) var selfTest = MacSelfTest.notRun
+    /// From Open Passwords until the logins arrive: the window stays above Passwords.
+    public internal(set) var awaitingExport = false
+    let settings: UserDefaults
     var handledTokens = Set<UUID>()
     var agentListener: AgentBridgeServer?
 
@@ -77,6 +80,7 @@ public final class MirrorAppModel {
         self.settings = settings
         self.leaseStore = leaseStore
         self.includeExampleCredential = settings.object(forKey: "includeExampleCredential") as? Bool ?? true
+        if let tested = settings.object(forKey: Self.testedAtKey) as? Date { selfTest = .passed(tested) }
         accessControl.beforeSave = { [weak self] old, new, context in
             try await self?.applyRuleChange(from: old, to: new, context: context)
         }
@@ -113,6 +117,7 @@ public final class MirrorAppModel {
         }
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
         if (try? macKeys()) != nil { device?.start() }
+        offerSelfTestIfNeeded()
     }
 
     public func setIncludeExampleCredential(_ enabled: Bool) async {

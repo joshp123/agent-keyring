@@ -44,23 +44,23 @@ public enum PhoneCopy {
         let on = device.map { " on your \($0)" } ?? ""
         switch request.state {
         case let .approved(_, until): return "Approved\(on). \(request.agent.name) can use this login until \(clock(until)) at the latest."
+        case let .denied(_, reply?, _): return "Denied\(on). You told \(request.agent.name): \(quoted(reply))"
         case .denied: return "Denied\(on)."
-        case .unanswered: return "No answer. The request ended after 10 minutes. \(request.agent.name) can ask again."
+        case .unanswered: return "No answer. The request ended after 10 minutes, and \(request.agent.name) can ask again."
+        case .cancelled: return "Withdrawn. \(request.agent.name) stopped asking before you answered."
         default: return "This request has ended."
         }
     }
 
-    /// Not in Paper: Approve could not finish on the Lock Screen.
-    public static let openToApprove = "Tap to approve with Face ID in Agent Keyring."
-    /// Not in Paper: shown if the request's words cannot be opened in time.
-    public static let notificationFallbackTitle = "An agent is asking to use a login"
+    /// Shown if the request's words cannot be opened in time.
+    public static let notificationFallbackTitle = "An agent wants to use a login."
     public static let notificationFallbackBody = "Open Agent Keyring to see the request."
 
     // The buttons iOS draws under a held notification.
     public static let approve = "Approve"
     public static let denyAndExplain = "Deny and Explain"
-    /// Not in Paper: the category is fixed, so it cannot name the agent.
-    public static let explainPlaceholder = "What should the agent do instead?"
+    /// The category is fixed, so it cannot name the agent.
+    public static let explainPlaceholder = replyPlaceholderShort
 
     // Activity.
     public static let activity = "Activity"
@@ -87,10 +87,11 @@ public enum PhoneCopy {
     public enum Outcome { case approved, denied, noAnswer }
     public static func outcome(_ state: AccessRequestState) -> (Outcome, String) {
         switch state {
+        case .approved(by: .automaticRule, _): (.approved, "Automatic")
         case .approved, .expired, .released, .ended: (.approved, "Approved")
-        case .denied, .blockedByRule: (.denied, "Denied")
+        case .blockedByRule: (.denied, "Blocked")
+        case .denied: (.denied, "Denied")
         case .unanswered: (.noAnswer, "No answer")
-        // Not in Paper: the agent stopped asking before anyone answered.
         case .cancelled, .waitingForYou, .sendingAnswer, .waitingForMac: (.noAnswer, "Withdrawn")
         }
     }
@@ -116,27 +117,47 @@ public enum PhoneCopy {
     public static let remove = "Remove"
     public static let cancel = "Cancel"
 
-    // First run.
+    // First run (Paper, "First run").
     public static let firstRunLead = "Approve or deny your AI agents’ requests on this iPhone."
-    public static let pointCamera = "Point the camera at the code on your Mac."
-    public static let canApprove = "This iPhone can approve"
-    public static let turnOnNotificationsLead = "Turn on notifications so that requests reach you while the iPhone is locked."
-    public static let turnOnNotifications = "Turn On Notifications"
-    public static let watchQuestion = "Let your Apple Watch approve too?"
-    public static let watchLead = "On the Watch you approve with one tap, while it is unlocked on your wrist."
-    public static let allowWithFaceID = "Allow with Face ID"
-    public static let notNow = "Not Now"
+    public static let readyLead = "This iPhone is ready. Requests appear here."
+    public static let approveOnMac = "Approve this iPhone on your Mac"
+    public static let approveOnMacDetail = "A request is waiting there. Click its green button, then touch the sensor."
+    public static let macAdded = "Your Mac added this iPhone"
+    public static let noMac = "No Mac found. Set up Agent Keyring on your Mac first."
+    public static let iCloudKeychainOff = "iCloud Keychain is off on this iPhone, so it can’t find your Mac. Turn it on in Settings."
+    public static let notificationsOn = "Notifications are on"
+    public static let notificationsOff = "Notifications are off"
+    public static let notificationsOffDetail = "Requests can’t reach this iPhone until you turn them on in Settings."
+    public static let openSettings = "Open Settings"
+    public static let requestsReach = "Requests reach this iPhone"
+    public static let cantReachRelay = "This iPhone can’t reach Mac mini. Check that Tailscale is on."
+    public static let noAlwaysOn = "Your Mac has no always-on machine yet, so requests can’t reach this iPhone. Add one on your Mac."
+    public static let testApproved = "You approved the test request with Face ID"
+    public static let addWatch = "Add your Watch"
+    public static let addWatchOpen = "Open Agent Keyring on your Watch."
+    public static let addWatchApprove = "Approve the Watch’s request with Face ID."
+    public static func deviceWorks(_ name: String) -> String { "\(name) works" }
 
-    // Failures. Not in Paper.
-    public static let answerFailed = "Your answer didn’t reach Agent Keyring. Try again."
-    public static let stopFailed = "Couldn’t stop it. It stops by itself after 30 minutes."
-    public static let joinFailed = "That code didn’t work. Show a new code on your Mac and try again."
-    public static let watchFailed = "Couldn’t add your Watch. Try again from Devices."
-    public static let changeFailed = "Couldn’t make that change. Try again."
+    // The test request and a new device's request, as sheets.
+    public static let testFrom = "A test from Agent Keyring"
+    public static let testTitle = "Test request"
+    public static let noLoginUsed = "No login is used"
+    public static let testFootnote = "Approve it to finish setting up."
+    public static let newDevice = "A new device wants to approve requests"
+    public static let pairedWithThisIPhone = "Paired with this iPhone"
+    public static let watchFootnote = "It will approve with one tap while it is on your wrist and unlocked. You can remove it at any time."
+
+    // Failures.
+    public static let answerFailed = "Your answer wasn’t sent. Try again."
+    public static func stopFailed(until: Date?) -> String {
+        "Couldn’t stop it. Try again." + (until.map { " It ends by itself at \(clock($0))." } ?? "")
+    }
+    public static let changeFailed = "That change wasn’t saved. Try again."
     public static let ok = "OK"
     public static func removeQuestion(_ name: String) -> String { "Remove \(name)?" }
     public static func removeDetail(_ device: PhoneDevice) -> String {
-        device.role == .approves ? "It will no longer be able to approve requests." : "Its agents will no longer be able to ask for logins."
+        device.role == .approves ? "It will no longer approve requests. You can add it again."
+            : "Agents on it will no longer be able to ask to use your logins."
     }
 
     public static func clock(_ date: Date) -> String {

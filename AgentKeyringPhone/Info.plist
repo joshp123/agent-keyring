@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>AgentKeyringKeychainGroup</key>
-    <string>$(AppIdentifierPrefix)$(AGENT_KEYRING_BUNDLE_ID).shared</string>
+    <string>$(AppIdentifierPrefix)com.joshpalmer.AgentKeyring.shared</string>
     <key>AgentKeyringAPNSEnvironment</key>
     <string>$(AGENT_KEYRING_APNS_ENVIRONMENT)</string>
     <key>CFBundleURLTypes</key>
