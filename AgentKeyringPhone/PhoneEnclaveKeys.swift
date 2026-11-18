@@ -1,131 +1,134 @@
+// Written by AI on 2026.11.18 by model Claude Opus 5.5.
+//
+// The iPhone's keys in its Secure Enclave. Only the Enclave's wrapped form is
+// kept in the keychain; the private keys never leave the chip. A new face
+// enrolled in Face ID stops the signing and opening keys working.
+
 import AgentKeyringPhoneApprover
+import AgentKeyringSealing
 import CryptoKit
 import Foundation
 import LocalAuthentication
 import Security
 
-/// These are device-wrapped Secure Enclave representations, not exportable private keys.
-/// Signing and copy opening use the same action's Face ID context.
-struct PhoneEnclaveKeys: PhoneApproverKeys {
-    private let service = "com.joshpalmer.AgentKeyring.Phone.enclave"
+struct PhoneEnclaveKeys: PhoneDeviceKeys {
+    private let service = "com.joshpalmer.AgentKeyring.Phone.keys.v2"
 
-    func replace() throws {
-        for account in ["phone-answers.v3", "phone-copies.v1"] {
-            let status = SecItemDelete(query(account: account) as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else {
-                throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-            }
-        }
-        _ = try signingPublicKey()
-        _ = try encryptionPublicKey()
-    }
-
-    func signingPublicKey() throws -> Data {
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        return try signingKey(context: context, createIfMissing: true).publicKey.x963Representation
-    }
-
-    func encryptionPublicKey() throws -> Data {
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        return try sealingKey(context: context, createIfMissing: true).publicKey.x963Representation
-    }
-
-    func openCopy(encapsulatedKey: Data, ciphertext: Data, associatedData: Data, context: LAContext) throws -> Data {
-        var recipient = try HPKE.Recipient(privateKey: sealingKey(context: context, createIfMissing: false),
-                                           ciphersuite: .P256_SHA256_AES_GCM_256,
-                                           info: Data("agentkeyring.login-copy.v1".utf8), encapsulatedKey: encapsulatedKey)
-        return try recipient.open(ciphertext, authenticating: associatedData)
-    }
-
-    private func sealingKey(context: LAContext, createIfMissing: Bool) throws -> SecureEnclave.P256.KeyAgreement.PrivateKey {
-        if let representation = try load(account: "phone-copies.v1") {
-            return try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: representation, authenticationContext: context)
-        }
-        guard createIfMissing else { throw PhoneEnclaveFailure.sealingKeyMissing }
-        let key = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: faceIDAccessControl(), authenticationContext: context)
-        try save(key.dataRepresentation, account: "phone-copies.v1")
-        return key
-    }
+    func signingPublicKey() throws -> Data { try signingKey(LAContext.silent).publicKey.x963Representation }
+    func openingPublicKey() throws -> Data { try openingKey(LAContext.silent).publicKey.x963Representation }
+    func replyPublicKey() throws -> Data { try replyKey().publicKey.x963Representation }
+    func noticePublicKey() throws -> Data { try noticeKey().publicKey.x963Representation }
 
     func authorize(_ context: LAContext, reason: String) async throws {
-        context.localizedReason = reason
         context.localizedFallbackTitle = ""
         var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error), context.biometryType == .faceID else {
-            throw error ?? PhoneEnclaveFailure.enclaveUnavailable
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+            throw error ?? LAError(.biometryNotAvailable)
         }
-        guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) else {
-            throw LAError(.authenticationFailed)
+        do {
+            guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) else {
+                throw LAError(.authenticationFailed)
+            }
+        } catch let error as LAError where [.userCancel, .systemCancel, .appCancel].contains(error.code) {
+            throw CancellationError()
         }
-        // Signing must use this action's authentication. Fail instead of
-        // silently presenting another Face ID prompt.
+        // Signing and opening must use this approval; never a second prompt.
         context.interactionNotAllowed = true
     }
 
     func sign(_ bytes: Data, context: LAContext) throws -> Data {
-        try signingKey(context: context, createIfMissing: false).signature(for: bytes).derRepresentation
+        try signingKey(context).signature(for: bytes).derRepresentation
     }
 
-    private func signingKey(context: LAContext, createIfMissing: Bool) throws -> SecureEnclave.P256.Signing.PrivateKey {
-        if let representation = try load(account: "phone-answers.v3") {
-            return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: representation, authenticationContext: context)
-        }
-        guard createIfMissing else { throw PhoneEnclaveFailure.signingKeyMissing }
-        let key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: faceIDAccessControl(), authenticationContext: context)
-        try save(key.dataRepresentation, account: "phone-answers.v3")
+    func open(_ sealed: SealedLogin, context: LAContext) throws -> LoginSecret {
+        try Sealing.open(sealed, with: openingKey(context))
+    }
+
+    func signReply(_ bytes: Data) throws -> Data {
+        try replyKey().signature(for: bytes).derRepresentation
+    }
+
+    // MARK: Keys
+
+    private func signingKey(_ context: LAContext) throws -> SecureEnclave.P256.Signing.PrivateKey {
+        try key("signing", make: { try .init(accessControl: biometric(), authenticationContext: context) },
+                load: { try .init(dataRepresentation: $0, authenticationContext: context) })
+    }
+
+    private func openingKey(_ context: LAContext) throws -> SecureEnclave.P256.KeyAgreement.PrivateKey {
+        try key("opening", make: { try .init(accessControl: biometric(), authenticationContext: context) },
+                load: { try .init(dataRepresentation: $0, authenticationContext: context) })
+    }
+
+    private func replyKey() throws -> SecureEnclave.P256.Signing.PrivateKey {
+        try key("reply", make: { try .init(accessControl: unlocked(kSecAttrAccessibleWhenUnlockedThisDeviceOnly)) },
+                load: { try .init(dataRepresentation: $0) })
+    }
+
+    /// Opened by the notification service extension, which runs while the phone is locked.
+    private func noticeKey() throws -> SecureEnclave.P256.KeyAgreement.PrivateKey {
+        try key("notice", make: { try .init(accessControl: unlocked(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)) },
+                load: { try .init(dataRepresentation: $0) })
+    }
+
+    private func key<Key>(_ name: String, make: () throws -> Key, load: (Data) throws -> Key) throws -> Key
+        where Key: SecureEnclaveKey {
+        if let saved = try read(name) { return try load(saved) }
+        let key = try make()
+        try write(key.dataRepresentation, name)
         return key
     }
 
-    private func faceIDAccessControl() throws -> SecAccessControl {
-        guard SecureEnclave.isAvailable else { throw PhoneEnclaveFailure.enclaveUnavailable }
-        let context = LAContext()
-        var policyError: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &policyError),
-              context.biometryType == .faceID else {
-            throw policyError ?? NSError(domain: "AgentKeyring.FaceID", code: 1)
-        }
+    private func biometric() throws -> SecAccessControl {
+        try accessControl(kSecAttrAccessibleWhenUnlockedThisDeviceOnly, [.privateKeyUsage, .biometryCurrentSet])
+    }
+
+    private func unlocked(_ accessible: CFString) throws -> SecAccessControl {
+        try accessControl(accessible, [.privateKeyUsage])
+    }
+
+    private func accessControl(_ accessible: CFString, _ flags: SecAccessControlCreateFlags) throws -> SecAccessControl {
         var error: Unmanaged<CFError>?
-        guard let control = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                                                           [.privateKeyUsage, .biometryCurrentSet], &error) else {
-            throw error?.takeRetainedValue() as Error? ?? PhoneEnclaveFailure.accessControlUnavailable
+        guard let control = SecAccessControlCreateWithFlags(nil, accessible, flags, &error) else {
+            throw error!.takeRetainedValue() as Error
         }
         return control
     }
 
-    private func query(account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account,
-         kSecAttrSynchronizable as String: false,
+    private func query(_ name: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+         kSecAttrAccount as String: name, kSecAttrSynchronizable as String: false,
          kSecUseDataProtectionKeychain as String: true]
     }
 
-    private func load(account: String) throws -> Data? {
-        var attributes = query(account: account)
+    private func read(_ name: String) throws -> Data? {
+        var attributes = query(name)
         attributes[kSecReturnData as String] = true
         var result: CFTypeRef?
         let status = SecItemCopyMatching(attributes as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-        }
+        guard status == errSecSuccess, let data = result as? Data else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
         return data
     }
 
-    private func save(_ representation: Data, account: String) throws {
-        var attributes = query(account: account)
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        attributes[kSecValueData as String] = representation
+    private func write(_ data: Data, _ name: String) throws {
+        var attributes = query(name)
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        attributes[kSecValueData as String] = data
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
     }
 }
 
-enum PhoneEnclaveFailure: Error {
-    case enclaveUnavailable
-    case accessControlUnavailable
-    case signingKeyMissing
-    case sealingKeyMissing
+protocol SecureEnclaveKey { var dataRepresentation: Data { get } }
+extension SecureEnclave.P256.Signing.PrivateKey: SecureEnclaveKey {}
+extension SecureEnclave.P256.KeyAgreement.PrivateKey: SecureEnclaveKey {}
+
+extension LAContext {
+    /// For reading a public key: never shows Face ID.
+    static var silent: LAContext {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return context
+    }
 }

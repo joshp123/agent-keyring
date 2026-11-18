@@ -51,7 +51,6 @@ public struct PhoneRequestBody: View {
                     .font(.subheadline).foregroundStyle(Phone.ink2)
                 Text(request.login.site)
                     .font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
-                    .lineLimit(2).minimumScaleFactor(0.6)
                 Text(request.login.account)
                     .font(.subheadline).foregroundStyle(Phone.ink2)
             }

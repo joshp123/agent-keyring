@@ -6,6 +6,7 @@
 
 import Foundation
 import Observation
+import UserNotifications
 
 /// A saved login as the iPhone lists it. Site and account are readable;
 /// the password stays sealed.
@@ -42,6 +43,10 @@ public struct PhoneDevice: Identifiable, Hashable, Sendable {
     public init(id: String, name: String, detail: String? = nil, role: Role, isThisIPhone: Bool = false) {
         self.id = id; self.name = name; self.detail = detail; self.role = role; self.isThisIPhone = isThisIPhone
     }
+}
+
+public enum PhoneTab: String, Hashable, Sendable {
+    case activity, logins, devices
 }
 
 /// Where first run has got to. `ready` shows the three tabs.
@@ -88,8 +93,11 @@ public protocol PhoneBackend: AnyObject {
 @Observable
 public final class PhoneModel {
     public private(set) var snapshot: PhoneSnapshot
+    public var tab = PhoneTab.activity
     /// The request on screen, from a tap on a notification or on Show.
-    public var shownRequestID: String?
+    public var shownRequestID: String? {
+        didSet { if shownRequestID != nil { tab = .activity } }
+    }
     public var replyDraft = ""
     public private(set) var answering: AnswerChoice?
     public private(set) var failure: String?
@@ -143,7 +151,11 @@ public final class PhoneModel {
         do { try await backend.join(scannedCode: scannedCode) } catch { failure = PhoneCopy.joinFailed }
     }
 
-    public func turnOnNotifications() async { await backend.turnOnNotifications() }
+    /// iOS asks once; whatever the answer, first run moves on.
+    public func turnOnNotifications() async {
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+        await backend.turnOnNotifications()
+    }
 
     public func allowWatch() async {
         do { try await backend.allowWatch() } catch { failure = PhoneCopy.watchFailed }

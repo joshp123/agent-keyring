@@ -49,7 +49,8 @@ struct PhoneRequestView: View {
                         .foregroundStyle(Phone.ink)
                         .accessibilityHidden(true)
                 }
-                .padding(.horizontal, 16)
+                // Paper has 16; 14 keeps "What should Codex do instead?" on one line beside Deny.
+                .padding(.horizontal, 14)
                 .frame(minHeight: 50)
                 .background(Phone.fill, in: .capsule)
                 .contentShape(.capsule)

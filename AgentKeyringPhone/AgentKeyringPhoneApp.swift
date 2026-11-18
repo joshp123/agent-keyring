@@ -35,6 +35,9 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         backend = sample
         model = PhoneModel(backend: sample, initial: sample.current)
         super.init()
+        // For comparing screens with Paper in the simulator: -SampleTab logins, -SampleShow r1.
+        if let tab = UserDefaults.standard.string(forKey: "SampleTab").flatMap(PhoneTab.init(rawValue:)) { model.tab = tab }
+        model.shownRequestID = UserDefaults.standard.string(forKey: "SampleShow")
     }
 
     /// `-SampleSetup scanCode` starts the sample at that step of first run.

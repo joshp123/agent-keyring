@@ -57,7 +57,7 @@ struct PhoneFirstRunView: View {
 
     private var watch: some View {
         Step(title: PhoneCopy.watchQuestion, lead: PhoneCopy.watchLead) {
-            Image(systemName: "applewatch").font(.system(size: 56, weight: .light)).foregroundStyle(Phone.ink)
+            WatchOutline().stroke(Phone.ink, style: StrokeStyle(lineWidth: 4.2, lineCap: .round, lineJoin: .round))
                 .frame(width: 72, height: 72)
         } actions: {
             VStack(spacing: 6) {
@@ -98,6 +98,19 @@ private struct Step<Symbol: View, Actions: View>: View {
         }
         .padding(.horizontal, 28)
         .padding(.bottom, 44)
+    }
+}
+
+/// Paper's Watch, drawn in a 24-point box: case, straps and crown.
+private struct WatchOutline: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = rect.width / 24
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+        var path = Path(roundedRect: CGRect(x: 6.6 * s, y: 6 * s, width: 10.8 * s, height: 12 * s), cornerRadius: 3.2 * s, style: .continuous)
+        path.move(to: p(9, 6)); path.addLine(to: p(9.7, 2.6)); path.addLine(to: p(14.3, 2.6)); path.addLine(to: p(15, 6))
+        path.move(to: p(9, 18)); path.addLine(to: p(9.7, 21.4)); path.addLine(to: p(14.3, 21.4)); path.addLine(to: p(15, 18))
+        path.move(to: p(18.9, 10.4)); path.addLine(to: p(18.9, 13))
+        return path
     }
 }
 

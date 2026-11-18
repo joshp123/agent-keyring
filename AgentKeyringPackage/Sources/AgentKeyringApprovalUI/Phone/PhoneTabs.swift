@@ -14,12 +14,16 @@ public struct PhoneRootView: View {
     public var body: some View {
         Group {
             if model.snapshot.setup == .ready {
-                TabView {
-                    Tab(PhoneCopy.activity, systemImage: "clock") { PhoneActivityView(model: model) }
-                    Tab { PhoneLoginsView(model: model) } label: {
+                TabView(selection: $model.tab) {
+                    Tab(value: PhoneTab.activity) { PhoneActivityView(model: model) } label: {
+                        Label { Text(PhoneCopy.activity) } icon: { Image(uiImage: TabGlyph.outline("clock")) }
+                    }
+                    Tab(value: PhoneTab.logins) { PhoneLoginsView(model: model) } label: {
                         Label { Text(PhoneCopy.logins) } icon: { Image(uiImage: KeyholeGlyph.image) }
                     }
-                    Tab(PhoneCopy.devices, systemImage: "iphone") { PhoneDevicesView(model: model) }
+                    Tab(value: PhoneTab.devices) { PhoneDevicesView(model: model) } label: {
+                        Label { Text(PhoneCopy.devices) } icon: { Image(uiImage: TabGlyph.outline("iphone")) }
+                    }
                 }
                 .tint(Phone.ink)
             } else {
@@ -140,10 +144,18 @@ struct PhoneActivityView: View {
     }
 }
 
+/// Paper draws the tab icons as outlines; a SwiftUI symbol in a tab bar is always filled.
+enum TabGlyph {
+    @MainActor static func outline(_ name: String) -> UIImage {
+        UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold))!
+            .withRenderingMode(.alwaysTemplate)
+    }
+}
+
 /// The keyhole alone, for the Logins tab, drawn as a template so the tab bar tints it.
 enum KeyholeGlyph {
     @MainActor static let image: UIImage = {
-        let size = CGSize(width: 22, height: 22)
+        let size = CGSize(width: 20, height: 20)
         let image = UIGraphicsImageRenderer(size: size).image { _ in
             // The icon's figure, from its 80 × 80 view box at (10, 12).
             let s = size.width / 80
