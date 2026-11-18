@@ -646,8 +646,12 @@ public final class PhoneRelayBackend: PhoneBackend {
         next.notificationsAsked = true
         next.notificationsAllowed = allowed
         save(next)
-        if allowed { askForTest() }
+        if allowed && pushRegistered { askForTest() }
     }
+
+    /// The relay has this launch's push address. The test request waits for it,
+    /// so that its push can show that requests reach this iPhone.
+    private var pushRegistered = false
 
     /// Asks the relay for this iPhone's test request: it arrives pushed, like any
     /// request, which shows that requests reach the phone, and opens as a sheet.
@@ -841,6 +845,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         registration.apnsProduction = production
         registration.noticePublicKey = try keys.noticePublicKey()
         _ = try await relay().call(Self.method { $0.registerPush = registration })
+        pushRegistered = true
+        if state.notificationsAllowed { askForTest() }
     }
 
     // MARK: For the notification service extension
