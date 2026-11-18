@@ -112,7 +112,7 @@ public struct MacFirstRunView: View {
             Text(FirstRunCopy.readyTitle).font(.system(size: 22, weight: .bold)).tracking(-0.015 * 22).foregroundStyle(RequestToken.ink)
             Detail(FirstRunCopy.readyBody)
             HStack(spacing: 8) {
-                Image(systemName: "key.horizontal").font(.system(size: 13)).foregroundStyle(RequestToken.ink)
+                Keyhole().fill(RequestToken.ink).frame(width: 16, height: 16)
                 Text(FirstRunCopy.menuBarHint).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -143,6 +143,18 @@ public struct MacFirstRunView: View {
             }
         }
         Row(mark: .notYet, title: FirstRunCopy.phoneAndWatch, detail: FirstRunCopy.phoneAndWatchBody)
+    }
+}
+
+/// The menu bar's keyhole, as Paper draws it: a circle over a tapering slot.
+private struct Keyhole: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 80
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + (x - 10) * s, y: rect.minY + (y - 12) * s) }
+        var path = Path(ellipseIn: CGRect(x: rect.minX + (50 - 21.5 - 10) * s, y: rect.minY + (38.5 - 21.5 - 12) * s, width: 43 * s, height: 43 * s))
+        path.move(to: p(40.2, 51.5)); path.addLine(to: p(59.8, 51.5)); path.addLine(to: p(67.2, 81.9))
+        path.addLine(to: p(64.1, 85.9)); path.addLine(to: p(35.9, 85.9)); path.addLine(to: p(32.8, 81.9)); path.closeSubpath()
+        return path
     }
 }
 

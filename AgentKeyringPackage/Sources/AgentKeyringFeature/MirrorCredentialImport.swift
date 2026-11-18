@@ -156,10 +156,7 @@ extension MirrorAppModel {
             }
             try await store.save(generation, sealed: sealed)
         } catch {
-            let nsError = error as NSError
-            credentialExchangeLogger.error(
-                "Mirror update failed [\(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public)]"
-            )
+            credentialExchangeLogger.error("Sealing the import failed: \(String(describing: error), privacy: .public)")
             notice = MirrorNotice(
                 kind: .error,
                 text: hadExistingMirror

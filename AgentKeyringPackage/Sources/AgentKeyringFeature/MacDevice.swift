@@ -153,7 +153,6 @@ public final class MacDevice {
         guard let setup, var always = setup.machine, let pin = setupPin else { return }
         try await confirm(context, reason: "add \(always.label) as your always-on machine")
         onAuthenticated()
-        always.automaticAllowed = true
         var members = Agentkeyring_V2_Members()
         members.domain = "agentkeyring.members.v2"
         members.revision = 1

@@ -117,7 +117,7 @@ extension MirrorAppModel {
             let failure: LeaseFailure
             if let error = error as? LeaseFailure { failure = error }
             else {
-                leaseLogger.error("Authority request failed: \(String(describing: error), privacy: .private)")
+                leaseLogger.error("Authority request failed: \(String(describing: error), privacy: .public)")
                 failure = LeaseFailure(.unavailable, "Agent Keyring could not complete this request. Rejoin the same reference; do not request approval again.")
             }
             var response = Agentkeyring_V1_WireResponse()
