@@ -8,14 +8,18 @@ _ = NSApplication.shared
 let out = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/tmp/panel-render")
 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 let request = AccessRequest(id: "r", login: RequestedLogin(site: "example.com", account: "josh@example.com"),
-    agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: "100.64.0.2", folder: "/Users/josh/code/bookkeeping"),
+    agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: "100.64.0.2", folder: "~/code/bookkeeping", project: "bookkeeping"),
     access: .signIn, agentReason: "You asked me to download October’s invoice.", askedAt: .now,
     state: .waitingForYou(until: .now.addingTimeInterval(600)))
+var plainFolder = request; plainFolder.agent.project = nil; plainFolder.agent.folder = "~/Downloads/a-very-long-folder-name-for-invoices"
+var home = request; home.agent.project = nil; home.agent.folder = "~"
 var approved = request; approved.state = .approved(by: .mac, until: .now.addingTimeInterval(1800))
 var denied = request; denied.state = .denied(by: .mac, reply: "The invoice is in my email. Use that.", askAgainAfter: nil)
 let cases: [(String, AnyView)] = [
     ("waiting", AnyView(ReviewRendering.panel(request))),
     ("waiting-clicked", AnyView(ReviewRendering.panel(request, active: true))),
+    ("folder", AnyView(ReviewRendering.panel(plainFolder))),
+    ("home", AnyView(ReviewRendering.panel(home))),
     ("typing", AnyView(ReviewRendering.panel(request, reply: "The invoice is in my email. Use that.", active: true))),
     ("approved", AnyView(ReviewRendering.panel(approved))),
     ("denied", AnyView(ReviewRendering.panel(denied))),

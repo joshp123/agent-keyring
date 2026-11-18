@@ -920,8 +920,11 @@ type RequestLeaseRequest struct {
 	// Empty only on an authenticated local connection: authority selects its
 	// persistent co-located receiver for that OS user. Remote requests name the
 	// enrolled recipient. Caller must be permitted to use the resolved recipient.
-	RecipientId   string `protobuf:"bytes,7,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
-	AgentLabel    string `protobuf:"bytes,8,opt,name=agent_label,json=agentLabel,proto3" json:"agent_label,omitempty"` // Requester's unverified process-ancestry claim.
+	RecipientId string `protobuf:"bytes,7,opt,name=recipient_id,json=recipientId,proto3" json:"recipient_id,omitempty"`
+	AgentLabel  string `protobuf:"bytes,8,opt,name=agent_label,json=agentLabel,proto3" json:"agent_label,omitempty"` // Requester's unverified process-ancestry claim.
+	// Claim: the name of the Git repository the requester runs in, empty
+	// outside one. Shown beside the request.
+	Project       string `protobuf:"bytes,9,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1008,6 +1011,13 @@ func (x *RequestLeaseRequest) GetRecipientId() string {
 func (x *RequestLeaseRequest) GetAgentLabel() string {
 	if x != nil {
 		return x.AgentLabel
+	}
+	return ""
+}
+
+func (x *RequestLeaseRequest) GetProject() string {
+	if x != nil {
+		return x.Project
 	}
 	return ""
 }
@@ -2437,7 +2447,7 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\n" +
 	"executable\x18\x01 \x01(\tR\n" +
 	"executable\x12\x1c\n" +
-	"\targuments\x18\x02 \x03(\tR\targuments\"\xb5\x02\n" +
+	"\targuments\x18\x02 \x03(\tR\targuments\"\xcf\x02\n" +
 	"\x13RequestLeaseRequest\x12\x19\n" +
 	"\blogin_id\x18\x01 \x01(\tR\aloginId\x12\x19\n" +
 	"\btask_ref\x18\x02 \x01(\tR\ataskRef\x122\n" +
@@ -2448,7 +2458,8 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\aprogram\x18\x06 \x01(\v2\x1f.agentkeyring.v1.ProgramCommandR\aprogram\x12!\n" +
 	"\frecipient_id\x18\a \x01(\tR\vrecipientId\x12\x1f\n" +
 	"\vagent_label\x18\b \x01(\tR\n" +
-	"agentLabel\"+\n" +
+	"agentLabel\x12\x18\n" +
+	"\aproject\x18\t \x01(\tR\aproject\"+\n" +
 	"\x0eLeaseReference\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\"\xfa\x06\n" +
 	"\x05Lease\x12\x19\n" +

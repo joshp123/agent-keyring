@@ -64,15 +64,18 @@ public struct RequestingAgent: Hashable, Sendable {
     public var address: String
     /// Claim: the folder the agent says it is working in.
     public var folder: String?
+    /// Claim: the name of the Git repository the agent says it is working in.
+    public var project: String?
     /// Fact: the request came from the device showing it (a local agent on
     /// this Mac), not through the relay from another machine.
     public var isLocal: Bool
 
-    public init(name: String, machine: String, address: String, folder: String? = nil, isLocal: Bool = false) {
+    public init(name: String, machine: String, address: String, folder: String? = nil, project: String? = nil, isLocal: Bool = false) {
         self.name = name
         self.machine = machine
         self.address = address
         self.folder = folder
+        self.project = project
         self.isLocal = isLocal
     }
 }

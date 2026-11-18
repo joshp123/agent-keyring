@@ -13,12 +13,15 @@ public struct CredentialLeaseRequester: Codable, Sendable {
     public let workingDirectory: String?
     public let machineName: String
     public let networkAddress: String?
+    /// The agent's claim: its Git repository's name.
+    public let project: String?
 
-    init(_ requester: AgentRequester) {
+    init(_ requester: AgentRequester, project: String) {
         name = requester.name
         workingDirectory = requester.workingDirectory
         machineName = requester.machineName
         networkAddress = requester.networkAddress
+        self.project = project.isEmpty ? nil : project
     }
 }
 

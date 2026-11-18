@@ -111,6 +111,9 @@ message RequestLeaseRequest {
   // enrolled recipient. Caller must be permitted to use the resolved recipient.
   string recipient_id = 7;
   string agent_label = 8;        // Requester's unverified process-ancestry claim.
+  // Claim: the name of the Git repository the requester runs in, empty
+  // outside one. Shown beside the request.
+  string project = 9;
 }
 
 message LeaseReference {

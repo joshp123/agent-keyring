@@ -95,14 +95,28 @@ struct MacApprovalPanelView: View {
                 Text("Agent Keyring").font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink2)
             }
             Spacer(minLength: 0)
-            if let folder = request.agent.folder.map({ URL(fileURLWithPath: $0).lastPathComponent }), !folder.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder").font(.system(size: 11, weight: .medium))
-                    Text(folder).font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
+            if let place {
+                HStack(spacing: 5) {
+                    Text(place.kind).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+                    Text(Self.shortened(place.name)).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
                 }
-                .foregroundStyle(RequestToken.ink2)
+                .lineLimit(1)
             }
         }
+    }
+
+    /// "Project agent-keyring" in a Git repository, else "Folder" and the
+    /// folder's name.
+    private var place: (kind: String, name: String)? {
+        if let project = request.agent.project { return ("Project", project) }
+        guard let folder = request.agent.folder else { return nil }
+        if folder == "~" { return ("Folder", "Home") }
+        let name = URL(fileURLWithPath: folder).lastPathComponent
+        return name.isEmpty ? nil : ("Folder", name)
+    }
+
+    static func shortened(_ name: String) -> String {
+        name.count <= 24 ? name : name.prefix(11) + "…" + name.suffix(12)
     }
 
     private var sending: AnswerChoice? {
@@ -137,36 +151,65 @@ struct MacApprovalPanelView: View {
     }
 
     @ViewBuilder private var approveLine: some View {
-        if sending == .approve {
-            Text("Approving…").font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.approve)
-        } else if ReviewRendering.isOn {
-            HStack(spacing: 6) {
-                Image(systemName: "touchid").font(.system(size: 15, weight: .semibold))
-                Text(approveText).font(.system(size: 13, weight: .semibold))
-            }
-            .foregroundStyle(RequestToken.approve).frame(height: 18)
+        if touchIDAvailable || ReviewRendering.isOn {
+            approveButton
         } else if let context = model.embeddedTouchID {
             HStack(spacing: 6) {
-                // Apple's own control does the work; it must stay visible and
-                // uncovered, or it pauses.
-                AppleTouchIDControl(context: context)
+                AppleTouchIDControl(context: context, size: .mini)
                     .frame(width: 18, height: 18)
                     .id(ObjectIdentifier(context))
                     .onAppear { model.waitForTouch() }
-                Text(approveText)
+                Text("Double-click your Watch to approve")
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.approve)
             }
             .frame(height: 18)
-        } else {
-            Button("Try Touch ID again") { model.retryAuthentication() }
-                .buttonStyle(.plain)
-                .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.approve)
         }
     }
 
-    private var approveText: String {
-        guard touchIDAvailable else { return "Double-click your Watch to approve" }
-        return isActive ? "Touch the sensor to approve" : "Click, then Touch ID to approve"
+    /// Green until a click brings Agent Keyring to the front, then outlined
+    /// while Touch ID waits. Only the colours and words fade; Apple's control
+    /// sits outside the fade, because it pauses while anything covers it or
+    /// it is not fully shown.
+    private var approveButton: some View {
+        let ready = (isActive || sending == .approve) && (model.embeddedTouchID != nil || ReviewRendering.isOn)
+        return ZStack(alignment: .leading) {
+            ZStack {
+                Capsule().fill(ready ? RequestToken.surface : RequestToken.approve)
+                Capsule().strokeBorder(RequestToken.approve, lineWidth: 1.5).opacity(ready ? 1 : 0)
+                Text(approveText(ready: ready))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ready ? RequestToken.approve : RequestToken.onAnswer)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .padding(.leading, 4 + 36 + 8).padding(.trailing, 16)
+            }
+            .animation(.easeInOut(duration: 0.15), value: ready)
+            .animation(.easeInOut(duration: 0.15), value: sending == .approve)
+            Circle().fill(RequestToken.surface).frame(width: 36, height: 36)
+                .overlay { touchIDSymbol }
+                .padding(.leading, 4)
+        }
+        .frame(height: 44)
+        .contentShape(Capsule())
+        .onTapGesture { if model.embeddedTouchID == nil, sending == nil, !ReviewRendering.isOn { model.retryAuthentication() } }
+    }
+
+    @ViewBuilder private var touchIDSymbol: some View {
+        if ReviewRendering.isOn {
+            Image(systemName: "touchid").font(.system(size: 24))
+                .foregroundStyle(Color(light: 0xFF2D55, dark: 0xFF375F).opacity(isActive ? 1 : 0.35))
+        } else if let context = model.embeddedTouchID, sending == nil {
+            AppleTouchIDControl(context: context, size: .small)
+                .frame(width: 32, height: 32)
+                .id(ObjectIdentifier(context))
+                .onAppear { model.waitForTouch() }
+        }
+    }
+
+    private func approveText(ready: Bool) -> String {
+        if sending == .approve { return "Approving…" }
+        if model.embeddedTouchID == nil, !ReviewRendering.isOn { return "Try Touch ID again" }
+        return ready ? "Touch the sensor to approve" : "Click here, then touch the sensor to approve"
     }
 
     private var footer: String {
@@ -279,13 +322,14 @@ struct AppMark: View {
     }
 }
 
-/// Apple's live Touch ID and Watch control, at its smallest size and
-/// uncovered. It draws its own glyph.
+/// Apple's live Touch ID and Watch control, uncovered. It draws its own
+/// symbol: pale while paused, pink while Touch ID waits.
 struct AppleTouchIDControl: NSViewRepresentable {
     let context: LAContext
+    let size: NSControl.ControlSize
 
     func makeNSView(context representableContext: Context) -> LAAuthenticationView {
-        LAAuthenticationView(context: context, controlSize: .mini)
+        LAAuthenticationView(context: context, controlSize: size)
     }
 
     func updateNSView(_ view: LAAuthenticationView, context representableContext: Context) {}

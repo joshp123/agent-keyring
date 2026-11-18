@@ -82,7 +82,7 @@ extension MirrorAppModel {
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
-                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer)), phoneDelaySeconds: approvalRoutingSettings.phoneDelaySeconds)
+                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project), phoneDelaySeconds: approvalRoutingSettings.phoneDelaySeconds)
                 startPendingMacApprovals()
             case let .getLease(reference):
                 try await refreshLeasePolicy()

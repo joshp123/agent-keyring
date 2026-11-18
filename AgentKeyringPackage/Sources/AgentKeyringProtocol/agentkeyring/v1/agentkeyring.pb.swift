@@ -622,6 +622,10 @@ public nonisolated struct Agentkeyring_V1_RequestLeaseRequest: Sendable {
   /// Requester's unverified process-ancestry claim.
   public var agentLabel: String = String()
 
+  /// Claim: the name of the Git repository the requester runs in, empty
+  /// outside one. Shown beside the request.
+  public var project: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1510,7 +1514,7 @@ nonisolated extension Agentkeyring_V1_ProgramCommand: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RequestLeaseRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{3}task_ref\0\u{1}purpose\0\u{1}reason\0\u{3}request_id\0\u{1}program\0\u{3}recipient_id\0\u{3}agent_label\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{3}task_ref\0\u{1}purpose\0\u{1}reason\0\u{3}request_id\0\u{1}program\0\u{3}recipient_id\0\u{3}agent_label\0\u{1}project\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1526,6 +1530,7 @@ nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message
       case 6: try { try decoder.decodeSingularMessageField(value: &self._program) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.recipientID) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.agentLabel) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.project) }()
       default: break
       }
     }
@@ -1560,6 +1565,9 @@ nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message
     if !self.agentLabel.isEmpty {
       try visitor.visitSingularStringField(value: self.agentLabel, fieldNumber: 8)
     }
+    if !self.project.isEmpty {
+      try visitor.visitSingularStringField(value: self.project, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1572,6 +1580,7 @@ nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message
     if lhs._program != rhs._program {return false}
     if lhs.recipientID != rhs.recipientID {return false}
     if lhs.agentLabel != rhs.agentLabel {return false}
+    if lhs.project != rhs.project {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
