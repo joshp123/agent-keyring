@@ -10,8 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
-	"strings"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/authority"
@@ -99,72 +97,7 @@ func Delivered(ctx context.Context, client authority.Client, lease *pb.Lease, re
 	return response.GetValues(), lease.Sites, nil
 }
 
-func Execute(ctx context.Context, client authority.Client, lease *pb.Lease, field pb.CredentialField, key string) (int, error) {
-	if lease.Purpose != pb.Purpose_PURPOSE_PROGRAM || lease.Program == nil {
-		return 1, errors.New("This lease does not approve a program. Request a program lease with the command you intend to run.")
-	}
-	program := lease.Program
-	digestParts := []string{lease.LeaseId, "execute-program", program.Executable, fmt.Sprint(field)}
-	digestParts = append(digestParts, program.Arguments...)
-	digest := Digest(digestParts...)
-	unlock, err := LockOperation(ctx, "lease", lease.LeaseId)
-	if err != nil {
-		return 1, err
-	}
-	defer unlock()
-	record, err := client.State.StartOperation(ctx, lease.LeaseId, key, digest, lease.NotAfterUnixSeconds)
-	if err != nil {
-		return 1, err
-	}
-	if record != nil {
-		if record.GetProgram() == pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED && record.ExitCode != nil {
-			return int(*record.ExitCode), nil
-		}
-		return 1, errors.New("The earlier program attempt may have started. Inspect its result before using --again.")
-	}
-	response, err := client.Deliver(ctx, &pb.DeliverRequest{LeaseId: lease.LeaseId, Kind: pb.OperationKind_OPERATION_KIND_EXECUTE_PROGRAM, Fields: []pb.CredentialField{field}})
-	if err != nil {
-		return 1, err
-	}
-	values, _, err := Delivered(ctx, client, lease, response, []pb.CredentialField{field})
-	if err != nil {
-		return 1, err
-	}
-	defer ClearValues(values)
-	command := exec.CommandContext(ctx, program.Executable, program.Arguments...)
-	command.Stdin = strings.NewReader(Value(values, field))
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
-	runError := command.Run()
-	outcome := pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED
-	exitCode := int32(0)
-	if runError != nil {
-		var exited *exec.ExitError
-		if errors.As(runError, &exited) {
-			exitCode = int32(exited.ExitCode())
-			if exitCode < 0 {
-				outcome = pb.ProgramOutcome_PROGRAM_OUTCOME_UNCERTAIN
-			}
-		} else {
-			outcome = pb.ProgramOutcome_PROGRAM_OUTCOME_NOT_STARTED
-		}
-	}
-	finish := &clientstate.OperationReceipt{LeaseId: lease.LeaseId, Key: key, Digest: digest, Outcome: &clientstate.OperationReceipt_Program{Program: outcome}}
-	if outcome == pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED {
-		finish.ExitCode = &exitCode
-	}
-	if err = client.State.FinishOperation(context.WithoutCancel(ctx), finish); err != nil {
-		return 1, errors.New("The program attempt ended, but its result was not saved. Do not rerun it without inspecting the result.")
-	}
-	if outcome != pb.ProgramOutcome_PROGRAM_OUTCOME_EXITED {
-		return 1, errors.New("The approved program did not exit normally. Inspect its result before repeating it.")
-	}
-	return int(exitCode), nil
-}
 func Read(ctx context.Context, client authority.Client, lease *pb.Lease, field pb.CredentialField, output io.Writer) error {
-	if lease.Purpose != pb.Purpose_PURPOSE_AGENT_PROCESS {
-		return errors.New("This lease does not approve value delivery to the agent's code.")
-	}
 	key := NewID()
 	digest := Digest(lease.LeaseId, "read", fmt.Sprint(field))
 	if _, err := client.State.StartOperation(ctx, lease.LeaseId, key, digest, lease.NotAfterUnixSeconds); err != nil {

@@ -43,7 +43,7 @@ public enum PhoneNotification {
             id: id, login: RequestedLogin(site: site, account: account),
             agent: RequestingAgent(name: agent, machine: machine, address: "",
                                    folder: words["folder"] as? String, project: words["project"] as? String),
-            access: .signIn, agentReason: reason, askedAt: asked,
+            access: .login, agentReason: reason, askedAt: asked,
             state: .waitingForYou(until: Date(timeIntervalSince1970: deadline)))
     }
 }

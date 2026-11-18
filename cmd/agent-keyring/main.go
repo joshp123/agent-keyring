@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -34,7 +32,6 @@ const help = `Agent Keyring: use a saved login for one task.
   fill LEASE [--tab TARGET]
        [--username CSS] [--password CSS] [--code CSS] --submit CSS
                              Fill, submit this sign-in step, clear the fields
-  exec LEASE --field FIELD   Send a field to the approved program's stdin
   read LEASE --field FIELD   Deliver a value to a private process pipe
   release LEASE             End permission when the task is done
   skill                     Print the bundled agent instructions
@@ -49,25 +46,24 @@ const help = `Agent Keyring: use a saved login for one task.
                             machine; prints the link that machine enrols with
   relay-status              Check whether this Mac has connected to the relay
 
-A lease ends on release or 30 minutes after approval. Reuse it through retries
-and two-factor steps. Automatic logins approve without asking.
+A lease ends on release or 30 minutes after approval. It covers fill and read
+for that login; reuse it through retries and two-factor steps. Automatic
+logins approve without asking.
 
-lease: --for browser (default), program or agent-process; --no-wait returns
-       a pending reference; --request ID retains a caller-supplied retry ID.
-       Program leases bind the command after --, resolved before approval:
-       lease LOGIN --task TASK --reason REASON --for program -- client login --password-stdin
+lease: --no-wait returns a pending reference; --request ID retains a
+       caller-supplied retry ID.
 fill:  targets come from tabs or fields and include the current document.
        Without --tab, exactly one tab must match the login's saved site.
-fill/exec: --again deliberately repeats an inspected step; --operation ID is
+       --again deliberately repeats an inspected step; --operation ID is
        an explicit retry key. These two options cannot be combined.
 read:  fields are username, password and one-time-code. Never run read in a
-       model-visible shell call. A pipe alone does not make output private.
+       model-visible shell call. To give a program the password, pipe it:
+       agent-keyring read LEASE --field password | gh auth login --with-token
 
 Lease IDs and read values go to stdout; progress and outcomes go to stderr.
 Find, tabs and fields print tables. Status without --wait prints readable state.
 Exit status: 0 succeeded; 1 refused or unavailable; 2 incorrect usage;
              3 browser fill uncertain (inspect the page; do not retry blindly).
-exec returns the approved child's exit status when it exits normally.
 Environment: AGENT_KEYRING_SOCKET overrides the local authority socket.
              AGENT_KEYRING_RELAY selects the enrolled relay (and supplies enrol's address).
              AGENT_KEYRING_STATE_DIR overrides this machine's private state directory.
@@ -78,7 +74,7 @@ type arguments struct {
 	positionals []string
 	options     map[string]string
 	flags       map[string]bool
-	program     []string
+	extra       []string
 }
 
 func parse(args []string) (arguments, error) {
@@ -86,7 +82,7 @@ func parse(args []string) (arguments, error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
-			result.program = args[i+1:]
+			result.extra = args[i+1:]
 			break
 		}
 		if !strings.HasPrefix(arg, "-") {
@@ -100,7 +96,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "for", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
+		case "task", "reason", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -176,7 +172,7 @@ func run(ctx context.Context, args []string) (int, error) {
 	}
 	if command == "skill" || command == "install" {
 		if command == "install" && a.options["browser-profile"] != "" {
-			if err = a.check("browser-profile", ""); err != nil || len(a.positionals) > 0 || len(a.program) > 0 {
+			if err = a.check("browser-profile", ""); err != nil || len(a.positionals) > 0 || len(a.extra) > 0 {
 				return 2, errors.New("install --browser-profile takes only the browser's user-data directory.")
 			}
 			return 0, installNativeHost(a.options["browser-profile"])
@@ -196,7 +192,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		if err = a.check("name invite", ""); err != nil {
 			return 2, err
 		}
-		if len(a.positionals) > 0 || len(a.program) > 0 || strings.TrimSpace(a.options["name"]) == "" || a.options["invite"] == "" {
+		if len(a.positionals) > 0 || len(a.extra) > 0 || strings.TrimSpace(a.options["name"]) == "" || a.options["invite"] == "" {
 			return 2, errors.New("enrol takes --name NAME and --invite LINK, the link 'agent-keyring invite' printed on the Mac.")
 		}
 		invite, e := remote.ParseInvite(a.options["invite"])
@@ -210,7 +206,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		return 0, remote.Enrol(ctx, store, invite, a.options["name"], os.Stderr)
 	}
 	if command == "setup-relay" || command == "relay-status" || command == "invite" {
-		if len(a.positionals) != 0 || len(a.program) != 0 {
+		if len(a.positionals) != 0 || len(a.extra) != 0 {
 			return 2, errors.New("Setup commands take options only.")
 		}
 		setup := &pb.SetupRequest{}
@@ -261,7 +257,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, nil
 	}
-	if !strings.Contains(" find lease status release read exec ", " "+command+" ") {
+	if !strings.Contains(" find lease status release read ", " "+command+" ") {
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 	}
 	client, connectionError := chooseAuthority(ctx)
@@ -276,9 +272,6 @@ func run(ctx context.Context, args []string) (int, error) {
 		query, e := a.one()
 		if e != nil {
 			return 2, e
-		}
-		if len(a.program) > 0 {
-			return 2, errors.New("find takes a site, not a command.")
 		}
 		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_FindLogins{FindLogins: &pb.FindLoginsRequest{Query: query}}})
 		if e != nil {
@@ -304,53 +297,22 @@ func run(ctx context.Context, args []string) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	if command != "lease" && len(a.program) > 0 {
-		return 2, errors.New("Only a program lease accepts a command after --.")
+	if len(a.extra) > 0 {
+		return 2, errors.New("Nothing goes after --. To give a program the password, pipe read into it.")
 	}
 	switch command {
 	case "lease":
-		if err = a.check("task reason for request", "no-wait"); err != nil {
+		if err = a.check("task reason request", "no-wait"); err != nil {
 			return 2, err
 		}
 		if strings.TrimSpace(a.options["task"]) == "" || strings.TrimSpace(a.options["reason"]) == "" {
 			return 2, errors.New("Supply --task for this job and --reason explaining why it needs the login.")
 		}
-		purpose := pb.Purpose_PURPOSE_BROWSER_SIGN_IN
-		switch a.options["for"] {
-		case "", "browser":
-		case "program":
-			purpose = pb.Purpose_PURPOSE_PROGRAM
-		case "agent-process":
-			purpose = pb.Purpose_PURPOSE_AGENT_PROCESS
-		default:
-			return 2, errors.New("Choose --for browser, program or agent-process.")
-		}
-		var program *pb.ProgramCommand
-		if purpose == pb.Purpose_PURPOSE_PROGRAM {
-			if len(a.program) == 0 {
-				return 2, errors.New("A program lease needs its command after --.")
-			}
-			path, e := exec.LookPath(a.program[0])
-			if e != nil {
-				return 2, errors.New("Cannot find the program. Supply an installed executable after --.")
-			}
-			path, e = filepath.Abs(path)
-			if e != nil {
-				return 2, e
-			}
-			path, e = filepath.EvalSymlinks(path)
-			if e != nil {
-				return 2, e
-			}
-			program = &pb.ProgramCommand{Executable: path, Arguments: a.program[1:]}
-		} else if len(a.program) > 0 {
-			return 2, errors.New("A command after -- requires --for program.")
-		}
 		requestID := a.options["request"]
 		if requestID == "" {
 			requestID = receiver.NewID()
 		}
-		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: id, TaskRef: a.options["task"], Reason: a.options["reason"], Purpose: purpose, RequestId: requestID, Program: program, AgentLabel: requesterLabel(), Project: requesterProject()}}})
+		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: id, TaskRef: a.options["task"], Reason: a.options["reason"], RequestId: requestID, AgentLabel: requesterLabel(), Project: requesterProject()}}})
 		if e != nil {
 			return 1, e
 		}
@@ -401,38 +363,22 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		fmt.Fprintln(os.Stderr, "Lease", leaseState(r.GetLease().State)+".")
 		return 0, nil
-	case "read", "exec":
-		if err = a.check("field operation", "again"); err != nil {
+	case "read":
+		if err = a.check("field", ""); err != nil {
 			return 2, err
 		}
 		field, e := receiver.Field(a.options["field"])
 		if e != nil {
 			return 2, e
 		}
-		if command == "read" {
-			if _, exists := a.options["operation"]; exists || a.flags["again"] {
-				return 2, errors.New("read makes a fresh delivery on each explicit call; it takes no retry options.")
-			}
-			if terminal(os.Stdout) {
-				return 2, errors.New("read requires a private receiving process, not a terminal. Read 'agent-keyring skill' before using it.")
-			}
-		}
-		key, e := receiver.OperationKey(a.options["operation"], a.flags["again"])
-		if e != nil {
-			return 2, e
+		if terminal(os.Stdout) {
+			return 2, errors.New("read requires a private receiving process, not a terminal. Read 'agent-keyring skill' before using it.")
 		}
 		lease, e := client.Lease(ctx, id)
 		if e != nil {
 			return 1, e
 		}
-		if command == "read" {
-			return 0, receiver.Read(ctx, client, lease, field, os.Stdout)
-		}
-		code, e := receiver.Execute(ctx, client, lease, field, key)
-		if e == nil {
-			fmt.Fprintln(os.Stderr, "Program exited with status", code)
-		}
-		return code, e
+		return 0, receiver.Read(ctx, client, lease, field, os.Stdout)
 	default:
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 	}

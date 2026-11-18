@@ -68,7 +68,6 @@ struct SealingTests {
         request.requestID = "request-1"
         request.loginID = "login-example"
         request.machineID = machineID
-        request.purpose = .program
         request.reason = "You asked me to download October's invoice."
         request.agent = "Codex"
         request.askedUnixSeconds = Int64(decided.timeIntervalSince1970) - 20

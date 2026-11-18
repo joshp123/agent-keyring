@@ -158,17 +158,7 @@ message LoginSecret {
 
 // ---- Requests and answers --------------------------------------------------
 
-enum Purpose {
-  PURPOSE_UNSPECIFIED = 0;
-  PURPOSE_BROWSER_SIGN_IN = 1;     // The command fills a sign-in page.
-  PURPOSE_PROGRAM = 2;             // The command passes it to one named program.
-  PURPOSE_AGENT_PROCESS = 3;       // The agent reads it, and may keep it.
-}
 
-message ProgramCommand {
-  string executable = 1;           // Absolute path on the asking machine.
-  repeated string arguments = 2;
-}
 
 // Written once by the relay from the asking machine's request. Devices show
 // what they parse from these exact bytes, check the login against their own
@@ -178,8 +168,7 @@ message Request {
   string request_id = 2;           // Chosen by the relay, unique.
   string login_id = 3;
   string machine_id = 4;           // The machine whose TLS key made the request.
-  Purpose purpose = 5;
-  ProgramCommand program = 6;      // PURPOSE_PROGRAM only.
+  reserved 5, 6;                   // Purpose and program: one approval covers fill and read.
   string reason = 7;               // The agent's own words.
   string agent = 8;                // The agent's claim, e.g. "Codex".
   string project = 9;              // The agent's claim: its Git repository's name.
@@ -389,8 +378,7 @@ message RequestReference {
 // 100, so that a Work still fits in a push.
 message AskRequest {
   string login_id = 1;
-  Purpose purpose = 2;
-  ProgramCommand program = 3;
+  reserved 2, 3;                   // Purpose and program.
   string reason = 4;
   string agent = 5;
   string project = 6;

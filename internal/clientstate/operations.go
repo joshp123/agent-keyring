@@ -79,7 +79,7 @@ func (s Store) FinishOperation(ctx context.Context, result *OperationReceipt) er
 			return errors.New("The operation already has a saved result.")
 		}
 		resultCopy := proto.Clone(result).(*OperationReceipt)
-		record.Outcome, record.ExitCode = resultCopy.Outcome, resultCopy.ExitCode
+		record.Outcome = resultCopy.Outcome
 		return nil
 	})
 }

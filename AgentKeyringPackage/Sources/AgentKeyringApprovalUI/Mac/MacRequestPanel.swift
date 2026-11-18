@@ -213,7 +213,6 @@ struct MacApprovalPanelView: View {
 
     private var footer: String {
         if let setUp { return setUp.footer }
-        if case .agentProcess = request.access { return "\(agent) can keep the password once it has seen it." }
         return "\(agent) can use this login for this task, 30 minutes at most."
     }
 

@@ -51,9 +51,6 @@ public struct AccessRequestFacts: View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
             FactRow(label: AccessRequestCopy.machineLabel, value: AccessRequestCopy.machine(request.agent))
             FactRow(label: AccessRequestCopy.lastsLabel, value: AccessRequestCopy.lasts(request))
-            if case let .program(command) = request.access {
-                FactRow(label: AccessRequestCopy.commandLabel, value: command, monospaced: true)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

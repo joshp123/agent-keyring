@@ -157,18 +157,19 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	}
 
-	t.Run("approved, the program gets the password once", func(t *testing.T) {
+	t.Run("approved, a program gets the password through a pipe", func(t *testing.T) {
 		output := filepath.Join(t.TempDir(), "received")
-		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "You asked me to download October's invoice.",
-			"--for", "program", "--", "/bin/sh", "-c", "cat > "+output))
+		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "You asked me to download October's invoice."))
 		r.device("answer", "--approve")
 		got := wait(t, asking, "lease")
 		if got.err != nil {
 			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
 		}
 		lease := strings.TrimSpace(got.stdout)
-		if used := wait(t, start(linux.command("exec", lease, "--field", "password")), "exec"); used.err != nil {
-			t.Fatalf("exec: %v\n%s", used.err, used.stderr)
+		piped := linux.command("read", lease, "--field", "password")
+		piped.Path, piped.Args = "/bin/sh", []string{"/bin/sh", "-c", `"$0" read "$1" --field password | cat > "$2"`, p.command, lease, output}
+		if used := wait(t, start(piped), "read | program"); used.err != nil {
+			t.Fatalf("read | program: %v\n%s", used.err, used.stderr)
 		}
 		if received, _ := os.ReadFile(output); string(received) != "example-ask-password" {
 			t.Fatalf("the program received %d bytes, not the password", len(received))
@@ -207,7 +208,7 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 			case <-time.After(300 * time.Millisecond):
 			}
 		}
-		asking := start(linux.command("lease", "login-ask", "--task", "second", "--reason", "Second device.", "--for", "agent-process"))
+		asking := start(linux.command("lease", "login-ask", "--task", "second", "--reason", "Second device."))
 		if out, err := exec.Command(p.device, "answer", "--state", third, "--approve").CombinedOutput(); err != nil {
 			t.Fatalf("the second device could not answer: %v\n%s", err, out)
 		}
@@ -222,7 +223,7 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 	})
 
 	t.Run("nobody answers", func(t *testing.T) {
-		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Second try.", "--for", "agent-process"))
+		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Second try."))
 		r.device("answer", "--ignore")
 		got := wait(t, asking, "lease")
 		if got.err == nil || !strings.Contains(got.stderr, "No answer. Nobody answered within 10 minutes. This is not a refusal.") {
@@ -231,20 +232,20 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 	})
 
 	t.Run("denied with Josh's words", func(t *testing.T) {
-		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Third try.", "--for", "agent-process"))
+		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Third try."))
 		r.device("answer", "--deny", "The invoice is in my email. Use that.")
 		got := wait(t, asking, "lease")
 		if got.err == nil || !strings.Contains(got.stderr, "denied. Reply: The invoice is in my email. Use that.") {
 			t.Fatalf("want a denial with words, got %v\n%s", got.err, got.stderr)
 		}
-		again := wait(t, start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Fourth try.", "--for", "agent-process")), "lease")
+		again := wait(t, start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Fourth try.")), "lease")
 		if again.err == nil || !strings.Contains(again.stderr, "Josh denied this login for this machine") {
 			t.Fatalf("a denial holds the login off for 30 minutes; got %v\n%s", again.err, again.stderr)
 		}
 	})
 
 	t.Run("denied with no words", func(t *testing.T) {
-		asking := start(mini.command("lease", "login-ask", "--task", "invoice", "--reason", "From the mini.", "--for", "agent-process"))
+		asking := start(mini.command("lease", "login-ask", "--task", "invoice", "--reason", "From the mini."))
 		r.device("answer", "--deny-plain")
 		got := wait(t, asking, "lease")
 		if got.err == nil || !strings.Contains(got.stderr, "This lease is denied.") || strings.Contains(got.stderr, "Reply:") {
@@ -258,7 +259,7 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	})
 	t.Run("Automatic, with no question", func(t *testing.T) {
-		got := wait(t, start(mini.command("lease", "login-automatic", "--task", "report", "--reason", "Nightly report.", "--for", "agent-process")), "lease")
+		got := wait(t, start(mini.command("lease", "login-automatic", "--task", "report", "--reason", "Nightly report.")), "lease")
 		if got.err != nil {
 			t.Fatalf("Automatic lease: %v\n%s", got.err, got.stderr)
 		}

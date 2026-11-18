@@ -108,7 +108,7 @@ func (c *Client) ask(ctx context.Context, scope *v1.RequestLeaseRequest) (*v1.Le
 		return c.lease(ctx, id)
 	}
 	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Ask{Ask: &pb.AskRequest{LoginId: scope.LoginId,
-		Purpose: pb.Purpose(scope.Purpose), Program: program(scope.Program), Reason: scope.Reason, Agent: scope.AgentLabel,
+		Reason: scope.Reason, Agent: scope.AgentLabel,
 		Project: scope.Project, Task: scope.TaskRef, ClientRequestId: scope.RequestId}}})
 	if err != nil {
 		return nil, err
@@ -121,13 +121,6 @@ func (c *Client) ask(ctx context.Context, scope *v1.RequestLeaseRequest) (*v1.Le
 		return nil, err
 	}
 	return c.translate(ctx, saved.Scope, remote)
-}
-
-func program(p *v1.ProgramCommand) *pb.ProgramCommand {
-	if p == nil {
-		return nil
-	}
-	return &pb.ProgramCommand{Executable: p.Executable, Arguments: p.Arguments}
 }
 
 func (c *Client) save(ctx context.Context, requestID string, change func(*clientstate.ExpectedRequest)) error {
@@ -226,7 +219,7 @@ func (c *Client) follow(ctx context.Context, leaseID string, receive func(*v1.Le
 }
 
 func scoped(scope *v1.RequestLeaseRequest, leaseID string) *v1.Lease {
-	return &v1.Lease{LeaseId: leaseID, LoginId: scope.LoginId, TaskRef: scope.TaskRef, Purpose: scope.Purpose, Program: scope.Program,
+	return &v1.Lease{LeaseId: leaseID, LoginId: scope.LoginId, TaskRef: scope.TaskRef,
 		Reason: scope.Reason, Recipient: &v1.Recipient{RecipientId: scope.RecipientId}}
 }
 

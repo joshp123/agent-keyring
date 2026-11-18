@@ -111,8 +111,8 @@ extension MirrorAppModel {
                 let values = try await values(for: lease, fields: operation.fields)
                 // No suspension between this final check of the lease and returning the values.
                 response.delivery = try leaseStore.deliver(operation) { _, _ in values }
-            case .fill, .executeProgram:
-                throw LeaseFailure(.invalidArgument, "Fill and ExecuteProgram run in the agent-keyring receiver. Use Deliver on the authority socket.")
+            case .fill:
+                throw LeaseFailure(.invalidArgument, "Fill runs in the agent-keyring command. Use Deliver on the authority socket.")
             case nil: throw LeaseFailure(.invalidArgument, "Select an authority method.")
             }
             reply(response)
@@ -136,15 +136,6 @@ extension MirrorAppModel {
     func askDevices(for lease: Agentkeyring_V1_Lease, request: Agentkeyring_V1_RequestLeaseRequest, agent: String) {
         var ask = Agentkeyring_V2_AskRequest()
         ask.loginID = lease.loginID
-        ask.purpose = switch lease.purpose {
-        case .program: .program
-        case .agentProcess: .agentProcess
-        default: .browserSignIn
-        }
-        if lease.hasProgram {
-            ask.program.executable = lease.program.executable
-            ask.program.arguments = lease.program.arguments
-        }
         ask.reason = lease.reason
         ask.agent = agent
         ask.project = request.project

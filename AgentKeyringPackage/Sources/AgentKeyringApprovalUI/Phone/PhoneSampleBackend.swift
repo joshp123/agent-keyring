@@ -127,20 +127,20 @@ public final class PhoneSampleBackend: PhoneBackend {
         let codexLinux = RequestingAgent(name: "Codex", machine: "Linux server", address: "")
         let requests = [
             AccessRequest(id: "r1", login: RequestedLogin(site: "example.com", account: "josh@example.com"), agent: codexMini,
-                          access: .signIn, agentReason: "You asked me to download October’s invoice.", askedAt: at(14, 2),
+                          access: .login, agentReason: "You asked me to download October’s invoice.", askedAt: at(14, 2),
                           state: .waitingForYou(until: now.addingTimeInterval(600))),
             AccessRequest(id: "r2", login: RequestedLogin(site: "example.org", account: "josh@example.org"), agent: claudeMac,
-                          access: .signIn, agentReason: "Checking the order status you asked about.", askedAt: at(14, 0),
+                          access: .login, agentReason: "Checking the order status you asked about.", askedAt: at(14, 0),
                           state: .approved(by: .mac, until: at(14, 32))),
             AccessRequest(id: "r3", login: RequestedLogin(site: "shop.example", account: "josh@example.com"), agent: claudeMac,
-                          access: .signIn, agentReason: "Reordering coffee filters.", askedAt: at(13, 40),
+                          access: .login, agentReason: "Reordering coffee filters.", askedAt: at(13, 40),
                           state: .expired(at: at(14, 10))),
             AccessRequest(id: "r4", login: RequestedLogin(site: "forum.example", account: "josh"), agent: codexLinux,
-                          access: .signIn, agentReason: "Posting the release notes.", askedAt: at(13, 12),
+                          access: .login, agentReason: "Posting the release notes.", askedAt: at(13, 12),
                           state: .denied(by: .iPhone, reply: nil, askAgainAfter: nil)),
             AccessRequest(id: "r5", login: RequestedLogin(site: "example.com", account: "josh@example.com"),
                           agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: ""),
-                          access: .signIn, agentReason: "Downloading statements.", askedAt: at(11, 5), state: .unanswered),
+                          access: .login, agentReason: "Downloading statements.", askedAt: at(11, 5), state: .unanswered),
         ]
         let logins = [
             PhoneLogin(id: "l1", site: "example.com", account: "josh@example.com", rule: .ask),
