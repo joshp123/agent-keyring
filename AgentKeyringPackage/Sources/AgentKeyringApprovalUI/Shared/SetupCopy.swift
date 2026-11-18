@@ -126,7 +126,6 @@ public enum SetupCopy {
 
     // MARK: When the Mac asks the iPhone
 
-    public static let phoneDelayFooter = "A request shows on your Mac first. If you don't answer there in time, or your Mac is locked, it comes here. The delay is set on your Mac."
     public static let askPhoneAfterOnMac = "Ask your iPhone after"
     public static let macDelayFooter = "If you haven't answered on this Mac by then. If this Mac is locked, your iPhone is asked straight away."
 
@@ -135,39 +134,6 @@ public enum SetupCopy {
         let seconds = Int(delay.components.seconds)
         return seconds < 60 ? "\(seconds) seconds" : seconds < 120 ? "1 minute" : "\(seconds / 60) minutes"
     }
-
-    /// Home's empty state; the Lock Screen is mentioned only once it works.
-    public static func nothingWaiting(_ status: PhoneNotifications) -> String {
-        switch status {
-        case .on: "When your Mac asks this iPhone, the request appears here and on your Lock Screen."
-        case .notSetUp: "When your Mac asks this iPhone, the request appears here. Notifications aren't set up yet, so open Agent Keyring to check."
-        case .off: "When your Mac asks this iPhone, the request appears here. Notifications are off, so open Agent Keyring to check."
-        }
-    }
-
-    public static func notifications(_ status: PhoneNotifications) -> String {
-        switch status {
-        case .notSetUp: "Not set up yet"
-        case .off: "Off in iPhone Settings"
-        case .on: "On"
-        }
-    }
-
-    // MARK: The iPhone's pairing
-
-    public static let pairTitle = "Pair with your Mac"
-    /// Fresh keys through the same comparison; the Mac drops this iPhone's old key.
-    public static let pairAgain = "Pair again"
-    public static let pairAgainFooter = "Your approvals are signed with this key, which never leaves this iPhone's Secure Enclave. Pair again to make new keys, for example if this iPhone was paired before it could keep logins for when your Mac is shut."
-    public static let pairIntro = "Pair this iPhone to answer requests when you're away from your Mac. Requests reach it through Agent Keyring on your Mac mini."
-    public static let pairButton = "Pair"
-    public static let pairingConnecting = "Connecting to your Mac mini…"
-    public static let pairingCompareHere = "Compare this code with the one on your Mac:"
-    public static let pairingConfirmOnMac = "If every group matches, approve on your Mac. This screen moves on by itself."
-    public static func pairingThrough(_ address: String) -> String { "Through \(address)" }
-    public static let pairingPaired = "Paired. Requests now reach this iPhone."
-    public static let tryAgain = "Try again"
-    public static let notPairedNotice = "Not paired yet, so requests can't reach this iPhone."
 }
 
 /// Every sentence of the first-run window (MacFirstRunView).

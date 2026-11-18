@@ -5,6 +5,20 @@ import Foundation
 import LocalAuthentication
 import OSLog
 
+public enum ServiceConnection: Hashable, Sendable {
+    case connected(service: String, lastContact: Date)
+    case unreachable(service: String, since: Date)
+    case notPaired
+}
+
+public enum PhonePairingState: Hashable, Sendable {
+    case notPaired
+    case connecting
+    case comparing(fingerprint: String, relayAddress: String)
+    case paired
+    case failed(String)
+}
+
 @MainActor
 public protocol PhoneApproverKeys {
     func signingPublicKey() throws -> Data

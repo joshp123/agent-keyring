@@ -91,7 +91,9 @@ extension PhoneRelayApprover {
         return (record, machine, login)
     }
 
-    public func approve(_ id: String) async throws -> AccessRequestState {
+    /// `reusingUnlock`: a Face ID unlock of the phone in the last 10 seconds
+    /// counts as this approval's Face ID, for an Approve pressed on the Lock Screen.
+    public func approve(_ id: String, reusingUnlock: Bool = false) async throws -> AccessRequestState {
         try load()
         if state.requests[id]?.hasAnswer == true { await flushOutbox(); return try requestState(id) }
         guard !authorizing else { throw RelayFailure(.conflict, "An approval is already in progress.") }
@@ -101,6 +103,7 @@ extension PhoneRelayApprover {
         await refreshCopy()
         let (record, machine, _) = try pendingScope(id, approving: true)
         let context = LAContext(); defer { context.invalidate() }
+        if reusingUnlock { context.touchIDAuthenticationAllowableReuseDuration = 10 }
         logger.notice("Requesting Face ID for explicit approval")
         try await keys.authorize(context, reason: "Let an agent on \(machine.machineLabel) use this login for up to 30 minutes.")
         try Task.checkCancellation()

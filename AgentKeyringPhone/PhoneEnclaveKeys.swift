@@ -52,7 +52,6 @@ struct PhoneEnclaveKeys: PhoneApproverKeys {
     func authorize(_ context: LAContext, reason: String) async throws {
         context.localizedReason = reason
         context.localizedFallbackTitle = ""
-        context.touchIDAuthenticationAllowableReuseDuration = 0
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error), context.biometryType == .faceID else {
             throw error ?? PhoneEnclaveFailure.enclaveUnavailable
