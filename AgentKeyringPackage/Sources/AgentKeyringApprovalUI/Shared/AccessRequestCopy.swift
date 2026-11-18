@@ -1,114 +1,16 @@
 // Written by AI on 2026.10.31 by model Claude Opus 5.5.
 //
-// Every sentence the request screens show, in one place, so the words can
-// change without touching a view. British English, plain, short.
+// Request words the Mac's menu bar and request panel share.
 
 import Foundation
 
 public enum AccessRequestCopy {
-    // MARK: The question
-
-    /// The line above the site: "Codex wants to sign in to" for an agent on
-    /// this Mac, "Codex on Mac mini wants to sign in to" for one elsewhere, so
-    /// a remote request reads differently at a glance.
-    public static func headlineLead(_ request: AccessRequest) -> String {
-        let who = request.agent.isLocal ? request.agent.name : "\(request.agent.name) on \(request.agent.machine)"
-        return switch request.access {
-        case .login: "\(who) wants to sign in to"
-        case let .setUp(lead, _, _, _): lead
-        }
-    }
-
-    /// Under the question: the account, and for another machine its address.
-    public static func subline(_ request: AccessRequest) -> String {
-        let account = "as \(request.login.account)"
-        guard !request.agent.isLocal else { return account }
-        return "\(account) · \(request.agent.address)"
-    }
-
-    public static func headlineAccount(_ request: AccessRequest) -> String {
-        "as \(request.login.account)"
-    }
-
-    // MARK: The notification that carries a request to the iPhone and Watch
-
-    /// The site, because it is what Josh decides about and what the Watch
-    /// shows largest.
-    public static func notificationTitle(_ request: AccessRequest) -> String { request.login.site }
-
-    /// "Codex on Mac mini wants to sign in as josh@example.com".
-    public static func notificationSubtitle(_ request: AccessRequest) -> String {
-        let who = "\(request.agent.name) on \(request.agent.isLocal ? "your Mac" : request.agent.machine)"
-        return switch request.access {
-        case .login: "\(who) wants to sign in as \(request.login.account)"
-        case let .setUp(lead, detail, _, _): "\(lead) \(request.login.site). \(detail)."
-        }
-    }
-
-    /// The agent's own reason, in quotation marks because Agent Keyring can't check it.
-    public static func notificationBody(_ request: AccessRequest) -> String { "“\(request.agentReason)”" }
-
-    // MARK: Facts Agent Keyring observed
-
-    public static let machineLabel = "Machine"
-    public static let lastsLabel = "Lasts"
-
-    public static func machine(_ agent: RequestingAgent) -> String {
-        agent.isLocal ? "This Mac" : "\(agent.machine) · \(agent.address)"
-    }
-
     /// Where a request came from, in lists: "This Mac" or the machine's name.
     public static func origin(_ agent: RequestingAgent) -> String {
         agent.isLocal ? "This Mac" : agent.machine
     }
 
-    /// Under the outcome while an answer waits to reach the relay.
-    public static let answerQueued = "Saved. It goes to your Mac mini as soon as it can be reached."
-
-    public static func lasts(_ request: AccessRequest) -> String { "Up to 30 minutes" }
-
-    // MARK: The agent's claim
-
-    public static func claimHeading(_ agent: RequestingAgent) -> String {
-        "\(agent.name) says"
-    }
-
-    public static func claimFolder(_ folder: String) -> String {
-        "Working in \(folder)"
-    }
-
-    /// Covers the agent's name, folder and reason: all come from the agent.
-    public static func claimFootnote(_ agent: RequestingAgent) -> String {
-        "Agent Keyring can't check what \(agent.name) says."
-    }
-
-    // MARK: Answering
-
-    public static let approve = "Approve"
-    public static let deny = "Deny"
-    /// Deny's label once Josh has typed a reply: the reply goes with the denial.
-    public static let denyAndSendReply = "Deny and reply"
-    public static func replyPlaceholder(_ agent: RequestingAgent) -> String {
-        "Tell \(agent.name) what to do instead (optional)"
-    }
-    public static let sending = "Sending…"
-    public static let endNow = "End now"
-    public static let ending = "Ending…"
-    public static let askingAgainPending = "Telling your Mac…"
-    public static func askAgainUntil(_ date: Date) -> String {
-        "New requests from this machine are held off until \(clock(date))."
-    }
     public static let letAskAgain = "Let it ask again"
-    /// Every denial Josh makes holds the login off for 30 minutes.
-    public static func heldOff(_ agent: RequestingAgent) -> String {
-        "\(agent.name) can't ask for this login again for 30 minutes unless you let it."
-    }
-    public static func mayAskAgain(_ agent: RequestingAgent) -> String { "\(agent.name) can ask again." }
-
-    // MARK: States
-
-    public static let waitingForYou = "Waiting for you"
-    public static let waitingForMac = "Waiting for your Mac"
 
     public static func remaining(until deadline: Date, now: Date) -> String {
         let seconds = max(0, Int(deadline.timeIntervalSince(now).rounded(.up)))
@@ -118,43 +20,6 @@ public enum AccessRequestCopy {
     public static func minutesLeft(until deadline: Date, now: Date) -> String {
         let minutes = max(0, Int((deadline.timeIntervalSince(now) / 60).rounded(.up)))
         return "\(minutes) min left"
-    }
-
-    /// One sentence for a request that has an outcome. Nil while waiting.
-    public static func outcome(_ request: AccessRequest) -> String? {
-        let agent = request.agent.name
-        switch request.state {
-        case .waitingForYou:
-            return nil
-        case .sendingAnswer(.approve):
-            return "Approving…"
-        case .sendingAnswer(.deny):
-            return "Denying…"
-        case .waitingForMac(.approve, _):
-            return "You approved. Waiting for your Mac to send the login."
-        case let .waitingForMac(.deny, reply):
-            return reply == nil ? "You denied. Waiting for your Mac to tell \(agent)."
-                : "You denied. Waiting for your Mac to pass your reply to \(agent)."
-        case let .approved(.automaticRule, until):
-            return "Approved by this login's rule. \(agent) can use it until \(clock(until))."
-        case let .approved(surface, until):
-            return "Approved\(elsewhere(surface)). \(agent) can use it until \(clock(until)), or until it says it's done."
-        case let .denied(surface, reply, _):
-            return reply == nil ? "Denied\(elsewhere(surface)). \(agent) was told."
-                : "Denied\(elsewhere(surface)). \(agent) got your reply."
-        case .unanswered:
-            return "Nobody answered in time, so \(agent) stopped waiting."
-        case .cancelled:
-            return "\(agent) stopped asking before you answered."
-        case let .expired(at):
-            return "Ended at \(clock(at)) after 30 minutes. \(agent) has to ask again."
-        case let .released(at):
-            return "\(agent) finished with it at \(clock(at))."
-        case let .ended(at):
-            return "You ended it at \(clock(at))."
-        case .blockedByRule:
-            return "Blocked by this login's rule. You weren't asked."
-        }
     }
 
     /// One word for history rows.
@@ -174,36 +39,9 @@ public enum AccessRequestCopy {
         }
     }
 
-    /// " on your Mac" on the iPhone, " on your iPhone" on the Mac, so an
-    /// answer from the other device reads as such. Empty for this device.
-    public static func elsewhere(_ surface: ApprovalSurface) -> String {
-        #if os(iOS)
-        surface == .mac ? " on your Mac" : ""
-        #else
-        surface == .iPhone ? " on your iPhone" : ""
-        #endif
-    }
-
-    public static func surface(_ surface: ApprovalSurface) -> String {
-        switch surface {
-        case .mac: "on your Mac"
-        case .iPhone: "on this iPhone"
-        case .automaticRule: "by rule"
-        }
-    }
-
-    // MARK: Time
-
     /// 24-hour clock, whatever the region: "02:41".
     public static func clock(_ date: Date) -> String {
         clockFormatter.string(from: date)
-    }
-
-    /// "Today 02:41", "Yesterday 23:50", "Tue 28 Oct 14:02".
-    public static func dayAndClock(_ date: Date, calendar: Calendar = .current) -> String {
-        if calendar.isDateInToday(date) { return "Today \(clock(date))" }
-        if calendar.isDateInYesterday(date) { return "Yesterday \(clock(date))" }
-        return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)) + " " + clock(date)
     }
 
     private static let clockFormatter: DateFormatter = {
