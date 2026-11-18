@@ -1,0 +1,404 @@
+// Written by AI on 2026.11.18 by model claude opus 5.5.
+//
+// Package keyring holds the sealed formats and signed documents of
+// proto/agentkeyring/v2/keyring.proto, as the relay and the command use them.
+// The apps have the same in Swift (AgentKeyringSealing). The device half
+// (Seal, Approve, Deny) is here so a software key can stand in for a chip in
+// end-to-end tests.
+package keyring
+
+import (
+	"bytes"
+	"crypto/ecdh"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/hmac"
+	"crypto/hpke"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"hash"
+	"slices"
+	"time"
+
+	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
+	"google.golang.org/protobuf/proto"
+)
+
+const (
+	MembersDomain   = "agentkeyring.members.v2"
+	CatalogueDomain = "agentkeyring.catalogue.v2"
+	RequestDomain   = "agentkeyring.request.v2"
+	AnswerDomain    = "agentkeyring.answer.v2"
+	ApprovalSeconds = 1800
+)
+
+var (
+	loginInfo    = []byte("agentkeyring.login.v2")
+	deliveryInfo = []byte("agentkeyring.delivery.v2")
+	noticeInfo   = []byte("agentkeyring.notice.v2")
+
+	ErrWrongDomain   = errors.New("not the expected kind of document")
+	ErrUnknownSigner = errors.New("signed by a key that is not one of the devices")
+	ErrBadSignature  = errors.New("signature does not match")
+	ErrNotAllowed    = errors.New("this device's key may not sign this")
+	ErrStale         = errors.New("not newer than the revision already held")
+	ErrMismatch      = errors.New("does not belong to this request")
+	ErrExpired       = errors.New("approval has expired")
+)
+
+// KeyID is lowercase hex SHA-256 of public key bytes.
+func KeyID(publicKey []byte) string { sum := sha256.Sum256(publicKey); return hex.EncodeToString(sum[:]) }
+
+func SHA256(data []byte) []byte { sum := sha256.Sum256(data); return sum[:] }
+
+func suite() hpke.AEAD { return hpke.AES256GCM() }
+
+func lengthPrefixed(parts ...string) []byte {
+	var out []byte
+	for _, part := range parts {
+		out = binary.BigEndian.AppendUint32(out, uint32(len(part)))
+		out = append(out, part...)
+	}
+	return out
+}
+
+func seal(publicKey, info, aad, plaintext []byte) (enc, ciphertext []byte, err error) {
+	point, err := ecdh.P256().NewPublicKey(publicKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	key, err := hpke.NewDHKEMPublicKey(point)
+	if err != nil {
+		return nil, nil, err
+	}
+	enc, sender, err := hpke.NewSender(key, hpke.HKDFSHA256(), suite(), info)
+	if err != nil {
+		return nil, nil, err
+	}
+	ciphertext, err = sender.Seal(aad, plaintext)
+	return enc, ciphertext, err
+}
+
+func open(private *ecdh.PrivateKey, info, enc, aad, ciphertext []byte) ([]byte, error) {
+	key, err := hpke.NewDHKEMPrivateKey(private)
+	if err != nil {
+		return nil, err
+	}
+	recipient, err := hpke.NewRecipient(enc, key, hpke.HKDFSHA256(), suite(), info)
+	if err != nil {
+		return nil, err
+	}
+	return recipient.Open(aad, ciphertext)
+}
+
+// SealLogin seals one login to a device's opening key or a machine's receiving key.
+func SealLogin(secret *pb.LoginSecret, publicKey []byte, openerID string) (*pb.SealedLogin, error) {
+	plaintext, err := proto.Marshal(secret)
+	if err != nil {
+		return nil, err
+	}
+	enc, ciphertext, err := seal(publicKey, loginInfo, lengthPrefixed(openerID, secret.LoginId), plaintext)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.SealedLogin{LoginId: secret.LoginId, OpenerId: openerID, EncapsulatedKey: enc, Ciphertext: ciphertext}, nil
+}
+
+func OpenLogin(sealed *pb.SealedLogin, private *ecdh.PrivateKey) (*pb.LoginSecret, error) {
+	plaintext, err := open(private, loginInfo, sealed.EncapsulatedKey, lengthPrefixed(sealed.OpenerId, sealed.LoginId), sealed.Ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	secret := &pb.LoginSecret{}
+	if err := proto.Unmarshal(plaintext, secret); err != nil {
+		return nil, err
+	}
+	if secret.LoginId != sealed.LoginId {
+		return nil, ErrMismatch
+	}
+	return secret, nil
+}
+
+// SealNotice seals the Work a push shows to a device's notice key.
+func SealNotice(work *pb.Work, noticeKey []byte, deviceKeyID string) (*pb.Notice, error) {
+	plaintext, err := proto.Marshal(work)
+	if err != nil {
+		return nil, err
+	}
+	enc, ciphertext, err := seal(noticeKey, noticeInfo, []byte(deviceKeyID), plaintext)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.Notice{EncapsulatedKey: enc, Ciphertext: ciphertext}, nil
+}
+
+func OpenNotice(notice *pb.Notice, private *ecdh.PrivateKey, deviceKeyID string) (*pb.Work, error) {
+	plaintext, err := open(private, noticeInfo, notice.EncapsulatedKey, []byte(deviceKeyID), notice.Ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	work := &pb.Work{}
+	return work, proto.Unmarshal(plaintext, work)
+}
+
+// ParseRequest reads Request bytes and checks their domain.
+func ParseRequest(data []byte) (*pb.Request, error) {
+	request := &pb.Request{}
+	if err := proto.Unmarshal(data, request); err != nil {
+		return nil, err
+	}
+	if request.Domain != RequestDomain {
+		return nil, ErrWrongDomain
+	}
+	return request, nil
+}
+
+// Signer signs payload bytes, returning a DER ECDSA P-256 signature over SHA-256.
+type Signer func(payload []byte) ([]byte, error)
+
+// SoftwareSigner signs with a software key, standing in for a chip in tests.
+func SoftwareSigner(key *ecdsa.PrivateKey) Signer {
+	return func(payload []byte) ([]byte, error) { return ecdsa.SignASN1(rand.Reader, key, SHA256(payload)) }
+}
+
+func Sign(payload []byte, signerKeyID string, sign Signer) (*pb.Signed, error) {
+	signature, err := sign(payload)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.Signed{Payload: payload, Signature: signature, SignerKeyId: signerKeyID}, nil
+}
+
+// Approve is what a device sends to approve: the opened login sealed again for
+// the asking machine for 30 minutes, with an answer it signs.
+func Approve(requestBytes []byte, secret *pb.LoginSecret, sites []string, receivingKey []byte, signerKeyID string, sign Signer, now time.Time) (*pb.AnswerUpload, error) {
+	request, err := ParseRequest(requestBytes)
+	if err != nil {
+		return nil, err
+	}
+	if request.LoginId != secret.LoginId {
+		return nil, ErrMismatch
+	}
+	requestHash := SHA256(requestBytes)
+	decided := now.Unix()
+	codes, err := OneTimeCodes(secret, decided, decided+ApprovalSeconds)
+	if err != nil {
+		return nil, err
+	}
+	contents, err := proto.Marshal(&pb.DeliveryContents{RequestId: request.RequestId, LoginId: secret.LoginId, Sites: sites,
+		Username: secret.Username, Password: secret.Password, OneTimeCodes: codes, NotAfterUnixSeconds: decided + ApprovalSeconds})
+	if err != nil {
+		return nil, err
+	}
+	enc, ciphertext, err := seal(receivingKey, deliveryInfo, requestHash, contents)
+	if err != nil {
+		return nil, err
+	}
+	answer, err := proto.Marshal(&pb.Answer{Domain: AnswerDomain, RequestSha256: requestHash, Choice: pb.Choice_CHOICE_APPROVE,
+		DecidedUnixSeconds: decided, NotAfterUnixSeconds: decided + ApprovalSeconds, DeliverySha256: SHA256(ciphertext)})
+	if err != nil {
+		return nil, err
+	}
+	signed, err := Sign(answer, signerKeyID, sign)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.AnswerUpload{Answer: signed, Delivery: &pb.Delivery{EncapsulatedKey: enc, Ciphertext: ciphertext}}, nil
+}
+
+// Deny denies with words, signed with the device's signing key or reply key.
+func Deny(requestBytes []byte, reply, signerKeyID string, sign Signer, now time.Time) (*pb.AnswerUpload, error) {
+	if _, err := ParseRequest(requestBytes); err != nil {
+		return nil, err
+	}
+	answer, err := proto.Marshal(&pb.Answer{Domain: AnswerDomain, RequestSha256: SHA256(requestBytes), Choice: pb.Choice_CHOICE_DENY,
+		DecidedUnixSeconds: now.Unix(), Reply: reply})
+	if err != nil {
+		return nil, err
+	}
+	signed, err := Sign(answer, signerKeyID, sign)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.AnswerUpload{Answer: signed}, nil
+}
+
+// Verify checks a signature against a device in members and returns it. A
+// reply key is accepted only when allowReplyKey: on a denial.
+func Verify(signed *pb.Signed, members *pb.Members, allowReplyKey bool) (*pb.Device, error) {
+	var device *pb.Device
+	var key []byte
+	for _, candidate := range members.Devices {
+		switch {
+		case candidate.KeyId == signed.SignerKeyId:
+			device, key = candidate, candidate.SigningPublicKey
+		case candidate.ReplyKeyId != "" && candidate.ReplyKeyId == signed.SignerKeyId:
+			if !allowReplyKey {
+				return nil, ErrNotAllowed
+			}
+			device, key = candidate, candidate.ReplyPublicKey
+		}
+	}
+	if device == nil {
+		return nil, ErrUnknownSigner
+	}
+	x, y := elliptic.Unmarshal(elliptic.P256(), key)
+	if x == nil || !ecdsa.VerifyASN1(&ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, SHA256(signed.Payload), signed.Signature) {
+		return nil, ErrBadSignature
+	}
+	return device, nil
+}
+
+// VerifiedAnswer returns the answer in an approval once its signer and request are checked.
+func VerifiedAnswer(approval *pb.Approval, members *pb.Members) (*pb.Answer, *pb.Device, error) {
+	answer := &pb.Answer{}
+	if err := proto.Unmarshal(approval.GetAnswer().GetPayload(), answer); err != nil {
+		return nil, nil, err
+	}
+	if answer.Domain != AnswerDomain {
+		return nil, nil, ErrWrongDomain
+	}
+	device, err := Verify(approval.Answer, members, answer.Choice == pb.Choice_CHOICE_DENY)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !bytes.Equal(answer.RequestSha256, SHA256(approval.Request)) {
+		return nil, nil, ErrMismatch
+	}
+	return answer, device, nil
+}
+
+// OpenApproval checks an approval and opens its delivery with the machine's receiving key.
+func OpenApproval(approval *pb.Approval, members *pb.Members, receiving *ecdh.PrivateKey, now time.Time) (*pb.DeliveryContents, error) {
+	answer, _, err := VerifiedAnswer(approval, members)
+	if err != nil {
+		return nil, err
+	}
+	if answer.Choice != pb.Choice_CHOICE_APPROVE || !bytes.Equal(answer.DeliverySha256, SHA256(approval.GetDelivery().GetCiphertext())) {
+		return nil, ErrMismatch
+	}
+	if answer.NotAfterUnixSeconds <= now.Unix() || answer.NotAfterUnixSeconds > answer.DecidedUnixSeconds+ApprovalSeconds {
+		return nil, ErrExpired
+	}
+	plaintext, err := open(receiving, deliveryInfo, approval.Delivery.EncapsulatedKey, answer.RequestSha256, approval.Delivery.Ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	contents := &pb.DeliveryContents{}
+	if err := proto.Unmarshal(plaintext, contents); err != nil {
+		return nil, err
+	}
+	request, err := ParseRequest(approval.Request)
+	if err != nil {
+		return nil, err
+	}
+	if contents.RequestId != request.RequestId || contents.LoginId != request.LoginId {
+		return nil, ErrMismatch
+	}
+	return contents, nil
+}
+
+// VerifiedMembers accepts a new Members signed by a device the current one
+// lists, and newer. With no current Members, it must be signed by a device it lists.
+func VerifiedMembers(signed *pb.Signed, current *pb.Members) (*pb.Members, error) {
+	next := &pb.Members{}
+	if err := proto.Unmarshal(signed.GetPayload(), next); err != nil {
+		return nil, err
+	}
+	if next.Domain != MembersDomain {
+		return nil, ErrWrongDomain
+	}
+	trusted := next
+	if current != nil {
+		if next.Revision <= current.Revision {
+			return nil, ErrStale
+		}
+		trusted = current
+	}
+	if _, err := Verify(signed, trusted, false); err != nil {
+		return nil, err
+	}
+	return next, nil
+}
+
+// VerifiedCatalogue accepts a newer Catalogue signed by a device in members.
+// A MacBook may not change a login that only the iPhone or Watch may approve.
+func VerifiedCatalogue(signed *pb.Signed, members *pb.Members, current *pb.Catalogue) (*pb.Catalogue, error) {
+	signer, err := Verify(signed, members, false)
+	if err != nil {
+		return nil, err
+	}
+	next := &pb.Catalogue{}
+	if err := proto.Unmarshal(signed.Payload, next); err != nil {
+		return nil, err
+	}
+	if next.Domain != CatalogueDomain {
+		return nil, ErrWrongDomain
+	}
+	if current == nil {
+		return next, nil
+	}
+	if next.Revision <= current.Revision {
+		return nil, ErrStale
+	}
+	if signer.Kind == pb.DeviceKind_DEVICE_KIND_MAC {
+		for _, before := range current.Logins {
+			if !before.PhoneAndWatchOnly {
+				continue
+			}
+			index := slices.IndexFunc(next.Logins, func(login *pb.Login) bool { return login.LoginId == before.LoginId })
+			if index < 0 || next.Logins[index].Rule != before.Rule || !next.Logins[index].PhoneAndWatchOnly {
+				return nil, ErrNotAllowed
+			}
+		}
+	}
+	return next, nil
+}
+
+// OneTimeCodes gives one code per time step from start until end (RFC 6238).
+func OneTimeCodes(secret *pb.LoginSecret, start, end int64) ([]*pb.TimedCode, error) {
+	if len(secret.TotpSeed) == 0 {
+		return nil, nil
+	}
+	period, digits := int64(secret.TotpPeriodSeconds), int(secret.TotpDigits)
+	if period == 0 {
+		period = 30
+	}
+	if digits == 0 {
+		digits = 6
+	}
+	var makeHash func() hash.Hash
+	switch secret.TotpAlgorithm {
+	case "", "SHA1":
+		makeHash = sha1.New
+	case "SHA256":
+		makeHash = sha256.New
+	case "SHA512":
+		makeHash = sha512.New
+	default:
+		return nil, fmt.Errorf("unknown one-time code algorithm %q", secret.TotpAlgorithm)
+	}
+	if period < 1 || digits < 6 || digits > 8 {
+		return nil, errors.New("invalid one-time code settings")
+	}
+	modulus := uint32(1)
+	for range digits {
+		modulus *= 10
+	}
+	var codes []*pb.TimedCode
+	for step := start / period * period; step < end; step += period {
+		mac := hmac.New(makeHash, secret.TotpSeed)
+		mac.Write(binary.BigEndian.AppendUint64(nil, uint64(step/period)))
+		digest := mac.Sum(nil)
+		offset := digest[len(digest)-1] & 15
+		value := (binary.BigEndian.Uint32(digest[offset:offset+4]) & 0x7fffffff) % modulus
+		codes = append(codes, &pb.TimedCode{ValidFromUnixSeconds: step, ValidUntilUnixSeconds: min(step+period, end), Code: fmt.Sprintf("%0*d", digits, value)})
+	}
+	return codes, nil
+}

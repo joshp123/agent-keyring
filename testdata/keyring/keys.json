@@ -1,0 +1,8 @@
+{
+  "device_signing": "4b1a448400bd3699c5e9f75270bfbf23802bc6609b5c20bbab9bb17aa31f4cb7",
+  "device_opening": "27788b8ebd50eb46a067d24663cb98db92a793f274e220fe81cc0b7a6eebbc79",
+  "device_reply": "74feae590c00cdfaa43e8554a2d9f076c0233fc9a7f8dfa3339ede5df52dea20",
+  "device_notice": "57baab5f936b94bdeb8a4e6b9a46a81541fc8a13609efd9f30baa047f44d7f7d",
+  "machine_receiving": "acac0ddc93037ed5e3823a5fe25c86f8fb9dccf47d6e4a8eb4388f794c8f8314",
+  "note": "Test keys only, standing in for a device's chip keys and a machine's receiving key. Never used outside tests."
+}
