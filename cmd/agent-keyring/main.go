@@ -41,8 +41,9 @@ const help = `Agent Keyring: use a saved login for one task.
   install                   Link the command and skills; register browser helpers
   install --browser-profile DIRECTORY
                             Register a helper only in this browser user-data directory
-  enrol --name NAME --relay HOST:PORT
-                            Enrol this machine with your approving device
+  enrol --name NAME --invite LINK
+                            Join this machine, with a link from 'invite' on the Mac
+  invite                    On the Mac: print a one-time link for one machine to join
   setup-relay --relay HOST:PORT
                             Connect this Mac to the relay, once Josh approves
   relay-status              Check whether this Mac has connected to the relay
@@ -98,7 +99,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "for", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "browser-profile":
+		case "task", "reason", "for", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -191,39 +192,23 @@ func run(ctx context.Context, args []string) (int, error) {
 		return fillBrowser(ctx, a)
 	}
 	if command == "enrol" {
-		if err = a.check("name relay", ""); err != nil {
+		if err = a.check("name invite", ""); err != nil {
 			return 2, err
 		}
-		if len(a.positionals) > 0 || len(a.program) > 0 {
-			return 2, errors.New("enrol takes --name NAME and --relay HOST:PORT, without positional arguments.")
+		if len(a.positionals) > 0 || len(a.program) > 0 || strings.TrimSpace(a.options["name"]) == "" || a.options["invite"] == "" {
+			return 2, errors.New("enrol takes --name NAME and --invite LINK, the link 'agent-keyring invite' printed on the Mac.")
 		}
-		if strings.TrimSpace(a.options["name"]) == "" {
-			return 2, errors.New("Give this machine a name with --name NAME.")
+		invite, e := remote.ParseInvite(a.options["invite"])
+		if e != nil {
+			return 2, e
 		}
 		store, e := clientstate.Default()
 		if e != nil {
 			return 1, e
 		}
-		address := a.options["relay"]
-		if address == "" {
-			address = os.Getenv("AGENT_KEYRING_RELAY")
-		}
-		if address == "" {
-			state, e := store.Load(ctx)
-			if e != nil {
-				return 1, e
-			}
-			address = state.RelayAddress
-			if address == "" {
-				return 2, errors.New("Supply --relay HOST:PORT to enrol this machine.")
-			}
-		}
-		if err = remote.ValidateAddress(address); err != nil {
-			return 2, err
-		}
-		return 0, remote.Enrol(ctx, store, address, a.options["name"], os.Stderr)
+		return 0, remote.Enrol(ctx, store, invite, a.options["name"], os.Stderr)
 	}
-	if command == "setup-relay" || command == "relay-status" {
+	if command == "setup-relay" || command == "relay-status" || command == "invite" {
 		if len(a.positionals) != 0 || len(a.program) != 0 {
 			return 2, errors.New("Setup commands take options only.")
 		}
@@ -246,6 +231,9 @@ func run(ctx context.Context, args []string) (int, error) {
 				return 2, err
 			}
 			setup.Action = pb.SetupRequest_RELAY_STATUS
+			if command == "invite" {
+				setup.Action = pb.SetupRequest_INVITE
+			}
 		}
 		local, e := localSetupAuthority(ctx)
 		if e != nil {
@@ -264,6 +252,8 @@ func run(ctx context.Context, args []string) (int, error) {
 				return 1, errors.New("Agent Keyring returned an unknown relay status.")
 			}
 			fmt.Println(status)
+		} else if command == "invite" {
+			fmt.Println(result.GetSetup().GetInvite())
 		} else {
 			fmt.Fprintln(os.Stderr, "Waiting for Josh to approve connecting this Mac to the relay. Check with relay-status.")
 		}

@@ -14,11 +14,14 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/netip"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -189,8 +192,24 @@ func parseMembers(raw []byte) (*pb.Members, error) {
 	return members, nil
 }
 
-// Enrol asks to join and waits until Josh approves on one of his devices.
-func Enrol(ctx context.Context, store clientstate.Store, address, name string, output io.Writer) error {
+// ParseInvite reads the link 'agentkeyring invite' printed on the Mac.
+func ParseInvite(link string) (*pb.JoinInvite, error) {
+	encoded, ok := strings.CutPrefix(strings.TrimSpace(link), "agentkeyring://join?invite=")
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	invite := &pb.JoinInvite{}
+	if !ok || err != nil || proto.Unmarshal(raw, invite) != nil || invite.RelayHost == "" || len(invite.Secret) != 32 {
+		return nil, errors.New("That is not an invitation link. Run 'agent-keyring invite' on the Mac and pass the whole link.")
+	}
+	if time.Now().Unix() >= invite.ExpiresUnixSeconds {
+		return nil, errors.New("This invitation has expired. Run 'agent-keyring invite' on the Mac again.")
+	}
+	return invite, nil
+}
+
+// Enrol asks to join with an invitation's proof and waits until Josh approves
+// on the device that invited it. It trusts only that relay and that device.
+func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, name string, output io.Writer) error {
+	address := net.JoinHostPort(invite.RelayHost, strconv.Itoa(int(invite.RelayPort)))
 	keys, err := store.Keys(ctx, func() (*clientstate.PrivateKeys, error) {
 		certificate, key, err := tlsid.New("Agent Keyring machine")
 		if err != nil {
@@ -214,14 +233,16 @@ func Enrol(ctx context.Context, store clientstate.Store, address, name string, o
 		return err
 	}
 	joining := &pb.Machine{MachineId: keyring.KeyID(spki), Label: name, TlsPublicKey: spki, ReceivingPublicKey: client.receiving.PublicKey().Bytes()}
+	join := &pb.JoinRequest{Joining: &pb.JoinRequest_Machine{Machine: joining}}
+	join.Proof = keyring.JoinProof(invite.Secret, join)
 	var observed []byte
 	var status *pb.JoinStatus
-	err = stream(ctx, address, tlsid.Client(client.Certificate, nil, &observed),
-		&pb.RelayRequest{Method: &pb.RelayRequest_Join{Join: &pb.JoinRequest{Joining: &pb.JoinRequest_Machine{Machine: joining}}}},
+	err = stream(ctx, address, tlsid.PinnedByHash(client.Certificate, invite.RelayTlsSha256, &observed),
+		&pb.RelayRequest{Method: &pb.RelayRequest_Join{Join: join}},
 		func(response *pb.RelayResponse) bool {
 			status = response.GetJoin()
 			if status.GetState() == pb.JoinState_JOIN_STATE_WAITING {
-				fmt.Fprintf(output, "Waiting for Josh to approve %q on his iPhone or Mac. The relay's key is %s.\n", name, keyring.KeyID(observed)[:16])
+				fmt.Fprintf(output, "Waiting for Josh to approve %q on his Mac.\n", name)
 			}
 			return status.GetState() == pb.JoinState_JOIN_STATE_WAITING
 		})
@@ -231,13 +252,13 @@ func Enrol(ctx context.Context, store clientstate.Store, address, name string, o
 	switch status.GetState() {
 	case pb.JoinState_JOIN_STATE_APPROVED:
 	case pb.JoinState_JOIN_STATE_EXPIRED:
-		return errors.New("Nobody approved this machine within 10 minutes. Run enrol again.")
+		return errors.New("Nobody approved this machine within 10 minutes. Run 'agent-keyring invite' on the Mac and enrol again.")
 	default:
 		return errors.New("This machine was not approved.")
 	}
 	members, err := keyring.VerifiedMembers(status.Members, nil)
-	if err != nil {
-		return fmt.Errorf("The approval is not signed by a device: %w", err)
+	if err != nil || status.Members.SignerKeyId != invite.InviterKeyId {
+		return errors.New("The approval is not signed by the device that invited this machine. Nothing was saved.")
 	}
 	listed := false
 	for _, m := range members.Machines {

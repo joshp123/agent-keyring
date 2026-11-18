@@ -139,4 +139,11 @@ struct SealingTests {
         #expect(request.reason == "You asked me to download October's invoice.")
         #expect(try Sealing.open(work.sealedLogin, with: keys.opening).password == "example-password")
     }
+
+    @Test("A join proof made in Go checks in Swift")
+    func joinProofFromGo() throws {
+        let joining = try Agentkeyring_V2_JoinRequest(serializedBytes: Data(contentsOf: Self.folder.appending(path: "go-join.pb")))
+        #expect(Sealing.joinProof(secret: Data(repeating: 1, count: 32), joining: joining) == joining.proof)
+        #expect(Sealing.joinProof(secret: Data(repeating: 2, count: 32), joining: joining) != joining.proof)
+    }
 }

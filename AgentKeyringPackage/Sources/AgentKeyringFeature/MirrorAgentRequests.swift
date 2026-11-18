@@ -37,6 +37,9 @@ extension MirrorAppModel {
                     }
                     _ = try macKeys()
                     try await device!.beginSetup(try RelayEndpoint(host: setup.host, port: port))
+                case .invite:
+                    _ = try macKeys()
+                    result.invite = try device!.inviteMachine()
                 case .relayStatus:
                     _ = try macKeys()
                     result.relayStatus = device!.connection == .connected ? "connected"

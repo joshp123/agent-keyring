@@ -14,6 +14,7 @@ import Foundation
 import LocalAuthentication
 import Observation
 import OSLog
+import Security
 
 private let deviceLogger = Logger(subsystem: "com.agentkeyring.app", category: "Relay")
 
@@ -46,6 +47,9 @@ public final class MacDevice {
     private var saved: Saved?
     private var setupPin: Data?
     private var hiddenJoins = Set<String>()
+    /// Invitations this Mac issued and nobody has used: secret, expiry. A join
+    /// is shown only if its proof checks against one of them.
+    private var invitations: [Data: Date] = [:]
     @ObservationIgnored private var running: Task<Void, Never>?
     private let file = URL.applicationSupportDirectory.appending(path: "AgentKeyring/relay-v2.plist")
 
@@ -130,6 +134,7 @@ public final class MacDevice {
 
     public func start() {
         guard saved != nil, running == nil else { return }
+        if invitations.isEmpty { leaveDeviceInvitation() }
         running = Task { [weak self] in
             while let self, !Task.isCancelled, let relay = self.relay {
                 self.connection = .connecting
@@ -171,7 +176,7 @@ public final class MacDevice {
         while !Task.isCancelled {
             do {
                 let response = try await call(.pendingJoins(Agentkeyring_V2_Empty()))
-                joins = response.pendingJoins.joins.filter { !hiddenJoins.contains(Self.joinID($0)) }
+                joins = invited(response.pendingJoins.joins).filter { !hiddenJoins.contains(Self.joinID($0)) }
             } catch {
                 guard !Task.isCancelled else { return }
                 running?.cancel()
@@ -192,6 +197,67 @@ public final class MacDevice {
         members = newer
         saved?.members = try document.serializedData()
         try persist()
+    }
+
+    /// The joins that prove one of this Mac's invitations. If two different
+    /// joiners prove the same one, the secret has leaked: neither is shown,
+    /// and the invitation is withdrawn.
+    private func invited(_ pending: [Agentkeyring_V2_PendingJoin]) -> [Agentkeyring_V2_PendingJoin] {
+        invitations = invitations.filter { $0.value > .now }
+        var bySecret: [Data: [Agentkeyring_V2_PendingJoin]] = [:]
+        for join in pending {
+            if let secret = invitations.keys.first(where: { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof }) {
+                bySecret[secret, default: []].append(join)
+            }
+        }
+        var shown: [Agentkeyring_V2_PendingJoin] = []
+        for (secret, joins) in bySecret {
+            if Set(joins.map(Self.joinID)).count > 1 {
+                deviceLogger.error("Two joiners proved the same invitation; it is withdrawn and neither is shown.")
+                invitations.removeValue(forKey: secret)
+            } else {
+                shown += joins
+            }
+        }
+        return shown
+    }
+
+    /// A one-time link for one machine to join, valid for ten minutes, for an
+    /// agent to pass to 'agent-keyring enrol --invite' over SSH.
+    public func inviteMachine() throws -> String {
+        "agentkeyring://join?invite=" + (try invitation(lasting: 600).serializedData()).base64URLEncoded
+    }
+
+    private func invitation(lasting seconds: TimeInterval) throws -> Agentkeyring_V2_JoinInvite {
+        guard let saved else { throw RelayFailure(.unavailable, "Connect this Mac to the relay first: agent-keyring setup-relay.") }
+        var secret = Data(count: 32)
+        _ = secret.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
+        let expires = Date.now.addingTimeInterval(seconds)
+        invitations[secret] = expires
+        var invite = Agentkeyring_V2_JoinInvite()
+        invite.relayHost = saved.endpoint.host
+        invite.relayPort = UInt32(saved.endpoint.port)
+        invite.relayTlsSha256 = Sealing.sha256(saved.pin)
+        invite.inviterKeyID = keys.deviceKeyID
+        invite.secret = secret
+        invite.expiresUnixSeconds = Int64(expires.timeIntervalSince1970)
+        return invite
+    }
+
+    /// Leaves an invitation for a new iPhone in iCloud Keychain, where only
+    /// Agent Keyring's own apps on Josh's devices can read it. Replaced at
+    /// each launch and after each device joins.
+    func leaveDeviceInvitation() {
+        guard let invite = try? invitation(lasting: 7 * 86400), let value = try? invite.serializedData() else { return }
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecUseDataProtectionKeychain as String: true,
+            kSecAttrSynchronizable as String: true, kSecAttrAccessGroup as String: "7M8BR7R488.com.joshpalmer.AgentKeyring.shared",
+            kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation", kSecAttrAccount as String: "relay"]
+        SecItemDelete(query as CFDictionary)
+        var item = query
+        item[kSecValueData as String] = value
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let status = SecItemAdd(item as CFDictionary, nil)
+        if status != errSecSuccess { deviceLogger.error("Could not leave the iPhone's invitation in iCloud Keychain: \(status, privacy: .public)") }
     }
 
     public static func joinID(_ join: Agentkeyring_V2_PendingJoin) -> String {
@@ -292,6 +358,10 @@ public final class MacDevice {
         try await store.replaceSealed(sealed)
         try await publishSealed(for: [id])
         joins.removeAll { Self.joinID($0) == id }
+        if let secret = invitations.keys.first(where: { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof }) {
+            invitations.removeValue(forKey: secret)
+        }
+        if case .device? = join.request.joining { leaveDeviceInvitation() }
     }
 
     /// "Not now": the relay lets the request run out after ten minutes.
@@ -359,5 +429,12 @@ public final class MacDevice {
         return devices + members.machines.filter { $0.automaticAllowed && $0.machineID != keys.machineID }.compactMap { machine in
             (try? P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)).map { (machine.machineID, $0) }
         }
+    }
+}
+
+extension Data {
+    var base64URLEncoded: String {
+        base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }

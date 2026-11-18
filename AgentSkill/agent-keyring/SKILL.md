@@ -61,13 +61,14 @@ agent-keyring setup-relay --relay RELAY_HOST:PORT
 
 The Mac offers the user one approval. Check `agent-keyring relay-status` until it says `connected` before adding machines. `waiting` means the user has not answered yet; `not-started` means setup was cancelled or has not begun. Do not start a second setup while waiting.
 
-To add another machine on the user's tailnet, run its standalone command on that machine over SSH and leave it waiting:
+To add another machine on the user's tailnet, get a one-time link from the Mac, then run the standalone command on that machine over SSH and leave it waiting:
 
 ```sh
-agent-keyring enrol --name "build server" --relay RELAY_HOST:PORT
+link=$(agent-keyring invite)          # on the Mac; valid for 10 minutes, for one machine
+agent-keyring enrol --name "build server" --invite "$link"   # on the machine
 ```
 
-The user's Mac or iPhone offers one approval naming the machine. Wait for the command to finish; it prints `Joined` once approved, and gives up after 10 minutes. After that, the commands above work the same on that machine. Answers can take longer, because the user may approve on their iPhone.
+The Mac offers the user one approval naming the machine. Wait for the command to finish; it prints `Joined` once approved, and gives up after 10 minutes. After that, the commands above work the same on that machine. Answers can take longer, because the user may approve on their iPhone.
 
 ## When it doesn't work
 

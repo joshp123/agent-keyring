@@ -39,9 +39,9 @@ func build(t *testing.T) programs {
 }
 
 type run struct {
-	t        *testing.T
-	programs programs
-	relay    string
+	t           *testing.T
+	programs    programs
+	relay       string
 	deviceState string
 }
 
@@ -137,8 +137,8 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 
 	// Two machines ask to join; Josh approves both on his device.
 	linux, mini := r.newMachine(), r.newMachine()
-	joiningLinux := start(linux.command("enrol", "--name", "Linux server", "--relay", address))
-	joiningMini := start(mini.command("enrol", "--name", "Mac mini", "--relay", address))
+	joiningLinux := start(linux.command("enrol", "--name", "Linux server", "--invite", strings.TrimSpace(r.device("invite"))))
+	joiningMini := start(mini.command("enrol", "--name", "Mac mini", "--invite", strings.TrimSpace(r.device("invite"))))
 	pending := map[string]chan result{"Linux server": joiningLinux, "Mac mini": joiningMini}
 	for deadline := time.Now().Add(20 * time.Second); len(pending) > 0; time.Sleep(300 * time.Millisecond) {
 		if time.Now().After(deadline) {
@@ -206,6 +206,11 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	})
 
+	t.Run("a device tests itself at first run", func(t *testing.T) {
+		if out := r.device("self-test"); !strings.Contains(out, "Test request: LEASE_STATE_APPROVED") {
+			t.Fatalf("self-test said %q", out)
+		}
+	})
 	t.Run("Automatic, with no question", func(t *testing.T) {
 		got := wait(t, start(mini.command("lease", "login-automatic", "--task", "report", "--reason", "Nightly report.", "--for", "agent-process")), "lease")
 		if got.err != nil {
