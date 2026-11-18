@@ -108,7 +108,8 @@ public final class PhoneRelayBackend: PhoneBackend {
     public var snapshot: PhoneSnapshot {
         guard let members else { return PhoneSnapshot(setup: .scanCode) }
         let catalogue = self.catalogue
-        let setup: PhoneSetup = !state.notificationsAsked ? .turnOnNotifications : (!state.watchAsked ? .offerWatch : .ready)
+        // There is no Watch app yet, so first run does not offer the Watch.
+        let setup: PhoneSetup = !state.notificationsAsked ? .turnOnNotifications : .ready
         let requests = state.work.values.compactMap { try? Work(serializedBytes: $0) }.compactMap { accessRequest($0, members, catalogue) }
         let logins = (catalogue?.logins ?? []).map { login in
             PhoneLogin(id: login.loginID, site: Self.site(login), account: login.account,

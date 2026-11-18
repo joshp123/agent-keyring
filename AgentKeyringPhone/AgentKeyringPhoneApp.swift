@@ -33,7 +33,10 @@ struct AgentKeyringPhoneApp: App {
                 .onOpenURL { url in Task { await delegate.model.join(scannedCode: url.absoluteString) } }
                 .onChange(of: delegate.model.snapshot.setup, initial: true) { _, setup in
                     if setup != .scanCode { UIApplication.shared.registerForRemoteNotifications() }
+                    // Straight after joining, Apple's own question: the one tap iOS requires.
+                    if setup == .turnOnNotifications && delegate.relay != nil { Task { await delegate.model.turnOnNotifications(); await delegate.noteNotificationSettings() } }
                 }
+                .task { await delegate.noteNotificationSettings() }
             }
         }
     }
@@ -49,14 +52,15 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     /// Approve on the Lock Screen either finishes there (Face ID unlocks the
     /// phone, and that unlock is reused for the approval) or opens the app
     /// first. Which one iOS allows is settled on a real iPhone; launch with
-    /// `-ApproveOnLockScreen YES` to try the first.
+    /// `-ApproveOnLockScreen NO` to always open the app.
     /// Kept in the app's own defaults, because iOS relaunches the app without its arguments to handle an action.
     private let approvesOnLockScreen: Bool = {
         let defaults = UserDefaults.standard
         if let given = defaults.volatileDomain(forName: UserDefaults.argumentDomain)["ApproveOnLockScreen"] {
             defaults.set(given, forKey: "ApproveOnLockScreen")
         }
-        return defaults.bool(forKey: "ApproveOnLockScreen")
+        // Paper's way is the default; if iOS refuses it, the app offers itself instead.
+        return defaults.object(forKey: "ApproveOnLockScreen") as? Bool ?? true
     }()
 
     override init() {
@@ -194,6 +198,15 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         default:
             model.shownRequestID = id
         }
+    }
+
+    /// What iOS allows this app, read from the phone so nobody has to look in Settings.
+    func noteNotificationSettings() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        func word(_ setting: UNNotificationSetting) -> String {
+            switch setting { case .enabled: "on"; case .disabled: "off"; default: "not supported" }
+        }
+        PhoneDiagnostics.note("Notifications: allowed \(settings.authorizationStatus == .authorized ? "yes" : "no (\(settings.authorizationStatus.rawValue))"), Lock Screen \(word(settings.lockScreenSetting)), banners \(word(settings.alertSetting)), sound \(word(settings.soundSetting)), Time Sensitive \(word(settings.timeSensitiveSetting)), previews \(settings.showPreviewsSetting == .always ? "always" : settings.showPreviewsSetting == .whenAuthenticated ? "when unlocked" : "never")")
     }
 
     /// Approve could not finish on the Lock Screen: a notification for the same
