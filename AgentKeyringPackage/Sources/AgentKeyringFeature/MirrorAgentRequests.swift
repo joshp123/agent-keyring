@@ -68,7 +68,7 @@ extension MirrorAppModel {
                     item.account = login.username ?? ""
                     item.hasOneTimeCode_p = login.availableFields.contains(.totp)
                     item.rule = switch accessControl.policy(for: login.id) {
-                    case .ask: .ask
+                    case .ask, .askOnPhone: .ask
                     case .allowAutomatically: .automatic
                     case .block: .blocked
                     }
@@ -78,6 +78,9 @@ extension MirrorAppModel {
             case let .requestLease(incoming):
                 try await refreshLeasePolicy()
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
+                if let login, accessControl.policy(for: login.id) == .askOnPhone {
+                    throw LeaseFailure(.permissionDenied, "Only Josh's iPhone or Watch can approve this login, and agents on this Mac cannot ask them yet.")
+                }
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
                     requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project))

@@ -157,6 +157,7 @@ extension LoginRule {
     public init(_ policy: CredentialAccessPolicy) {
         switch policy {
         case .ask: self = .ask
+        case .askOnPhone: self = .askOnPhone
         case .allowAutomatically: self = .automatic
         case .block: self = .blocked
         }
@@ -167,6 +168,7 @@ extension CredentialAccessPolicy {
     init(_ rule: LoginRule) {
         switch rule {
         case .ask: self = .ask
+        case .askOnPhone: self = .askOnPhone
         case .automatic: self = .allowAutomatically
         case .blocked: self = .block
         }

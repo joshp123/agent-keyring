@@ -23,6 +23,8 @@ private func rulesFailureMessage(_ error: Error) -> String {
 
 public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable {
     case ask
+    /// Only the iPhone or Watch can approve; this Mac holds no copy.
+    case askOnPhone
     case allowAutomatically
     case block
 }

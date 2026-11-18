@@ -152,7 +152,8 @@ extension MirrorAppModel {
                 .union([MirrorItem.exampleCredentialID.uuidString])
             var sealed = try await store.sealed().filter { kept.contains($0.loginID) }
             for item in fresh {
-                sealed += try sealCopies(of: item.secret, automatic: accessControl.policy(for: item.id) == .allowAutomatically)
+                let policy = accessControl.policy(for: item.id)
+                sealed += try sealCopies(of: item.secret, automatic: policy == .allowAutomatically, phoneOnly: policy == .askOnPhone)
             }
             try await store.save(generation, sealed: sealed)
         } catch {
