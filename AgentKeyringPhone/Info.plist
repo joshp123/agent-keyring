@@ -2,10 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>AgentKeyringKeychainGroup</key>
+    <string>$(AppIdentifierPrefix)$(AGENT_KEYRING_BUNDLE_ID).shared</string>
     <key>AgentKeyringAPNSEnvironment</key>
     <string>$(AGENT_KEYRING_APNS_ENVIRONMENT)</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Agent Keyring join code</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>agentkeyring</string></array>
+        </dict>
+    </array>
     <key>CFBundleDisplayName</key>
     <string>Agent Keyring</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Scan the code on your Mac to add this iPhone.</string>
     <key>NSFaceIDUsageDescription</key>
     <string>Use Face ID to approve an agent’s request or sign your reply.</string>
 </dict>
