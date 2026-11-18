@@ -2,14 +2,12 @@
 // the Paper file "Agent Keyring", page "The request", board "On the Mac".
 //
 // The request beside the pointer. It never takes the keyboard when it
-// appears. Apple's Touch ID control only runs while Agent Keyring is the
-// active app, so a click on the request makes it active; when the request is
-// answered, the app Josh was using gets the keyboard back.
+// appears. Approve asks for Touch ID or the Watch in macOS's own dialog, which
+// comes only after Josh's click and gives the keyboard back when it closes.
 
 #if os(macOS)
 import AppKit
 import LocalAuthentication
-import LocalAuthenticationEmbeddedUI
 import SwiftUI
 
 /// The design's tokens, light and dark.
@@ -26,17 +24,8 @@ enum RequestToken {
     static let radius: CGFloat = 18
 }
 
-/// Whether Agent Keyring is the active app, so Touch ID can run. Observed,
-/// so a change redraws the words without rebuilding Apple's control.
-@MainActor @Observable
-final class PanelActivity {
-    var isActive = RequestPanel.isFrontmost
-}
-
 struct MacApprovalPanelView: View {
     @Bindable var model: MacApprovalModel
-    let activity: PanelActivity
-    private var isActive: Bool { activity.isActive }
 
     private var request: AccessRequest { model.request }
     private var agent: String { request.agent.name }
@@ -51,7 +40,7 @@ struct MacApprovalPanelView: View {
         .frame(width: RequestToken.width)
         .background(RequestToken.surface, in: .rect(cornerRadius: RequestToken.radius, style: .continuous))
         .task { await model.followUpdates() }
-        .onDisappear { model.stopWaitingForTouch() }
+        .onDisappear { model.cancelApproval() }
     }
 
     private var asking: some View {
@@ -150,66 +139,39 @@ struct MacApprovalPanelView: View {
         LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
     }
 
-    @ViewBuilder private var approveLine: some View {
-        if touchIDAvailable || ReviewRendering.isOn {
-            approveButton
-        } else if let context = model.embeddedTouchID {
-            HStack(spacing: 6) {
-                AppleTouchIDControl(context: context, size: .mini)
-                    .frame(width: 18, height: 18)
-                    .id(ObjectIdentifier(context))
-                    .onAppear { model.waitForTouch() }
-                Text("Double-click your Watch to approve")
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.approve)
-            }
-            .frame(height: 18)
-        }
+    private enum Approver { case touchID, watch, none }
+
+    private var approver: Approver {
+        let context = LAContext()
+        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) { return .touchID }
+        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithCompanion, error: nil) ? .watch : .none
     }
 
-    /// Green until a click brings Agent Keyring to the front, then outlined
-    /// while Touch ID waits. Only the colours and words fade; Apple's control
-    /// sits outside the fade, because it pauses while anything covers it or
-    /// it is not fully shown.
-    private var approveButton: some View {
-        let ready = (isActive || sending == .approve) && (model.embeddedTouchID != nil || ReviewRendering.isOn)
-        return ZStack(alignment: .leading) {
-            ZStack {
-                Capsule().fill(ready ? RequestToken.surface : RequestToken.approve)
-                Capsule().strokeBorder(RequestToken.approve, lineWidth: 1.5).opacity(ready ? 1 : 0)
-                Text(approveText(ready: ready))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(ready ? RequestToken.approve : RequestToken.onAnswer)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .padding(.leading, 4 + 36 + 8).padding(.trailing, 16)
-            }
-            .animation(.easeInOut(duration: 0.15), value: ready)
-            .animation(.easeInOut(duration: 0.15), value: sending == .approve)
-            Circle().fill(RequestToken.surface).frame(width: 36, height: 36)
-                .overlay { touchIDSymbol }
-                .padding(.leading, 4)
+    /// One green button. Clicking it opens macOS's Touch ID or Watch dialog.
+    private var approveLine: some View {
+        Button { model.approve() } label: {
+            Text(approveText)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(RequestToken.onAnswer)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity).frame(height: 44)
+                .background(RequestToken.approve, in: Capsule())
+                .opacity(isBusy ? 0.75 : 1)
+                .contentShape(Capsule())
         }
-        .frame(height: 44)
-        .contentShape(Capsule())
-        .onTapGesture { if model.embeddedTouchID == nil, sending == nil, !ReviewRendering.isOn { model.retryAuthentication() } }
+        .buttonStyle(.plain)
+        .allowsHitTesting(!isBusy && approver != .none)
     }
 
-    @ViewBuilder private var touchIDSymbol: some View {
-        if ReviewRendering.isOn {
-            Image(systemName: "touchid").font(.system(size: 24))
-                .foregroundStyle(Color(light: 0xFF2D55, dark: 0xFF375F).opacity(isActive ? 1 : 0.35))
-        } else if let context = model.embeddedTouchID, sending == nil {
-            AppleTouchIDControl(context: context, size: .small)
-                .frame(width: 32, height: 32)
-                .id(ObjectIdentifier(context))
-                .onAppear { model.waitForTouch() }
-        }
-    }
+    private var isBusy: Bool { model.isWaitingForTouch || sending != nil }
 
-    private func approveText(ready: Bool) -> String {
+    private var approveText: String {
         if sending == .approve { return "Approving…" }
-        if model.embeddedTouchID == nil, !ReviewRendering.isOn { return "Try Touch ID again" }
-        return ready ? "Touch the sensor to approve" : "Click here, then touch the sensor to approve"
+        switch approver {
+        case .touchID: return model.isWaitingForTouch ? "Waiting for Touch ID…" : "Click here, then touch the sensor to approve"
+        case .watch: return model.isWaitingForTouch ? "Waiting for your Watch…" : "Click here, then approve on your Watch"
+        case .none: return "Touch ID and your Watch aren't available"
+        }
     }
 
     private var footer: String {
@@ -279,20 +241,21 @@ public enum ReviewRendering {
         let request: AccessRequest
         init(_ request: AccessRequest) { self.request = request }
         func updates(requestID: String) -> AsyncStream<AccessRequest> { AsyncStream { $0.finish() } }
-        func embeddedTouchIDContext(requestID: String) -> LAContext? { nil }
         func cancelAuthentication(requestID: String) {}
-        func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState { request.state }
-        func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState { request.state }
+        func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
+            try await Task.sleep(for: .seconds(3600)); return request.state
+        }
+        func deny(requestID: String, reply: String?) async throws -> AccessRequestState { request.state }
         func allowAskingAgain(requestID: String) async throws -> AccessRequestState { request.state }
     }
 
-    @MainActor public static func panel(_ request: AccessRequest, reply: String = "", active: Bool = false) -> some View {
+    /// `waiting`: as while macOS's dialog is open.
+    @MainActor public static func panel(_ request: AccessRequest, reply: String = "", waiting: Bool = false) -> some View {
         isOn = true
         let model = MacApprovalModel(request: request, backend: Backend(request))
         model.replyDraft = reply
-        let activity = PanelActivity()
-        activity.isActive = active
-        return MacApprovalPanelView(model: model, activity: activity)
+        if waiting { model.approve() }
+        return MacApprovalPanelView(model: model)
     }
 }
 
@@ -322,29 +285,14 @@ struct AppMark: View {
     }
 }
 
-/// Apple's live Touch ID and Watch control, uncovered. It draws its own
-/// symbol: pale while paused, pink while Touch ID waits.
-struct AppleTouchIDControl: NSViewRepresentable {
-    let context: LAContext
-    let size: NSControl.ControlSize
-
-    func makeNSView(context representableContext: Context) -> LAAuthenticationView {
-        LAAuthenticationView(context: context, controlSize: size)
-    }
-
-    func updateNSView(_ view: LAAuthenticationView, context representableContext: Context) {}
-}
-
 /// A borderless panel beside the pointer. Showing it never activates Agent
-/// Keyring; a click in it does, so Touch ID can run and the reply box can
-/// take typing. Clicks in its first half second are ignored, so a click
-/// already on its way cannot land on Deny.
+/// Keyring, and neither does a click in it. Clicks in its first half second
+/// are ignored, so a click already on its way cannot land on Deny.
 final class RequestPanel: NSPanel {
     private var shownAt = Date.distantPast
     private var observers: [NSObjectProtocol] = []
-    /// The app Josh was using when he clicked the request.
-    private var previousApp: NSRunningApplication?
-    var onActiveChange: (Bool) -> Void = { _ in }
+    /// Another app came to the front, other than macOS's Touch ID dialog.
+    var onOtherAppActivated: () -> Void = {}
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: RequestToken.width, height: 200),
@@ -356,11 +304,11 @@ final class RequestPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
-        // AppKit can call the app active while another app is still in front
-        // and has the keyboard; Apple's control needs the app in front.
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onActiveChange(Self.isFrontmost) }
+            object: nil, queue: .main) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard app?.bundleIdentifier != "com.apple.LocalAuthentication.UIAgent" else { return }
+            MainActor.assumeIsolated { self?.onOtherAppActivated() }
         })
     }
 
@@ -380,13 +328,8 @@ final class RequestPanel: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
-        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
-            guard Date().timeIntervalSince(shownAt) >= 0.5 else { return }
-            if !Self.isFrontmost {
-                previousApp = NSWorkspace.shared.frontmostApplication
-                NSApp.activate()
-            }
-        }
+        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
+            Date().timeIntervalSince(shownAt) < 0.5 { return }
         super.sendEvent(event)
     }
 
@@ -404,16 +347,11 @@ final class RequestPanel: NSPanel {
         (view is NSTextField || view is NSTextView ? [view] : []) + view.subviews.flatMap(textInputs)
     }
 
-    static var isFrontmost: Bool {
-        NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier
-    }
-
-    /// Hands the keyboard back to the app Josh was using, if he clicked here.
-    func giveFocusBack() {
-        guard Self.isFrontmost, let previousApp, !previousApp.isTerminated else { return }
-        NSApp.yieldActivation(to: previousApp)
-        previousApp.activate()
-        self.previousApp = nil
+    /// After a reply was typed here, the keys go back to the app in front.
+    func giveKeyBack() {
+        guard isKeyWindow else { return }
+        resignKey()
+        NSWorkspace.shared.frontmostApplication?.activate()
     }
 
     /// The design's spot: just above and to the right of the pointer, on the
@@ -437,24 +375,19 @@ final class RequestPanel: NSPanel {
 final class RequestPanelHost {
     let panel = RequestPanel()
     private let hosting: NSHostingView<AnyView>
-    private let activity = PanelActivity()
 
     init(model: MacApprovalModel) {
         hosting = NSHostingView(rootView: AnyView(EmptyView()))
         // Only report a size; never let SwiftUI resize the window itself.
         hosting.sizingOptions = [.intrinsicContentSize]
-        hosting.rootView = AnyView(MacApprovalPanelView(model: model, activity: activity)
+        hosting.rootView = AnyView(MacApprovalPanelView(model: model)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [weak self] height in
                 self?.fit(height: height)
             })
         panel.contentView = hosting
-        panel.onActiveChange = { [weak self, weak model] active in
-            guard let self, self.activity.isActive != active else { return }
-            self.activity.isActive = active
-            // Apple's control stays paused after the app comes to the front;
-            // a fresh evaluation arms Touch ID.
-            if active { model?.rearmTouchID() }
-        }
+        // macOS's dialog stops listening once another app is in front, but
+        // stays on screen looking ready; close it and offer Approve again.
+        panel.onOtherAppActivated = { [weak model] in model?.cancelApproval() }
     }
 
     /// Resizes once per real change of height, keeping the top edge in place.

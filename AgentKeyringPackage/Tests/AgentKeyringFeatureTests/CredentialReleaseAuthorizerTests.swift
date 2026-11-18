@@ -25,7 +25,7 @@ struct CredentialReleaseAuthorizerTests {
                 account: "josh", program: "/usr/local/bin/gh", agent: "Codex")
         }
         #expect(reason(.browserSignIn) == "let Codex sign in to example.com as josh")
-        #expect(reason(.program) == "let Codex pass your example.com password for josh to gh")
+        #expect(reason(.program) == "let Codex run gh with your example.com login as josh")
         #expect(reason(.agentProcess) == "let Codex see your example.com password for josh. It can keep a copy")
     }
 

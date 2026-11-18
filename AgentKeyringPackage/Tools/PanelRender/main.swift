@@ -17,10 +17,10 @@ var approved = request; approved.state = .approved(by: .mac, until: .now.addingT
 var denied = request; denied.state = .denied(by: .mac, reply: "The invoice is in my email. Use that.", askAgainAfter: nil)
 let cases: [(String, AnyView)] = [
     ("waiting", AnyView(ReviewRendering.panel(request))),
-    ("waiting-clicked", AnyView(ReviewRendering.panel(request, active: true))),
+    ("waiting-for-touch", AnyView(ReviewRendering.panel(request, waiting: true))),
     ("folder", AnyView(ReviewRendering.panel(plainFolder))),
     ("home", AnyView(ReviewRendering.panel(home))),
-    ("typing", AnyView(ReviewRendering.panel(request, reply: "The invoice is in my email. Use that.", active: true))),
+    ("typing", AnyView(ReviewRendering.panel(request, reply: "The invoice is in my email. Use that."))),
     ("approved", AnyView(ReviewRendering.panel(approved))),
     ("denied", AnyView(ReviewRendering.panel(denied))),
 ]

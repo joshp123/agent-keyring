@@ -63,7 +63,7 @@ public struct CredentialReleaseAuthorizationRequest: Equatable, Sendable {
             return "let \(agent.isEmpty ? "an agent" : agent) sign in to \(site) as \(account)"
         case .program:
             let name = URL(fileURLWithPath: program).lastPathComponent
-            return "let \(agent.isEmpty ? "an agent" : agent) pass your \(site) password for \(account) to \(name.isEmpty ? "a program" : name)"
+            return "let \(agent.isEmpty ? "an agent" : agent) run \(name.isEmpty ? "a program" : name) with your \(site) login as \(account)"
         case .agentProcess:
             return "let \(agent.isEmpty ? "an agent" : agent) see your \(site) password for \(account). It can keep a copy"
         default:
@@ -94,6 +94,15 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
             "The request expired with no answer."
         case let .systemFailure(domain, code):
             "Credential approval failed (\(domain == LAError.errorDomain ? "LocalAuthentication" : domain) \(code)). Nothing was released."
+        }
+    }
+
+    /// Cancel or Escape in macOS's dialog, or the app closing it: not an answer.
+    public var isCancel: Bool {
+        switch self {
+        case .denied, .interrupted: true
+        case let .systemFailure(domain, code): domain == LAError.errorDomain && code == LAError.Code.appCancel.rawValue
+        default: false
         }
     }
 
@@ -142,8 +151,8 @@ public final class LocalCredentialReleaseAuthorizer: CredentialReleaseAuthorizin
 
     public init() {}
 
-    /// Without a context from Josh's panel there is nowhere to ask him except
-    /// a macOS dialog, which Agent Keyring never shows.
+    /// macOS's dialog appears only after Josh clicks Approve in a panel, which
+    /// passes its context; nothing may ask him unprompted.
     public func authorize(_ request: CredentialReleaseAuthorizationRequest, onPromptStarted: @escaping () -> Void) async throws {
         throw CredentialReleaseAuthorizationError.unavailable
     }

@@ -102,7 +102,7 @@ final class ApprovalPresenter {
 
     private func show(_ item: Item) {
         // One approval at a time: a panel being replaced stops waiting for a touch.
-        shownRequest?.stopWaitingForTouch()
+        shownRequest?.cancelApproval()
         shownEnrolment?.stopAuthentication()
         shownEnrolment = nil
         question?.invalidate()
@@ -148,7 +148,7 @@ final class ApprovalPresenter {
     }
 
     private func dismiss() {
-        shownRequest?.stopWaitingForTouch()
+        shownRequest?.cancelApproval()
         shownEnrolment?.stopAuthentication()
         shownEnrolment = nil
         question?.invalidate()

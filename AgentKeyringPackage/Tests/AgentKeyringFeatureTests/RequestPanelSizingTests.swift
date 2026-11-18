@@ -4,7 +4,6 @@
 // screen, through every state many times.
 #if os(macOS)
 import AppKit
-import LocalAuthentication
 import Testing
 @testable import AgentKeyringApprovalUI
 
@@ -20,10 +19,9 @@ import Testing
     _ = view
     final class Backend: MacApprovalBackend {
         func updates(requestID: String) -> AsyncStream<AccessRequest> { AsyncStream { $0.finish() } }
-        func embeddedTouchIDContext(requestID: String) -> LAContext? { nil }
         func cancelAuthentication(requestID: String) {}
         func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState { .unanswered }
-        func deny(requestID: String, reply: String?, context: LAContext?, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState { .unanswered }
+        func deny(requestID: String, reply: String?) async throws -> AccessRequestState { .unanswered }
         func allowAskingAgain(requestID: String) async throws -> AccessRequestState { .unanswered }
     }
     let model = MacApprovalModel(request: request, backend: Backend())

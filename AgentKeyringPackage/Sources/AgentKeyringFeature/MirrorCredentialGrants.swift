@@ -32,8 +32,8 @@ extension MirrorAppModel {
         }
     }
 
-    /// The panel owns this context and displays its biometric controls. The
-    /// authority evaluates that exact context without activating another UI.
+    /// Evaluating this context shows macOS's Touch ID or Watch dialog; the
+    /// same context then opens the login and signs the answer.
     @discardableResult
     public func approveLeaseWithTouchID(_ leaseID: String, context: LAContext,
         onAuthenticated: @MainActor () -> Void = {}) async throws -> Agentkeyring_V1_Lease {
