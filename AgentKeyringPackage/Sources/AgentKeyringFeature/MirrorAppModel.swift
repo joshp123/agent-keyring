@@ -64,9 +64,9 @@ public final class MirrorAppModel {
     public internal(set) var selfTest = MacSelfTest.notRun
     /// From Open Passwords until the logins arrive: the window stays above Passwords.
     public internal(set) var awaitingExport = false {
-        didSet { if !awaitingExport, let exportWatch { NSWorkspace.shared.notificationCenter.removeObserver(exportWatch); self.exportWatch = nil } }
+        didSet { if !awaitingExport { exportTimeout?.cancel(); exportTimeout = nil } }
     }
-    @ObservationIgnored var exportWatch: NSObjectProtocol?
+    @ObservationIgnored var exportTimeout: Task<Void, Never>?
     let settings: UserDefaults
     var handledTokens = Set<UUID>()
     var agentListener: AgentBridgeServer?

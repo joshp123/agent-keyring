@@ -24,8 +24,8 @@ service AgentKeyring {
   rpc WatchLease(LeaseReference) returns (stream Lease);
   // Cancels pending or releases active. Repeated calls return current state.
   rpc EndLease(LeaseReference) returns (Lease);
-  // Client delivery path. Checks the lease is active, names this recipient,
-  // matches the kind's purpose and offers the requested fields, then returns
+  // Client delivery path. Checks the lease is active, names this recipient
+  // and offers the requested fields, then returns
   // them. Retries and their outcomes are recorded by the receiver, not here
   // (RFC 0004, "Operations and retries"). Local peers with the same OS user are
   // one principal; "receiver" is a code role, not a separate local identity.
@@ -40,7 +40,6 @@ service AgentKeyring {
 // another process with the same user's privileges.
 service CredentialReceiver {
   rpc Fill(FillRequest) returns (FillResult);
-  rpc ExecuteProgram(ExecuteProgramRequest) returns (ExecuteProgramResult);
 }
 
 message FindLoginsRequest {
@@ -68,16 +67,6 @@ enum AccessRule {
   ACCESS_RULE_BLOCKED = 3;
 }
 
-enum Purpose {
-  PURPOSE_UNSPECIFIED = 0;
-  // Authorizes the receiver's Fill operation, not ExecuteProgram.
-  // This is not a claim of secrecy against a compromised receiving host.
-  PURPOSE_BROWSER_SIGN_IN = 1;
-  PURPOSE_PROGRAM = 2;
-  // The value goes to the requesting agent's own code (`read`), for browsers
-  // with no receiver. No protection claim. Shown as such on the approval.
-  PURPOSE_AGENT_PROCESS = 3;
-}
 
 message Recipient {
   // Authority-issued identity bound to authenticated local peers / later
@@ -87,25 +76,18 @@ message Recipient {
   string client_label = 3;
 }
 
-message ProgramCommand {
-  // Resolved absolute path on the recipient, never on the authority.
-  // Naming a program does not attest its safety or prevent it leaking stdin.
-  string executable = 1;
-  repeated string arguments = 2; // No shell expansion or credential values.
-}
 
 message RequestLeaseRequest {
   string login_id = 1;
   // One job, not an entire long-lived chat. Required. Cooperative grouping
   // unless an integration supplies a trusted task boundary.
   string task_ref = 2;
-  Purpose purpose = 3;
+  reserved 3, 6;                // Purpose and program: one approval covers fill and read.
   string reason = 4;            // Display as the agent's claim.
   // Retry identity within the authenticated caller. Exact retries return the
   // original record, even if terminal. Changed contents are CONFLICT.
   // Fresh use after termination requires a fresh request_id.
   string request_id = 5;
-  ProgramCommand program = 6;   // Required only for PURPOSE_PROGRAM.
   // Empty only on an authenticated local connection: authority selects its
   // persistent co-located receiver for that OS user. Remote requests name the
   // enrolled recipient. Caller must be permitted to use the resolved recipient.
@@ -124,7 +106,7 @@ message Lease {
   string lease_id = 1;
   string login_id = 2;
   string task_ref = 3;
-  Purpose purpose = 4;
+  reserved 4, 13;               // Purpose and program.
   LeaseState state = 5;
   // Absolute deadline set by the approving authority. Zero before approval.
   // At most approved_at + 1800; relay receipt/reconnect never extends it.
@@ -136,7 +118,6 @@ message Lease {
   repeated string status_lines = 10;
   Recipient recipient = 11;
   repeated string sites = 12;  // Authorized destination scope; cannot be widened.
-  ProgramCommand program = 13;
   // Zero unless a human denial currently suppresses new requests for this
   // recipient/login. Does not authorize retry or defeat a Blocked rule.
   int64 retry_not_before_unix_seconds = 14;
@@ -231,29 +212,8 @@ enum FillOutcome {
   FILL_OUTCOME_FIELD_UNAVAILABLE = 9;
 }
 
-message ExecuteProgramRequest {
-  string lease_id = 1;
-  string operation_id = 2;     // Same retry key and crash rules as Fill.
-  CredentialField field = 3;
-  bool again = 4;             // Deliberate repeat; excludes operation_id.
-  // Command comes from the approved lease; cannot be substituted at execution.
-}
 
-message ExecuteProgramResult {
-  ProgramOutcome outcome = 1;
-  optional int32 exit_code = 2; // Present only if the child exited.
-  string detail = 3;
-  // Deliberately no child stdout/stderr: arbitrary programs can echo stdin.
-}
 
-enum ProgramOutcome {
-  PROGRAM_OUTCOME_UNSPECIFIED = 0;
-  PROGRAM_OUTCOME_EXITED = 1;
-  PROGRAM_OUTCOME_UNCERTAIN = 2; // May have started; never restart automatically.
-  PROGRAM_OUTCOME_NOT_STARTED = 3;
-  PROGRAM_OUTCOME_LEASE_NOT_ACTIVE = 4;
-  PROGRAM_OUTCOME_FIELD_UNAVAILABLE = 5;
-}
 
 message DeliverRequest {
   string lease_id = 1;
@@ -263,9 +223,9 @@ message DeliverRequest {
 
 enum OperationKind {
   OPERATION_KIND_UNSPECIFIED = 0;
-  OPERATION_KIND_FILL = 1;            // Lease purpose must be BROWSER_SIGN_IN.
-  OPERATION_KIND_EXECUTE_PROGRAM = 2; // Lease purpose must be PROGRAM.
-  OPERATION_KIND_READ = 3;            // Lease purpose must be AGENT_PROCESS.
+  OPERATION_KIND_FILL = 1;
+  reserved 2;                         // Executing a program: `read | program` does it.
+  OPERATION_KIND_READ = 3;
 }
 
 message Delivery {
@@ -298,11 +258,10 @@ message WireRequest {
     LeaseReference watch_lease = 4;
     LeaseReference end_lease = 5;
     FillRequest fill = 6;
-    ExecuteProgramRequest execute_program = 7;
     DeliverRequest deliver = 8;
     SetupRequest setup = 11;
   }
-  reserved 9, 10;
+  reserved 7, 9, 10;
 }
 
 message WireResponse {
@@ -310,12 +269,11 @@ message WireResponse {
     FindLoginsResponse logins = 1;
     Lease lease = 2;
     FillResult fill = 3;
-    ExecuteProgramResult execute_program = 4;
     RpcError error = 5;
     Delivery delivery = 7;
     SetupResponse setup = 10;
   }
-  reserved 8, 9;
+  reserved 4, 8, 9;
   bool end_of_stream = 6;
 }
 

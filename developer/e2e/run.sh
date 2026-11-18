@@ -75,34 +75,33 @@ wait $join_b || true
 check "$machine_a joined" contains "$(cat "$work/join-a")" "Joined"
 check "$machine_b joined" contains "$(cat "$work/join-b")" "Joined"
 
-echo "1. Approved: a program on $machine_a gets the password once."
-agent "$machine_a" lease login-ask --task invoice --reason "You asked me to download October's invoice." \
-	--for program -- /bin/sh -c "cat > '$remote/received'" >"$work/lease-1" 2>"$work/lease-1.err" &
+echo "1. Approved: a program on $machine_a gets the password through a pipe."
+agent "$machine_a" lease login-ask --task invoice --reason "You asked me to download October's invoice." >"$work/lease-1" 2>"$work/lease-1.err" &
 asking=$!
 device answer --approve
 wait $asking || true
 lease=$(cat "$work/lease-1")
-agent "$machine_a" exec "$lease" --field password 2>&1 || true
+on "$machine_a" "AGENT_KEYRING_STATE_DIR='$remote/state' '$remote/agent-keyring' read '$lease' --field password | cat > '$remote/received'" 2>&1 || true
 check "the program received the password" test "$(on "$machine_a" "cat '$remote/received'")" = "example-ask-password"
 
 echo "2. Nobody answers, on $machine_a."
-agent "$machine_a" lease login-ask --task invoice --reason "Second try." --for agent-process >/dev/null 2>"$work/lease-2.err" &
+agent "$machine_a" lease login-ask --task invoice --reason "Second try." >/dev/null 2>"$work/lease-2.err" &
 asking=$!
 device answer --ignore
 wait $asking || true
 check "the agent is told there was no answer" contains "$(cat "$work/lease-2.err")" "No answer. Nobody answered within 10 minutes. This is not a refusal."
 
 echo "3. Denied with words, on $machine_a."
-agent "$machine_a" lease login-ask --task invoice --reason "Third try." --for agent-process >/dev/null 2>"$work/lease-3.err" &
+agent "$machine_a" lease login-ask --task invoice --reason "Third try." >/dev/null 2>"$work/lease-3.err" &
 asking=$!
 device answer --deny "The invoice is in my email. Use that."
 wait $asking || true
 check "the agent gets the words" contains "$(cat "$work/lease-3.err")" "denied. Reply: The invoice is in my email. Use that."
-again=$(agent "$machine_a" lease login-ask --task invoice --reason "Fourth try." --for agent-process 2>&1 || true)
+again=$(agent "$machine_a" lease login-ask --task invoice --reason "Fourth try." 2>&1 || true)
 check "the login is held off for 30 minutes" contains "$again" "Josh denied this login for this machine"
 
 echo "4. Denied with no words, on $machine_b."
-agent "$machine_b" lease login-ask --task invoice --reason "From machine B." --for agent-process >/dev/null 2>"$work/lease-4.err" &
+agent "$machine_b" lease login-ask --task invoice --reason "From machine B." >/dev/null 2>"$work/lease-4.err" &
 asking=$!
 device answer --deny-plain
 wait $asking || true
@@ -110,7 +109,7 @@ check "the agent is told it was denied" contains "$(cat "$work/lease-4.err")" "T
 check "with no words" lacks "$(cat "$work/lease-4.err")" "Reply:"
 
 echo "5. Automatic, with no question, on $machine_b."
-lease=$(agent "$machine_b" lease login-automatic --task report --reason "Nightly report." --for agent-process 2>/dev/null)
+lease=$(agent "$machine_b" lease login-automatic --task report --reason "Nightly report." 2>/dev/null)
 value=$(agent "$machine_b" read "$lease" --field password 2>/dev/null)
 check "the machine opened its own copy" test "$value" = "example-automatic-password"
 

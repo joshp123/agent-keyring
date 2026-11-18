@@ -29,22 +29,11 @@ public enum LeaseScreenMapping {
                 folder: requester?.workingDirectory.map(abbreviatingHome),
                 project: requester?.project,
                 isLocal: true),
-            access: access(lease),
+            access: .login,
             agentReason: lease.reason,
             askedAt: date(lease.requestedAtUnixSeconds),
             state: state(lease),
             events: events(lease, agentName: agentName, machine: machine))
-    }
-
-    static func access(_ lease: Agentkeyring_V1_Lease) -> RequestedAccess {
-        switch lease.purpose {
-        case .program:
-            .program(([lease.program.executable] + lease.program.arguments).joined(separator: " "))
-        case .agentProcess:
-            .agentProcess
-        default:
-            .signIn
-        }
     }
 
     static func state(_ lease: Agentkeyring_V1_Lease) -> AccessRequestState {

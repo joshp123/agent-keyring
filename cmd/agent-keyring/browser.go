@@ -24,7 +24,7 @@ func inspectBrowser(ctx context.Context, command string, a arguments) (int, erro
 	if err := a.check(options, ""); err != nil {
 		return 2, err
 	}
-	if len(a.positionals) > 0 || len(a.program) > 0 {
+	if len(a.positionals) > 0 || len(a.extra) > 0 {
 		return 2, errors.New("tabs and fields take no positional arguments. Use fields --tab TARGET to inspect a tab.")
 	}
 	output := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -73,7 +73,7 @@ func fillBrowser(ctx context.Context, a arguments) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	if len(a.program) > 0 {
+	if len(a.extra) > 0 {
 		return 2, errors.New("fill takes selectors, not a command after --.")
 	}
 	if a.options["submit"] == "" {

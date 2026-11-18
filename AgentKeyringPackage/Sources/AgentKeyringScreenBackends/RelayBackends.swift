@@ -29,18 +29,10 @@ public enum RelayScreenMapping {
             agent: RequestingAgent(name: request.agent.isEmpty ? "An agent" : request.agent,
                 machine: machine?.label ?? "Another machine", address: "",
                 project: request.project.isEmpty ? nil : request.project, isLocal: false),
-            access: access(request),
+            access: .login,
             agentReason: request.reason,
             askedAt: date(request.askedUnixSeconds),
             state: outcome.map { state($0, device: device) } ?? .waitingForYou(until: date(request.answerByUnixSeconds)))
-    }
-
-    static func access(_ request: Agentkeyring_V2_Request) -> RequestedAccess {
-        switch request.purpose {
-        case .program: .program(([request.program.executable] + request.program.arguments).joined(separator: " "))
-        case .agentProcess: .agentProcess
-        default: .signIn
-        }
     }
 
     static func state(_ lease: Agentkeyring_V2_Lease, device: MacDevice) -> AccessRequestState {

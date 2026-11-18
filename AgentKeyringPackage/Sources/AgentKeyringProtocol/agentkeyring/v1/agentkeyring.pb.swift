@@ -70,54 +70,6 @@ public nonisolated enum Agentkeyring_V1_AccessRule: SwiftProtobuf.Enum, Swift.Ca
 
 }
 
-public nonisolated enum Agentkeyring_V1_Purpose: SwiftProtobuf.Enum, Swift.CaseIterable {
-  public typealias RawValue = Int
-  case unspecified // = 0
-
-  /// Authorizes the receiver's Fill operation, not ExecuteProgram.
-  /// This is not a claim of secrecy against a compromised receiving host.
-  case browserSignIn // = 1
-  case program // = 2
-
-  /// The value goes to the requesting agent's own code (`read`), for browsers
-  /// with no receiver. No protection claim. Shown as such on the approval.
-  case agentProcess // = 3
-  case UNRECOGNIZED(Int)
-
-  public init() {
-    self = .unspecified
-  }
-
-  public init?(rawValue: Int) {
-    switch rawValue {
-    case 0: self = .unspecified
-    case 1: self = .browserSignIn
-    case 2: self = .program
-    case 3: self = .agentProcess
-    default: self = .UNRECOGNIZED(rawValue)
-    }
-  }
-
-  public var rawValue: Int {
-    switch self {
-    case .unspecified: return 0
-    case .browserSignIn: return 1
-    case .program: return 2
-    case .agentProcess: return 3
-    case .UNRECOGNIZED(let i): return i
-    }
-  }
-
-  // The compiler won't synthesize support with the UNRECOGNIZED case.
-  public static let allCases: [Agentkeyring_V1_Purpose] = [
-    .unspecified,
-    .browserSignIn,
-    .program,
-    .agentProcess,
-  ]
-
-}
-
 public nonisolated enum Agentkeyring_V1_LeaseState: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unspecified // = 0
@@ -340,69 +292,10 @@ public nonisolated enum Agentkeyring_V1_FillOutcome: SwiftProtobuf.Enum, Swift.C
 
 }
 
-public nonisolated enum Agentkeyring_V1_ProgramOutcome: SwiftProtobuf.Enum, Swift.CaseIterable {
-  public typealias RawValue = Int
-  case unspecified // = 0
-  case exited // = 1
-
-  /// May have started; never restart automatically.
-  case uncertain // = 2
-  case notStarted // = 3
-  case leaseNotActive // = 4
-  case fieldUnavailable // = 5
-  case UNRECOGNIZED(Int)
-
-  public init() {
-    self = .unspecified
-  }
-
-  public init?(rawValue: Int) {
-    switch rawValue {
-    case 0: self = .unspecified
-    case 1: self = .exited
-    case 2: self = .uncertain
-    case 3: self = .notStarted
-    case 4: self = .leaseNotActive
-    case 5: self = .fieldUnavailable
-    default: self = .UNRECOGNIZED(rawValue)
-    }
-  }
-
-  public var rawValue: Int {
-    switch self {
-    case .unspecified: return 0
-    case .exited: return 1
-    case .uncertain: return 2
-    case .notStarted: return 3
-    case .leaseNotActive: return 4
-    case .fieldUnavailable: return 5
-    case .UNRECOGNIZED(let i): return i
-    }
-  }
-
-  // The compiler won't synthesize support with the UNRECOGNIZED case.
-  public static let allCases: [Agentkeyring_V1_ProgramOutcome] = [
-    .unspecified,
-    .exited,
-    .uncertain,
-    .notStarted,
-    .leaseNotActive,
-    .fieldUnavailable,
-  ]
-
-}
-
 public nonisolated enum Agentkeyring_V1_OperationKind: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unspecified // = 0
-
-  /// Lease purpose must be BROWSER_SIGN_IN.
   case fill // = 1
-
-  /// Lease purpose must be PROGRAM.
-  case executeProgram // = 2
-
-  /// Lease purpose must be AGENT_PROCESS.
   case read // = 3
   case UNRECOGNIZED(Int)
 
@@ -414,7 +307,6 @@ public nonisolated enum Agentkeyring_V1_OperationKind: SwiftProtobuf.Enum, Swift
     switch rawValue {
     case 0: self = .unspecified
     case 1: self = .fill
-    case 2: self = .executeProgram
     case 3: self = .read
     default: self = .UNRECOGNIZED(rawValue)
     }
@@ -424,7 +316,6 @@ public nonisolated enum Agentkeyring_V1_OperationKind: SwiftProtobuf.Enum, Swift
     switch self {
     case .unspecified: return 0
     case .fill: return 1
-    case .executeProgram: return 2
     case .read: return 3
     case .UNRECOGNIZED(let i): return i
     }
@@ -434,7 +325,6 @@ public nonisolated enum Agentkeyring_V1_OperationKind: SwiftProtobuf.Enum, Swift
   public static let allCases: [Agentkeyring_V1_OperationKind] = [
     .unspecified,
     .fill,
-    .executeProgram,
     .read,
   ]
 
@@ -566,23 +456,6 @@ public nonisolated struct Agentkeyring_V1_Recipient: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentkeyring_V1_ProgramCommand: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  /// Resolved absolute path on the recipient, never on the authority.
-  /// Naming a program does not attest its safety or prevent it leaking stdin.
-  public var executable: String = String()
-
-  /// No shell expansion or credential values.
-  public var arguments: [String] = []
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
 public nonisolated struct Agentkeyring_V1_RequestLeaseRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -594,8 +467,6 @@ public nonisolated struct Agentkeyring_V1_RequestLeaseRequest: Sendable {
   /// unless an integration supplies a trusted task boundary.
   public var taskRef: String = String()
 
-  public var purpose: Agentkeyring_V1_Purpose = .unspecified
-
   /// Display as the agent's claim.
   public var reason: String = String()
 
@@ -603,16 +474,6 @@ public nonisolated struct Agentkeyring_V1_RequestLeaseRequest: Sendable {
   /// original record, even if terminal. Changed contents are CONFLICT.
   /// Fresh use after termination requires a fresh request_id.
   public var requestID: String = String()
-
-  /// Required only for PURPOSE_PROGRAM.
-  public var program: Agentkeyring_V1_ProgramCommand {
-    get {_program ?? Agentkeyring_V1_ProgramCommand()}
-    set {_program = newValue}
-  }
-  /// Returns true if `program` has been explicitly set.
-  public var hasProgram: Bool {self._program != nil}
-  /// Clears the value of `program`. Subsequent reads from it will return its default value.
-  public mutating func clearProgram() {self._program = nil}
 
   /// Empty only on an authenticated local connection: authority selects its
   /// persistent co-located receiver for that OS user. Remote requests name the
@@ -629,8 +490,6 @@ public nonisolated struct Agentkeyring_V1_RequestLeaseRequest: Sendable {
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
-
-  fileprivate var _program: Agentkeyring_V1_ProgramCommand? = nil
 }
 
 public nonisolated struct Agentkeyring_V1_LeaseReference: Sendable {
@@ -664,11 +523,6 @@ public nonisolated struct Agentkeyring_V1_Lease: @unchecked Sendable {
   public var taskRef: String {
     get {_storage._taskRef}
     set {_uniqueStorage()._taskRef = newValue}
-  }
-
-  public var purpose: Agentkeyring_V1_Purpose {
-    get {_storage._purpose}
-    set {_uniqueStorage()._purpose = newValue}
   }
 
   public var state: Agentkeyring_V1_LeaseState {
@@ -719,15 +573,6 @@ public nonisolated struct Agentkeyring_V1_Lease: @unchecked Sendable {
     get {_storage._sites}
     set {_uniqueStorage()._sites = newValue}
   }
-
-  public var program: Agentkeyring_V1_ProgramCommand {
-    get {_storage._program ?? Agentkeyring_V1_ProgramCommand()}
-    set {_uniqueStorage()._program = newValue}
-  }
-  /// Returns true if `program` has been explicitly set.
-  public var hasProgram: Bool {_storage._program != nil}
-  /// Clears the value of `program`. Subsequent reads from it will return its default value.
-  public mutating func clearProgram() {_uniqueStorage()._program = nil}
 
   /// Zero unless a human denial currently suppresses new requests for this
   /// recipient/login. Does not authorize retry or defeat a Blocked rule.
@@ -876,53 +721,6 @@ public nonisolated struct Agentkeyring_V1_FillResult: Sendable {
   public init() {}
 }
 
-public nonisolated struct Agentkeyring_V1_ExecuteProgramRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var leaseID: String = String()
-
-  /// Same retry key and crash rules as Fill.
-  public var operationID: String = String()
-
-  public var field: Agentkeyring_V1_CredentialField = .unspecified
-
-  /// Deliberate repeat; excludes operation_id.
-  public var again: Bool = false
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-public nonisolated struct Agentkeyring_V1_ExecuteProgramResult: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var outcome: Agentkeyring_V1_ProgramOutcome = .unspecified
-
-  /// Present only if the child exited.
-  public var exitCode: Int32 {
-    get {_exitCode ?? 0}
-    set {_exitCode = newValue}
-  }
-  /// Returns true if `exitCode` has been explicitly set.
-  public var hasExitCode: Bool {self._exitCode != nil}
-  /// Clears the value of `exitCode`. Subsequent reads from it will return its default value.
-  public mutating func clearExitCode() {self._exitCode = nil}
-
-  /// Deliberately no child stdout/stderr: arbitrary programs can echo stdin.
-  public var detail: String = String()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _exitCode: Int32? = nil
-}
-
 public nonisolated struct Agentkeyring_V1_DeliverRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1057,14 +855,6 @@ public nonisolated struct Agentkeyring_V1_WireRequest: Sendable {
     set {request = .fill(newValue)}
   }
 
-  public var executeProgram: Agentkeyring_V1_ExecuteProgramRequest {
-    get {
-      if case .executeProgram(let v)? = request {return v}
-      return Agentkeyring_V1_ExecuteProgramRequest()
-    }
-    set {request = .executeProgram(newValue)}
-  }
-
   public var deliver: Agentkeyring_V1_DeliverRequest {
     get {
       if case .deliver(let v)? = request {return v}
@@ -1090,7 +880,6 @@ public nonisolated struct Agentkeyring_V1_WireRequest: Sendable {
     case watchLease(Agentkeyring_V1_LeaseReference)
     case endLease(Agentkeyring_V1_LeaseReference)
     case fill(Agentkeyring_V1_FillRequest)
-    case executeProgram(Agentkeyring_V1_ExecuteProgramRequest)
     case deliver(Agentkeyring_V1_DeliverRequest)
     case setup(Agentkeyring_V1_SetupRequest)
 
@@ -1130,14 +919,6 @@ public nonisolated struct Agentkeyring_V1_WireResponse: Sendable {
     set {response = .fill(newValue)}
   }
 
-  public var executeProgram: Agentkeyring_V1_ExecuteProgramResult {
-    get {
-      if case .executeProgram(let v)? = response {return v}
-      return Agentkeyring_V1_ExecuteProgramResult()
-    }
-    set {response = .executeProgram(newValue)}
-  }
-
   public var error: Agentkeyring_V1_RpcError {
     get {
       if case .error(let v)? = response {return v}
@@ -1170,7 +951,6 @@ public nonisolated struct Agentkeyring_V1_WireResponse: Sendable {
     case logins(Agentkeyring_V1_FindLoginsResponse)
     case lease(Agentkeyring_V1_Lease)
     case fill(Agentkeyring_V1_FillResult)
-    case executeProgram(Agentkeyring_V1_ExecuteProgramResult)
     case error(Agentkeyring_V1_RpcError)
     case delivery(Agentkeyring_V1_Delivery)
     case setup(Agentkeyring_V1_SetupResponse)
@@ -1296,10 +1076,6 @@ nonisolated extension Agentkeyring_V1_AccessRule: SwiftProtobuf._ProtoNameProvid
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACCESS_RULE_UNSPECIFIED\0\u{1}ACCESS_RULE_ASK\0\u{1}ACCESS_RULE_AUTOMATIC\0\u{1}ACCESS_RULE_BLOCKED\0")
 }
 
-nonisolated extension Agentkeyring_V1_Purpose: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PURPOSE_UNSPECIFIED\0\u{1}PURPOSE_BROWSER_SIGN_IN\0\u{1}PURPOSE_PROGRAM\0\u{1}PURPOSE_AGENT_PROCESS\0")
-}
-
 nonisolated extension Agentkeyring_V1_LeaseState: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0LEASE_STATE_UNSPECIFIED\0\u{1}LEASE_STATE_PENDING\0\u{1}LEASE_STATE_ACTIVE\0\u{1}LEASE_STATE_DENIED\0\u{1}LEASE_STATE_EXPIRED\0\u{1}LEASE_STATE_RELEASED\0\u{1}LEASE_STATE_REVOKED\0\u{1}LEASE_STATE_CANCELLED\0\u{1}LEASE_STATE_UNANSWERED\0")
 }
@@ -1316,12 +1092,8 @@ nonisolated extension Agentkeyring_V1_FillOutcome: SwiftProtobuf._ProtoNameProvi
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0FILL_OUTCOME_UNSPECIFIED\0\u{1}FILL_OUTCOME_SUBMITTED\0\u{1}FILL_OUTCOME_UNCERTAIN\0\u{1}FILL_OUTCOME_SITE_MISMATCH\0\u{1}FILL_OUTCOME_TARGET_INVALID\0\u{1}FILL_OUTCOME_TARGET_UNSUPPORTED\0\u{1}FILL_OUTCOME_LEASE_NOT_ACTIVE\0\u{1}FILL_OUTCOME_TARGET_CHANGED\0\u{1}FILL_OUTCOME_CLEANUP_FAILED\0\u{1}FILL_OUTCOME_FIELD_UNAVAILABLE\0")
 }
 
-nonisolated extension Agentkeyring_V1_ProgramOutcome: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PROGRAM_OUTCOME_UNSPECIFIED\0\u{1}PROGRAM_OUTCOME_EXITED\0\u{1}PROGRAM_OUTCOME_UNCERTAIN\0\u{1}PROGRAM_OUTCOME_NOT_STARTED\0\u{1}PROGRAM_OUTCOME_LEASE_NOT_ACTIVE\0\u{1}PROGRAM_OUTCOME_FIELD_UNAVAILABLE\0")
-}
-
 nonisolated extension Agentkeyring_V1_OperationKind: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0OPERATION_KIND_UNSPECIFIED\0\u{1}OPERATION_KIND_FILL\0\u{1}OPERATION_KIND_EXECUTE_PROGRAM\0\u{1}OPERATION_KIND_READ\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0OPERATION_KIND_UNSPECIFIED\0\u{1}OPERATION_KIND_FILL\0\u{2}\u{2}OPERATION_KIND_READ\0")
 }
 
 nonisolated extension Agentkeyring_V1_RpcErrorCode: SwiftProtobuf._ProtoNameProviding {
@@ -1488,44 +1260,9 @@ nonisolated extension Agentkeyring_V1_Recipient: SwiftProtobuf.Message, SwiftPro
   }
 }
 
-nonisolated extension Agentkeyring_V1_ProgramCommand: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ProgramCommand"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}executable\0\u{1}arguments\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.executable) }()
-      case 2: try { try decoder.decodeRepeatedStringField(value: &self.arguments) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.executable.isEmpty {
-      try visitor.visitSingularStringField(value: self.executable, fieldNumber: 1)
-    }
-    if !self.arguments.isEmpty {
-      try visitor.visitRepeatedStringField(value: self.arguments, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentkeyring_V1_ProgramCommand, rhs: Agentkeyring_V1_ProgramCommand) -> Bool {
-    if lhs.executable != rhs.executable {return false}
-    if lhs.arguments != rhs.arguments {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RequestLeaseRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{3}task_ref\0\u{1}purpose\0\u{1}reason\0\u{3}request_id\0\u{1}program\0\u{3}recipient_id\0\u{3}agent_label\0\u{1}project\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{3}task_ref\0\u{2}\u{2}reason\0\u{3}request_id\0\u{4}\u{2}recipient_id\0\u{3}agent_label\0\u{1}project\0\u{c}\u{3}\u{1}\u{c}\u{6}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1535,10 +1272,8 @@ nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.loginID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.taskRef) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self.purpose) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.reason) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
-      case 6: try { try decoder.decodeSingularMessageField(value: &self._program) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.recipientID) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.agentLabel) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.project) }()
@@ -1548,18 +1283,11 @@ nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.loginID.isEmpty {
       try visitor.visitSingularStringField(value: self.loginID, fieldNumber: 1)
     }
     if !self.taskRef.isEmpty {
       try visitor.visitSingularStringField(value: self.taskRef, fieldNumber: 2)
-    }
-    if self.purpose != .unspecified {
-      try visitor.visitSingularEnumField(value: self.purpose, fieldNumber: 3)
     }
     if !self.reason.isEmpty {
       try visitor.visitSingularStringField(value: self.reason, fieldNumber: 4)
@@ -1567,9 +1295,6 @@ nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message
     if !self.requestID.isEmpty {
       try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 5)
     }
-    try { if let v = self._program {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-    } }()
     if !self.recipientID.isEmpty {
       try visitor.visitSingularStringField(value: self.recipientID, fieldNumber: 7)
     }
@@ -1585,10 +1310,8 @@ nonisolated extension Agentkeyring_V1_RequestLeaseRequest: SwiftProtobuf.Message
   public static func ==(lhs: Agentkeyring_V1_RequestLeaseRequest, rhs: Agentkeyring_V1_RequestLeaseRequest) -> Bool {
     if lhs.loginID != rhs.loginID {return false}
     if lhs.taskRef != rhs.taskRef {return false}
-    if lhs.purpose != rhs.purpose {return false}
     if lhs.reason != rhs.reason {return false}
     if lhs.requestID != rhs.requestID {return false}
-    if lhs._program != rhs._program {return false}
     if lhs.recipientID != rhs.recipientID {return false}
     if lhs.agentLabel != rhs.agentLabel {return false}
     if lhs.project != rhs.project {return false}
@@ -1629,13 +1352,12 @@ nonisolated extension Agentkeyring_V1_LeaseReference: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Lease"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}login_id\0\u{3}task_ref\0\u{1}purpose\0\u{1}state\0\u{3}not_after_unix_seconds\0\u{3}pending_until_unix_seconds\0\u{3}approved_by\0\u{1}reply\0\u{3}status_lines\0\u{1}recipient\0\u{1}sites\0\u{1}program\0\u{3}retry_not_before_unix_seconds\0\u{1}reason\0\u{3}approved_at_unix_seconds\0\u{3}requested_at_unix_seconds\0\u{3}ended_at_unix_seconds\0\u{3}signed_denial\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}login_id\0\u{3}task_ref\0\u{2}\u{2}state\0\u{3}not_after_unix_seconds\0\u{3}pending_until_unix_seconds\0\u{3}approved_by\0\u{1}reply\0\u{3}status_lines\0\u{1}recipient\0\u{1}sites\0\u{4}\u{2}retry_not_before_unix_seconds\0\u{1}reason\0\u{3}approved_at_unix_seconds\0\u{3}requested_at_unix_seconds\0\u{3}ended_at_unix_seconds\0\u{3}signed_denial\0\u{c}\u{4}\u{1}\u{c}\u{d}\u{1}")
 
   fileprivate class _StorageClass {
     var _leaseID: String = String()
     var _loginID: String = String()
     var _taskRef: String = String()
-    var _purpose: Agentkeyring_V1_Purpose = .unspecified
     var _state: Agentkeyring_V1_LeaseState = .unspecified
     var _notAfterUnixSeconds: Int64 = 0
     var _pendingUntilUnixSeconds: Int64 = 0
@@ -1644,7 +1366,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
     var _statusLines: [String] = []
     var _recipient: Agentkeyring_V1_Recipient? = nil
     var _sites: [String] = []
-    var _program: Agentkeyring_V1_ProgramCommand? = nil
     var _retryNotBeforeUnixSeconds: Int64 = 0
     var _reason: String = String()
     var _approvedAtUnixSeconds: Int64 = 0
@@ -1664,7 +1385,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
       _leaseID = source._leaseID
       _loginID = source._loginID
       _taskRef = source._taskRef
-      _purpose = source._purpose
       _state = source._state
       _notAfterUnixSeconds = source._notAfterUnixSeconds
       _pendingUntilUnixSeconds = source._pendingUntilUnixSeconds
@@ -1673,7 +1393,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
       _statusLines = source._statusLines
       _recipient = source._recipient
       _sites = source._sites
-      _program = source._program
       _retryNotBeforeUnixSeconds = source._retryNotBeforeUnixSeconds
       _reason = source._reason
       _approvedAtUnixSeconds = source._approvedAtUnixSeconds
@@ -1701,7 +1420,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
         case 1: try { try decoder.decodeSingularStringField(value: &_storage._leaseID) }()
         case 2: try { try decoder.decodeSingularStringField(value: &_storage._loginID) }()
         case 3: try { try decoder.decodeSingularStringField(value: &_storage._taskRef) }()
-        case 4: try { try decoder.decodeSingularEnumField(value: &_storage._purpose) }()
         case 5: try { try decoder.decodeSingularEnumField(value: &_storage._state) }()
         case 6: try { try decoder.decodeSingularInt64Field(value: &_storage._notAfterUnixSeconds) }()
         case 7: try { try decoder.decodeSingularInt64Field(value: &_storage._pendingUntilUnixSeconds) }()
@@ -1710,7 +1428,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
         case 10: try { try decoder.decodeRepeatedStringField(value: &_storage._statusLines) }()
         case 11: try { try decoder.decodeSingularMessageField(value: &_storage._recipient) }()
         case 12: try { try decoder.decodeRepeatedStringField(value: &_storage._sites) }()
-        case 13: try { try decoder.decodeSingularMessageField(value: &_storage._program) }()
         case 14: try { try decoder.decodeSingularInt64Field(value: &_storage._retryNotBeforeUnixSeconds) }()
         case 15: try { try decoder.decodeSingularStringField(value: &_storage._reason) }()
         case 16: try { try decoder.decodeSingularInt64Field(value: &_storage._approvedAtUnixSeconds) }()
@@ -1738,9 +1455,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
       if !_storage._taskRef.isEmpty {
         try visitor.visitSingularStringField(value: _storage._taskRef, fieldNumber: 3)
       }
-      if _storage._purpose != .unspecified {
-        try visitor.visitSingularEnumField(value: _storage._purpose, fieldNumber: 4)
-      }
       if _storage._state != .unspecified {
         try visitor.visitSingularEnumField(value: _storage._state, fieldNumber: 5)
       }
@@ -1765,9 +1479,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
       if !_storage._sites.isEmpty {
         try visitor.visitRepeatedStringField(value: _storage._sites, fieldNumber: 12)
       }
-      try { if let v = _storage._program {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 13)
-      } }()
       if _storage._retryNotBeforeUnixSeconds != 0 {
         try visitor.visitSingularInt64Field(value: _storage._retryNotBeforeUnixSeconds, fieldNumber: 14)
       }
@@ -1798,7 +1509,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
         if _storage._leaseID != rhs_storage._leaseID {return false}
         if _storage._loginID != rhs_storage._loginID {return false}
         if _storage._taskRef != rhs_storage._taskRef {return false}
-        if _storage._purpose != rhs_storage._purpose {return false}
         if _storage._state != rhs_storage._state {return false}
         if _storage._notAfterUnixSeconds != rhs_storage._notAfterUnixSeconds {return false}
         if _storage._pendingUntilUnixSeconds != rhs_storage._pendingUntilUnixSeconds {return false}
@@ -1807,7 +1517,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
         if _storage._statusLines != rhs_storage._statusLines {return false}
         if _storage._recipient != rhs_storage._recipient {return false}
         if _storage._sites != rhs_storage._sites {return false}
-        if _storage._program != rhs_storage._program {return false}
         if _storage._retryNotBeforeUnixSeconds != rhs_storage._retryNotBeforeUnixSeconds {return false}
         if _storage._reason != rhs_storage._reason {return false}
         if _storage._approvedAtUnixSeconds != rhs_storage._approvedAtUnixSeconds {return false}
@@ -1998,95 +1707,6 @@ nonisolated extension Agentkeyring_V1_FillResult: SwiftProtobuf.Message, SwiftPr
   }
 }
 
-nonisolated extension Agentkeyring_V1_ExecuteProgramRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ExecuteProgramRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}operation_id\0\u{1}field\0\u{1}again\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.leaseID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.operationID) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self.field) }()
-      case 4: try { try decoder.decodeSingularBoolField(value: &self.again) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.leaseID.isEmpty {
-      try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
-    }
-    if !self.operationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.operationID, fieldNumber: 2)
-    }
-    if self.field != .unspecified {
-      try visitor.visitSingularEnumField(value: self.field, fieldNumber: 3)
-    }
-    if self.again != false {
-      try visitor.visitSingularBoolField(value: self.again, fieldNumber: 4)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentkeyring_V1_ExecuteProgramRequest, rhs: Agentkeyring_V1_ExecuteProgramRequest) -> Bool {
-    if lhs.leaseID != rhs.leaseID {return false}
-    if lhs.operationID != rhs.operationID {return false}
-    if lhs.field != rhs.field {return false}
-    if lhs.again != rhs.again {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentkeyring_V1_ExecuteProgramResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ExecuteProgramResult"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}outcome\0\u{3}exit_code\0\u{1}detail\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularEnumField(value: &self.outcome) }()
-      case 2: try { try decoder.decodeSingularInt32Field(value: &self._exitCode) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.detail) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if self.outcome != .unspecified {
-      try visitor.visitSingularEnumField(value: self.outcome, fieldNumber: 1)
-    }
-    try { if let v = self._exitCode {
-      try visitor.visitSingularInt32Field(value: v, fieldNumber: 2)
-    } }()
-    if !self.detail.isEmpty {
-      try visitor.visitSingularStringField(value: self.detail, fieldNumber: 3)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentkeyring_V1_ExecuteProgramResult, rhs: Agentkeyring_V1_ExecuteProgramResult) -> Bool {
-    if lhs.outcome != rhs.outcome {return false}
-    if lhs._exitCode != rhs._exitCode {return false}
-    if lhs.detail != rhs.detail {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Agentkeyring_V1_DeliverRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DeliverRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{1}kind\0\u{1}fields\0")
@@ -2236,7 +1856,7 @@ nonisolated extension Agentkeyring_V1_CredentialValues: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}find_logins\0\u{3}request_lease\0\u{3}get_lease\0\u{3}watch_lease\0\u{3}end_lease\0\u{1}fill\0\u{3}execute_program\0\u{1}deliver\0\u{2}\u{3}setup\0\u{c}\u{9}\u{1}\u{c}\u{a}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}find_logins\0\u{3}request_lease\0\u{3}get_lease\0\u{3}watch_lease\0\u{3}end_lease\0\u{1}fill\0\u{2}\u{2}deliver\0\u{2}\u{3}setup\0\u{c}\u{7}\u{1}\u{c}\u{9}\u{1}\u{c}\u{a}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2322,19 +1942,6 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
           self.request = .fill(v)
         }
       }()
-      case 7: try {
-        var v: Agentkeyring_V1_ExecuteProgramRequest?
-        var hadOneofValue = false
-        if let current = self.request {
-          hadOneofValue = true
-          if case .executeProgram(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.request = .executeProgram(v)
-        }
-      }()
       case 8: try {
         var v: Agentkeyring_V1_DeliverRequest?
         var hadOneofValue = false
@@ -2396,10 +2003,6 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
       guard case .fill(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
     }()
-    case .executeProgram?: try {
-      guard case .executeProgram(let v)? = self.request else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
-    }()
     case .deliver?: try {
       guard case .deliver(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
@@ -2422,7 +2025,7 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WireResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{1}lease\0\u{1}fill\0\u{3}execute_program\0\u{1}error\0\u{3}end_of_stream\0\u{1}delivery\0\u{2}\u{3}setup\0\u{c}\u{8}\u{1}\u{c}\u{9}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{1}lease\0\u{1}fill\0\u{2}\u{2}error\0\u{3}end_of_stream\0\u{1}delivery\0\u{2}\u{3}setup\0\u{c}\u{4}\u{1}\u{c}\u{8}\u{1}\u{c}\u{9}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2467,19 +2070,6 @@ nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, Swift
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
           self.response = .fill(v)
-        }
-      }()
-      case 4: try {
-        var v: Agentkeyring_V1_ExecuteProgramResult?
-        var hadOneofValue = false
-        if let current = self.response {
-          hadOneofValue = true
-          if case .executeProgram(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.response = .executeProgram(v)
         }
       }()
       case 5: try {
@@ -2544,10 +2134,6 @@ nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, Swift
     case .fill?: try {
       guard case .fill(let v)? = self.response else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    }()
-    case .executeProgram?: try {
-      guard case .executeProgram(let v)? = self.response else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     }()
     case .error?: try {
       guard case .error(let v)? = self.response else { preconditionFailure() }

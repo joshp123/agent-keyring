@@ -126,16 +126,8 @@ public final class CredentialLeaseStore {
         var request = incoming
         guard let loginID = UUID(uuidString: request.loginID), !request.requestID.isEmpty,
             !request.taskRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            !request.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            [.browserSignIn, .program, .agentProcess].contains(request.purpose),
-            request.hasProgram == (request.purpose == .program) else {
-            throw LeaseFailure(.invalidArgument, "Supply a login, unique request ID, task, reason and delivery purpose; only program leases include a command.")
-        }
-        if request.hasProgram {
-            guard request.program.executable.hasPrefix("/"), !request.program.executable.utf8.contains(0),
-                !request.program.arguments.contains(where: { $0.utf8.contains(0) }) else {
-                throw LeaseFailure(.invalidArgument, "Program leases require a resolved absolute executable and valid arguments.")
-            }
+            !request.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LeaseFailure(.invalidArgument, "Supply a login, unique request ID, task and reason.")
         }
         request.loginID = loginID.uuidString
         let localRecipient = try recipient()
@@ -154,12 +146,8 @@ public final class CredentialLeaseStore {
         var next = snapshot!
         if let joined = leases.first(where: {
             ($0.state == .pending || $0.state == .active) && $0.loginID == request.loginID
-                && $0.taskRef == request.taskRef && $0.purpose == request.purpose
-                && $0.recipient.recipientID == request.recipientID
+                && $0.taskRef == request.taskRef && $0.recipient.recipientID == request.recipientID
         }) {
-            guard joined.hasProgram == request.hasProgram, joined.program == request.program else {
-                throw LeaseFailure(.conflict, "The current lease for this task has a different program. End it before requesting another command.")
-            }
             next.requests[request.requestID] = RequestRecord(request: try request.serializedData(), leaseID: joined.leaseID)
             try commit(next)
             return joined
@@ -169,12 +157,10 @@ public final class CredentialLeaseStore {
         lease.leaseID = UUID().uuidString
         lease.loginID = request.loginID
         lease.taskRef = request.taskRef
-        lease.purpose = request.purpose
         lease.reason = request.reason
         lease.requestedAtUnixSeconds = now
         lease.recipient = localRecipient
         lease.sites = login.origins.sorted()
-        if request.hasProgram { lease.program = request.program }
         lease.pendingUntilUnixSeconds = now + 600
         if policy == .block {
             lease.state = .denied
@@ -350,17 +336,12 @@ public final class CredentialLeaseStore {
         guard !request.fields.isEmpty,
             Set(request.fields.map(\.rawValue)).count == request.fields.count,
             request.fields.allSatisfy({ [.username, .password, .oneTimeCode].contains($0) }),
-            [.fill, .executeProgram, .read].contains(request.kind),
+            [.fill, .read].contains(request.kind),
             request.kind == .fill || request.fields.count == 1 else {
             throw LeaseFailure(.invalidArgument, "Supply a known operation kind and distinct credential fields.")
         }
         guard lease.state == .active else {
             throw LeaseFailure(.permissionDenied, "The lease is not active. Inspect its status before starting another request.")
-        }
-        guard (request.kind == .fill && lease.purpose == .browserSignIn)
-            || (request.kind == .executeProgram && lease.purpose == .program)
-            || (request.kind == .read && lease.purpose == .agentProcess) else {
-            throw LeaseFailure(.permissionDenied, "This operation does not match the approved delivery purpose.")
         }
         var delivery = Agentkeyring_V1_Delivery()
         delivery.values = try values(lease, request.fields)
@@ -444,9 +425,6 @@ public final class CredentialLeaseStore {
 }
 
 extension Agentkeyring_V1_FillOutcome {
-    var isUnknown: Bool { if case .UNRECOGNIZED = self { true } else { false } }
-}
-extension Agentkeyring_V1_ProgramOutcome {
     var isUnknown: Bool { if case .UNRECOGNIZED = self { true } else { false } }
 }
 extension Agentkeyring_V1_LeaseState {

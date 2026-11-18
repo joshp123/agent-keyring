@@ -2,12 +2,12 @@
 name: agent-keyring
 description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation. Use whenever a task needs a login, a password or a two-factor code. Never ask the user to type or paste a password."
 metadata:
-  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra"
+  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5"
 ---
 
 # Agent Keyring
 
-Agent Keyring holds the user's saved logins. You lease one login for the task you are doing, use it as often as the task needs, and release it when you are done. The user's rule for that login decides whether the lease is approved automatically, needs their Touch ID or iPhone approval, or is refused. One approval covers your whole task, including retries and two-factor steps, for up to 30 minutes. That is how long Agent Keyring will hand out the login for the task; it does not sign you out of the website, and anything already delivered stays where it went.
+Agent Keyring holds the user's saved logins. You lease one login for the task you are doing, use it as often as the task needs, and release it when you are done. The user's rule for that login decides whether the lease is approved automatically, needs their Touch ID or iPhone approval, or is refused. One approval covers your whole task, filling and reading alike, including retries and two-factor steps, for up to 30 minutes. That is how long Agent Keyring will hand out the login for the task; it does not sign you out of the website, and anything already delivered stays where it went.
 
 The values go into the sign-in form or the program, not into your output. Keep it that way: your conversation is stored, and the user is trusting the tool with their accounts.
 
@@ -39,14 +39,12 @@ Agent Keyring checks the document and frame are still the ones you selected and 
 
 Repeating the same fill returns its recorded result without submitting again. If the site showed an error without leaving the page, inspect it before deliberately repeating with `--again`. Filling waits up to ten seconds for the submit control to become enabled, then up to ten more seconds after clicking for browser confirmation (at most twenty seconds of retention); without browser confirmation, values are cleared and the result is "uncertain", with observations such as an address change or removed fields. A browser fill exits with status **0** for Submitted, **3** for Uncertain (including a replay), **1** for refused or unavailable, and **2** for incorrect usage. Status 3 means inspect the page, not that the site rejected the login. A recorded Uncertain reply says the earlier fill finished without browser confirmation; an interrupted pending receipt says it may have started. Neither replay fills or submits again. Those observations do not establish success: inspect the page and decide what to do next; repeating the recorded step will not submit it again. After a browser restart, run `tabs` for new targets and keep the same lease.
 
-**A browser without the extension.** Agent Keyring cannot fill it. Codex's in-app browser and T3's preview do not accept this extension. Use a connected browser for the sign-in; don't substitute `read`, clipboard input or a password in your browser tool's arguments. Safari support is a separate build slice.
+**Anywhere the extension cannot fill.** Codex's in-app browser and T3's preview do not accept this extension, and some pages defeat it. Use a connected browser if there is one. Otherwise read the value with the same lease, straight into the code that uses it, never into your output.
 
-**A program that needs the value.** Name the program when you lease, and Agent Keyring gives it the value on stdin. You get its exit status, not its output:
+**A program that needs the value.** Pipe it in. `read` refuses to print to a terminal; nothing reaches your conversation unless the program prints it:
 
 ```sh
-lease=$(agent-keyring lease LOGIN_ID --task "$task" --for program \
-  --reason "..." -- /absolute/path/to/client login --password-stdin)
-agent-keyring exec "$lease" --field password
+agent-keyring read "$lease" --field password | gh auth login --with-token
 ```
 
 **Two-factor codes.** Authenticator codes saved with the login come from Agent Keyring (`--code` when filling, `--field one-time-code` otherwise). Codes sent by SMS or email come from your own tools for the user's messages or mail, if you have them. Get them yourself rather than asking the user.

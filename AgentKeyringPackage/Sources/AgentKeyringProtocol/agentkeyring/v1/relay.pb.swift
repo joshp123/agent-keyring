@@ -339,8 +339,6 @@ public nonisolated struct Agentkeyring_V1_RequestRecord: Sendable {
 
   public var taskRef: String = String()
 
-  public var purpose: Agentkeyring_V1_Purpose = .unspecified
-
   /// Agent's claim.
   public var reason: String = String()
 
@@ -349,15 +347,6 @@ public nonisolated struct Agentkeyring_V1_RequestRecord: Sendable {
 
   /// Enrolled recipient the relay authenticated.
   public var recipientID: String = String()
-
-  public var program: Agentkeyring_V1_ProgramCommand {
-    get {_program ?? Agentkeyring_V1_ProgramCommand()}
-    set {_program = newValue}
-  }
-  /// Returns true if `program` has been explicitly set.
-  public var hasProgram: Bool {self._program != nil}
-  /// Clears the value of `program`. Subsequent reads from it will return its default value.
-  public mutating func clearProgram() {self._program = nil}
 
   public var createdUnixSeconds: Int64 = 0
 
@@ -375,8 +364,6 @@ public nonisolated struct Agentkeyring_V1_RequestRecord: Sendable {
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
-
-  fileprivate var _program: Agentkeyring_V1_ProgramCommand? = nil
 }
 
 public nonisolated struct Agentkeyring_V1_DecisionAck: Sendable {
@@ -2007,7 +1994,7 @@ nonisolated extension Agentkeyring_V1_PendingRequest: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentkeyring_V1_RequestRecord: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RequestRecord"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}request_id\0\u{3}login_id\0\u{3}task_ref\0\u{1}purpose\0\u{1}reason\0\u{3}agent_label\0\u{3}recipient_id\0\u{1}program\0\u{3}created_unix_seconds\0\u{3}pending_until_unix_seconds\0\u{3}tailscale_node_name\0\u{3}tailscale_address\0\u{1}automatic\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}request_id\0\u{3}login_id\0\u{3}task_ref\0\u{2}\u{2}reason\0\u{3}agent_label\0\u{3}recipient_id\0\u{4}\u{2}created_unix_seconds\0\u{3}pending_until_unix_seconds\0\u{3}tailscale_node_name\0\u{3}tailscale_address\0\u{1}automatic\0\u{c}\u{5}\u{1}\u{c}\u{9}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2019,11 +2006,9 @@ nonisolated extension Agentkeyring_V1_RequestRecord: SwiftProtobuf.Message, Swif
       case 2: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.loginID) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.taskRef) }()
-      case 5: try { try decoder.decodeSingularEnumField(value: &self.purpose) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.reason) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.agentLabel) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.recipientID) }()
-      case 9: try { try decoder.decodeSingularMessageField(value: &self._program) }()
       case 10: try { try decoder.decodeSingularInt64Field(value: &self.createdUnixSeconds) }()
       case 11: try { try decoder.decodeSingularInt64Field(value: &self.pendingUntilUnixSeconds) }()
       case 12: try { try decoder.decodeSingularStringField(value: &self.tailscaleNodeName) }()
@@ -2035,10 +2020,6 @@ nonisolated extension Agentkeyring_V1_RequestRecord: SwiftProtobuf.Message, Swif
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.leaseID.isEmpty {
       try visitor.visitSingularStringField(value: self.leaseID, fieldNumber: 1)
     }
@@ -2051,9 +2032,6 @@ nonisolated extension Agentkeyring_V1_RequestRecord: SwiftProtobuf.Message, Swif
     if !self.taskRef.isEmpty {
       try visitor.visitSingularStringField(value: self.taskRef, fieldNumber: 4)
     }
-    if self.purpose != .unspecified {
-      try visitor.visitSingularEnumField(value: self.purpose, fieldNumber: 5)
-    }
     if !self.reason.isEmpty {
       try visitor.visitSingularStringField(value: self.reason, fieldNumber: 6)
     }
@@ -2063,9 +2041,6 @@ nonisolated extension Agentkeyring_V1_RequestRecord: SwiftProtobuf.Message, Swif
     if !self.recipientID.isEmpty {
       try visitor.visitSingularStringField(value: self.recipientID, fieldNumber: 8)
     }
-    try { if let v = self._program {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
-    } }()
     if self.createdUnixSeconds != 0 {
       try visitor.visitSingularInt64Field(value: self.createdUnixSeconds, fieldNumber: 10)
     }
@@ -2089,11 +2064,9 @@ nonisolated extension Agentkeyring_V1_RequestRecord: SwiftProtobuf.Message, Swif
     if lhs.requestID != rhs.requestID {return false}
     if lhs.loginID != rhs.loginID {return false}
     if lhs.taskRef != rhs.taskRef {return false}
-    if lhs.purpose != rhs.purpose {return false}
     if lhs.reason != rhs.reason {return false}
     if lhs.agentLabel != rhs.agentLabel {return false}
     if lhs.recipientID != rhs.recipientID {return false}
-    if lhs._program != rhs._program {return false}
     if lhs.createdUnixSeconds != rhs.createdUnixSeconds {return false}
     if lhs.pendingUntilUnixSeconds != rhs.pendingUntilUnixSeconds {return false}
     if lhs.tailscaleNodeName != rhs.tailscaleNodeName {return false}
