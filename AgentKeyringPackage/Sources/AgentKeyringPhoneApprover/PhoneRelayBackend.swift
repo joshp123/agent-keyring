@@ -646,8 +646,17 @@ public final class PhoneRelayBackend: PhoneBackend {
         next.notificationsAsked = true
         next.notificationsAllowed = allowed
         save(next)
-        if allowed && pushRegistered { askForTest() }
+        if allowed && (pushRegistered || noPushAddress) { askForTest() }
     }
+
+    /// Apple has given no push address 30 seconds after asking. The test request
+    /// goes anyway, so its report tells the relay why requests cannot wake this iPhone.
+    public func pushAddressMissing() {
+        noPushAddress = true
+        if state.notificationsAllowed { askForTest() }
+    }
+
+    private var noPushAddress = false
 
     /// The relay has this launch's push address. The test request waits for it,
     /// so that its push can show that requests reach this iPhone.
@@ -738,6 +747,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         report.checks = [
             check("joined", true),
             check("notifications", state.notificationsAllowed, "notifications are off"),
+            check("push address", pushRegistered, noPushAddress ? "Apple gave none within 30 seconds" : "not registered with the relay"),
             check("push reached this iPhone", state.pushSeen, "no push has arrived"),
             check("test request", state.testApproved, "not approved"),
             check("opening key", openingWorks ?? false, openingWorks == nil ? "no sealed login to open" : "did not open"),

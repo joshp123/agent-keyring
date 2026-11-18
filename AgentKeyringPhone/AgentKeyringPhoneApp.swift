@@ -84,7 +84,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         UIApplication.shared.registerForRemoteNotifications()
         Task {
             try? await Task.sleep(for: .seconds(30))
-            if pushAddress == nil { PhoneDiagnostics.note("Apple has not given a push address after 30 seconds") }
+            if pushAddress == nil { PhoneDiagnostics.note("Apple has not given a push address after 30 seconds"); relay?.pushAddressMissing() }
         }
     }
 

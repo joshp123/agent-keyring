@@ -24,12 +24,16 @@ final class WatchLink: NSObject, WCSessionDelegate {
 
     /// Sends the current signed Members to the Watch.
     func sendMembers() {
-        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
-              WCSession.default.isPaired, WCSession.default.isWatchAppInstalled,
-              let members = relay.signedMembers, let answerURL = relay.relayAnswerURL else { return }
+        let session = WCSession.default
+        guard WCSession.isSupported(), session.activationState == .activated, session.isPaired, session.isWatchAppInstalled,
+              let members = relay.signedMembers, let answerURL = relay.relayAnswerURL else {
+            PhoneDiagnostics.note("Members not sent to the Watch: activated \(WCSession.default.activationState == .activated), paired \(WCSession.default.isPaired), installed \(WCSession.default.isWatchAppInstalled), members \(relay.signedMembers != nil)")
+            return
+        }
         let context: [String: Any] = ["members": members, "relayAnswerURL": answerURL]
-        try? WCSession.default.updateApplicationContext(context)
-        WCSession.default.transferUserInfo(context)
+        do { try session.updateApplicationContext(context) } catch { PhoneDiagnostics.note("Members not sent to the Watch: \(error)") }
+        session.transferUserInfo(context)
+        PhoneDiagnostics.note("Members sent to the Watch (\(members.count) bytes)")
     }
 
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
