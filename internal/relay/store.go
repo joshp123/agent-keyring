@@ -1,334 +1,210 @@
-// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+// Written by AI on 2026.11.18 by model claude opus 5.5.
+//
+// Package relay is the program on the Mac mini that passes requests and
+// answers between machines and devices (proto/agentkeyring/v2/keyring.proto).
+// It holds sealed logins and signed documents and can open none of them.
 package relay
 
 import (
-	"crypto/ecdsa"
-	"database/sql"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
+	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/joshp123/agent-keyring/internal/keyring"
 	"google.golang.org/protobuf/proto"
-	_ "modernc.org/sqlite"
 )
 
+// saved is everything the relay keeps, written whole to one private file on
+// every change. One person's requests are few, so this stays small.
+type saved struct {
+	Members   []byte                       `json:"members,omitempty"`   // Signed Members.
+	Catalogue []byte                       `json:"catalogue,omitempty"` // Signed Catalogue.
+	Sealed    map[string]map[string][]byte `json:"sealed"`              // Opener id, login id: SealedLogin.
+	Requests  map[string]*request          `json:"requests"`
+	HeldOff   map[string]int64             `json:"held_off"`   // Machine id "/" login id: until.
+	Pushes    map[string][]byte            `json:"pushes"`     // Device key id: PushRegistration.
+	Joins     map[string]*join             `json:"joins"`      // Joiner id.
+	Uses      []use                        `json:"uses,omitempty"`
+}
+
+type request struct {
+	Request         []byte        `json:"request"` // Exact Request bytes.
+	MachineID       string        `json:"machine_id"`
+	ClientRequestID string        `json:"client_request_id,omitempty"`
+	State           pb.LeaseState `json:"state"`
+	Answer          []byte        `json:"answer,omitempty"`   // AnswerUpload, as received.
+	AnsweredBy      string        `json:"answered_by,omitempty"`
+	AnswerBy        int64         `json:"answer_by"`
+	NotAfter        int64         `json:"not_after,omitempty"`
+	Reply           string        `json:"reply,omitempty"`
+	RetryNotBefore  int64         `json:"retry_not_before,omitempty"`
+	Ended           int64         `json:"ended,omitempty"`
+}
+
+type join struct {
+	Request []byte       `json:"request"` // JoinRequest.
+	Node    string       `json:"node"`
+	Asked   int64        `json:"asked"`
+	State   pb.JoinState `json:"state"`
+}
+
+type use struct {
+	MachineID string `json:"machine_id"`
+	LoginID   string `json:"login_id"`
+	Agent     string `json:"agent"`
+	Reason    string `json:"reason"`
+	At        int64  `json:"at"`
+}
+
+// Store keeps the saved state, its parsed documents, and a signal for
+// everyone waiting on a change.
 type Store struct {
-	mu                                    sync.Mutex
-	db                                    *sql.DB
-	changed                               chan struct{}
-	automaticSigning, automaticEncryption *ecdsa.PrivateKey
+	path      string
+	mu        sync.Mutex
+	data      saved
+	members   *pb.Members
+	catalogue *pb.Catalogue
+	changed   chan struct{}
 }
 
 func OpenStore(directory string) (*Store, error) {
-	if err := os.MkdirAll(directory, 0700); err != nil {
+	s := &Store{path: filepath.Join(directory, "relay.json"), changed: make(chan struct{})}
+	raw, err := os.ReadFile(s.path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
 		return nil, err
-	}
-	if err := os.Chmod(directory, 0700); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(directory, "relay.sqlite")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	file.Close()
-	if err = os.Chmod(path, 0600); err != nil {
-		return nil, err
-	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
- CREATE TABLE IF NOT EXISTS objects(kind TEXT NOT NULL,id TEXT NOT NULL,value BLOB NOT NULL,PRIMARY KEY(kind,id));
- CREATE TABLE IF NOT EXISTS enrolments(id TEXT PRIMARY KEY,spki BLOB UNIQUE NOT NULL,node TEXT NOT NULL,state INTEGER NOT NULL,record BLOB NOT NULL,decision BLOB,keyset BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS pairings(id TEXT PRIMARY KEY,node TEXT NOT NULL,request BLOB NOT NULL,keyset BLOB NOT NULL,created INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS leases(id TEXT PRIMARY KEY,recipient TEXT NOT NULL,request BLOB NOT NULL,lease BLOB NOT NULL,decision BLOB,bundle BLOB);
- CREATE TABLE IF NOT EXISTS aliases(recipient TEXT NOT NULL,id TEXT NOT NULL,lease TEXT NOT NULL,request BLOB NOT NULL,PRIMARY KEY(recipient,id));
- CREATE TABLE IF NOT EXISTS phone_escalations(lease TEXT PRIMARY KEY,owner TEXT NOT NULL,record BLOB NOT NULL,local_lease BLOB,answer BLOB);
- CREATE TABLE IF NOT EXISTS push_attempts(lease TEXT NOT NULL,phone TEXT NOT NULL,sent INTEGER NOT NULL DEFAULT 0,retry_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(lease,phone));
- CREATE TABLE IF NOT EXISTS local_leases(id TEXT PRIMARY KEY,owner TEXT NOT NULL,request BLOB NOT NULL,lease BLOB NOT NULL,deadline INTEGER,delete_after INTEGER);
- CREATE TABLE IF NOT EXISTS relay_identity(id TEXT PRIMARY KEY,private BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS copy_updates(destination TEXT PRIMARY KEY,revision TEXT NOT NULL,update_hash BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS automatic_logins(id TEXT PRIMARY KEY,contents BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS phone_copies(destination TEXT PRIMARY KEY,signed BLOB NOT NULL);
- CREATE TABLE IF NOT EXISTS trust_updates(kind INTEGER NOT NULL,revision TEXT NOT NULL,hash BLOB NOT NULL,value BLOB NOT NULL,completed INTEGER,PRIMARY KEY(kind,revision));
- CREATE TABLE IF NOT EXISTS update_devices(kind INTEGER NOT NULL,revision TEXT NOT NULL,spki BLOB NOT NULL,receipt BLOB,replacement_kind INTEGER,replacement_revision TEXT,PRIMARY KEY(kind,revision,spki),FOREIGN KEY(kind,revision) REFERENCES trust_updates(kind,revision) ON DELETE CASCADE);
- CREATE INDEX IF NOT EXISTS device_update_queue ON update_devices(spki,kind,revision) WHERE receipt IS NULL;
- CREATE TABLE IF NOT EXISTS retired_devices(spki BLOB PRIMARY KEY,node TEXT NOT NULL);
- DROP TABLE IF EXISTS operations;`)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	// Existing unreleased relay stores keep their lease and enrolment records.
-	for _, column := range []struct{ table, name, declaration string }{
-		{"leases", "deadline", "INTEGER"}, {"leases", "delete_after", "INTEGER"}, {"leases", "decision_hash", "BLOB"},
-		{"enrolments", "expires", "INTEGER"}, {"pairings", "expires", "INTEGER"},
-		{"trust_updates", "collected", "INTEGER"},
-	} {
-		rows, queryErr := db.Query("SELECT name FROM pragma_table_info(?)", column.table)
-		if queryErr != nil {
-			db.Close()
-			return nil, queryErr
-		}
-		present := false
-		for rows.Next() {
-			var name string
-			if queryErr = rows.Scan(&name); queryErr != nil {
-				break
-			}
-			present = present || name == column.name
-		}
-		if queryErr == nil {
-			queryErr = rows.Err()
-		}
-		rows.Close()
-		if queryErr == nil && !present {
-			_, queryErr = db.Exec("ALTER TABLE " + column.table + " ADD COLUMN " + column.name + " " + column.declaration)
-		}
-		if queryErr != nil {
-			db.Close()
-			return nil, queryErr
+	default:
+		if err := json.Unmarshal(raw, &s.data); err != nil {
+			return nil, err
 		}
 	}
-	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS lease_deadlines ON leases(deadline) WHERE deadline IS NOT NULL;
- CREATE INDEX IF NOT EXISTS lease_history ON leases(delete_after) WHERE delete_after IS NOT NULL;
- CREATE INDEX IF NOT EXISTS enrolment_deadlines ON enrolments(expires) WHERE expires IS NOT NULL;
- CREATE INDEX IF NOT EXISTS pairing_deadlines ON pairings(expires) WHERE expires IS NOT NULL;
- CREATE INDEX IF NOT EXISTS local_deadlines ON local_leases(deadline) WHERE deadline IS NOT NULL;
- CREATE INDEX IF NOT EXISTS local_history ON local_leases(delete_after) WHERE delete_after IS NOT NULL;`)
-	if err != nil {
-		db.Close()
-		return nil, err
+	if s.data.Sealed == nil {
+		s.data.Sealed = map[string]map[string][]byte{}
 	}
-	store := &Store{db: db, changed: make(chan struct{})}
-	// Populate deadline indexes once when opening a store from the earlier contract.
-	tx, before, err := store.begin()
-	if err != nil {
-		db.Close()
-		return nil, err
+	if s.data.Requests == nil {
+		s.data.Requests = map[string]*request{}
 	}
-	defer tx.Rollback()
-	leases, err := queryLeases(tx, "SELECT lease FROM leases WHERE deadline IS NULL AND delete_after IS NULL")
-	if err == nil {
-		for _, lease := range leases {
-			if err = saveLease(tx, lease); err != nil {
-				break
-			}
+	if s.data.HeldOff == nil {
+		s.data.HeldOff = map[string]int64{}
+	}
+	if s.data.Pushes == nil {
+		s.data.Pushes = map[string][]byte{}
+	}
+	if s.data.Joins == nil {
+		s.data.Joins = map[string]*join{}
+	}
+	if len(s.data.Members) > 0 {
+		signed := &pb.Signed{}
+		if err := proto.Unmarshal(s.data.Members, signed); err != nil {
+			return nil, err
+		}
+		s.members = &pb.Members{}
+		if err := proto.Unmarshal(signed.Payload, s.members); err != nil {
+			return nil, err
 		}
 	}
-	if err == nil {
-		err = initializeSetupDeadlines(tx)
+	if len(s.data.Catalogue) > 0 {
+		signed := &pb.Signed{}
+		if err := proto.Unmarshal(s.data.Catalogue, signed); err != nil {
+			return nil, err
+		}
+		s.catalogue = &pb.Catalogue{}
+		if err := proto.Unmarshal(signed.Payload, s.catalogue); err != nil {
+			return nil, err
+		}
 	}
-	if err == nil {
-		store.automaticSigning, err = loadAutomaticKey(tx, "signing")
-	}
-	if err == nil {
-		store.automaticEncryption, err = loadAutomaticKey(tx, "encryption")
-	}
-	if err == nil {
-		err = store.commit(tx, before)
-	}
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	return store, nil
+	return s, nil
 }
-func (s *Store) Close() error { return s.db.Close() }
-func marshal(message proto.Message) []byte {
-	data, err := proto.Marshal(message)
-	if err != nil {
-		panic(err)
+
+// update runs change under the lock, saves, and wakes everyone waiting.
+func (s *Store) update(change func(*saved) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := change(&s.data); err != nil {
+		return err
 	}
-	return data
-}
-func get(tx *sql.Tx, kind, id string, message proto.Message) error {
-	var value []byte
-	err := tx.QueryRow("SELECT value FROM objects WHERE kind=? AND id=?", kind, id).Scan(&value)
+	raw, err := json.Marshal(&s.data)
 	if err != nil {
 		return err
 	}
-	return proto.Unmarshal(value, message)
-}
-func put(tx *sql.Tx, kind, id string, message proto.Message) error {
-	_, err := tx.Exec("INSERT INTO objects VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET value=excluded.value", kind, id, marshal(message))
-	return err
-}
-func currentKeys(tx *sql.Tx) (*pb.SignedApproverKeySet, *pb.ApproverKeySet, error) {
-	signed := new(pb.SignedApproverKeySet)
-	err := get(tx, "current", "keys", signed)
-	if err != nil {
-		return nil, nil, err
+	temporary := s.path + ".new"
+	if err := os.WriteFile(temporary, raw, 0o600); err != nil {
+		return err
 	}
-	keys := new(pb.ApproverKeySet)
-	err = proto.Unmarshal(signed.KeySet, keys)
-	return signed, keys, err
-}
-func keyByID(keys *pb.ApproverKeySet, id string) *pb.ApproverKey {
-	for _, key := range keys.GetKeys() {
-		if key.KeyId == id {
-			return key
-		}
+	if err := os.Rename(temporary, s.path); err != nil {
+		return err
 	}
+	close(s.changed)
+	s.changed = make(chan struct{})
 	return nil
 }
-func configuration(tx *sql.Tx) (*pb.SignedConfiguration, *pb.Configuration, error) {
-	signed := new(pb.SignedConfiguration)
-	err := get(tx, "current", "configuration", signed)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, &pb.Configuration{}, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	value := new(pb.Configuration)
-	err = proto.Unmarshal(signed.Configuration, value)
-	return signed, value, err
+
+// read runs look under the lock and returns a channel closed on the next change.
+func (s *Store) read(look func(*saved)) <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	look(&s.data)
+	return s.changed
 }
-func loginByID(configuration *pb.Configuration, id string) *pb.Login {
-	for _, login := range configuration.GetLogins() {
-		if login.LoginId == id {
+
+// documents returns the current Members and Catalogue, either may be nil.
+func (s *Store) documents() (*pb.Members, *pb.Catalogue) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.members, s.catalogue
+}
+
+func (s *Store) findLogin(loginID string) *pb.Login {
+	_, catalogue := s.documents()
+	return loginIn(catalogue, loginID)
+}
+
+func loginIn(catalogue *pb.Catalogue, loginID string) *pb.Login {
+	if catalogue == nil {
+		return nil
+	}
+	for _, login := range catalogue.Logins {
+		if login.LoginId == loginID {
 			return login
 		}
 	}
 	return nil
 }
-func machineByID(configuration *pb.Configuration, id string) *pb.EnrolledMachine {
-	for _, machine := range configuration.GetMachines() {
-		if machine.RecipientId == id {
-			return machine
+
+func device(members *pb.Members, keyID string) *pb.Device {
+	if members == nil {
+		return nil
+	}
+	for _, d := range members.Devices {
+		if d.KeyId == keyID {
+			return d
 		}
 	}
 	return nil
 }
-func (s *Store) begin() (*sql.Tx, int64, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, 0, err
+
+func machine(members *pb.Members, machineID string) *pb.Machine {
+	if members == nil {
+		return nil
 	}
-	var changes int64
-	if err = tx.QueryRow("SELECT total_changes()").Scan(&changes); err != nil {
-		tx.Rollback()
-		return nil, 0, err
-	}
-	return tx, changes, nil
-}
-func (s *Store) commit(tx *sql.Tx, before int64) error {
-	var after int64
-	if err := tx.QueryRow("SELECT total_changes()").Scan(&after); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	if after != before {
-		close(s.changed)
-		s.changed = make(chan struct{})
+	for _, m := range members.Machines {
+		if m.MachineId == machineID {
+			return m
+		}
 	}
 	return nil
 }
-func invalid(message string) error {
-	return &rpcError{pb.RpcErrorCode_RPC_ERROR_CODE_INVALID_ARGUMENT, message}
-}
-func denied(message string) error {
-	return &rpcError{pb.RpcErrorCode_RPC_ERROR_CODE_PERMISSION_DENIED, message}
-}
-func conflict(message string) error {
-	return &rpcError{pb.RpcErrorCode_RPC_ERROR_CODE_CONFLICT, message}
-}
-func missing(message string) error {
-	return &rpcError{pb.RpcErrorCode_RPC_ERROR_CODE_NOT_FOUND, message}
-}
 
-type rpcError struct {
-	code    pb.RpcErrorCode
-	message string
-}
-
-func (e *rpcError) Error() string { return e.message }
-func wireError(err error) *pb.RelayWireResponse {
-	code := pb.RpcErrorCode_RPC_ERROR_CODE_INTERNAL
-	message := "Relay storage failed; rejoin the same request."
-	var rpc *rpcError
-	if errors.As(err, &rpc) {
-		code = rpc.code
-		message = rpc.message
-	}
-	return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Error{Error: &pb.RpcError{Code: code, Message: message}}, EndOfStream: true}
-}
-func publishAck() *pb.RelayWireResponse {
-	return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Publish{Publish: &pb.PublishAck{Accepted: true}}, EndOfStream: true}
-}
-func enrolAck() *pb.RelayWireResponse {
-	return &pb.RelayWireResponse{Response: &pb.RelayWireResponse_Enrolment{Enrolment: &pb.EnrolmentAck{Accepted: true}}, EndOfStream: true}
-}
-func revisionID(revision uint64) string { return fmt.Sprintf("%020d", revision) }
-
-func initializeSetupDeadlines(tx *sql.Tx) error {
-	rows, err := tx.Query("SELECT record FROM enrolments WHERE state<>1 AND expires IS NULL")
-	if err != nil {
-		return err
-	}
-	var pending []*pb.EnrolmentRecord
-	for rows.Next() {
-		var raw []byte
-		if err = rows.Scan(&raw); err != nil {
-			break
-		}
-		record := new(pb.EnrolmentRecord)
-		if err = proto.Unmarshal(raw, record); err != nil {
-			break
-		}
-		pending = append(pending, record)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, record := range pending {
-		if _, err = tx.Exec("UPDATE enrolments SET expires=? WHERE id=?", record.CreatedUnixSeconds+600, record.RecipientId); err != nil {
-			return err
+// requestBySHA finds a request by the SHA-256 of its exact bytes.
+func requestBySHA(data *saved, sum []byte) (string, *request) {
+	for id, r := range data.Requests {
+		if string(keyring.SHA256(r.Request)) == string(sum) {
+			return id, r
 		}
 	}
-	_, keys, err := currentKeys(tx)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	// Current pairings retain the stable tailnet node used for authentication.
-	rows, err = tx.Query("SELECT id FROM pairings WHERE expires IS NULL")
-	if err != nil {
-		return err
-	}
-	var unpaired []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			break
-		}
-		if keyByID(keys, id) == nil {
-			unpaired = append(unpaired, id)
-		}
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, id := range unpaired {
-		if _, err = tx.Exec("UPDATE pairings SET expires=created+600 WHERE id=?", id); err != nil {
-			return err
-		}
-	}
-	return nil
+	return "", nil
 }

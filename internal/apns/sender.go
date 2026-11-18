@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-type Config struct{ KeyPath, KeyID, TeamID, Topic, TestGateway, TestCA string }
+type Config struct{ KeyPath, KeyID, TeamID, TestGateway, TestCA string }
 type Sender struct {
 	config Config
 	key    *ecdsa.PrivateKey
@@ -43,8 +43,8 @@ type Result struct {
 }
 
 func New(config Config) (*Sender, error) {
-	if config.KeyID == "" || config.TeamID == "" || config.Topic == "" {
-		return nil, errors.New("APNs needs a key path, key ID, team ID and topic")
+	if config.KeyID == "" || config.TeamID == "" {
+		return nil, errors.New("APNs needs a key path, key ID and team ID")
 	}
 	data, err := os.ReadFile(config.KeyPath)
 	if err != nil {
@@ -106,7 +106,9 @@ func (s *Sender) authorization() (string, error) {
 	s.issued = now
 	return s.token, nil
 }
-func (s *Sender) Send(ctx context.Context, token []byte, production bool, collapse string, expires int64) (Result, error) {
+// Send delivers one alert push. The payload is the caller's: it must carry
+// nothing readable about a request (keyring.proto, "The push").
+func (s *Sender) Send(ctx context.Context, token []byte, topic string, production bool, collapse string, expires int64, payload []byte) (Result, error) {
 	gateway := "https://api.sandbox.push.apple.com"
 	environment := "sandbox"
 	if production {
@@ -120,14 +122,12 @@ func (s *Sender) Send(ctx context.Context, token []byte, production bool, collap
 	if err != nil {
 		return Result{}, err
 	}
-	// No request metadata, site, account, password or answer goes to Apple.
-	payload := []byte(`{"aps":{"alert":"An agent is asking for a login.","sound":"default"}}`)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, gateway+"/3/device/"+hex.EncodeToString(token), bytes.NewReader(payload))
 	if err != nil {
 		return Result{}, err
 	}
 	request.Header.Set("authorization", "bearer "+authorization)
-	request.Header.Set("apns-topic", s.config.Topic)
+	request.Header.Set("apns-topic", topic)
 	request.Header.Set("apns-push-type", "alert")
 	request.Header.Set("apns-priority", "10")
 	request.Header.Set("apns-collapse-id", collapse)

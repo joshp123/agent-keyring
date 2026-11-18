@@ -15,10 +15,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/joshp123/agent-keyring/internal/apns"
+	"github.com/joshp123/agent-keyring/internal/keyring"
 	"github.com/joshp123/agent-keyring/internal/relay"
-	"github.com/joshp123/agent-keyring/internal/relaycrypto"
+	"github.com/joshp123/agent-keyring/internal/tlsid"
 )
 
 func main() {
@@ -33,10 +35,10 @@ func run() error {
 	state := flags.String("state", "", "Private state directory (required)")
 	tailscale := flags.String("tailscale", "tailscale", "Path to the Tailscale CLI")
 	loopback := flags.Bool("loopback-test", false, "Allow only loopback and use one synthetic node identity for system fixtures")
+	answerWithin := flags.Duration("answer-within", 10*time.Minute, "How long a request waits for an answer (shorter only in tests)")
 	apnsKey := flags.String("apns-key", "", "APNs PKCS#8 token signing key path (optional)")
 	apnsKeyID := flags.String("apns-key-id", "", "Apple APNs key ID")
 	apnsTeam := flags.String("apns-team-id", "", "Apple developer team ID")
-	apnsTopic := flags.String("apns-topic", "", "Phone app bundle ID")
 	apnsGateway := flags.String("apns-test-gateway", "", "Loopback system fixture HTTPS gateway only")
 	apnsCA := flags.String("apns-test-ca", "", "Loopback fixture gateway CA PEM")
 	if err := flags.Parse(os.Args[1:]); err != nil {
@@ -71,7 +73,7 @@ func run() error {
 		if _, keyErr := os.Stat(keyPath); !errors.Is(keyErr, os.ErrNotExist) {
 			return errors.New("TLS identity is incomplete; refusing to replace its pin")
 		}
-		cert, key, err := relaycrypto.NewIdentity("Agent Keyring relay")
+		cert, key, err := tlsid.New("Agent Keyring relay")
 		if err != nil {
 			return err
 		}
@@ -98,18 +100,17 @@ func run() error {
 		}
 	}
 	if *apnsKey != "" {
-		push, err = apns.New(apns.Config{KeyPath: *apnsKey, KeyID: *apnsKeyID, TeamID: *apnsTeam, Topic: *apnsTopic, TestGateway: *apnsGateway, TestCA: *apnsCA})
+		push, err = apns.New(apns.Config{KeyPath: *apnsKey, KeyID: *apnsKeyID, TeamID: *apnsTeam, TestGateway: *apnsGateway, TestCA: *apnsCA})
 		if err != nil {
 			return err
 		}
-	} else if *apnsKeyID != "" || *apnsTeam != "" || *apnsTopic != "" || *apnsGateway != "" || *apnsCA != "" {
+	} else if *apnsKeyID != "" || *apnsTeam != "" || *apnsGateway != "" || *apnsCA != "" {
 		return errors.New("APNs configuration requires --apns-key")
 	}
 	store, err := relay.OpenStore(*state)
 	if err != nil {
 		return err
 	}
-	defer store.Close()
 	lookup := relay.TailscaleLookup(*tailscale)
 	if *loopback {
 		lookup = func(_ context.Context, address string) (relay.Node, error) {
@@ -132,5 +133,10 @@ func run() error {
 	fmt.Fprintf(os.Stderr, "Agent Keyring relay listening on %s\n", listener.Addr())
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	return (&relay.Server{Store: store, Push: push, Certificate: certificate, Lookup: lookup}).Serve(ctx, listener)
+	spki, err := tlsid.SPKI(certificate)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Relay key %s. Machines see the first 16 characters when they join.\n", keyring.KeyID(spki))
+	return (&relay.Server{Store: store, Push: push, Certificate: certificate, Lookup: lookup, AnswerWithin: *answerWithin}).Serve(ctx, listener)
 }

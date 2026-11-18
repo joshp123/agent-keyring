@@ -1,7 +1,15 @@
-// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+// Written by AI on 2026.11.18 by model claude opus 5.5.
+//
+// Package remote is the command's side of the relay on a machine that is not
+// the MacBook (proto/agentkeyring/v2/keyring.proto). It keeps the command's
+// local interface (agentkeyring.v1 WireRequest) so agents see no change, asks
+// the relay in version 2, and opens what a device approved with this
+// machine's own receiving key. Nothing it receives is trusted until checked
+// against the Members this machine pinned when it joined.
 package remote
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
@@ -11,22 +19,22 @@ import (
 	"io"
 	"net"
 	"net/netip"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
+	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/authority"
 	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/relaycrypto"
+	"github.com/joshp123/agent-keyring/internal/keyring"
+	"github.com/joshp123/agent-keyring/internal/tlsid"
+	"github.com/joshp123/agent-keyring/internal/wire"
 	"google.golang.org/protobuf/proto"
 )
 
 type Client struct {
 	Store       clientstate.Store
-	Keys        *clientstate.PrivateKeys
 	Certificate tls.Certificate
+	receiving   *ecdh.PrivateKey
 }
 
 func Load(ctx context.Context, store clientstate.Store) (*Client, error) {
@@ -34,32 +42,35 @@ func Load(ctx context.Context, store clientstate.Store) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if state.RecipientId == "" || state.Approvers == nil || len(state.RelaySpki) == 0 {
-		return nil, errors.New("This machine is not enrolled. Run 'agent-keyring enrol --name NAME --relay HOST:PORT'.")
+	if state.RecipientId == "" || len(state.Members) == 0 || len(state.RelaySpki) == 0 {
+		return nil, errors.New("This machine has not joined. Run 'agent-keyring enrol --name NAME --relay HOST:PORT'.")
 	}
 	keys, err := store.Keys(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
+	client, err := fromKeys(keys)
+	if err != nil {
+		return nil, err
+	}
+	client.Store = store
+	return client, nil
+}
+
+func fromKeys(keys *clientstate.PrivateKeys) (*Client, error) {
 	certificate, err := tls.X509KeyPair(keys.CertificatePem, keys.TlsKeyPem)
 	if err != nil {
 		return nil, errors.New("Cannot read this machine's saved TLS identity.")
 	}
-	return &Client{store, keys, certificate}, nil
+	receiving, err := ecdh.P256().NewPrivateKey(keys.ReceiverPrivateKey)
+	if err != nil {
+		return nil, errors.New("Cannot read this machine's saved receiving key.")
+	}
+	return &Client{Certificate: certificate, receiving: receiving}, nil
 }
+
 func (c *Client) Authority() authority.Client {
-	return authority.Client{Exchange: c.exchange, OpenValues: c.OpenValues, Remote: true, State: c.Store}
-}
-func (c *Client) wire(ctx context.Context, request *pb.RelayWireRequest, receive func(*pb.RelayWireResponse) bool) error {
-	state, err := c.Store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	config, err := relaycrypto.ClientConfig(c.Certificate, state.RelaySpki)
-	if err != nil {
-		return err
-	}
-	return stream(ctx, state.RelayAddress, config, request, receive)
+	return authority.Client{Exchange: c.exchange, OpenValues: c.openValues, Remote: true, State: c.Store}
 }
 
 var (
@@ -67,10 +78,10 @@ var (
 	tailnetIPv6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
 )
 
-// Josh's logins only travel over the tailnet, so the client connects to its
-// relay only at a tailnet address, or on this machine for local proofs. The
-// check runs on the resolved address before connecting, so a tailnet name
-// such as mac-mini works and a name that resolves elsewhere sends nothing.
+// Logins travel only over the tailnet: the command connects to its relay only
+// at a tailnet address, or on this machine for tests. The check runs on the
+// resolved address, so a tailnet name works and a name that resolves
+// elsewhere sends nothing.
 func refuseNonTailnetAddress(_, address string, _ syscall.RawConn) error {
 	addressAndPort, err := netip.ParseAddrPort(address)
 	if err != nil {
@@ -82,27 +93,39 @@ func refuseNonTailnetAddress(_, address string, _ syscall.RawConn) error {
 	}
 	return fmt.Errorf("%s is not a tailnet address; Agent Keyring only reaches its relay over the tailnet", ip)
 }
-func stream(ctx context.Context, address string, config *tls.Config, request *pb.RelayWireRequest, receive func(*pb.RelayWireResponse) bool) error {
+
+func ValidateAddress(address string) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || host == "" || port == "" {
+		return errors.New("Supply the relay as HOST:PORT.")
+	}
+	return nil
+}
+
+func stream(ctx context.Context, address string, config *tls.Config, request *pb.RelayRequest, receive func(*pb.RelayResponse) bool) error {
 	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 5 * time.Second, Control: refuseNonTailnetAddress}, Config: config}
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
-		return fmt.Errorf("Agent Keyring unreachable at %s: %w", address, err)
+		return fmt.Errorf("Cannot reach the relay at %s: %w", address, err)
 	}
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	if err = authority.WriteFrame(conn, request); err != nil {
-		return errors.New("Could not send the relay request. Rejoin the same lease after reconnecting.")
+	if err = wire.Write(conn, request); err != nil {
+		return errors.New("Could not send the request to the relay.")
 	}
 	for {
 		conn.SetReadDeadline(time.Now().Add(11 * time.Minute))
-		response := new(pb.RelayWireResponse)
-		if err = authority.ReadFrame(conn, response); err != nil {
+		response := &pb.RelayResponse{}
+		if err = wire.Read(conn, response); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			return errors.New("The relay connection ended before a result arrived. Rejoin the same request or lease; do not ask again.")
+			if errors.Is(err, io.EOF) {
+				return errors.New("The relay closed the connection before answering. Rejoin the same request; do not ask again.")
+			}
+			return errors.New("The relay connection ended before a result arrived. Rejoin the same request; do not ask again.")
 		}
 		if failure := response.GetError(); failure != nil {
 			return errors.New(failure.Message)
@@ -112,360 +135,125 @@ func stream(ctx context.Context, address string, config *tls.Config, request *pb
 		}
 	}
 }
-func (c *Client) call(ctx context.Context, request *pb.RelayWireRequest) (*pb.RelayWireResponse, error) {
+
+func (c *Client) relay(ctx context.Context, request *pb.RelayRequest, receive func(*pb.RelayResponse) bool) error {
+	state, err := c.Store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	return stream(ctx, state.RelayAddress, tlsid.Client(c.Certificate, state.RelaySpki, nil), request, receive)
+}
+
+func (c *Client) call(ctx context.Context, request *pb.RelayRequest) (*pb.RelayResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	var result *pb.RelayWireResponse
-	err := c.wire(ctx, request, func(response *pb.RelayWireResponse) bool { result = response; return false })
+	var result *pb.RelayResponse
+	err := c.relay(ctx, request, func(response *pb.RelayResponse) bool { result = response; return false })
+	if err == nil && result == nil {
+		err = errors.New("The relay returned nothing.")
+	}
 	return result, err
 }
-func (c *Client) refreshKeys(ctx context.Context) error {
-	state, err := c.Store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	set, err := keySet(state.Approvers)
-	if err != nil {
-		return err
-	}
-	response, err := c.call(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetApproverKeyChain{GetApproverKeyChain: &pb.GetApproverKeyChainRequest{FromRevision: set.Revision}}})
-	if err != nil {
-		return err
-	}
-	chain := response.GetApproverKeyChain()
-	if chain == nil {
-		return errors.New("The relay did not return the signed approver key chain.")
-	}
-	for _, signed := range chain.KeySets {
-		if err = c.saveTrustUpdate(ctx, &pb.TrustUpdate{Update: &pb.TrustUpdate_ApproverKeys{ApproverKeys: signed}}); err != nil {
-			return err
-		}
-	}
-	// Also acknowledge a snapshot saved before this protocol was introduced.
-	state, err = c.Store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	if err = c.saveTrustUpdate(ctx, &pb.TrustUpdate{Update: &pb.TrustUpdate_ApproverKeys{ApproverKeys: state.Approvers}}); err != nil {
-		return err
-	}
-	return c.flushUpdateReceipts(ctx)
-}
-func (c *Client) refreshConfiguration(ctx context.Context) error {
-	state, err := c.Store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	var after uint64
-	if state.Configuration != nil {
-		config := new(pb.Configuration)
-		if proto.Unmarshal(state.Configuration.Configuration, config) != nil {
-			return errors.New("Invalid saved configuration.")
-		}
-		after = config.Revision
-	}
-	response, err := c.call(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_GetConfigurationUpdates{GetConfigurationUpdates: &pb.GetConfigurationUpdatesRequest{AfterRevision: after}}})
-	if err != nil {
-		return err
-	}
-	updates := response.GetConfigurationUpdates()
-	if updates == nil {
-		return errors.New("The relay did not return signed configuration updates.")
-	}
-	for _, signed := range updates.Configurations {
-		if err = c.saveTrustUpdate(ctx, &pb.TrustUpdate{Update: &pb.TrustUpdate_Configuration{Configuration: signed}}); err != nil {
-			return err
-		}
-	}
-	if err = c.flushUpdateReceipts(ctx); err != nil {
-		return err
-	}
-	state, err = c.Store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	configuration, err := verifyConfiguration(state, state.Configuration)
-	if err != nil {
-		return err
-	}
-	clientSPKI, err := relaycrypto.CertificateSPKI(c.Certificate)
-	if err != nil {
-		return err
-	}
-	receiver, err := ecdh.P256().NewPrivateKey(c.Keys.ReceiverPrivateKey)
-	if err != nil {
-		return err
-	}
-	enrolled := machine(configuration, state.RecipientId)
-	if enrolled == nil || !bytesEqual(enrolled.TlsPublicKey, clientSPKI) || !bytesEqual(enrolled.ReceiverPublicKey, receiver.PublicKey().Bytes()) || enrolled.ReceiverKeyId != state.ReceiverKeyId {
-		return errors.New("The current signed configuration no longer enrolls this machine's keys.")
-	}
-	return nil
-}
-func (c *Client) find(ctx context.Context, query string) (*pb.WireResponse, error) {
-	if err := c.refreshKeys(ctx); err != nil {
-		return nil, err
-	}
-	if err := c.refreshConfiguration(ctx); err != nil {
-		return nil, err
-	}
+
+// members returns the pinned Members, first taking any newer revision the
+// relay has that a pinned device signed.
+func (c *Client) members(ctx context.Context) (*pb.Members, error) {
 	state, err := c.Store.Load(ctx)
 	if err != nil {
 		return nil, err
 	}
-	configuration, err := verifyConfiguration(state, state.Configuration)
+	pinned, err := parseMembers(state.Members)
 	if err != nil {
 		return nil, err
 	}
-	results := &pb.FindLoginsResponse{MirrorRefreshedUnixSeconds: configuration.MirrorRefreshedUnixSeconds}
-	query = strings.ToLower(query)
-	for _, login := range configuration.Logins {
-		if strings.Contains(strings.ToLower(strings.Join(append([]string{login.LoginId, login.Title, login.Account}, login.Sites...), " ")), query) {
-			results.Logins = append(results.Logins, login)
-		}
+	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Members{Members: &pb.Empty{}}})
+	if err != nil || response.GetSigned() == nil {
+		return pinned, nil // Checking needs only the pinned devices.
 	}
-	return &pb.WireResponse{Response: &pb.WireResponse_Logins{Logins: results}, EndOfStream: true}, nil
+	if newer, err := keyring.VerifiedMembers(response.GetSigned(), pinned); err == nil {
+		raw, _ := proto.Marshal(response.GetSigned())
+		if err := c.Store.Update(ctx, func(state *clientstate.State) error { state.Members = raw; return nil }); err != nil {
+			return nil, err
+		}
+		return newer, nil
+	}
+	return pinned, nil
 }
-func validateLease(state *clientstate.State, lease *pb.Lease) error {
-	scope, err := expected(state, lease.LeaseId)
-	if err != nil {
-		return err
+
+func parseMembers(raw []byte) (*pb.Members, error) {
+	signed := &pb.Signed{}
+	members := &pb.Members{}
+	if proto.Unmarshal(raw, signed) != nil || proto.Unmarshal(signed.Payload, members) != nil {
+		return nil, errors.New("This machine's saved list of devices is unreadable. Enrol it again.")
 	}
-	if lease.LoginId != scope.LoginId || lease.Purpose != scope.Purpose || lease.TaskRef != scope.TaskRef || lease.Reason != scope.Reason || lease.GetRecipient().GetRecipientId() != scope.RecipientId || !proto.Equal(lease.Program, scope.Program) {
-		return errors.New("The relay changed the saved scope of this lease.")
-	}
-	// Sites in relay status are metadata. Only a signed, opened bundle can
-	// authorize browser delivery, so they cannot pass the pre-fill check.
-	lease.Sites = nil
-	return nil
+	return members, nil
 }
-func (c *Client) exchange(ctx context.Context, request *pb.WireRequest, receive func(*pb.WireResponse) bool) error {
-	if find := request.GetFindLogins(); find != nil {
-		result, err := c.find(ctx, find.Query)
-		if err == nil {
-			receive(result)
-		}
-		return err
-	}
-	if leaseRequest := request.GetRequestLease(); leaseRequest != nil {
-		err := c.Store.Update(ctx, func(state *clientstate.State) error {
-			leaseRequest.RecipientId = state.RecipientId
-			for _, saved := range state.Requests {
-				if saved.Scope.RequestId == leaseRequest.RequestId {
-					if !proto.Equal(saved.Scope, leaseRequest) {
-						return errors.New("That request ID already names a different task or program.")
-					}
-					return nil
-				}
-			}
-			state.Requests = append(state.Requests, &clientstate.ExpectedRequest{Scope: proto.Clone(leaseRequest).(*pb.RequestLeaseRequest)})
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	var transformError error
-	err := c.wire(ctx, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_Client{Client: request}}, func(relay *pb.RelayWireResponse) bool {
-		if update := relay.GetTrustUpdate(); update != nil {
-			if update.GetApproverKeys() != nil {
-				transformError = c.refreshKeys(ctx)
-			} else {
-				transformError = c.saveTrustUpdate(ctx, update)
-				if transformError == nil {
-					transformError = c.flushUpdateReceipts(ctx)
-				}
-			}
-			return transformError == nil
-		}
-		response := relay.GetClient()
-		if response == nil {
-			transformError = errors.New("The relay returned no client result.")
-			return false
-		}
-		if failure := response.GetError(); failure != nil {
-			transformError = errors.New(failure.Message)
-			return false
-		}
-		if lease := response.GetLease(); lease != nil {
-			lease.Reply = ""        // Remote replies need their signed decision before display.
-			lease.StatusLines = nil // Relay status prose must not carry unsigned instructions.
-			canVerifyReply := lease.SignedDenial != nil && c.refreshKeys(ctx) == nil
-			transformError = c.Store.Update(ctx, func(state *clientstate.State) error {
-				if lease.LeaseId == "" {
-					return errors.New("The relay returned no lease reference.")
-				}
-				if r := request.GetRequestLease(); r != nil {
-					if _, err := expected(state, lease.LeaseId); err != nil {
-						for _, saved := range state.Requests {
-							if saved.Scope.RequestId == r.RequestId {
-								saved.LeaseId = lease.LeaseId
-								break
-							}
-						}
-					}
-				}
-				if err := validateLease(state, lease); err != nil {
-					return err
-				}
-				if canVerifyReply {
-					lease.Reply = denialReply(state, lease)
-				}
-				return nil
-			})
-			if transformError != nil {
-				return false
-			}
-		}
-		return receive(response)
-	})
-	if transformError != nil {
-		return transformError
-	}
-	return err
-}
-func createKeys(label string) (*clientstate.PrivateKeys, error) {
-	cert, key, err := relaycrypto.NewIdentity(label)
-	if err != nil {
-		return nil, err
-	}
-	receiver, err := ecdh.P256().GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	return &clientstate.PrivateKeys{CertificatePem: cert, TlsKeyPem: key, ReceiverPrivateKey: receiver.Bytes()}, nil
-}
-func ValidateAddress(address string) error {
-	host, port, err := net.SplitHostPort(address)
-	portNumber, portError := strconv.ParseUint(port, 10, 16)
-	if err != nil || host == "" || portError != nil || portNumber == 0 || strings.ContainsAny(host, "/@?#\\ \t\r\n") {
-		return errors.New("Supply the relay as HOST:PORT, for example mac-mini:7443.")
-	}
-	return nil
-}
+
+// Enrol asks to join and waits until Josh approves on one of his devices.
 func Enrol(ctx context.Context, store clientstate.Store, address, name string, output io.Writer) error {
-	if strings.TrimSpace(name) == "" {
-		return errors.New("Give this machine a name with --name NAME.")
-	}
-	state, err := store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	if state.RecipientId != "" {
-		if address != "" && state.RelayAddress != address {
-			return errors.New("This machine is already enrolled with another relay. Keep its existing identity.")
+	keys, err := store.Keys(ctx, func() (*clientstate.PrivateKeys, error) {
+		certificate, key, err := tlsid.New("Agent Keyring machine")
+		if err != nil {
+			return nil, err
 		}
-		fmt.Fprintln(output, "This machine is already enrolled as", state.MachineLabel+".")
-		return nil
-	}
-	if address == "" {
-		address = state.RelayAddress
-	}
-	if err = ValidateAddress(address); err != nil {
-		return err
-	}
-	if state.RelayAddress != "" && state.RelayAddress != address {
-		fmt.Fprintln(output, "Replacing the unfinished enrolment at", state.RelayAddress+".")
-	}
-	keys, err := store.Keys(ctx, func() (*clientstate.PrivateKeys, error) { return createKeys(name) })
-	if err != nil {
-		return err
-	}
-	cert, err := tls.X509KeyPair(keys.CertificatePem, keys.TlsKeyPem)
-	if err != nil {
-		return err
-	}
-	clientSPKI, err := relaycrypto.CertificateSPKI(cert)
-	if err != nil {
-		return err
-	}
-	receiver, err := ecdh.P256().NewPrivateKey(keys.ReceiverPrivateKey)
-	if err != nil {
-		return err
-	}
-	if err = store.Update(ctx, func(s *clientstate.State) error { s.RelayAddress = address; s.MachineLabel = name; return nil }); err != nil {
-		return err
-	}
-	var observed []byte
-	config := relaycrypto.ObservingClientConfig(cert, func(key []byte) error { observed = append([]byte(nil), key...); return nil })
-	var result error
-	approved := false
-	var displayed []byte
-	err = stream(ctx, address, config, &pb.RelayWireRequest{Request: &pb.RelayWireRequest_Enrol{Enrol: &pb.EnrolRequest{MachineLabel: name, ClientLabel: "agent-keyring", TlsPublicKey: clientSPKI, ReceiverPublicKey: receiver.PublicKey().Bytes()}}}, func(response *pb.RelayWireResponse) bool {
-		status := response.GetEnrolStatus()
-		if status == nil {
-			result = errors.New("The relay returned no enrolment status.")
-			return false
+		receiving, err := ecdh.P256().GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, err
 		}
-		if status.ApproverKeySet != nil {
-			if _, e := keySet(status.ApproverKeySet); e != nil {
-				result = e
-				return false
-			}
-			if !bytesEqual(displayed, status.ApproverKeySet.KeySet) {
-				if displayed != nil {
-					fmt.Fprintln(output, "The approver keys changed. Verify the new code from the start.")
-				}
-				displayed = append([]byte(nil), status.ApproverKeySet.KeySet...)
-				fmt.Fprintln(output, "AGENT_KEYRING_ENROL_CODE="+relaycrypto.Fingerprint(relaycrypto.EnrolTranscript(observed, clientSPKI, receiver.PublicKey().Bytes(), displayed)))
-				fmt.Fprintln(output, "Waiting for the setup agent to verify this code and for approval on the Mac.")
-			}
-		}
-		switch status.State {
-		case pb.EnrolState_ENROL_STATE_PENDING:
-			return true
-		case pb.EnrolState_ENROL_STATE_APPROVED:
-			result = acceptEnrolment(ctx, store, status, displayed, observed, clientSPKI, receiver.PublicKey().Bytes())
-			approved = result == nil
-			return false
-		case pb.EnrolState_ENROL_STATE_DENIED:
-			result = errors.New("This machine's enrolment was denied.")
-		case pb.EnrolState_ENROL_STATE_EXPIRED:
-			result = errors.New("The enrolment timed out. Run enrol again when your approving device is available.")
-		default:
-			result = errors.New("The relay returned an unknown enrolment state.")
-		}
-		return false
+		return &clientstate.PrivateKeys{CertificatePem: certificate, TlsKeyPem: key, ReceiverPrivateKey: receiving.Bytes()}, nil
 	})
 	if err != nil {
 		return err
 	}
-	if result != nil {
-		return result
-	}
-	if !approved {
-		return errors.New("Enrolment ended before a signed approval arrived. Run the same enrol command to rejoin it.")
-	}
-	fmt.Fprintln(output, "Enrolled. Use find to choose a login, then lease it for your task.")
-	return nil
-}
-func bytesEqual(a, b []byte) bool { return string(a) == string(b) }
-func acceptEnrolment(ctx context.Context, store clientstate.Store, status *pb.EnrolStatus, compared, relaySPKI, clientSPKI, receiver []byte) error {
-	if len(compared) == 0 || status.ApproverKeySet == nil || !bytesEqual(compared, status.ApproverKeySet.KeySet) {
-		return errors.New("The enrolled approver keys do not match the compared fingerprint.")
-	}
-	if _, err := keySet(status.ApproverKeySet); err != nil {
+	client, err := fromKeys(keys)
+	if err != nil {
 		return err
 	}
-	receiverID := fmt.Sprintf("%x", relaycrypto.Hash(receiver))
-	return store.Update(ctx, func(state *clientstate.State) error {
-		if state.RecipientId != "" && state.RecipientId != status.RecipientId {
-			return errors.New("Another enrolment already assigned this machine a different identity.")
-		}
-		state.Approvers = proto.Clone(status.ApproverKeySet).(*pb.SignedApproverKeySet)
-		configuration, err := verifyConfiguration(state, status.Configuration)
-		if err != nil {
-			return err
-		}
-		enrolled := machine(configuration, status.RecipientId)
-		if status.RecipientId == "" || enrolled == nil || !bytesEqual(enrolled.TlsPublicKey, clientSPKI) || !bytesEqual(enrolled.ReceiverPublicKey, receiver) || enrolled.ReceiverKeyId != receiverID {
-			return errors.New("The signed configuration does not enroll this machine's keys.")
-		}
-		state.Configuration = proto.Clone(status.Configuration).(*pb.SignedConfiguration)
-		state.RelaySpki = append([]byte(nil), relaySPKI...)
-		state.RecipientId = enrolled.RecipientId
-		state.ReceiverKeyId = receiverID
+	spki, err := tlsid.SPKI(client.Certificate)
+	if err != nil {
+		return err
+	}
+	joining := &pb.Machine{MachineId: keyring.KeyID(spki), Label: name, TlsPublicKey: spki, ReceivingPublicKey: client.receiving.PublicKey().Bytes()}
+	var observed []byte
+	var status *pb.JoinStatus
+	err = stream(ctx, address, tlsid.Client(client.Certificate, nil, &observed),
+		&pb.RelayRequest{Method: &pb.RelayRequest_Join{Join: &pb.JoinRequest{Joining: &pb.JoinRequest_Machine{Machine: joining}}}},
+		func(response *pb.RelayResponse) bool {
+			status = response.GetJoin()
+			if status.GetState() == pb.JoinState_JOIN_STATE_WAITING {
+				fmt.Fprintf(output, "Waiting for Josh to approve %q on his iPhone or Mac. The relay's key is %s.\n", name, keyring.KeyID(observed)[:16])
+			}
+			return status.GetState() == pb.JoinState_JOIN_STATE_WAITING
+		})
+	if err != nil {
+		return err
+	}
+	switch status.GetState() {
+	case pb.JoinState_JOIN_STATE_APPROVED:
+	case pb.JoinState_JOIN_STATE_EXPIRED:
+		return errors.New("Nobody approved this machine within 10 minutes. Run enrol again.")
+	default:
+		return errors.New("This machine was not approved.")
+	}
+	members, err := keyring.VerifiedMembers(status.Members, nil)
+	if err != nil {
+		return fmt.Errorf("The approval is not signed by a device: %w", err)
+	}
+	listed := false
+	for _, m := range members.Machines {
+		listed = listed || (m.MachineId == joining.MachineId && bytes.Equal(m.TlsPublicKey, spki) && bytes.Equal(m.ReceivingPublicKey, joining.ReceivingPublicKey))
+	}
+	if !listed || !bytes.Equal(members.RelayTlsPublicKey, observed) {
+		return errors.New("The approval does not list this machine's keys with this relay. Nothing was saved.")
+	}
+	raw, _ := proto.Marshal(status.Members)
+	if err := store.Update(ctx, func(state *clientstate.State) error {
+		state.RelayAddress, state.RelaySpki, state.RecipientId, state.MachineLabel, state.Members = address, observed, joining.MachineId, name, raw
 		state.LocalAuthority = nil
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	fmt.Fprintf(output, "Joined as %q. Agents here can ask for logins.\n", name)
+	return nil
 }
