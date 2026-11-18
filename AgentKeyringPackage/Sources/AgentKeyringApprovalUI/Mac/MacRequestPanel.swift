@@ -30,7 +30,7 @@ enum RequestToken {
 /// so a change redraws the words without rebuilding Apple's control.
 @MainActor @Observable
 final class PanelActivity {
-    var isActive = NSApp.isActive
+    var isActive = RequestPanel.isFrontmost
 }
 
 struct MacApprovalPanelView: View {
@@ -151,6 +151,7 @@ struct MacApprovalPanelView: View {
                 // uncovered, or it pauses.
                 AppleTouchIDControl(context: context)
                     .frame(width: 18, height: 18)
+                    .id(ObjectIdentifier(context))
                     .onAppear { model.waitForTouch() }
                 Text(approveText)
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.approve)
@@ -311,11 +312,12 @@ final class RequestPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
-        for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.onActiveChange(active) }
-            })
-        }
+        // AppKit can call the app active while another app is still in front
+        // and has the keyboard; Apple's control needs the app in front.
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onActiveChange(Self.isFrontmost) }
+        })
     }
 
     override var canBecomeKey: Bool { true }
@@ -323,7 +325,7 @@ final class RequestPanel: NSPanel {
 
     override func orderOut(_ sender: Any?) {
         super.orderOut(sender)
-        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         observers = []
     }
 
@@ -336,9 +338,8 @@ final class RequestPanel: NSPanel {
     override func sendEvent(_ event: NSEvent) {
         if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
             guard Date().timeIntervalSince(shownAt) >= 0.5 else { return }
-            if !NSApp.isActive {
-                let front = NSWorkspace.shared.frontmostApplication
-                if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = front }
+            if !Self.isFrontmost {
+                previousApp = NSWorkspace.shared.frontmostApplication
                 NSApp.activate()
             }
         }
@@ -359,9 +360,13 @@ final class RequestPanel: NSPanel {
         (view is NSTextField || view is NSTextView ? [view] : []) + view.subviews.flatMap(textInputs)
     }
 
+    static var isFrontmost: Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+    }
+
     /// Hands the keyboard back to the app Josh was using, if he clicked here.
     func giveFocusBack() {
-        guard NSApp.isActive, let previousApp, !previousApp.isTerminated else { return }
+        guard Self.isFrontmost, let previousApp, !previousApp.isTerminated else { return }
         NSApp.yieldActivation(to: previousApp)
         previousApp.activate()
         self.previousApp = nil
@@ -399,7 +404,13 @@ final class RequestPanelHost {
                 self?.fit(height: height)
             })
         panel.contentView = hosting
-        panel.onActiveChange = { [weak self] active in self?.activity.isActive = active }
+        panel.onActiveChange = { [weak self, weak model] active in
+            guard let self, self.activity.isActive != active else { return }
+            self.activity.isActive = active
+            // Apple's control stays paused after the app comes to the front;
+            // a fresh evaluation arms Touch ID.
+            if active { model?.rearmTouchID() }
+        }
     }
 
     /// Resizes once per real change of height, keeping the top edge in place.

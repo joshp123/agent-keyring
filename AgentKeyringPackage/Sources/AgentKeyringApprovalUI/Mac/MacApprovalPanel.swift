@@ -128,6 +128,15 @@ public final class MacApprovalModel {
         backend.cancelAuthentication(requestID: request.id)
     }
 
+    /// Starts a fresh Touch ID wait, for when the app has come to the front.
+    func rearmTouchID() {
+        guard request.state.isWaitingForYou, pendingDenialReply == nil else { return }
+        stopWaitingForTouch()
+        retryAuthentication()
+        // Let SwiftUI attach Apple's control to the new context first.
+        DispatchQueue.main.async { [weak self] in self?.waitForTouch() }
+    }
+
     public func retryAuthentication() {
         guard touchWait == nil else { return }
         failure = nil
