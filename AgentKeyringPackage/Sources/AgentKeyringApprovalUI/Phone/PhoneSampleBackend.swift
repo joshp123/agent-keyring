@@ -52,6 +52,8 @@ public final class PhoneSampleBackend: PhoneBackend {
     public func join(invitation: String) async throws {}
     public func notifications(allowed: Bool) async {}
     public func approveTest() async throws { Self.firstRun("7-ready", into: &snapshot) }
+    public func denyTest() async {}
+    public func sendTestAgain() async {}
     public func approveDevice(_ id: String) async throws { Self.firstRun("ready", into: &snapshot) }
     public func denyDevice(_ id: String) async { snapshot.deviceRequest = nil }
 
@@ -70,7 +72,7 @@ public final class PhoneSampleBackend: PhoneBackend {
             snapshot.setup = PhoneSetup(lines: [added, L(id: "notifications", mark: .working, title: PhoneCopy.notificationsOn)], isReady: false)
         case "notifications-off":
             snapshot.setup = PhoneSetup(lines: [added, L(id: "notifications", mark: .failed, title: PhoneCopy.notificationsOff,
-                                                         detail: PhoneCopy.notificationsOffDetail, opensSettings: true)], isReady: false)
+                                                         detail: PhoneCopy.notificationsOffDetail, action: .openSettings)], isReady: false)
         case "7":
             snapshot.setup = PhoneSetup(lines: [added, notes, reach, L(id: "test", mark: .working, title: PhoneCopy.testApproved)], isReady: false)
             snapshot.testRequest = "test"

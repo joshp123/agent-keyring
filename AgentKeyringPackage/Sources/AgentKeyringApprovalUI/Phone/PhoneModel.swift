@@ -66,11 +66,12 @@ public struct PhoneSetupLine: Identifiable, Hashable, Sendable {
     public var mark: Mark
     public var title: String
     public var detail: String?
-    /// The line's one button opens Agent Keyring's notification settings.
-    public var opensSettings: Bool
+    /// The line's one button, if it has one.
+    public enum Action: Hashable, Sendable { case openSettings, sendTestAgain }
+    public var action: Action?
 
-    public init(id: String, mark: Mark, title: String, detail: String? = nil, opensSettings: Bool = false) {
-        self.id = id; self.mark = mark; self.title = title; self.detail = detail; self.opensSettings = opensSettings
+    public init(id: String, mark: Mark, title: String, detail: String? = nil, action: Action? = nil) {
+        self.id = id; self.mark = mark; self.title = title; self.detail = detail; self.action = action
     }
 }
 
@@ -134,6 +135,9 @@ public protocol PhoneBackend: AnyObject {
     func notifications(allowed: Bool) async
     /// First run's test request: Face ID proves the chip and the round trip.
     func approveTest() async throws
+    func denyTest() async
+    /// Sends the test request again after it was denied or ran out.
+    func sendTestAgain() async
     /// A new device's request to approve requests: Face ID signs it in.
     func approveDevice(_ id: String) async throws
     func denyDevice(_ id: String) async
@@ -214,6 +218,9 @@ public final class PhoneModel {
     public func approveTest() async {
         await answer(.approve) { try await backend.approveTest() }
     }
+
+    public func denyTest() async { await backend.denyTest() }
+    public func sendTestAgain() async { await backend.sendTestAgain() }
 
     public func approveDevice(_ id: String) async {
         await answer(.approve) { try await backend.approveDevice(id) }

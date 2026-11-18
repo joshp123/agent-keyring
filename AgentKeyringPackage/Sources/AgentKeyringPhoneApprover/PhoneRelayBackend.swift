@@ -35,6 +35,8 @@ struct PhoneSavedState: Codable {
     var pushSeen = false
     /// He approved first run's test request with Face ID.
     var testApproved = false
+    /// How the last test request ended, if not approved: "denied" or "unanswered".
+    var testEnded: String?
     /// What the Watch found when it tested itself, as its app sent it (a property list).
     var watchSelfTest: Data?
     /// Why joining stopped, in one plain line, if it did.
@@ -153,14 +155,19 @@ public final class PhoneRelayBackend: PhoneBackend {
             lines.append(L(id: "notifications", mark: .working, title: PhoneCopy.notificationsOn))
         } else if !state.notificationsAllowed {
             lines.append(L(id: "notifications", mark: .failed, title: PhoneCopy.notificationsOff,
-                           detail: PhoneCopy.notificationsOffDetail, opensSettings: true))
+                           detail: PhoneCopy.notificationsOffDetail, action: .openSettings))
         } else {
             lines.append(L(id: "notifications", mark: .done, title: PhoneCopy.notificationsOn))
         }
         let reachable = connectionFailed == nil
         lines.append(L(id: "reach", mark: !reachable ? .failed : (state.pushSeen ? .done : (state.notificationsAllowed ? .working : .notYet)),
                        title: reachable ? PhoneCopy.requestsReach : PhoneCopy.cantReachRelay))
-        lines.append(L(id: "test", mark: state.testApproved ? .done : (state.notificationsAllowed ? .working : .notYet), title: PhoneCopy.testApproved))
+        if let ended = state.testEnded, !state.testApproved {
+            lines.append(L(id: "test", mark: .notYet, title: PhoneCopy.notTested,
+                           detail: ended == "denied" ? PhoneCopy.testDenied : PhoneCopy.testUnanswered, action: .sendTestAgain))
+        } else {
+            lines.append(L(id: "test", mark: state.testApproved ? .done : (state.notificationsAllowed ? .working : .notYet), title: PhoneCopy.testApproved))
+        }
         let watches = members.devices.filter { $0.kind == .watch }
         if let watch = watches.first {
             lines.append(L(id: "watch", mark: .done, title: PhoneCopy.deviceWorks(watch.label)))
@@ -526,11 +533,10 @@ public final class PhoneRelayBackend: PhoneBackend {
             do {
                 for try await response in try relay().stream(Self.method { $0.testRequest = .init() }) {
                     guard case let .lease(lease) = response.result, lease.state != .waiting else { continue }
-                    if lease.state == .approved {
-                        var next = state
-                        next.testApproved = true
-                        save(next)
-                    }
+                    var next = state
+                    if lease.state == .approved { next.testApproved = true; next.testEnded = nil }
+                    else { next.testEnded = lease.state == .denied ? "denied" : "unanswered" }
+                    save(next)
                     await reportSelfTest()
                 }
             } catch { PhoneDiagnostics.note("Test request failed: \(error)") }
@@ -538,6 +544,18 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 
     private var testing = false
+
+    public func denyTest() async {
+        guard let work = testWork, let id = try? Sealing.parseRequest(work.request).requestID else { return }
+        _ = try? await relay().call(Self.method { $0.answer = Sealing.plainDeny(requestID: id) })
+    }
+
+    public func sendTestAgain() async {
+        var next = state
+        next.testEnded = nil
+        save(next)
+        askForTest()
+    }
 
     /// Any push reached this iPhone: requests can wake it.
     public func pushArrived() {

@@ -27,7 +27,7 @@ public struct PhoneRootView: View {
                 }
                 .tint(Phone.ink)
             } else {
-                PhoneSetupList(setup: model.snapshot.setup)
+                PhoneSetupList(setup: model.snapshot.setup, model: model)
             }
         }
         .task { await model.followUpdates() }
@@ -37,7 +37,7 @@ public struct PhoneRootView: View {
         }
         .sheet(isPresented: testShown) {
             PhoneSimpleRequestView(model: model, lead: PhoneCopy.testFrom, title: PhoneCopy.testTitle, detail: PhoneCopy.noLoginUsed,
-                                   footnote: PhoneCopy.testFootnote, approve: { await model.approveTest() }, deny: {})
+                                   footnote: PhoneCopy.testFootnote, approve: { await model.approveTest() }, deny: { await model.denyTest() })
         }
         .sheet(item: deviceShown) { device in
             PhoneSimpleRequestView(model: model, lead: PhoneCopy.newDevice, title: device.name, detail: device.detail,
@@ -117,7 +117,7 @@ struct PhoneActivityView: View {
     var body: some View {
         // Until the first request, the finished first-run list says it is ready.
         if model.snapshot.requests.isEmpty && !model.snapshot.setup.lines.isEmpty {
-            PhoneSetupList(setup: model.snapshot.setup)
+            PhoneSetupList(setup: model.snapshot.setup, model: model)
         } else {
             requests
         }

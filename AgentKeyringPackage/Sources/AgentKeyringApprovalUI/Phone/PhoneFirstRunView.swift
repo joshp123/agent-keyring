@@ -10,6 +10,7 @@ import UIKit
 
 struct PhoneSetupList: View {
     let setup: PhoneSetup
+    let model: PhoneModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,7 +30,7 @@ struct PhoneSetupList: View {
             VStack(spacing: 0) {
                 ForEach(setup.lines) { line in
                     Divider().overlay(Phone.line)
-                    SetupLineView(line: line)
+                    SetupLineView(line: line, model: model)
                 }
                 Divider().overlay(Phone.line)
             }
@@ -43,6 +44,7 @@ struct PhoneSetupList: View {
 
 private struct SetupLineView: View {
     let line: PhoneSetupLine
+    let model: PhoneModel
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -52,9 +54,14 @@ private struct SetupLineView: View {
                 if let detail = line.detail {
                     Text(detail).font(.subheadline).foregroundStyle(Phone.ink2)
                 }
-                if line.opensSettings {
-                    Button(PhoneCopy.openSettings) {
-                        if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
+                if let action = line.action {
+                    Button(action == .openSettings ? PhoneCopy.openSettings : PhoneCopy.sendTestAgain) {
+                        switch action {
+                        case .openSettings:
+                            if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
+                        case .sendTestAgain:
+                            Task { await model.sendTestAgain() }
+                        }
                     }
                     .buttonStyle(RowButtonStyle(fill: Phone.ink, text: Phone.surface))
                     .padding(.top, 6)
