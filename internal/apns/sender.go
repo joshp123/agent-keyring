@@ -106,6 +106,7 @@ func (s *Sender) authorization() (string, error) {
 	s.issued = now
 	return s.token, nil
 }
+
 // Send delivers one alert push. The payload is the caller's: it must carry
 // nothing readable about a request (keyring.proto, "The push").
 func (s *Sender) Send(ctx context.Context, token []byte, topic string, production bool, collapse string, expires int64, payload []byte) (Result, error) {

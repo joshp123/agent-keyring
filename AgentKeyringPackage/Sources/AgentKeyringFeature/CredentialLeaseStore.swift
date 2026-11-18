@@ -29,25 +29,14 @@ public struct CredentialLeaseRequester: Codable, Sendable {
 /// precedes publication and value delivery, with no suspension between them.
 @MainActor @Observable
 public final class CredentialLeaseStore {
-    struct SavedRules: Codable {
-        var bytes: Data
-        var signature: Data
-    }
     private struct RequestRecord: Codable {
         var request: Data
         var leaseID: String
-    }
-    struct LocalPhoneRequest: Codable {
-        var record: Data
-        var due: Int64
-        var escalated = false
     }
     private struct SavedLease: Codable {
         var lease: Data
         var automatic: Bool
         var requester: CredentialLeaseRequester? = nil
-        var phone: LocalPhoneRequest? = nil
-        var approvingPhoneKeyID: String? = nil
     }
     private struct Suppression: Codable {
         var until: Int64
@@ -59,80 +48,51 @@ public final class CredentialLeaseStore {
         var leases: [String: SavedLease] = [:]
         var requests: [String: RequestRecord] = [:]
         var suppressions: [String: Suppression] = [:]
-        var relay: RelayApproverState?
-        var rules: SavedRules?
     }
     private var snapshot: Snapshot?
     private let persistence: LeasePersistence
-    let relayMigrationPersistence: LeasePersistence?
-    var onCommit: (@MainActor () -> Void)?
-    private var screenLocked = false
+    /// Each approved login, opened at approval and kept only in memory for
+    /// its lease. Automatic leases open the Mac's own copy at each delivery.
+    private var opened: [String: Agentkeyring_V2_LoginSecret] = [:]
     public private(set) var leases: [Agentkeyring_V1_Lease] = []
     public private(set) var errorMessage: String?
-    public private(set) var needsHistoryReset = false
     @ObservationIgnored private var deadlineTask: Task<Void, Never>?
     @ObservationIgnored private var observers: [UUID: AsyncStream<[Agentkeyring_V1_Lease]>.Continuation] = [:]
 
-    public init(persistence: LeasePersistence? = nil) {
-        self.persistence = persistence ?? LeasePersistence()
-        relayMigrationPersistence = persistence == nil ? LeasePersistence(directory: RelayApprover.defaultDirectory(),
-            checkpointService: "com.agentkeyring.relay-approver-checkpoint.v1") : nil
+    public init(persistence: LeasePersistence = LeasePersistence()) {
+        self.persistence = persistence
     }
     public var waitingRequests: [Agentkeyring_V1_Lease] { leases.filter { $0.state == .pending } }
     public var activeLeases: [Agentkeyring_V1_Lease] { leases.filter { $0.state == .active } }
 
     public func load() throws {
         guard snapshot == nil else { return }
-        do {
-            if let bytes = try persistence.load() {
-                let saved = try PropertyListDecoder().decode(Snapshot.self, from: bytes)
-                guard saved.version == 1 else { throw LeaseFailure(.unavailable, "This lease state needs a newer Agent Keyring.") }
-                snapshot = saved
-            } else {
-                try commit(emptySnapshot())
+        var saved = try persistence.load().flatMap { bytes -> Snapshot? in
+            guard let saved = try? PropertyListDecoder().decode(Snapshot.self, from: bytes), saved.version == 1 else {
+                historyLogger.error("The record of agents' leases was unreadable; starting a new one.")
+                return nil
             }
-            try expire()
-            errorMessage = nil
-            needsHistoryReset = false
-            publish()
-        } catch {
-            snapshot = nil
-            needsHistoryReset = true
-            if let failure = error as? LeasePersistenceFailure {
-                historyLogger.error("Task history load failed: \(failure.rawValue, privacy: .public)")
-                let problem = switch failure {
-                case .missingCheckpoint: "The check for the record of what agents are using is missing."
-                case .missingSnapshot: "The record of what agents are using is missing, but its saved check is still here."
-                case .unreadableSnapshot: "The record of what agents are using couldn't be read."
-                case .snapshotMismatch: "The record of what agents are using doesn't match its saved check."
-                }
-                errorMessage = problem + " In Agent Keyring, choose Reset to let agents ask again. This ends their current access; your logins and rules stay."
-            } else {
-                let native = error as NSError
-                let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
-                historyLogger.error("Task history load failed: domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
-                errorMessage = "Agent Keyring can't open its record of what agents are using. In Agent Keyring, choose Reset to let them ask again. This ends their current access; your logins and rules stay."
-            }
-            publish()
-            throw LeaseFailure(.unavailable, errorMessage!)
+            return saved
+        } ?? emptySnapshot()
+        // A login opened for a lease is held only in memory, so a lease
+        // approved before Agent Keyring last quit can no longer deliver.
+        for (id, entry) in saved.leases where !entry.automatic {
+            guard var lease = try? Agentkeyring_V1_Lease(serializedBytes: entry.lease), lease.state == .active else { continue }
+            lease.state = .revoked
+            lease.endedAtUnixSeconds = Self.now
+            lease.statusLines = ["Agent Keyring restarted since this was approved. Ask again."]
+            saved.leases[id]!.lease = try lease.serializedData()
         }
+        try commit(saved)
+        try expire()
     }
 
-    /// Called only after the owner approves resetting the unavailable history.
-    /// A new recipient and empty records make every old reference unusable.
-    func resetHistoryAfterOwnerConfirmation() throws {
-        guard needsHistoryReset else { return }
-        try commit(emptySnapshot())
-        errorMessage = nil
-        needsHistoryReset = false
-    }
-
-    private func emptySnapshot() throws -> Snapshot {
+    private func emptySnapshot() -> Snapshot {
         var recipient = Agentkeyring_V1_Recipient()
         recipient.recipientID = UUID().uuidString
         recipient.machineLabel = Host.current().localizedName ?? "This Mac"
         recipient.clientLabel = "Local agents"
-        return Snapshot(recipient: try recipient.serializedData(), rules: snapshot?.rules)
+        return Snapshot(recipient: (try? recipient.serializedData()) ?? Data())
     }
 
     public func changes() -> AsyncStream<[Agentkeyring_V1_Lease]> {
@@ -154,7 +114,7 @@ public final class CredentialLeaseStore {
     /// The bridge has authenticated the local OS peer. Release 2 deliberately
     /// has one principal/recipient for that OS user, independent of process IDs.
     public func request(_ incoming: Agentkeyring_V1_RequestLeaseRequest, login: CredentialCandidate?,
-        policy: CredentialAccessPolicy, requester: CredentialLeaseRequester? = nil, phoneDelaySeconds: Int = 120) throws -> Agentkeyring_V1_Lease {
+        policy: CredentialAccessPolicy, requester: CredentialLeaseRequester? = nil) throws -> Agentkeyring_V1_Lease {
         try load()
         var request = incoming
         guard let loginID = UUID(uuidString: request.loginID), !request.requestID.isEmpty,
@@ -228,53 +188,11 @@ public final class CredentialLeaseStore {
             lease.state = .pending
             lease.statusLines = ["Waiting for approval in Agent Keyring."]
         }
-        var saved = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically, requester: requester)
-        if lease.state == .pending {
-            var record = Agentkeyring_V1_RequestRecord()
-            record.leaseID = lease.leaseID
-            record.requestID = request.requestID
-            record.loginID = lease.loginID
-            record.taskRef = lease.taskRef
-            record.purpose = lease.purpose
-            record.reason = lease.reason
-            record.agentLabel = requester?.name ?? localRecipient.clientLabel
-            record.recipientID = lease.recipient.recipientID
-            if lease.hasProgram { record.program = lease.program }
-            record.createdUnixSeconds = now
-            record.pendingUntilUnixSeconds = lease.pendingUntilUnixSeconds
-            saved.phone = LocalPhoneRequest(record: try record.serializedData(), due: now + Int64(min(540, max(30, phoneDelaySeconds))))
-        }
+        let saved = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically, requester: requester)
         next.leases[lease.leaseID] = saved
         next.requests[request.requestID] = RequestRecord(request: try request.serializedData(), leaseID: lease.leaseID)
         try commit(next)
         return lease
-    }
-
-    var relayState: RelayApproverState { snapshot?.relay ?? RelayApproverState() }
-    var savedRules: SavedRules? { snapshot?.rules }
-    var hasRelayState: Bool { snapshot?.relay != nil }
-
-    func saveRelayState(_ relay: RelayApproverState, vault: RelayApproverVault? = nil, rules: SavedRules? = nil) throws {
-        try load()
-        var next = snapshot!
-        next.relay = relay
-        if let rules { next.rules = rules }
-        if let vault {
-            try reconcile(&next, logins: vault.generation.metadata.candidates, policies: vault.policies, rulesConfirmed: true)
-        }
-        try commit(next)
-    }
-
-    func localPhoneRequest(_ leaseID: String) -> LocalPhoneRequest? { snapshot?.leases[leaseID]?.phone }
-
-    func reportPhoneLease(_ leaseID: String) throws {
-        guard let saved = snapshot?.leases[leaseID], let phone = saved.phone, phone.escalated,
-            var relay = snapshot?.relay else { return }
-        var command = Agentkeyring_V1_RelayWireRequest()
-        command.updateLocalPhoneLease.requestDigest = RelayCrypto.digest("agentkeyring.request.v1", phone.record)
-        command.updateLocalPhoneLease.lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
-        relay = try relay.enqueue(command, id: "local-report:" + leaseID, replacing: true)
-        try saveRelayState(relay)
     }
 
     public func requester(for leaseID: String) -> CredentialLeaseRequester? { snapshot?.leases[leaseID]?.requester }
@@ -286,8 +204,8 @@ public final class CredentialLeaseStore {
         return try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
     }
 
-    /// Call only after successful Touch ID. Late/duplicate answers cannot revive a lease.
-    func approve(_ leaseID: String) throws -> Agentkeyring_V1_Lease {
+    /// Call only after Touch ID opened the login. Late or duplicate answers cannot revive a lease.
+    func approve(_ leaseID: String, secret: Agentkeyring_V2_LoginSecret) throws -> Agentkeyring_V1_Lease {
         var lease = try get(leaseID)
         guard lease.state == .pending else { return lease }
         lease.state = .active
@@ -296,26 +214,14 @@ public final class CredentialLeaseStore {
         lease.approvedAtUnixSeconds = approvedAt
         lease.notAfterUnixSeconds = approvedAt + 1800
         lease.statusLines = []
+        opened[leaseID] = secret
         try saveLease(lease)
         return lease
     }
 
-    @discardableResult
-    func answerFromPhone(_ decision: Agentkeyring_V1_PhoneDecision, phoneKeyID: String, reply: String) throws -> Agentkeyring_V1_Lease {
-        var lease = try get(decision.leaseID)
-        guard lease.state == .pending else { return lease }
-        if decision.choice == .deny { return try deny(lease.leaseID, reply: reply, approvedBy: .iphone) }
-        lease.state = .active
-        lease.approvedBy = .iphone
-        lease.approvedAtUnixSeconds = decision.decidedUnixSeconds
-        lease.notAfterUnixSeconds = decision.notAfterUnixSeconds
-        lease.statusLines = []
-        var next = snapshot!
-        next.leases[lease.leaseID]!.lease = try lease.serializedData()
-        next.leases[lease.leaseID]!.approvingPhoneKeyID = phoneKeyID
-        try commit(next)
-        return lease
-    }
+    /// The login opened for this lease; nil for an Automatic lease, which opens the Mac's own copy.
+    func openedLogin(for leaseID: String) -> Agentkeyring_V2_LoginSecret? { opened[leaseID] }
+    func isAutomatic(_ leaseID: String) -> Bool { snapshot?.leases[leaseID]?.automatic == true }
 
     public func deny(_ leaseID: String, reply: String = "", approvedBy: Agentkeyring_V1_ApprovedBy = .mac) throws -> Agentkeyring_V1_Lease {
         var lease = try get(leaseID)
@@ -382,22 +288,22 @@ public final class CredentialLeaseStore {
     }
 
     /// A new import may narrow destinations, never broaden an existing lease.
-    public func reconcile(logins: [CredentialCandidate], policies: [UUID: CredentialAccessPolicy], rulesConfirmed: Bool) throws {
+    public func reconcile(logins: [CredentialCandidate], policies: [UUID: CredentialAccessPolicy]) throws {
         try load()
         try expire()
         var next = snapshot!
-        try reconcile(&next, logins: logins, policies: policies, rulesConfirmed: rulesConfirmed)
+        try reconcile(&next, logins: logins, policies: policies)
         if next.leases.mapValues(\.lease) != snapshot!.leases.mapValues(\.lease) { try commit(next) }
     }
 
     private func reconcile(_ next: inout Snapshot, logins: [CredentialCandidate],
-        policies: [UUID: CredentialAccessPolicy], rulesConfirmed: Bool) throws {
+        policies: [UUID: CredentialAccessPolicy]) throws {
         for (id, saved) in next.leases {
             var lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
             guard lease.state == .pending || lease.state == .active else { continue }
             let login = logins.first { $0.id.uuidString == lease.loginID }
             let rule = login.map { policies[$0.id, default: .ask] }
-            if !rulesConfirmed || login == nil || rule == .block || (saved.automatic && rule != .allowAutomatically) {
+            if login == nil || rule == .block || (saved.automatic && rule != .allowAutomatically) {
                 lease.state = .revoked
                 lease.statusLines = ["Access to this login changed. The lease was ended."]
             } else if let login {
@@ -448,21 +354,14 @@ public final class CredentialLeaseStore {
             }
             next.leases[id]!.lease = try lease.serializedData()
         }
-        try revokeUntrustedPhoneLeases(&next)
         next.leases = next.leases.filter { _, saved in
             guard let lease = try? Agentkeyring_V1_Lease(serializedBytes: saved.lease) else { return true }
             return !lease.state.isTerminal || lease.endedAtUnixSeconds + 7 * 86400 > Self.now
         }
         next.requests = next.requests.filter { next.leases[$0.value.leaseID] != nil }
-        let removedIDs = Set(snapshot.leases.keys).subtracting(next.leases.keys)
-        next.relay?.outbox.removeAll { command in
-            removedIDs.contains { command.id == "escalation:" + $0 || command.id == "local-report:" + $0 }
-        }
         next.suppressions = next.suppressions.filter { $0.value.until > Self.now }
         if next.leases.mapValues(\.lease) != snapshot.leases.mapValues(\.lease)
-            || next.suppressions.count != snapshot.suppressions.count
-            || (next.relay?.nextDeadline).map({ $0 <= Self.now }) == true
-            || nextLocalPhoneDeadline(next).map({ $0 <= Self.now }) == true { try commit(next) }
+            || next.suppressions.count != snapshot.suppressions.count { try commit(next) }
         else { scheduleDeadline() }
     }
 
@@ -471,82 +370,13 @@ public final class CredentialLeaseStore {
         next.leases[lease.leaseID]!.lease = try lease.serializedData()
         try commit(next)
     }
-    private func commit(_ proposed: Snapshot) throws {
-        var next = proposed
-        try revokeUntrustedPhoneLeases(&next)
-        try preparePhoneWork(&next)
+    private func commit(_ next: Snapshot) throws {
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         try persistence.save(encoder.encode(next))
         snapshot = next
         publish()
         scheduleDeadline()
-        onCommit?()
-    }
-
-    private func revokeUntrustedPhoneLeases(_ next: inout Snapshot) throws {
-        let trustedPhones: Set<String>
-        if let bytes = next.relay?.keySet {
-            let signed = try Agentkeyring_V1_SignedApproverKeySet(serializedBytes: bytes)
-            let keys = try Agentkeyring_V1_ApproverKeySet(serializedBytes: signed.keySet)
-            trustedPhones = Set(keys.keys.filter { $0.role == .phone }.map(\.keyID))
-        } else { trustedPhones = [] }
-        for (id, saved) in next.leases {
-            var lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
-            guard lease.state == .active, lease.approvedBy == .iphone else { continue }
-            if let phoneKeyID = saved.approvingPhoneKeyID, trustedPhones.contains(phoneKeyID) { continue }
-            lease.state = .revoked
-            lease.endedAtUnixSeconds = Self.now
-            lease.statusLines = ["The approving phone is no longer trusted. Request access again."]
-            next.leases[id]!.lease = try lease.serializedData()
-        }
-    }
-
-    func setScreenLocked(_ locked: Bool) throws {
-        guard screenLocked != locked else { return }
-        screenLocked = locked
-        if let snapshot { try commit(snapshot) }
-    }
-
-    private func nextLocalPhoneDeadline(_ saved: Snapshot) -> Int64? {
-        guard saved.relay?.hasPhone == true else { return nil }
-        return saved.leases.values.compactMap { entry in
-            guard let phone = entry.phone, !phone.escalated,
-                let lease = try? Agentkeyring_V1_Lease(serializedBytes: entry.lease), lease.state == .pending,
-                saved.relay?.canEscalate(loginID: lease.loginID) == true else { return nil }
-            return phone.due
-        }.min()
-    }
-
-    private func preparePhoneWork(_ next: inout Snapshot) throws {
-        guard var relay = next.relay else { return }
-        try relay.maintain(now: Self.now, screenLocked: screenLocked)
-        for (id, saved) in next.leases {
-            guard var phone = saved.phone else { continue }
-            let lease = try Agentkeyring_V1_Lease(serializedBytes: saved.lease)
-            if !phone.escalated, lease.state == .pending, relay.canEscalate(loginID: lease.loginID), screenLocked || phone.due <= Self.now {
-                var command = Agentkeyring_V1_RelayWireRequest()
-                command.escalateToPhone.leaseID = id
-                command.escalateToPhone.record = phone.record
-                command.escalateToPhone.localLease = lease
-                relay = try relay.enqueue(command, id: "escalation:" + id)
-                phone.escalated = true
-                next.leases[id]!.phone = phone
-            }
-            if phone.escalated, lease.state != .pending,
-                let queued = relay.outbox.first(where: { $0.id == "escalation:" + id }), queued.attempted != true {
-                relay.outbox.removeAll { $0.id == "escalation:" + id || $0.id == "local-report:" + id }
-                phone.escalated = false
-                next.leases[id]!.phone = phone
-            }
-            if phone.escalated, snapshot?.leases[id]?.lease != saved.lease {
-                var command = Agentkeyring_V1_RelayWireRequest()
-                command.updateLocalPhoneLease.requestDigest = RelayCrypto.digest("agentkeyring.request.v1", phone.record)
-                command.updateLocalPhoneLease.lease = lease
-                relay = try relay.enqueue(command, id: "local-report:" + id, replacing: true)
-            }
-        }
-        next.relay = relay
     }
 
     private func scheduleDeadline() {
@@ -558,7 +388,6 @@ public final class CredentialLeaseStore {
             default: lease.endedAtUnixSeconds + 7 * 86400
             }
         } + (snapshot?.suppressions.values.map(\.until) ?? [])
-            + [snapshot?.relay?.nextDeadline, snapshot.flatMap { nextLocalPhoneDeadline($0) }].compactMap { $0 }
         guard let deadline = deadlines.min() else { deadlineTask = nil; return }
         deadlineTask = Task { [weak self] in
             do {
@@ -568,13 +397,16 @@ public final class CredentialLeaseStore {
             } catch is CancellationError { }
             catch {
                 let native = error as NSError
-                let code = (error as? KeychainError).map { Int($0.status) } ?? native.code
-                historyLogger.error("Task deadline save failed: domain=\(native.domain, privacy: .public) code=\(code, privacy: .public)")
+                historyLogger.error("Task deadline save failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
                 self?.errorMessage = "Task deadlines could not be saved. New deliveries will still check expiry."
             }
         }
     }
     private func publish() {
+        let active = Set(snapshot?.leases.compactMap { id, entry in
+            (try? Agentkeyring_V1_Lease(serializedBytes: entry.lease)).flatMap { $0.state == .active ? id : nil }
+        } ?? [])
+        opened = opened.filter { active.contains($0.key) }
         leases = (snapshot?.leases.values.compactMap { try? Agentkeyring_V1_Lease(serializedBytes: $0.lease) } ?? [])
             .sorted { $0.pendingUntilUnixSeconds > $1.pendingUntilUnixSeconds }
         for observer in observers.values { observer.yield(leases) }

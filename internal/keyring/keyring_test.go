@@ -112,3 +112,25 @@ func TestTheRelaySealsAPushForOneDevice(t *testing.T) {
 		}
 	}
 }
+
+func TestAJoinProofIsTheSameInGoAndSwift(t *testing.T) {
+	members, err := VerifiedMembers(read(t, "swift-members.pb", &pb.Signed{}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := make([]byte, 32)
+	for i := range secret {
+		secret[i] = 1
+	}
+	joining := &pb.JoinRequest{Joining: &pb.JoinRequest_Device{Device: members.Devices[0]}}
+	joining.Proof = JoinProof(secret, joining)
+	if len(joining.Proof) != 32 || string(JoinProof(secret[:31], joining)) == string(joining.Proof) {
+		t.Fatal("the proof does not depend on the secret")
+	}
+	if os.Getenv("AKR_WRITE_VECTORS") == "1" {
+		raw, _ := proto.Marshal(joining)
+		if err := os.WriteFile(vectors+"go-join.pb", raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

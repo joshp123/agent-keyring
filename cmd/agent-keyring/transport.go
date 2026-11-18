@@ -108,5 +108,5 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 		local.Start = func(ctx context.Context) error { return startApp(ctx, selected.ApplicationContents) }
 		return local, nil
 	}
-	return authority.Client{}, errors.New("No authority is selected. Install the Mac app here, or run 'agent-keyring enrol --name NAME --relay HOST:PORT' to use your relay.")
+	return authority.Client{}, errors.New("No authority is selected. Install the Mac app here, or run 'agent-keyring enrol --name NAME --invite LINK' with a link from 'agent-keyring invite' on the Mac.")
 }

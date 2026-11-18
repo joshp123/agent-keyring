@@ -5,9 +5,10 @@ import Security
 
 /// Private material is app-only, device-only and never synchronizes with iCloud.
 @MainActor
-struct RelayKeychain {
+public struct RelayKeychain {
     let service: String
-    func read(_ account: String) throws -> Data? {
+    public init(service: String) { self.service = service }
+    public func read(_ account: String) throws -> Data? {
         var query = query(account)
         query[kSecReturnData as String] = true
         var value: CFTypeRef?
@@ -16,7 +17,7 @@ struct RelayKeychain {
         guard status == errSecSuccess, let data = value as? Data else { throw RelayKeychainError(status: status) }
         return data
     }
-    func write(_ bytes: Data, account: String) throws {
+    public func write(_ bytes: Data, account: String) throws {
         let status = SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: bytes] as CFDictionary)
         if status == errSecItemNotFound {
             var attributes = query(account)

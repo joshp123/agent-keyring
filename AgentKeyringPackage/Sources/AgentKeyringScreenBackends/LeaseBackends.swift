@@ -79,20 +79,16 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
         self.model = model
     }
 
-    /// Local leases and, from the relay, remote requests and leases.
+    /// Local leases and requests from agents on other machines.
     public func snapshot() -> MacMenuBarSnapshot {
-        let relay = model.relayApprover.update
-        let remoteLeaseIDs = Set(relay.leases.map(\.lease.leaseID))
-        let remoteWaiting = relay.requests
-            .filter { $0.lease.state == .pending && !remoteLeaseIDs.contains($0.lease.leaseID) }
-            .map { RelayScreenMapping.accessRequest($0, answered: nil) }
+        let device = model.device
+        let remote = ((device.map { Array($0.waiting.values) + Array($0.finished.values) }) ?? []).compactMap { work in
+            device.flatMap { RelayScreenMapping.accessRequest(work, device: $0, logins: model.leaseLogins) }
+        }
         return MacMenuBarSnapshot(
-            requests: model.leaseStore.leases.map(model.accessRequest(for:)) + remoteWaiting
-                + relay.leases.map(RelayScreenMapping.accessRequest),
-            enrolments: relay.enrolments.map(RelayScreenMapping.enrolment)
-                + relay.approverPairings.map(RelayScreenMapping.enrolment),
-            relay: RelayScreenMapping.relayLink(relay),
-            taskHistoryNeedsReset: model.leaseStore.needsHistoryReset)
+            requests: model.leaseStore.leases.map(model.accessRequest(for:)) + remote,
+            enrolments: device?.joins.map(RelayScreenMapping.enrolment) ?? [],
+            relay: device?.isJoined == true || device?.setupWaiting != nil ? RelayScreenMapping.relayLink(device) : nil)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {
@@ -101,22 +97,13 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
     }
 
     public func endAccess(requestID: String) async throws -> AccessRequestState {
-        let relay = model.relayApprover
-        if relay.leases.contains(where: { $0.lease.leaseID == requestID }) {
-            try await screenErrors { try await relay.revokeLease(requestID) }
-            return .ended(at: .now)
+        guard model.leaseStore.leases.contains(where: { $0.leaseID == requestID }) else {
+            throw ScreenFailure(message: "Access on another machine ends by itself 30 minutes after approval.")
         }
         return model.accessRequest(for: try model.leaseStore.revoke(requestID)).state
     }
 
     public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
-        let relay = model.relayApprover
-        if let remote = relay.leases.first(where: { $0.lease.leaseID == requestID }) {
-            try await screenErrors {
-                try await relay.clearDenial(loginID: remote.lease.loginID, recipientID: remote.lease.recipient.recipientID)
-            }
-            return .denied(by: .mac, reply: nil, askAgainAfter: nil)
-        }
         let lease = try model.leaseStore.get(requestID)
         try model.leaseStore.clearDenial(loginID: lease.loginID)
         return model.accessRequest(for: try model.leaseStore.get(requestID)).state
@@ -144,8 +131,7 @@ public final class AccessRulesBackend: LoginRulesBackend {
             LoginRuleRow(id: row.id, site: row.website.isEmpty ? row.title : row.website, account: row.account,
                 rule: LoginRule(row.policy), lastUsed: lastApproved[row.id.uuidString])
         }
-        return LoginRulesSnapshot(rows: rows, confirmation: confirmation(rows),
-            isApplying: model.relayApprover.isApplying)
+        return LoginRulesSnapshot(rows: rows, confirmation: nil, isApplying: controller.isSavingRules)
     }
 
     public func updates() -> AsyncStream<LoginRulesSnapshot> {
@@ -158,42 +144,8 @@ public final class AccessRulesBackend: LoginRulesBackend {
         if let message = controller.errorMessage { throw RulesFailure(message: message) }
     }
 
-    public func confirmRules(context: LAContext) async throws {
-        await controller.confirmRules(context: context)
-        // Done only when neither this Mac's rules nor the relay's copy waits for Josh.
-        if controller.needsConfirmation || controller.needsRelayPublicationConfirmation {
-            throw RulesFailure(message: controller.errorMessage ?? "Confirmation didn't finish. Try again.")
-        }
-    }
-
-    private func confirmation(_ rows: [LoginRuleRow]) -> RulesConfirmation? {
-        guard controller.needsConfirmation || controller.needsRelayPublicationConfirmation,
-            controller.hasLoadedLoginList else { return nil }
-        func count(_ rule: LoginRule) -> Int { rows.lazy.filter { $0.rule == rule }.count }
-        var summary = "\(rows.count) logins: \(count(.ask)) Ask, \(count(.automatic)) Automatic, \(count(.blocked)) Blocked."
-        let miniStoresAutomatic = model.relayApprover.update.connection != .notPaired && count(.automatic) > 0
-        func withMiniCopy(_ explanation: String) -> String {
-            miniStoresAutomatic ? explanation + " " + RulesCopy.automaticStoredOnMini : explanation
-        }
-        if !controller.needsConfirmation {
-            return RulesConfirmation(summary: summary, savedRulesWereUnreadable: false,
-                explanation: withMiniCopy(RulesCopy.confirmForOtherMachinesBody))
-        }
-        if controller.pendingPhoneBlockCount > 0 {
-            summary += " \(controller.pendingPhoneBlockCount) blocked from your iPhone."
-        }
-        var explanation = switch controller.confirmationReason {
-        case .firstUse: RulesCopy.confirmBody
-        case .upgrade: RulesCopy.confirmUpgradeBody
-        case .unverified: RulesCopy.confirmBodyAfterUnreadableRules
-        case .missing: "Your saved rules are missing. Review and confirm the rules below before agents can use logins."
-        }
-        if controller.confirmationRequiresPhonePairingAgain {
-            explanation += " Your previously paired iPhone must be paired again."
-        }
-        return RulesConfirmation(summary: summary,
-            savedRulesWereUnreadable: controller.confirmationResetsUnreadableRules, explanation: withMiniCopy(explanation))
-    }
+    /// Rules need no confirmation: each change is approved as it is made.
+    public func confirmRules(context: LAContext) async throws {}
 }
 
 struct RulesFailure: LocalizedError {

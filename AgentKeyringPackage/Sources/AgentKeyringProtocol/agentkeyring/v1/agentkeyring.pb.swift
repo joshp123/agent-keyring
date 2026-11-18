@@ -1206,6 +1206,9 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
     case verifyRelay // = 2
     case verifyMachine // = 3
     case relayStatus // = 4
+
+    /// A one-time link for one machine to join (v2 JoinInvite).
+    case invite // = 5
     case UNRECOGNIZED(Int)
 
     public init() {
@@ -1219,6 +1222,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       case 2: self = .verifyRelay
       case 3: self = .verifyMachine
       case 4: self = .relayStatus
+      case 5: self = .invite
       default: self = .UNRECOGNIZED(rawValue)
       }
     }
@@ -1230,6 +1234,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       case .verifyRelay: return 2
       case .verifyMachine: return 3
       case .relayStatus: return 4
+      case .invite: return 5
       case .UNRECOGNIZED(let i): return i
       }
     }
@@ -1241,6 +1246,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       .verifyRelay,
       .verifyMachine,
       .relayStatus,
+      .invite,
     ]
 
   }
@@ -1256,6 +1262,8 @@ public nonisolated struct Agentkeyring_V1_SetupResponse: Sendable {
   public var machineName: String = String()
 
   public var relayStatus: String = String()
+
+  public var invite: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2620,12 +2628,12 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
 }
 
 nonisolated extension Agentkeyring_V1_SetupRequest.Action: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0\u{1}INVITE\0")
 }
 
 nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetupResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}machine_name\0\u{3}relay_status\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}machine_name\0\u{3}relay_status\0\u{1}invite\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2635,6 +2643,7 @@ nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, Swif
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.machineName) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.relayStatus) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.invite) }()
       default: break
       }
     }
@@ -2647,12 +2656,16 @@ nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, Swif
     if !self.relayStatus.isEmpty {
       try visitor.visitSingularStringField(value: self.relayStatus, fieldNumber: 2)
     }
+    if !self.invite.isEmpty {
+      try visitor.visitSingularStringField(value: self.invite, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V1_SetupResponse, rhs: Agentkeyring_V1_SetupResponse) -> Bool {
     if lhs.machineName != rhs.machineName {return false}
     if lhs.relayStatus != rhs.relayStatus {return false}
+    if lhs.invite != rhs.invite {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -70,6 +70,23 @@ public enum Sealing {
         return withUnsafeBytes(of: &length) { Data($0) } + part
     }
 
+    // MARK: Joining
+
+    /// Proves a joiner holds an invitation's secret (keyring.proto, JoinRequest.proof).
+    public static func joinProof(secret: Data, joining: Agentkeyring_V2_JoinRequest) -> Data {
+        var parts: [Data] = [Data("agentkeyring.join.v2".utf8)]
+        switch joining.joining {
+        case let .machine(m)?:
+            parts += [Data("machine".utf8), Data(m.label.utf8), Data(m.machineID.utf8), m.tlsPublicKey, m.receivingPublicKey]
+        case let .device(d)?:
+            parts += [Data("device".utf8), Data(d.label.utf8), Data(d.keyID.utf8), Data(String(d.kind.rawValue).utf8),
+                d.signingPublicKey, d.openingPublicKey, d.tlsPublicKey, Data(d.replyKeyID.utf8), d.replyPublicKey]
+        case nil: break
+        }
+        let message = parts.reduce(Data()) { $0 + lengthPrefixed($1) }
+        return Data(HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: secret)))
+    }
+
     // MARK: Answers
 
     /// Approves a request: the opened login, sealed again for the asking

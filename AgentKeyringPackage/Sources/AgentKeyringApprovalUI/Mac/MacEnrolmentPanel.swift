@@ -45,6 +45,8 @@ public final class MacEnrolmentModel {
     private let contextFactory: @MainActor () -> LAContext?
     public private(set) var authenticationContext: LAContext?
     private var authenticationTask: Task<Void, Never>?
+    /// From the click until macOS's dialog is answered.
+    public var isWaitingForTouch: Bool { authenticationTask != nil }
     private var previousAuthentication: Task<Void, Never>?
     private var authenticationTimeout: Task<Void, Never>?
     var authenticationTimeoutDuration: Duration = .seconds(60)
@@ -257,10 +259,10 @@ public struct MacEnrolmentPanelView: View {
                         else { Label(SetupCopy.theyMatch, systemImage: "touchid") }
                     }
                     .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
-                } else if let context = model.authenticationContext {
-                    EmbeddedOwnerApproval(context: context, action: isPhone ? "pair your iPhone" : "approve")
-                        .id(ObjectIdentifier(context))
-                        .onAppear { model.waitForAuthentication() }
+                } else if model.authenticationContext != nil {
+                    TouchIDButton(action: isPhone ? "pair your iPhone" : "approve", isWaiting: model.isWaitingForTouch) {
+                        model.waitForAuthentication()
+                    }
                 } else {
                     Button("Try again") { model.restartAuthentication() }
                         .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 36))
