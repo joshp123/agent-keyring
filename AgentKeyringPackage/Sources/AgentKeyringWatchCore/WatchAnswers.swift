@@ -60,15 +60,22 @@ public struct WatchAnswers: Sendable {
 }
 
 /// Accepts the relay's self-signed certificate only if its key is the one
-/// Members names.
+/// Members names. The relay is reached by its Tailscale address and has no
+/// certificate from a public authority, which App Transport Security would
+/// refuse before this check runs; the Watch app's Info.plist therefore turns
+/// that default off, and this pin is the check instead.
 final class RelayPin: NSObject, URLSessionDelegate, Sendable {
     let spki: Data
     init(spki: Data) { self.spki = spki }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
         -> (URLSession.AuthChallengeDisposition, URLCredential?) {
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              let trust = challenge.protectionSpace.serverTrust,
+        // The relay asks for a client certificate but does not need one here:
+        // the answer's signature is what it trusts. Send none.
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust else {
+            return (.performDefaultHandling, nil)
+        }
+        guard let trust = challenge.protectionSpace.serverTrust,
               let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first,
               Self.spki(of: leaf) == spki else { return (.cancelAuthenticationChallenge, nil) }
         return (.useCredential, URLCredential(trust: trust))
