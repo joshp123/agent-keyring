@@ -36,14 +36,15 @@ extension MirrorAppModel {
                         throw LeaseFailure(.invalidArgument, "Give a relay host and port.")
                     }
                     _ = try macKeys()
-                    try await device!.beginSetup(try RelayEndpoint(host: setup.host, port: port))
+                    result.invite = try await device!.beginSetup(try RelayEndpoint(host: setup.host, port: port),
+                        agent: AgentRequester.from(peer: peer).name, reason: setup.reason)
                 case .invite:
                     _ = try macKeys()
                     result.invite = try device!.inviteMachine()
                 case .relayStatus:
                     _ = try macKeys()
                     result.relayStatus = device!.connection == .connected ? "connected"
-                        : device!.isJoined || device!.setupWaiting != nil ? "waiting" : "not-started"
+                        : device!.isJoined || device!.setup != nil ? "waiting" : "not-started"
                 default: throw LeaseFailure(.invalidArgument, "Choose a setup action: start-relay or relay-status.")
                 }
                 response.setup = result
@@ -67,7 +68,7 @@ extension MirrorAppModel {
                     item.account = login.username ?? ""
                     item.hasOneTimeCode_p = login.availableFields.contains(.totp)
                     item.rule = switch accessControl.policy(for: login.id) {
-                    case .ask: .ask
+                    case .ask, .askOnPhone: .ask
                     case .allowAutomatically: .automatic
                     case .block: .blocked
                     }
@@ -77,6 +78,9 @@ extension MirrorAppModel {
             case let .requestLease(incoming):
                 try await refreshLeasePolicy()
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
+                if let login, accessControl.policy(for: login.id) == .askOnPhone {
+                    throw LeaseFailure(.permissionDenied, "Only Josh's iPhone or Watch can approve this login, and agents on this Mac cannot ask them yet.")
+                }
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
                     requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project))
@@ -116,7 +120,7 @@ extension MirrorAppModel {
             let failure: LeaseFailure
             if let error = error as? LeaseFailure { failure = error }
             else {
-                leaseLogger.error("Authority request failed: \(String(describing: error), privacy: .private)")
+                leaseLogger.error("Authority request failed: \(String(describing: error), privacy: .public)")
                 failure = LeaseFailure(.unavailable, "Agent Keyring could not complete this request. Rejoin the same reference; do not request approval again.")
             }
             var response = Agentkeyring_V1_WireResponse()

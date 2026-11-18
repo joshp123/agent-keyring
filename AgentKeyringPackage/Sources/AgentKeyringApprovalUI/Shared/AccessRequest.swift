@@ -90,8 +90,10 @@ public enum RequestedAccess: Hashable, Sendable {
     /// PURPOSE_AGENT_PROCESS: the value goes to the agent's own code. No
     /// protection beyond keeping it out of the transcript.
     case agentProcess
-    /// First run's test request: no login is used.
-    case test
+    /// Not a login: the test request, or a machine or device asking to be
+    /// added. The panel shows `lead`, the request's site in large type (the
+    /// name), `detail`, the agent's reason if any, and `footer`.
+    case setUp(lead: String, detail: String, footer: String)
 
     public static let longestLease: TimeInterval = 30 * 60
 }

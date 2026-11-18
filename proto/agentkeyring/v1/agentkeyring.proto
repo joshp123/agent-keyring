@@ -335,6 +335,7 @@ message SetupRequest {
   uint32 port = 3;
   string code = 4;
   string machine_name = 5;
+  string reason = 6;               // START_RELAY: the agent's words, shown with the request.
 }
 message SetupResponse {
   string machine_name = 1;

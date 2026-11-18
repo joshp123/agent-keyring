@@ -17,7 +17,7 @@ public enum AccessRequestCopy {
         case .signIn: "\(who) wants to sign in to"
         case let .program(command): "\(who) wants to give \(programName(command)) the password for"
         case .agentProcess: "\(who) wants to see the password for"
-        case .test: "A test from Agent Keyring"
+        case let .setUp(lead, _, _): lead
         }
     }
 
@@ -34,7 +34,7 @@ public enum AccessRequestCopy {
         case .signIn: nil
         case .program: nil
         case .agentProcess: "\(request.agent.name) can keep the password once it has seen it."
-        case .test: nil
+        case .setUp: nil
         }
     }
 
@@ -55,7 +55,7 @@ public enum AccessRequestCopy {
         case .signIn: "\(who) wants to sign in as \(request.login.account)"
         case let .program(command): "\(who) wants to give \(programName(command)) the password for \(request.login.account)"
         case .agentProcess: "\(who) wants to see the password for \(request.login.account)"
-        case .test: "A test from Agent Keyring. No login is used."
+        case let .setUp(lead, detail, _): "\(lead) \(request.login.site). \(detail)."
         }
     }
 
@@ -84,7 +84,7 @@ public enum AccessRequestCopy {
     /// the approval can't take it back, so that case says so.
     public static func lasts(_ request: AccessRequest) -> String {
         switch request.access {
-        case .signIn, .program, .test: "Up to 30 minutes"
+        case .signIn, .program, .setUp: "Up to 30 minutes"
         case .agentProcess: "Up to 30 minutes. Once \(request.agent.name) has seen the password, it can keep it."
         }
     }

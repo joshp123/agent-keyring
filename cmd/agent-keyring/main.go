@@ -44,8 +44,9 @@ const help = `Agent Keyring: use a saved login for one task.
   enrol --name NAME --invite LINK
                             Join this machine, with a link from 'invite' on the Mac
   invite                    On the Mac: print a one-time link for one machine to join
-  setup-relay --relay HOST:PORT
-                            Connect this Mac to the relay, once Josh approves
+  setup-relay --relay HOST:PORT [--reason WHY]
+                            Start connecting this Mac to the relay on the always-on
+                            machine; prints the link that machine enrols with
   relay-status              Check whether this Mac has connected to the relay
 
 A lease ends on release or 30 minutes after approval. Reuse it through retries
@@ -214,7 +215,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		setup := &pb.SetupRequest{}
 		if command == "setup-relay" {
-			if err = a.check("relay", ""); err != nil {
+			if err = a.check("relay reason", ""); err != nil {
 				return 2, err
 			}
 			host, portText, e := net.SplitHostPort(a.options["relay"])
@@ -225,7 +226,7 @@ func run(ctx context.Context, args []string) (int, error) {
 			if e != nil || port == 0 {
 				return 2, errors.New("Supply a valid relay port.")
 			}
-			setup.Action, setup.Host, setup.Port = pb.SetupRequest_START_RELAY, host, uint32(port)
+			setup.Action, setup.Host, setup.Port, setup.Reason = pb.SetupRequest_START_RELAY, host, uint32(port), a.options["reason"]
 		} else {
 			if err = a.check("", ""); err != nil {
 				return 2, err
@@ -255,7 +256,8 @@ func run(ctx context.Context, args []string) (int, error) {
 		} else if command == "invite" {
 			fmt.Println(result.GetSetup().GetInvite())
 		} else {
-			fmt.Fprintln(os.Stderr, "Waiting for Josh to approve connecting this Mac to the relay. Check with relay-status.")
+			fmt.Println(result.GetSetup().GetInvite())
+			fmt.Fprintln(os.Stderr, "On the always-on machine, run: agent-keyring enrol --name NAME --invite LINK, with the link above. Josh then approves one request on this Mac; check with relay-status.")
 		}
 		return 0, nil
 	}

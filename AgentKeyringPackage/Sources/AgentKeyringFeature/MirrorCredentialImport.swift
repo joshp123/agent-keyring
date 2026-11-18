@@ -152,14 +152,12 @@ extension MirrorAppModel {
                 .union([MirrorItem.exampleCredentialID.uuidString])
             var sealed = try await store.sealed().filter { kept.contains($0.loginID) }
             for item in fresh {
-                sealed += try sealCopies(of: item.secret, automatic: accessControl.policy(for: item.id) == .allowAutomatically)
+                let policy = accessControl.policy(for: item.id)
+                sealed += try sealCopies(of: item.secret, automatic: policy == .allowAutomatically, phoneOnly: policy == .askOnPhone)
             }
             try await store.save(generation, sealed: sealed)
         } catch {
-            let nsError = error as NSError
-            credentialExchangeLogger.error(
-                "Mirror update failed [\(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public)]"
-            )
+            credentialExchangeLogger.error("Sealing the import failed: \(String(describing: error), privacy: .public)")
             notice = MirrorNotice(
                 kind: .error,
                 text: hadExistingMirror
@@ -185,6 +183,16 @@ extension MirrorAppModel {
         } else {
             notice = MirrorNotice(kind: .information, text: "Import complete. Exported logins have been updated.")
         }
+    }
+}
+
+@available(macOS 26.0, *)
+extension MirrorAppModel {
+    /// Only in a debug build, and only when launched with --import-made-up-logins.
+    public func importMadeUpLoginsIfAsked() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--import-made-up-logins"), status == nil { await importMadeUpLogins() }
+        #endif
     }
 }
 

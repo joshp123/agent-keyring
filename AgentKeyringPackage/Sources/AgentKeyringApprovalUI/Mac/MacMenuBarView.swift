@@ -9,6 +9,13 @@
 import Observation
 import SwiftUI
 
+public enum RelayLink: Hashable, Sendable {
+    case notSetUp
+    case connecting(address: String)
+    case connected(address: String)
+    case offline(address: String)
+}
+
 public struct MacMenuBarSnapshot: Hashable, Sendable {
     /// Waiting, in use and recent requests, local and remote, in any order.
     public var requests: [AccessRequest]

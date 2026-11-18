@@ -311,8 +311,13 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 	case *pb.RelayRequest_Join:
 		return s.join(ctx, who, method.Join, send)
 	case *pb.RelayRequest_PendingJoins:
-		if err := isDevice(); err != nil {
-			return err
+		// Before anyone has set the relay up, the first device sees the
+		// machine it is setting up beside it; a join shows nowhere without a
+		// proof that device checks.
+		if members, _ := s.Store.documents(); members != nil {
+			if err := isDevice(); err != nil {
+				return err
+			}
 		}
 		return send(&pb.RelayResponse{Result: &pb.RelayResponse_PendingJoins{PendingJoins: s.pendingJoins()}, EndOfStream: true})
 	}

@@ -1078,7 +1078,7 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     set {method = .publishCatalogue(newValue)}
   }
 
-  /// Replaces every sealed login for the openers named.
+  /// Adds or replaces each copy given; see SealedLogins.
   public var publishSealedLogins: Agentkeyring_V2_SealedLogins {
     get {
       if case .publishSealedLogins(let v)? = method {return v}
@@ -1171,7 +1171,7 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     case registerPush(Agentkeyring_V2_PushRegistration)
     case publishMembers(Agentkeyring_V2_Signed)
     case publishCatalogue(Agentkeyring_V2_Signed)
-    /// Replaces every sealed login for the openers named.
+    /// Adds or replaces each copy given; see SealedLogins.
     case publishSealedLogins(Agentkeyring_V2_SealedLogins)
     /// Returns SealedLogins sealed to this device.
     case sealedLogins(Agentkeyring_V2_Empty)
@@ -1422,6 +1422,10 @@ public nonisolated struct Agentkeyring_V2_SealedLogins: Sendable {
   /// In publish_sealed_logins: openers whose every copy is replaced, even by
   /// none (a machine whose last Automatic login became Ask).
   public var clearedOpeners: [String] = []
+
+  /// In publish_sealed_logins: logins no longer Automatic. Every machine's
+  /// copy of each is removed; devices' copies stay.
+  public var withdrawnLoginIds: [String] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3563,7 +3567,7 @@ nonisolated extension Agentkeyring_V2_UseReport: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SealedLogins"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{3}cleared_openers\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}logins\0\u{3}cleared_openers\0\u{3}withdrawn_login_ids\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3573,6 +3577,7 @@ nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, Swift
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.logins) }()
       case 2: try { try decoder.decodeRepeatedStringField(value: &self.clearedOpeners) }()
+      case 3: try { try decoder.decodeRepeatedStringField(value: &self.withdrawnLoginIds) }()
       default: break
       }
     }
@@ -3585,12 +3590,16 @@ nonisolated extension Agentkeyring_V2_SealedLogins: SwiftProtobuf.Message, Swift
     if !self.clearedOpeners.isEmpty {
       try visitor.visitRepeatedStringField(value: self.clearedOpeners, fieldNumber: 2)
     }
+    if !self.withdrawnLoginIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.withdrawnLoginIds, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V2_SealedLogins, rhs: Agentkeyring_V2_SealedLogins) -> Bool {
     if lhs.logins != rhs.logins {return false}
     if lhs.clearedOpeners != rhs.clearedOpeners {return false}
+    if lhs.withdrawnLoginIds != rhs.withdrawnLoginIds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

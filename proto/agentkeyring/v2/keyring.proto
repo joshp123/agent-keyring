@@ -321,7 +321,7 @@ message RelayRequest {
     PushRegistration register_push = 13;
     Signed publish_members = 14;
     Signed publish_catalogue = 15;
-    SealedLogins publish_sealed_logins = 16;  // Replaces every sealed login for the openers named.
+    SealedLogins publish_sealed_logins = 16;  // Adds or replaces each copy given; see SealedLogins.
     Empty sealed_logins = 17;              // Returns SealedLogins sealed to this device.
     // Joining: a machine or device not yet in Members. Streams JoinStatus.
     JoinRequest join = 18;
@@ -391,6 +391,9 @@ message SealedLogins {
   // In publish_sealed_logins: openers whose every copy is replaced, even by
   // none (a machine whose last Automatic login became Ask).
   repeated string cleared_openers = 2;
+  // In publish_sealed_logins: logins no longer Automatic. Every machine's
+  // copy of each is removed; devices' copies stay.
+  repeated string withdrawn_login_ids = 3;
 }
 
 // Sent by the device that answered.

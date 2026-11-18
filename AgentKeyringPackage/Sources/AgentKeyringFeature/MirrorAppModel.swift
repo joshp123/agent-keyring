@@ -55,6 +55,8 @@ public final class MirrorAppModel {
     let bridge: AgentBridgeDirectory
     public private(set) var includeExampleCredential: Bool
     public internal(set) var selfTest = MacSelfTest.notRun
+    /// The sealed copies, for the screens: which machine holds which login.
+    var sealedCache: [Agentkeyring_V2_SealedLogin] = []
     /// From Open Passwords until the logins arrive: the window stays above Passwords.
     public internal(set) var awaitingExport = false
     let settings: UserDefaults
@@ -97,28 +99,40 @@ public final class MirrorAppModel {
     /// The Mac's chip keys, made on first use.
     func macKeys() throws -> MacKeys {
         if let keys { return keys }
-        let made = try MacKeys()
+        let made: MacKeys
+        do { made = try MacKeys() } catch {
+            Logger(subsystem: "com.agentkeyring.app", category: "Keys").error("This Mac's keys could not be made or read: \(String(describing: error), privacy: .public)")
+            throw error
+        }
         keys = made
         device = MacDevice(keys: made, store: store) { [weak self] in self?.catalogueLogins() ?? [] }
+        device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
         return made
     }
 
     public func loadStatus() async {
         defer { isLoading = false }
+        await store.whenChanged { [weak self] in Task { @MainActor in await self?.refreshSealedCache() } }
+        await refreshSealedCache()
         do {
             let importedMetadata = try await store.loadCurrentMetadata()
             status = importedMetadata?.safeStatus
             leaseLogins = metadataIncludingExample(importedMetadata)?.candidates ?? []
             await accessControl.refresh(fromMetadata: metadataIncludingExample(importedMetadata))
-            try await sealExampleIfNeeded()
         } catch {
+            Logger(subsystem: "com.agentkeyring.app", category: "Import").error("Loading failed: \(String(describing: error), privacy: .public)")
             notice = MirrorNotice(kind: .error, text: "Agent Keyring's saved logins could not be opened. Apple Passwords was not changed.")
             return
         }
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
+        // The chip keys can be made only while the Mac is unlocked; until then
+        // this runs again at the next request or launch.
+        try? await sealExampleIfNeeded()
         if (try? macKeys()) != nil { device?.start() }
         offerSelfTestIfNeeded()
     }
+
+    func refreshSealedCache() async { sealedCache = (try? await store.sealed()) ?? [] }
 
     public func setIncludeExampleCredential(_ enabled: Bool) async {
         includeExampleCredential = enabled

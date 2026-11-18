@@ -1197,6 +1197,9 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
 
   public var machineName: String = String()
 
+  /// START_RELAY: the agent's words, shown with the request.
+  public var reason: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum Action: SwiftProtobuf.Enum, Swift.CaseIterable {
@@ -2579,7 +2582,7 @@ nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetupRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}action\0\u{1}host\0\u{1}port\0\u{1}code\0\u{3}machine_name\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}action\0\u{1}host\0\u{1}port\0\u{1}code\0\u{3}machine_name\0\u{1}reason\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2592,6 +2595,7 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
       case 3: try { try decoder.decodeSingularUInt32Field(value: &self.port) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.code) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.machineName) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.reason) }()
       default: break
       }
     }
@@ -2613,6 +2617,9 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
     if !self.machineName.isEmpty {
       try visitor.visitSingularStringField(value: self.machineName, fieldNumber: 5)
     }
+    if !self.reason.isEmpty {
+      try visitor.visitSingularStringField(value: self.reason, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2622,6 +2629,7 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
     if lhs.port != rhs.port {return false}
     if lhs.code != rhs.code {return false}
     if lhs.machineName != rhs.machineName {return false}
+    if lhs.reason != rhs.reason {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
