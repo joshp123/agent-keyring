@@ -36,6 +36,18 @@ public enum PhoneCopy {
         // Not in Paper: a request from outside any project.
         return "\(request.login.account): \(reason)"
     }
+    /// The push that replaces a request on the Lock Screen once it has ended (Paper, "Wherever you are").
+    /// `device` is the answering device's own name, e.g. "Watch".
+    public static func outcomeBody(_ request: AccessRequest, answeredBy device: String?) -> String {
+        let on = device.map { " on your \($0)" } ?? ""
+        switch request.state {
+        case let .approved(_, until): return "Approved\(on). \(request.agent.name) can use this login until \(clock(until)) at the latest."
+        case .denied: return "Denied\(on)."
+        case .unanswered: return "No answer. The request ended after 10 minutes. \(request.agent.name) can ask again."
+        default: return "This request has ended."
+        }
+    }
+
     /// Not in Paper: shown if the request's words cannot be opened in time.
     public static let notificationFallbackTitle = "An agent is asking to use a login"
     public static let notificationFallbackBody = "Open Agent Keyring to see the request."

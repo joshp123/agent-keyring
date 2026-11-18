@@ -50,9 +50,9 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             #if targetEnvironment(simulator)
             let keys: any PhoneDeviceKeys = PhoneSoftwareKeys()
             #else
-            let keys: any PhoneDeviceKeys = PhoneEnclaveKeys()
+            let keys: any PhoneDeviceKeys = PhoneEnclaveKeys(accessGroup: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String)
             #endif
-            let real = PhoneRelayBackend(directory: Self.sharedDirectory, keys: keys,
+            let real = PhoneRelayBackend(directory: PhoneShared.directory, keys: keys,
                                          identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v2") })
             backend = real; relay = real
             model = PhoneModel(backend: real, initial: real.snapshot)
@@ -61,13 +61,6 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         // For comparing screens with Paper in the simulator: -SampleTab logins, -SampleShow r1.
         if let tab = UserDefaults.standard.string(forKey: "SampleTab").flatMap(PhoneTab.init(rawValue:)) { model.tab = tab }
         model.shownRequestID = UserDefaults.standard.string(forKey: "SampleShow")
-    }
-
-    /// Shared with the notification service extension when the app group is signed in; else the app's own.
-    private static var sharedDirectory: URL {
-        let group = "group." + (Bundle.main.bundleIdentifier ?? "")
-        return (FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) ?? .applicationSupportDirectory)
-            .appending(path: "AgentKeyring", directoryHint: .isDirectory)
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

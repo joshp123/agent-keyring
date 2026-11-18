@@ -4,22 +4,27 @@
 // kept in the keychain; the private keys never leave the chip. A new face
 // enrolled in Face ID stops the signing and opening keys working.
 
-import AgentKeyringPhoneApprover
+#if os(iOS)
 import AgentKeyringSealing
 import CryptoKit
 import Foundation
 import LocalAuthentication
+import AgentKeyringProtocol
 import Security
 
-struct PhoneEnclaveKeys: PhoneDeviceKeys {
+nonisolated public struct PhoneEnclaveKeys: PhoneDeviceKeys {
     private let service = "com.joshpalmer.AgentKeyring.Phone.keys.v2"
+    /// The keychain group the app shares with its notification service extension.
+    private let accessGroup: String?
 
-    func signingPublicKey() throws -> Data { try signingKey(LAContext.silent).publicKey.x963Representation }
-    func openingPublicKey() throws -> Data { try openingKey(LAContext.silent).publicKey.x963Representation }
-    func replyPublicKey() throws -> Data { try replyKey().publicKey.x963Representation }
-    func noticePublicKey() throws -> Data { try noticeKey().publicKey.x963Representation }
+    public init(accessGroup: String?) { self.accessGroup = accessGroup }
 
-    func authorize(_ context: LAContext, reason: String) async throws {
+    public func signingPublicKey() throws -> Data { try signingKey(LAContext.silent).publicKey.x963Representation }
+    public func openingPublicKey() throws -> Data { try openingKey(LAContext.silent).publicKey.x963Representation }
+    public func replyPublicKey() throws -> Data { try replyKey().publicKey.x963Representation }
+    public func noticePublicKey() throws -> Data { try noticeKey().publicKey.x963Representation }
+
+    @MainActor public func authorize(_ context: LAContext, reason: String) async throws {
         context.localizedFallbackTitle = ""
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
@@ -36,15 +41,15 @@ struct PhoneEnclaveKeys: PhoneDeviceKeys {
         context.interactionNotAllowed = true
     }
 
-    func sign(_ bytes: Data, context: LAContext) throws -> Data {
+    public func sign(_ bytes: Data, context: LAContext) throws -> Data {
         try signingKey(context).signature(for: bytes).derRepresentation
     }
 
-    func open(_ sealed: SealedLogin, context: LAContext) throws -> LoginSecret {
+    public func open(_ sealed: SealedLogin, context: LAContext) throws -> LoginSecret {
         try Sealing.open(sealed, with: openingKey(context))
     }
 
-    func signReply(_ bytes: Data) throws -> Data {
+    public func signReply(_ bytes: Data) throws -> Data {
         try replyKey().signature(for: bytes).derRepresentation
     }
 
@@ -96,9 +101,17 @@ struct PhoneEnclaveKeys: PhoneDeviceKeys {
     }
 
     private func query(_ name: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: name, kSecAttrSynchronizable as String: false,
-         kSecUseDataProtectionKeychain as String: true]
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                    kSecAttrAccount as String: name, kSecAttrSynchronizable as String: false,
+                                    kSecUseDataProtectionKeychain as String: true]
+        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        return query
+    }
+
+    /// What a push shows, opened with the notice key. For the notification service extension.
+    /// It runs while the phone is locked, so it uses only the notice key.
+    public func openNotice(_ notice: Agentkeyring_V2_Notice, deviceKeyID: String) throws -> Agentkeyring_V2_Work {
+        try Sealing.openNotice(notice, deviceKeyID: deviceKeyID, with: noticeKey())
     }
 
     private func read(_ name: String) throws -> Data? {
@@ -132,3 +145,4 @@ extension LAContext {
         return context
     }
 }
+#endif

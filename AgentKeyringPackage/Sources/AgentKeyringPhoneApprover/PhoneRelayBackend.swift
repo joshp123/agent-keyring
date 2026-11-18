@@ -26,8 +26,19 @@ struct PhoneSavedState: Codable {
     var work: [String: Data] = [:]
     /// request id → what this iPhone answered, until the relay's outcome arrives.
     var answered: [String: Bool] = [:]
+    /// This iPhone's Device.key_id, once joined; the extension needs it to open a notice.
+    var deviceKeyID: String?
     var notificationsAsked = false
     var watchAsked = false
+}
+
+/// Where the app and its notification service extension keep what both read.
+public enum PhoneShared {
+    public static var directory: URL {
+        let group = "group." + (Bundle.main.bundleIdentifier ?? "").replacingOccurrences(of: ".NotificationService", with: "")
+        return (FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) ?? .applicationSupportDirectory)
+            .appending(path: "AgentKeyring", directoryHint: .isDirectory)
+    }
 }
 
 @MainActor
@@ -102,7 +113,7 @@ public final class PhoneRelayBackend: PhoneBackend {
             agentReason: request.reason, askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: state)
     }
 
-    static func state(_ lease: Lease, now: Int64) -> AccessRequestState {
+    nonisolated static func state(_ lease: Lease, now: Int64) -> AccessRequestState {
         let notAfter = Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds))
         switch lease.state {
         case .waiting: return .waitingForYou(until: Date(timeIntervalSince1970: Double(lease.answerByUnixSeconds)))
@@ -116,8 +127,18 @@ public final class PhoneRelayBackend: PhoneBackend {
         }
     }
 
-    static func site(_ login: Agentkeyring_V2_Login) -> String {
+    nonisolated static func site(_ login: Agentkeyring_V2_Login) -> String {
         login.sites.first.flatMap { URL(string: $0)?.host ?? $0 } ?? login.title
+    }
+
+    /// "Approved on your Watch": the kind of device, as Paper names it.
+    nonisolated static func shortName(_ kind: Agentkeyring_V2_DeviceKind) -> String? {
+        switch kind {
+        case .iphone: "iPhone"
+        case .watch: "Watch"
+        case .mac: "Mac"
+        default: nil
+        }
     }
 
     static func howItApproves(_ kind: Agentkeyring_V2_DeviceKind) -> String? {
@@ -332,6 +353,9 @@ public final class PhoneRelayBackend: PhoneBackend {
                     throw KeyringRelayError(code: .notAllowed, message: "The approval does not match this iPhone.")
                 }
                 try accept(members: status.members)
+                var joined = state
+                joined.deviceKeyID = device.keyID
+                save(joined)
                 start()
                 return
             default:
@@ -365,6 +389,33 @@ public final class PhoneRelayBackend: PhoneBackend {
         registration.apnsProduction = production
         registration.noticePublicKey = try keys.noticePublicKey()
         _ = try await relay().call(Self.method { $0.registerPush = registration })
+    }
+
+    // MARK: For the notification service extension
+
+    /// The request a push is about, as the Lock Screen shows it: the notice
+    /// opened, the login and machine named from the saved Catalogue and Members.
+    nonisolated public static func notifiedRequest(_ userInfo: [AnyHashable: Any], directory: URL,
+                                       open: (Agentkeyring_V2_Notice, String) throws -> Agentkeyring_V2_Work) -> (request: AccessRequest, answeredBy: String?)? {
+        guard let base64 = userInfo["akr"] as? String, let bytes = Data(base64Encoded: base64),
+              let notice = try? Agentkeyring_V2_Notice(serializedBytes: bytes),
+              let data = try? Data(contentsOf: directory.appending(path: "phone-v2.plist")),
+              let saved = try? PropertyListDecoder().decode(PhoneSavedState.self, from: data),
+              let keyID = saved.deviceKeyID, let work = try? open(notice, keyID),
+              let members = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) }).flatMap({ try? Members(serializedBytes: $0.payload) })
+        else { return nil }
+        let catalogue = saved.catalogue.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Catalogue(serializedBytes: $0.payload) }
+        guard let request = try? Sealing.parseRequest(work.request),
+              let machine = members.machines.first(where: { $0.machineID == request.machineID }),
+              let login = catalogue?.logins.first(where: { $0.loginID == request.loginID }) else { return nil }
+        let outcome = work.hasOutcome ? state(work.outcome, now: Int64(Date().timeIntervalSince1970))
+            : .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds)))
+        return (AccessRequest(id: request.requestID, login: RequestedLogin(site: site(login), account: login.account),
+                             agent: RequestingAgent(name: request.agent, machine: machine.label, address: "",
+                                                    project: request.project.isEmpty ? nil : request.project),
+                             access: .signIn, agentReason: request.reason,
+                             askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: outcome),
+                work.hasOutcome ? members.devices.first { $0.label == work.outcome.answeredBy }.flatMap { shortName($0.kind) } : nil)
     }
 
     // MARK: Saving
