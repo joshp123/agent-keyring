@@ -81,8 +81,14 @@ extension MirrorAppModel {
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { localPolicy(for: $0.id) } ?? .block,
                     requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project))
-                if let login, accessControl.policy(for: login.id) == .askOnPhone, response.lease.state == .pending {
-                    askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name)
+                if let login, response.lease.state == .pending {
+                    switch accessControl.policy(for: login.id) {
+                    case .askOnPhone:
+                        askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name, alsoHere: false)
+                    case .ask where device?.isJoined == true:
+                        askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name, alsoHere: true)
+                    default: break
+                    }
                 }
             case let .getLease(reference):
                 try await refreshLeasePolicy()
@@ -132,9 +138,12 @@ extension MirrorAppModel {
         }
     }
 
-    /// A login only the iPhone or Watch may approve: the request goes to them
-    /// through the relay, and the lease follows their answer.
-    func askDevices(for lease: Agentkeyring_V1_Lease, request: Agentkeyring_V1_RequestLeaseRequest, agent: String) {
+    /// The request also goes to the iPhone and Watch through the relay, and the
+    /// lease follows the first answer. With `alsoHere` (a login set to Ask) this
+    /// Mac shows it too and never depends on the relay: an answer here stops the
+    /// request on the devices, and a relay that can't be reached changes nothing.
+    /// Without it (Ask on iPhone or Watch) only the devices can answer.
+    func askDevices(for lease: Agentkeyring_V1_Lease, request: Agentkeyring_V1_RequestLeaseRequest, agent: String, alsoHere: Bool) {
         var ask = Agentkeyring_V2_AskRequest()
         ask.loginID = lease.loginID
         ask.reason = lease.reason
@@ -143,18 +152,34 @@ extension MirrorAppModel {
         ask.task = lease.taskRef
         ask.clientRequestID = lease.leaseID
         let leaseID = lease.leaseID
+        if alsoHere {
+            // Answered on this Mac first: the iPhone and Watch stop showing it.
+            Task { [weak self] in
+                guard let self else { return }
+                for await leases in self.leaseStore.changes() {
+                    guard let current = leases.first(where: { $0.leaseID == leaseID }) else { continue }
+                    if current.state != .pending { await self.device?.stopAsking(leaseID); return }
+                }
+            }
+        }
         Task { [weak self] in
             guard let self else { return }
             do {
                 guard let device = self.device else { throw LeaseFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.") }
-                switch try await device.askDevices(ask) {
+                let answer = try await device.askDevices(ask)
+                if alsoHere, (try? self.leaseStore.get(leaseID))?.state != .pending { return }
+                switch answer {
                 case let .approved(contents): try self.leaseStore.approveFromDevices(leaseID, contents: contents)
                 case let .denied(reply): _ = try self.leaseStore.deny(leaseID, reply: reply, approvedBy: .iphone)
-                case .unanswered, .cancelled: try self.leaseStore.expire()
+                case .unanswered, .cancelled: if !alsoHere { try self.leaseStore.expire() }
                 }
             } catch {
-                leaseLogger.error("Asking the iPhone or Watch failed: \(String(describing: error), privacy: .public)")
-                _ = try? self.leaseStore.end(leaseID)
+                if alsoHere {
+                    leaseLogger.notice("This request is shown only on this Mac: \(String(describing: error), privacy: .public)")
+                } else {
+                    leaseLogger.error("Asking the iPhone or Watch failed: \(String(describing: error), privacy: .public)")
+                    _ = try? self.leaseStore.end(leaseID)
+                }
             }
         }
     }

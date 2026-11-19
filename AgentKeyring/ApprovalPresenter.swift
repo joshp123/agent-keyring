@@ -81,12 +81,17 @@ final class ApprovalPresenter {
     }
 
     /// With the lid shut the panel says where the request can still be
-    /// answered: only requests from agents on other computers reach the
-    /// iPhone and Apple Watch, through the relay.
+    /// answered. Agents' requests, from this Mac or another computer, reach the
+    /// iPhone and Apple Watch through the relay; this Mac's own only while the
+    /// relay can be reached, since this Mac never waits for it.
     private func configure(_ approval: MacApprovalModel, for item: Item) {
         approval.lidClosed = MacApprover.lidIsClosed
         let phoneOrWatch = model.device?.members?.devices.contains { $0.kind == .iphone || $0.kind == .watch } == true
-        if case .remote = item { approval.approvesElsewhere = phoneOrWatch } else { approval.approvesElsewhere = false }
+        switch item {
+        case .remote: approval.approvesElsewhere = phoneOrWatch
+        case .local: approval.approvesElsewhere = phoneOrWatch && model.device?.connection == .connected
+        default: approval.approvesElsewhere = false
+        }
     }
 
     /// Brings a waiting request forward, from the menu bar's Review.
