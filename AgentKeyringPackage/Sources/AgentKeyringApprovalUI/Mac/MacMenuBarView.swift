@@ -1,35 +1,31 @@
-// Written by AI on 2026.10.31 by model Claude Opus 5.5.
+// Written by AI on 2026.10.31 by model Claude Opus 5.5; rebuilt on
+// 2026.11.20 by model claude opus 5.5 from the Paper board "In the menu bar".
 //
 // The menu bar window answers three questions: is anything waiting for me,
-// what are agents using now (and can I stop it), and what did they use
-// lately. Plus a way to the rules. Connection state, login counts and
-// housekeeping stay out: none of them is something Josh acts on here.
+// what are agents using now (and can I stop it), and what happened earlier
+// today. Plus a way to the passwords and the devices.
 
 #if os(macOS)
+import AppKit
 import Observation
 import SwiftUI
-
-public enum RelayLink: Hashable, Sendable {
-    case notSetUp
-    case connecting(address: String)
-    case connected(address: String)
-    case offline(address: String)
-}
 
 public struct MacMenuBarSnapshot: Hashable, Sendable {
     /// Waiting, in use and recent requests, local and remote, in any order.
     public var requests: [AccessRequest]
-    /// Machines and iPhones waiting to join.
+    /// Computers and devices waiting to join.
     public var enrolments: [DeviceEnrolment]
-    /// Nil until the relay is set up (release 3).
-    public var relay: RelayLink?
+    /// The computer that stays on, while this Mac cannot reach it.
+    public var offlineComputer: String?
+    public var passwordCount: Int
     public var taskHistoryNeedsReset: Bool
 
-    public init(requests: [AccessRequest], enrolments: [DeviceEnrolment] = [],
-        relay: RelayLink? = nil, taskHistoryNeedsReset: Bool = false) {
+    public init(requests: [AccessRequest], enrolments: [DeviceEnrolment] = [], offlineComputer: String? = nil,
+        passwordCount: Int = 0, taskHistoryNeedsReset: Bool = false) {
         self.requests = requests
         self.enrolments = enrolments
-        self.relay = relay
+        self.offlineComputer = offlineComputer
+        self.passwordCount = passwordCount
         self.taskHistoryNeedsReset = taskHistoryNeedsReset
     }
 }
@@ -49,7 +45,8 @@ public protocol MacMenuBarBackend: AnyObject {
 public final class MacMenuBarModel {
     public private(set) var requests: [AccessRequest]
     public private(set) var enrolments: [DeviceEnrolment]
-    public private(set) var relay: RelayLink?
+    public private(set) var offlineComputer: String?
+    public private(set) var passwordCount: Int
     public private(set) var taskHistoryNeedsReset: Bool
     public var review: (String) -> Void = { _ in }
     public var reviewEnrolment: (String) -> Void = { _ in }
@@ -63,7 +60,8 @@ public final class MacMenuBarModel {
     public init(backend: any MacMenuBarBackend, initial: MacMenuBarSnapshot) {
         self.requests = initial.requests
         self.enrolments = initial.enrolments
-        self.relay = initial.relay
+        self.offlineComputer = initial.offlineComputer
+        self.passwordCount = initial.passwordCount
         self.taskHistoryNeedsReset = initial.taskHistoryNeedsReset
         self.backend = backend
     }
@@ -78,7 +76,8 @@ public final class MacMenuBarModel {
         for await snapshot in backend.updates() {
             requests = snapshot.requests
             enrolments = snapshot.enrolments
-            relay = snapshot.relay
+            offlineComputer = snapshot.offlineComputer
+            passwordCount = snapshot.passwordCount
             taskHistoryNeedsReset = snapshot.taskHistoryNeedsReset
         }
     }
@@ -106,23 +105,43 @@ public final class MacMenuBarModel {
     }
 }
 
-/// The icon in the menu bar. Shows how many requests wait, so a waiting
-/// request is visible without opening anything.
+/// The icon in the menu bar: the keyhole, drawn as a template so macOS
+/// colours it for a light or dark menu bar.
 public struct MacMenuBarLabel: View {
-    let waitingCount: Int
-
-    public init(waitingCount: Int) {
-        self.waitingCount = waitingCount
-    }
+    public init() {}
 
     public var body: some View {
-        if waitingCount > 0 {
-            Label("\(waitingCount)", systemImage: "key.horizontal.fill")
-                .labelStyle(.titleAndIcon)
-        } else {
-            Image(systemName: "key.horizontal")
-                .accessibilityLabel("Agent Keyring")
+        Image(nsImage: Self.keyhole).accessibilityLabel("Agent Keyring")
+    }
+
+    static let keyhole: NSImage = {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
+            let s = rect.width / 80
+            func p(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: (x - 10) * s, y: (y - 12) * s) }
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: NSRect(x: (50 - 21.5 - 10) * s, y: (38.5 - 21.5 - 12) * s, width: 43 * s, height: 43 * s)).fill()
+            let body = NSBezierPath()
+            body.move(to: p(40.2, 51.5)); body.line(to: p(59.8, 51.5)); body.line(to: p(67.2, 81.9))
+            body.line(to: p(64.1, 85.9)); body.line(to: p(35.9, 85.9)); body.line(to: p(32.8, 81.9)); body.close()
+            body.fill()
+            return true
         }
+        image.isTemplate = true
+        return image
+    }()
+}
+
+/// "Agent Keyring stays here.", under the menu bar icon after first run's Done.
+public struct MenuBarTipView: View {
+    public init() {}
+
+    public var body: some View {
+        Text(FirstRunCopy.staysHere).font(.system(size: 13)).foregroundStyle(RequestToken.ink)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(RequestToken.surface, in: .rect(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.2), radius: 12, y: 8)
+            .shadow(color: .black.opacity(0.14), radius: 1.5, y: 1)
+            .padding(16)
     }
 }
 
@@ -135,228 +154,175 @@ public struct MacMenuBarView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Label("Agent Keyring", systemImage: "key.horizontal.fill")
-                .font(.subheadline.weight(.semibold))
-                .labelStyle(KeyringTitleLabelStyle())
-                .padding(.horizontal, 14)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
+            if let computer = model.offlineComputer { Banner(text: MenuBarCopy.offline(computer)) }
             if model.taskHistoryNeedsReset {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Agents are paused on this Mac").font(.headline)
-                    Text("Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. Your passwords and rules stay.")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Reset…", action: model.openAgentKeyring)
+                Banner(text: MenuBarCopy.paused) {
+                    Pill(title: MenuBarCopy.reset, dark: true, action: model.openAgentKeyring).padding(.top, 8)
                 }
-                .padding(14)
             }
             if !model.waiting.isEmpty || !model.enrolments.isEmpty {
-                MenuSection(title: AccessRequestCopy.waitingForYou) {
-                    ForEach(model.enrolments) { enrolment in
-                        JoiningMenuRow(enrolment: enrolment) { model.reviewEnrolment(enrolment.id) }
+                Heading(MenuBarCopy.waitingForYou)
+                ForEach(model.enrolments) { enrolment in
+                    Row(title: enrolment.name, detail: SetupCopy.joiningDetail(enrolment)) {
+                        Pill(title: MenuBarCopy.show, dark: true) { model.reviewEnrolment(enrolment.id) }
                     }
-                    ForEach(model.waiting) { request in
-                        WaitingMenuRow(request: request) { model.review(request.id) }
+                }
+                ForEach(model.waiting) { request in
+                    Row(title: request.login.site, detail: MenuBarCopy.who(request)) {
+                        Pill(title: MenuBarCopy.show, dark: true) { model.review(request.id) }
                     }
                 }
             }
             if !model.inUse.isEmpty {
-                MenuSection(title: AccessRequestCopy.inUse) {
-                    ForEach(model.inUse) { request in
-                        InUseMenuRow(request: request) { Task { await model.endAccess(request.id) } }
+                Heading(MenuBarCopy.inUse)
+                ForEach(model.inUse) { request in
+                    Row(title: request.login.site, detail: MenuBarCopy.inUseDetail(request)) {
+                        Pill(title: MenuBarCopy.stop, dark: false) { Task { await model.endAccess(request.id) } }
                     }
                 }
             }
             if model.attentionCount == 0 && model.inUse.isEmpty {
-                Text(AccessRequestCopy.nothing)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                Text(MenuBarCopy.nothing).font(.system(size: 14)).foregroundStyle(RequestToken.ink2)
+                    .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 6)
             }
             if !model.recent.isEmpty {
-                MenuSection(title: AccessRequestCopy.earlierToday) {
-                    ForEach(model.recent) { request in
-                        RecentMenuRow(request: request) { Task { await model.allowAskingAgain(request.id) } }
-                    }
+                Heading(MenuBarCopy.earlierToday)
+                ForEach(model.recent) { request in
+                    RecentRow(request: request) { Task { await model.allowAskingAgain(request.id) } }
                 }
             }
-            Divider().padding(.top, 6)
+            Color.clear.frame(height: 8)
             footer
         }
-        .padding(.vertical, 6)
-        .frame(width: 340)
+        .frame(width: 380)
+        .background(RequestToken.surface)
     }
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Spacer()
-            Button("Passwords…", action: model.openRules)
-                .controlSize(.small)
+            Pill(title: MenuBarCopy.passwords(model.passwordCount), dark: false, inset: 12, action: model.openRules)
                 .accessibilityIdentifier("menu-rules")
+            Pill(title: MenuBarCopy.devices, dark: false, inset: 12, action: model.openMachines)
+            Spacer(minLength: 0)
             Menu {
-                Button("Open Agent Keyring", action: model.openAgentKeyring)
-                if model.relay != nil {
-                    Button("Devices…", action: model.openMachines)
-                }
+                Button(MenuBarCopy.open, action: model.openAgentKeyring)
                 Divider()
-                Button("Quit Agent Keyring", action: model.quit)
+                Button(MenuBarCopy.quit, action: model.quit)
             } label: {
-                Image(systemName: "ellipsis")
+                Text("···").font(.system(size: 16, weight: .bold)).foregroundStyle(RequestToken.ink2)
             }
             .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
-            .controlSize(.small)
             .fixedSize()
-            .accessibilityLabel("More")
+            .accessibilityLabel(MenuBarCopy.more)
             .accessibilityIdentifier("menu-more")
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 10)
-        .padding(.bottom, 4)
+        .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 12)
+        .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
     }
 }
 
-/// The app's name with its key in the brand colour, as on the request panel.
-private struct KeyringTitleLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.foregroundStyle(KeyringColour.signal)
-            configuration.title
+private struct Banner<Extra: View>: View {
+    let text: String
+    @ViewBuilder var extra: Extra
+
+    init(text: String, @ViewBuilder extra: () -> Extra = { EmptyView() }) {
+        self.text = text
+        self.extra = extra()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(text).font(.system(size: 13)).foregroundStyle(RequestToken.ink).fixedSize(horizontal: false, vertical: true)
+            extra
         }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RequestToken.fill, in: .rect(cornerRadius: 10))
+        .padding(.horizontal, 12).padding(.top, 12)
     }
 }
 
-private struct MenuSection<Content: View>: View {
+private struct Heading: View {
     let title: String
-    @ViewBuilder let content: Content
-
+    init(_ title: String) { self.title = title }
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
-            content
-        }
+        Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(RequestToken.ink2)
+            .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 3)
     }
 }
 
-private struct WaitingMenuRow: View {
-    let request: AccessRequest
-    let review: () -> Void
+private struct Row<Trailing: View>: View {
+    let title: String
+    let detail: String
+    @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Circle().fill(KeyringColour.signal).frame(width: 8, height: 8)
+        HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(request.login.site).font(.body.weight(.semibold))
-                Text("\(request.agent.name) · \(AccessRequestCopy.origin(request.agent))")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink).lineLimit(1)
+                Text(detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2).lineLimit(1)
             }
-            Spacer()
-            if case let .waitingForYou(until) = request.state {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(AccessRequestCopy.remaining(until: until, now: context.date))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(KeyringColour.signal)
-                }
-            }
-            Button(AccessRequestCopy.show, action: review)
-                .buttonStyle(.borderedProminent)
-                .tint(KeyringColour.signal)
-                .controlSize(.small)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 16).padding(.vertical, 7)
     }
 }
 
-private struct JoiningMenuRow: View {
-    let enrolment: DeviceEnrolment
-    let review: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: enrolment.kind == .machine ? "desktopcomputer" : "iphone")
-                .foregroundStyle(KeyringColour.signal)
-                .frame(width: 8)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(enrolment.name).font(.body.weight(.semibold))
-                Text(SetupCopy.joiningDetail(enrolment))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button(AccessRequestCopy.show, action: review)
-                .buttonStyle(.borderedProminent)
-                .tint(KeyringColour.signal)
-                .controlSize(.small)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-    }
-}
-
-private struct InUseMenuRow: View {
-    let request: AccessRequest
-    let end: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(request.login.site).font(.body)
-                Text("\(request.agent.name) · \(AccessRequestCopy.origin(request.agent))")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if case let .approved(_, until) = request.state {
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    Text(AccessRequestCopy.minutesLeft(until: until, now: context.date))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(KeyringColour.approveText)
-                }
-            }
-            Button(AccessRequestCopy.stop, action: end)
-                .buttonStyle(.borderless)
-                .foregroundStyle(KeyringColour.denyText)
-                .fontWeight(.medium)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-    }
-}
-
-private struct RecentMenuRow: View {
+private struct RecentRow: View {
     let request: AccessRequest
     let allowAskingAgain: () -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(AccessRequestCopy.clock(request.askedAt))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Text(request.login.site)
-                .font(.callout)
-                .lineLimit(1)
-            Text(request.agent.name)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Spacer()
-            if request.state.isHoldingOffNewRequests(now: .now) {
-                Button(AccessRequestCopy.letAskAgain, action: allowAskingAgain)
-                    .buttonStyle(.link)
-                    .font(.caption)
+        HStack(spacing: 10) {
+            Text(AccessRequestCopy.clock(request.askedAt)).font(.system(size: 13).monospacedDigit())
+                .foregroundStyle(RequestToken.ink2).frame(width: 38, alignment: .leading)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(request.login.site).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink).lineLimit(1)
+                Text(MenuBarCopy.who(request, project: false)).font(.system(size: 13)).foregroundStyle(RequestToken.ink2).lineLimit(1)
+                if request.state.isHoldingOffNewRequests(now: .now) {
+                    Button(AccessRequestCopy.letAskAgain, action: allowAskingAgain)
+                        .buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(RequestToken.brand)
+                }
             }
-            Text(AccessRequestCopy.outcomeWord(request.state))
-                .font(.caption.weight(.medium))
-                .foregroundStyle(outcomeColour(request.state) ?? .secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                Circle().fill(dot).frame(width: 8, height: 8)
+                Text(request.byAutomaticRule ? MenuBarCopy.automatic : AccessRequestCopy.outcomeWord(request.state))
+                    .font(.system(size: 13)).foregroundStyle(RequestToken.ink)
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 16).padding(.vertical, 7)
+    }
+
+    private var dot: Color {
+        if request.byAutomaticRule { return RequestToken.idle }
+        return switch request.state {
+        case .approved, .released, .expired: RequestToken.approve
+        case .denied, .blockedByRule: RequestToken.deny
+        default: RequestToken.idle
+        }
+    }
+}
+
+private struct Pill: View {
+    let title: String
+    let dark: Bool
+    var height: CGFloat = 28
+    var inset: CGFloat = 16
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(dark ? RequestToken.surface : RequestToken.ink)
+                .padding(.horizontal, inset).frame(height: height)
+                .background(dark ? RequestToken.ink : RequestToken.fill, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 #endif

@@ -58,6 +58,10 @@ public final class MacApprovalModel {
     public private(set) var failure: String?
     /// True from the click on Approve until Josh confirms in macOS's dialog.
     public private(set) var isWaitingForTouch = false
+    /// The lid is shut, so Touch ID is off. Set by whoever shows the panel.
+    public var lidClosed = false
+    /// The iPhone or Apple Watch also has this request, so it can be answered there.
+    public var approvesElsewhere = false
     /// Called when Josh is done with the panel.
     public var close: () -> Void = {}
     /// Called once the request has an answer, from here or elsewhere.

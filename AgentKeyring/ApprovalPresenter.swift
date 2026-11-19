@@ -44,6 +44,11 @@ final class ApprovalPresenter {
     private var question: OwnerApproval?
     private var following: Task<Void, Never>?
     private var closingAfterAnswer: Task<Void, Never>?
+    /// The practice request waits until Touch ID has a fingerprint; first run says why.
+    private var needsFingerprint = MacApprover.needsFingerprint
+    /// The item `show` is putting up, for `showRequest`.
+    private var showing: Item?
+    private var observers: [NSObjectProtocol] = []
 
     init(model: MirrorAppModel) {
         self.model = model
@@ -59,6 +64,29 @@ final class ApprovalPresenter {
         following = Task { [weak self] in
             for await items in observations { self?.update(items) }
         }
+        for name in [NSApplication.didChangeScreenParametersNotification, NSApplication.didBecomeActiveNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.approverChanged() }
+            })
+        }
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil,
+            queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.approverChanged() } })
+    }
+
+    /// The lid opened or closed, or a fingerprint may have been added.
+    private func approverChanged() {
+        needsFingerprint = MacApprover.needsFingerprint
+        if let shownRequest, let shownItem { configure(shownRequest, for: shownItem) }
+        update(waiting)
+    }
+
+    /// With the lid shut the panel says where the request can still be
+    /// answered: only requests from agents on other computers reach the
+    /// iPhone and Apple Watch, through the relay.
+    private func configure(_ approval: MacApprovalModel, for item: Item) {
+        approval.lidClosed = MacApprover.lidIsClosed
+        let phoneOrWatch = model.device?.members?.devices.contains { $0.kind == .iphone || $0.kind == .watch } == true
+        if case .remote = item { approval.approvesElsewhere = phoneOrWatch } else { approval.approvesElsewhere = false }
     }
 
     /// Brings a waiting request forward, from the menu bar's Review.
@@ -78,7 +106,7 @@ final class ApprovalPresenter {
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
         let remote = (device?.waitingRequests ?? []).map { (Item.remote($0.requestID), $0.askedUnixSeconds) }
         let sendImported: [Item] = model.importedLoginsAwaitApproval ? [.sendImported] : []
-        let selfTest: [Item] = model.selfTest == .waiting ? [.selfTest] : []
+        let selfTest: [Item] = model.selfTest == .waiting && !needsFingerprint ? [.selfTest] : []
         return selfTest + relaySetup + joining + sendImported + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
     }
 
@@ -109,6 +137,7 @@ final class ApprovalPresenter {
         closingAfterAnswer?.cancel()
         closingAfterAnswer = nil
         let more = waiting.filter { $0 != item && $0.isRequest }.count
+        showing = item
         switch item {
         case .relay:
             guard let request = additionBackend.request(AdditionBackend.setupID) else { return }
@@ -135,6 +164,7 @@ final class ApprovalPresenter {
     }
 
     private func showRequest(_ approval: MacApprovalModel) {
+        if let showing { configure(approval, for: showing) }
         panel.show(approval)
         approval.close = { [weak self] in self?.dismiss() }
         shownRequest = approval

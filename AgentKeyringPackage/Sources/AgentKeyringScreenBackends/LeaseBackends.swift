@@ -88,7 +88,23 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
         return MacMenuBarSnapshot(
             requests: model.leaseStore.leases.map(model.accessRequest(for:)) + remote,
             enrolments: device?.joins.map(RelayScreenMapping.enrolment) ?? [],
-            relay: device?.isJoined == true || device?.setup != nil ? RelayScreenMapping.relayLink(device) : nil)
+            offlineComputer: offlineComputer(device), passwordCount: model.status?.credentialItemCount ?? 0)
+    }
+
+    /// Set when the connection fails, cleared only once it is back: while the
+    /// computer is down, MacDevice tries again every few seconds and is
+    /// "connecting" in between, which must not make the banner flicker.
+    private var lostConnection = false
+
+    private func offlineComputer(_ device: MacDevice?) -> String? {
+        guard let device, device.isJoined else { return nil }
+        switch device.connection {
+        case .unreachable: lostConnection = true
+        case .connected, .notSetUp: lostConnection = false
+        case .connecting: break
+        }
+        guard lostConnection else { return nil }
+        return device.members?.machines.first { $0.machineID == device.alwaysOnMachineID }?.label ?? MenuBarCopy.relayComputer
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {

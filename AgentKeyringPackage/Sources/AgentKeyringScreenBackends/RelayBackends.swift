@@ -58,17 +58,6 @@ public enum RelayScreenMapping {
             code: "", askedAt: date(join.askedUnixSeconds))
     }
 
-    public static func relayLink(_ device: MacDevice?) -> RelayLink {
-        guard let device else { return .notSetUp }
-        if let setup = device.setup { return .connecting(address: setup.endpoint.host) }
-        return switch device.connection {
-        case .notSetUp: .notSetUp
-        case .connecting: .connecting(address: "the relay")
-        case .connected: .connected(address: "the relay")
-        case .unreachable: .offline(address: "the relay")
-        }
-    }
-
     static func date(_ unixSeconds: Int64) -> Date {
         Date(timeIntervalSince1970: TimeInterval(unixSeconds))
     }

@@ -20,6 +20,8 @@ public struct AccessRequest: Identifiable, Hashable, Sendable {
     public var events: [AccessRequestEvent]
     /// Josh answered, but the answer is still waiting to reach the relay.
     public var answerIsQueued: Bool
+    /// The lease was approved by the password's Automatic rule, also after it ended.
+    public var byAutomaticRule: Bool
 
     public init(
         id: String,
@@ -30,7 +32,8 @@ public struct AccessRequest: Identifiable, Hashable, Sendable {
         askedAt: Date,
         state: AccessRequestState,
         events: [AccessRequestEvent] = [],
-        answerIsQueued: Bool = false
+        answerIsQueued: Bool = false,
+        byAutomaticRule: Bool = false
     ) {
         self.id = id
         self.login = login
@@ -41,6 +44,7 @@ public struct AccessRequest: Identifiable, Hashable, Sendable {
         self.state = state
         self.events = events
         self.answerIsQueued = answerIsQueued
+        self.byAutomaticRule = byAutomaticRule
     }
 }
 

@@ -25,7 +25,7 @@ public final class SelfTestBackend: MacApprovalBackend {
         let state: AccessRequestState = switch model.selfTest {
         case .waiting, .notRun: .waitingForYou(until: .distantFuture)
         case let .passed(at): .approved(by: .mac, until: at)
-        case .failed, .declined: .denied(by: .mac, reply: nil, askAgainAfter: nil)
+        case .declined: .denied(by: .mac, reply: nil, askAgainAfter: nil)
         }
         return .practice(id: Self.requestID, state: state)
     }

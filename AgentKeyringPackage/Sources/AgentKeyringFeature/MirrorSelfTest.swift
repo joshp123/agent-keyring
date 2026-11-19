@@ -19,7 +19,6 @@ public enum MacSelfTest: Equatable, Sendable {
     /// The practice request is beside the pointer.
     case waiting
     case passed(Date)
-    case failed(String)
     /// He denied the practice request: nothing is wrong, it is simply not tested.
     case declined
 }
@@ -60,7 +59,7 @@ extension MirrorAppModel {
             throw error
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            selfTest = .failed(message)
+            // The request stays up with the error under it, so he can try again there.
             selfTestLogger.error("Self-test failed: \(message, privacy: .public)")
             await device?.reportSelfTest(passed: false, error: message)
             throw error
