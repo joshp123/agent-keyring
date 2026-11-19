@@ -25,11 +25,13 @@ public struct WatchAnswers: Sendable {
         let work = try Agentkeyring_V2_Work(serializedBytes: request.work)
         guard work.hasSealedLogin else { throw WatchFailure.notInRequest }
         let parsed = try Sealing.parseRequest(work.request)
+        // The site Apple Watch showed and the sites the approval names both come from the signed Catalogue.
+        let login = try Sealing.signedLogin(for: parsed, in: saved.signedCatalogue)
         guard let machine = members.machines.first(where: { $0.machineID == parsed.machineID }),
               let receiving = try? P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)
         else { throw WatchFailure.unknownMachine }
         let secret = try keys.open(work.sealedLogin)
-        let upload = try Sealing.approve(request: work.request, secret: secret, sites: request.sites,
+        let upload = try Sealing.approve(request: work.request, secret: secret, sites: login.sites,
                                          receivingKey: receiving, signerKeyID: keys.keyID(), sign: keys.sign)
         return try await post(upload, saved: saved)
     }

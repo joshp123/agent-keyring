@@ -431,10 +431,9 @@ public final class PhoneRelayBackend: PhoneBackend {
         if isPractice(requestID) { return try await approveTest() }
         let work = try await currentWork(requestID)
         let request = try Sealing.parseRequest(work.request)
-        guard let members, let catalogue,
+        guard let members, let login = try? Sealing.signedLogin(for: request, in: catalogue),
               let machine = members.machines.first(where: { $0.machineID == request.machineID }),
-              let login = catalogue.logins.first(where: { $0.loginID == request.loginID }),
-              login.rule != .blocked, work.hasSealedLogin else {
+              work.hasSealedLogin else {
             throw KeyringRelayError(code: .notAllowed, message: "This iPhone may not approve this request.")
         }
         let context = LAContext()
@@ -1007,6 +1006,8 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// The signed Members bytes, for the Watch.
     public var signedMembers: Data? { state.members }
+    /// The signed Catalogue, as the relay sent it, for Apple Watch.
+    public var signedCatalogue: Data? { state.catalogue }
 
     /// Tells the relay where to wake this iPhone, and the key its notices are sealed to.
     public func registerPush(token: Data, topic: String, production: Bool) async throws {

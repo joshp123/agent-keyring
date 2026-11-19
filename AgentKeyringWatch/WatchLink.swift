@@ -70,7 +70,7 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
                 push.deviceKeyID = try keys.keyID()
                 push.apnsToken = token
                 push.apnsTopic = Bundle.main.bundleIdentifier ?? ""
-                push.apnsProduction = (Bundle.main.object(forInfoDictionaryKey: "AgentKeyringAPNSEnvironment") as? String) == "production"
+                push.apnsProduction = PushEnvironment.isProduction
                 push.noticePublicKey = try keys.noticePublicKey()
                 payload["watchPush"] = try push.serializedData()
             }
