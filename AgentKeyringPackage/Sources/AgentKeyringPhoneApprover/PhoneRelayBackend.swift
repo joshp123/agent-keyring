@@ -564,7 +564,11 @@ public final class PhoneRelayBackend: PhoneBackend {
                     }
                 }
             }
-            if old.rule == .automatic && login.rule != .automatic { batch.withdrawnLoginIds.append(change.loginID) }
+            // Leaving Automatic, or becoming Blocked: no computer keeps a copy. (Withdrawing devices' own copies
+            // of a Blocked password needs the relay to take that, which the protocol does not yet carry.)
+            if (old.rule == .automatic && login.rule != .automatic) || (login.rule == .blocked && old.rule != .blocked) {
+                batch.withdrawnLoginIds.append(change.loginID)
+            }
             next.logins[index] = login
         }
         next.revision += 1
