@@ -4,7 +4,8 @@
 // command, and a stand-in device whose software keys take the place of the
 // iPhone's chip. Two machines join; on them agents ask, and get the login
 // once, a denial with Josh's words, a plain denial, no answer, or an
-// Automatic login with no question. Every program runs as its own process.
+// Automatic login with no question; an approval keeps working while the relay
+// is down, until it is released. Every program runs as its own process.
 //
 // By default everything runs here on loopback. To run it across real machines,
 // see developer/e2e/run.sh, which uses the same steps.
@@ -109,29 +110,38 @@ func freePort(t *testing.T) string {
 	return listener.Addr().String()
 }
 
-func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
-	p := build(t)
-	address := freePort(t)
+// startRelay runs the relay until stop is called, and shows its log if the
+// test failed.
+func startRelay(t *testing.T, p programs, address, state string) (stop func()) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	relay := exec.CommandContext(ctx, p.relay, "--listen", address, "--state", t.TempDir(), "--loopback-test", "--answer-within", "4s")
+	relay := exec.CommandContext(ctx, p.relay, "--listen", address, "--state", state, "--loopback-test", "--answer-within", "4s")
 	relayLog := &bytes.Buffer{}
 	relay.Stderr = relayLog
 	if err := relay.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
+	stop = func() {
 		cancel()
 		relay.Wait()
 		if t.Failed() {
 			t.Logf("relay log:\n%s", relayLog)
 		}
-	}()
+	}
 	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(relayLog.String(), "listening"); time.Sleep(50 * time.Millisecond) {
 		if time.Now().After(deadline) {
+			stop()
 			t.Fatal("relay did not start")
 		}
 	}
+	return stop
+}
+
+func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
+	p := build(t)
+	address, relayState := freePort(t), t.TempDir()
+	stopRelay := startRelay(t, p, address, relayState)
+	defer func() { stopRelay() }()
 	r := &run{t: t, programs: p, relay: address, deviceState: t.TempDir()}
 	r.device("init", "--relay", address)
 
@@ -173,6 +183,43 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 		if received, _ := os.ReadFile(output); string(received) != "example-ask-password" {
 			t.Fatalf("the program received %d bytes, not the password", len(received))
+		}
+	})
+
+	t.Run("an approval keeps working while the relay is down, until it is released", func(t *testing.T) {
+		asking := start(linux.command("lease", "login-ask", "--task", "offline", "--reason", "You asked me to download November's invoice."))
+		r.device("answer", "--approve")
+		got := wait(t, asking, "lease")
+		if got.err != nil {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		lease := strings.TrimSpace(got.stdout)
+
+		stopRelay()
+		restarted := false
+		defer func() {
+			if !restarted { // The later steps need the relay.
+				stopRelay = startRelay(t, p, address, relayState)
+			}
+		}()
+		read := wait(t, start(linux.command("read", lease, "--field", "password")), "read")
+		if read.err != nil || read.stdout != "example-ask-password" {
+			t.Fatalf("with the relay down, read: %v, %d bytes\n%s", read.err, len(read.stdout), read.stderr)
+		}
+		released := wait(t, start(linux.command("release", lease)), "release")
+		if released.err == nil || !strings.Contains(released.stderr, "Released on this machine") {
+			t.Fatalf("with the relay down, release: %v\n%s", released.err, released.stderr)
+		}
+
+		// The relay comes back still thinking the approval stands; this machine does not.
+		stopRelay, restarted = startRelay(t, p, address, relayState), true
+		read = wait(t, start(linux.command("read", lease, "--field", "password")), "read")
+		if read.err == nil || read.stdout != "" || !strings.Contains(read.stderr, "This lease was released.") {
+			t.Fatalf("after release, read: %v, %d bytes\n%s", read.err, len(read.stdout), read.stderr)
+		}
+		released = wait(t, start(linux.command("release", lease)), "release")
+		if released.err != nil || !strings.Contains(released.stderr, "Lease released.") {
+			t.Fatalf("release with the relay back: %v\n%s", released.err, released.stderr)
 		}
 	})
 
@@ -253,8 +300,10 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	})
 
-	t.Run("a device tests itself at first run", func(t *testing.T) {
-		if out := r.device("self-test"); !strings.Contains(out, "Test request: LEASE_STATE_APPROVED") {
+	t.Run("a device answers its practice request at first run", func(t *testing.T) {
+		out := r.device("self-test")
+		if !strings.Contains(out, `Agent Keyring (Practice) wants example.com, you@example.com: "This is a practice request. No real password is used."`) ||
+			!strings.Contains(out, "Practice request: LEASE_STATE_APPROVED") {
 			t.Fatalf("self-test said %q", out)
 		}
 	})
@@ -268,4 +317,30 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 			t.Fatalf("read: %v, %d bytes\n%s", read.err, len(read.stdout), read.stderr)
 		}
 	})
+}
+
+// An agent lists the computers on the tailnet to ask which ones to set up.
+// A stand-in tailscale command prints what Tailscale's own prints.
+func TestMachinesListsTheTailnet(t *testing.T) {
+	p := build(t)
+	bin := t.TempDir()
+	status := `{"Self": {"HostName": "Example’s MacBook Pro", "DNSName": "laptop.example.ts.net.", "OS": "macOS", "Online": true},
+	  "Peer": {
+	    "nodekey:1": {"HostName": "server", "DNSName": "server.example.ts.net.", "OS": "linux", "Online": false},
+	    "nodekey:2": {"HostName": "localhost", "DNSName": "phone.example.ts.net.", "OS": "iOS", "Online": true},
+	    "nodekey:3": {"HostName": "mini", "DNSName": "mac-mini.example.ts.net.", "OS": "macOS", "Online": true}}}`
+	if err := os.WriteFile(filepath.Join(bin, "tailscale"), []byte("#!/bin/sh\ncat <<'END'\n"+status+"\nEND\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(p.command, "machines")
+	command.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin")
+	out, err := command.CombinedOutput()
+	want := `COMPUTER                SYSTEM  ONLINE  ADDRESS
+laptop (this computer)  macOS   yes     laptop.example.ts.net
+mac-mini                macOS   yes     mac-mini.example.ts.net
+server                  linux   no      server.example.ts.net
+`
+	if err != nil || string(out) != want {
+		t.Fatalf("machines: %v\n%s", err, out)
+	}
 }

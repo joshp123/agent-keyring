@@ -1,4 +1,4 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5.
+// Written by AI on 2026.11.18 by model claude opus 5.5; the practice request's words on 2026.11.19.
 package relay
 
 import (
@@ -196,8 +196,12 @@ func (s *Server) end(ctx context.Context, who caller, id string) (*pb.Lease, err
 	return lease, err
 }
 
-// testRequest makes a request with no login for the calling device only,
-// pushes it like any other, and streams it until it is answered.
+// practiceLogin is what a device's practice request shows in place of a real
+// login: it names no login in the catalogue, and nothing is sealed for it.
+var practiceLogin = &pb.Login{Title: "example.com", Sites: []string{"example.com"}, Account: "you@example.com"}
+
+// testRequest makes the practice request: no login, for the calling device
+// only, pushed like any other and streamed until it is answered.
 func (s *Server) testRequest(ctx context.Context, who caller, send func(*pb.RelayResponse) error) error {
 	now := s.now()
 	id := newID()
@@ -205,7 +209,7 @@ func (s *Server) testRequest(ctx context.Context, who caller, send func(*pb.Rela
 	s.Store.update(func(data *saved) error {
 		data.Requests[id] = &request{ForDevice: who.device.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: answerBy,
 			Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id,
-				Reason: "A test from Agent Keyring. No login is used.", Agent: "Agent Keyring", ForDeviceKeyId: who.device.KeyId,
+				Reason: "This is a practice request. No real password is used.", Agent: "Agent Keyring", Project: "Practice", ForDeviceKeyId: who.device.KeyId,
 				AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: answerBy})}
 		return nil
 	})
@@ -227,9 +231,9 @@ func (s *Server) proposeRules(ctx context.Context, who caller, document *pb.Sign
 	now := s.now()
 	id := newID()
 	answerBy := now.Add(s.answerWithin()).Unix()
-	reason := "Change the rules for " + strconv.Itoa(len(proposal.Changes)) + " logins."
+	reason := "Change the rules for " + strconv.Itoa(len(proposal.Changes)) + " passwords."
 	if len(proposal.Changes) == 1 {
-		reason = "Change the rule for one login."
+		reason = "Change the rule for one password."
 	}
 	s.Store.update(func(data *saved) error {
 		data.Requests[id] = &request{Proposal: marshal(document), ProposedBy: signer.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING,
@@ -518,7 +522,9 @@ func (s *Server) work(device *pb.Device, id string, data *saved) (*pb.Work, erro
 			work.Proposal = &pb.Signed{}
 			unmarshal(r.Proposal, work.Proposal)
 		}
-		if parsed.LoginId != "" {
+		if parsed.ForDeviceKeyId != "" {
+			work.Login = practiceLogin
+		} else if parsed.LoginId != "" {
 			_, catalogue := s.Store.documentsLocked()
 			work.Login = loginIn(catalogue, parsed.LoginId)
 		}

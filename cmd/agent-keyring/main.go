@@ -38,12 +38,13 @@ const help = `Agent Keyring: use a saved login for one task.
   install                   Link the command and skills; register browser helpers
   install --browser-profile DIRECTORY
                             Register a helper only in this browser user-data directory
+  machines                  List the computers on this Tailscale network
   enrol --name NAME --invite LINK
-                            Join this machine, with a link from 'invite' on the Mac
-  invite                    On the Mac: print a one-time link for one machine to join
+                            Join this computer, with a link from 'invite' on the Mac
+  invite                    On the Mac: print a one-time link for one computer to join
   setup-relay --relay HOST:PORT [--reason WHY]
-                            Start connecting this Mac to the relay on the always-on
-                            machine; prints the link that machine enrols with
+                            Start connecting this Mac to the relay on the computer
+                            that stays on; prints the link that computer enrols with
   relay-status              Check whether this Mac has connected to the relay
 
 A lease ends on release or 30 minutes after approval. It covers fill and read
@@ -182,6 +183,15 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, integration(command)
 	}
+	if command == "machines" {
+		if len(args) != 1 {
+			return 2, errors.New("This command takes no arguments.")
+		}
+		if err = machines(); err != nil {
+			return 1, err
+		}
+		return 0, nil
+	}
 	if command == "tabs" || command == "fields" {
 		return inspectBrowser(ctx, command, a)
 	}
@@ -253,7 +263,7 @@ func run(ctx context.Context, args []string) (int, error) {
 			fmt.Println(result.GetSetup().GetInvite())
 		} else {
 			fmt.Println(result.GetSetup().GetInvite())
-			fmt.Fprintln(os.Stderr, "On the always-on machine, run: agent-keyring enrol --name NAME --invite LINK, with the link above. Josh then approves one request on this Mac; check with relay-status.")
+			fmt.Fprintln(os.Stderr, "On the computer that stays on, run: agent-keyring enrol --name NAME --invite LINK, with the link above. Josh then approves one request on this Mac; check with relay-status.")
 		}
 		return 0, nil
 	}

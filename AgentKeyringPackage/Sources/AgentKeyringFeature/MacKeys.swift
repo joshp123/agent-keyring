@@ -77,15 +77,14 @@ public final class MacKeys {
         return device
     }
 
-    /// The Mac as the machine its own agents run on. Its Automatic logins are
-    /// sealed to its receiving key.
+    /// The Mac as the computer its own agents run on. Its Automatic passwords
+    /// are sealed to its receiving key, once Josh allows this Mac them.
     public var machine: Agentkeyring_V2_Machine {
         var machine = Agentkeyring_V2_Machine()
         machine.machineID = machineID
         machine.label = Host.current().localizedName ?? "MacBook"
         machine.tlsPublicKey = tls.publicKeySPKI
         machine.receivingPublicKey = receiving.publicKey.x963Representation
-        machine.automaticAllowed = true
         return machine
     }
 

@@ -1,6 +1,6 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// The Logins and Devices tabs over the rules, the sealed copies and the relay.
+// The Passwords and Devices tabs over the rules, the sealed copies and the relay.
 
 #if os(macOS)
 import AgentKeyringApprovalUI
@@ -38,14 +38,13 @@ public final class AppMainWindowBackend: MainWindowBackend {
                 MachineRow(id: m.machineID, name: m.label, isThisMac: m.machineID == device?.ownMachineID,
                     isAlwaysOn: m.machineID == device?.alwaysOnMachineID, automatic: m.automaticAllowed, lastTested: nil)
             }
-        } ?? [MachineRow(id: "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true, isAlwaysOn: false,
-            automatic: true, lastTested: nil)]
-        return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, devices: devices, machines: machines,
-            joined: device?.isJoined == true)
+        } ?? [MachineRow(id: device?.ownMachineID ?? "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true,
+            isAlwaysOn: false, automatic: model.automaticOnThisMac, lastTested: nil)]
+        return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, devices: devices, machines: machines)
     }
 
     public func updates() -> AsyncStream<MainSnapshot> {
-        stream(Observations { [weak self] in self?.snapshot() ?? MainSnapshot(logins: [], importedAt: nil, devices: [], machines: [], joined: false) })
+        stream(Observations { [weak self] in self?.snapshot() ?? MainSnapshot(logins: [], importedAt: nil, devices: [], machines: []) })
     }
 
     /// One Touch ID for every change, with our sentence in macOS's dialog.
@@ -55,7 +54,7 @@ public final class AppMainWindowBackend: MainWindowBackend {
         if rows.count == 1, let row = rows.first, let next = changes[row.id] {
             reason = "change \(row.website.isEmpty ? row.title : row.website) from \(LoginRule(row.policy).name) to \(next.name)"
         } else {
-            reason = "change the rules for \(rows.count) logins"
+            reason = "change the rules for \(rows.count) passwords"
         }
         try await confirmed { try await OwnerConfirmation.confirm(context, reason: reason, until: .now.addingTimeInterval(600)) }
         await model.accessControl.setPolicies(changes.mapValues(CredentialAccessPolicy.init), context: context)
@@ -87,8 +86,11 @@ public final class AppMainWindowBackend: MainWindowBackend {
     }
 
     public func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {
-        guard let device = model.device else { return }
-        try await confirmed { try await device.setAutomatic(machineID, allowed: on, context: context) }
+        let label = machineID == model.device?.ownMachineID ? nil : model.device?.members?.machines.first { $0.machineID == machineID }?.label
+        try await confirmed {
+            try await OwnerConfirmation.confirm(context, reason: MainWindowCopy.automaticReason(label, on: on), until: .now.addingTimeInterval(600))
+            try await model.setAutomatic([machineID: on], context: context)
+        }
     }
 
     public func remove(id: String, context: LAContext) async throws {
