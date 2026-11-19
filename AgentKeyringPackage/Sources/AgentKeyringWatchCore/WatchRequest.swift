@@ -47,6 +47,11 @@ public struct WatchRequest: Sendable, Equatable {
         let request = try Sealing.parseRequest(work.request)
         guard let members = saved.signedMembers else { throw Unreadable.notSetUp }
         guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { throw Unreadable.unknownMachine }
+        // Signed by the computer it names, so a relay can't hand one computer's request to another.
+        // A practice request names no computer and carries no password.
+        if request.forDeviceKeyID.isEmpty {
+            do { try Sealing.checkRequest(work, members: members, ownKeyID: "") } catch { throw Unreadable.notSigned }
+        }
         // Named from the signed Catalogue the iPhone handed over, never from what the relay sends beside the request.
         let login = try? Sealing.signedLogin(for: request, in: saved.signedCatalogue)
         let agent = request.agent.isEmpty ? "An agent" : request.agent
@@ -62,12 +67,13 @@ public struct WatchRequest: Sendable, Equatable {
     }
 
     public enum Unreadable: Error, CustomStringConvertible {
-        case noNotice, notSetUp, unknownMachine
+        case noNotice, notSetUp, unknownMachine, notSigned
         public var description: String {
             switch self {
             case .noNotice: "the push carried no notice"
             case .notSetUp: "Apple Watch has no Members yet"
             case .unknownMachine: "the asking machine is not in Members"
+            case .notSigned: "the request was not signed by the machine it names"
             }
         }
     }
