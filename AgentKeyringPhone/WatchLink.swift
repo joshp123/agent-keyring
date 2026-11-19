@@ -24,7 +24,9 @@ final class WatchLink: NSObject, WCSessionDelegate {
 
     private var membersContext: [String: Any]? {
         guard let members = relay.signedMembers, let answerURL = relay.relayAnswerURL else { return nil }
-        return ["members": members, "relayAnswerURL": answerURL]
+        var context: [String: Any] = ["members": members, "relayAnswerURL": answerURL]
+        if let settings = try? PropertyListEncoder().encode(relay.notificationSettings) { context["settings"] = settings }
+        return context
     }
 
     /// Sends the current signed Members to the Watch.

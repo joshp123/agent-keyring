@@ -20,7 +20,10 @@ struct AgentKeyringPhoneApp: App {
             PhoneRootView(model: delegate.model)
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     // In front: follow the relay, or until joined keep looking for the Mac's invitation.
-                    if phase == .active { delegate.relay?.start() } else if phase == .background { delegate.relay?.stop() }
+                    if phase == .active {
+                        delegate.relay?.start()
+                        Task { await delegate.model.recheckNotifications() }
+                    } else if phase == .background { delegate.relay?.stop() }
                 }
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
                 .onOpenURL { url in Task { await delegate.model.join(invitation: url.absoluteString) } }
@@ -29,10 +32,8 @@ struct AgentKeyringPhoneApp: App {
                 }
                 // The Watch learns of every change to the list of devices, its own admission first of all.
                 .onChange(of: delegate.model.snapshot.devices, initial: true) { delegate.watch?.sendMembers() }
-                // Straight after joining, iOS's own question: the one tap iOS requires.
-                .onChange(of: delegate.model.snapshot.asksAboutNotifications, initial: true) { _, asks in
-                    if asks { Task { await delegate.model.askAboutNotifications(); await delegate.noteNotificationSettings() } }
-                }
+                // Apple Watch follows the iPhone's notification settings.
+                .onChange(of: delegate.model.snapshot.settings) { delegate.watch?.sendMembers() }
                 .task { await delegate.noteNotificationSettings() }
         }
     }
@@ -138,16 +139,22 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                                       intentIdentifiers: [], options: [])
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                           didReceive response: UNNotificationResponse) async {
+    /// The completion handler form: UIKit requires it to be called on the main
+    /// thread, which the async form does not do, and the app was stopped for it.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
         let userInfo = response.notification.request.content.userInfo
         let action = response.actionIdentifier
-        await MainActor.run { relay?.pushArrived() }
         let reply = (response as? UNTextInputNotificationResponse)?.userText
         // If the extension could not open the notice, the thread is still the request id.
         let thread = response.notification.request.content.threadIdentifier
-        guard let id = PhoneNotification.requestID(userInfo) ?? (thread.isEmpty ? nil : thread) else { return }
-        await answer(id, action: action, reply: reply)
+        let id = PhoneNotification.requestID(userInfo) ?? (thread.isEmpty ? nil : thread)
+        let done = UncheckedCompletion(completionHandler)
+        Task { @MainActor in
+            relay?.pushArrived()
+            if let id { await answer(id, action: action, reply: reply) }
+            done.call()
+        }
     }
 
     private func answer(_ id: String, action: String, reply: String?) async {
@@ -185,4 +192,10 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         return content.categoryIdentifier == PhoneNotification.requestCategory || content.interruptionLevel == .timeSensitive
             ? [.banner, .list, .sound] : [.list]
     }
+}
+
+/// A completion handler carried to the main actor, where UIKit wants it called.
+struct UncheckedCompletion: @unchecked Sendable {
+    let call: () -> Void
+    init(_ call: @escaping () -> Void) { self.call = call }
 }

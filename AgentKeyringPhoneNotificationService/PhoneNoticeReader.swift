@@ -3,8 +3,15 @@
 import AgentKeyringApprovalUI
 import AgentKeyringPhoneApprover
 import Foundation
+import UserNotifications
 
 enum PhoneNoticeReader {
+    /// Time Sensitive unless he turned it off or it is quiet hours (the iPhone's Settings).
+    static func level() -> UNNotificationInterruptionLevel {
+        let group = Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String
+        return PhoneRelayBackend.breaksThroughFocus(PhoneSharedContext(accessGroup: group)) ? .timeSensitive : .active
+    }
+
     /// The request a push is about, and who answered it if it has ended.
     static func words(_ userInfo: [AnyHashable: Any]) -> (request: AccessRequest, answeredBy: String?)? {
         #if targetEnvironment(simulator)

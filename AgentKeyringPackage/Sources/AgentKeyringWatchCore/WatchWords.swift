@@ -11,9 +11,10 @@ public enum WatchWords {
     public static let requestCategory = "REQUEST"
     public static let denyAndExplain = "deny-and-explain"
     public static let fallbackTitle = "Agent Keyring"
-    public static let fallbackBody = "An agent wants to use a login. Open Agent Keyring to see the request."
+    public static let fallbackBody = "An agent wants to use a password. Open Agent Keyring to see the request."
 
-    public static func write(_ request: WatchRequest, into content: UNMutableNotificationContent) {
+    /// `breaksThroughFocus`: the iPhone's Settings, Time Sensitive and Quiet Hours, at this moment.
+    public static func write(_ request: WatchRequest, into content: UNMutableNotificationContent, breaksThroughFocus: Bool = true) {
         content.threadIdentifier = request.id
         content.title = request.site
         content.userInfo[WatchRequest.workKey] = request.work.base64EncodedString()
@@ -21,10 +22,10 @@ public enum WatchWords {
         case .waiting:
             // One sentence, who is asking first; Apple cuts it at three lines.
             content.subtitle = ""
-            let what = request.account.isEmpty ? request.wants + " this login" : "\(request.wants) \(request.account)"
+            let what = request.account.isEmpty ? request.wants + " this password" : "\(request.wants) \(request.account)"
             content.body = request.reason.isEmpty ? what + "." : "\(what): “\(request.reason)”"
             content.categoryIdentifier = requestCategory
-            content.interruptionLevel = .timeSensitive
+            content.interruptionLevel = breaksThroughFocus ? .timeSensitive : .active
         case .ended(let outcome):
             content.subtitle = ""
             content.body = outcome
