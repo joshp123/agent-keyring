@@ -1,8 +1,10 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// Each login sealed separately to each key that may open it: this Mac's chip
-// key always; this Mac's receiving key, and each machine allowed Automatic
-// logins, when its rule is Automatic; and the other approving devices.
+// Each password sealed separately to each key that may open it: this Mac's
+// chip key always; the receiving key of each computer allowed Automatic
+// passwords (this Mac included) when its rule is Automatic; and the other
+// approving devices. No computer is allowed them until Josh sets a password
+// to Automatic and approves the computers the rule bar names.
 
 import AgentKeyringProtocol
 import AgentKeyringSealing
@@ -16,7 +18,7 @@ extension MirrorAppModel {
     func sealCopies(of secret: Agentkeyring_V2_LoginSecret, automatic: Bool, phoneOnly: Bool = false) throws -> [Agentkeyring_V2_SealedLogin] {
         let keys = try macKeys()
         var openers: [(id: String, key: P256.KeyAgreement.PublicKey)] = phoneOnly ? [] : [(keys.deviceKeyID, keys.openingPublicKey)]
-        if automatic { openers.append((keys.machineID, keys.receiving.publicKey)) }
+        if automatic, automaticOnThisMac { openers.append((keys.machineID, keys.receiving.publicKey)) }
         openers += device?.otherOpeners(automatic: automatic) ?? []
         return try openers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id) }
     }
@@ -25,29 +27,37 @@ extension MirrorAppModel {
     func macCopy(of loginID: String) async throws -> Agentkeyring_V2_SealedLogin {
         let keys = try macKeys()
         guard let copy = try await store.sealed().first(where: { $0.loginID == loginID && $0.openerID == keys.deviceKeyID }) else {
-            throw LeaseFailure(.notFound, "This Mac has no sealed copy of the login. Import it again from Apple Passwords.")
+            throw LeaseFailure(.notFound, "This Mac has no copy of this password. Copy your passwords again from Passwords.")
         }
         return copy
     }
 
-    /// A rule change, after Josh's Touch ID: a login switched to Automatic is
-    /// opened once and sealed to the machines that may use it unasked; one
-    /// switched away loses those copies. The other devices then get the new rules.
+    /// A rule change, after Josh's Touch ID: a password switched to Automatic
+    /// first switches on every computer not yet allowed Automatic passwords
+    /// (the rule bar names them all), then is opened once and sealed to each;
+    /// one switched away loses those copies. The other devices then get the new rules.
     func applyRuleChange(from old: [UUID: CredentialAccessPolicy], to new: [UUID: CredentialAccessPolicy], context: LAContext) async throws {
         let keys = try macKeys()
-        let machines = Set([keys.machineID] + (device?.members?.machines.map(\.machineID) ?? []))
-        var sealed = try await store.sealed()
-        var withdrawn = Set<String>()
-        for id in Set(old.keys).union(new.keys) where old[id] != new[id] {
+        let changed = Set(old.keys).union(new.keys).filter { old[$0] != new[$0] }
+        for id in changed {
             if old[id] == .askOnPhone {
-                throw LeaseFailure(.permissionDenied, "Approve it on your iPhone: only it can change this login's rule.")
+                throw LeaseFailure(.permissionDenied, "Approve it on your iPhone: only it can change this password's rule.")
             }
             if new[id] == .askOnPhone, device?.members?.devices.contains(where: { $0.kind == .iphone }) != true {
-                throw LeaseFailure(.permissionDenied, "Add your iPhone first: only it can change this login's rule back.")
+                throw LeaseFailure(.permissionDenied, "Add your iPhone first: only it can change this password's rule back.")
             }
-            if new[id] == .askOnPhone { sealed.removeAll { $0.loginID == id.uuidString && $0.openerID == keys.deviceKeyID } }
         }
-        for id in Set(old.keys).union(new.keys) where (old[id] == .allowAutomatically) != (new[id] == .allowAutomatically) {
+        if changed.contains(where: { new[$0] == .allowAutomatically }) {
+            let off = automaticComputers.filter { !$0.allowed }.map(\.id)
+            if !off.isEmpty { try await setAutomatic(Dictionary(uniqueKeysWithValues: off.map { ($0, true) }), context: context) }
+        }
+        let machines = Set(automaticComputers.map(\.id))
+        var sealed = try await store.sealed()
+        var withdrawn = Set<String>()
+        for id in changed where new[id] == .askOnPhone {
+            sealed.removeAll { $0.loginID == id.uuidString && $0.openerID == keys.deviceKeyID }
+        }
+        for id in changed where (old[id] == .allowAutomatically) != (new[id] == .allowAutomatically) {
             let loginID = id.uuidString
             sealed.removeAll { $0.loginID == loginID && machines.contains($0.openerID) }
             guard new[id] == .allowAutomatically else { withdrawn.insert(loginID); continue }
@@ -56,6 +66,49 @@ extension MirrorAppModel {
         }
         try await store.replaceSealed(sealed)
         if device?.isJoined == true { try await device?.publish(context: context, withdrawn: withdrawn) }
+    }
+
+    static let automaticOnThisMacKey = "automaticOnThisMac"
+
+    /// Whether agents on this Mac get Automatic passwords without asking.
+    public var automaticOnThisMac: Bool {
+        if let device, let own = device.members?.machines.first(where: { $0.machineID == device.ownMachineID }) {
+            return own.automaticAllowed
+        }
+        return savedAutomaticOnThisMac
+    }
+
+    /// This Mac and every computer whose agents can ask, and whether each is
+    /// allowed Automatic passwords.
+    public var automaticComputers: [(id: String, allowed: Bool)] {
+        guard let keys = try? macKeys() else { return [] }
+        let others = (device?.members?.machines ?? []).filter { $0.machineID != keys.machineID }
+        return [(keys.machineID, automaticOnThisMac)] + others.map { ($0.machineID, $0.automaticAllowed) }
+    }
+
+    /// Switches computers on or off for Automatic passwords, with a context
+    /// Josh has just approved: each Automatic password is opened once and
+    /// sealed to those switched on; those switched off lose their copies.
+    public func setAutomatic(_ changes: [String: Bool], context: LAContext) async throws {
+        let keys = try macKeys()
+        try await device?.setAutomatic(changes, context: context)
+        if let own = changes[keys.machineID] { savedAutomaticOnThisMac = own }
+        var receivers: [(id: String, key: P256.KeyAgreement.PublicKey)] = []
+        for (id, allowed) in changes where allowed {
+            if id == keys.machineID { receivers.append((id, keys.receiving.publicKey)); continue }
+            guard let machine = device?.members?.machines.first(where: { $0.machineID == id }) else { continue }
+            receivers.append((id, try P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)))
+        }
+        var sealed = try await store.sealed().filter { changes[$0.openerID] == nil }
+        if !receivers.isEmpty {
+            for login in leaseLogins where accessControl.policy(for: login.id) == .allowAutomatically {
+                let secret = try keys.open(try await macCopy(of: login.id.uuidString), context: context)
+                sealed += try receivers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id) }
+            }
+        }
+        try await store.replaceSealed(sealed)
+        try await device?.sendCopies(for: Set(changes.keys).subtracting([keys.machineID]))
+        try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
     }
 
     /// A rule change from another device: its rules, and this Mac's Automatic
@@ -113,7 +166,7 @@ extension MirrorAppModel {
         } else if leaseStore.isAutomatic(lease.leaseID) {
             let keys = try macKeys()
             guard let copy = try await store.sealed().first(where: { $0.loginID == lease.loginID && $0.openerID == keys.machineID }) else {
-                throw LeaseFailure(.permissionDenied, "This login is not set up to be used without asking on this Mac. Ask Josh to set it to Automatic again.")
+                throw LeaseFailure(.permissionDenied, "This login is not set up to be used without asking on this Mac. Ask Josh to set it to Automatic again, or to switch on Automatic passwords for this Mac in Devices.")
             }
             secret = try Sealing.open(copy, with: keys.receiving)
         } else {

@@ -1,4 +1,4 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5.
+// Written by AI on 2026.11.18 by model claude opus 5.5; the practice request on 2026.11.19.
 //
 // A stand-in for an approving device, with software keys where an iPhone has
 // its chip, for end-to-end tests of the relay and the command. It does what
@@ -8,7 +8,7 @@
 //	test-device approve-joins --state DIR               approve every waiting machine, Automatic allowed
 //	test-device join    --state DIR --invite LINK      a second device that joins by invitation
 //	test-device invite  --state DIR                     print a one-time link for one machine or device to join
-//	test-device self-test --state DIR                   ask for a test request, approve it, report
+//	test-device self-test --state DIR                   ask for the practice request, approve it, report
 //	test-device propose --state DIR --login ID --rule ask|automatic|blocked|phone-and-watch
 //	                                                    propose a rule change, as the Mac's bar does, and wait for its answer
 //	test-device answer  --state DIR (--approve | --deny WORDS | --deny-plain | --ignore)
@@ -489,6 +489,8 @@ func (d *device) selfTest(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	request, _ := keyring.ParseRequest(work.Request)
+	fmt.Printf("%s (%s) wants %s, %s: %q\n", request.Agent, request.Project, work.GetLogin().GetTitle(), work.GetLogin().GetAccount(), request.Reason)
 	now := time.Now()
 	payload, _ := proto.Marshal(&pb.Answer{Domain: keyring.AnswerDomain, RequestSha256: keyring.SHA256(work.Request), Choice: pb.Choice_CHOICE_APPROVE,
 		DecidedUnixSeconds: now.Unix(), NotAfterUnixSeconds: now.Unix() + 60})
@@ -509,7 +511,7 @@ func (d *device) selfTest(ctx context.Context) error {
 	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_ReportSelfTest{ReportSelfTest: signed}}, nil); err != nil {
 		return err
 	}
-	fmt.Println("Test request:", lease.State)
+	fmt.Println("Practice request:", lease.State)
 	return nil
 }
 

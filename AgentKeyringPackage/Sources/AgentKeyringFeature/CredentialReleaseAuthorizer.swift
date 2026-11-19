@@ -11,11 +11,11 @@ private let credentialAuthorizationLogger = Logger(
 
 /// Our words in macOS's Touch ID dialog, after "Agent Keyring is trying to".
 public enum ApprovalSentence {
-    /// The machine is named only when it is not this Mac.
+    /// The computer is named only when it is not this Mac.
     public static func lease(site: String, account: String, agent: String, machine: String? = nil) -> String {
         let site = URL(string: site)?.host() ?? site
         let who = (agent.isEmpty ? "an agent" : agent) + (machine.map { " on \($0)" } ?? "")
-        return "let \(who) use your \(site) login, \(account)"
+        return "let \(who) use your \(site) password, \(account)"
     }
 }
 

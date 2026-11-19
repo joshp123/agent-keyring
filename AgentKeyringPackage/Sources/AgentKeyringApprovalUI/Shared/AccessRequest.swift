@@ -44,6 +44,15 @@ public struct AccessRequest: Identifiable, Hashable, Sendable {
     }
 }
 
+extension AccessRequest {
+    /// First run's practice request, in FirstRunCopy's words.
+    public static func practice(id: String, state: AccessRequestState) -> AccessRequest {
+        AccessRequest(id: id, login: RequestedLogin(site: FirstRunCopy.practiceSite, account: FirstRunCopy.practiceAccount),
+            agent: RequestingAgent(name: FirstRunCopy.practiceAgent, machine: "", address: "", isLocal: true),
+            access: .practice, agentReason: FirstRunCopy.practiceReason, askedAt: .now, state: state)
+    }
+}
+
 public struct RequestedLogin: Hashable, Sendable {
     public var site: String
     public var account: String
@@ -82,13 +91,17 @@ public struct RequestingAgent: Hashable, Sendable {
 
 /// What a request asks for.
 public enum RequestedAccess: Hashable, Sendable {
-    /// A login, which the agent may fill or read for this task, 30 minutes at most.
+    /// A password, which the agent may fill or read for this task, 30 minutes at most.
     case login
-    /// Not a login: the test request, or a machine or device asking to be
-    /// added. The panel shows `lead`, the request's site in large type (the
-    /// name), `detail`, the agent's reason if any, and `footer`; `denied` is
-    /// the line under "Denied" once he has denied it.
-    case setUp(lead: String, detail: String, footer: String, denied: String)
+    /// First run's practice request: laid out as a real one, with "Practice"
+    /// where a real one shows the project. No real password is used.
+    case practice
+    /// Not a password: a computer or device asking to be added. The panel
+    /// shows `lead`, the request's site in large type (the name), `detail` if
+    /// any, the agent's reason if any, and `footer`; `denied` is the line under
+    /// "Denied" once he has denied it. `replies`: an agent asked, so the reply
+    /// box is there as on a password request; otherwise Deny takes its place.
+    case setUp(lead: String, detail: String, footer: String, denied: String, replies: Bool)
 
     public static let longestLease: TimeInterval = 30 * 60
 }

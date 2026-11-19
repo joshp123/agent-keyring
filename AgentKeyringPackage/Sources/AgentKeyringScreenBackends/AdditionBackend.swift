@@ -1,8 +1,8 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// Adding the always-on machine, another machine or a device is a request in
-// the same panel and with the same click and touch as a login request
-// (Paper, "First run", steps 3 and 5).
+// Adding the computer that stays on, another computer or a device is a request
+// in the same panel and with the same click and Touch ID as a password request
+// (Paper, "First run", "Other computers, iPhone and Apple Watch").
 
 #if os(macOS)
 import AgentKeyringApprovalUI
@@ -36,9 +36,9 @@ public final class AdditionBackend: MacApprovalBackend {
         if id == Self.setupID, let setup = device.setup, let machine = setup.machine {
             request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
                 agent: RequestingAgent(name: setup.agent, machine: "This Mac", address: "", isLocal: true),
-                access: .setUp(lead: "\(setup.agent) on this Mac wants to add", detail: "as your always-on machine",
-                    footer: "Agents on \(machine.label) can then ask to use your logins, and get any set to Automatic without asking. You can switch that off in Devices.",
-                    denied: "\(machine.label) was not added."),
+                access: .setUp(lead: SetupCopy.addingComputerLead(agent: setup.agent), detail: "",
+                    footer: SetupCopy.addingComputerFooter(machine.label, staysOn: true), denied: SetupCopy.notAdded(machine.label),
+                    replies: true),
                 agentReason: setup.reason, askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
         } else if let join = device.joins.first(where: { MacDevice.joinID($0) == id }) {
             let asked = Date(timeIntervalSince1970: TimeInterval(join.askedUnixSeconds))
@@ -46,18 +46,17 @@ public final class AdditionBackend: MacApprovalBackend {
             case let .device(joining)?:
                 request = AccessRequest(id: id, login: RequestedLogin(site: joining.label, account: ""),
                     agent: RequestingAgent(name: joining.label, machine: joining.label, address: "", isLocal: false),
-                    access: .setUp(lead: "A new device wants to approve requests", detail: joining.kind == .watch
-                        ? "Paired with your iPhone" : "Signed in to your Apple Account",
-                        footer: joining.kind == .watch ? "It will approve when it is on your wrist and unlocked. You can remove it at any time."
-                            : "It will approve with Face ID. You can remove it at any time.",
-                        denied: "\(joining.label) was not added."),
+                    access: .setUp(lead: SetupCopy.addingDeviceLead,
+                        detail: SetupCopy.addingDeviceDetail(watch: joining.kind == .watch),
+                        footer: SetupCopy.addingDeviceFooter(watch: joining.kind == .watch), denied: SetupCopy.notAdded(joining.label),
+                        replies: false),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case let .machine(machine)?:
                 request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
                     agent: RequestingAgent(name: "An agent", machine: machine.label, address: "", isLocal: false),
-                    access: .setUp(lead: "An agent wants to add", detail: "as a machine that asks for your logins",
-                        footer: "Agents on \(machine.label) can then ask to use your logins. You can remove it at any time.",
-                        denied: "\(machine.label) was not added."),
+                    access: .setUp(lead: SetupCopy.addingLead, detail: "",
+                        footer: SetupCopy.addingComputerFooter(machine.label, staysOn: false), denied: SetupCopy.notAdded(machine.label),
+                        replies: false),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case nil: request = nil
             }
@@ -82,10 +81,11 @@ public final class AdditionBackend: MacApprovalBackend {
         do {
             try await screenErrors {
                 if requestID == Self.setupID {
-                    try await device.confirmSetup(context: context, onAuthenticated: onAuthenticated)
+                    try await device.confirmSetup(thisMacAutomatic: model.automaticOnThisMac, context: context,
+                        onAuthenticated: onAuthenticated)
                     await model.reportLastSelfTest()
                 } else {
-                    try await device.approveJoin(requestID, allowAutomatic: false, context: context, onAuthenticated: onAuthenticated)
+                    try await device.approveJoin(requestID, context: context, onAuthenticated: onAuthenticated)
                 }
             }
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {

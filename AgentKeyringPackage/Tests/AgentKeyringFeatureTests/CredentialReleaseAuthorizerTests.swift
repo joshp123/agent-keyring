@@ -8,9 +8,9 @@ struct CredentialReleaseAuthorizerTests {
     func leaseReasons() {
         #expect(ApprovalSentence.lease(site: "https://example.com/login",
             account: "josh@example.com", agent: "Codex", machine: "Mac mini")
-            == "let Codex on Mac mini use your example.com login, josh@example.com")
+            == "let Codex on Mac mini use your example.com password, josh@example.com")
         #expect(ApprovalSentence.lease(site: "https://example.com/login",
             account: "josh@example.com", agent: "Claude Code")
-            == "let Claude Code use your example.com login, josh@example.com")
+            == "let Claude Code use your example.com password, josh@example.com")
     }
 }

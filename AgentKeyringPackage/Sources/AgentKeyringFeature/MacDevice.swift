@@ -160,20 +160,21 @@ public final class MacDevice {
         setupSecret = nil
     }
 
-    /// Josh clicked and touched the sensor: this Mac becomes the first device,
-    /// and the always-on machine and this Mac the first machines, at this relay.
-    public func confirmSetup(context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
-        guard let setup, var always = setup.machine, let pin = setupPin else { return }
-        // The always-on machine runs his unattended jobs: it is allowed the
-        // logins he sets to Automatic, and the request says so.
-        always.automaticAllowed = true
-        try await confirm(context, reason: "add \(always.label) as your always-on machine and let it use Automatic logins")
+    /// Josh approved with Touch ID: this Mac becomes the first device, and the
+    /// computer that stays on and this Mac the first computers, at this relay.
+    /// The new computer gets no Automatic passwords until he sets one to
+    /// Automatic and approves the computers the rule bar names.
+    public func confirmSetup(thisMacAutomatic: Bool, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
+        guard let setup, let always = setup.machine, let pin = setupPin else { return }
+        try await confirm(context, reason: "add \(always.label)")
         onAuthenticated()
+        var thisMac = keys.machine
+        thisMac.automaticAllowed = thisMacAutomatic
         var members = Agentkeyring_V2_Members()
         members.domain = "agentkeyring.members.v2"
         members.revision = 1
         members.devices = [keys.device]
-        members.machines = [keys.machine, always]
+        members.machines = [thisMac, always]
         members.relayTlsPublicKey = pin
         let signed = try Sealing.signed(members.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
         saved = Saved(endpoint: setup.endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0,
@@ -186,18 +187,9 @@ public final class MacDevice {
         }
         self.members = members
         try persist()
-        try await store.replaceSealed(try await store.sealed() + (await automaticCopies(for: always)))
         abandonSetup()
         try await publish(context: context)
         start()
-    }
-
-    /// The Automatic logins sealed for a machine, from this Mac's own copies: no Touch ID needed.
-    private func automaticCopies(for machine: Agentkeyring_V2_Machine) async throws -> [Agentkeyring_V2_SealedLogin] {
-        let key = try P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)
-        return try await store.sealed().filter { $0.openerID == keys.machineID }.map {
-            try Sealing.seal(try Sealing.open($0, with: keys.receiving), to: key, openerID: machine.machineID)
-        }
     }
 
     // MARK: Staying connected
@@ -408,13 +400,13 @@ public final class MacDevice {
         guard let work = waiting[requestID], let members else { throw RelayFailure(.notFound, "This request is no longer waiting.") }
         let request = try Sealing.parseRequest(work.request)
         guard let asking = members.machines.first(where: { $0.machineID == request.machineID }) else {
-            throw RelayFailure(.permissionDenied, "The machine that asked is not one of yours.")
+            throw RelayFailure(.permissionDenied, "The computer that asked is not one of yours.")
         }
         guard let login = try await catalogueLogins().first(where: { $0.loginID == request.loginID }), login.rule != .blocked else {
-            throw RelayFailure(.permissionDenied, "This login is blocked for agents.")
+            throw RelayFailure(.permissionDenied, "This password is blocked for agents.")
         }
         guard let copy = try await store.sealed().first(where: { $0.loginID == request.loginID && $0.openerID == keys.deviceKeyID }) else {
-            throw RelayFailure(.permissionDenied, "This Mac cannot open this login. Approve it on your iPhone or Watch.")
+            throw RelayFailure(.permissionDenied, "This Mac cannot open this password. Approve it on your iPhone or Apple Watch.")
         }
         let reason = ApprovalSentence.lease(site: login.sites.first ?? login.title,
             account: login.account.isEmpty ? login.title : login.account, agent: request.agent, machine: asking.label)
@@ -444,11 +436,10 @@ public final class MacDevice {
     }
 
     /// The sentence for approving a join, after "Agent Keyring is trying to".
-    public func joinReason(_ id: String, allowAutomatic: Bool) -> String {
+    public func joinReason(_ id: String) -> String {
         switch joins.first(where: { Self.joinID($0) == id })?.request.joining {
-        case let .machine(machine)?:
-            allowAutomatic ? "add \(machine.label) as your always-on machine" : "add \(machine.label) as a machine that asks for your logins"
-        case let .device(device)?: "let \(device.label) approve requests"
+        case let .machine(machine)?: "add \(machine.label)"
+        case let .device(device)?: "add \(device.label)"
         case nil: "add a device"
         }
     }
@@ -535,22 +526,21 @@ public final class MacDevice {
 
     // MARK: Machines and devices joining
 
-    /// Lets a machine or device join, after Josh's Touch ID. A machine allowed
-    /// Automatic logins gets its own sealed copy of each; a new device gets a
-    /// copy of every login, opened here with the same approval.
-    public func approveJoin(_ id: String, allowAutomatic: Bool, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
+    /// Lets a computer or device join, after Josh's Touch ID. A computer gets
+    /// no Automatic passwords yet; a new device gets a copy of every password,
+    /// opened here with the same approval.
+    public func approveJoin(_ id: String, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard var next = members, let join = joins.first(where: { Self.joinID($0) == id }) else {
             throw RelayFailure(.notFound, "Nothing is waiting to join with that name.")
         }
-        try await confirm(context, reason: joinReason(id, allowAutomatic: allowAutomatic))
+        try await confirm(context, reason: joinReason(id))
         onAuthenticated()
         var sealed = try await store.sealed()
         switch join.request.joining {
         case var .machine(machine)?:
-            machine.automaticAllowed = allowAutomatic
+            machine.automaticAllowed = false
             next.machines.removeAll { $0.machineID == machine.machineID }
             next.machines.append(machine)
-            if allowAutomatic { sealed += try await automaticCopies(for: machine) }
         case let .device(device)?:
             next.devices.removeAll { $0.keyID == device.keyID }
             next.devices.append(device)
@@ -586,21 +576,25 @@ public final class MacDevice {
         try await store.replaceSealed(try await store.sealed().filter { $0.openerID != id })
     }
 
-    /// Lets a machine have the logins set to Automatic, or stops more reaching
-    /// it. Either way it is a new signed list of members, so Touch ID.
-    public func setAutomatic(_ machineID: String, allowed: Bool, context: LAContext) async throws {
-        guard var next = members, let index = next.machines.firstIndex(where: { $0.machineID == machineID }),
-            machineID != keys.machineID else { return }
-        let label = next.machines[index].label
-        try await confirm(context, reason: allowed ? "let \(label) use Automatic logins" : "stop \(label) using Automatic logins")
-        next.machines[index].automaticAllowed = allowed
+    /// Switches computers on or off for Automatic passwords in a new signed
+    /// list of members, with a context Josh has just approved. The model seals
+    /// the passwords themselves and then calls `sendCopies`.
+    func setAutomatic(_ changes: [String: Bool], context: LAContext) async throws {
+        guard let members else { return }
+        var next = members
+        for index in next.machines.indices {
+            if let allowed = changes[next.machines[index].machineID] { next.machines[index].automaticAllowed = allowed }
+        }
+        guard next != members else { return }
         try await publishMembers(next, context: context)
-        var sealed = try await store.sealed().filter { $0.openerID != machineID }
-        if allowed { sealed += try await automaticCopies(for: next.machines[index]) }
-        try await store.replaceSealed(sealed)
+    }
+
+    /// Replaces at the relay every copy sealed to these computers with the ones held here.
+    func sendCopies(for machineIDs: Set<String>) async throws {
+        guard isJoined, !machineIDs.isEmpty else { return }
         var batch = Agentkeyring_V2_SealedLogins()
-        batch.clearedOpeners = [machineID]
-        batch.logins = sealed.filter { $0.openerID == machineID }
+        batch.clearedOpeners = machineIDs.sorted()
+        batch.logins = try await store.sealed().filter { machineIDs.contains($0.openerID) }
         _ = try await call(.publishSealedLogins(batch))
     }
 

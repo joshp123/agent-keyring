@@ -80,7 +80,7 @@ public final class CredentialAccessController {
     public init(store: CredentialAccessPolicyStore = CredentialAccessPolicyStore()) {
         self.store = store
         do { policies = try store.load() }
-        catch { errorMessage = "The saved rules could not be read. Every login asks first until you set them again." }
+        catch { errorMessage = "The saved rules could not be read. Every password asks first until you set them again." }
     }
 
     public func refresh(from generation: MirrorGeneration?) async {

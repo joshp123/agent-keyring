@@ -159,10 +159,21 @@ func (s Store) Update(ctx context.Context, change func(*State) error) error {
 		return err
 	}
 	pruneOperations(state)
+	pruneApprovals(state)
 	if err = change(state); err != nil {
 		return err
 	}
 	return s.write("state.pb", state)
+}
+
+// pruneApprovals deletes each saved approval whose window has ended.
+func pruneApprovals(state *State) {
+	now := time.Now().Unix()
+	for _, request := range state.Requests {
+		if len(request.Approval) > 0 && now >= request.ApprovalNotAfterUnixSeconds {
+			request.Approval = nil
+		}
+	}
 }
 func (s Store) Load(ctx context.Context) (*State, error) {
 	unlock, err := s.lock(ctx)

@@ -21,26 +21,18 @@ public struct CredentialImportFailure: Equatable, Sendable {
         let nsError = error as NSError
         diagnostic = Self.diagnosticChain(startingAt: nsError)
 
-        let safetySuffix =
-            hadExistingMirror
-            ? " Your existing encrypted mirror was not changed."
-            : " No mirror was created."
+        let safetySuffix = hadExistingMirror ? " Your earlier copy was not changed." : ""
 
         if nsError.domain == ASAuthorizationErrorDomain,
             nsError.code == ASAuthorizationError.failed.rawValue
         {
-            message =
-                "Apple rejected the one-time import token. Quit any other Agent Keyring builds, then start the export again in Passwords."
-                + safetySuffix
+            message = "Passwords did not send your passwords. Start the export again in Passwords." + safetySuffix
         } else if nsError.domain == ASAuthorizationErrorDomain,
             nsError.code == ASAuthorizationError.credentialImport.rawValue
         {
-            message =
-                "Apple Passwords could not complete the credential transfer. Start the export again in Passwords."
-                + safetySuffix
+            message = "Passwords could not finish sending your passwords. Start the export again in Passwords." + safetySuffix
         } else {
-            message = "Apple Passwords could not transfer the credentials. Try the export again."
-                + safetySuffix
+            message = "Passwords could not send your passwords. Try the export again." + safetySuffix
         }
     }
 
