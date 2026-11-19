@@ -240,6 +240,9 @@ public enum Sealing {
         if let current {
             guard next.revision > current.revision else { throw Failure.staleRevision }
             try verify(document, members: current)
+            // A device keeps the kind it joined as: a Mac may not become an iPhone.
+            let kinds = Dictionary(current.devices.map { ($0.keyID, $0.kind) }, uniquingKeysWith: { first, _ in first })
+            guard next.devices.allSatisfy({ kinds[$0.keyID] == nil || kinds[$0.keyID] == $0.kind }) else { throw Failure.notAllowedForSigner }
         } else {
             try verify(document, members: next)
         }

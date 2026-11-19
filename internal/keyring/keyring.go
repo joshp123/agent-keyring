@@ -330,6 +330,15 @@ func VerifiedMembers(signed *pb.Signed, current *pb.Members) (*pb.Members, error
 	if _, err := Verify(signed, trusted, false); err != nil {
 		return nil, err
 	}
+	// A device keeps the kind it joined as: a Mac may not become an iPhone and
+	// then change what only the iPhone or Watch may change.
+	for _, before := range current.GetDevices() {
+		for _, after := range next.Devices {
+			if after.KeyId == before.KeyId && after.Kind != before.Kind {
+				return nil, ErrNotAllowed
+			}
+		}
+	}
 	return next, nil
 }
 

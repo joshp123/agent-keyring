@@ -7,6 +7,9 @@ package keyring
 
 import (
 	"crypto/ecdh"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -150,5 +153,35 @@ func TestARefusalIsTheSameInGoAndSwift(t *testing.T) {
 		if err := os.WriteFile(vectors+"go-refusal.pb", raw, 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// A Mac that re-lists itself as an iPhone could then change what only the
+// iPhone or Watch may change; the members list keeps each device's kind.
+func TestAMacCannotBecomeAnIPhone(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	public := elliptic.Marshal(elliptic.P256(), key.X, key.Y) //nolint:staticcheck // X9.63, as the devices write it.
+	mac := &pb.Device{KeyId: KeyID(public), Kind: pb.DeviceKind_DEVICE_KIND_MAC, Label: "MacBook Pro", SigningPublicKey: public}
+	sign := func(members *pb.Members) *pb.Signed {
+		raw, _ := proto.Marshal(members)
+		signed, err := Sign(raw, mac.KeyId, SoftwareSigner(key))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return signed
+	}
+	current, err := VerifiedMembers(sign(&pb.Members{Domain: MembersDomain, Revision: 1, Devices: []*pb.Device{mac}}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asIPhone := proto.Clone(mac).(*pb.Device)
+	asIPhone.Kind = pb.DeviceKind_DEVICE_KIND_IPHONE
+	if _, err := VerifiedMembers(sign(&pb.Members{Domain: MembersDomain, Revision: 2, Devices: []*pb.Device{asIPhone}}), current); err == nil {
+		t.Fatal("a Mac re-listed itself as an iPhone")
+	}
+	renamed := proto.Clone(mac).(*pb.Device)
+	renamed.Label = "Work MacBook"
+	if _, err := VerifiedMembers(sign(&pb.Members{Domain: MembersDomain, Revision: 2, Devices: []*pb.Device{renamed}}), current); err != nil {
+		t.Fatalf("an ordinary change was refused: %v", err)
 	}
 }
