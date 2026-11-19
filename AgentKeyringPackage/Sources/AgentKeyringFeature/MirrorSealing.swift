@@ -14,12 +14,13 @@ import LocalAuthentication
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
-    /// A login set to Ask on iPhone or Watch has no copy for this Mac at all.
-    func sealCopies(of secret: Agentkeyring_V2_LoginSecret, automatic: Bool, phoneOnly: Bool = false) throws -> [Agentkeyring_V2_SealedLogin] {
+    /// A login set to Ask on iPhone or Watch has no copy for this Mac at all;
+    /// a Blocked one has only this Mac's, so it can be unblocked here.
+    func sealCopies(of secret: Agentkeyring_V2_LoginSecret, automatic: Bool, phoneOnly: Bool = false, blocked: Bool = false) throws -> [Agentkeyring_V2_SealedLogin] {
         let keys = try macKeys()
         var openers: [(id: String, key: P256.KeyAgreement.PublicKey)] = phoneOnly ? [] : [(keys.deviceKeyID, keys.openingPublicKey)]
         if automatic, automaticOnThisMac { openers.append((keys.machineID, keys.receiving.publicKey)) }
-        openers += device?.otherOpeners(automatic: automatic) ?? []
+        if !blocked { openers += device?.otherOpeners(automatic: automatic) ?? [] }
         return try openers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id, signer: keys.signer) }
     }
 
@@ -46,7 +47,9 @@ extension MirrorAppModel {
     /// A rule change, after Josh's Touch ID: a password switched to Automatic
     /// first switches on every computer not yet allowed Automatic passwords
     /// (the rule bar names them all), then is opened once and sealed to each;
-    /// one switched away loses those copies. The other devices then get the new rules.
+    /// one switched away loses those copies. A password set to Blocked keeps
+    /// only this Mac's copy; one unblocked is sealed to the other devices again.
+    /// The other devices then get the new rules.
     func applyRuleChange(from old: [UUID: CredentialAccessPolicy], to new: [UUID: CredentialAccessPolicy], context: LAContext) async throws {
         let keys = try macKeys()
         let changed = Set(old.keys).union(new.keys).filter { old[$0] != new[$0] }
@@ -65,6 +68,15 @@ extension MirrorAppModel {
         let machines = Set(automaticComputers.map(\.id))
         var sealed = try await store.sealed()
         var withdrawn = Set<String>()
+        for id in changed where new[id] == .block {
+            sealed.removeAll { $0.loginID == id.uuidString && $0.openerID != keys.deviceKeyID }
+        }
+        for id in changed where old[id] == .block {
+            let secret = try keys.open(try await macCopy(of: id.uuidString), context: context)
+            sealed += try (device?.otherOpeners(automatic: false) ?? []).map {
+                try Sealing.seal(secret, to: $0.key, openerID: $0.id, signer: keys.signer)
+            }
+        }
         for id in changed where new[id] == .askOnPhone {
             sealed.removeAll { $0.loginID == id.uuidString && $0.openerID == keys.deviceKeyID }
         }
@@ -140,6 +152,8 @@ extension MirrorAppModel {
             sealed.removeAll { $0.openerID == keys.machineID }
             let phoneOnly = Set(next.filter { $0.value == .askOnPhone }.keys.map(\.uuidString))
             sealed.removeAll { $0.openerID == keys.deviceKeyID && phoneOnly.contains($0.loginID) }
+            let blocked = Set(next.filter { $0.value == .block }.keys.map(\.uuidString))
+            sealed.removeAll { $0.openerID != keys.deviceKeyID && blocked.contains($0.loginID) }
             sealed += ownCopies.filter { automatic.contains($0.loginID) && (try? keys.check($0, members: device?.members)) != nil }
             try? await store.replaceSealed(sealed)
         }

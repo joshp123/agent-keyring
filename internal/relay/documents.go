@@ -71,28 +71,40 @@ func (s *Server) publishCatalogue(document *pb.Signed) error {
 		}
 		data.Catalogue = marshal(document)
 		s.Store.catalogue = next
+		for _, login := range next.Logins { // A Blocked login has no copy here.
+			if login.Rule == pb.Rule_RULE_BLOCKED {
+				for opener := range data.Sealed {
+					delete(data.Sealed[opener], login.LoginId)
+				}
+			}
+		}
 		return nil
 	})
 }
 
 // publishSealedLogins adds or replaces each copy given, empties each opener
-// cleared, and removes the machines' copies of each login withdrawn.
+// cleared, and removes the machines' copies of each login withdrawn. Copies of
+// a Blocked login are not kept.
 func (s *Server) publishSealedLogins(batch *pb.SealedLogins) error {
-	members, catalogue := s.Store.documents()
-	byOpener := map[string]map[string][]byte{}
-	for _, sealed := range batch.Logins {
-		if device(members, sealed.OpenerId) == nil && machine(members, sealed.OpenerId) == nil {
-			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login names an opener that is not a device or machine.")
-		}
-		if loginIn(catalogue, sealed.LoginId) == nil {
-			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login is not in the catalogue.")
-		}
-		if byOpener[sealed.OpenerId] == nil {
-			byOpener[sealed.OpenerId] = map[string][]byte{}
-		}
-		byOpener[sealed.OpenerId][sealed.LoginId] = marshal(sealed)
-	}
 	return s.Store.update(func(data *saved) error {
+		members, catalogue := s.Store.documentsLocked()
+		byOpener := map[string]map[string][]byte{}
+		for _, sealed := range batch.Logins {
+			if device(members, sealed.OpenerId) == nil && machine(members, sealed.OpenerId) == nil {
+				return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login names an opener that is not a device or machine.")
+			}
+			login := loginIn(catalogue, sealed.LoginId)
+			if login == nil {
+				return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login is not in the catalogue.")
+			}
+			if login.Rule == pb.Rule_RULE_BLOCKED {
+				continue
+			}
+			if byOpener[sealed.OpenerId] == nil {
+				byOpener[sealed.OpenerId] = map[string][]byte{}
+			}
+			byOpener[sealed.OpenerId][sealed.LoginId] = marshal(sealed)
+		}
 		for _, opener := range batch.ClearedOpeners {
 			data.Sealed[opener] = map[string][]byte{}
 		}
