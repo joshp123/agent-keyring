@@ -71,7 +71,7 @@ func (s *Server) ask(ctx context.Context, who caller, ask *pb.AskRequest) (*pb.L
 			}
 		}
 		if until := data.HeldOff[heldOffKey(who.machine.MachineId, ask.LoginId)]; until > now.Unix() {
-			return fail(pb.ErrorCode_ERROR_CODE_HELD_OFF, "Josh denied this login for this machine. Ask again after "+time.Unix(until, 0).Format(time.Kitchen)+".")
+			return fail(pb.ErrorCode_ERROR_CODE_HELD_OFF, "Josh denied this login for this machine. Ask again after "+time.Unix(until, 0).Format("15:04")+".")
 		}
 		id = newID()
 		requestBytes := marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id, LoginId: ask.LoginId, MachineId: who.machine.MachineId,
