@@ -266,7 +266,6 @@ public final class PhoneRelayBackend: PhoneBackend {
         let notAfter = Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds))
         // "Approved on your Mac" when a Mac answered, by the label the relay records.
         let byMac = members?.devices.contains { $0.kind == .mac && $0.label == lease.answeredBy } == true
-            || members?.machines.contains { $0.label == lease.answeredBy } == true
         let surface: ApprovalSurface = byMac ? .mac : .iPhone
         switch lease.state {
         case .waiting: return .waitingForYou(until: Date(timeIntervalSince1970: Double(lease.answerByUnixSeconds)))

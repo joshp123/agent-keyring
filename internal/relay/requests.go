@@ -180,13 +180,15 @@ func (s *Server) end(ctx context.Context, who caller, id, answeredHere string) (
 		if err != nil {
 			return err
 		}
+		// Only a Mac answers its own agents' requests itself; any other computer only stops asking.
+		mac := who.machine != nil && who.device != nil && who.device.Kind == pb.DeviceKind_DEVICE_KIND_MAC
 		switch {
-		case r.State == pb.LeaseState_LEASE_STATE_WAITING && who.machine != nil && answeredHere == "approved":
+		case r.State == pb.LeaseState_LEASE_STATE_WAITING && mac && answeredHere == "approved":
 			// A Mac answered its own agent's request itself: the devices show it as approved there.
 			r.State, r.AnsweredBy, r.NotAfter = pb.LeaseState_LEASE_STATE_APPROVED, who.machine.Label, s.now().Unix()+keyring.ApprovalSeconds
 			lease = r.lease(id)
 			return nil
-		case r.State == pb.LeaseState_LEASE_STATE_WAITING && who.machine != nil && answeredHere == "denied":
+		case r.State == pb.LeaseState_LEASE_STATE_WAITING && mac && answeredHere == "denied":
 			r.State, r.AnsweredBy = pb.LeaseState_LEASE_STATE_DENIED, who.machine.Label
 		case r.State == pb.LeaseState_LEASE_STATE_WAITING:
 			r.State, wasWaiting = pb.LeaseState_LEASE_STATE_CANCELLED, true

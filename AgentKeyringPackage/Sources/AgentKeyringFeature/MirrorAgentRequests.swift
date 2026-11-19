@@ -166,9 +166,6 @@ extension MirrorAppModel {
                     case (.pending, .active) where byThisMac:
                         stage = .active
                         await self.device?.stopAsking(leaseID, answeredHere: "approved")
-                        Task { [weak self] in
-                            if await self?.device?.stoppedOnDevice(leaseID) == true { _ = try? self?.leaseStore.end(leaseID) }
-                        }
                     case (.pending, .denied) where byThisMac:
                         await self.device?.stopAsking(leaseID, answeredHere: "denied")
                         return

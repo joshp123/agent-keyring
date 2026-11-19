@@ -280,9 +280,15 @@ public final class MacDevice {
 
     private func receive(_ work: Agentkeyring_V2_Work) {
         // Only the iPhone or Watch may answer these; this Mac never shows them.
-        // Nor its own agents' requests, which it passed on for the iPhone or Watch to answer.
-        guard let request = try? Sealing.parseRequest(work.request), !work.login.phoneAndWatchOnly, !work.hasProposal,
-              request.machineID != keys.machineID else { return }
+        guard let request = try? Sealing.parseRequest(work.request) else { return }
+        // Nor its own agents' requests, which it passed on for the iPhone or Watch to answer;
+        // but Stop on one of them there ends the approval here.
+        if request.machineID == keys.machineID {
+            if work.hasOutcome, work.outcome.state == .ended, !work.outcome.endedBy.isEmpty,
+               let leaseID = askedForAgents.first(where: { $0.value == request.requestID })?.key { onStoppedOnDevice?(leaseID) }
+            return
+        }
+        guard !work.login.phoneAndWatchOnly, !work.hasProposal else { return }
         if work.hasOutcome {
             waiting.removeValue(forKey: request.requestID)
             finished[request.requestID] = work
@@ -572,18 +578,8 @@ public final class MacDevice {
         _ = try? await call(.end(reference))
     }
 
-    /// Follows a request this Mac approved itself until it ends; true if a
-    /// device ended it (Stop on the iPhone or Watch).
-    public func stoppedOnDevice(_ clientRequestID: String) async -> Bool {
-        guard let id = askedForAgents[clientRequestID], let relay else { return false }
-        var request = Agentkeyring_V2_RelayRequest()
-        request.method = .watch(Self.reference(id))
-        var final = Agentkeyring_V2_Lease()
-        _ = try? await relay.stream(request) { response in
-            if case let .lease(lease) = response.result { final = lease }
-        }
-        return final.state == .ended && !final.endedBy.isEmpty
-    }
+    /// Stop on the iPhone or Watch, for an approval this Mac gave its own agent: the lease ID.
+    @ObservationIgnored public var onStoppedOnDevice: ((String) -> Void)?
 
     public func forget(_ clientRequestID: String) { askedForAgents.removeValue(forKey: clientRequestID) }
 

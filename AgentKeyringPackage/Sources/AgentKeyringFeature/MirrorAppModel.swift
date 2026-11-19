@@ -141,6 +141,7 @@ public final class MirrorAppModel {
         keys = made
         device = MacDevice(keys: made, store: store) { [weak self] in self?.catalogueLogins() ?? [] }
         device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
+        device?.onStoppedOnDevice = { [weak self] leaseID in _ = try? self?.leaseStore.end(leaseID) }
         return made
     }
 
