@@ -1,11 +1,15 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5; the practice request on 2026.11.19.
+// Written by AI on 2026.11.18 by model claude opus 5.5; the practice request and refusals on 2026.11.19.
 //
 // A stand-in for an approving device, with software keys where an iPhone has
 // its chip, for end-to-end tests of the relay and the command. It does what
 // the iPhone app does over the same protocol, with made-up logins only.
 //
 //	test-device init    --state DIR --relay HOST:PORT   create keys, members, catalogue, sealed logins
+//	                    [--keys-only]                   only keys and the relay's key, as the Mac before setup
 //	test-device approve-joins --state DIR               approve every waiting machine, Automatic allowed
+//	test-device refuse-joins  --state DIR [--reply WORDS]
+//	                                                    refuse every waiting machine; without an invitation
+//	                                                    of this device's, with a made-up key, as a stranger would
 //	test-device join    --state DIR --invite LINK      a second device that joins by invitation
 //	test-device invite  --state DIR                     print a one-time link for one machine or device to join
 //	test-device self-test --state DIR                   ask for the practice request, approve it, report
@@ -92,6 +96,8 @@ func main() {
 	denyPlain := flags.Bool("deny-plain", false, "deny the next request with no words")
 	ignore := flags.Bool("ignore", false, "see the next request and leave it unanswered")
 	login := flags.String("login", "", "login id (propose)")
+	keysOnly := flags.Bool("keys-only", false, "create keys and publish nothing (init)")
+	reply := flags.String("reply", "", "words for the waiting agent (refuse-joins)")
 	rule := flags.String("rule", "", "ask, automatic, blocked or phone-and-watch (propose)")
 	flags.Parse(os.Args[2:])
 	ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
@@ -99,11 +105,13 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "init":
-		err = initialise(ctx, *state, *relay)
+		err = initialise(ctx, *state, *relay, *keysOnly)
 	case "join":
 		err = joinAsDevice(ctx, *state, *invite)
 	case "approve-joins":
 		err = withDevice(*state, func(d *device) error { return d.approveJoins(ctx) })
+	case "refuse-joins":
+		err = withDevice(*state, func(d *device) error { return d.refuseJoins(ctx, *reply) })
 	case "invite":
 		err = withDevice(*state, func(d *device) error { return d.invite() })
 	case "self-test":
@@ -180,29 +188,17 @@ func joinAsDevice(ctx context.Context, directory, link string) error {
 	return d.write()
 }
 
-func initialise(ctx context.Context, directory, relay string) error {
+// initialise sets up the relay as the first device, keeping the keys of an
+// earlier init --keys-only.
+func initialise(ctx context.Context, directory, relay string, keysOnly bool) error {
 	if directory == "" || relay == "" {
 		return errors.New("init needs --state and --relay")
 	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
+	if _, err := os.Stat(filepath.Join(directory, "device.json")); err == nil {
+		return withDevice(directory, func(d *device) error { return d.setUpRelay(ctx) })
 	}
-	certificate, tlsKey, err := tlsid.New("Agent Keyring test device")
+	d, err := newDevice(directory, relay)
 	if err != nil {
-		return err
-	}
-	generate := func() []byte {
-		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		raw, _ := x509.MarshalECPrivateKey(key)
-		return raw
-	}
-	opening, err := ecdh.P256().GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-	d := &device{saved: saved{Relay: relay, Certificate: certificate, TLSKey: tlsKey, Signing: generate(), Reply: generate(), Opening: opening.Bytes()},
-		path: filepath.Join(directory, "device.json")}
-	if err := d.load(); err != nil {
 		return err
 	}
 	var observed []byte
@@ -210,6 +206,17 @@ func initialise(ctx context.Context, directory, relay string) error {
 		return err
 	}
 	d.RelaySPKI = observed
+	if keysOnly {
+		return d.write()
+	}
+	if err := d.setUpRelay(ctx); err != nil {
+		return err
+	}
+	return d.write()
+}
+
+func (d *device) setUpRelay(ctx context.Context) error {
+	observed := d.RelaySPKI
 	members := &pb.Members{Domain: keyring.MembersDomain, Revision: 1, Devices: []*pb.Device{d.self}, RelayTlsPublicKey: observed}
 	if err := d.publishMembers(ctx, members); err != nil {
 		return err
@@ -226,7 +233,7 @@ func initialise(ctx context.Context, directory, relay string) error {
 		return err
 	}
 	fmt.Printf("Device %s set up the relay with %d made-up logins.\n", d.self.KeyId[:16], len(logins))
-	return d.write()
+	return nil
 }
 
 func withDevice(directory string, run func(*device) error) error {
@@ -360,7 +367,7 @@ func (d *device) approveJoins(ctx context.Context) error {
 	var joined []*pb.Machine
 	var devices []*pb.Device
 	for _, pending := range response.GetPendingJoins().GetJoins() {
-		if !d.useInvitation(pending.GetRequest()) {
+		if d.useInvitation(pending.GetRequest()) == nil {
 			fmt.Printf("Ignoring a join with no valid invitation (Tailscale node %s).\n", pending.TailscaleNodeName)
 			continue
 		}
@@ -565,12 +572,46 @@ func (d *device) invite() error {
 	return nil
 }
 
-func (d *device) useInvitation(join *pb.JoinRequest) bool {
+// useInvitation is the secret of this device's invitation the join proves, now used.
+func (d *device) useInvitation(join *pb.JoinRequest) []byte {
 	for i, secret := range d.Secrets {
 		if hmac.Equal(keyring.JoinProof(secret, join), join.Proof) {
 			d.Secrets = append(d.Secrets[:i], d.Secrets[i+1:]...)
-			return true
+			return secret
 		}
 	}
-	return false
+	return nil
+}
+
+// refuseJoins refuses every waiting machine with these words, as the Mac's
+// Deny does.
+func (d *device) refuseJoins(ctx context.Context, reply string) error {
+	response, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PendingJoins{PendingJoins: &pb.Empty{}}}, nil)
+	if err != nil {
+		return err
+	}
+	refused := 0
+	for _, pending := range response.GetPendingJoins().GetJoins() {
+		m := pending.GetRequest().GetMachine()
+		if m == nil {
+			continue
+		}
+		secret := d.useInvitation(pending.GetRequest())
+		if secret == nil {
+			secret = make([]byte, 32)
+			rand.Read(secret)
+			fmt.Printf("No invitation of this device's matches %q; refusing with a made-up key.\n", m.Label)
+		}
+		refusal := &pb.JoinRefusal{JoinerId: m.MachineId, Key: keyring.RefusalKey(secret, m.MachineId), Reply: reply,
+			ReplyProof: keyring.RefusalReplyProof(secret, m.MachineId, reply)}
+		if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_RefuseJoin{RefuseJoin: refusal}}, nil); err != nil {
+			return err
+		}
+		fmt.Printf("Refused %q.\n", m.Label)
+		refused++
+	}
+	if refused == 0 {
+		return errors.New("nothing is waiting to join")
+	}
+	return nil
 }

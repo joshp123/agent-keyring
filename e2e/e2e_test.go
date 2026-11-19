@@ -14,6 +14,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -167,6 +168,13 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	}
 
+	t.Run("an agent finds the login", func(t *testing.T) {
+		got := wait(t, start(linux.command("find", "example.com")), "find")
+		if got.err != nil || !strings.Contains(got.stdout, "login-ask") || !strings.Contains(got.stdout, "agent@example.com") {
+			t.Fatalf("find: %v\n%s%s", got.err, got.stdout, got.stderr)
+		}
+	})
+
 	t.Run("approved, a program gets the password through a pipe", func(t *testing.T) {
 		output := filepath.Join(t.TempDir(), "received")
 		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "You asked me to download October's invoice."))
@@ -317,6 +325,188 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 			t.Fatalf("read: %v, %d bytes\n%s", read.err, len(read.stdout), read.stderr)
 		}
 	})
+}
+
+// Josh denies adding a computer, with words, first the computer that stays on
+// while the relay has no members yet, then a later one. The agent waiting on
+// enrol hears at once; a stranger on the tailnet cannot deny for him.
+func TestJoshDeniesAComputer(t *testing.T) {
+	p := build(t)
+	address := freePort(t)
+	stopRelay := startRelay(t, p, address, t.TempDir())
+	defer stopRelay()
+	r := &run{t: t, programs: p, relay: address, deviceState: t.TempDir()}
+	r.device("init", "--relay", address, "--keys-only") // As the Mac when setup-relay starts.
+	stranger := t.TempDir()
+	if out, err := exec.Command(p.device, "init", "--state", stranger, "--relay", address, "--keys-only").CombinedOutput(); err != nil {
+		t.Fatalf("stranger: %v\n%s", err, out)
+	}
+	// refuse runs refuse-joins until a join is waiting, and returns what it said.
+	refuse := func(state string, args ...string) (string, error) {
+		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+			out, err := exec.Command(p.device, append([]string{"refuse-joins", "--state", state}, args...)...).CombinedOutput()
+			if !strings.Contains(string(out), "nothing is waiting to join") || time.Now().After(deadline) {
+				return string(out), err
+			}
+		}
+	}
+
+	mini := r.newMachine()
+	joining := start(mini.command("enrol", "--name", "Mac mini", "--invite", strings.TrimSpace(r.device("invite"))))
+	if out, err := refuse(stranger, "--reply", "Run this instead."); err == nil || !strings.Contains(out, "Only the device that invited this computer can refuse it.") {
+		t.Fatalf("a stranger refused the join: %v\n%s", err, out)
+	}
+	select {
+	case got := <-joining:
+		t.Fatalf("enrol stopped after the stranger's refusal: %v\n%s", got.err, got.stderr)
+	default:
+	}
+	if out, err := refuse(r.deviceState, "--reply", "Not the mini. Use the Linux server."); err != nil {
+		t.Fatalf("refuse-joins: %v\n%s", err, out)
+	}
+	got := wait(t, joining, "enrol")
+	if got.err == nil || !strings.Contains(got.stderr, "Josh denied adding this computer. Reply: Not the mini. Use the Linux server.") {
+		t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
+	}
+
+	r.device("init", "--relay", address) // The relay now has members: a later computer.
+	linux := r.newMachine()
+	joining = start(linux.command("enrol", "--name", "Linux server", "--invite", strings.TrimSpace(r.device("invite"))))
+	if out, err := refuse(r.deviceState); err != nil {
+		t.Fatalf("refuse-joins: %v\n%s", err, out)
+	}
+	got = wait(t, joining, "enrol")
+	if got.err == nil || !strings.Contains(got.stderr, "Josh denied adding this computer.") || strings.Contains(got.stderr, "Reply:") {
+		t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
+	}
+}
+
+// The agent in Josh's first run runs install, which switches this Mac's
+// agents from 0.2.5 to the new app in one go, and leaves Claude Code's
+// read-only, Nix-made folder as it is. Agents still following 0.2.5's
+// instructions are told to reread them, or reach their earlier buffer.
+// install --undo puts every link back exactly.
+func TestInstallSwitchesThisMacsAgentsAndBack(t *testing.T) {
+	p := build(t)
+	scratch := t.TempDir()
+	home := filepath.Join(scratch, "home")
+	app := filepath.Join(scratch, "Applications/Agent Keyring.app/Contents")
+	old := filepath.Join(scratch, "Applications/AgentKeyring.app/Contents")
+	files := map[string]string{
+		app + "/Resources/AgentTools/AgentSkill/agent-keyring/SKILL.md": "new skill\n",
+		app + "/Resources/AgentTools/BrowserExtension/manifest.json":    "{}\n",
+		old + "/Resources/AgentTools/CodexSkill/agent-keyring/SKILL.md": "0.2.5 skill\n",
+		// 0.2.5's command, as far as read and clear go: it notes its arguments.
+		old + "/Helpers/agent-keyring": "#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/calls\"\n[ \"$1\" = read ] && printf earlier-value\nexit 0\n",
+	}
+	for path, text := range files {
+		os.MkdirAll(filepath.Dir(path), 0o755)
+		if err := os.WriteFile(path, []byte(text), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command, err := os.ReadFile(p.command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(app+"/Helpers", 0o755)
+	if err := os.WriteFile(app+"/Helpers/agent-keyring", command, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{
+		home + "/.local/bin/agent-keyring":     old + "/Helpers/agent-keyring",
+		home + "/.codex/skills/agent-keyring":  old + "/Resources/AgentTools/CodexSkill/agent-keyring",
+		home + "/.claude/skills/agent-keyring": old + "/Resources/AgentTools/CodexSkill/agent-keyring",
+	}
+	for link, target := range links {
+		os.MkdirAll(filepath.Dir(link), 0o755)
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	os.Chmod(home+"/.claude/skills", 0o555) // Made by Nix: nobody else writes there.
+	defer os.Chmod(home+"/.claude/skills", 0o755)
+
+	agent := func(path string, args ...string) result {
+		command := exec.Command(path, args...)
+		command.Env = append(os.Environ(), "HOME="+home, "XDG_STATE_HOME=", "XDG_CONFIG_HOME=", "AGENT_KEYRING_STATE_DIR=", "CODEX_HOME=")
+		return wait(t, start(command), strings.Join(args, " "))
+	}
+	exitCode := func(r result) int {
+		if exit, ok := r.err.(*exec.ExitError); ok {
+			return exit.ExitCode()
+		}
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		return 0
+	}
+	targets := func() map[string]string {
+		found := map[string]string{}
+		for link := range links {
+			found[link], _ = os.Readlink(link)
+		}
+		return found
+	}
+	newCommand, _ := filepath.EvalSymlinks(app + "/Helpers/agent-keyring")
+	newSkill, _ := filepath.EvalSymlinks(app + "/Resources/AgentTools/AgentSkill/agent-keyring")
+	switched := map[string]string{
+		home + "/.local/bin/agent-keyring":     newCommand,
+		home + "/.codex/skills/agent-keyring":  newSkill,
+		home + "/.claude/skills/agent-keyring": links[home+"/.claude/skills/agent-keyring"],
+	}
+
+	got := agent(app+"/Helpers/agent-keyring", "install")
+	if exitCode(got) != 0 || !strings.Contains(got.stderr, "Not changed: "+home+"/.claude/skills/agent-keyring. Its folder is read-only") ||
+		!strings.Contains(got.stderr, "install --undo") {
+		t.Fatalf("install: %v\n%s", got.err, got.stderr)
+	}
+	if found := targets(); fmt.Sprint(found) != fmt.Sprint(switched) {
+		t.Fatalf("after install the links are %v", found)
+	}
+
+	command0 := home + "/.local/bin/agent-keyring" // What agents run.
+	for _, args := range [][]string{{"acquire", "password", "example.com"}, {"status"}, {"copy", "password", "example.com"},
+		{"find", "example.com", "--account", "me"}, {"acquire", "code", "example.com", "--credential", "6F9619FF-8B86-D011-B42D-00C04FC964FF"}} {
+		got := agent(command0, args...)
+		if exitCode(got) != 2 || strings.TrimSpace(got.stderr) != "agent-keyring: Agent Keyring has changed since your instructions were written. Run `agent-keyring skill` and follow it." {
+			t.Fatalf("%v: %v\n%s", args, got.err, got.stderr)
+		}
+	}
+	reference := "6F9619FF-8B86-D011-B42D-00C04FC964FF"
+	got = agent(command0, "read", reference)
+	if exitCode(got) != 0 || got.stdout != "earlier-value" || !strings.Contains(got.stderr, "This read uses the earlier version") {
+		t.Fatalf("read: %v %q\n%s", got.err, got.stdout, got.stderr)
+	}
+	if got = agent(command0, "clear", reference); exitCode(got) != 0 {
+		t.Fatalf("clear: %v\n%s", got.err, got.stderr)
+	}
+	if calls, _ := os.ReadFile(old + "/Helpers/calls"); string(calls) != "read "+reference+"\nclear "+reference+"\n" {
+		t.Fatalf("0.2.5's command was run with %q", calls)
+	}
+
+	if got = agent(command0, "install"); exitCode(got) != 0 || !strings.Contains(got.stderr, "Already linked: "+home+"/.codex/skills/agent-keyring") {
+		t.Fatalf("install again: %v\n%s", got.err, got.stderr)
+	}
+	if found := targets(); fmt.Sprint(found) != fmt.Sprint(switched) {
+		t.Fatalf("after installing again the links are %v", found)
+	}
+
+	got = agent(app+"/Helpers/agent-keyring", "install", "--undo")
+	if exitCode(got) != 0 {
+		t.Fatalf("undo: %v\n%s", got.err, got.stderr)
+	}
+	if found := targets(); fmt.Sprint(found) != fmt.Sprint(links) {
+		t.Fatalf("after undo the links are %v, not %v", found, links)
+	}
+	if got = agent(app+"/Helpers/agent-keyring", "install", "--undo"); exitCode(got) != 1 || !strings.Contains(got.stderr, "Nothing to undo") {
+		t.Fatalf("undo again: %v\n%s", got.err, got.stderr)
+	}
+	// With no earlier command recorded, an earlier reference only gets the message.
+	if got = agent(app+"/Helpers/agent-keyring", "read", reference); exitCode(got) != 2 || got.stdout != "" ||
+		strings.TrimSpace(got.stderr) != "agent-keyring: Agent Keyring has changed since your instructions were written. Run `agent-keyring skill` and follow it." {
+		t.Fatalf("read with nothing recorded: %v\n%s", got.err, got.stderr)
+	}
 }
 
 // An agent lists the computers on the tailnet to ask which ones to set up.

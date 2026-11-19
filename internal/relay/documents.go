@@ -4,6 +4,7 @@ package relay
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"time"
 
@@ -167,15 +168,19 @@ func (s *Server) join(ctx context.Context, who caller, request *pb.JoinRequest, 
 	defer deadline.Stop()
 	for {
 		var state pb.JoinState
-		var members []byte
+		var members, refusal []byte
 		changed := s.Store.read(func(data *saved) {
-			state, members = data.Joins[id].State, data.Members
+			state, members, refusal = data.Joins[id].State, data.Members, data.Joins[id].Refusal
 		})
 		if state != pb.JoinState_JOIN_STATE_WAITING {
 			status := &pb.JoinStatus{State: state}
 			if state == pb.JoinState_JOIN_STATE_APPROVED {
 				status.Members = &pb.Signed{}
 				unmarshal(members, status.Members)
+			}
+			if state == pb.JoinState_JOIN_STATE_REFUSED {
+				status.Refusal = &pb.JoinRefusal{}
+				unmarshal(refusal, status.Refusal)
 			}
 			return send(&pb.RelayResponse{Result: &pb.RelayResponse_Join{Join: status}, EndOfStream: true})
 		}
@@ -195,6 +200,27 @@ func (s *Server) join(ctx context.Context, who caller, request *pb.JoinRequest, 
 		case <-changed:
 		}
 	}
+}
+
+// refuseJoin ends a machine's waiting join, if the refusal carries the key
+// whose hash the machine sent: only the device that invited it can make it.
+func (s *Server) refuseJoin(refusal *pb.JoinRefusal) error {
+	return s.Store.update(func(data *saved) error {
+		j := data.Joins[refusal.JoinerId]
+		request := &pb.JoinRequest{}
+		if j == nil || unmarshal(j.Request, request) != nil || request.GetMachine() == nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "No computer is asking to join with that ID.")
+		}
+		if len(request.RefusalKeySha256) == 0 || subtle.ConstantTimeCompare(keyring.SHA256(refusal.Key), request.RefusalKeySha256) != 1 {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the device that invited this computer can refuse it.")
+		}
+		if j.State != pb.JoinState_JOIN_STATE_WAITING {
+			return fail(pb.ErrorCode_ERROR_CODE_CONFLICT, "This join has already ended.")
+		}
+		j.State, j.Refusal = pb.JoinState_JOIN_STATE_REFUSED, marshal(refusal)
+		slog.Info("join refused", "joiner", refusal.JoinerId)
+		return nil
+	})
 }
 
 func (s *Server) pendingJoins() *pb.PendingJoins {

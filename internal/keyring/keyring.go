@@ -426,3 +426,18 @@ func JoinProof(secret []byte, joining *pb.JoinRequest) []byte {
 	mac.Write(message)
 	return mac.Sum(nil)
 }
+
+// RefusalKey is what only the inviter can send to refuse a machine's join;
+// the joiner sends its SHA-256 with the join (JoinRequest.refusal_key_sha256).
+func RefusalKey(secret []byte, machineID string) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(lengthPrefixed("agentkeyring.refusal.v2", "key", machineID))
+	return mac.Sum(nil)
+}
+
+// RefusalReplyProof binds the inviter's words to a refusal (JoinRefusal.reply_proof).
+func RefusalReplyProof(secret []byte, machineID, reply string) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(lengthPrefixed("agentkeyring.refusal.v2", "reply", machineID, reply))
+	return mac.Sum(nil)
+}

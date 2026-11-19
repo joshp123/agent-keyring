@@ -266,6 +266,8 @@ public nonisolated enum Agentkeyring_V2_JoinState: SwiftProtobuf.Enum, Swift.Cas
   /// Shown on the devices; nobody has answered.
   case waiting // = 1
   case approved // = 2
+
+  /// The inviter refused it (refuse_join).
   case refused // = 3
 
   /// Ten minutes passed.
@@ -1135,6 +1137,15 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     set {method = .membersSince(newValue)}
   }
 
+  /// The inviting device, joined or not: refuses a machine's join. Returns Done.
+  public var refuseJoin: Agentkeyring_V2_JoinRefusal {
+    get {
+      if case .refuseJoin(let v)? = method {return v}
+      return Agentkeyring_V2_JoinRefusal()
+    }
+    set {method = .refuseJoin(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Method: Equatable, Sendable {
@@ -1186,6 +1197,8 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     /// first, so each can be checked against the one before. Returns
     /// MembersChain.
     case membersSince(UInt64)
+    /// The inviting device, joined or not: refuses a machine's join. Returns Done.
+    case refuseJoin(Agentkeyring_V2_JoinRefusal)
 
   }
 
@@ -1527,6 +1540,12 @@ public nonisolated struct Agentkeyring_V2_JoinRequest: Sendable {
   /// an invitation it issued; the relay cannot make one.
   public var proof: Data = Data()
 
+  /// A machine: SHA-256 of its refusal key, HMAC-SHA256 under
+  /// JoinInvite.secret over "agentkeyring.refusal.v2", "key", machine_id
+  /// (each part length-prefixed as in proof). Only the inviter can refuse
+  /// the join, by sending that key; empty means it cannot be refused.
+  public var refusalKeySha256: Data = Data()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Joining: Equatable, Sendable {
@@ -1536,6 +1555,32 @@ public nonisolated struct Agentkeyring_V2_JoinRequest: Sendable {
     case device(Agentkeyring_V2_Device)
 
   }
+
+  public init() {}
+}
+
+/// The inviting device refuses a machine's join, with words for the agent
+/// waiting on it. The relay takes it only if SHA-256(key) is the join's
+/// refusal_key_sha256, and ends the join with JOIN_STATE_REFUSED and this.
+/// The joiner shows the words only if reply_proof is HMAC-SHA256 under
+/// JoinInvite.secret over "agentkeyring.refusal.v2", "reply", machine_id,
+/// reply: the relay sees the key but never the secret, so it cannot change
+/// them.
+public nonisolated struct Agentkeyring_V2_JoinRefusal: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Machine.machine_id.
+  public var joinerID: String = String()
+
+  public var key: Data = Data()
+
+  public var reply: String = String()
+
+  public var replyProof: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -1654,11 +1699,22 @@ public nonisolated struct Agentkeyring_V2_JoinStatus: Sendable {
   /// Clears the value of `members`. Subsequent reads from it will return its default value.
   public mutating func clearMembers() {self._members = nil}
 
+  /// Refused: the inviter's words, if its proof checks.
+  public var refusal: Agentkeyring_V2_JoinRefusal {
+    get {_refusal ?? Agentkeyring_V2_JoinRefusal()}
+    set {_refusal = newValue}
+  }
+  /// Returns true if `refusal` has been explicitly set.
+  public var hasRefusal: Bool {self._refusal != nil}
+  /// Clears the value of `refusal`. Subsequent reads from it will return its default value.
+  public mutating func clearRefusal() {self._refusal = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _members: Agentkeyring_V2_Signed? = nil
+  fileprivate var _refusal: Agentkeyring_V2_JoinRefusal? = nil
 }
 
 public nonisolated struct Agentkeyring_V2_PendingJoins: Sendable {
@@ -2756,7 +2812,7 @@ nonisolated extension Agentkeyring_V2_Notice: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentkeyring_V2_RelayRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RelayRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ask\0\u{1}watch\0\u{1}collect\0\u{1}end\0\u{1}find\0\u{3}automatic_logins\0\u{3}report_use\0\u{1}members\0\u{1}catalogue\0\u{3}watch_work\0\u{3}get_work\0\u{1}answer\0\u{3}register_push\0\u{3}publish_members\0\u{3}publish_catalogue\0\u{3}publish_sealed_logins\0\u{3}sealed_logins\0\u{1}join\0\u{3}pending_joins\0\u{3}test_request\0\u{3}report_self_test\0\u{3}self_tests\0\u{3}propose_rules\0\u{3}members_since\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ask\0\u{1}watch\0\u{1}collect\0\u{1}end\0\u{1}find\0\u{3}automatic_logins\0\u{3}report_use\0\u{1}members\0\u{1}catalogue\0\u{3}watch_work\0\u{3}get_work\0\u{1}answer\0\u{3}register_push\0\u{3}publish_members\0\u{3}publish_catalogue\0\u{3}publish_sealed_logins\0\u{3}sealed_logins\0\u{1}join\0\u{3}pending_joins\0\u{3}test_request\0\u{3}report_self_test\0\u{3}self_tests\0\u{3}propose_rules\0\u{3}members_since\0\u{3}refuse_join\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3071,6 +3127,19 @@ nonisolated extension Agentkeyring_V2_RelayRequest: SwiftProtobuf.Message, Swift
           self.method = .membersSince(v)
         }
       }()
+      case 25: try {
+        var v: Agentkeyring_V2_JoinRefusal?
+        var hadOneofValue = false
+        if let current = self.method {
+          hadOneofValue = true
+          if case .refuseJoin(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.method = .refuseJoin(v)
+        }
+      }()
       default: break
       }
     }
@@ -3177,6 +3246,10 @@ nonisolated extension Agentkeyring_V2_RelayRequest: SwiftProtobuf.Message, Swift
     case .membersSince?: try {
       guard case .membersSince(let v)? = self.method else { preconditionFailure() }
       try visitor.visitSingularUInt64Field(value: v, fieldNumber: 24)
+    }()
+    case .refuseJoin?: try {
+      guard case .refuseJoin(let v)? = self.method else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 25)
     }()
     case nil: break
     }
@@ -3780,7 +3853,7 @@ nonisolated extension Agentkeyring_V2_PushRegistration: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V2_JoinRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".JoinRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}machine\0\u{1}device\0\u{1}proof\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}machine\0\u{1}device\0\u{1}proof\0\u{3}refusal_key_sha256\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3815,6 +3888,7 @@ nonisolated extension Agentkeyring_V2_JoinRequest: SwiftProtobuf.Message, SwiftP
         }
       }()
       case 3: try { try decoder.decodeSingularBytesField(value: &self.proof) }()
+      case 4: try { try decoder.decodeSingularBytesField(value: &self.refusalKeySha256) }()
       default: break
       }
     }
@@ -3839,12 +3913,61 @@ nonisolated extension Agentkeyring_V2_JoinRequest: SwiftProtobuf.Message, SwiftP
     if !self.proof.isEmpty {
       try visitor.visitSingularBytesField(value: self.proof, fieldNumber: 3)
     }
+    if !self.refusalKeySha256.isEmpty {
+      try visitor.visitSingularBytesField(value: self.refusalKeySha256, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V2_JoinRequest, rhs: Agentkeyring_V2_JoinRequest) -> Bool {
     if lhs.joining != rhs.joining {return false}
     if lhs.proof != rhs.proof {return false}
+    if lhs.refusalKeySha256 != rhs.refusalKeySha256 {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V2_JoinRefusal: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".JoinRefusal"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}joiner_id\0\u{1}key\0\u{1}reply\0\u{3}reply_proof\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.joinerID) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.key) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.reply) }()
+      case 4: try { try decoder.decodeSingularBytesField(value: &self.replyProof) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.joinerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.joinerID, fieldNumber: 1)
+    }
+    if !self.key.isEmpty {
+      try visitor.visitSingularBytesField(value: self.key, fieldNumber: 2)
+    }
+    if !self.reply.isEmpty {
+      try visitor.visitSingularStringField(value: self.reply, fieldNumber: 3)
+    }
+    if !self.replyProof.isEmpty {
+      try visitor.visitSingularBytesField(value: self.replyProof, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V2_JoinRefusal, rhs: Agentkeyring_V2_JoinRefusal) -> Bool {
+    if lhs.joinerID != rhs.joinerID {return false}
+    if lhs.key != rhs.key {return false}
+    if lhs.reply != rhs.reply {return false}
+    if lhs.replyProof != rhs.replyProof {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -4052,7 +4175,7 @@ nonisolated extension Agentkeyring_V2_SelfTests: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V2_JoinStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".JoinStatus"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}state\0\u{1}members\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}state\0\u{1}members\0\u{1}refusal\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -4062,6 +4185,7 @@ nonisolated extension Agentkeyring_V2_JoinStatus: SwiftProtobuf.Message, SwiftPr
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularEnumField(value: &self.state) }()
       case 2: try { try decoder.decodeSingularMessageField(value: &self._members) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._refusal) }()
       default: break
       }
     }
@@ -4078,12 +4202,16 @@ nonisolated extension Agentkeyring_V2_JoinStatus: SwiftProtobuf.Message, SwiftPr
     try { if let v = self._members {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
     } }()
+    try { if let v = self._refusal {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V2_JoinStatus, rhs: Agentkeyring_V2_JoinStatus) -> Bool {
     if lhs.state != rhs.state {return false}
     if lhs._members != rhs._members {return false}
+    if lhs._refusal != rhs._refusal {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
