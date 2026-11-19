@@ -98,7 +98,7 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
             secret.password = "example"
             let openerID = try keys.keyID()
             let opening = try P256.KeyAgreement.PublicKey(x963Representation: keys.openingPublicKey())
-            let sealed = try Sealing.seal(secret, to: opening, openerID: openerID,
+            let sealed = try Sealing.seal(secret, version: 0, to: opening, openerID: openerID,
                                           signer: Sealing.Signer(keyID: Sealing.keyID(keys.replyPublicKey()), sign: keys.signReply))
             result["keyOpens"] = try keys.open(sealed).password == "example"
         } catch { result["keyOpens"] = false; result["keyError"] = "\(error)" }

@@ -145,12 +145,14 @@ public final class MacKeys {
     public var signer: Sealing.Signer { Sealing.Signer(keyID: replyKeyID, sign: signReply) }
 
     /// A sealed copy only if this Mac or a device in `members` signed it: files
-    /// on disk and the relay are not trusted to say which copy is which.
-    public func check(_ sealed: Agentkeyring_V2_SealedLogin, members: Agentkeyring_V2_Members?) throws {
+    /// on disk and the relay are not trusted to say which copy is which. A copy
+    /// from the relay is also checked against the signed catalogue's `listed` login.
+    public func check(_ sealed: Agentkeyring_V2_SealedLogin, members: Agentkeyring_V2_Members?, listed: Agentkeyring_V2_Login? = nil) throws {
+        if let listed, listed.loginID != sealed.loginID || listed.version != sealed.version { throw Sealing.Failure.wrongLogin }
         if sealed.signerKeyID == replyKeyID {
             try Sealing.checkSealed(sealed, by: replyKeyID, publicKey: replyPublicKey)
         } else if let members {
-            try Sealing.checkSealed(sealed, members: members)
+            try Sealing.checkSealed(sealed, members: members, listed: listed)
         } else {
             throw Sealing.Failure.unknownSigner
         }

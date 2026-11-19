@@ -116,8 +116,6 @@ public enum MainWindowCopy {
     public static let cancel = "Cancel"
     public static let saveWithTouchID = "Save with Touch ID"
     public static let useTouchIDToSave = "Use Touch ID to save"
-    public static let approveOnPhone = "Approve it on your iPhone"
-    public static let waitingForPhone = "Waiting for your iPhone"
     public static func rulesChange(_ count: Int) -> String { "The rules for \(count) passwords change." }
     public static func ruleChange(site: String, from: String, to: String) -> String { "\(site) changes from \(from) to \(to)." }
     public static let stillKnown = " An agent that has already received its password still knows it."
@@ -125,13 +123,6 @@ public enum MainWindowCopy {
     public static func automaticTo(_ computers: [String], count: Int) -> String {
         " Agents on \(list(computers)) will get \(count == 1 ? "it" : "them") without asking."
     }
-    public static func stillOnPhone(_ sites: [String]) -> String {
-        sites.count == 1 ? "\(sites[0]) is still set to Ask on iPhone or Apple Watch."
-            : "\(sites.count) passwords are still set to Ask on iPhone or Apple Watch."
-    }
-    public static let deniedOnPhone = "Denied on your iPhone. "
-    public static let noAnswerOnPhone = "No answer on your iPhone after 10 minutes. "
-    public static let notSentToPhone = "The change could not be sent to your iPhone."
     public static let didNotFinish = "That didn't finish. Nothing changed."
 
     // Devices

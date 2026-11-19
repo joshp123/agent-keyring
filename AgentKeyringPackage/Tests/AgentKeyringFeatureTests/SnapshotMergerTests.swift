@@ -143,9 +143,8 @@ struct SnapshotMergerTests {
 
     private func checkRuleAfterImport(_ first: MirrorGeneration, _ second: MirrorGeneration,
         expectedPolicy: CredentialAccessPolicy) async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = CredentialAccessPolicyStore(fileURL: root.appendingPathComponent("rules.json"))
+        var saved: Data?
+        let store = CredentialAccessPolicyStore(read: { saved }, write: { saved = $0 })
         try store.save([first.items[0].id: .allowAutomatically])
         let controller = CredentialAccessController(store: store)
         await controller.refresh(from: second)

@@ -1,13 +1,14 @@
+import AgentKeyringRelaySupport
 import Foundation
+import Security
 
-/// Which logins agents may use: a plain file in the app's container. It needs
-/// no signature: switching a login to Automatic in this file alone does
-/// nothing, because an Automatic login opens only from a copy sealed to this
-/// Mac's receiving key, and that copy is made only after Josh's Touch ID.
+/// Which logins agents may use, kept in the app's own keychain, where no other
+/// program running as Josh can change them: a rule withdrawn with Touch ID
+/// stays withdrawn.
 @MainActor public final class CredentialAccessPolicyStore {
     private struct Record: Codable, Equatable {
         let credentialID: UUID
-        let policy: CredentialAccessPolicy
+        let policy: String
     }
 
     private struct FileContents: Codable {
@@ -15,25 +16,31 @@ import Foundation
         let records: [Record]
     }
 
-    public let fileURL: URL
+    private let read: () throws -> Data?
+    private let write: (Data) throws -> Void
 
-    public init(fileURL: URL = URL.applicationSupportDirectory.appending(path: "AgentKeyring/access-policies.json")) {
-        self.fileURL = fileURL
+    public init(read: @escaping () throws -> Data?, write: @escaping (Data) throws -> Void) {
+        self.read = read
+        self.write = write
     }
 
+    public convenience init() {
+        let keychain = RelayKeychain(service: (Bundle.main.bundleIdentifier ?? "com.agentkeyring") + ".rules.v2",
+            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+        self.init(read: { try keychain.read("rules") }, write: { try keychain.write($0, account: "rules") })
+    }
+
+    /// A rule this version does not know reads as Ask.
     public func load() throws -> [UUID: CredentialAccessPolicy] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [:] }
-        let contents = try JSONDecoder().decode(FileContents.self, from: Data(contentsOf: fileURL))
-        return Dictionary(contents.records.map { ($0.credentialID, $0.policy) }, uniquingKeysWith: { _, last in last })
+        guard let bytes = try read() else { return [:] }
+        let contents = try JSONDecoder().decode(FileContents.self, from: bytes)
+        return Dictionary(contents.records.map { ($0.credentialID, CredentialAccessPolicy(rawValue: $0.policy) ?? .ask) },
+            uniquingKeysWith: { _, last in last }).filter { $0.value != .ask }
     }
 
     public func save(_ policies: [UUID: CredentialAccessPolicy]) throws {
-        let records = policies.filter { $0.value != .ask }.map { Record(credentialID: $0.key, policy: $0.value) }
+        let records = policies.filter { $0.value != .ask }.map { Record(credentialID: $0.key, policy: $0.value.rawValue) }
             .sorted { $0.credentialID.uuidString < $1.credentialID.uuidString }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700])
-        try encoder.encode(FileContents(version: 3, records: records)).write(to: fileURL, options: .atomic)
+        try write(JSONEncoder().encode(FileContents(version: 4, records: records)))
     }
 }

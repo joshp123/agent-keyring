@@ -69,30 +69,6 @@ public final class AppMainWindowBackend: MainWindowBackend {
         if let message = model.accessControl.errorMessage { throw ScreenFailure(message: message) }
     }
 
-    public func proposeRules(_ changes: [UUID: LoginRule]) async throws -> ProposalOutcome {
-        guard let device = model.device, device.isJoined else {
-            throw ScreenFailure(message: "Add your iPhone first: only it can make this change.")
-        }
-        let rows = Dictionary(uniqueKeysWithValues: model.accessControl.rows.map { ($0.id, $0) })
-        let state = try await device.proposeRules(changes.compactMap { id, rule in
-            guard rows[id] != nil else { return nil }
-            var change = Agentkeyring_V2_RuleChange()
-            change.loginID = id.uuidString
-            change.rule = switch rule {
-            case .ask, .askOnPhone: .ask
-            case .automatic: .automatic
-            case .blocked: .blocked
-            }
-            change.phoneAndWatchOnly = rule == .askOnPhone
-            return change
-        })
-        return switch state {
-        case .approved: .approved
-        case .denied: .denied
-        default: .unanswered
-        }
-    }
-
     public func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {
         let label = machineID == model.device?.ownMachineID ? nil : model.device?.members?.machines.first { $0.machineID == machineID }?.label
         try await confirmed {

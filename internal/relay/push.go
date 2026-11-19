@@ -47,17 +47,7 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 			slog.Error("could not seal a push", "device", t.registration.DeviceKeyId, "error", err)
 			continue
 		}
-		payload, _ := json.Marshal(map[string]any{
-			"aps": map[string]any{
-				"alert":              map[string]string{"title": "Agent Keyring", "body": "A request is waiting."},
-				"category":           "REQUEST",
-				"interruption-level": "time-sensitive",
-				"mutable-content":    1,
-				"thread-id":          id,
-				"sound":              "default",
-			},
-			"akr": base64.StdEncoding.EncodeToString(marshal(notice)),
-		})
+		payload := pushPayload(id, notice)
 		result, err := s.Push.Send(ctx, t.registration.ApnsToken, t.registration.ApnsTopic, t.registration.ApnsProduction, id, expires, payload)
 		if err == nil {
 			slog.Info("push accepted by Apple", "id", id, "device", t.registration.DeviceKeyId, "topic", t.registration.ApnsTopic, "production", t.registration.ApnsProduction)
@@ -68,4 +58,21 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 			}
 		}
 	}
+}
+
+// pushPayload is what Apple carries: nothing readable about the request.
+// Apple refuses one over 4096 bytes.
+func pushPayload(id string, notice *pb.Notice) []byte {
+	payload, _ := json.Marshal(map[string]any{
+		"aps": map[string]any{
+			"alert":              map[string]string{"title": "Agent Keyring", "body": "A request is waiting."},
+			"category":           "REQUEST",
+			"interruption-level": "time-sensitive",
+			"mutable-content":    1,
+			"thread-id":          id,
+			"sound":              "default",
+		},
+		"akr": base64.StdEncoding.EncodeToString(marshal(notice)),
+	})
+	return payload
 }

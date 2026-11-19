@@ -37,8 +37,6 @@ public final class CredentialLeaseStore {
         var lease: Data
         var automatic: Bool
         var requester: CredentialLeaseRequester? = nil
-        /// Approved on the iPhone or Watch, not in this Mac's panel.
-        var onDevices = false
     }
     private struct Suppression: Codable {
         var until: Int64
@@ -68,7 +66,7 @@ public final class CredentialLeaseStore {
     }
     /// The requests waiting for an answer in this Mac's panel.
     public var waitingRequests: [Agentkeyring_V1_Lease] {
-        leases.filter { $0.state == .pending && snapshot?.leases[$0.leaseID]?.onDevices != true }
+        leases.filter { $0.state == .pending }
     }
     public var activeLeases: [Agentkeyring_V1_Lease] { leases.filter { $0.state == .active } }
 
@@ -181,8 +179,7 @@ public final class CredentialLeaseStore {
             lease.state = .pending
             lease.statusLines = ["Waiting for approval in Agent Keyring."]
         }
-        let saved = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically, requester: requester,
-            onDevices: policy == .askOnPhone)
+        let saved = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically, requester: requester)
         next.leases[lease.leaseID] = saved
         next.requests[request.requestID] = RequestRecord(request: try request.serializedData(), leaseID: lease.leaseID)
         try commit(next)

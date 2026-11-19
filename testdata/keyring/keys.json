@@ -4,5 +4,6 @@
   "device_reply": "74feae590c00cdfaa43e8554a2d9f076c0233fc9a7f8dfa3339ede5df52dea20",
   "device_notice": "57baab5f936b94bdeb8a4e6b9a46a81541fc8a13609efd9f30baa047f44d7f7d",
   "machine_receiving": "acac0ddc93037ed5e3823a5fe25c86f8fb9dccf47d6e4a8eb4388f794c8f8314",
-  "note": "Test keys only, standing in for a device's chip keys and a machine's receiving key. Never used outside tests."
+  "note": "Test keys only, standing in for a device's chip keys and a machine's receiving and TLS keys. Never used outside tests.",
+  "machine_tls": "281484f97d15eb7e183dc560c207e958faf8a7c5f787867b9ce9c7fac09059d8"
 }

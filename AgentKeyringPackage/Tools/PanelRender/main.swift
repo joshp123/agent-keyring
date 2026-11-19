@@ -91,7 +91,6 @@ let cases: [(String, AnyView)] = [
 final class StubBackend: MainWindowBackend {
     func updates() -> AsyncStream<MainSnapshot> { AsyncStream { $0.finish() } }
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws {}
-    func proposeRules(_ changes: [UUID: LoginRule]) async throws -> ProposalOutcome { .approved }
     func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {}
     func remove(id: String, context: LAContext) async throws {}
     func importAgain() {}

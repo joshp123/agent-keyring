@@ -160,9 +160,10 @@ extension MirrorAppModel {
             let fresh = generation.items.filter { arrived.contains($0.sourceIdentity) }
             let kept = Set(generation.items.filter { !arrived.contains($0.sourceIdentity) }.map(\.id.uuidString))
             var sealed = try await store.sealed().filter { kept.contains($0.loginID) }
+            let version = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
             for item in fresh {
                 let policy = accessControl.policy(for: item.id)
-                sealed += try sealCopies(of: item.secret, automatic: policy == .allowAutomatically, phoneOnly: policy == .askOnPhone, blocked: policy == .block)
+                sealed += try sealCopies(of: item.secret, version: version, automatic: policy == .allowAutomatically, blocked: policy == .block)
             }
             try await store.save(generation, sealed: sealed)
         } catch {

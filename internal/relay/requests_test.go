@@ -3,10 +3,12 @@ package relay
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"slices"
+	"strings"
 	"testing"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
@@ -88,5 +90,30 @@ func TestABlockedLoginHasNoCopyOnTheRelay(t *testing.T) {
 	export()
 	if !slices.Equal(held("iphone"), []string{"mail"}) || len(held("mini")) != 0 {
 		t.Fatalf("a later export put a Blocked login back: iPhone holds %v, mini holds %v", held("iphone"), held("mini"))
+	}
+}
+
+// A request at every size limit the relay allows, signed, with a sealed copy
+// and its login, still fits in the 4096 bytes Apple carries.
+func TestTheLargestRequestFitsInAPush(t *testing.T) {
+	long := func(n int) string { return strings.Repeat("x", n) }
+	machineKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	request, _ := keyring.SignRequest(&pb.Request{Domain: keyring.RequestDomain, RequestId: long(32), LoginId: long(36), MachineId: long(64),
+		Reason: long(400), Agent: long(100), Project: long(100), Task: long(100), AskedUnixSeconds: 1 << 40, AnswerByUnixSeconds: 1 << 40},
+		keyring.SoftwareSigner(machineKey))
+	opening, _ := ecdh.P256().GenerateKey(rand.Reader)
+	sealed, _ := keyring.SealLogin(&pb.LoginSecret{LoginId: long(36), Username: long(100), Password: long(128), TotpSeed: make([]byte, 64),
+		Title: long(100), Sites: []string{long(100), long(100)}}, 1<<62, opening.PublicKey().Bytes(), long(64), long(64), keyring.SoftwareSigner(machineKey))
+	work := &pb.Work{Request: request.Payload, RequestSignature: request.Signature, SealedLogin: sealed,
+		Login: &pb.Login{LoginId: long(36), Title: long(100), Sites: []string{long(100), long(100)}, Account: long(100), Rule: pb.Rule_RULE_ASK, Version: 1 << 62}}
+	notice, _ := ecdh.P256().GenerateKey(rand.Reader)
+	sealedNotice, err := keyring.SealNotice(work, notice.PublicKey().Bytes(), long(64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size := len(pushPayload(long(32), sealedNotice)); size > 4096 {
+		t.Fatalf("the push is %d bytes; Apple carries 4096", size)
+	} else {
+		t.Logf("largest push: %d bytes", size)
 	}
 }

@@ -412,6 +412,10 @@ func (c *Client) openValues(ctx context.Context, lease *v1.Lease, _ *v1.Delivery
 		return nil, nil, errors.New("This lease was released. Lease again if the task still needs the login.")
 	}
 	if saved.Automatic {
+		// The relay records the use: a device's Stop or the 30 minutes end it.
+		if current, err := c.lease(ctx, lease.LeaseId); err != nil || current.State != v1.LeaseState_LEASE_STATE_ACTIVE {
+			return nil, nil, errors.New("This use of the Automatic login has ended. Ask again if the task still needs it.")
+		}
 		sealed, listed := c.automaticCopy(ctx, saved.Scope.LoginId)
 		if sealed == nil {
 			return nil, nil, errors.New("This login is no longer Automatic for this machine. Ask again.")

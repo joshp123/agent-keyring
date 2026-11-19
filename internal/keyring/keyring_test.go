@@ -83,8 +83,13 @@ func TestTheMachineOpensWhatADeviceApproved(t *testing.T) {
 	}
 
 	automaticCopy := read(t, "swift-automatic.pb", &pb.SealedLogin{})
-	if err := CheckSealed(automaticCopy, members); err != nil {
+	listed := &pb.Login{LoginId: "login-example", Version: 1_795_000_000_000_000_000}
+	if err := CheckSealed(automaticCopy, members, listed); err != nil {
 		t.Fatalf("the Swift device's signature on its sealed copy: %v", err)
+	}
+	newer := &pb.Login{LoginId: "login-example", Version: listed.Version + 1}
+	if err := CheckSealed(automaticCopy, members, newer); err != ErrMismatch {
+		t.Fatalf("a copy from before the catalogue's import must be refused, got %v", err)
 	}
 	automatic, err := OpenLogin(automaticCopy, machine)
 	if err != nil || automatic.Password != "example-password" {
@@ -101,7 +106,7 @@ func TestTheRelaySealsAPushForOneDevice(t *testing.T) {
 	approval := read(t, "swift-approval.pb", &pb.Approval{})
 	relayKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	sealed, err := SealLogin(&pb.LoginSecret{LoginId: "login-example", Username: "example@example.com", Password: "example-password"},
-		device.OpeningPublicKey, device.KeyId, "test", SoftwareSigner(relayKey))
+		1, device.OpeningPublicKey, device.KeyId, "test", SoftwareSigner(relayKey))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +121,42 @@ func TestTheRelaySealsAPushForOneDevice(t *testing.T) {
 	if os.Getenv("AKR_WRITE_VECTORS") == "1" {
 		raw, _ := proto.Marshal(notice)
 		if err := os.WriteFile(vectors+"go-notice.pb", raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The asking machine signs its request with its TLS key; a device checks it
+// against Members (the Swift test opens go-request.pb and does the same).
+func TestARequestIsSignedByTheMachineThatAsks(t *testing.T) {
+	members, err := VerifiedMembers(read(t, "swift-members.pb", &pb.Signed{}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsKey, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), testKey(t, "machine_tls").Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine := members.Machines[0]
+	signed, err := SignRequest(&pb.Request{Domain: RequestDomain, RequestId: "request-2", LoginId: "login-example", MachineId: machine.MachineId,
+		Reason: "You asked me to download October's invoice.", Agent: "Codex", AskedUnixSeconds: 1_795_000_000, AnswerByUnixSeconds: 1_795_000_600},
+		SoftwareSigner(tlsKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got, err := CheckRequest(signed.Payload, signed.Signature, members); err != nil || got.MachineId != machine.MachineId {
+		t.Fatalf("the machine's own request was refused: %v", err)
+	}
+	redirected := &pb.Request{}
+	proto.Unmarshal(signed.Payload, redirected)
+	redirected.LoginId = "another-login"
+	raw, _ := proto.Marshal(redirected)
+	if _, _, err := CheckRequest(raw, signed.Signature, members); err != ErrBadSignature {
+		t.Fatalf("a request the relay changed must be refused, got %v", err)
+	}
+	if os.Getenv("AKR_WRITE_VECTORS") == "1" {
+		raw, _ := proto.Marshal(&pb.Work{Request: signed.Payload, RequestSignature: signed.Signature})
+		if err := os.WriteFile(vectors+"go-request.pb", raw, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -161,8 +202,8 @@ func TestARefusalIsTheSameInGoAndSwift(t *testing.T) {
 	}
 }
 
-// A Mac that re-lists itself as an iPhone could then change what only the
-// iPhone or Watch may change; the members list keeps each device's kind.
+// The relay lets a Mac answer its own agents' requests and a Watch post
+// answers, by kind; the members list keeps each device's kind.
 func TestAMacCannotBecomeAnIPhone(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	public := elliptic.Marshal(elliptic.P256(), key.X, key.Y) //nolint:staticcheck // X9.63, as the devices write it.
