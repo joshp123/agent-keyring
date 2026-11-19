@@ -252,7 +252,7 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 		if err := isDevice(); err != nil {
 			return err
 		}
-		return s.testRequest(ctx, who, send)
+		return s.testRequest(ctx, who, method.TestRequest.GetForDeviceKeyId(), send)
 	case *pb.RelayRequest_ReportSelfTest:
 		if err := isDevice(); err != nil {
 			return err

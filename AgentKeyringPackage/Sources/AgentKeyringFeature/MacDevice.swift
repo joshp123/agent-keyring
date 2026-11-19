@@ -254,7 +254,7 @@ public final class MacDevice {
     // MARK: Staying connected
 
     public func start() {
-        guard saved != nil, running == nil else { return }
+        guard saved != nil, running == nil else { return leaveDeviceInvitation() }
         leaveDeviceInvitation()
         running = Task { [weak self] in
             while let self, !Task.isCancelled, let relay = self.relay {
@@ -446,9 +446,11 @@ public final class MacDevice {
     /// Keeps an invitation for a new iPhone in iCloud Keychain, where only
     /// Agent Keyring's own apps on Josh's devices can read it. The one there
     /// is kept while it is this Mac's and unexpired; a new one replaces it
-    /// after a device joins, or when there is none.
+    /// after a device joins, or when there is none. Before there is a computer
+    /// that stays on, it names only this Mac, so the iPhone can say this Mac is
+    /// set up and what it still needs.
     func leaveDeviceInvitation(endpoint: RelayEndpoint? = nil, pin: Data? = nil, replacing: Bool = false) {
-        guard let endpoint = endpoint ?? saved?.endpoint, let pin = pin ?? saved?.pin else { return }
+        guard let endpoint = endpoint ?? saved?.endpoint, let pin = pin ?? saved?.pin else { return leaveName() }
         var query = invitationItem
         query[kSecReturnData as String] = true
         var found: CFTypeRef?
@@ -466,6 +468,28 @@ public final class MacDevice {
         let status = SecItemAdd(item as CFDictionary, nil)
         if status == errSecSuccess { deviceLogger.notice("Left an invitation for a new iPhone in iCloud Keychain.") }
         else { deviceLogger.error("Could not leave the iPhone's invitation in iCloud Keychain: \(status, privacy: .public)") }
+    }
+
+    /// An invitation with no relay: this Mac's name and key only. A real one is never replaced by it.
+    private func leaveName() {
+        var query = invitationItem
+        query[kSecReturnData as String] = true
+        var found: CFTypeRef?
+        if SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let bytes = found as? Data,
+            let current = try? Agentkeyring_V2_JoinInvite(serializedBytes: bytes), current.inviterKeyID == keys.deviceKeyID {
+            return
+        }
+        var invite = Agentkeyring_V2_JoinInvite()
+        invite.inviterKeyID = keys.deviceKeyID
+        invite.inviterLabel = keys.device.label
+        guard let value = try? invite.serializedData() else { return }
+        SecItemDelete(invitationItem as CFDictionary)
+        var item = invitationItem
+        item[kSecValueData as String] = value
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecSuccess { deviceLogger.notice("Left this Mac's name for a new iPhone in iCloud Keychain.") }
+        else { deviceLogger.error("Could not leave this Mac's name in iCloud Keychain: \(status, privacy: .public)") }
     }
 
     public static func joinID(_ join: Agentkeyring_V2_PendingJoin) -> String {

@@ -229,19 +229,28 @@ func (s *Server) end(ctx context.Context, who caller, id, answeredHere string) (
 var practiceLogin = &pb.Login{Title: "example.com", Sites: []string{"example.com"}, Account: "you@example.com"}
 
 // testRequest makes the practice request: no login, for the calling device
-// only, pushed like any other and streamed until it is answered.
-func (s *Server) testRequest(ctx context.Context, who caller, send func(*pb.RelayResponse) error) error {
+// or, from its iPhone, its Apple Watch, pushed like any other and streamed
+// until it is answered. Only that device can answer it.
+func (s *Server) testRequest(ctx context.Context, who caller, forDevice string, send func(*pb.RelayResponse) error) error {
+	target := who.device
+	if forDevice != "" && forDevice != who.device.KeyId {
+		members, _ := s.Store.documents()
+		target = device(members, forDevice)
+		if target == nil || target.Kind != pb.DeviceKind_DEVICE_KIND_WATCH || who.device.Kind != pb.DeviceKind_DEVICE_KIND_IPHONE {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "An iPhone may ask for a practice request for its Apple Watch only.")
+		}
+	}
 	now := s.now()
 	id := newID()
 	answerBy := now.Add(s.answerWithin()).Unix()
 	s.Store.update(func(data *saved) error {
-		data.Requests[id] = &request{ForDevice: who.device.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: answerBy,
+		data.Requests[id] = &request{ForDevice: target.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: answerBy,
 			Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id,
-				Reason: "This is a practice request. No real password is used.", Agent: "Agent Keyring", Project: "Practice", ForDeviceKeyId: who.device.KeyId,
+				Reason: "This is a practice request. No real password is used.", Agent: "Agent Keyring", Project: "Practice", ForDeviceKeyId: target.KeyId,
 				AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: answerBy})}
 		return nil
 	})
-	slog.Info("test request", "id", id, "device", who.device.Label)
+	slog.Info("test request", "id", id, "device", target.Label)
 	go s.pushAll(context.WithoutCancel(ctx), id)
 	return s.followRequest(ctx, id, send)
 }
@@ -351,7 +360,7 @@ func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload
 			choice, answeredBy, reply = answer.Choice, signer.Label, answer.Reply
 			if r.ForDevice != "" {
 				if r.ForDevice != signer.KeyId {
-					return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the device that asked for a test may answer it.")
+					return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the device the practice request is for may answer it.")
 				}
 			} else if choice == pb.Choice_CHOICE_APPROVE {
 				parsed := &pb.Request{}
