@@ -144,7 +144,7 @@ public struct MacMenuBarView: View {
             if model.taskHistoryNeedsReset {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Agents are paused on this Mac").font(.headline)
-                    Text("Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. Your logins and rules stay.")
+                    Text("Agent Keyring can't read its record of what agents are using. Reset the record to let them ask again. Your passwords and rules stay.")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Reset…", action: model.openAgentKeyring)
@@ -169,7 +169,7 @@ public struct MacMenuBarView: View {
                 }
             }
             if model.attentionCount == 0 && model.inUse.isEmpty {
-                Text("No agent is using a login now.")
+                Text("No agent is using a password now.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 14)
@@ -192,13 +192,13 @@ public struct MacMenuBarView: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Spacer()
-            Button("Rules…", action: model.openRules)
+            Button("Passwords…", action: model.openRules)
                 .controlSize(.small)
                 .accessibilityIdentifier("menu-rules")
             Menu {
                 Button("Open Agent Keyring", action: model.openAgentKeyring)
                 if model.relay != nil {
-                    Button("Machines…", action: model.openMachines)
+                    Button("Devices…", action: model.openMachines)
                 }
                 Divider()
                 Button("Quit Agent Keyring", action: model.quit)

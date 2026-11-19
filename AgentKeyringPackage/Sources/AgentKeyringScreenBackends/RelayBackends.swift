@@ -27,7 +27,7 @@ public enum RelayScreenMapping {
             login: RequestedLogin(site: LeaseScreenMapping.siteLabel(login?.origins.first ?? login?.title ?? "Unknown site"),
                 account: login?.username ?? login?.title ?? "Unknown account"),
             agent: RequestingAgent(name: request.agent.isEmpty ? "An agent" : request.agent,
-                machine: machine?.label ?? "Another machine", address: "",
+                machine: machine?.label ?? "Another computer", address: "",
                 project: request.project.isEmpty ? nil : request.project, isLocal: false),
             access: .login,
             agentReason: request.reason,
@@ -119,7 +119,7 @@ public final class RelayApprovalBackend: MacApprovalBackend {
     }
 
     public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
-        throw ScreenFailure(message: "A denial on another machine holds the login off for 30 minutes. It cannot be lifted from this Mac yet.")
+        throw ScreenFailure(message: "A denial on another computer holds the password off for 30 minutes. It cannot be lifted from this Mac yet.")
     }
 }
 

@@ -1,169 +1,155 @@
-// Written by AI on 2026.10.31 by model Claude Opus 5.5.
+// Written by AI on 2026.10.31 by model Claude Opus 5.5; first run, the
+// practice request, Passwords and Devices rewritten on 2026.11.19 by model
+// claude opus 5.5 from the Paper boards "First run", "Passwords and rules"
+// and "Devices" (page "First run and the app").
 //
-// Every sentence on the setup screens: a machine or iPhone joining, the
-// Mac's relay, and the iPhone's pairing. Requests are in AccessRequestCopy.
+// Every sentence Josh reads on the Mac's setup screens, first run and the
+// main window, so each is a one-line change. Requests are in AccessRequestCopy.
 
 import Foundation
 
 public enum SetupCopy {
-    // MARK: Comparing a code
-
-    public static let allGroupsMustMatch = "Approve only if all eight groups match."
-    public static let theyMatch = "They match"
-    public static let doesNotMatch = "Doesn't match"
-
-    // MARK: A machine or iPhone joining (Mac panel)
-
-    public static func joiningLead(_ enrolment: DeviceEnrolment) -> String {
-        switch enrolment.kind {
-        case .machine: "Let agents on \(enrolment.name) ask for your logins?"
-        case .approver: "Let your iPhone approve agents' requests?"
-        }
-    }
-
-    /// The second line under a joining device's name, in lists.
+    /// Under a joining device's name in the menu bar.
     public static func joiningDetail(_ enrolment: DeviceEnrolment) -> String {
-        if let old = enrolment.replacesPhone { return "Replaces \(old)" }
-        return enrolment.kind == .machine ? "Wants its agents to ask for your logins" : "Wants to approve requests"
+        enrolment.kind == .machine ? "Wants its agents to ask for your passwords" : "Wants to approve requests"
     }
 
-    /// In the panel, under the new iPhone's name.
-    public static func replacesPhone(_ old: String) -> String {
-        "Replaces the iPhone paired as \(old). That one loses access: it can't approve requests any more."
-    }
-
-    public static func tailnetNode(_ node: String) -> String {
-        "On your tailnet as \(node)"
-    }
-
-    public static func compareWith(_ enrolment: DeviceEnrolment) -> String {
-        switch enrolment.kind {
-        case .machine: "The agent setting up \(enrolment.name) shows you a code. Compare it with this one:"
-        case .approver: "Compare with the code on your iPhone:"
-        }
-    }
-
-    public static let allowAutomatic = "Let it use Automatic logins"
-    public static let allowAutomaticOff = "Off: it asks you for every login, even Automatic ones."
-
-    public static func joined(_ enrolment: DeviceEnrolment) -> String {
-        switch enrolment.kind {
-        case .machine: "\(enrolment.name) can now ask for logins."
-        case .approver: enrolment.replacesPhone.map { "Your iPhone can now approve requests. The one paired as \($0) can't." }
-            ?? "Your iPhone can now approve requests."
-        }
-    }
-
-    public static func refused(_ enrolment: DeviceEnrolment) -> String {
-        "Refused. Nothing was allowed. To try again, start again on \(enrolment.name)."
-    }
-
-    public static let joiningFailed = "Confirmation didn't finish. Nothing changed."
-
-    // MARK: The Mac's relay (Machines window)
-
-    public static let relayHeading = "Requests from other machines"
-    public static let relayNotSetUp = "Agents on your other machines send their requests through Agent Keyring on your Mac mini. Connect this Mac to it once."
-    public static let relayAddress = "Mac mini address"
-    public static let relayAddressHint = "Its Tailscale name and port."
-    public static let connect = "Connect"
-    /// The agent setting up the mini checks its code for Josh (it reads it over
-    /// SSH and the Mac app compares), so he only makes the decision itself.
-    public static let connectToMiniTitle = "Let agents on your other machines use your logins?"
-    public static let connectToMiniBody = "You still approve each request. Their requests reach you through your Mac mini."
+    public static let review = "Review"
     public static let notNow = "Not now"
-    public static let sendImportedTitle = "Let agents on your other machines use the logins you just imported?"
-    public static let sendImportedBody = "Until you allow this, they can only use the list you had before."
     public static let allow = "Allow"
-    public static let dontAllow = "Don't allow"
+    public static let sendImportedTitle = "Let agents on your other computers use the passwords you just copied?"
+    public static let sendImportedBody = "Until you allow this, they can only use the list you had before."
+    /// After "Agent Keyring is trying to" in macOS's dialog.
+    public static let sendImportedReason = "let agents on your other computers use the passwords you just copied"
 
-    public static func relayConnected(_ address: String) -> String { "Connected to \(address)" }
-    public static func relayConnecting(_ address: String) -> String { "Connecting to \(address)…" }
-    public static func relayOffline(_ address: String) -> String { "Can't reach \(address). Retrying." }
+    // MARK: A computer or device being added (the request panel)
 
-    public static func queuedAnswers(_ count: Int) -> String {
-        count == 1 ? "1 answer will be sent when it's back." : "\(count) answers will be sent when it's back."
+    public static func addingComputerLead(agent: String) -> String { "\(agent) on this Mac wants to add" }
+    public static let addingLead = "An agent wants to add"
+    public static func addingComputerFooter(_ name: String, staysOn: Bool) -> String {
+        staysOn ? "Agents on \(name) can then ask for your passwords, and requests reach your iPhone through it. Remove it at any time in Devices."
+            : "Agents on \(name) can then ask for your passwords. Remove it at any time in Devices."
     }
+    public static func addingDeviceLead(watch: Bool) -> String { "Agent Keyring on \(watch ? "Apple Watch" : "iPhone") wants to add" }
+    public static func addingDeviceDetail(watch: Bool) -> String { watch ? "Paired with your iPhone" : "Same Apple Account" }
+    public static func addingDeviceFooter(watch: Bool) -> String {
+        watch ? "It approves requests with one tap while it is unlocked on your wrist. Remove it at any time in Devices."
+            : "It approves requests with Face ID. Remove it at any time in Devices."
+    }
+    public static func notAdded(_ name: String) -> String { "\(name) was not added." }
+}
 
-    /// RFC 0005, "Applying a change": shown until the relay acknowledges.
-    public static let applying = "Sending changes to your Mac mini…"
-    public static let waitingToJoin = "Waiting to join"
-    public static let machinesThatCanAsk = "Machines whose agents can ask for your logins"
-    public static let noMachines = "None yet. To add a machine, ask an agent on it to set up Agent Keyring."
-    public static let automaticAllowed = "Can use Automatic logins"
-    public static let asksEveryTime = "Asks you for every login"
+/// Every sentence of the first-run windows (MacFirstRunView) and the
+/// practice request, from the Paper board "First run".
+public enum FirstRunCopy {
+    // The first window
+    public static let title = "Agent Keyring"
+    public static let intro = "Your AI agents ask before they use one of your passwords. You approve or deny."
+    public static let copyHeading = "Copy your passwords from Passwords"
+    public static let copyDetail = "Agent Keyring keeps its copy locked until you approve a request."
+    public static let steps = ["In Passwords, choose File > Export All Items to App.", "Choose Agent Keyring."]
+    public static let openPasswords = "Open Passwords"
+    public static let notInList = "Agent Keyring isn’t in the list?"
+
+    // Only from that link, before macOS's AutoFill question
+    public static let autoFillTitle = "Let Passwords export to Agent Keyring"
+    public static let autoFillBody = "macOS uses its AutoFill setting to decide which apps Passwords can export to. Agent Keyring never fills in a password for you."
+    public static let autoFillNotNow = "Passwords can’t export to Agent Keyring until AutoFill is on for it. Agent Keyring never fills in a password for you."
+    public static let continueButton = "Continue"
+
+    public static let noneArrived = "No passwords have arrived. In Passwords, choose File > Export All Items to App, then Agent Keyring."
+    public static let copying = "Copying your passwords…"
+
+    // When the passwords arrive
+    public static func copied(_ count: Int) -> String { count == 1 ? "1 password copied" : "\(count) passwords copied" }
+    public static let alwaysAsk = "Agents always ask before using one."
+    public static let tryPractice = "Try a practice request"
+    public static let approveIt = "Approve it to finish setting up."
+    public static let approveOne = "Approve one to finish setting up."
+    public static let sendAnother = "Send Another"
+
+    // After he approves
+    public static let setUpTitle = "You’re set up on this Mac"
+    public static let setUpBody = "A request appears beside your pointer whenever an agent needs a password."
+    public static let tellAgents = "Tell your agents"
+    public static let tellAgentsBody = "Paste this into any agent on this Mac. It learns how to ask for a password, and can set up your iPhone, Apple Watch and other computers."
+    public static let copy = "Copy"
+    public static let copied = "Copied"
+    public static let done = "Done"
+
+    /// The line Josh pastes into an agent: something it can run on a Mac where
+    /// nothing is installed yet, which prints the skill.
+    public static func agentLine(appPath: String) -> String {
+        "Set up Agent Keyring: run \"\(appPath)/Contents/Helpers/agent-keyring\" skill"
+    }
+    public static var agentLine: String { agentLine(appPath: Bundle.main.bundleURL.path) }
+
+    // The practice request
+    public static let practiceAgent = "Agent Keyring"
+    public static let practiceSite = "example.com"
+    public static let practiceAccount = "you@example.com"
+    public static let practiceReason = "This is a practice request. No real password is used."
+    /// Where a real request shows the project.
+    public static let practicePlace = "Practice"
+    public static let practiceFooter = "An approval lasts for one task, 30 minutes at most."
+    public static let practiceApproved = "No real password was used."
+    /// After "Agent Keyring is trying to" in macOS's dialog.
+    public static let practiceReasonInDialog = "use a practice password for \(practiceSite), \(practiceAccount)"
+}
+
+/// The words of the main window: the Passwords and Devices tabs.
+public enum MainWindowCopy {
+    public static let passwordsTab = "Passwords"
+    public static let devicesTab = "Devices"
+    public static let search = "Search"
+    public static let all = "All"
+    public static let copyAgain = "Copy Again"
+    public static let noneCopied = "No passwords copied yet."
+    public static func copiedOn(_ date: String) -> String { "Copied from Passwords on \(date). To add newer passwords, copy them again." }
+
+    // The rule bar
+    public static let cancel = "Cancel"
+    public static let saveWithTouchID = "Save with Touch ID"
+    public static let useTouchIDToSave = "Use Touch ID to save"
+    public static let approveOnPhone = "Approve it on your iPhone"
+    public static let waitingForPhone = "Waiting for your iPhone"
+    public static func rulesChange(_ count: Int) -> String { "The rules for \(count) passwords change." }
+    public static func ruleChange(site: String, from: String, to: String) -> String { "\(site) changes from \(from) to \(to)." }
+    public static let stillKnown = " An agent that has already received its password still knows it."
+    /// Names every computer that will get the password without asking.
+    public static func automaticTo(_ computers: [String], count: Int) -> String {
+        " Agents on \(list(computers)) will get \(count == 1 ? "it" : "them") without asking."
+    }
+    public static func stillOnPhone(_ sites: [String]) -> String {
+        sites.count == 1 ? "\(sites[0]) is still set to Ask on iPhone or Apple Watch."
+            : "\(sites.count) passwords are still set to Ask on iPhone or Apple Watch."
+    }
+    public static let deniedOnPhone = "Denied on your iPhone. "
+    public static let noAnswerOnPhone = "No answer on your iPhone after 10 minutes. "
+    public static let notSentToPhone = "The change could not be sent to your iPhone."
+    public static let didNotFinish = "That didn't finish. Nothing changed."
+
+    // Devices
+    public static let youApproveOn = "You approve on"
+    public static let agentsAskFrom = "Agents ask from"
+    public static let automaticPasswords = "Automatic passwords"
     public static let remove = "Remove"
-
-    public static func removePhoneAction(_ name: String) -> String { "stop \(name) approving agents' requests" }
-    public static func removeMachineAction(_ name: String) -> String { "stop agents on \(name) using your logins" }
-    /// Honest about the limit: removal stops the phone approving, but cannot
-    /// reach into it and erase what it already holds.
-    public static let removePhoneMessage = "It stops approving once your other devices confirm. Passwords and two-factor codes already on it stay there, locked behind its Face ID. If someone else might have it, change those passwords and set up two-factor again."
-
-    // MARK: Removals waiting for every device to confirm
-
-    public static let waitingForDevices = "Waiting for devices"
-
-    #if os(macOS)
-    #endif
+    public static func this(_ name: String) -> String { "This \(name)" }
+    public static let macApproves = "Touch ID, with the lid open"
+    public static let phoneApproves = "Face ID"
+    public static let watchApproves = "One tap, unlocked on your wrist"
+    public static let staysOn = "Requests reach your iPhone through it"
+    public static let ready = "Ready"
+    /// After "Agent Keyring is trying to"; `computer` is nil for this Mac.
+    public static func automaticReason(_ computer: String?, on: Bool) -> String {
+        let agents = computer.map { "agents on \($0)" } ?? "agents on this Mac"
+        return on ? "let \(agents) get Automatic passwords without asking" : "stop \(agents) getting Automatic passwords"
+    }
+    public static let toAdd = "To add a computer, iPhone or Apple Watch, paste this into any agent on this Mac."
 
     /// "a", "a and b", "a, b and c".
-    static func list(_ names: [String]) -> String {
+    public static func list(_ names: [String]) -> String {
         guard names.count > 1 else { return names.first ?? "" }
         return names.dropLast().joined(separator: ", ") + " and " + names.last!
     }
-    public static let canApprove = "Where you approve requests"
-    public static let answersWithTouchID = "Answers on this Mac"
-    public static let answersWithFaceID = "Answers with Face ID"
-    public static let review = "Review"
-
-    // MARK: When the Mac asks the iPhone
-
-    public static let askPhoneAfterOnMac = "Ask your iPhone after"
-    public static let macDelayFooter = "If you haven't answered on this Mac by then. If this Mac is locked, your iPhone is asked straight away."
-
-    /// "30 seconds", "1 minute", "9 minutes".
-    public static func delay(_ delay: Duration) -> String {
-        let seconds = Int(delay.components.seconds)
-        return seconds < 60 ? "\(seconds) seconds" : seconds < 120 ? "1 minute" : "\(seconds / 60) minutes"
-    }
-}
-
-/// Every sentence of the first-run window (MacFirstRunView), from the Paper
-/// board "First run".
-public enum FirstRunCopy {
-    public static let title = "Agent Keyring"
-    public static let intro = "Your AI agents ask you before they use one of your saved logins. You approve or deny on your Mac, iPhone or Watch."
-    public static let importHeading = "Import your logins"
-    public static let turnOnTitle = "Click Turn On"
-    public static let turnOnBody = "macOS asks about AutoFill because that is how it lets Passwords send your logins to another app."
-    public static let autoFillOffTitle = "Passwords can’t send your logins yet"
-    public static let autoFillNotNow = "You chose Not Now, so AutoFill from Agent Keyring is off."
-    public static let autoFillOff = "AutoFill from Agent Keyring is off."
-    public static let askAgain = "Ask Again"
-    public static let twoApps = "Passwords lists two apps called Agent Keyring. Choose the one with the blue keyhole; the one with a key ring is the old app."
-    public static let exportBody = "Agent Keyring needs a copy of your logins from Apple Passwords, and only you can start the export. In Passwords, choose File > Export All Items to App > Agent Keyring."
-    public static let exportButton = "Open Passwords"
-    public static let importing = "Importing your logins…"
-    public static func imported(_ count: Int) -> String { "\(count) logins imported" }
-    public static let importedDetail = "Each is set to Ask, so agents ask you every time."
-    public static let approveTest = "Approve the test request"
-    public static let approveTestDetail = "It is beside your pointer. Click its green button, then touch the sensor."
-    public static let notTested = "This Mac is not tested yet"
-    public static let notTestedDenied = "You denied the test request, so Touch ID has not been tried."
-    public static let sendAgain = "Send It Again"
-    public static let readyTitle = "Ready on this Mac"
-    public static let readyBody = "Agents on this Mac can now ask to use your logins. You approve here with Touch ID while the lid is open."
-    public static let menuBarHint = "Click the keyhole in the menu bar to see requests and the logins agents are using."
-    public static let macWorks = "This Mac works"
-    public static func lastTested(_ time: String) -> String { "Last tested at \(time)." }
-    public static let awayHeading = "To approve away from this Mac"
-    public static let alwaysOn = "An always-on machine"
-    public static let alwaysOnBody = "A computer of yours that is always running, such as a Mac mini. Agents on your other machines ask through it, and it passes requests on to your iPhone and Watch. An agent sets it up. Give any agent this task, then approve the request that appears here:"
-    public static let alwaysOnTask = "Set up Agent Keyring on my always-on machine."
-    public static let alwaysOnReady = "Connected. Agents on your other machines can ask."
-    public static let phoneAndWatch = "Your iPhone and Watch"
-    public static let phoneAndWatchBody = "When the always-on machine is ready, install Agent Keyring on your iPhone and open it."
-    public static let copy = "Copy"
-    public static let copied = "Copied"
 }

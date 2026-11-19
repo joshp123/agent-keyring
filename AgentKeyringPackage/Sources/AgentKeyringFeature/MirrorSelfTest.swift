@@ -1,8 +1,9 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// First run's test request, from the Paper board "First run": it appears by
-// itself when the logins arrive, and one click and one touch prove that
-// Touch ID, this Mac's chip keys and its sealing all work. No login is used.
+// First run's practice request, from the Paper board "First run": it appears
+// by itself when the passwords arrive, and one click and one touch prove that
+// Touch ID, this Mac's chip keys and its sealing all work. Josh sees only the
+// practice request; the result goes to the relay. No real password is used.
 
 import AgentKeyringProtocol
 import AgentKeyringSealing
@@ -15,11 +16,11 @@ private let selfTestLogger = Logger(subsystem: "com.agentkeyring.app", category:
 
 public enum MacSelfTest: Equatable, Sendable {
     case notRun
-    /// The test request is beside the pointer.
+    /// The practice request is beside the pointer.
     case waiting
     case passed(Date)
     case failed(String)
-    /// He denied the test request: nothing is wrong, it is simply not tested.
+    /// He denied the practice request: nothing is wrong, it is simply not tested.
     case declined
 }
 
@@ -27,19 +28,19 @@ public enum MacSelfTest: Equatable, Sendable {
 extension MirrorAppModel {
     static let testedAtKey = "macTestedAt"
 
-    /// Offers the test once there are logins and this Mac has not passed it.
+    /// Offers the practice request during first run, once there are passwords.
     func offerSelfTestIfNeeded() {
-        // A test he passed or denied is not offered again by itself: a denial
-        // leaves "Send It Again" in the window.
-        guard status != nil, selfTest == .notRun else { return }
+        // One he denied is not offered again by itself: the window has Send Another.
+        guard status != nil, !firstRunFinished, selfTest == .notRun else { return }
         selfTest = .waiting
     }
 
-    /// Josh clicked Approve on the test request.
-    public func runSelfTest(context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
+    /// Josh clicked the green button on the practice request. `reason` follows
+    /// "Agent Keyring is trying to" in macOS's dialog.
+    public func runSelfTest(reason: String, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         do {
             let keys = try macKeys()
-            try await OwnerConfirmation.confirm(context, reason: "run a test that uses no login", until: .now.addingTimeInterval(600))
+            try await OwnerConfirmation.confirm(context, reason: reason, until: .now.addingTimeInterval(600))
             var probe = Agentkeyring_V2_LoginSecret()
             probe.loginID = "self-test"
             probe.password = UUID().uuidString
@@ -75,7 +76,7 @@ extension MirrorAppModel {
         selfTest = .declined
     }
 
-    /// "Send It Again".
+    /// "Send Another".
     public func sendSelfTestAgain() {
         selfTest = .waiting
     }

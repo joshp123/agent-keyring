@@ -19,6 +19,8 @@ enum RequestToken {
     static let line = Color(light: 0xE1E1E6, dark: 0x3A3A3D)
     static let approve = Color(light: 0x17853F, dark: 0x23A455)
     static let deny = Color(light: 0xD5302A, dark: 0xE5453D)
+    /// Links, such as "Agent Keyring isn't in the list?".
+    static let brand = Color(light: 0x1447E6, dark: 0x5B8CFF)
     static let onAnswer = Color.white
     static let width: CGFloat = 420
     static let radius: CGFloat = 18
@@ -29,6 +31,7 @@ struct MacApprovalPanelView: View {
 
     private var request: AccessRequest { model.request }
     private var agent: String { request.agent.name }
+    private var isPractice: Bool { request.access == .practice }
 
     public var body: some View {
         Group {
@@ -77,7 +80,7 @@ struct MacApprovalPanelView: View {
                 Text(request.login.site)
                     .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
                     .foregroundStyle(RequestToken.ink).lineLimit(1).minimumScaleFactor(0.6).frame(height: 38)
-                Text(setUp.detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+                if !setUp.detail.isEmpty { Text(setUp.detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2) }
             }
             if !request.agentReason.isEmpty {
                 Text("“\(request.agentReason)”")
@@ -91,7 +94,7 @@ struct MacApprovalPanelView: View {
     private var requestBody: some View {
             VStack(spacing: 10) {
                 VStack(spacing: 1) {
-                    Text(request.agent.isLocal ? "\(agent) on this Mac wants" : "\(agent) on \(request.agent.machine) wants")
+                    Text(AccessRequestCopy.wants(request.agent))
                         .font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
                     Text(request.login.site)
                         .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
@@ -115,7 +118,9 @@ struct MacApprovalPanelView: View {
                 Text("Agent Keyring").font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink2)
             }
             Spacer(minLength: 0)
-            if let place {
+            if isPractice {
+                Text(FirstRunCopy.practicePlace).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
+            } else if let place {
                 HStack(spacing: 5) {
                     Text(place.kind).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
                     Text(Self.shortened(place.name)).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
@@ -147,8 +152,15 @@ struct MacApprovalPanelView: View {
     /// Return and Escape do nothing here: only the Deny button answers.
     private var replyRow: some View {
         HStack(spacing: 8) {
-            TextField("What should \(agent) do instead?", text: $model.replyDraft)
-                .textFieldStyle(.plain)
+            // ImageRenderer cannot draw a text field; the off-screen check shows its placeholder.
+            Group {
+                if ReviewRendering.isOn && model.replyDraft.isEmpty {
+                    Text(AccessRequestCopy.replyPlaceholder(agent)).foregroundStyle(RequestToken.ink2).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    TextField(AccessRequestCopy.replyPlaceholder(agent), text: $model.replyDraft).textFieldStyle(.plain)
+                }
+            }
                 .font(.system(size: 14)).foregroundStyle(RequestToken.ink)
                 .padding(.horizontal, 16)
                 .frame(height: 36)
@@ -160,7 +172,7 @@ struct MacApprovalPanelView: View {
 
     private var denyButton: some View {
         Button { Task { await model.deny() } } label: {
-            Text(sending == .deny ? "Denying…" : "Deny")
+            Text(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny)
                 .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.onAnswer)
                 .padding(.horizontal, setUp != nil ? 22 : 18).frame(height: 36)
                 .background(RequestToken.deny, in: Capsule())
@@ -182,8 +194,8 @@ struct MacApprovalPanelView: View {
         return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithCompanion, error: nil) ? .watch : .none
     }
 
-    /// One green button. Clicking it opens macOS's Touch ID or Watch dialog;
-    /// while that is up, the button is outlined and says the rest of what to do.
+    /// One green button. Clicking it opens macOS's Touch ID or Apple Watch
+    /// dialog; while that is up, the button is outlined and says what to do.
     private var approveLine: some View {
         Button { model.approve() } label: {
             Text(approveText)
@@ -203,17 +215,17 @@ struct MacApprovalPanelView: View {
     private var isBusy: Bool { model.isWaitingForTouch || sending == .approve }
 
     private var approveText: String {
-        if sending == .approve { return "Approving…" }
+        if sending == .approve { return AccessRequestCopy.approving }
         switch approver {
-        case .touchID: return model.isWaitingForTouch ? "Touch the sensor to approve" : "Click here, then touch the sensor to approve"
-        case .watch: return model.isWaitingForTouch ? "Approve on your Watch" : "Click here, then approve on your Watch"
-        case .none: return "Touch ID and your Watch aren't available"
+        case .touchID: return model.isWaitingForTouch ? AccessRequestCopy.useTouchID : AccessRequestCopy.clickForTouchID
+        case .watch: return model.isWaitingForTouch ? AccessRequestCopy.useWatch : AccessRequestCopy.clickForWatch
+        case .none: return AccessRequestCopy.noApprover
         }
     }
 
     private var footer: String {
         if let setUp { return setUp.footer }
-        return "\(agent) can use this login for this task, 30 minutes at most."
+        return isPractice ? FirstRunCopy.practiceFooter : AccessRequestCopy.footer(agent)
     }
 
     @ViewBuilder private var answered: some View {
@@ -251,21 +263,23 @@ struct MacApprovalPanelView: View {
 
     private var outcomeTitle: String {
         switch request.state {
-        case let .approved(surface, _): surface == .iPhone ? "Approved on your iPhone" : "Approved"
-        case let .denied(_, reply, _): reply == nil ? "Denied" : "Denied, with your words"
-        case .unanswered: "No answer"
-        case .cancelled: "\(agent) stopped asking"
+        case let .approved(surface, _): surface == .iPhone ? AccessRequestCopy.approvedOnPhone : AccessRequestCopy.approved
+        case let .denied(_, reply, _): reply == nil ? AccessRequestCopy.denied : AccessRequestCopy.deniedWithWords
+        case .unanswered: AccessRequestCopy.noAnswer
+        case .cancelled: AccessRequestCopy.stopped(agent)
         default: AccessRequestCopy.outcomeWord(request.state)
         }
     }
 
     private var outcomeDetail: String? {
         switch request.state {
-        case let .approved(_, until): "\(agent) can use this login until \(AccessRequestCopy.clock(until)) at the latest."
-        case let .denied(_, reply?, _): "You told \(agent): “\(reply)”"
+        case .approved where isPractice: FirstRunCopy.practiceApproved
+        case let .approved(_, until): AccessRequestCopy.canUseUntil(agent, AccessRequestCopy.clock(until))
+        case let .denied(_, reply?, _): AccessRequestCopy.youTold(agent, reply)
         case .denied where setUp != nil: setUp?.denied
-        case .denied: "\(agent) was told."
-        case .unanswered: "The request ended after 10 minutes. \(agent) can ask again."
+        case .denied where isPractice: nil
+        case .denied: AccessRequestCopy.wasTold(agent)
+        case .unanswered: AccessRequestCopy.ended(agent)
         default: nil
         }
     }

@@ -1,6 +1,7 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// First run's test request in the request panel (Paper, "First run", step 2).
+// First run's practice request in the request panel, laid out as a real one
+// (Paper, "First run", "When the passwords arrive").
 
 #if os(macOS)
 import AgentKeyringApprovalUI
@@ -26,11 +27,7 @@ public final class SelfTestBackend: MacApprovalBackend {
         case let .passed(at): .approved(by: .mac, until: at)
         case .failed, .declined: .denied(by: .mac, reply: nil, askAgainAfter: nil)
         }
-        return AccessRequest(id: Self.requestID, login: RequestedLogin(site: "Test request", account: "No login is used"),
-            agent: RequestingAgent(name: "Agent Keyring", machine: "This Mac", address: "", isLocal: true),
-            access: .setUp(lead: "A test from Agent Keyring", detail: "No login is used", footer: "Approve it to finish setting up.",
-                denied: "This Mac is not tested yet."),
-            agentReason: "", askedAt: .now, state: state)
+        return .practice(id: Self.requestID, state: state)
     }
 
     public func updates(requestID: String) -> AsyncStream<AccessRequest> {
@@ -42,7 +39,7 @@ public final class SelfTestBackend: MacApprovalBackend {
         self.context = context
         defer { if self.context === context { self.context = nil } }
         do {
-            try await model.runSelfTest(context: context, onAuthenticated: onAuthenticated)
+            try await model.runSelfTest(reason: FirstRunCopy.practiceReasonInDialog, context: context, onAuthenticated: onAuthenticated)
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw CancellationError()
         }
