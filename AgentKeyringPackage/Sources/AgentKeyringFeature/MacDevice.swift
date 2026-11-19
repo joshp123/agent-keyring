@@ -72,7 +72,11 @@ public final class MacDevice {
     public var waitingRequests: [Agentkeyring_V2_Request] { waiting.values.compactMap { try? Sealing.parseRequest($0.request) } }
     public var ownMachineID: String { keys.machineID }
     public var ownDeviceID: String { keys.deviceKeyID }
-    public var alwaysOnMachineID: String? { saved?.alwaysOnMachineID }
+    /// The computer that stays on, as the signed list names it; older lists only on this Mac.
+    public var alwaysOnMachineID: String? {
+        if let id = members?.relayMachineID, !id.isEmpty { return id }
+        return saved?.alwaysOnMachineID
+    }
 
     private static func parse(_ signed: Data) -> Agentkeyring_V2_Members? {
         guard let document = try? Agentkeyring_V2_Signed(serializedBytes: signed) else { return nil }
@@ -207,6 +211,7 @@ public final class MacDevice {
         members.devices = [keys.device]
         members.machines = [thisMac, always]
         members.relayTlsPublicKey = pin
+        members.relayMachineID = always.machineID
         let signed = try Sealing.signed(members.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
         saved = Saved(endpoint: setup.endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0,
             alwaysOnMachineID: always.machineID)

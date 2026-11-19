@@ -379,6 +379,9 @@ func (d *device) approveJoins(ctx context.Context) error {
 		if m := pending.GetRequest().GetMachine(); m != nil {
 			m.AutomaticAllowed = true
 			members.Machines = append(members.Machines, m)
+			if members.RelayMachineId == "" {
+				members.RelayMachineId = m.MachineId // The first computer added stands in for the one that stays on.
+			}
 			joined = append(joined, m)
 			fmt.Printf("Approving %q (Tailscale node %s).\n", m.Label, pending.TailscaleNodeName)
 		}

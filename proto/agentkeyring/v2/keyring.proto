@@ -71,6 +71,9 @@ message Members {
   repeated Device devices = 3;
   repeated Machine machines = 4;
   bytes relay_tls_public_key = 5;  // SPKI DER; machines and devices pin it.
+  // The machine that runs the relay and passes requests on to the iPhone and
+  // Apple Watch (the computer that stays on). Empty until one is added.
+  string relay_machine_id = 6;
 }
 
 message Device {

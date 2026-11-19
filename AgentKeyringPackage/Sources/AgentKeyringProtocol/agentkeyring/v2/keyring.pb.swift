@@ -413,6 +413,10 @@ public nonisolated struct Agentkeyring_V2_Members: Sendable {
   /// SPKI DER; machines and devices pin it.
   public var relayTlsPublicKey: Data = Data()
 
+  /// The machine that runs the relay and passes requests on to the iPhone and
+  /// Apple Watch (the computer that stays on). Empty until one is added.
+  public var relayMachineID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1840,7 +1844,7 @@ nonisolated extension Agentkeyring_V2_Signed: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentkeyring_V2_Members: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Members"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{1}revision\0\u{1}devices\0\u{1}machines\0\u{3}relay_tls_public_key\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{1}revision\0\u{1}devices\0\u{1}machines\0\u{3}relay_tls_public_key\0\u{3}relay_machine_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1853,6 +1857,7 @@ nonisolated extension Agentkeyring_V2_Members: SwiftProtobuf.Message, SwiftProto
       case 3: try { try decoder.decodeRepeatedMessageField(value: &self.devices) }()
       case 4: try { try decoder.decodeRepeatedMessageField(value: &self.machines) }()
       case 5: try { try decoder.decodeSingularBytesField(value: &self.relayTlsPublicKey) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.relayMachineID) }()
       default: break
       }
     }
@@ -1874,6 +1879,9 @@ nonisolated extension Agentkeyring_V2_Members: SwiftProtobuf.Message, SwiftProto
     if !self.relayTlsPublicKey.isEmpty {
       try visitor.visitSingularBytesField(value: self.relayTlsPublicKey, fieldNumber: 5)
     }
+    if !self.relayMachineID.isEmpty {
+      try visitor.visitSingularStringField(value: self.relayMachineID, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1883,6 +1891,7 @@ nonisolated extension Agentkeyring_V2_Members: SwiftProtobuf.Message, SwiftProto
     if lhs.devices != rhs.devices {return false}
     if lhs.machines != rhs.machines {return false}
     if lhs.relayTlsPublicKey != rhs.relayTlsPublicKey {return false}
+    if lhs.relayMachineID != rhs.relayMachineID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

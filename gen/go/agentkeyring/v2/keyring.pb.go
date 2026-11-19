@@ -471,8 +471,11 @@ type Members struct {
 	Devices           []*Device              `protobuf:"bytes,3,rep,name=devices,proto3" json:"devices,omitempty"`
 	Machines          []*Machine             `protobuf:"bytes,4,rep,name=machines,proto3" json:"machines,omitempty"`
 	RelayTlsPublicKey []byte                 `protobuf:"bytes,5,opt,name=relay_tls_public_key,json=relayTlsPublicKey,proto3" json:"relay_tls_public_key,omitempty"` // SPKI DER; machines and devices pin it.
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The machine that runs the relay and passes requests on to the iPhone and
+	// Apple Watch (the computer that stays on). Empty until one is added.
+	RelayMachineId string `protobuf:"bytes,6,opt,name=relay_machine_id,json=relayMachineId,proto3" json:"relay_machine_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Members) Reset() {
@@ -538,6 +541,13 @@ func (x *Members) GetRelayTlsPublicKey() []byte {
 		return x.RelayTlsPublicKey
 	}
 	return nil
+}
+
+func (x *Members) GetRelayMachineId() string {
+	if x != nil {
+		return x.RelayMachineId
+	}
+	return ""
 }
 
 type Device struct {
@@ -3883,13 +3893,14 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x06Signed\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\"\n" +
-	"\rsigner_key_id\x18\x03 \x01(\tR\vsignerKeyId\"\xd7\x01\n" +
+	"\rsigner_key_id\x18\x03 \x01(\tR\vsignerKeyId\"\x81\x02\n" +
 	"\aMembers\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x121\n" +
 	"\adevices\x18\x03 \x03(\v2\x17.agentkeyring.v2.DeviceR\adevices\x124\n" +
 	"\bmachines\x18\x04 \x03(\v2\x18.agentkeyring.v2.MachineR\bmachines\x12/\n" +
-	"\x14relay_tls_public_key\x18\x05 \x01(\fR\x11relayTlsPublicKey\"\xb4\x02\n" +
+	"\x14relay_tls_public_key\x18\x05 \x01(\fR\x11relayTlsPublicKey\x12(\n" +
+	"\x10relay_machine_id\x18\x06 \x01(\tR\x0erelayMachineId\"\xb4\x02\n" +
 	"\x06Device\x12\x15\n" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12/\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x1b.agentkeyring.v2.DeviceKindR\x04kind\x12\x14\n" +
