@@ -139,16 +139,22 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                                       intentIdentifiers: [], options: [])
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                           didReceive response: UNNotificationResponse) async {
+    /// The completion handler form: UIKit requires it to be called on the main
+    /// thread, which the async form does not do, and the app was stopped for it.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
         let userInfo = response.notification.request.content.userInfo
         let action = response.actionIdentifier
-        await MainActor.run { relay?.pushArrived() }
         let reply = (response as? UNTextInputNotificationResponse)?.userText
         // If the extension could not open the notice, the thread is still the request id.
         let thread = response.notification.request.content.threadIdentifier
-        guard let id = PhoneNotification.requestID(userInfo) ?? (thread.isEmpty ? nil : thread) else { return }
-        await answer(id, action: action, reply: reply)
+        let id = PhoneNotification.requestID(userInfo) ?? (thread.isEmpty ? nil : thread)
+        let done = UncheckedCompletion(completionHandler)
+        Task { @MainActor in
+            relay?.pushArrived()
+            if let id { await answer(id, action: action, reply: reply) }
+            done.call()
+        }
     }
 
     private func answer(_ id: String, action: String, reply: String?) async {
@@ -186,4 +192,10 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         return content.categoryIdentifier == PhoneNotification.requestCategory || content.interruptionLevel == .timeSensitive
             ? [.banner, .list, .sound] : [.list]
     }
+}
+
+/// A completion handler carried to the main actor, where UIKit wants it called.
+struct UncheckedCompletion: @unchecked Sendable {
+    let call: () -> Void
+    init(_ call: @escaping () -> Void) { self.call = call }
 }
