@@ -113,6 +113,8 @@ func main() {
 		err = withDevice(*state, func(d *device) error { return d.approveJoins(ctx) })
 	case "refuse-joins":
 		err = withDevice(*state, func(d *device) error { return d.refuseJoins(ctx, *reply) })
+	case "withdraw-automatic": // Josh sets the Automatic login back to Ask.
+		err = withDevice(*state, func(d *device) error { return d.withdrawAutomatic(ctx) })
 	case "invite":
 		err = withDevice(*state, func(d *device) error { return d.invite() })
 	case "self-test":
@@ -240,6 +242,29 @@ func (d *device) setUpRelay(ctx context.Context) error {
 	}
 	fmt.Printf("Device %s set up the relay with %d made-up logins.\n", d.self.KeyId[:16], len(logins))
 	return nil
+}
+
+func (d *device) withdrawAutomatic(ctx context.Context) error {
+	changed := append([]*pb.Login(nil), catalogueLogins...)
+	var withdrawn []string
+	for i, login := range changed {
+		if login.Rule == pb.Rule_RULE_AUTOMATIC {
+			copied := proto.Clone(login).(*pb.Login)
+			copied.Rule = pb.Rule_RULE_ASK
+			changed[i] = copied
+			withdrawn = append(withdrawn, login.LoginId)
+		}
+	}
+	catalogue, _ := proto.Marshal(&pb.Catalogue{Domain: keyring.CatalogueDomain, Revision: 2, Logins: changed, ImportedUnixSeconds: time.Now().Unix()})
+	signed, err := keyring.Sign(catalogue, d.self.KeyId, keyring.SoftwareSigner(d.signing))
+	if err != nil {
+		return err
+	}
+	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishCatalogue{PublishCatalogue: signed}}, nil); err != nil {
+		return err
+	}
+	_, err = d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishSealedLogins{PublishSealedLogins: &pb.SealedLogins{WithdrawnLoginIds: withdrawn}}}, nil)
+	return err
 }
 
 func withDevice(directory string, run func(*device) error) error {

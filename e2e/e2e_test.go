@@ -343,6 +343,32 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 			t.Fatalf("read: %v, %d bytes\n%s", read.err, len(read.stdout), read.stderr)
 		}
 	})
+
+	t.Run("a relay that replays the past cannot make a login Automatic again", func(t *testing.T) {
+		past := t.TempDir()
+		copyDir(t, relayState, past) // The relay's state while the login was Automatic.
+		r.device("withdraw-automatic")
+		asks := func(label string) string {
+			got := wait(t, start(mini.command("lease", "login-automatic", "--task", label, "--reason", "Nightly report.", "--no-wait")), "lease")
+			if got.err != nil {
+				t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+			}
+			id := strings.TrimSpace(got.stdout)
+			status := wait(t, start(mini.command("status", id)), "status")
+			wait(t, start(mini.command("release", id)), "release")
+			return status.stdout
+		}
+		if now := asks("after-withdrawal"); !strings.Contains(now, ": pending") {
+			t.Fatalf("after the login went back to Ask, the machine still got it without asking: %q", now)
+		}
+		stopRelay()
+		os.RemoveAll(relayState)
+		copyDir(t, past, relayState)
+		stopRelay = startRelay(t, p, address, relayState)
+		if replayed := asks("replayed"); !strings.Contains(replayed, ": pending") {
+			t.Fatalf("a relay serving the old catalogue gave the machine the login without asking: %q", replayed)
+		}
+	})
 }
 
 // Josh denies adding a computer, with words, first the computer that stays on
@@ -550,5 +576,12 @@ server                  linux   no      server.example.ts.net
 `
 	if err != nil || string(out) != want {
 		t.Fatalf("machines: %v\n%s", err, out)
+	}
+}
+
+func copyDir(t *testing.T, from, to string) {
+	t.Helper()
+	if out, err := exec.Command("cp", "-R", from+"/.", to).CombinedOutput(); err != nil {
+		t.Fatalf("copy %s: %v %s", from, err, out)
 	}
 }

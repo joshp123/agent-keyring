@@ -22,6 +22,9 @@ message State {
   // The newest Members this machine has checked, as a serialized
   // agentkeyring.v2.Signed. Answers are verified against it.
   bytes members = 16;
+  // The newest Catalogue revision this machine has seen; an older one is a
+  // relay replaying the past (a login no longer Automatic, still served).
+  uint64 catalogue_revision = 17;
 }
 message LocalAuthority {
   string application_contents = 1;

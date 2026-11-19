@@ -97,9 +97,12 @@ type State struct {
 	LocalAuthority *LocalAuthority        `protobuf:"bytes,14,opt,name=local_authority,json=localAuthority,proto3" json:"local_authority,omitempty"`
 	// The newest Members this machine has checked, as a serialized
 	// agentkeyring.v2.Signed. Answers are verified against it.
-	Members       []byte `protobuf:"bytes,16,opt,name=members,proto3" json:"members,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Members []byte `protobuf:"bytes,16,opt,name=members,proto3" json:"members,omitempty"`
+	// The newest Catalogue revision this machine has seen; an older one is a
+	// relay replaying the past (a login no longer Automatic, still served).
+	CatalogueRevision uint64 `protobuf:"varint,17,opt,name=catalogue_revision,json=catalogueRevision,proto3" json:"catalogue_revision,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *State) Reset() {
@@ -186,6 +189,13 @@ func (x *State) GetMembers() []byte {
 		return x.Members
 	}
 	return nil
+}
+
+func (x *State) GetCatalogueRevision() uint64 {
+	if x != nil {
+		return x.CatalogueRevision
+	}
+	return 0
 }
 
 type LocalAuthority struct {
@@ -455,7 +465,7 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\vPrivateKeys\x12'\n" +
 	"\x0fcertificate_pem\x18\x01 \x01(\fR\x0ecertificatePem\x12\x1e\n" +
 	"\vtls_key_pem\x18\x02 \x01(\fR\ttlsKeyPem\x120\n" +
-	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xc3\x03\n" +
+	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xf2\x03\n" +
 	"\x05State\x12#\n" +
 	"\rrelay_address\x18\x01 \x01(\tR\frelayAddress\x12\x1d\n" +
 	"\n" +
@@ -467,7 +477,8 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"operations\x18\r \x03(\v2*.agentkeyring.clientstate.OperationReceiptR\n" +
 	"operations\x12Q\n" +
 	"\x0flocal_authority\x18\x0e \x01(\v2(.agentkeyring.clientstate.LocalAuthorityR\x0elocalAuthority\x12\x18\n" +
-	"\amembers\x18\x10 \x01(\fR\amembersJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
+	"\amembers\x18\x10 \x01(\fR\amembers\x12-\n" +
+	"\x12catalogue_revision\x18\x11 \x01(\x04R\x11catalogueRevisionJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
 	"J\x04\b\n" +
 	"\x10\vJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10\"`\n" +
 	"\x0eLocalAuthority\x121\n" +

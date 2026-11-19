@@ -150,6 +150,16 @@ func (c *Client) automaticCopy(ctx context.Context, loginID string) (*pb.SealedL
 	if err != nil {
 		return nil, nil
 	}
+	stale := false
+	if err := c.Store.Update(ctx, func(state *clientstate.State) error {
+		stale = catalogue.Revision < state.CatalogueRevision
+		if !stale {
+			state.CatalogueRevision = catalogue.Revision
+		}
+		return nil
+	}); err != nil || stale {
+		return nil, nil
+	}
 	var sites []string
 	automatic := false
 	for _, login := range catalogue.Logins {
