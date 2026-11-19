@@ -21,6 +21,7 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
         let hosting = UIHostingController(rootView: card)
         hosting.sizingOptions = .preferredContentSize
         hosting.view.backgroundColor = .clear
+        view.backgroundColor = .clear
         addChild(hosting)
         view.addSubview(hosting.view)
         hosting.view.translatesAutoresizingMaskIntoConstraints = false

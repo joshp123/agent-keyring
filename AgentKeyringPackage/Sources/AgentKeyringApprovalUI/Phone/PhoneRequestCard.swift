@@ -83,6 +83,7 @@ public struct PhoneNotificationCard: View {
         .padding(.horizontal, 18)
         .padding(.top, 16)
         .padding(.bottom, 18)
+        .background(Phone.surface)
     }
 }
 /// The held notification when the request's words could not be opened: iOS's own title and text, never a blank card.
@@ -99,6 +100,7 @@ public struct PhoneNotificationFallbackCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
+        .background(Phone.surface)
     }
 }
 #endif
