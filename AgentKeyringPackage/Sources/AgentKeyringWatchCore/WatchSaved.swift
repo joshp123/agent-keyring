@@ -62,15 +62,16 @@ public struct WatchSaved: Codable, Sendable, Equatable {
     /// The Watch is set up once a Members the iPhone signed lists it.
     public func lists(_ keyID: String) -> Bool { signedMembers?.devices.contains { $0.keyID == keyID } ?? false }
 
-    /// Takes what the iPhone sent. A Members comes only from this Watch's own
-    /// paired iPhone, over Watch Connectivity, so the Watch takes any newer one
-    /// that is signed by a device it names itself. Unlike a machine, it need
-    /// not follow every revision in between: it may have missed some while asleep.
+    /// Takes what the iPhone sent. A newer Members must be signed by a device in
+    /// the list Apple Watch already trusts (the first one by a device it names
+    /// itself). It need not follow every revision in between: it may have missed
+    /// some while asleep, and the iPhone and Mac that sign them stay in the list.
     public func merging(members newMembers: Data?, catalogue newCatalogue: Data?, answerURL newURL: String?, settings newSettings: Data? = nil) -> WatchSaved {
         var merged = self
         if let newSettings, let settings = try? PropertyListDecoder().decode(NotificationSettings.self, from: newSettings) { merged.settings = settings }
         if let newMembers, let document = try? SignedDocument(serializedBytes: newMembers),
-           let next = try? Sealing.verifiedMembers(document, current: nil),
+           // Chained from the list Apple Watch already trusts: a newer list must be signed by a device in it.
+           let next = try? Sealing.verifiedMembers(document, current: signedMembers),
            next.revision > (signedMembers?.revision ?? 0) {
             merged.members = newMembers
         }

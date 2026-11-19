@@ -12,7 +12,7 @@ import UserNotifications
 /// the password stays sealed.
 public struct PhoneLogin: Identifiable, Hashable, Sendable {
     public enum Rule: Hashable, Sendable {
-        case ask, askOnIPhoneOrWatch, automatic, blocked
+        case ask, automatic, blocked
     }
 
     public let id: String
@@ -110,31 +110,6 @@ public struct PhoneDeviceRequest: Identifiable, Hashable, Sendable {
     public init(id: String, name: String, detail: String) { self.id = id; self.name = name; self.detail = detail }
 }
 
-/// A rule change the Mac sent here, which only this iPhone may approve
-/// (Paper, "Logins and rules"). The Watch never shows one.
-public struct PhoneRuleProposal: Identifiable, Hashable, Sendable {
-    public struct Change: Hashable, Sendable {
-        public var site: String
-        public var account: String
-        public var from: PhoneLogin.Rule
-        public var to: PhoneLogin.Rule
-        public init(site: String, account: String, from: PhoneLogin.Rule, to: PhoneLogin.Rule) {
-            self.site = site; self.account = account; self.from = from; self.to = to
-        }
-    }
-
-    public let id: String
-    /// The device that sent it, e.g. "MacBook Pro".
-    public var from: String
-    public var changes: [Change]
-    public var askedAt: Date
-    /// Waiting, approved, denied or no answer.
-    public var state: AccessRequestState
-
-    public init(id: String, from: String, changes: [Change], askedAt: Date, state: AccessRequestState) {
-        self.id = id; self.from = from; self.changes = changes; self.askedAt = askedAt; self.state = state
-    }
-}
 
 public struct PhoneSnapshot: Hashable, Sendable {
     public var requests: [AccessRequest]
@@ -147,8 +122,6 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var notices: [PhoneNotice] = []
     public var settings = PhoneSettings()
     public var deviceRequest: PhoneDeviceRequest?
-    /// Rule changes sent here, waiting and finished.
-    public var ruleChanges: [PhoneRuleProposal] = []
     /// In the signed list of devices.
     public var joined = false
 
@@ -186,9 +159,6 @@ public protocol PhoneBackend: AnyObject {
     /// A new device's request to approve requests: Face ID signs it in.
     func approveDevice(_ id: String) async throws
     func denyDevice(_ id: String) async
-    /// A rule change the Mac sent: Face ID publishes the new rules.
-    func approveRuleChange(_ id: String) async throws
-    func denyRuleChange(_ id: String) async
 }
 
 @MainActor
@@ -222,12 +192,6 @@ public final class PhoneModel {
             .sorted { $0.askedAt > $1.askedAt }
     }
 
-    public var waitingRuleChanges: [PhoneRuleProposal] {
-        snapshot.ruleChanges.filter { $0.state.isWaitingForYou || $0.state.isSending }.sorted { $0.askedAt > $1.askedAt }
-    }
-    public var finishedRuleChanges: [PhoneRuleProposal] {
-        snapshot.ruleChanges.filter { !$0.state.isWaitingForYou && !$0.state.isSending }
-    }
 
     public func request(id: String) -> AccessRequest? { snapshot.requests.first { $0.id == id } }
 
@@ -290,13 +254,7 @@ public final class PhoneModel {
 
     public func denyDevice(_ id: String) async { await backend.denyDevice(id) }
 
-    public func approveRuleChange(_ id: String) async { await answer(.approve) { try await backend.approveRuleChange(id) } }
-    public func denyRuleChange(_ id: String) async {
-        await backend.denyRuleChange(id)
-        shownRequestID = nil
-    }
 
-    public func ruleChange(id: String) -> PhoneRuleProposal? { snapshot.ruleChanges.first { $0.id == id } }
 
     public func dismissFailure() { failure = nil }
 

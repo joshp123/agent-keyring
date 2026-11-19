@@ -38,13 +38,6 @@ public struct PhoneRootView: View {
         .sheet(item: practiceShown) { request in
             PhoneRequestView(model: model, request: request, practice: true).interactiveDismissDisabled()
         }
-        .sheet(item: ruleChangeShown) { change in
-            let lines = PhoneCopy.ruleChangeLines(change)
-            PhoneSimpleRequestView(model: model, lead: PhoneCopy.ruleChangeLead(change), title: PhoneCopy.ruleChangeTitle(change),
-                                   detail: PhoneCopy.ruleChangeAccount(change), change: lines.change, allows: lines.allows,
-                                   footnote: PhoneCopy.ruleChangeFootnote(change), dismissable: true,
-                                   approve: { await model.approveRuleChange(change.id) }, deny: { await model.denyRuleChange(change.id) })
-        }
         .sheet(item: deviceShown) { device in
             PhoneSimpleRequestView(model: model, lead: PhoneCopy.addWatchLead, title: device.name, detail: device.detail,
                                    footnote: PhoneCopy.watchFootnote, stackedDeny: true, approve: { await model.approveDevice(device.id) },
@@ -61,11 +54,6 @@ public struct PhoneRootView: View {
         Binding(get: { model.snapshot.firstRun == .practice ? model.snapshot.practiceRequest : nil }, set: { _ in })
     }
 
-    /// A rule change opens from its notification or from Show in Activity, as a login request does.
-    private var ruleChangeShown: Binding<PhoneRuleProposal?> {
-        Binding(get: { model.shownRequestID.flatMap(model.ruleChange(id:)).flatMap { $0.state.isWaitingForYou ? $0 : nil } },
-                set: { model.shownRequestID = $0?.id })
-    }
 
     private var deviceShown: Binding<PhoneDeviceRequest?> {
         Binding(get: { model.snapshot.firstRun == nil || model.snapshot.firstRun == .done ? model.snapshot.deviceRequest : nil }, set: { _ in })
@@ -141,7 +129,7 @@ struct PhoneActivityView: View {
             .sheet(isPresented: $settingsShown) { PhoneSettingsView(model: model) }
     }
 
-    private var isEmpty: Bool { model.snapshot.requests.isEmpty && model.snapshot.ruleChanges.isEmpty }
+    private var isEmpty: Bool { model.snapshot.requests.isEmpty }
 
     @ViewBuilder private var notices: some View {
         ForEach(model.snapshot.notices) { notice in
@@ -190,16 +178,8 @@ struct PhoneActivityView: View {
 
     @ViewBuilder private var activity: some View {
             Section {
-                if model.waiting.isEmpty && model.waitingRuleChanges.isEmpty {
+                if model.waiting.isEmpty {
                     Text(PhoneCopy.nothingWaiting).font(.body).foregroundStyle(Phone.ink2).phoneRow()
-                }
-                ForEach(model.waitingRuleChanges) { change in
-                    HStack(spacing: 10) {
-                        TwoLines(title: PhoneCopy.ruleChangeTitle(change), detail: PhoneCopy.ruleChangeWaitingDetail(change))
-                        Button(PhoneCopy.show) { model.shownRequestID = change.id }
-                            .buttonStyle(RowButtonStyle(fill: Phone.ink, text: Phone.surface))
-                    }
-                    .phoneRow()
                 }
                 ForEach(model.waiting) { request in
                     HStack(spacing: 10) {
@@ -250,8 +230,6 @@ struct PhoneActivityView: View {
 
     private var days: [(title: String, entries: [Entry])] {
         let entries = model.finished.map { Entry(id: $0.id, title: $0.login.site, detail: PhoneCopy.historyDetail($0), state: $0.state, at: $0.askedAt) }
-            + model.finishedRuleChanges.map { Entry(id: $0.id, title: PhoneCopy.ruleChangeTitle($0), detail: PhoneCopy.ruleChangeHistoryDetail($0),
-                                                     state: $0.state, at: $0.askedAt) }
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: entries) { calendar.startOfDay(for: $0.at) }
         return grouped.keys.sorted(by: >).map { (PhoneCopy.day($0), grouped[$0]!.sorted { $0.at > $1.at }) }
@@ -312,13 +290,12 @@ struct PhoneLoginsView: View {
                     HStack(spacing: 10) {
                         TwoLines(title: login.site, detail: login.account)
                         Menu {
-                            ForEach([PhoneLogin.Rule.ask, .askOnIPhoneOrWatch, .automatic, .blocked], id: \.self) { rule in
+                            ForEach([PhoneLogin.Rule.ask, .automatic, .blocked], id: \.self) { rule in
                                 Button(PhoneCopy.rule(rule)) { Task { await model.setRule(rule, forLogin: login.id) } }
                             }
                         } label: {
                             HStack(spacing: 2) {
-                                // The row has room for the short name only; the menu shows the full one.
-                                Text(login.rule == .askOnIPhoneOrWatch ? PhoneCopy.ruleShortPhoneOrWatch : PhoneCopy.rule(login.rule))
+                                Text(PhoneCopy.rule(login.rule))
                                 Image(systemName: "chevron.down").font(.caption.weight(.bold))
                             }
                             .font(.subheadline).foregroundStyle(Phone.ink2)

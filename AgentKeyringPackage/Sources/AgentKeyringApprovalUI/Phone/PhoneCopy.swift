@@ -99,12 +99,9 @@ public enum PhoneCopy {
     // Passwords.
     public static let passwords = "Passwords"
     public static let search = "Search"
-    /// The Passwords list row, where the full name would wrap.
-    public static let ruleShortPhoneOrWatch = "iPhone or Apple Watch"
     public static func rule(_ rule: PhoneLogin.Rule) -> String {
         switch rule {
         case .ask: "Ask"
-        case .askOnIPhoneOrWatch: "Ask on iPhone or Apple Watch"
         case .automatic: "Automatic"
         case .blocked: "Blocked"
         }
@@ -187,48 +184,6 @@ public enum PhoneCopy {
     public static let addWatchLead = "Add to Agent Keyring"
     public static let pairedWithThisIPhone = "Paired with this iPhone"
     public static let watchFootnote = "It approves requests with one tap while unlocked on your wrist. Remove it in Devices."
-    // A rule change the Mac sent (Paper, "Logins and rules").
-    public static func ruleChangeLead(_ c: PhoneRuleProposal) -> String {
-        c.changes.count == 1 ? "\(c.from) wants to change the rule for" : "\(c.from) wants to change the rules for"
-    }
-    public static func ruleChangeTitle(_ c: PhoneRuleProposal) -> String {
-        c.changes.count == 1 ? c.changes[0].site : "\(c.changes.count) passwords"
-    }
-    /// The account under the site; none for several logins.
-    public static func ruleChangeAccount(_ c: PhoneRuleProposal) -> String? { c.changes.count == 1 ? c.changes[0].account : nil }
-    /// The lines under the title: the change first, then what it would allow.
-    public static func ruleChangeLines(_ c: PhoneRuleProposal) -> (change: [String], allows: String) {
-        guard let first = c.changes.first else { return ([], "") }
-        if c.changes.count == 1 {
-            return (["From \(rule(first.from)) to \(rule(first.to))"], allows(first.to, from: c.from))
-        }
-        return (["From \(rule(first.from)):"] + c.changes.map { "\($0.site) to \(rule($0.to))" },
-                "\(c.from) could then change them again with Touch ID.")
-    }
-    static func allows(_ to: PhoneLogin.Rule, from device: String) -> String {
-        switch to {
-        case .ask: "\(device) could then approve requests for this password with Touch ID."
-        case .automatic: "Agents could then get this password without asking."
-        case .blocked: "No agent could then use this password, and \(device) could change its rule again with Touch ID."
-        case .askOnIPhoneOrWatch: ""
-        }
-    }
-    public static func ruleChangeFootnote(_ c: PhoneRuleProposal) -> String { "Deny it if you did not make this change on \(c.from)." }
-    public static func ruleChangeNotificationTitle(_ c: PhoneRuleProposal) -> String {
-        c.changes.count == 1 ? "\(c.from) wants to change a rule" : "\(c.from) wants to change \(c.changes.count) rules"
-    }
-    public static func ruleChangeNotificationBody(_ c: PhoneRuleProposal) -> String {
-        guard let first = c.changes.first else { return "" }
-        switch c.changes.count {
-        case 1: return "\(first.site), from \(rule(first.from)) to \(rule(first.to))."
-        case 2: return "\(first.site) and \(c.changes[1].site), from \(rule(first.from))."
-        default: return "\(first.site) and \(c.changes.count - 1) more, from \(rule(first.from))."
-        }
-    }
-    /// Not in Paper for several logins with different new rules: the first one's rule is named.
-    private static func ruleChangeTo(_ c: PhoneRuleProposal) -> String { c.changes.first.map { rule($0.to) } ?? "" }
-    public static func ruleChangeWaitingDetail(_ c: PhoneRuleProposal) -> String { "\(c.from) · rule change to \(ruleChangeTo(c))" }
-    public static func ruleChangeHistoryDetail(_ c: PhoneRuleProposal) -> String { "\(clock(c.askedAt)) · Rule change to \(ruleChangeTo(c))" }
 
     // Failures.
     public static let answerFailed = "Your answer wasn’t sent. Try again."

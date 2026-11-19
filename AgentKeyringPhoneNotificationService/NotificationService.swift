@@ -15,22 +15,6 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
             contentHandler(request.content); return
         }
-        if let change = PhoneNoticeReader.proposal(content.userInfo) {
-            // No Approve here: opening it shows the sheet, where Face ID approves it.
-            content.threadIdentifier = change.id
-            content.categoryIdentifier = ""
-            if case .waitingForYou = change.state {
-                content.title = PhoneCopy.ruleChangeNotificationTitle(change)
-                content.body = PhoneCopy.ruleChangeNotificationBody(change)
-                content.interruptionLevel = PhoneNoticeReader.level()
-            } else {
-                // Its outcome replaces it quietly; the Mac says what happened.
-                content.title = PhoneCopy.ruleChangeTitle(change)
-                content.body = PhoneCopy.outcome(change.state).1 + "."
-                content.interruptionLevel = .passive
-            }
-            contentHandler(content); return
-        }
         guard let words = PhoneNoticeReader.words(content.userInfo) else {
             content.interruptionLevel = PhoneNoticeReader.level()
             content.title = PhoneCopy.notificationFallbackTitle
