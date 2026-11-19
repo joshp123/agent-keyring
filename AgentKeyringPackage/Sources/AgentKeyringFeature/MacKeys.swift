@@ -29,7 +29,7 @@ public final class MacKeys {
     private let saved: Saved
     #if DEBUG
     /// Launched with -StandInKey YES: `saved` holds software keys.
-    private let standIn: Bool
+    let standIn: Bool
     #endif
     public let tls: RelayTLSIdentity
     public let receiving: P256.KeyAgreement.PrivateKey
@@ -140,6 +140,23 @@ public final class MacKeys {
     }
 
     public var replyKeyID: String { Sealing.keyID(replyPublicKey.x963Representation) }
+
+    /// What this Mac signs its sealed copies with: its reply key, which needs no Touch ID.
+    public var signer: Sealing.Signer { Sealing.Signer(keyID: replyKeyID, sign: signReply) }
+
+    /// A sealed copy only if this Mac or a device in `members` signed it: files
+    /// on disk and the relay are not trusted to say which copy is which. A copy
+    /// from the relay is also checked against the signed catalogue's `listed` login.
+    public func check(_ sealed: Agentkeyring_V2_SealedLogin, members: Agentkeyring_V2_Members?, listed: Agentkeyring_V2_Login? = nil) throws {
+        if let listed, listed.loginID != sealed.loginID || listed.version != sealed.version { throw Sealing.Failure.wrongLogin }
+        if sealed.signerKeyID == replyKeyID {
+            try Sealing.checkSealed(sealed, by: replyKeyID, publicKey: replyPublicKey)
+        } else if let members {
+            try Sealing.checkSealed(sealed, members: members, listed: listed)
+        } else {
+            throw Sealing.Failure.unknownSigner
+        }
+    }
 
     /// Opens a login sealed to this Mac, using a context Josh has just approved.
     public func open(_ sealed: Agentkeyring_V2_SealedLogin, context: LAContext) throws -> Agentkeyring_V2_LoginSecret {

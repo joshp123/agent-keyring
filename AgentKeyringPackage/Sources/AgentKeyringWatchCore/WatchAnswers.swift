@@ -30,7 +30,10 @@ public struct WatchAnswers: Sendable {
         guard let machine = members.machines.first(where: { $0.machineID == parsed.machineID }),
               let receiving = try? P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)
         else { throw WatchFailure.unknownMachine }
+        // The relay is not trusted to say which copy is which: a device signed it, it is the current version, and it was sealed as this login.
+        try Sealing.checkSealed(work.sealedLogin, members: members, listed: login)
         let secret = try keys.open(work.sealedLogin)
+        try Sealing.checkBound(secret, title: login.title, sites: login.sites, account: login.account)
         let upload = try Sealing.approve(request: work.request, secret: secret, sites: login.sites,
                                          receivingKey: receiving, signerKeyID: keys.keyID(), sign: keys.sign)
         return try await post(upload, saved: saved)

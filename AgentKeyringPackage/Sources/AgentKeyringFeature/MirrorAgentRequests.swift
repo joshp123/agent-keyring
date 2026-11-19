@@ -45,6 +45,8 @@ extension MirrorAppModel {
                     _ = try macKeys()
                     result.relayStatus = device!.connection == .connected ? "connected"
                         : device!.isJoined || device!.setup != nil ? "waiting" : "not-started"
+                case .agentsSetUp:
+                    noteAgentsSetUp()
                 default: throw LeaseFailure(.invalidArgument, "Choose a setup action: start-relay or relay-status.")
                 }
                 response.setup = result
@@ -68,7 +70,7 @@ extension MirrorAppModel {
                     item.account = login.username ?? ""
                     item.hasOneTimeCode_p = login.availableFields.contains(.totp)
                     item.rule = switch accessControl.policy(for: login.id) {
-                    case .ask, .askOnPhone: .ask
+                    case .ask: .ask
                     case .allowAutomatically: .automatic
                     case .block: .blocked
                     }
@@ -81,14 +83,8 @@ extension MirrorAppModel {
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { localPolicy(for: $0.id) } ?? .block,
                     requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project))
-                if let login, response.lease.state == .pending {
-                    switch accessControl.policy(for: login.id) {
-                    case .askOnPhone:
-                        askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name, alsoHere: false)
-                    case .ask where device?.isJoined == true:
-                        askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name, alsoHere: true)
-                    default: break
-                    }
+                if login != nil, response.lease.state == .pending, device?.isJoined == true {
+                    askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name)
                 }
             case let .getLease(reference):
                 try await refreshLeasePolicy()
@@ -143,66 +139,52 @@ extension MirrorAppModel {
     /// Mac shows it too and never depends on the relay: an answer here stops the
     /// request on the devices, and a relay that can't be reached changes nothing.
     /// Without it (Ask on iPhone or Watch) only the devices can answer.
-    func askDevices(for lease: Agentkeyring_V1_Lease, request: Agentkeyring_V1_RequestLeaseRequest, agent: String, alsoHere: Bool) {
-        var ask = Agentkeyring_V2_AskRequest()
-        ask.loginID = lease.loginID
-        ask.reason = lease.reason
-        ask.agent = agent
-        ask.project = request.project
-        ask.task = lease.taskRef
-        ask.clientRequestID = lease.leaseID
+    /// Every Ask request from an agent on this Mac, when it is connected to the
+    /// relay: shown here as always, and also offered to the iPhone and Watch.
+    /// The first answer wins; the others clear. This Mac never waits on them.
+    func askDevices(for lease: Agentkeyring_V1_Lease, request: Agentkeyring_V1_RequestLeaseRequest, agent: String) {
         let leaseID = lease.leaseID
-        if alsoHere {
-            // The iPhone and Watch follow what happens here: an answer on this
-            // Mac shows there as answered on the Mac, and Stop there ends it here.
-            Task { [weak self] in
-                guard let self else { return }
-                defer { self.device?.forget(leaseID) }
-                var stage = Agentkeyring_V1_LeaseState.pending
-                for await leases in self.leaseStore.changes() {
-                    guard let current = leases.first(where: { $0.leaseID == leaseID }), current.state != stage else { continue }
-                    let byThisMac = current.approvedBy == .mac || current.approvedBy == .unspecified
-                    switch (stage, current.state) {
-                    case (.pending, .active) where byThisMac:
-                        stage = .active
-                        await self.device?.stopAsking(leaseID, answeredHere: "approved")
-                        Task { [weak self] in
-                            if await self?.device?.stoppedOnDevice(leaseID) == true { _ = try? self?.leaseStore.end(leaseID) }
-                        }
-                    case (.pending, .denied) where byThisMac:
-                        await self.device?.stopAsking(leaseID, answeredHere: "denied")
-                        return
-                    case (.pending, .active):
-                        return // Answered on a device: the relay already knows.
-                    case (.active, _):
-                        await self.device?.stopAsking(leaseID) // Released or out of time.
-                        return
-                    default:
-                        if current.approvedBy == .mac || current.state != .denied { await self.device?.stopAsking(leaseID) }
-                        return
-                    }
+        // The iPhone and Watch follow what happens here: an answer on this
+        // Mac shows there as answered on the Mac, and Stop there ends it here.
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.device?.forget(leaseID) }
+            var stage = Agentkeyring_V1_LeaseState.pending
+            for await leases in self.leaseStore.changes() {
+                guard let current = leases.first(where: { $0.leaseID == leaseID }), current.state != stage else { continue }
+                let byThisMac = current.approvedBy == .mac || current.approvedBy == .unspecified
+                switch (stage, current.state) {
+                case (.pending, .active) where byThisMac:
+                    stage = .active
+                    await self.device?.stopAsking(leaseID, answeredHere: "approved")
+                case (.pending, .denied) where byThisMac:
+                    await self.device?.stopAsking(leaseID, answeredHere: "denied")
+                    return
+                case (.pending, .active):
+                    stage = .active // Answered on a device: the relay already knows, but not when it is released here.
+                case (.active, _):
+                    await self.device?.stopAsking(leaseID) // Released or out of time.
+                    return
+                default:
+                    if current.approvedBy == .mac || current.state != .denied { await self.device?.stopAsking(leaseID) }
+                    return
                 }
             }
         }
         Task { [weak self] in
             guard let self else { return }
             do {
-                guard let device = self.device else { throw LeaseFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.") }
-                let answer = try await device.askDevices(ask)
-                if alsoHere, (try? self.leaseStore.get(leaseID))?.state != .pending { return }
+                guard let device = self.device else { return }
+                let answer = try await device.askDevices(leaseID: leaseID, loginID: lease.loginID, reason: lease.reason, agent: agent,
+                    project: request.project, task: lease.taskRef)
+                guard (try? self.leaseStore.get(leaseID))?.state == .pending else { return }
                 switch answer {
                 case let .approved(contents): try self.leaseStore.approveFromDevices(leaseID, contents: contents)
                 case let .denied(reply): _ = try self.leaseStore.deny(leaseID, reply: reply, approvedBy: .iphone)
-                case .unanswered, .cancelled: if !alsoHere { try self.leaseStore.expire() }
+                case .unanswered, .cancelled: break
                 }
-                if !alsoHere { self.device?.forget(leaseID) }
             } catch {
-                if alsoHere {
-                    leaseLogger.notice("This request is shown only on this Mac: \(String(describing: error), privacy: .public)")
-                } else {
-                    leaseLogger.error("Asking the iPhone or Watch failed: \(String(describing: error), privacy: .public)")
-                    _ = try? self.leaseStore.end(leaseID)
-                }
+                leaseLogger.notice("This request is shown only on this Mac: \(String(describing: error), privacy: .public)")
             }
         }
     }

@@ -111,7 +111,8 @@ final class ApprovalPresenter {
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
         let remote = (device?.waitingRequests ?? []).map { (Item.remote($0.requestID), $0.askedUnixSeconds) }
         let sendImported: [Item] = model.importedLoginsAwaitApproval ? [.sendImported] : []
-        let selfTest: [Item] = model.selfTest == .waiting && !needsFingerprint ? [.selfTest] : []
+        // The window says "Open the lid" or "Add a fingerprint" in its place.
+        let selfTest: [Item] = model.firstRun == .practice && !MacApprover.lidIsClosed && !needsFingerprint ? [.selfTest] : []
         return selfTest + relaySetup + joining + sendImported + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
     }
 

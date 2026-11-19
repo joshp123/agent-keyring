@@ -22,6 +22,9 @@ message State {
   // The newest Members this machine has checked, as a serialized
   // agentkeyring.v2.Signed. Answers are verified against it.
   bytes members = 16;
+  // The newest Catalogue revision this machine has seen; an older one is a
+  // relay replaying the past (a login no longer Automatic, still served).
+  uint64 catalogue_revision = 17;
 }
 message LocalAuthority {
   string application_contents = 1;
@@ -30,9 +33,7 @@ message LocalAuthority {
 message ExpectedRequest {
   agentkeyring.v1.RequestLeaseRequest scope = 1;
   string lease_id = 2;
-  // Automatic logins only: this machine opens its own sealed copy, with no
-  // request to the relay, until this time.
-  int64 automatic_not_after_unix_seconds = 3;
+  reserved 3;                    // Automatic uses kept only here: the relay records them now.
   bool ended = 4;
   // A device's approval, as the relay gave it (agentkeyring.v2.Approval),
   // kept for its window so it still works if the relay cannot be reached.
@@ -41,6 +42,13 @@ message ExpectedRequest {
   // each use, and deleted on release or once approval_not_after has passed.
   bytes approval = 5;
   int64 approval_not_after_unix_seconds = 6;  // From the signed answer.
+  // The request this machine wrote and signed (agentkeyring.v2.Signed),
+  // saved before it is sent so a retry sends the same bytes. Approvals and
+  // denials are checked against these exact bytes.
+  bytes request = 7;
+  // An Automatic login: this machine opens its own sealed copy while the
+  // relay says the use is approved.
+  bool automatic = 8;
 }
 message OperationReceipt {
   string lease_id = 1;

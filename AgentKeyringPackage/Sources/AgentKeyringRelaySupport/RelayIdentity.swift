@@ -7,7 +7,11 @@ import Security
 @MainActor
 public struct RelayKeychain {
     let service: String
-    public init(service: String) { self.service = service }
+    let accessible: CFString
+    public init(service: String, accessible: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly) {
+        self.service = service
+        self.accessible = accessible
+    }
     public func read(_ account: String) throws -> Data? {
         var query = query(account)
         query[kSecReturnData as String] = true
@@ -22,7 +26,7 @@ public struct RelayKeychain {
         if status == errSecItemNotFound {
             var attributes = query(account)
             attributes[kSecValueData as String] = bytes
-            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            attributes[kSecAttrAccessible as String] = accessible
             let added = SecItemAdd(attributes as CFDictionary, nil)
             guard added == errSecSuccess else { throw RelayKeychainError(status: added) }
         } else if status != errSecSuccess { throw RelayKeychainError(status: status) }

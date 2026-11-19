@@ -10,8 +10,6 @@ import LocalAuthentication
 import Observation
 import SwiftUI
 
-public enum ProposalOutcome: Sendable { case approved, denied, unanswered }
-
 public struct LoginRow: Identifiable, Hashable, Sendable {
     public let id: UUID
     public var site: String
@@ -64,12 +62,15 @@ public struct MachineRow: Identifiable, Hashable, Sendable {
 public struct MainSnapshot: Hashable, Sendable {
     public var logins: [LoginRow]
     public var importedAt: Date?
+    /// The only password is first run's sample.
+    public var sampleOnly: Bool
     public var devices: [DeviceRow]
     public var machines: [MachineRow]
 
-    public init(logins: [LoginRow], importedAt: Date?, devices: [DeviceRow], machines: [MachineRow]) {
+    public init(logins: [LoginRow], importedAt: Date?, sampleOnly: Bool = false, devices: [DeviceRow], machines: [MachineRow]) {
         self.logins = logins
         self.importedAt = importedAt
+        self.sampleOnly = sampleOnly
         self.devices = devices
         self.machines = machines
     }
@@ -81,8 +82,6 @@ public struct MainSnapshot: Hashable, Sendable {
 public protocol MainWindowBackend: AnyObject {
     func updates() -> AsyncStream<MainSnapshot>
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws
-    /// Changes away from Ask on iPhone or Apple Watch: sent to the iPhone, and how it answered.
-    func proposeRules(_ changes: [UUID: LoginRule]) async throws -> ProposalOutcome
     func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws
     func remove(id: String, context: LAContext) async throws
     func importAgain()
@@ -133,23 +132,14 @@ public final class MacMainModel {
         pending[row.id] = rule == row.rule ? nil : rule
     }
 
-    /// Only changes away from Ask on iPhone or Apple Watch go to the iPhone;
-    /// this Mac makes every other change itself, with Touch ID.
-    private var phoneChanges: [UUID: LoginRule] {
-        pending.filter { id, _ in snapshot.logins.first { $0.id == id }?.rule == .askOnPhone }
-    }
-
-    public var needsPhone: Bool { !phoneChanges.isEmpty }
-
     /// Names every computer that will get a password made Automatic: saving
     /// switches on any of them not yet allowed Automatic passwords.
     public var pendingSentence: String {
-        let shown = needsPhone ? phoneChanges : pending
-        let changed = snapshot.logins.filter { shown[$0.id] != nil }
-        let toAutomatic = changed.filter { shown[$0.id] == .automatic }.count
+        let changed = snapshot.logins.filter { pending[$0.id] != nil }
+        let toAutomatic = changed.filter { pending[$0.id] == .automatic }.count
         let computers = snapshot.machines.map { $0.isThisMac ? "this Mac" : $0.name }
-        let automatic = toAutomatic > 0 && !needsPhone ? MainWindowCopy.automaticTo(computers, count: toAutomatic) : ""
-        guard changed.count == 1, let row = changed.first, let next = shown[row.id] else {
+        let automatic = toAutomatic > 0 ? MainWindowCopy.automaticTo(computers, count: toAutomatic) : ""
+        guard changed.count == 1, let row = changed.first, let next = pending[row.id] else {
             return MainWindowCopy.rulesChange(changed.count) + automatic
         }
         return MainWindowCopy.ruleChange(site: row.site, from: row.rule.name, to: next.name)
@@ -160,28 +150,6 @@ public final class MacMainModel {
         context?.invalidate()
         pending = [:]
         failure = nil
-    }
-
-    /// Sends the changes away from Ask on iPhone or Apple Watch to the iPhone and
-    /// waits; any other changes stay, to be saved here with Touch ID.
-    public func sendToPhone() {
-        guard !isWorking else { return }
-        let changes = phoneChanges
-        let still = MainWindowCopy.stillOnPhone(snapshot.logins.filter { changes[$0.id] != nil }.map(\.site))
-        isWorking = true
-        failure = nil
-        Task {
-            defer { isWorking = false }
-            do {
-                switch try await backend.proposeRules(changes) {
-                case .approved: for id in changes.keys { pending[id] = nil }
-                case .denied: failure = MainWindowCopy.deniedOnPhone + still
-                case .unanswered: failure = MainWindowCopy.noAnswerOnPhone + still
-                }
-            } catch {
-                failure = (error as? LocalizedError)?.errorDescription ?? MainWindowCopy.notSentToPhone
-            }
-        }
     }
 
     public func save() { run { [pending, backend] context in try await backend.saveRules(pending, context: context) } done: { self.pending = [:] } }
@@ -346,28 +314,22 @@ private struct LoginsTab: View {
             if model.pending.isEmpty {
                 Text(imported).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Pill(title: MainWindowCopy.copyAgain, style: .quiet, action: model.importAgain)
+                Pill(title: model.snapshot.sampleOnly ? MainWindowCopy.copyFromPasswords : MainWindowCopy.copyAgain,
+                    style: .quiet, action: model.importAgain)
             } else {
                 Text(model.pendingSentence)
                     .font(.system(size: 14)).foregroundStyle(RequestToken.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Pill(title: MainWindowCopy.cancel, style: .quiet, action: model.cancelChanges)
-                if model.needsPhone {
-                    Button(action: model.sendToPhone) {
-                        Label(model.isWorking ? MainWindowCopy.waitingForPhone : MainWindowCopy.approveOnPhone, systemImage: "iphone")
-                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                    }
-                    .buttonStyle(.plain).disabled(model.isWorking)
-                } else {
-                    Pill(title: model.isWorking ? MainWindowCopy.useTouchIDToSave : MainWindowCopy.saveWithTouchID, style: .approve, action: model.save)
-                        .disabled(model.isWorking)
-                }
+                Pill(title: model.isWorking ? MainWindowCopy.useTouchIDToSave : MainWindowCopy.saveWithTouchID, style: .approve, action: model.save)
+                    .disabled(model.isWorking)
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
     }
 
     private var imported: String {
+        if model.snapshot.sampleOnly { return MainWindowCopy.sampleOnly }
         guard let at = model.snapshot.importedAt else { return MainWindowCopy.noneCopied }
         return MainWindowCopy.copiedOn(at.formatted(.dateTime.day().month(.wide)))
     }
@@ -430,8 +392,6 @@ private struct DevicesTab: View {
                 }
             }
             AgentLineBox(caption: MainWindowCopy.toAdd, line: FirstRunCopy.agentLine)
-                .padding(14)
-                .background(RequestToken.fill, in: .rect(cornerRadius: 12))
                 .padding(.horizontal, 20).padding(.vertical, 12)
                 .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
         }

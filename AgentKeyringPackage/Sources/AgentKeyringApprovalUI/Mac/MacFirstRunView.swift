@@ -1,219 +1,343 @@
 // Written by AI on 2026.11.16 by model Claude Opus 5.5; rebuilt on
 // 2026.11.19 by model claude opus 5.5 from the Paper board "First run"
-// (page "First run and the app").
+// (page "First run and the app"), one screen per picture.
 //
-// The window Agent Keyring opens on until Josh clicks Done. One screen at a
-// time: the export from Passwords; only from its link, the screen before
-// macOS's AutoFill question; when the passwords arrive, the practice request;
-// after he approves it, the line to give his agents and Done.
+// The window Agent Keyring opens on until he clicks Done. The screen is
+// chosen from first run's state (AgentKeyringFeature/FirstRun.swift) and the
+// facts beside it; this view only draws it.
 
 #if os(macOS)
 import AppKit
 import SwiftUI
 
-public enum FirstRunStep: Hashable, Sendable {
-    /// Copy from the Passwords app, with the link "Don't see Agent Keyring in Passwords?".
-    case export
-    /// From that link: one Continue, which raises macOS's AutoFill question.
-    case autoFill(canAsk: Bool)
-    /// He chose Not Now on macOS's question.
-    case autoFillNotNow(canAsk: Bool)
-    /// Five minutes after Open Passwords, nothing has arrived.
-    case noneArrived
-    case copying
-    /// The practice request is beside the pointer; `denied` after he denied it.
-    case practice(passwords: Int, denied: Bool)
-    /// In place of the practice step: Touch ID has no fingerprint and no Apple Watch can approve.
+public enum FirstRunScreen: Equatable, Sendable {
+    case welcome
+    case practice
+    case practiceDenied(reply: String)
+    /// In place of the practice request: Touch ID has no fingerprint.
     case needsFingerprint
-    /// In place of the practice step: the lid is shut, so Touch ID is off.
+    /// In place of the practice request: the lid is closed.
     case lidClosed
-    case setUp(agentLine: String)
+    case copyPasswords(waiting: Bool, noneArrived: Bool)
+    case copying
+    case setUpAgents(copiedTitle: String, copiedDetail: String, messageCopied: Bool)
+    case computers([ComputerLine])
+    case ready(phoneLater: Bool)
+    case almostReady
+}
+
+/// One computer as the agent adds it.
+public struct ComputerLine: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    public let detail: String
+    public let added: Bool
+    public init(id: String, name: String, detail: String, added: Bool) {
+        self.id = id; self.name = name; self.detail = detail; self.added = added
+    }
+}
+
+public struct FirstRunActions {
+    public var getStarted: () -> Void = {}
+    public var tryAgain: () -> Void = {}
+    public var openTouchIDSettings: () -> Void = {}
+    public var openPasswords: () -> Void = {}
+    public var useSample: () -> Void = {}
+    public var copyMessage: () -> Void = {}
+    public var doThisLater: () -> Void = {}
+    public var continueOn: () -> Void = {}
+    public var done: () -> Void = {}
+    public init() {}
 }
 
 public struct MacFirstRunView: View {
-    let step: FirstRunStep
+    let screen: FirstRunScreen
     /// An error from the import, shown under the step it blocked.
     let problem: String?
-    let openPasswords: () -> Void
-    let showAutoFill: () -> Void
-    let askForAutoFill: () -> Void
-    let tryAgain: () -> Void
-    let openTouchIDSettings: () -> Void
-    let done: () -> Void
+    let actions: FirstRunActions
 
-    public init(step: FirstRunStep, problem: String? = nil, openPasswords: @escaping () -> Void = {},
-        showAutoFill: @escaping () -> Void = {}, askForAutoFill: @escaping () -> Void = {},
-        tryAgain: @escaping () -> Void = {}, openTouchIDSettings: @escaping () -> Void = {}, done: @escaping () -> Void = {}) {
-        self.step = step
+    public init(screen: FirstRunScreen, problem: String? = nil, actions: FirstRunActions = FirstRunActions()) {
+        self.screen = screen
         self.problem = problem
-        self.openPasswords = openPasswords
-        self.showAutoFill = showAutoFill
-        self.askForAutoFill = askForAutoFill
-        self.tryAgain = tryAgain
-        self.openTouchIDSettings = openTouchIDSettings
-        self.done = done
+        self.actions = actions
     }
 
     public var body: some View {
-        VStack(spacing: 22) {
+        VStack(alignment: .leading, spacing: 20) {
             content
             if let problem {
-                Text(problem).font(.system(size: 13)).foregroundStyle(RequestToken.deny)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                Text(problem).font(.system(size: 13)).foregroundStyle(RequestToken.deny).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 36).padding(.top, 14).padding(.bottom, 30)
-        .frame(width: width)
+        .padding(.horizontal, horizontalPadding).padding(.top, 6).padding(.bottom, 30)
+        .frame(width: width, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .background(RequestToken.surface)
     }
 
-    /// Paper draws each screen at its own width.
+    /// Paper draws each window at its own width.
     private var width: CGFloat {
-        switch step {
-        case .export: 520
-        case .setUp: 500
-        case .autoFill: 420
-        case .autoFillNotNow, .noneArrived, .copying, .practice, .needsFingerprint, .lidClosed: 400
+        switch screen {
+        case .welcome: 520
+        case .practice, .practiceDenied, .needsFingerprint, .lidClosed, .copying: 400
+        case .copyPasswords: 460
+        case .computers: 420
+        case .setUpAgents, .ready, .almostReady: 500
+        }
+    }
+
+    private var horizontalPadding: CGFloat {
+        switch screen {
+        case .welcome, .ready, .almostReady: 40
+        default: 36
         }
     }
 
     @ViewBuilder private var content: some View {
-        switch step {
-        case .export:
-            Header(mark: .app(64), title: FirstRunCopy.title, titleSize: 26, sentence: FirstRunCopy.intro)
-            Box {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(FirstRunCopy.copyHeading).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                        Text(FirstRunCopy.copyDetail).font(.system(size: 13)).lineSpacing(3).foregroundStyle(RequestToken.ink2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(FirstRunCopy.steps.enumerated()), id: \.offset) { index, step in
-                            HStack(alignment: .top, spacing: 10) {
-                                Text("\(index + 1)").font(.system(size: 12, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                                    .frame(width: 20, height: 20).background(RequestToken.surface, in: Circle())
-                                Text(step).font(.system(size: 14)).lineSpacing(3).foregroundStyle(RequestToken.ink)
-                                    .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
+        switch screen {
+        case .welcome:
+            VStack(spacing: 14) {
+                AppMark().frame(width: 64, height: 64)
+                VStack(spacing: 8) {
+                    Text(FirstRunCopy.title).font(.system(size: 26, weight: .bold)).tracking(-0.39).foregroundStyle(RequestToken.ink)
+                    Para(FirstRunCopy.intro, size: 15).multilineTextAlignment(.center)
                 }
             }
-            VStack(spacing: 12) {
-                WideButton(title: FirstRunCopy.openPasswords, action: openPasswords)
-                Button(action: showAutoFill) {
-                    Text(FirstRunCopy.notInList).font(.system(size: 13)).foregroundStyle(RequestToken.brand)
-                }
-                .buttonStyle(.plain)
-                .pointerStyle(.link)
-            }
-        case let .autoFill(canAsk):
-            Header(mark: .app(44), title: FirstRunCopy.autoFillTitle, titleSize: 20, sentence: FirstRunCopy.autoFillBody)
-            WideButton(title: FirstRunCopy.continueButton, action: askForAutoFill).disabled(!canAsk)
-        case let .autoFillNotNow(canAsk):
-            Sentence(FirstRunCopy.autoFillNotNow)
-            WideButton(title: FirstRunCopy.continueButton, action: askForAutoFill).disabled(!canAsk)
-        case .noneArrived:
-            Sentence(FirstRunCopy.noneArrived)
-            WideButton(title: FirstRunCopy.openPasswords, action: openPasswords)
-        case .needsFingerprint:
-            Sentence(FirstRunCopy.needsFingerprint)
-            WideButton(title: FirstRunCopy.openSystemSettings, action: openTouchIDSettings)
-        case .lidClosed:
-            Sentence(FirstRunCopy.openTheLid)
-        case .copying:
-            Header(mark: .app(44), title: FirstRunCopy.copying, titleSize: 22, sentence: nil)
-            ProgressView().controlSize(.small)
-        case let .practice(passwords, denied):
-            Header(mark: .app(44), title: FirstRunCopy.copied(passwords), titleSize: 22, sentence: FirstRunCopy.alwaysAsk)
-            VStack(spacing: 2) {
-                Text(FirstRunCopy.tryPractice).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                Text(denied ? FirstRunCopy.approveOne : FirstRunCopy.approveIt).font(.system(size: 14)).foregroundStyle(RequestToken.ink2)
-            }
-            .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
-            .padding(.top, 20)
-            .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
-            if denied { WideButton(title: FirstRunCopy.tryAgain, action: tryAgain) }
-        case let .setUp(agentLine):
-            Header(mark: .done, title: FirstRunCopy.setUpTitle, titleSize: 22, sentence: FirstRunCopy.setUpBody)
-            Box {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(FirstRunCopy.tellAgents).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                    AgentLineBox(caption: FirstRunCopy.tellAgentsBody, line: agentLine)
+            Points(FirstRunCopy.points.map { ($0.symbol, $0.title, $0.body) })
+            WideButton(FirstRunCopy.getStarted, action: actions.getStarted)
+        case .practice:
+            Heading(FirstRunCopy.tryPractice, FirstRunCopy.practiceIntro)
+            VStack(alignment: .leading, spacing: 12) {
+                Dot(RequestToken.approve, FirstRunCopy.toApprove)
+                Dot(RequestToken.deny, FirstRunCopy.toDeny)
+            }
+            .padding(.top, 18).overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
+            Small(FirstRunCopy.approveToContinue)
+        case let .practiceDenied(reply):
+            Heading(FirstRunCopy.youDeniedIt, reply.isEmpty ? FirstRunCopy.realAgentWouldStop : FirstRunCopy.realAgentWouldRead)
+            if !reply.isEmpty {
+                Text("“\(reply)”").font(.system(size: 15)).lineSpacing(3).foregroundStyle(RequestToken.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RequestToken.fill, in: .rect(cornerRadius: 12))
+            }
+            Small(FirstRunCopy.approveOneToContinue)
+            WideButton(FirstRunCopy.tryAgain, action: actions.tryAgain)
+        case .needsFingerprint:
+            Heading(FirstRunCopy.addFingerprint, FirstRunCopy.addFingerprintBody)
+            WideButton(FirstRunCopy.openTouchIDSettings, action: actions.openTouchIDSettings)
+        case .lidClosed:
+            Heading(FirstRunCopy.openTheLid, FirstRunCopy.openTheLidBody)
+        case let .copyPasswords(waiting, noneArrived):
+            Heading(FirstRunCopy.copyTitle, FirstRunCopy.copyBody)
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(FirstRunCopy.steps.enumerated()), id: \.offset) { index, step in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text("\(index + 1)").font(.system(size: 12, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                            .frame(width: 20, height: 20).background(RequestToken.surface, in: Circle())
+                        Text(LocalizedStringKey(step)).font(.system(size: 14)).lineSpacing(2).foregroundStyle(RequestToken.ink)
+                            .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
-            WideButton(title: FirstRunCopy.done, action: done)
+            .padding(.horizontal, 18).padding(.vertical, 16)
+            .background(RequestToken.fill, in: .rect(cornerRadius: 14))
+            if noneArrived {
+                Text(FirstRunCopy.noneArrived).font(.system(size: 13)).foregroundStyle(RequestToken.deny).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Small(FirstRunCopy.deletesNothing)
+            }
+            VStack(spacing: 14) {
+                if waiting { Waiting(FirstRunCopy.waitingForPasswords).frame(maxWidth: .infinity) }
+                WideButton(FirstRunCopy.openPasswords, action: actions.openPasswords)
+            }
+            VStack(spacing: 8) {
+                WideButton(FirstRunCopy.useSample, quiet: true, action: actions.useSample)
+                Small(FirstRunCopy.sampleNote).multilineTextAlignment(.center)
+            }
+        case .copying:
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(FirstRunCopy.copying).font(.system(size: 15)).foregroundStyle(RequestToken.ink)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 40)
+        case let .setUpAgents(copiedTitle, copiedDetail, messageCopied):
+            HStack(spacing: 14) {
+                Tick(size: 36)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(copiedTitle).font(.system(size: 17, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                    Para(copiedDetail, size: 14)
+                }
+            }
+            .padding(.bottom, 20).frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) { RequestToken.line.frame(height: 1) }
+            Heading(FirstRunCopy.setUpTitle, FirstRunCopy.setUpBody)
+            AgentLineBox(caption: nil, line: FirstRunCopy.agentLine, copyTitle: FirstRunCopy.copyMessage,
+                copied: messageCopied, onCopy: actions.copyMessage)
+            Para(FirstRunCopy.connectsEvery, size: 14)
+            if messageCopied { Waiting(FirstRunCopy.waitingForAgent) }
+            WideButton(FirstRunCopy.doThisLater, quiet: true, action: actions.doThisLater)
+        case let .computers(lines):
+            Text(FirstRunCopy.setUpTitle).font(.system(size: 22, weight: .bold)).tracking(-0.33).foregroundStyle(RequestToken.ink)
+            VStack(spacing: 0) {
+                ForEach(lines) { line in
+                    HStack(alignment: .top, spacing: 12) {
+                        if line.added { Tick(size: 20) } else { ProgressView().controlSize(.small).frame(width: 20, height: 20) }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(line.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                            Text(line.detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 12)
+                    .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
+                }
+            }
+            .overlay(alignment: .bottom) { RequestToken.line.frame(height: 1) }
+            Small(FirstRunCopy.continueNote)
+            WideButton(FirstRunCopy.continueButton, action: actions.continueOn)
+        case let .ready(phoneLater):
+            VStack(spacing: 14) {
+                Tick(size: 44)
+                Text(FirstRunCopy.ready).font(.system(size: 22, weight: .bold)).tracking(-0.33).foregroundStyle(RequestToken.ink)
+            }
+            .frame(maxWidth: .infinity)
+            Points(FirstRunCopy.readyPoints.map { ($0.symbol, $0.title, $0.body) }
+                + [phoneLater ? ("iphone", FirstRunCopy.phoneLaterTitle, FirstRunCopy.phoneLaterBody)
+                              : ("iphone", FirstRunCopy.phoneTitle, FirstRunCopy.phoneBody)])
+            WideButton(FirstRunCopy.done, action: actions.done)
+        case .almostReady:
+            Text(FirstRunCopy.almostReady).font(.system(size: 22, weight: .bold)).tracking(-0.33).foregroundStyle(RequestToken.ink)
+                .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: "exclamationmark.circle").font(.system(size: 20)).foregroundStyle(RequestToken.ink2).frame(width: 46)
+                    Point(title: FirstRunCopy.notSetUpTitle, detail: FirstRunCopy.notSetUpBody)
+                }
+                .padding(.vertical, 14).padding(.trailing, 16)
+                .background(RequestToken.fill, in: .rect(cornerRadius: 12))
+                Points(FirstRunCopy.readyPoints.map { ($0.symbol, $0.title, $0.body) }
+                    + [("iphone", FirstRunCopy.phoneLaterTitle, FirstRunCopy.phoneLaterBody)])
+            }
+            WideButton(FirstRunCopy.done, action: actions.done)
         }
     }
 }
 
-/// The app's mark, or a green tick once he is set up; then a centred title
-/// and sentence.
-private struct Header: View {
-    enum Mark { case app(CGFloat), done }
-    let mark: Mark
+/// A bold title and the sentence under it, left-aligned.
+private struct Heading: View {
     let title: String
-    let titleSize: CGFloat
-    let sentence: String?
-
+    let sentence: String
+    init(_ title: String, _ sentence: String) { self.title = title; self.sentence = sentence }
     var body: some View {
-        VStack(spacing: 14) {
-            switch mark {
-            case let .app(size): AppMark().frame(width: size, height: size)
-            case .done:
-                Circle().fill(RequestToken.approve).frame(width: 44, height: 44).overlay {
-                    Image(systemName: "checkmark").font(.system(size: 20, weight: .bold)).foregroundStyle(RequestToken.onAnswer)
-                }
-            }
-            VStack(spacing: 6) {
-                Text(title).font(.system(size: titleSize, weight: .bold)).tracking(-0.015 * titleSize)
-                    .foregroundStyle(RequestToken.ink)
-                if let sentence {
-                    Text(sentence).font(.system(size: 15)).lineSpacing(3).foregroundStyle(RequestToken.ink2)
-                }
-            }
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 22, weight: .bold)).tracking(-0.33).foregroundStyle(RequestToken.ink)
+            Para(sentence, size: 15)
         }
-        .frame(maxWidth: .infinity)
     }
 }
 
-private struct Sentence: View {
+private struct Para: View {
+    let text: String
+    let size: CGFloat
+    init(_ text: String, size: CGFloat) { self.text = text; self.size = size }
+    var body: some View {
+        Text(text).font(.system(size: size)).lineSpacing(3).foregroundStyle(RequestToken.ink2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct Small: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
-        Text(text).font(.system(size: 15)).lineSpacing(3).foregroundStyle(RequestToken.ink)
-            .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity)
+        Text(text).font(.system(size: 13)).lineSpacing(3).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
     }
 }
 
-private struct Box<Content: View>: View {
-    @ViewBuilder var content: Content
+private struct Dot: View {
+    let colour: Color
+    let text: String
+    init(_ colour: Color, _ text: String) { self.colour = colour; self.text = text }
     var body: some View {
-        content
-            .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RequestToken.fill, in: .rect(cornerRadius: 14))
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(colour).frame(width: 10, height: 10).padding(.top, 5)
+            Text(text).font(.system(size: 14)).lineSpacing(3).foregroundStyle(RequestToken.ink).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
-/// The line Josh pastes into an agent, with Copy. Also on the Devices tab.
+private struct Waiting: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ProgressView().controlSize(.small).frame(width: 16, height: 18)
+            Text(text).font(.system(size: 14)).lineSpacing(3).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct Tick: View {
+    let size: CGFloat
+    var body: some View {
+        Circle().fill(RequestToken.approve).frame(width: size, height: size).overlay {
+            Image(systemName: "checkmark").font(.system(size: size * 0.45, weight: .bold)).foregroundStyle(RequestToken.onAnswer)
+        }
+    }
+}
+
+/// The blue symbol, then a bold line and its sentence (Paper's welcome and Ready lists).
+private struct Points: View {
+    let items: [(symbol: String, title: String, body: String)]
+    init(_ items: [(symbol: String, title: String, body: String)]) { self.items = items }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .top, spacing: 14) {
+                    Group {
+                        if item.symbol == "keyhole" { Keyhole().fill(RequestToken.brand).frame(width: 14, height: 19) }
+                        else { Image(systemName: item.symbol).font(.system(size: 20)).foregroundStyle(RequestToken.brand) }
+                    }
+                    .frame(width: 32).padding(.top, 1)
+                    Point(title: item.title, detail: item.body)
+                }
+            }
+        }
+    }
+}
+
+private struct Point: View {
+    let title: String
+    let detail: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
+            Text(detail).font(.system(size: 14)).lineSpacing(3).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The message Josh sends an agent, with its copy button. Also on the Devices tab.
 struct AgentLineBox: View {
-    let caption: String
+    let caption: String?
     let line: String
+    var copyTitle = FirstRunCopy.copy
+    /// Kept by first run, so "Copied" survives the window closing.
+    var copied = false
+    var onCopy: () -> Void = {}
     @State private var didCopy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(caption).font(.system(size: 13)).lineSpacing(3).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
-            Text(line).font(.system(size: 11, design: .monospaced)).lineSpacing(3).foregroundStyle(RequestToken.ink)
+        VStack(alignment: .leading, spacing: 12) {
+            if let caption {
+                Text(caption).font(.system(size: 13)).lineSpacing(3).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
+            }
+            Text(line).font(.system(size: 14)).lineSpacing(3).foregroundStyle(RequestToken.ink)
                 .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
                 .background(RequestToken.surface, in: .rect(cornerRadius: 8))
             HStack {
                 Spacer()
@@ -221,8 +345,9 @@ struct AgentLineBox: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(line, forType: .string)
                     didCopy = true
+                    onCopy()
                 } label: {
-                    Text(didCopy ? FirstRunCopy.copied : FirstRunCopy.copy).font(.system(size: 13, weight: .semibold))
+                    Text(didCopy || copied ? FirstRunCopy.copied : copyTitle).font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(RequestToken.surface)
                         .padding(.horizontal, 16).frame(height: 30)
                         .background(RequestToken.ink, in: Capsule())
@@ -231,23 +356,46 @@ struct AgentLineBox: View {
                 .buttonStyle(.plain)
             }
         }
+        .padding(14)
+        .background(RequestToken.fill, in: .rect(cornerRadius: 14))
     }
 }
 
 private struct WideButton: View {
     let title: String
+    var quiet = false
     let action: () -> Void
     @Environment(\.isEnabled) private var isEnabled
 
+    init(_ title: String, quiet: Bool = false, action: @escaping () -> Void) {
+        self.title = title
+        self.quiet = quiet
+        self.action = action
+    }
+
     var body: some View {
         Button(action: action) {
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.surface)
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(quiet ? RequestToken.ink : RequestToken.surface)
                 .frame(maxWidth: .infinity).frame(height: 36)
-                .background(RequestToken.ink, in: Capsule())
+                .background(quiet ? RequestToken.fill : RequestToken.ink, in: Capsule())
                 .contentShape(Capsule())
                 .opacity(isEnabled ? 1 : 0.4)
         }
         .buttonStyle(.plain)
+    }
+}
+/// The menu bar's keyhole, as Paper draws it beside "Agent Keyring stays in the menu bar".
+private struct Keyhole: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = rect.width * 0.5
+        path.addEllipse(in: CGRect(x: rect.midX - r, y: rect.minY, width: 2 * r, height: 2 * r))
+        path.move(to: CGPoint(x: rect.midX - r * 0.45, y: rect.minY + 1.6 * r))
+        path.addLine(to: CGPoint(x: rect.midX + r * 0.45, y: rect.minY + 1.6 * r))
+        path.addLine(to: CGPoint(x: rect.midX + r * 0.8, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.midX - r * 0.8, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 #endif

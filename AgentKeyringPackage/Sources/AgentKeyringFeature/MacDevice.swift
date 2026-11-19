@@ -57,13 +57,16 @@ public final class MacDevice {
     /// is shown only if its proof checks against one of them.
     private var invitations: [Data: Date] = [:]
     @ObservationIgnored private var running: Task<Void, Never>?
-    private let file = URL.applicationSupportDirectory.appending(path: "AgentKeyring/relay-v2.plist")
+    /// The saved relay and members live in the app's own keychain, where no
+    /// other program running as Josh can read or change them.
+    private let keychain = RelayKeychain(service: (Bundle.main.bundleIdentifier ?? "com.agentkeyring") + ".relay.v2",
+        accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
 
     init(keys: MacKeys, store: LoginStore, catalogueLogins: @escaping @MainActor () async throws -> [Agentkeyring_V2_Login]) {
         self.keys = keys
         self.store = store
         self.catalogueLogins = catalogueLogins
-        if let bytes = try? Data(contentsOf: file), let saved = try? PropertyListDecoder().decode(Saved.self, from: bytes) {
+        if let bytes = readSaved(), let saved = try? PropertyListDecoder().decode(Saved.self, from: bytes) {
             self.saved = saved
             members = Self.parse(saved.members)
         }
@@ -85,10 +88,28 @@ public final class MacDevice {
         return try? Agentkeyring_V2_Members(serializedBytes: document.payload)
     }
 
-    private func persist() throws {
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try PropertyListEncoder().encode(saved).write(to: file, options: .atomic)
+    private func readSaved() -> Data? {
+        #if DEBUG
+        if keys.standIn { return try? Data(contentsOf: Self.standInFile) }
+        #endif
+        return try? keychain.read("saved")
     }
+
+    private func persist() throws {
+        let bytes = try PropertyListEncoder().encode(saved)
+        #if DEBUG
+        if keys.standIn {
+            try FileManager.default.createDirectory(at: Self.standInFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            return try bytes.write(to: Self.standInFile, options: .atomic)
+        }
+        #endif
+        try keychain.write(bytes, account: "saved")
+    }
+
+    #if DEBUG
+    /// With the stand-in key, in the container beside its keys, so a fresh container starts fresh.
+    private static let standInFile = URL.applicationSupportDirectory.appending(path: "AgentKeyring/stand-in-relay.plist")
+    #endif
 
     private var relay: KeyringRelay? {
         guard let saved else { return nil }
@@ -279,10 +300,16 @@ public final class MacDevice {
     }
 
     private func receive(_ work: Agentkeyring_V2_Work) {
-        // Only the iPhone or Watch may answer these; this Mac never shows them.
-        // Nor its own agents' requests, which it passed on for the iPhone or Watch to answer.
-        guard let request = try? Sealing.parseRequest(work.request), !work.login.phoneAndWatchOnly, !work.hasProposal,
-              request.machineID != keys.machineID else { return }
+        // Only a request the computer it names signed: the relay can't make one up.
+        guard let members, let request = try? Sealing.parseRequest(work.request) else { return }
+        do { try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceKeyID) } catch { return }
+        // Not its own agents' requests, which it shows itself and passed on to the iPhone and Watch;
+        // but Stop on one of them there ends the approval here.
+        if request.machineID == keys.machineID {
+            if work.hasOutcome, work.outcome.state == .ended, !work.outcome.endedBy.isEmpty,
+               let leaseID = askedForAgents.first(where: { $0.value == request.requestID })?.key { onStoppedOnDevice?(leaseID) }
+            return
+        }
         if work.hasOutcome {
             waiting.removeValue(forKey: request.requestID)
             finished[request.requestID] = work
@@ -400,6 +427,7 @@ public final class MacDevice {
         invite.relayPort = UInt32(endpoint.port)
         invite.relayTlsSha256 = Sealing.sha256(pin)
         invite.inviterKeyID = keys.deviceKeyID
+        invite.inviterLabel = keys.device.label
         invite.secret = secret
         invite.expiresUnixSeconds = Int64(expires.timeIntervalSince1970)
         return invite
@@ -455,19 +483,22 @@ public final class MacDevice {
     public func approve(_ requestID: String, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard let work = waiting[requestID], let members else { throw RelayFailure(.notFound, "This request is no longer waiting.") }
         let request = try Sealing.parseRequest(work.request)
-        guard let asking = members.machines.first(where: { $0.machineID == request.machineID }) else {
+        guard let asking = try? Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceKeyID) else {
             throw RelayFailure(.permissionDenied, "The computer that asked is not one of yours.")
         }
         guard let login = try await catalogueLogins().first(where: { $0.loginID == request.loginID }), login.rule != .blocked else {
             throw RelayFailure(.permissionDenied, "This password is blocked for agents.")
         }
         guard let copy = try await store.sealed().first(where: { $0.loginID == request.loginID && $0.openerID == keys.deviceKeyID }) else {
-            throw RelayFailure(.permissionDenied, "This Mac cannot open this password. Approve it on your iPhone or Apple Watch.")
+            throw RelayFailure(.permissionDenied, "This Mac has no copy of this password. Copy your passwords again from Passwords.")
         }
         let reason = ApprovalSentence.lease(site: login.sites.first ?? login.title,
             account: login.account.isEmpty ? login.title : login.account, agent: request.agent, machine: asking.label)
         try await confirm(context, reason: reason, until: Date(timeIntervalSince1970: TimeInterval(request.answerByUnixSeconds)))
+        try keys.check(copy, members: members)
         let secret = try keys.open(copy, context: context)
+        // Only the password shown: the relay and the files on disk are not trusted to say which it is.
+        try Sealing.checkBound(secret, title: login.title, sites: login.sites, account: login.account)
         let receiving = try P256.KeyAgreement.PublicKey(x963Representation: asking.receivingPublicKey)
         let upload = try Sealing.approve(request: work.request, secret: secret, sites: login.sites, receivingKey: receiving,
             signerKeyID: keys.deviceKeyID) { try keys.sign($0, context: context) }
@@ -530,19 +561,30 @@ public final class MacDevice {
         case cancelled
     }
 
-    /// An agent on this Mac asked for a login only the iPhone or Watch may
-    /// approve: this Mac asks the relay as the machine it also is, waits for
-    /// the answer, and opens the delivery with its receiving key.
-    public func askDevices(_ ask: Agentkeyring_V2_AskRequest) async throws -> DeviceAnswer {
+    /// An agent on this Mac asked: this Mac writes and signs the request as
+    /// the machine it also is, so the iPhone and Watch can answer it too,
+    /// waits for the answer, and opens the delivery with its receiving key.
+    public func askDevices(leaseID: String, loginID: String, reason: String, agent: String, project: String, task: String) async throws -> DeviceAnswer {
         guard let relay, let members else {
-            throw RelayFailure(.unavailable, "Only Josh's iPhone or Watch can approve this login, and this Mac is not connected to them.")
+            throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.")
         }
-        let asked = try await call(.ask(ask))
-        let requestID = asked.lease.requestID
-        askedForAgents[ask.clientRequestID] = requestID
+        var ask = Agentkeyring_V2_Request()
+        ask.domain = "agentkeyring.request.v2"
+        ask.requestID = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+        ask.loginID = loginID
+        ask.machineID = keys.machineID
+        ask.reason = reason
+        ask.agent = agent
+        ask.project = project
+        ask.task = task
+        ask.askedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        ask.answerByUnixSeconds = ask.askedUnixSeconds + 600
+        let requestBytes = try ask.serializedData()
+        let signed = try Sealing.signed(requestBytes, by: keys.machineID) { try keys.tls.sign($0) }
+        askedForAgents[leaseID] = ask.requestID
+        let asked = try await call(.askSigned(signed))
         var request = Agentkeyring_V2_RelayRequest()
-        var reference = Agentkeyring_V2_RequestReference()
-        reference.requestID = requestID
+        let reference = Self.reference(ask.requestID)
         request.method = .watch(reference)
         var final = asked.lease
         if final.state == .waiting {
@@ -550,12 +592,16 @@ public final class MacDevice {
                 if case let .lease(lease) = response.result { final = lease }
             }
         }
+        // Answered in this Mac's own panel: there is nothing to collect.
+        if final.answeredBy == members.machines.first(where: { $0.machineID == keys.machineID })?.label { return .cancelled }
         switch final.state {
         case .approved:
             let approval = try await call(.collect(reference)).approval
+            guard approval.request == requestBytes else { throw RelayFailure(.permissionDenied, "The relay returned an answer to another request.") }
             return .approved(try Sealing.openDelivery(approval, members: members, with: keys.receiving))
         case .denied:
-            let reply = (try? await call(.collect(reference)).approval).flatMap { try? Sealing.verifiedAnswer($0, members: members).reply } ?? ""
+            let approval = try? await call(.collect(reference)).approval
+            let reply = approval.flatMap { $0.request == requestBytes ? try? Sealing.verifiedAnswer($0, members: members).reply : nil } ?? ""
             return .denied(reply: reply)
         case .unanswered: return .unanswered
         default: return .cancelled
@@ -572,39 +618,10 @@ public final class MacDevice {
         _ = try? await call(.end(reference))
     }
 
-    /// Follows a request this Mac approved itself until it ends; true if a
-    /// device ended it (Stop on the iPhone or Watch).
-    public func stoppedOnDevice(_ clientRequestID: String) async -> Bool {
-        guard let id = askedForAgents[clientRequestID], let relay else { return false }
-        var request = Agentkeyring_V2_RelayRequest()
-        request.method = .watch(Self.reference(id))
-        var final = Agentkeyring_V2_Lease()
-        _ = try? await relay.stream(request) { response in
-            if case let .lease(lease) = response.result { final = lease }
-        }
-        return final.state == .ended && !final.endedBy.isEmpty
-    }
+    /// Stop on the iPhone or Watch, for an approval this Mac gave its own agent: the lease ID.
+    @ObservationIgnored public var onStoppedOnDevice: ((String) -> Void)?
 
     public func forget(_ clientRequestID: String) { askedForAgents.removeValue(forKey: clientRequestID) }
-
-    /// A change away from Ask on iPhone or Watch, which only the iPhone may
-    /// make: proposed, signed with the reply key (it grants nothing by
-    /// itself), and waited for. The relay gives it 10 minutes, as a login request.
-    public func proposeRules(_ changes: [Agentkeyring_V2_RuleChange]) async throws -> Agentkeyring_V2_LeaseState {
-        guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone.") }
-        var proposal = Agentkeyring_V2_RuleProposal()
-        proposal.domain = "agentkeyring.proposal.v2"
-        proposal.changes = changes
-        proposal.askedUnixSeconds = Int64(Date().timeIntervalSince1970)
-        var request = Agentkeyring_V2_RelayRequest()
-        request.method = .proposeRules(try Sealing.signed(proposal.serializedData(), by: keys.replyKeyID) { try keys.signReply($0) })
-        var final = Agentkeyring_V2_LeaseState.waiting
-        try await relay.stream(request) { response in
-            if case let .lease(lease) = response.result { final = lease.state }
-        }
-        if final == .approved { await followCatalogue() }
-        return final
-    }
 
     // MARK: Machines and devices joining
 
@@ -628,7 +645,9 @@ public final class MacDevice {
             next.devices.append(device)
             let key = try P256.KeyAgreement.PublicKey(x963Representation: device.openingPublicKey)
             for copy in sealed where copy.openerID == keys.deviceKeyID {
-                sealed.append(try Sealing.seal(try keys.open(copy, context: context), to: key, openerID: device.keyID))
+                try keys.check(copy, members: members)
+                sealed.append(try Sealing.seal(try keys.open(copy, context: context), version: copy.version, to: key,
+                    openerID: device.keyID, signer: keys.signer))
             }
         case nil:
             return

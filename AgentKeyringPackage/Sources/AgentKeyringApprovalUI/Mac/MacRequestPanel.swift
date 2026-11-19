@@ -96,7 +96,7 @@ struct MacApprovalPanelView: View {
     private var requestBody: some View {
             VStack(spacing: 10) {
                 VStack(spacing: 1) {
-                    Text(AccessRequestCopy.wants(request.agent))
+                    Text(isPractice ? FirstRunCopy.practiceWants : AccessRequestCopy.wants(request.agent))
                         .font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
                     Text(request.login.site)
                         .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
@@ -120,9 +120,7 @@ struct MacApprovalPanelView: View {
                 Text("Agent Keyring").font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink2)
             }
             Spacer(minLength: 0)
-            if isPractice {
-                Text(FirstRunCopy.practicePlace).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
-            } else if let place {
+            if !isPractice, let place {
                 HStack(spacing: 5) {
                     Text(place.kind).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
                     Text(Self.shortened(place.name)).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)

@@ -9,8 +9,8 @@
 //   https://github.com/apple/swift-protobuf/
 
 // Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
-// Local contract for RFC 0004. Remote enrolment, sealed bundles and approvers
-// are in relay.proto (RFCs 0005 and 0006). Lease and receiver results contain no
+// Local contract for RFC 0004: the command and the Mac app on one machine.
+// Everything between machines is in agentkeyring/v2. Lease and receiver results contain no
 // passwords, OTP codes or seeds. Delivery carries values to the client; the
 // explicit agent-process `read` route outputs its selected value.
 // Find includes account metadata. Transport authentication
@@ -603,18 +603,6 @@ public nonisolated struct Agentkeyring_V1_Lease: @unchecked Sendable {
     set {_uniqueStorage()._endedAtUnixSeconds = newValue}
   }
 
-  /// Relay only: a HUMAN or fully verified PHONE denial and exact request bytes, with no
-  /// bundle, when a remote denial carries a reply. The receiver verifies them
-  /// like an approval before it shows `reply`; otherwise it shows no reply.
-  public var signedDenial: Agentkeyring_V1_SealedDelivery {
-    get {_storage._signedDenial ?? Agentkeyring_V1_SealedDelivery()}
-    set {_uniqueStorage()._signedDenial = newValue}
-  }
-  /// Returns true if `signedDenial` has been explicitly set.
-  public var hasSignedDenial: Bool {_storage._signedDenial != nil}
-  /// Clears the value of `signedDenial`. Subsequent reads from it will return its default value.
-  public mutating func clearSignedDenial() {_uniqueStorage()._signedDenial = nil}
-
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -753,12 +741,11 @@ public nonisolated struct Agentkeyring_V1_Delivery: Sendable {
     set {result = .values(newValue)}
   }
 
-  /// Through the relay: sealed to the enrolled receiver, with the signed
-  /// decision so the receiver can check who approved what (bundle.proto).
-  public var sealed: Agentkeyring_V1_SealedDelivery {
+  /// Through the relay: the command opens the device's sealed answer itself.
+  public var sealed: Agentkeyring_V1_OpenedHere {
     get {
       if case .sealed(let v)? = result {return v}
-      return Agentkeyring_V1_SealedDelivery()
+      return Agentkeyring_V1_OpenedHere()
     }
     set {result = .sealed(newValue)}
   }
@@ -768,11 +755,20 @@ public nonisolated struct Agentkeyring_V1_Delivery: Sendable {
   public nonisolated enum OneOf_Result: Equatable, Sendable {
     /// Local socket only. Never sent over a network.
     case values(Agentkeyring_V1_CredentialValues)
-    /// Through the relay: sealed to the enrolled receiver, with the signed
-    /// decision so the receiver can check who approved what (bundle.proto).
-    case sealed(Agentkeyring_V1_SealedDelivery)
+    /// Through the relay: the command opens the device's sealed answer itself.
+    case sealed(Agentkeyring_V1_OpenedHere)
 
   }
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V1_OpenedHere: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -992,6 +988,9 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
 
     /// A one-time link for one machine to join (v2 JoinInvite).
     case invite // = 5
+
+    /// `agent-keyring install` ran on this Mac: first run moves on.
+    case agentsSetUp // = 6
     case UNRECOGNIZED(Int)
 
     public init() {
@@ -1006,6 +1005,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       case 3: self = .verifyMachine
       case 4: self = .relayStatus
       case 5: self = .invite
+      case 6: self = .agentsSetUp
       default: self = .UNRECOGNIZED(rawValue)
       }
     }
@@ -1018,6 +1018,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       case .verifyMachine: return 3
       case .relayStatus: return 4
       case .invite: return 5
+      case .agentsSetUp: return 6
       case .UNRECOGNIZED(let i): return i
       }
     }
@@ -1030,6 +1031,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       .verifyMachine,
       .relayStatus,
       .invite,
+      .agentsSetUp,
     ]
 
   }
@@ -1352,7 +1354,7 @@ nonisolated extension Agentkeyring_V1_LeaseReference: SwiftProtobuf.Message, Swi
 
 nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Lease"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}login_id\0\u{3}task_ref\0\u{2}\u{2}state\0\u{3}not_after_unix_seconds\0\u{3}pending_until_unix_seconds\0\u{3}approved_by\0\u{1}reply\0\u{3}status_lines\0\u{1}recipient\0\u{1}sites\0\u{4}\u{2}retry_not_before_unix_seconds\0\u{1}reason\0\u{3}approved_at_unix_seconds\0\u{3}requested_at_unix_seconds\0\u{3}ended_at_unix_seconds\0\u{3}signed_denial\0\u{c}\u{4}\u{1}\u{c}\u{d}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}lease_id\0\u{3}login_id\0\u{3}task_ref\0\u{2}\u{2}state\0\u{3}not_after_unix_seconds\0\u{3}pending_until_unix_seconds\0\u{3}approved_by\0\u{1}reply\0\u{3}status_lines\0\u{1}recipient\0\u{1}sites\0\u{4}\u{2}retry_not_before_unix_seconds\0\u{1}reason\0\u{3}approved_at_unix_seconds\0\u{3}requested_at_unix_seconds\0\u{3}ended_at_unix_seconds\0\u{c}\u{4}\u{1}\u{c}\u{d}\u{1}\u{c}\u{13}\u{1}")
 
   fileprivate class _StorageClass {
     var _leaseID: String = String()
@@ -1371,7 +1373,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
     var _approvedAtUnixSeconds: Int64 = 0
     var _requestedAtUnixSeconds: Int64 = 0
     var _endedAtUnixSeconds: Int64 = 0
-    var _signedDenial: Agentkeyring_V1_SealedDelivery? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -1398,7 +1399,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
       _approvedAtUnixSeconds = source._approvedAtUnixSeconds
       _requestedAtUnixSeconds = source._requestedAtUnixSeconds
       _endedAtUnixSeconds = source._endedAtUnixSeconds
-      _signedDenial = source._signedDenial
     }
   }
 
@@ -1433,7 +1433,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
         case 16: try { try decoder.decodeSingularInt64Field(value: &_storage._approvedAtUnixSeconds) }()
         case 17: try { try decoder.decodeSingularInt64Field(value: &_storage._requestedAtUnixSeconds) }()
         case 18: try { try decoder.decodeSingularInt64Field(value: &_storage._endedAtUnixSeconds) }()
-        case 19: try { try decoder.decodeSingularMessageField(value: &_storage._signedDenial) }()
         default: break
         }
       }
@@ -1494,9 +1493,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
       if _storage._endedAtUnixSeconds != 0 {
         try visitor.visitSingularInt64Field(value: _storage._endedAtUnixSeconds, fieldNumber: 18)
       }
-      try { if let v = _storage._signedDenial {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 19)
-      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -1522,7 +1518,6 @@ nonisolated extension Agentkeyring_V1_Lease: SwiftProtobuf.Message, SwiftProtobu
         if _storage._approvedAtUnixSeconds != rhs_storage._approvedAtUnixSeconds {return false}
         if _storage._requestedAtUnixSeconds != rhs_storage._requestedAtUnixSeconds {return false}
         if _storage._endedAtUnixSeconds != rhs_storage._endedAtUnixSeconds {return false}
-        if _storage._signedDenial != rhs_storage._signedDenial {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -1771,7 +1766,7 @@ nonisolated extension Agentkeyring_V1_Delivery: SwiftProtobuf.Message, SwiftProt
         }
       }()
       case 2: try {
-        var v: Agentkeyring_V1_SealedDelivery?
+        var v: Agentkeyring_V1_OpenedHere?
         var hadOneofValue = false
         if let current = self.result {
           hadOneofValue = true
@@ -1809,6 +1804,25 @@ nonisolated extension Agentkeyring_V1_Delivery: SwiftProtobuf.Message, SwiftProt
 
   public static func ==(lhs: Agentkeyring_V1_Delivery, rhs: Agentkeyring_V1_Delivery) -> Bool {
     if lhs.result != rhs.result {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V1_OpenedHere: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".OpenedHere"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_OpenedHere, rhs: Agentkeyring_V1_OpenedHere) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2222,7 +2236,7 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
 }
 
 nonisolated extension Agentkeyring_V1_SetupRequest.Action: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0\u{1}INVITE\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0\u{1}INVITE\0\u{1}AGENTS_SET_UP\0")
 }
 
 nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {

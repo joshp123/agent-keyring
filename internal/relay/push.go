@@ -26,14 +26,14 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 	var expires int64
 	s.Store.read(func(data *saved) {
 		r := data.Requests[id]
-		if r == nil {
+		if r == nil || r.Automatic { // An Automatic use is shown in the apps, never pushed.
 			return
 		}
 		expires = r.AnswerBy
 		for keyID, raw := range data.Pushes {
 			d := device(members, keyID)
 			registration := &pb.PushRegistration{}
-			if d == nil || unmarshal(raw, registration) != nil || (r.ForDevice != "" && r.ForDevice != d.KeyId) || r.ProposedBy == d.KeyId || (len(r.Proposal) > 0 && d.Kind != pb.DeviceKind_DEVICE_KIND_IPHONE) {
+			if d == nil || unmarshal(raw, registration) != nil || (r.ForDevice != "" && r.ForDevice != d.KeyId) {
 				continue
 			}
 			if work, err := s.work(d, id, data); err == nil {
@@ -47,17 +47,7 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 			slog.Error("could not seal a push", "device", t.registration.DeviceKeyId, "error", err)
 			continue
 		}
-		payload, _ := json.Marshal(map[string]any{
-			"aps": map[string]any{
-				"alert":              map[string]string{"title": "Agent Keyring", "body": "A request is waiting."},
-				"category":           "REQUEST",
-				"interruption-level": "time-sensitive",
-				"mutable-content":    1,
-				"thread-id":          id,
-				"sound":              "default",
-			},
-			"akr": base64.StdEncoding.EncodeToString(marshal(notice)),
-		})
+		payload := pushPayload(id, notice)
 		result, err := s.Push.Send(ctx, t.registration.ApnsToken, t.registration.ApnsTopic, t.registration.ApnsProduction, id, expires, payload)
 		if err == nil {
 			slog.Info("push accepted by Apple", "id", id, "device", t.registration.DeviceKeyId, "topic", t.registration.ApnsTopic, "production", t.registration.ApnsProduction)
@@ -68,4 +58,21 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 			}
 		}
 	}
+}
+
+// pushPayload is what Apple carries: nothing readable about the request.
+// Apple refuses one over 4096 bytes.
+func pushPayload(id string, notice *pb.Notice) []byte {
+	payload, _ := json.Marshal(map[string]any{
+		"aps": map[string]any{
+			"alert":              map[string]string{"title": "Agent Keyring", "body": "A request is waiting."},
+			"category":           "REQUEST",
+			"interruption-level": "time-sensitive",
+			"mutable-content":    1,
+			"thread-id":          id,
+			"sound":              "default",
+		},
+		"akr": base64.StdEncoding.EncodeToString(marshal(notice)),
+	})
+	return payload
 }

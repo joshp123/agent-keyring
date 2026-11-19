@@ -26,7 +26,7 @@ public final class AppMainWindowBackend: MainWindowBackend {
         let device = model.device
         let members = device?.members
         let tested = device?.lastTested ?? [:]
-        let macTested: Date? = if case let .passed(at) = model.selfTest { at } else { nil }
+        let macTested = model.testedAt
         let devices: [DeviceRow] = members.map { members in
             members.devices.map { d in
                 DeviceRow(id: d.keyID, name: d.label, kind: d.kind == .iphone ? .iPhone : d.kind == .watch ? .watch : .mac,
@@ -40,7 +40,8 @@ public final class AppMainWindowBackend: MainWindowBackend {
             }
         } ?? [MachineRow(id: device?.ownMachineID ?? "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true,
             isAlwaysOn: false, automatic: model.automaticOnThisMac, lastTested: nil)]
-        return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, devices: devices, machines: machines)
+        return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, sampleOnly: model.status?.sampleOnly == true,
+            devices: devices, machines: machines)
     }
 
     public func updates() -> AsyncStream<MainSnapshot> {
@@ -67,30 +68,6 @@ public final class AppMainWindowBackend: MainWindowBackend {
         try await confirmed { try await OwnerConfirmation.confirm(context, reason: reason, until: .now.addingTimeInterval(600)) }
         await model.accessControl.setPolicies(changes.mapValues(CredentialAccessPolicy.init), context: context)
         if let message = model.accessControl.errorMessage { throw ScreenFailure(message: message) }
-    }
-
-    public func proposeRules(_ changes: [UUID: LoginRule]) async throws -> ProposalOutcome {
-        guard let device = model.device, device.isJoined else {
-            throw ScreenFailure(message: "Add your iPhone first: only it can make this change.")
-        }
-        let rows = Dictionary(uniqueKeysWithValues: model.accessControl.rows.map { ($0.id, $0) })
-        let state = try await device.proposeRules(changes.compactMap { id, rule in
-            guard rows[id] != nil else { return nil }
-            var change = Agentkeyring_V2_RuleChange()
-            change.loginID = id.uuidString
-            change.rule = switch rule {
-            case .ask, .askOnPhone: .ask
-            case .automatic: .automatic
-            case .blocked: .blocked
-            }
-            change.phoneAndWatchOnly = rule == .askOnPhone
-            return change
-        })
-        return switch state {
-        case .approved: .approved
-        case .denied: .denied
-        default: .unanswered
-        }
     }
 
     public func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {

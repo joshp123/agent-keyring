@@ -358,8 +358,20 @@ public final class PhoneRelayBackend: PhoneBackend {
         looking?.cancel(); looking = nil
     }
 
-    func receive(_ work: Work) {
+    func receive(_ work: Work, refreshed: Bool = false) {
         guard let request = try? Sealing.parseRequest(work.request) else { return }
+        // Only a request the computer it names signed: the relay can't make one up or pass one off as another's.
+        let signed: Bool = {
+            guard let trusted = members, let ownKeyID = try? Sealing.keyID(keys.signingPublicKey()) else { return false }
+            do { try Sealing.checkRequest(work, members: trusted, ownKeyID: ownKeyID); return true } catch { return false }
+        }()
+        guard signed else {
+            // A computer added since this iPhone last looked: fetch the lists, then check again once.
+            if !refreshed, members?.machines.contains(where: { $0.machineID == request.machineID }) != true {
+                Task { try? await refreshMembersAndCatalogue(); receive(work, refreshed: true) }
+            }
+            return
+        }
         // The relay writes a request once; a later Work for it may only add the outcome.
         if let saved = state.work[request.requestID].flatMap({ try? Work(serializedBytes: $0) }), saved.request != work.request { return }
         var next = state
@@ -424,9 +436,17 @@ public final class PhoneRelayBackend: PhoneBackend {
     func accept(catalogue signed: SignedDocument) throws {
         guard let members else { return }
         if let current = state.catalogue, let saved = try? SignedDocument(serializedBytes: current), saved.payload == signed.payload { return }
-        _ = try Sealing.verifiedCatalogue(signed, members: members, current: catalogue)
+        let verified = try Sealing.verifiedCatalogue(signed, members: members, current: catalogue)
         var next = state
         next.catalogue = try signed.serializedData()
+        // A Blocked password keeps no copy here either: the requests this iPhone saved drop theirs.
+        let blocked = Set(verified.logins.filter { $0.rule == .blocked }.map(\.loginID))
+        for (id, bytes) in next.work {
+            guard var work = try? Work(serializedBytes: bytes), work.hasSealedLogin,
+                  blocked.contains(work.sealedLogin.loginID) else { continue }
+            work.clearSealedLogin()
+            next.work[id] = try? work.serializedData()
+        }
         save(next)
     }
 
@@ -469,8 +489,13 @@ public final class PhoneRelayBackend: PhoneBackend {
         let context = LAContext()
         defer { context.invalidate() }
         if reusingUnlock { context.touchIDAuthenticationAllowableReuseDuration = 10 }
+        // The relay is not trusted to say who asked: the machine named signed the request.
+        try Sealing.checkRequest(work, members: members, ownKeyID: Sealing.keyID(keys.signingPublicKey()))
         try await keys.authorize(context, reason: "Let \(request.agent) on \(machine.label) use \(Self.site(login)) for up to 30 minutes.")
+        // The relay is not trusted to say which copy is which: a device signed it, it is the current version, and it was sealed as this login.
+        try Sealing.checkSealed(work.sealedLogin, members: members, listed: login)
         let secret = try keys.open(work.sealedLogin, context: context)
+        try Sealing.checkBound(secret, title: login.title, sites: login.sites, account: login.account)
         let upload = try Sealing.approve(
             request: work.request, secret: secret, sites: login.sites,
             receivingKey: P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey),
@@ -526,14 +551,12 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// Changes a login's rule from the Logins tab, after one Face ID.
     public func setRule(_ rule: PhoneLogin.Rule, forLogin loginID: String) async throws {
         guard let old = catalogue?.logins.first(where: { $0.loginID == loginID }) else { return }
-        var change = Agentkeyring_V2_RuleChange()
-        change.loginID = loginID
-        switch rule {
-        case .ask: change.rule = .ask
-        case .automatic: change.rule = .automatic
-        case .blocked: change.rule = .blocked
+        let change: (loginID: String, rule: Agentkeyring_V2_Rule) = switch rule {
+        case .ask: (loginID, .ask)
+        case .automatic: (loginID, .automatic)
+        case .blocked: (loginID, .blocked)
         }
-        guard change.rule != old.rule || change.phoneAndWatchOnly != old.phoneAndWatchOnly else { return }
+        guard change.rule != old.rule else { return }
         let context = LAContext()
         defer { context.invalidate() }
         // Making a password Automatic names the computers that will receive it; the same Face ID switches them on.
@@ -547,9 +570,9 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// The next Catalogue with these changes, signed with this context's Face ID,
     /// and the sealed copies the new rules need: Automatic seals a login to every
-    /// machine allowed Automatic logins; leaving Automatic withdraws those copies;
-    /// leaving "Ask on iPhone or Watch" seals it again to each Mac.
-    private func publish(_ changes: [Agentkeyring_V2_RuleChange], context: LAContext) async throws {
+    /// machine allowed Automatic logins; leaving Automatic withdraws those copies.
+    /// Each Login keeps its version, and each copy the version of the one opened.
+    private func publish(_ changes: [(loginID: String, rule: Agentkeyring_V2_Rule)], context: LAContext) async throws {
         guard var members, var next = catalogue else { return }
         let relay = try relay()
         // No computer receives Automatic passwords in advance: the first Automatic password switches them all on.
@@ -570,32 +593,22 @@ public final class PhoneRelayBackend: PhoneBackend {
             let old = next.logins[index]
             var login = old
             login.rule = change.rule
-            login.phoneAndWatchOnly = change.phoneAndWatchOnly
-            let toAutomatic = login.rule == .automatic && old.rule != .automatic
-            let backToMac = old.phoneAndWatchOnly && !login.phoneAndWatchOnly
-            if toAutomatic || backToMac {
+            if login.rule == .automatic && old.rule != .automatic {
                 if mine.isEmpty, case let .sealedLogins(held) = try await relay.call(Self.method { $0.sealedLogins = .init() }).result {
                     mine = Dictionary(held.logins.map { ($0.loginID, $0) }, uniquingKeysWith: { first, _ in first })
                 }
                 guard let sealed = mine[change.loginID] else {
                     throw KeyringRelayError(code: .notFound, message: "This iPhone holds no copy of that login.")
                 }
+                try Sealing.checkSealed(sealed, members: members, listed: old)
                 let secret = try keys.open(sealed, context: context)
-                if toAutomatic {
-                    for machine in members.machines where machine.automaticAllowed {
-                        batch.logins.append(try Sealing.seal(secret, to: P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey),
-                                                             openerID: machine.machineID))
-                    }
-                }
-                if backToMac {
-                    for mac in members.devices where mac.kind == .mac {
-                        batch.logins.append(try Sealing.seal(secret, to: P256.KeyAgreement.PublicKey(x963Representation: mac.openingPublicKey),
-                                                             openerID: mac.keyID))
-                    }
+                for machine in members.machines where machine.automaticAllowed {
+                    batch.logins.append(try Sealing.seal(secret, version: sealed.version,
+                        to: P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey), openerID: machine.machineID, signer: sealSigner))
                 }
             }
-            // Leaving Automatic, or becoming Blocked: no computer keeps a copy. (Withdrawing devices' own copies
-            // of a Blocked password needs the relay to take that, which the protocol does not yet carry.)
+            // Leaving Automatic, or becoming Blocked: no computer keeps a copy. The relay also deletes
+            // every device's copy of a password the new catalogue sets to Blocked.
             if (old.rule == .automatic && login.rule != .automatic) || (login.rule == .blocked && old.rule != .blocked) {
                 batch.withdrawnLoginIds.append(change.loginID)
             }
@@ -652,6 +665,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         let signed = try Sealing.signed(next.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
         _ = try await relay().call(Self.method { $0.publishMembers = signed })
         try accept(members: signed)
+    }
+
+    /// What this iPhone signs its sealed copies with: its reply key, which needs no Face ID.
+    private var sealSigner: Sealing.Signer {
+        Sealing.Signer(keyID: (try? Sealing.keyID(keys.replyPublicKey())) ?? "", sign: keys.signReply)
     }
 
     // MARK: Joining and first run
@@ -742,9 +760,9 @@ public final class PhoneRelayBackend: PhoneBackend {
         for try await response in try relay.stream(Self.method { $0.join = joining }) {
             guard case let .join(status) = response.result else { continue }
             switch status.state {
-            case .waiting: apply(.joinWaiting(mac: nil))
+            case .waiting: apply(.joinWaiting(mac: invite.inviterLabel.isEmpty ? nil : invite.inviterLabel))
             case .refused:
-                apply(.joinRefused(mac: nil))
+                apply(.joinRefused(mac: invite.inviterLabel.isEmpty ? nil : invite.inviterLabel))
                 throw KeyringRelayError(code: .notAllowed, message: "The Mac refused this iPhone.")
             case .approved:
                 let members = try Sealing.verifiedMembers(status.members, current: nil)
@@ -966,7 +984,12 @@ public final class PhoneRelayBackend: PhoneBackend {
             throw KeyringRelayError(code: .unavailable, message: "The relay sent no sealed logins.")
         }
         var forWatch = Agentkeyring_V2_SealedLogins()
-        forWatch.logins = try mine.logins.map { try Sealing.seal(keys.open($0, context: context), to: watchKey, openerID: watch.keyID) }
+        let current = members
+        forWatch.logins = try mine.logins.compactMap { copy in
+            guard let current, let listed = catalogue?.logins.first(where: { $0.loginID == copy.loginID }) else { return nil }
+            try Sealing.checkSealed(copy, members: current, listed: listed)
+            return try Sealing.seal(keys.open(copy, context: context), version: copy.version, to: watchKey, openerID: watch.keyID, signer: sealSigner)
+        }
         next.revision += 1
         next.devices.append(watch)
         let signed = try Sealing.signed(next.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
@@ -1027,6 +1050,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         guard let request = try? Sealing.parseRequest(work.request) else { return fail("the request did not parse") }
         let outcome = work.hasOutcome ? state(work.outcome, now: Int64(Date().timeIntervalSince1970), members: members)
             : .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds)))
+        // Only a request the computer it names signed, or this iPhone's own practice request.
+        guard (try? Sealing.checkRequest(work, members: members, ownKeyID: keyID)) != nil else { return fail("the request is not signed by the computer it names") }
         // This iPhone's practice request: no machine and no password, the board's words.
         if request.forDeviceKeyID == keyID {
             var practice = practiceRequest(request)

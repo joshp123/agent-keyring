@@ -14,27 +14,29 @@ import (
 
 // publishMembers accepts the next list of devices and machines. The very
 // first comes from a device it lists, over that device's own connection.
+// Both publish methods check a new document against the current one inside the
+// store's lock, so two published at once cannot leave the older one in place.
 func (s *Server) publishMembers(who caller, document *pb.Signed) error {
-	current, _ := s.Store.documents()
-	next, err := keyring.VerifiedMembers(document, current)
-	if err != nil {
-		return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Members refused: "+err.Error())
-	}
-	if !bytes.Equal(next.RelayTlsPublicKey, s.ownSPKI()) {
-		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "These members name a different relay.")
-	}
-	if current == nil {
-		listed := false
-		for _, d := range next.Devices {
-			listed = listed || (len(d.TlsPublicKey) > 0 && bytes.Equal(d.TlsPublicKey, who.spki))
-		}
-		if !listed {
-			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The first members must come from a device they list.")
-		}
-	} else if who.device == nil {
-		return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only a device may change the members.")
-	}
 	return s.Store.update(func(data *saved) error {
+		current, _ := s.Store.documentsLocked()
+		next, err := keyring.VerifiedMembers(document, current)
+		if err != nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Members refused: "+err.Error())
+		}
+		if !bytes.Equal(next.RelayTlsPublicKey, s.ownSPKI()) {
+			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "These members name a different relay.")
+		}
+		if current == nil {
+			listed := false
+			for _, d := range next.Devices {
+				listed = listed || (len(d.TlsPublicKey) > 0 && bytes.Equal(d.TlsPublicKey, who.spki))
+			}
+			if !listed {
+				return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The first members must come from a device they list.")
+			}
+		} else if who.device == nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only a device may change the members.")
+		}
 		data.Members = marshal(document)
 		data.MembersHistory = append(data.MembersHistory, data.Members)
 		s.Store.members = next
@@ -61,36 +63,53 @@ func (s *Server) publishMembers(who caller, document *pb.Signed) error {
 }
 
 func (s *Server) publishCatalogue(document *pb.Signed) error {
-	members, current := s.Store.documents()
-	next, err := keyring.VerifiedCatalogue(document, members, current)
-	if err != nil {
-		return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Catalogue refused: "+err.Error())
-	}
 	return s.Store.update(func(data *saved) error {
+		members, current := s.Store.documentsLocked()
+		next, err := keyring.VerifiedCatalogue(document, members, current)
+		if err != nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Catalogue refused: "+err.Error())
+		}
 		data.Catalogue = marshal(document)
 		s.Store.catalogue = next
+		// A login that is Blocked, or no longer listed (a sample password his own copy replaced), has no copy here.
+		kept := map[string]bool{}
+		for _, login := range next.Logins {
+			kept[login.LoginId] = login.Rule != pb.Rule_RULE_BLOCKED
+		}
+		for opener := range data.Sealed {
+			for id := range data.Sealed[opener] {
+				if !kept[id] {
+					delete(data.Sealed[opener], id)
+				}
+			}
+		}
 		return nil
 	})
 }
 
 // publishSealedLogins adds or replaces each copy given, empties each opener
-// cleared, and removes the machines' copies of each login withdrawn.
+// cleared, and removes the machines' copies of each login withdrawn. Copies of
+// a Blocked login are not kept.
 func (s *Server) publishSealedLogins(batch *pb.SealedLogins) error {
-	members, catalogue := s.Store.documents()
-	byOpener := map[string]map[string][]byte{}
-	for _, sealed := range batch.Logins {
-		if device(members, sealed.OpenerId) == nil && machine(members, sealed.OpenerId) == nil {
-			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login names an opener that is not a device or machine.")
-		}
-		if loginIn(catalogue, sealed.LoginId) == nil {
-			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login is not in the catalogue.")
-		}
-		if byOpener[sealed.OpenerId] == nil {
-			byOpener[sealed.OpenerId] = map[string][]byte{}
-		}
-		byOpener[sealed.OpenerId][sealed.LoginId] = marshal(sealed)
-	}
 	return s.Store.update(func(data *saved) error {
+		members, catalogue := s.Store.documentsLocked()
+		byOpener := map[string]map[string][]byte{}
+		for _, sealed := range batch.Logins {
+			if device(members, sealed.OpenerId) == nil && machine(members, sealed.OpenerId) == nil {
+				return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login names an opener that is not a device or machine.")
+			}
+			login := loginIn(catalogue, sealed.LoginId)
+			if login == nil {
+				return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A sealed login is not in the catalogue.")
+			}
+			if login.Rule == pb.Rule_RULE_BLOCKED {
+				continue
+			}
+			if byOpener[sealed.OpenerId] == nil {
+				byOpener[sealed.OpenerId] = map[string][]byte{}
+			}
+			byOpener[sealed.OpenerId][sealed.LoginId] = marshal(sealed)
+		}
 		for _, opener := range batch.ClearedOpeners {
 			data.Sealed[opener] = map[string][]byte{}
 		}
@@ -150,14 +169,17 @@ func (s *Server) join(ctx context.Context, who caller, request *pb.JoinRequest, 
 		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "Join as a machine or a device.")
 	}
 	now := s.now()
-	members, _ := s.Store.documents()
-	alreadyMember := device(members, id) != nil || machine(members, id) != nil
 	err := s.Store.update(func(data *saved) error {
+		members, _ := s.Store.documentsLocked()
+		// Already a member, rejoining with the same TLS key (a machine's id is its TLS key's hash).
 		state := pb.JoinState_JOIN_STATE_WAITING
-		if alreadyMember {
+		if d := device(members, id); machine(members, id) != nil || (d != nil && (who.device != nil || bytes.Equal(d.TlsPublicKey, who.spki))) {
 			state = pb.JoinState_JOIN_STATE_APPROVED
 		}
-		data.Joins[id] = &join{Request: marshal(request), Node: who.node, Asked: now.Unix(), State: state}
+		if existing := data.Joins[id]; existing != nil && existing.State == pb.JoinState_JOIN_STATE_WAITING && !bytes.Equal(existing.SPKI, who.spki) {
+			return fail(pb.ErrorCode_ERROR_CODE_CONFLICT, "Another join with these keys is waiting.")
+		}
+		data.Joins[id] = &join{Request: marshal(request), SPKI: who.spki, Node: who.node, Asked: now.Unix(), State: state}
 		return nil
 	})
 	if err != nil {

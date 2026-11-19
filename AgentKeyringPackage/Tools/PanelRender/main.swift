@@ -76,22 +76,33 @@ let cases: [(String, AnyView)] = [
     ("practice", AnyView(ReviewRendering.panel(practice))),
     ("practice-after-click", AnyView(ReviewRendering.panel(practice, waiting: true))),
     ("practice-approved", AnyView(ReviewRendering.panel(practiceApproved))),
-    ("first-run-1-export", AnyView(MacFirstRunView(step: .export))),
-    ("first-run-1a-autofill", AnyView(MacFirstRunView(step: .autoFill(canAsk: true)))),
-    ("first-run-1a-not-now", AnyView(MacFirstRunView(step: .autoFillNotNow(canAsk: true)))),
-    ("first-run-1-none-arrived", AnyView(MacFirstRunView(step: .noneArrived))),
-    ("first-run-copying", AnyView(MacFirstRunView(step: .copying))),
-    ("first-run-2-practice", AnyView(MacFirstRunView(step: .practice(passwords: 542, denied: false)))),
-    ("first-run-2-practice-denied", AnyView(MacFirstRunView(step: .practice(passwords: 542, denied: true)))),
-    ("first-run-3-set-up", AnyView(MacFirstRunView(step: .setUp(agentLine: agentLine)))),
-    ("first-run-needs-fingerprint", AnyView(MacFirstRunView(step: .needsFingerprint))),
-    ("first-run-lid-closed", AnyView(MacFirstRunView(step: .lidClosed))),
+    ("first-run-1-welcome", AnyView(MacFirstRunView(screen: .welcome))),
+    ("first-run-2-practice", AnyView(MacFirstRunView(screen: .practice))),
+    ("first-run-2-practice-denied", AnyView(MacFirstRunView(screen: .practiceDenied(reply: "Use the invoice in my Downloads folder instead.")))),
+    ("first-run-2-needs-fingerprint", AnyView(MacFirstRunView(screen: .needsFingerprint))),
+    ("first-run-2-lid-closed", AnyView(MacFirstRunView(screen: .lidClosed))),
+    ("first-run-3-copy", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: false, noneArrived: false)))),
+    ("first-run-3-copy-waiting", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: false)))),
+    ("first-run-3-copy-none-arrived", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: true)))),
+    ("first-run-3-copying", AnyView(MacFirstRunView(screen: .copying))),
+    ("first-run-4-set-up", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
+        copiedDetail: FirstRunCopy.mustAskAny, messageCopied: false)))),
+    ("first-run-4-set-up-sample", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.sampleAdded,
+        copiedDetail: FirstRunCopy.sampleDetail, messageCopied: false)))),
+    ("first-run-4-set-up-copied", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
+        copiedDetail: FirstRunCopy.mustAskAny, messageCopied: true)))),
+    ("first-run-5-computers", AnyView(MacFirstRunView(screen: .computers([
+        ComputerLine(id: "1", name: FirstRunCopy.thisMac, detail: FirstRunCopy.thisMacDetail, added: true),
+        ComputerLine(id: "2", name: "Mac mini", detail: FirstRunCopy.stayingOnAdded, added: true),
+        ComputerLine(id: "3", name: "Linux server", detail: FirstRunCopy.approveToAdd, added: false)])))),
+    ("first-run-6-ready", AnyView(MacFirstRunView(screen: .ready(phoneLater: false)))),
+    ("first-run-6-ready-phone-later", AnyView(MacFirstRunView(screen: .ready(phoneLater: true)))),
+    ("first-run-6-almost-ready", AnyView(MacFirstRunView(screen: .almostReady))),
     ("menu-bar-tip", AnyView(MenuBarTipView())),
 ]
 final class StubBackend: MainWindowBackend {
     func updates() -> AsyncStream<MainSnapshot> { AsyncStream { $0.finish() } }
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws {}
-    func proposeRules(_ changes: [UUID: LoginRule]) async throws -> ProposalOutcome { .approved }
     func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {}
     func remove(id: String, context: LAContext) async throws {}
     func importAgain() {}

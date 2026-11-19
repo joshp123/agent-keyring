@@ -23,8 +23,6 @@ private func rulesFailureMessage(_ error: Error) -> String {
 
 public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable {
     case ask
-    /// Only the iPhone or Watch can approve; this Mac holds no copy.
-    case askOnPhone
     case allowAutomatically
     case block
 }
@@ -134,12 +132,16 @@ public final class CredentialAccessController {
         isSavingRules = true
         defer { isSavingRules = false }
         errorMessage = nil
+        // The new rules are current while they are sealed and published, so the
+        // catalogue the other devices get says them; a failure puts the old back.
+        let previous = policies
+        policies = proposed
         do {
-            try await beforeSave?(policies, proposed, context)
+            try await beforeSave?(previous, proposed, context)
             try store.save(proposed)
-            policies = proposed
             updateRowPolicies()
         } catch {
+            policies = previous
             errorMessage = rulesFailureMessage(error)
         }
     }

@@ -17,7 +17,7 @@ struct SealingTests {
     static let decided = Date(timeIntervalSince1970: 1_795_000_000)
 
     struct Keys {
-        let signing, reply: P256.Signing.PrivateKey
+        let signing, reply, machineTLSKey: P256.Signing.PrivateKey
         let opening, notice, machine: P256.KeyAgreement.PrivateKey
         init() throws {
             let hex = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: "keys.json"))) as! [String: String]
@@ -32,10 +32,12 @@ struct SealingTests {
             opening = try .init(rawRepresentation: raw("device_opening"))
             notice = try .init(rawRepresentation: raw("device_notice"))
             machine = try .init(rawRepresentation: raw("machine_receiving"))
+            machineTLSKey = try .init(rawRepresentation: raw("machine_tls"))
         }
         var deviceID: String { Sealing.keyID(signing.publicKey.x963Representation) }
         var replyID: String { Sealing.keyID(reply.publicKey.x963Representation) }
-        var machineTLS: Data { Data("machine TLS key".utf8) }
+        var signer: Sealing.Signer { Sealing.Signer(keyID: replyID) { [reply] in try reply.signature(for: $0).derRepresentation } }
+        var machineTLS: Data { machineTLSKey.publicKey.derRepresentation }
         var machineID: String { Sealing.keyID(machineTLS) }
 
         func members() throws -> Members {
@@ -75,6 +77,8 @@ struct SealingTests {
         return try request.serializedData()
     }
 
+    static let version: UInt64 = 1_795_000_000_000_000_000
+
     static var secret: LoginSecret {
         var secret = LoginSecret()
         secret.loginID = "login-example"
@@ -89,8 +93,25 @@ struct SealingTests {
         let keys = try Keys()
         let members = try keys.members()
         let requestBytes = try Self.request(machineID: keys.machineID)
-        let sealed = try Sealing.seal(Self.secret, to: keys.opening.publicKey, openerID: keys.deviceID)
+        var listed = Agentkeyring_V2_Login()
+        listed.loginID = "login-example"
+        listed.version = Self.version
+        let sealed = try Sealing.seal(Self.secret, version: Self.version, to: keys.opening.publicKey, openerID: keys.deviceID, signer: keys.signer)
+        try Sealing.checkSealed(sealed, members: members, listed: listed)
         let opened = try Sealing.open(sealed, with: keys.opening)
+        // A copy the relay made itself, relabelled for another login, or kept from before the last import, is refused before it is opened.
+        let stranger = P256.Signing.PrivateKey()
+        let made = try Sealing.seal(Self.secret, version: Self.version, to: keys.opening.publicKey, openerID: keys.deviceID,
+            signer: Sealing.Signer(keyID: keys.replyID) { try stranger.signature(for: $0).derRepresentation })
+        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkSealed(made, members: members, listed: listed) }
+        var relabelled = sealed
+        relabelled.loginID = "another-login"
+        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkSealed(relabelled, members: members, listed: nil) }
+        let older = try Sealing.seal(Self.secret, version: Self.version - 1, to: keys.opening.publicKey, openerID: keys.deviceID, signer: keys.signer)
+        #expect(throws: Sealing.Failure.wrongLogin) { try Sealing.checkSealed(older, members: members, listed: listed) }
+        var restamped = older
+        restamped.version = Self.version
+        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkSealed(restamped, members: members, listed: listed) }
         let upload = try Sealing.approve(request: requestBytes, secret: opened, sites: ["https://example.com"],
             receivingKey: keys.machine.publicKey, signerKeyID: keys.deviceID, now: Self.decided) {
             try keys.signing.signature(for: $0).derRepresentation
@@ -122,7 +143,7 @@ struct SealingTests {
         let signedMembers = try Sealing.signed(members.serializedData(), by: keys.deviceID) {
             try keys.signing.signature(for: $0).derRepresentation
         }
-        let automatic = try Sealing.seal(Self.secret, to: keys.machine.publicKey, openerID: keys.machineID)
+        let automatic = try Sealing.seal(Self.secret, version: Self.version, to: keys.machine.publicKey, openerID: keys.machineID, signer: keys.signer)
         try signedMembers.serializedData().write(to: Self.folder.appending(path: "swift-members.pb"))
         try approval.serializedData().write(to: Self.folder.appending(path: "swift-approval.pb"))
         try denied.serializedData().write(to: Self.folder.appending(path: "swift-denial.pb"))
@@ -137,6 +158,39 @@ struct SealingTests {
         let request = try Sealing.parseRequest(work.request)
         #expect(request.reason == "You asked me to download October's invoice.")
         #expect(try Sealing.open(work.sealedLogin, with: keys.opening).password == "example-password")
+    }
+
+    @Test("A request the asking machine signed in Go is shown; one the relay changed or made is refused")
+    func requestFromGo() throws {
+        let keys = try Keys()
+        let members = try keys.members()
+        let work = try Agentkeyring_V2_Work(serializedBytes: Data(contentsOf: Self.folder.appending(path: "go-request.pb")))
+        #expect(try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceID)?.machineID == keys.machineID)
+        var redirected = work
+        var request = try Sealing.parseRequest(work.request)
+        request.loginID = "another-login"
+        redirected.request = try request.serializedData()
+        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkRequest(redirected, members: members, ownKeyID: keys.deviceID) }
+        var unsigned = work
+        unsigned.requestSignature = Data()
+        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkRequest(unsigned, members: members, ownKeyID: keys.deviceID) }
+    }
+
+    @Test("A device's own practice request comes unsigned; one for another device, or naming a computer, does not")
+    func practiceRequest() throws {
+        let keys = try Keys()
+        let members = try keys.members()
+        var practice = KeyringRequest()
+        practice.domain = "agentkeyring.request.v2"
+        practice.requestID = "practice-1"
+        practice.forDeviceKeyID = keys.deviceID
+        var work = Agentkeyring_V2_Work()
+        work.request = try practice.serializedData()
+        #expect(try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceID) == nil)
+        #expect(throws: Sealing.Failure.unknownSigner) { try Sealing.checkRequest(work, members: members, ownKeyID: "another-device") }
+        practice.machineID = keys.machineID
+        work.request = try practice.serializedData()
+        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceID) }
     }
 
     @Test("A join proof made in Go checks in Swift")

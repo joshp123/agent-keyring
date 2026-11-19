@@ -7,15 +7,12 @@ import SwiftUI
 
 public enum LoginRule: String, CaseIterable, Hashable, Sendable {
     case ask
-    /// Agents ask every time, and only the iPhone or Watch can approve.
-    case askOnPhone
     case automatic
     case blocked
 
     public var name: String {
         switch self {
         case .ask: "Ask"
-        case .askOnPhone: "Ask on iPhone or Apple Watch"
         case .automatic: "Automatic"
         case .blocked: "Blocked"
         }
@@ -25,7 +22,6 @@ public enum LoginRule: String, CaseIterable, Hashable, Sendable {
     public var explanation: String {
         switch self {
         case .ask: "Agents ask you every time."
-        case .askOnPhone: "Agents ask every time. Only your iPhone or Apple Watch can approve."
         case .automatic: "Agents get it without asking."
         case .blocked: "No agent can use it."
         }
@@ -34,7 +30,6 @@ public enum LoginRule: String, CaseIterable, Hashable, Sendable {
     public var symbol: String {
         switch self {
         case .ask: "questionmark.circle.fill"
-        case .askOnPhone: "iphone"
         case .automatic: "checkmark.circle.fill"
         case .blocked: "minus.circle.fill"
         }
@@ -42,7 +37,7 @@ public enum LoginRule: String, CaseIterable, Hashable, Sendable {
 
     public var colour: Color {
         switch self {
-        case .ask, .askOnPhone: KeyringColour.signal
+        case .ask: KeyringColour.signal
         case .automatic: KeyringColour.approveText
         case .blocked: KeyringColour.denyText
         }

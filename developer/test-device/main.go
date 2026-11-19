@@ -13,8 +13,8 @@
 //	test-device join    --state DIR --invite LINK      a second device that joins by invitation
 //	test-device invite  --state DIR                     print a one-time link for one machine or device to join
 //	test-device self-test --state DIR                   ask for the practice request, approve it, report
-//	test-device propose --state DIR --login ID --rule ask|automatic|blocked|phone-and-watch
-//	                                                    propose a rule change, as the Mac's bar does, and wait for its answer
+//	test-device withdraw-automatic --state DIR          set the Automatic login back to Ask
+//	test-device stop    --state DIR --request ID        end an approval early, as Stop on a device does
 //	test-device answer  --state DIR (--approve | --deny WORDS | --deny-plain | --ignore)
 //	                                                    answer the next waiting request
 package main
@@ -55,9 +55,12 @@ var logins = []*pb.LoginSecret{
 	{LoginId: "login-automatic", Username: "agent@automatic.example", Password: "example-automatic-password"},
 }
 
+// When the made-up logins were imported: every sealed copy carries it.
+const importedAt = 1763500000000000000
+
 var catalogueLogins = []*pb.Login{
-	{LoginId: "login-ask", Title: "Example", Sites: []string{"https://example.com"}, Account: "agent@example.com", HasOneTimeCode: true, Rule: pb.Rule_RULE_ASK},
-	{LoginId: "login-automatic", Title: "Automatic example", Sites: []string{"https://automatic.example"}, Account: "agent@automatic.example", Rule: pb.Rule_RULE_AUTOMATIC},
+	{LoginId: "login-ask", Title: "Example", Sites: []string{"https://example.com"}, Account: "agent@example.com", HasOneTimeCode: true, Rule: pb.Rule_RULE_ASK, Version: importedAt},
+	{LoginId: "login-automatic", Title: "Automatic example", Sites: []string{"https://automatic.example"}, Account: "agent@automatic.example", Rule: pb.Rule_RULE_AUTOMATIC, Version: importedAt},
 }
 
 type saved struct {
@@ -95,10 +98,8 @@ func main() {
 	deny := flags.String("deny", "", "deny the next request with these words")
 	denyPlain := flags.Bool("deny-plain", false, "deny the next request with no words")
 	ignore := flags.Bool("ignore", false, "see the next request and leave it unanswered")
-	login := flags.String("login", "", "login id (propose)")
 	keysOnly := flags.Bool("keys-only", false, "create keys and publish nothing (init)")
 	reply := flags.String("reply", "", "words for the waiting agent (refuse-joins)")
-	rule := flags.String("rule", "", "ask, automatic, blocked or phone-and-watch (propose)")
 	request := flags.String("request", "", "request id (stop)")
 	flags.Parse(os.Args[2:])
 	ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
@@ -113,12 +114,12 @@ func main() {
 		err = withDevice(*state, func(d *device) error { return d.approveJoins(ctx) })
 	case "refuse-joins":
 		err = withDevice(*state, func(d *device) error { return d.refuseJoins(ctx, *reply) })
+	case "withdraw-automatic": // Josh sets the Automatic login back to Ask.
+		err = withDevice(*state, func(d *device) error { return d.withdrawAutomatic(ctx) })
 	case "invite":
 		err = withDevice(*state, func(d *device) error { return d.invite() })
 	case "self-test":
 		err = withDevice(*state, func(d *device) error { return d.selfTest(ctx) })
-	case "propose":
-		err = withDevice(*state, func(d *device) error { return d.propose(ctx, *login, *rule) })
 	case "stop":
 		err = withDevice(*state, func(d *device) error {
 			_, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_End{End: &pb.RequestReference{RequestId: *request}}}, nil)
@@ -242,6 +243,29 @@ func (d *device) setUpRelay(ctx context.Context) error {
 	return nil
 }
 
+func (d *device) withdrawAutomatic(ctx context.Context) error {
+	changed := append([]*pb.Login(nil), catalogueLogins...)
+	var withdrawn []string
+	for i, login := range changed {
+		if login.Rule == pb.Rule_RULE_AUTOMATIC {
+			copied := proto.Clone(login).(*pb.Login)
+			copied.Rule = pb.Rule_RULE_ASK
+			changed[i] = copied
+			withdrawn = append(withdrawn, login.LoginId)
+		}
+	}
+	catalogue, _ := proto.Marshal(&pb.Catalogue{Domain: keyring.CatalogueDomain, Revision: 2, Logins: changed, ImportedUnixSeconds: time.Now().Unix()})
+	signed, err := keyring.Sign(catalogue, d.self.KeyId, keyring.SoftwareSigner(d.signing))
+	if err != nil {
+		return err
+	}
+	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishCatalogue{PublishCatalogue: signed}}, nil); err != nil {
+		return err
+	}
+	_, err = d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishSealedLogins{PublishSealedLogins: &pb.SealedLogins{WithdrawnLoginIds: withdrawn}}}, nil)
+	return err
+}
+
 func withDevice(directory string, run func(*device) error) error {
 	raw, err := os.ReadFile(filepath.Join(directory, "device.json"))
 	if err != nil {
@@ -351,7 +375,9 @@ func (d *device) seal(ctx context.Context, openerID string, key []byte, automati
 		if automaticOnly && catalogueLogins[i].Rule != pb.Rule_RULE_AUTOMATIC {
 			continue
 		}
-		sealed, err := keyring.SealLogin(secret, key, openerID)
+		bound := proto.Clone(secret).(*pb.LoginSecret)
+		bound.Title, bound.Sites = catalogueLogins[i].Title, catalogueLogins[i].Sites
+		sealed, err := keyring.SealLogin(bound, catalogueLogins[i].Version, key, openerID, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply))
 		if err != nil {
 			return err
 		}
@@ -444,26 +470,27 @@ func (d *device) answer(ctx context.Context, approve bool, deny string, denyPlai
 		if err != nil {
 			return err
 		}
-		var asking *pb.Machine
-		for _, m := range members.Machines {
-			if m.MachineId == request.MachineId {
-				asking = m
+		_, asking, err := keyring.CheckRequest(work.Request, work.RequestSignature, members)
+		if err != nil {
+			return fmt.Errorf("refused: the request was not signed by the machine it names: %w", err)
+		}
+		var listed *pb.Login
+		for _, login := range catalogueLogins {
+			if login.LoginId == request.LoginId {
+				listed = login
 			}
 		}
-		if asking == nil || work.SealedLogin == nil {
-			return errors.New("cannot approve: unknown machine, or no sealed login for this device")
+		if work.SealedLogin == nil {
+			return errors.New("cannot approve: no sealed login for this device")
+		}
+		if err := keyring.CheckSealed(work.SealedLogin, members, listed); err != nil {
+			return fmt.Errorf("refused: the relay sent a sealed copy no device signed, or an old one: %w", err)
 		}
 		secret, err := keyring.OpenLogin(work.SealedLogin, d.opening)
 		if err != nil {
 			return err
 		}
-		var sites []string
-		for _, login := range catalogueLogins {
-			if login.LoginId == secret.LoginId {
-				sites = login.Sites
-			}
-		}
-		upload, err = keyring.Approve(work.Request, secret, sites, asking.ReceivingPublicKey, d.self.KeyId, keyring.SoftwareSigner(d.signing), time.Now())
+		upload, err = keyring.Approve(work.Request, secret, listed.Sites, asking.ReceivingPublicKey, d.self.KeyId, keyring.SoftwareSigner(d.signing), time.Now())
 		if err != nil {
 			return err
 		}
@@ -528,39 +555,6 @@ func (d *device) selfTest(ctx context.Context) error {
 		return err
 	}
 	fmt.Println("Practice request:", lease.State)
-	return nil
-}
-
-// propose sends one rule change for the iPhone or Watch to approve, signed
-// with the reply key as the Mac's bar does, and prints how it ended.
-func (d *device) propose(ctx context.Context, loginID, rule string) error {
-	change := &pb.RuleChange{LoginId: loginID}
-	switch rule {
-	case "ask":
-		change.Rule = pb.Rule_RULE_ASK
-	case "automatic":
-		change.Rule = pb.Rule_RULE_AUTOMATIC
-	case "blocked":
-		change.Rule = pb.Rule_RULE_BLOCKED
-	case "phone-and-watch":
-		change.Rule, change.PhoneAndWatchOnly = pb.Rule_RULE_ASK, true
-	default:
-		return errors.New("propose needs --login and --rule ask|automatic|blocked|phone-and-watch")
-	}
-	payload, _ := proto.Marshal(&pb.RuleProposal{Domain: keyring.ProposalDomain, Changes: []*pb.RuleChange{change}, AskedUnixSeconds: time.Now().Unix()})
-	signed, err := keyring.Sign(payload, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply))
-	if err != nil {
-		return err
-	}
-	var lease *pb.Lease
-	err = d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_ProposeRules{ProposeRules: signed}}, nil, func(response *pb.RelayResponse) bool {
-		lease = response.GetLease()
-		return lease == nil || lease.State == pb.LeaseState_LEASE_STATE_WAITING
-	})
-	if err != nil {
-		return err
-	}
-	fmt.Println("Proposal:", lease.GetState(), "by", lease.GetAnsweredBy())
 	return nil
 }
 

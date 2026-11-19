@@ -182,6 +182,8 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
     public let credentialItemCount: Int
     public let skippedCredentialCount: Int
     public let skippedCredentialSummary: MirrorSkippedCredentialSummary?
+    /// The only password is the sample (nil in a status saved before there was one).
+    public let sampleOnly: Bool?
 
     public init(
         generationID: UUID,
@@ -190,7 +192,8 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
         scope: MirrorImportScope,
         credentialItemCount: Int,
         skippedCredentialCount: Int,
-        skippedCredentialSummary: MirrorSkippedCredentialSummary? = nil
+        skippedCredentialSummary: MirrorSkippedCredentialSummary? = nil,
+        sampleOnly: Bool? = nil
     ) {
         self.generationID = generationID
         self.importedAt = importedAt
@@ -199,6 +202,7 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
         self.credentialItemCount = credentialItemCount
         self.skippedCredentialCount = skippedCredentialCount
         self.skippedCredentialSummary = skippedCredentialSummary
+        self.sampleOnly = sampleOnly
     }
 }
 
@@ -220,4 +224,16 @@ public enum MirrorError: Error, Equatable, LocalizedError {
             "The encrypted snapshot payload is unavailable."
         }
     }
+}
+
+extension MirrorItem {
+    /// The sample password first run offers before any are copied (Paper, "First run",
+    /// "After Use a Sample Password"). A copy from Passwords replaces it.
+    public static let sampleExporter = "agent-keyring.sample"
+    public static var sample: MirrorItem {
+        MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(exporterIdentifier: sampleExporter, accountID: Data("sample".utf8),
+            itemID: Data("example.com".utf8)), title: "example.com", origins: ["https://example.com"],
+            credentials: [.password(userName: "you@example.com", password: "hello")])
+    }
+    public var isSample: Bool { sourceIdentity.exporterIdentifier == Self.sampleExporter }
 }
