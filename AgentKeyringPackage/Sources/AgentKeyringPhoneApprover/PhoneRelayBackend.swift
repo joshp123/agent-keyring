@@ -320,6 +320,7 @@ public final class PhoneRelayBackend: PhoneBackend {
                 guard let self else { return }
                 do {
                     try await self.refreshMembersAndCatalogue()
+                    await self.recheckWaiting()
                     for try await response in try self.relay().stream(Self.method { $0.watchWork = .init() }) {
                         if case let .work(work) = response.result { self.receive(work) }
                         if self.connectionFailed != nil { self.connectionFailed = nil }
@@ -353,6 +354,15 @@ public final class PhoneRelayBackend: PhoneBackend {
         let unknownMachine = !request.machineID.isEmpty && members?.machines.contains { $0.machineID == request.machineID } == false
         let unknownLogin = !request.loginID.isEmpty && catalogue?.logins.contains { $0.loginID == request.loginID } != true
         if unknownMachine || unknownLogin { Task { try? await refreshMembersAndCatalogue() } }
+    }
+
+    /// A new stream sends only the requests still waiting, so one answered or
+    /// ended while this iPhone was away would look as if it still waited: ask for each.
+    private func recheckWaiting() async {
+        let open = state.work.compactMap { id, bytes in (try? Work(serializedBytes: bytes)).flatMap { $0.hasOutcome ? nil : id } }
+        for id in open {
+            if case let .work(work)? = try? await relay().call(Self.method { $0.getWork.requestID = id }).result { receive(work) }
+        }
     }
 
     private func refreshMembersAndCatalogue() async throws {

@@ -241,6 +241,7 @@ public final class MacDevice {
                     self.connection = .connected
                     await self.refreshSelfTests()
                     await self.followCatalogue()
+                    await self.recheckWaiting()
                     var request = Agentkeyring_V2_RelayRequest()
                     request.method = .watchWork(Agentkeyring_V2_Empty())
                     let joins = Task { await self.pollJoins() }
@@ -258,6 +259,21 @@ public final class MacDevice {
                 try? await Task.sleep(for: .seconds(5))
             }
         }
+    }
+
+    /// A new stream sends only the requests still waiting, so one that ended
+    /// while this Mac was disconnected would wait here for ever: ask for each.
+    private func recheckWaiting() async {
+        for id in waiting.keys {
+            if case let .work(work)? = try? await call(.getWork(Self.reference(id))).result { receive(work) }
+            else { waiting.removeValue(forKey: id) }
+        }
+    }
+
+    private static func reference(_ id: String) -> Agentkeyring_V2_RequestReference {
+        var reference = Agentkeyring_V2_RequestReference()
+        reference.requestID = id
+        return reference
     }
 
     private func receive(_ work: Agentkeyring_V2_Work) {
