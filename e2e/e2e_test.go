@@ -14,6 +14,10 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -22,6 +26,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/joshp123/agent-keyring/internal/keyring"
+	"google.golang.org/protobuf/proto"
 )
 
 type programs struct{ relay, command, device string }
@@ -344,6 +352,28 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	})
 
+	t.Run("a relay that forges a sealed copy cannot hand a computer its own password", func(t *testing.T) {
+		stopRelay()
+		genuine := t.TempDir()
+		copyDir(t, relayState, genuine)
+		forgeAutomaticCopy(t, filepath.Join(relayState, "relay.json"), "login-automatic", "forged-by-the-relay")
+		stopRelay = startRelay(t, p, address, relayState)
+		got := wait(t, start(mini.command("lease", "login-automatic", "--task", "forged", "--reason", "Nightly report.", "--no-wait")), "lease")
+		if got.err != nil {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		id := strings.TrimSpace(got.stdout)
+		if status := wait(t, start(mini.command("status", id)), "status"); !strings.Contains(status.stdout, ": pending") {
+			read := wait(t, start(mini.command("read", id, "--field", "password")), "read")
+			t.Fatalf("the computer took a copy no device sealed (%q); read gave %d bytes", status.stdout, len(read.stdout))
+		}
+		wait(t, start(mini.command("release", id)), "release")
+		stopRelay()
+		os.RemoveAll(relayState)
+		copyDir(t, genuine, relayState)
+		stopRelay = startRelay(t, p, address, relayState)
+	})
+
 	t.Run("a relay that replays the past cannot make a login Automatic again", func(t *testing.T) {
 		past := t.TempDir()
 		copyDir(t, relayState, past) // The relay's state while the login was Automatic.
@@ -583,5 +613,51 @@ func copyDir(t *testing.T, from, to string) {
 	t.Helper()
 	if out, err := exec.Command("cp", "-R", from+"/.", to).CombinedOutput(); err != nil {
 		t.Fatalf("copy %s: %v %s", from, err, out)
+	}
+}
+
+// forgeAutomaticCopy plays a relay that lies: it replaces every computer's copy
+// of loginID with one it sealed itself, to the computer's public key, with a
+// password of its choosing, signed by a key no device has.
+func forgeAutomaticCopy(t *testing.T, statePath, loginID, password string) {
+	t.Helper()
+	raw, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatal(err)
+	}
+	var signedMembers []byte
+	sealed := map[string]map[string][]byte{}
+	json.Unmarshal(state["members"], &signedMembers)
+	json.Unmarshal(state["sealed"], &sealed)
+	signed, members := &pb.Signed{}, &pb.Members{}
+	if proto.Unmarshal(signedMembers, signed) != nil || proto.Unmarshal(signed.Payload, members) != nil {
+		t.Fatal("cannot read the relay's members")
+	}
+	attacker, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	forged := 0
+	for _, machine := range members.Machines {
+		if sealed[machine.MachineId][loginID] == nil {
+			continue
+		}
+		copy, err := keyring.SealLogin(&pb.LoginSecret{LoginId: loginID, Username: "agent@automatic.example", Password: password,
+			Title: "Automatic example", Sites: []string{"https://automatic.example"}}, machine.ReceivingPublicKey, machine.MachineId,
+			"the-relay", keyring.SoftwareSigner(attacker))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sealed[machine.MachineId][loginID], _ = proto.Marshal(copy)
+		forged++
+	}
+	if forged == 0 {
+		t.Fatal("no computer holds a copy to forge")
+	}
+	state["sealed"], _ = json.Marshal(sealed)
+	raw, _ = json.Marshal(state)
+	if err := os.WriteFile(statePath, raw, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

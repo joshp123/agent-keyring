@@ -376,7 +376,9 @@ func (d *device) seal(ctx context.Context, openerID string, key []byte, automati
 		if automaticOnly && catalogueLogins[i].Rule != pb.Rule_RULE_AUTOMATIC {
 			continue
 		}
-		sealed, err := keyring.SealLogin(secret, key, openerID)
+		bound := proto.Clone(secret).(*pb.LoginSecret)
+		bound.Title, bound.Sites = catalogueLogins[i].Title, catalogueLogins[i].Sites
+		sealed, err := keyring.SealLogin(bound, key, openerID, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply))
 		if err != nil {
 			return err
 		}
@@ -477,6 +479,9 @@ func (d *device) answer(ctx context.Context, approve bool, deny string, denyPlai
 		}
 		if asking == nil || work.SealedLogin == nil {
 			return errors.New("cannot approve: unknown machine, or no sealed login for this device")
+		}
+		if err := keyring.CheckSealed(work.SealedLogin, members); err != nil {
+			return fmt.Errorf("the relay sent a sealed copy no device signed: %w", err)
 		}
 		secret, err := keyring.OpenLogin(work.SealedLogin, d.opening)
 		if err != nil {

@@ -38,6 +38,7 @@ const (
 	SelfTestDomain  = "agentkeyring.selftest.v2"
 	ProposalDomain  = "agentkeyring.proposal.v2"
 	AnswerDomain    = "agentkeyring.answer.v2"
+	SealedDomain    = "agentkeyring.sealed.v2"
 	ApprovalSeconds = 1800
 )
 
@@ -103,8 +104,9 @@ func open(private *ecdh.PrivateKey, info, enc, aad, ciphertext []byte) ([]byte, 
 	return recipient.Open(aad, ciphertext)
 }
 
-// SealLogin seals one login to a device's opening key or a machine's receiving key.
-func SealLogin(secret *pb.LoginSecret, publicKey []byte, openerID string) (*pb.SealedLogin, error) {
+// SealLogin seals one login to a device's opening key or a machine's receiving
+// key, signed by the sealing device's reply key (replyKeyID, sign).
+func SealLogin(secret *pb.LoginSecret, publicKey []byte, openerID, replyKeyID string, sign Signer) (*pb.SealedLogin, error) {
 	plaintext, err := proto.Marshal(secret)
 	if err != nil {
 		return nil, err
@@ -113,7 +115,31 @@ func SealLogin(secret *pb.LoginSecret, publicKey []byte, openerID string) (*pb.S
 	if err != nil {
 		return nil, err
 	}
-	return &pb.SealedLogin{LoginId: secret.LoginId, OpenerId: openerID, EncapsulatedKey: enc, Ciphertext: ciphertext}, nil
+	sealed := &pb.SealedLogin{LoginId: secret.LoginId, OpenerId: openerID, EncapsulatedKey: enc, Ciphertext: ciphertext, SignerKeyId: replyKeyID}
+	if sealed.Signature, err = sign(sealedMessage(sealed)); err != nil {
+		return nil, err
+	}
+	return sealed, nil
+}
+
+func sealedMessage(sealed *pb.SealedLogin) []byte {
+	return lengthPrefixed(SealedDomain, sealed.LoginId, sealed.OpenerId, string(sealed.EncapsulatedKey), string(sealed.Ciphertext))
+}
+
+// CheckSealed accepts a sealed copy only if a device in members signed it, so
+// a relay can neither make one up nor relabel one.
+func CheckSealed(sealed *pb.SealedLogin, members *pb.Members) error {
+	_, err := Verify(&pb.Signed{Payload: sealedMessage(sealed), SignerKeyId: sealed.SignerKeyId, Signature: sealed.Signature}, members, true)
+	return err
+}
+
+// CheckBound accepts an opened login only if it was sealed as the login it is
+// used for: the same name, sites and account.
+func CheckBound(secret *pb.LoginSecret, login *pb.Login) error {
+	if login == nil || secret.Title != login.Title || secret.Username != login.Account || !slices.Equal(secret.Sites, login.Sites) {
+		return ErrMismatch
+	}
+	return nil
 }
 
 func OpenLogin(sealed *pb.SealedLogin, private *ecdh.PrivateKey) (*pb.LoginSecret, error) {

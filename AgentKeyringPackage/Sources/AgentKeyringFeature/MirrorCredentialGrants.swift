@@ -31,6 +31,7 @@ extension MirrorAppModel {
         // A rule may have changed while the dialog was up.
         guard accessControl.policy(for: login.id) != .block else { throw LeaseFailure(.permissionDenied, "This login is now blocked for agents.") }
         let secret = try macKeys().open(copy, context: context)
+        try checkShown(secret, as: login)
         onAuthenticated()
         return try leaseStore.approve(leaseID, secret: secret)
     }

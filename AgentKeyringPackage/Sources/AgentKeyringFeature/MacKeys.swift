@@ -141,6 +141,21 @@ public final class MacKeys {
 
     public var replyKeyID: String { Sealing.keyID(replyPublicKey.x963Representation) }
 
+    /// What this Mac signs its sealed copies with: its reply key, which needs no Touch ID.
+    public var signer: Sealing.Signer { Sealing.Signer(keyID: replyKeyID, sign: signReply) }
+
+    /// A sealed copy only if this Mac or a device in `members` signed it: files
+    /// on disk and the relay are not trusted to say which copy is which.
+    public func check(_ sealed: Agentkeyring_V2_SealedLogin, members: Agentkeyring_V2_Members?) throws {
+        if sealed.signerKeyID == replyKeyID {
+            try Sealing.checkSealed(sealed, by: replyKeyID, publicKey: replyPublicKey)
+        } else if let members {
+            try Sealing.checkSealed(sealed, members: members)
+        } else {
+            throw Sealing.Failure.unknownSigner
+        }
+    }
+
     /// Opens a login sealed to this Mac, using a context Josh has just approved.
     public func open(_ sealed: Agentkeyring_V2_SealedLogin, context: LAContext) throws -> Agentkeyring_V2_LoginSecret {
         #if DEBUG

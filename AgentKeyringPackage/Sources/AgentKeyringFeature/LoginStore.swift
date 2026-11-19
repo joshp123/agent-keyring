@@ -75,6 +75,8 @@ extension MirrorItem {
         var secret = Agentkeyring_V2_LoginSecret()
         secret.loginID = id.uuidString
         secret.username = accountName ?? ""
+        secret.title = title
+        secret.sites = origins
         let passwords = credentials.compactMap { credential -> String? in
             if case let .password(_, password) = credential { return password }
             return nil

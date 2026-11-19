@@ -20,7 +20,7 @@ extension MirrorAppModel {
         var openers: [(id: String, key: P256.KeyAgreement.PublicKey)] = phoneOnly ? [] : [(keys.deviceKeyID, keys.openingPublicKey)]
         if automatic, automaticOnThisMac { openers.append((keys.machineID, keys.receiving.publicKey)) }
         openers += device?.otherOpeners(automatic: automatic) ?? []
-        return try openers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id) }
+        return try openers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id, signer: keys.signer) }
     }
 
     /// The Mac's own copy of a login, sealed to its chip key.
@@ -29,7 +29,18 @@ extension MirrorAppModel {
         guard let copy = try await store.sealed().first(where: { $0.loginID == loginID && $0.openerID == keys.deviceKeyID }) else {
             throw LeaseFailure(.notFound, "This Mac has no copy of this password. Copy your passwords again from Passwords.")
         }
+        do { try keys.check(copy, members: device?.members) } catch {
+            throw LeaseFailure(.permissionDenied, "This Mac's copy of this password was not sealed by one of your devices. Copy your passwords again from Passwords.")
+        }
         return copy
+    }
+
+    /// An opened login only if it was sealed as the login shown for it: the
+    /// list on disk is not trusted to say which password a request is for.
+    func checkShown(_ secret: Agentkeyring_V2_LoginSecret, as login: CredentialCandidate) throws {
+        do { try Sealing.checkBound(secret, title: login.title, sites: login.origins, account: login.username ?? "") } catch {
+            throw LeaseFailure(.permissionDenied, "This password's details on this Mac don't match its sealed copy. Copy your passwords again from Passwords.")
+        }
     }
 
     /// A rule change, after Josh's Touch ID: a password switched to Automatic
@@ -103,7 +114,7 @@ extension MirrorAppModel {
         if !receivers.isEmpty {
             for login in leaseLogins where accessControl.policy(for: login.id) == .allowAutomatically {
                 let secret = try keys.open(try await macCopy(of: login.id.uuidString), context: context)
-                sealed += try receivers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id) }
+                sealed += try receivers.map { try Sealing.seal(secret, to: $0.key, openerID: $0.id, signer: keys.signer) }
             }
         }
         try await store.replaceSealed(sealed)
@@ -129,7 +140,7 @@ extension MirrorAppModel {
             sealed.removeAll { $0.openerID == keys.machineID }
             let phoneOnly = Set(next.filter { $0.value == .askOnPhone }.keys.map(\.uuidString))
             sealed.removeAll { $0.openerID == keys.deviceKeyID && phoneOnly.contains($0.loginID) }
-            sealed += ownCopies.filter { automatic.contains($0.loginID) }
+            sealed += ownCopies.filter { automatic.contains($0.loginID) && (try? keys.check($0, members: device?.members)) != nil }
             try? await store.replaceSealed(sealed)
         }
         accessControl.adopt(next)
@@ -168,6 +179,7 @@ extension MirrorAppModel {
             guard let copy = try await store.sealed().first(where: { $0.loginID == lease.loginID && $0.openerID == keys.machineID }) else {
                 throw LeaseFailure(.permissionDenied, "This login is not set up to be used without asking on this Mac. Ask Josh to set it to Automatic again, or to switch on Automatic passwords for this Mac in Devices.")
             }
+            try keys.check(copy, members: device?.members)
             secret = try Sealing.open(copy, with: keys.receiving)
         } else {
             throw LeaseFailure(.permissionDenied, "Agent Keyring restarted since this was approved. Ask again.")

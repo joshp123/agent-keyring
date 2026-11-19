@@ -440,7 +440,10 @@ public final class PhoneRelayBackend: PhoneBackend {
         defer { context.invalidate() }
         if reusingUnlock { context.touchIDAuthenticationAllowableReuseDuration = 10 }
         try await keys.authorize(context, reason: "Let \(request.agent) on \(machine.label) use \(Self.site(login)) for up to 30 minutes.")
+        // The relay is not trusted to say which copy is which: a device signed it, and it was sealed as this login.
+        try Sealing.checkSealed(work.sealedLogin, members: members)
         let secret = try keys.open(work.sealedLogin, context: context)
+        try Sealing.checkBound(secret, title: login.title, sites: login.sites, account: login.account)
         let upload = try Sealing.approve(
             request: work.request, secret: secret, sites: login.sites,
             receivingKey: P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey),
@@ -550,17 +553,18 @@ public final class PhoneRelayBackend: PhoneBackend {
                 guard let sealed = mine[change.loginID] else {
                     throw KeyringRelayError(code: .notFound, message: "This iPhone holds no copy of that login.")
                 }
+                try Sealing.checkSealed(sealed, members: members)
                 let secret = try keys.open(sealed, context: context)
                 if toAutomatic {
                     for machine in members.machines where machine.automaticAllowed {
                         batch.logins.append(try Sealing.seal(secret, to: P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey),
-                                                             openerID: machine.machineID))
+                                                             openerID: machine.machineID, signer: sealSigner))
                     }
                 }
                 if backToMac {
                     for mac in members.devices where mac.kind == .mac {
                         batch.logins.append(try Sealing.seal(secret, to: P256.KeyAgreement.PublicKey(x963Representation: mac.openingPublicKey),
-                                                             openerID: mac.keyID))
+                                                             openerID: mac.keyID, signer: sealSigner))
                     }
                 }
             }
@@ -686,6 +690,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         let signed = try Sealing.signed(next.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
         _ = try await relay().call(Self.method { $0.publishMembers = signed })
         try accept(members: signed)
+    }
+
+    /// What this iPhone signs its sealed copies with: its reply key, which needs no Face ID.
+    private var sealSigner: Sealing.Signer {
+        Sealing.Signer(keyID: (try? Sealing.keyID(keys.replyPublicKey())) ?? "", sign: keys.signReply)
     }
 
     // MARK: Joining and first run
@@ -990,7 +999,11 @@ public final class PhoneRelayBackend: PhoneBackend {
             throw KeyringRelayError(code: .unavailable, message: "The relay sent no sealed logins.")
         }
         var forWatch = Agentkeyring_V2_SealedLogins()
-        forWatch.logins = try mine.logins.map { try Sealing.seal(keys.open($0, context: context), to: watchKey, openerID: watch.keyID) }
+        let current = members
+        forWatch.logins = try mine.logins.map { copy in
+            if let current { try Sealing.checkSealed(copy, members: current) }
+            return try Sealing.seal(keys.open(copy, context: context), to: watchKey, openerID: watch.keyID, signer: sealSigner)
+        }
         next.revision += 1
         next.devices.append(watch)
         let signed = try Sealing.signed(next.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }

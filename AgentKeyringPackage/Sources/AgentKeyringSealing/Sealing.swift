@@ -42,15 +42,57 @@ public enum Sealing {
 
     // MARK: Sealed logins
 
-    /// Seals one login to a device's opening key, or to an Automatic machine's receiving key.
-    public static func seal(_ secret: LoginSecret, to publicKey: P256.KeyAgreement.PublicKey, openerID: String) throws -> SealedLogin {
+    /// The sealing device's reply key: its key ID and a way to sign with it.
+    public struct Signer {
+        public let keyID: String
+        public let sign: (Data) throws -> Data
+        public init(keyID: String, sign: @escaping (Data) throws -> Data) {
+            self.keyID = keyID
+            self.sign = sign
+        }
+    }
+
+    /// Seals one login to a device's opening key, or to an Automatic machine's
+    /// receiving key, signed by the sealing device so no relay can forge it.
+    public static func seal(_ secret: LoginSecret, to publicKey: P256.KeyAgreement.PublicKey, openerID: String, signer: Signer) throws -> SealedLogin {
         var sender = try HPKE.Sender(recipientKey: publicKey, ciphersuite: suite, info: loginInfo)
         var sealed = SealedLogin()
         sealed.loginID = secret.loginID
         sealed.openerID = openerID
         sealed.ciphertext = try sender.seal(secret.serializedData(), authenticating: loginAAD(openerID: openerID, loginID: secret.loginID))
         sealed.encapsulatedKey = sender.encapsulatedKey
+        sealed.signerKeyID = signer.keyID
+        sealed.signature = try signer.sign(sealedMessage(sealed))
         return sealed
+    }
+
+    static func sealedMessage(_ sealed: SealedLogin) -> Data {
+        [Data("agentkeyring.sealed.v2".utf8), Data(sealed.loginID.utf8), Data(sealed.openerID.utf8), sealed.encapsulatedKey, sealed.ciphertext]
+            .reduce(Data()) { $0 + lengthPrefixed($1) }
+    }
+
+    /// A sealed copy only if a device in `members` signed it.
+    public static func checkSealed(_ sealed: SealedLogin, members: Members) throws {
+        try verify(sealedDocument(sealed), members: members, allowReplyKey: true)
+    }
+
+    /// A sealed copy only if this key signed it: a Mac's own copies, before it has members.
+    public static func checkSealed(_ sealed: SealedLogin, by keyID: String, publicKey: P256.Signing.PublicKey) throws {
+        guard sealed.signerKeyID == keyID, let signature = try? P256.Signing.ECDSASignature(derRepresentation: sealed.signature),
+            publicKey.isValidSignature(signature, for: sealedMessage(sealed)) else { throw Failure.badSignature }
+    }
+
+    private static func sealedDocument(_ sealed: SealedLogin) -> SignedDocument {
+        var document = SignedDocument()
+        document.payload = sealedMessage(sealed)
+        document.signerKeyID = sealed.signerKeyID
+        document.signature = sealed.signature
+        return document
+    }
+
+    /// An opened login only if it was sealed as the login it is shown or used as.
+    public static func checkBound(_ secret: LoginSecret, title: String, sites: [String], account: String) throws {
+        guard secret.title == title, secret.sites == sites, secret.username == account else { throw Failure.wrongLogin }
     }
 
     public static func open<Key: HPKEDiffieHellmanPrivateKey>(_ sealed: SealedLogin, with key: Key) throws -> LoginSecret {

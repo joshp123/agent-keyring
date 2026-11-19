@@ -82,7 +82,11 @@ func TestTheMachineOpensWhatADeviceApproved(t *testing.T) {
 		t.Fatalf("denial with words: %v", err)
 	}
 
-	automatic, err := OpenLogin(read(t, "swift-automatic.pb", &pb.SealedLogin{}), machine)
+	automaticCopy := read(t, "swift-automatic.pb", &pb.SealedLogin{})
+	if err := CheckSealed(automaticCopy, members); err != nil {
+		t.Fatalf("the Swift device's signature on its sealed copy: %v", err)
+	}
+	automatic, err := OpenLogin(automaticCopy, machine)
 	if err != nil || automatic.Password != "example-password" {
 		t.Fatalf("Automatic login: %v", err)
 	}
@@ -95,8 +99,9 @@ func TestTheRelaySealsAPushForOneDevice(t *testing.T) {
 	}
 	device := members.Devices[0]
 	approval := read(t, "swift-approval.pb", &pb.Approval{})
+	relayKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	sealed, err := SealLogin(&pb.LoginSecret{LoginId: "login-example", Username: "example@example.com", Password: "example-password"},
-		device.OpeningPublicKey, device.KeyId)
+		device.OpeningPublicKey, device.KeyId, "test", SoftwareSigner(relayKey))
 	if err != nil {
 		t.Fatal(err)
 	}

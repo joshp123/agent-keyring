@@ -473,7 +473,10 @@ public final class MacDevice {
         let reason = ApprovalSentence.lease(site: login.sites.first ?? login.title,
             account: login.account.isEmpty ? login.title : login.account, agent: request.agent, machine: asking.label)
         try await confirm(context, reason: reason, until: Date(timeIntervalSince1970: TimeInterval(request.answerByUnixSeconds)))
+        try keys.check(copy, members: members)
         let secret = try keys.open(copy, context: context)
+        // Only the password shown: the relay and the files on disk are not trusted to say which it is.
+        try Sealing.checkBound(secret, title: login.title, sites: login.sites, account: login.account)
         let receiving = try P256.KeyAgreement.PublicKey(x963Representation: asking.receivingPublicKey)
         let upload = try Sealing.approve(request: work.request, secret: secret, sites: login.sites, receivingKey: receiving,
             signerKeyID: keys.deviceKeyID) { try keys.sign($0, context: context) }
@@ -624,7 +627,8 @@ public final class MacDevice {
             next.devices.append(device)
             let key = try P256.KeyAgreement.PublicKey(x963Representation: device.openingPublicKey)
             for copy in sealed where copy.openerID == keys.deviceKeyID {
-                sealed.append(try Sealing.seal(try keys.open(copy, context: context), to: key, openerID: device.keyID))
+                try keys.check(copy, members: members)
+                sealed.append(try Sealing.seal(try keys.open(copy, context: context), to: key, openerID: device.keyID, signer: keys.signer))
             }
         case nil:
             return

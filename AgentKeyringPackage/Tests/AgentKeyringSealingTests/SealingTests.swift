@@ -35,6 +35,7 @@ struct SealingTests {
         }
         var deviceID: String { Sealing.keyID(signing.publicKey.x963Representation) }
         var replyID: String { Sealing.keyID(reply.publicKey.x963Representation) }
+        var signer: Sealing.Signer { Sealing.Signer(keyID: replyID) { [reply] in try reply.signature(for: $0).derRepresentation } }
         var machineTLS: Data { Data("machine TLS key".utf8) }
         var machineID: String { Sealing.keyID(machineTLS) }
 
@@ -89,8 +90,17 @@ struct SealingTests {
         let keys = try Keys()
         let members = try keys.members()
         let requestBytes = try Self.request(machineID: keys.machineID)
-        let sealed = try Sealing.seal(Self.secret, to: keys.opening.publicKey, openerID: keys.deviceID)
+        let sealed = try Sealing.seal(Self.secret, to: keys.opening.publicKey, openerID: keys.deviceID, signer: keys.signer)
+        try Sealing.checkSealed(sealed, members: members)
         let opened = try Sealing.open(sealed, with: keys.opening)
+        // A copy the relay made itself, or relabelled for another login, is refused before it is opened.
+        let stranger = P256.Signing.PrivateKey()
+        let made = try Sealing.seal(Self.secret, to: keys.opening.publicKey, openerID: keys.deviceID,
+            signer: Sealing.Signer(keyID: keys.replyID) { try stranger.signature(for: $0).derRepresentation })
+        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkSealed(made, members: members) }
+        var relabelled = sealed
+        relabelled.loginID = "another-login"
+        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkSealed(relabelled, members: members) }
         let upload = try Sealing.approve(request: requestBytes, secret: opened, sites: ["https://example.com"],
             receivingKey: keys.machine.publicKey, signerKeyID: keys.deviceID, now: Self.decided) {
             try keys.signing.signature(for: $0).derRepresentation
@@ -122,7 +132,7 @@ struct SealingTests {
         let signedMembers = try Sealing.signed(members.serializedData(), by: keys.deviceID) {
             try keys.signing.signature(for: $0).derRepresentation
         }
-        let automatic = try Sealing.seal(Self.secret, to: keys.machine.publicKey, openerID: keys.machineID)
+        let automatic = try Sealing.seal(Self.secret, to: keys.machine.publicKey, openerID: keys.machineID, signer: keys.signer)
         try signedMembers.serializedData().write(to: Self.folder.appending(path: "swift-members.pb"))
         try approval.serializedData().write(to: Self.folder.appending(path: "swift-approval.pb"))
         try denied.serializedData().write(to: Self.folder.appending(path: "swift-denial.pb"))

@@ -906,8 +906,15 @@ type SealedLogin struct {
 	OpenerId        string                 `protobuf:"bytes,2,opt,name=opener_id,json=openerId,proto3" json:"opener_id,omitempty"` // Device.key_id or Machine.machine_id.
 	EncapsulatedKey []byte                 `protobuf:"bytes,3,opt,name=encapsulated_key,json=encapsulatedKey,proto3" json:"encapsulated_key,omitempty"`
 	Ciphertext      []byte                 `protobuf:"bytes,4,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The device that sealed it, by its reply key (no Face ID or Touch ID), so a
+	// relay can neither forge a copy nor pass one off as another login's:
+	// ECDSA P-256 SHA-256, DER, over "agentkeyring.sealed.v2" and the
+	// length-prefixed login_id, opener_id, encapsulated_key and ciphertext.
+	// Openers check it against a device in their Members before opening.
+	SignerKeyId   string `protobuf:"bytes,5,opt,name=signer_key_id,json=signerKeyId,proto3" json:"signer_key_id,omitempty"` // Device.reply_key_id.
+	Signature     []byte `protobuf:"bytes,6,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SealedLogin) Reset() {
@@ -968,6 +975,20 @@ func (x *SealedLogin) GetCiphertext() []byte {
 	return nil
 }
 
+func (x *SealedLogin) GetSignerKeyId() string {
+	if x != nil {
+		return x.SignerKeyId
+	}
+	return ""
+}
+
+func (x *SealedLogin) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
 type LoginSecret struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	LoginId           string                 `protobuf:"bytes,1,opt,name=login_id,json=loginId,proto3" json:"login_id,omitempty"`
@@ -977,8 +998,13 @@ type LoginSecret struct {
 	TotpPeriodSeconds int32                  `protobuf:"varint,5,opt,name=totp_period_seconds,json=totpPeriodSeconds,proto3" json:"totp_period_seconds,omitempty"` // Default 30.
 	TotpDigits        int32                  `protobuf:"varint,6,opt,name=totp_digits,json=totpDigits,proto3" json:"totp_digits,omitempty"`                        // Default 6.
 	TotpAlgorithm     string                 `protobuf:"bytes,7,opt,name=totp_algorithm,json=totpAlgorithm,proto3" json:"totp_algorithm,omitempty"`                // "SHA1" (default), "SHA256" or "SHA512".
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// What the login was sealed as. Openers compare these and username with the
+	// login they show or deliver for (the signed Catalogue's Login, or the Mac's
+	// own list) and refuse a copy that does not match.
+	Title         string   `protobuf:"bytes,8,opt,name=title,proto3" json:"title,omitempty"`
+	Sites         []string `protobuf:"bytes,9,rep,name=sites,proto3" json:"sites,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LoginSecret) Reset() {
@@ -1058,6 +1084,20 @@ func (x *LoginSecret) GetTotpAlgorithm() string {
 		return x.TotpAlgorithm
 	}
 	return ""
+}
+
+func (x *LoginSecret) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *LoginSecret) GetSites() []string {
+	if x != nil {
+		return x.Sites
+	}
+	return nil
 }
 
 // Written once by the relay from the asking machine's request. Devices show
@@ -3948,14 +3988,16 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\aaccount\x18\x04 \x01(\tR\aaccount\x12)\n" +
 	"\x11has_one_time_code\x18\x05 \x01(\bR\x0ehasOneTimeCode\x12)\n" +
 	"\x04rule\x18\x06 \x01(\x0e2\x15.agentkeyring.v2.RuleR\x04rule\x12/\n" +
-	"\x14phone_and_watch_only\x18\a \x01(\bR\x11phoneAndWatchOnly\"\x90\x01\n" +
+	"\x14phone_and_watch_only\x18\a \x01(\bR\x11phoneAndWatchOnly\"\xd2\x01\n" +
 	"\vSealedLogin\x12\x19\n" +
 	"\blogin_id\x18\x01 \x01(\tR\aloginId\x12\x1b\n" +
 	"\topener_id\x18\x02 \x01(\tR\bopenerId\x12)\n" +
 	"\x10encapsulated_key\x18\x03 \x01(\fR\x0fencapsulatedKey\x12\x1e\n" +
 	"\n" +
 	"ciphertext\x18\x04 \x01(\fR\n" +
-	"ciphertext\"\xf5\x01\n" +
+	"ciphertext\x12\"\n" +
+	"\rsigner_key_id\x18\x05 \x01(\tR\vsignerKeyId\x12\x1c\n" +
+	"\tsignature\x18\x06 \x01(\fR\tsignature\"\xa1\x02\n" +
 	"\vLoginSecret\x12\x19\n" +
 	"\blogin_id\x18\x01 \x01(\tR\aloginId\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x1a\n" +
@@ -3964,7 +4006,9 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x13totp_period_seconds\x18\x05 \x01(\x05R\x11totpPeriodSeconds\x12\x1f\n" +
 	"\vtotp_digits\x18\x06 \x01(\x05R\n" +
 	"totpDigits\x12%\n" +
-	"\x0etotp_algorithm\x18\a \x01(\tR\rtotpAlgorithm\"\xf0\x02\n" +
+	"\x0etotp_algorithm\x18\a \x01(\tR\rtotpAlgorithm\x12\x14\n" +
+	"\x05title\x18\b \x01(\tR\x05title\x12\x14\n" +
+	"\x05sites\x18\t \x03(\tR\x05sites\"\xf0\x02\n" +
 	"\aRequest\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1d\n" +
 	"\n" +

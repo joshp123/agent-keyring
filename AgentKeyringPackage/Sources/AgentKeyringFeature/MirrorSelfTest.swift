@@ -43,7 +43,7 @@ extension MirrorAppModel {
             var probe = Agentkeyring_V2_LoginSecret()
             probe.loginID = "self-test"
             probe.password = UUID().uuidString
-            let opened = try keys.open(try Sealing.seal(probe, to: keys.openingPublicKey, openerID: keys.deviceKeyID), context: context)
+            let opened = try keys.open(try Sealing.seal(probe, to: keys.openingPublicKey, openerID: keys.deviceKeyID, signer: keys.signer), context: context)
             let signature = try keys.sign(Data("agentkeyring.selftest.v2".utf8), context: context)
             guard opened.password == probe.password,
                 keys.signingPublicKey.isValidSignature(try P256.Signing.ECDSASignature(derRepresentation: signature),

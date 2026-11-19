@@ -552,6 +552,15 @@ public nonisolated struct Agentkeyring_V2_SealedLogin: Sendable {
 
   public var ciphertext: Data = Data()
 
+  /// The device that sealed it, by its reply key (no Face ID or Touch ID), so a
+  /// relay can neither forge a copy nor pass one off as another login's:
+  /// ECDSA P-256 SHA-256, DER, over "agentkeyring.sealed.v2" and the
+  /// length-prefixed login_id, opener_id, encapsulated_key and ciphertext.
+  /// Openers check it against a device in their Members before opening.
+  public var signerKeyID: String = String()
+
+  public var signature: Data = Data()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -579,6 +588,13 @@ public nonisolated struct Agentkeyring_V2_LoginSecret: Sendable {
 
   /// "SHA1" (default), "SHA256" or "SHA512".
   public var totpAlgorithm: String = String()
+
+  /// What the login was sealed as. Openers compare these and username with the
+  /// login they show or deliver for (the signed Catalogue's Login, or the Mac's
+  /// own list) and refuse a copy that does not match.
+  public var title: String = String()
+
+  public var sites: [String] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2126,7 +2142,7 @@ nonisolated extension Agentkeyring_V2_Login: SwiftProtobuf.Message, SwiftProtobu
 
 nonisolated extension Agentkeyring_V2_SealedLogin: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SealedLogin"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{3}opener_id\0\u{3}encapsulated_key\0\u{1}ciphertext\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{3}opener_id\0\u{3}encapsulated_key\0\u{1}ciphertext\0\u{3}signer_key_id\0\u{1}signature\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2138,6 +2154,8 @@ nonisolated extension Agentkeyring_V2_SealedLogin: SwiftProtobuf.Message, SwiftP
       case 2: try { try decoder.decodeSingularStringField(value: &self.openerID) }()
       case 3: try { try decoder.decodeSingularBytesField(value: &self.encapsulatedKey) }()
       case 4: try { try decoder.decodeSingularBytesField(value: &self.ciphertext) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.signerKeyID) }()
+      case 6: try { try decoder.decodeSingularBytesField(value: &self.signature) }()
       default: break
       }
     }
@@ -2156,6 +2174,12 @@ nonisolated extension Agentkeyring_V2_SealedLogin: SwiftProtobuf.Message, SwiftP
     if !self.ciphertext.isEmpty {
       try visitor.visitSingularBytesField(value: self.ciphertext, fieldNumber: 4)
     }
+    if !self.signerKeyID.isEmpty {
+      try visitor.visitSingularStringField(value: self.signerKeyID, fieldNumber: 5)
+    }
+    if !self.signature.isEmpty {
+      try visitor.visitSingularBytesField(value: self.signature, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2164,6 +2188,8 @@ nonisolated extension Agentkeyring_V2_SealedLogin: SwiftProtobuf.Message, SwiftP
     if lhs.openerID != rhs.openerID {return false}
     if lhs.encapsulatedKey != rhs.encapsulatedKey {return false}
     if lhs.ciphertext != rhs.ciphertext {return false}
+    if lhs.signerKeyID != rhs.signerKeyID {return false}
+    if lhs.signature != rhs.signature {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2171,7 +2197,7 @@ nonisolated extension Agentkeyring_V2_SealedLogin: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Agentkeyring_V2_LoginSecret: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".LoginSecret"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{1}username\0\u{1}password\0\u{3}totp_seed\0\u{3}totp_period_seconds\0\u{3}totp_digits\0\u{3}totp_algorithm\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}login_id\0\u{1}username\0\u{1}password\0\u{3}totp_seed\0\u{3}totp_period_seconds\0\u{3}totp_digits\0\u{3}totp_algorithm\0\u{1}title\0\u{1}sites\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2186,6 +2212,8 @@ nonisolated extension Agentkeyring_V2_LoginSecret: SwiftProtobuf.Message, SwiftP
       case 5: try { try decoder.decodeSingularInt32Field(value: &self.totpPeriodSeconds) }()
       case 6: try { try decoder.decodeSingularInt32Field(value: &self.totpDigits) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.totpAlgorithm) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.title) }()
+      case 9: try { try decoder.decodeRepeatedStringField(value: &self.sites) }()
       default: break
       }
     }
@@ -2213,6 +2241,12 @@ nonisolated extension Agentkeyring_V2_LoginSecret: SwiftProtobuf.Message, SwiftP
     if !self.totpAlgorithm.isEmpty {
       try visitor.visitSingularStringField(value: self.totpAlgorithm, fieldNumber: 7)
     }
+    if !self.title.isEmpty {
+      try visitor.visitSingularStringField(value: self.title, fieldNumber: 8)
+    }
+    if !self.sites.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.sites, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2224,6 +2258,8 @@ nonisolated extension Agentkeyring_V2_LoginSecret: SwiftProtobuf.Message, SwiftP
     if lhs.totpPeriodSeconds != rhs.totpPeriodSeconds {return false}
     if lhs.totpDigits != rhs.totpDigits {return false}
     if lhs.totpAlgorithm != rhs.totpAlgorithm {return false}
+    if lhs.title != rhs.title {return false}
+    if lhs.sites != rhs.sites {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

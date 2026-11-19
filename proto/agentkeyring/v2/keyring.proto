@@ -147,6 +147,13 @@ message SealedLogin {
   string opener_id = 2;            // Device.key_id or Machine.machine_id.
   bytes encapsulated_key = 3;
   bytes ciphertext = 4;
+  // The device that sealed it, by its reply key (no Face ID or Touch ID), so a
+  // relay can neither forge a copy nor pass one off as another login's:
+  // ECDSA P-256 SHA-256, DER, over "agentkeyring.sealed.v2" and the
+  // length-prefixed login_id, opener_id, encapsulated_key and ciphertext.
+  // Openers check it against a device in their Members before opening.
+  string signer_key_id = 5;        // Device.reply_key_id.
+  bytes signature = 6;
 }
 
 message LoginSecret {
@@ -157,6 +164,11 @@ message LoginSecret {
   int32 totp_period_seconds = 5;   // Default 30.
   int32 totp_digits = 6;           // Default 6.
   string totp_algorithm = 7;       // "SHA1" (default), "SHA256" or "SHA512".
+  // What the login was sealed as. Openers compare these and username with the
+  // login they show or deliver for (the signed Catalogue's Login, or the Mac's
+  // own list) and refuse a copy that does not match.
+  string title = 8;
+  repeated string sites = 9;
 }
 
 // ---- Requests and answers --------------------------------------------------

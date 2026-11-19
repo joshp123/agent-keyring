@@ -135,9 +135,10 @@ func (c *Client) save(ctx context.Context, requestID string, change func(*client
 	})
 }
 
-// automaticCopy is this machine's sealed copy of an Automatic login and its
-// sites, if the signed catalogue says Automatic and a device sealed it here.
-func (c *Client) automaticCopy(ctx context.Context, loginID string) (*pb.SealedLogin, []string) {
+// automaticCopy is this machine's sealed copy of an Automatic login and the
+// login as the signed catalogue lists it, if the catalogue says Automatic and
+// a device in Members sealed it here.
+func (c *Client) automaticCopy(ctx context.Context, loginID string) (*pb.SealedLogin, *pb.Login) {
 	members, err := c.members(ctx)
 	if err != nil {
 		return nil, nil
@@ -160,14 +161,13 @@ func (c *Client) automaticCopy(ctx context.Context, loginID string) (*pb.SealedL
 	}); err != nil || stale {
 		return nil, nil
 	}
-	var sites []string
-	automatic := false
+	var listed *pb.Login
 	for _, login := range catalogue.Logins {
 		if login.LoginId == loginID && login.Rule == pb.Rule_RULE_AUTOMATIC {
-			automatic, sites = true, login.Sites
+			listed = login
 		}
 	}
-	if !automatic {
+	if listed == nil {
 		return nil, nil
 	}
 	response, err = c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_AutomaticLogins{AutomaticLogins: &pb.Empty{}}})
@@ -175,8 +175,8 @@ func (c *Client) automaticCopy(ctx context.Context, loginID string) (*pb.SealedL
 		return nil, nil
 	}
 	for _, sealed := range response.GetSealedLogins().GetLogins() {
-		if sealed.LoginId == loginID {
-			return sealed, sites
+		if sealed.LoginId == loginID && keyring.CheckSealed(sealed, members) == nil {
+			return sealed, listed
 		}
 	}
 	return nil, nil
@@ -402,14 +402,15 @@ func (c *Client) openValues(ctx context.Context, lease *v1.Lease, _ *v1.Delivery
 		if saved.Ended || now.Unix() >= saved.AutomaticNotAfterUnixSeconds {
 			return nil, nil, errors.New("This use of the Automatic login has ended. Ask again if the task still needs it.")
 		}
-		sealed, automaticSites := c.automaticCopy(ctx, saved.Scope.LoginId)
+		sealed, listed := c.automaticCopy(ctx, saved.Scope.LoginId)
 		if sealed == nil {
 			return nil, nil, errors.New("This login is no longer Automatic for this machine. Ask again.")
 		}
 		secret, err := keyring.OpenLogin(sealed, c.receiving)
-		if err != nil {
+		if err != nil || keyring.CheckBound(secret, listed) != nil {
 			return nil, nil, errors.New("This machine could not open its copy of the login.")
 		}
+		automaticSites := listed.Sites
 		username, password = secret.Username, secret.Password
 		if codes, err = keyring.OneTimeCodes(secret, now.Unix(), now.Unix()+1); err != nil {
 			return nil, nil, err
