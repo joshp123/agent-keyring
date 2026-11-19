@@ -591,6 +591,8 @@ public final class MacDevice {
                 if case let .lease(lease) = response.result { final = lease }
             }
         }
+        // Answered in this Mac's own panel: there is nothing to collect.
+        if final.answeredBy == members.machines.first(where: { $0.machineID == keys.machineID })?.label { return .cancelled }
         switch final.state {
         case .approved:
             let approval = try await call(.collect(reference)).approval
