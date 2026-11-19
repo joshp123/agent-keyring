@@ -34,6 +34,8 @@ public final class MacDevice {
     public private(set) var connection = Connection.notSetUp
     /// Requests from agents on other machines that nobody has answered yet.
     public private(set) var waiting: [String: Agentkeyring_V2_Work] = [:]
+    /// This Mac's agents' requests passed on to the iPhone and Watch: lease ID to relay request ID.
+    @ObservationIgnored private var askedForAgents: [String: String] = [:]
     /// Requests answered here or elsewhere, newest outcome last, for the menu bar.
     public private(set) var finished: [String: Agentkeyring_V2_Work] = [:]
     public private(set) var joins: [Agentkeyring_V2_PendingJoin] = []
@@ -278,7 +280,9 @@ public final class MacDevice {
 
     private func receive(_ work: Agentkeyring_V2_Work) {
         // Only the iPhone or Watch may answer these; this Mac never shows them.
-        guard let request = try? Sealing.parseRequest(work.request), !work.login.phoneAndWatchOnly, !work.hasProposal else { return }
+        // Nor its own agents' requests, which it passed on for the iPhone or Watch to answer.
+        guard let request = try? Sealing.parseRequest(work.request), !work.login.phoneAndWatchOnly, !work.hasProposal,
+              request.machineID != keys.machineID else { return }
         if work.hasOutcome {
             waiting.removeValue(forKey: request.requestID)
             finished[request.requestID] = work
@@ -535,6 +539,8 @@ public final class MacDevice {
         }
         let asked = try await call(.ask(ask))
         let requestID = asked.lease.requestID
+        askedForAgents[ask.clientRequestID] = requestID
+        defer { askedForAgents.removeValue(forKey: ask.clientRequestID) }
         var request = Agentkeyring_V2_RelayRequest()
         var reference = Agentkeyring_V2_RequestReference()
         reference.requestID = requestID
@@ -555,6 +561,12 @@ public final class MacDevice {
         case .unanswered: return .unanswered
         default: return .cancelled
         }
+    }
+
+    /// The agent stopped asking: the iPhone and Watch stop showing the request.
+    public func stopAsking(_ clientRequestID: String) async {
+        guard let id = askedForAgents[clientRequestID] else { return }
+        _ = try? await call(.end(Self.reference(id)))
     }
 
     /// A change away from Ask on iPhone or Watch, which only the iPhone may

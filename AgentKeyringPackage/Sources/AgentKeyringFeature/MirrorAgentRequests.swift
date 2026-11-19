@@ -105,6 +105,7 @@ extension MirrorAppModel {
                 return
             case let .endLease(reference):
                 response.lease = try leaseStore.end(reference.leaseID)
+                await device?.stopAsking(reference.leaseID)
             case let .deliver(operation):
                 try await refreshLeasePolicy()
                 let lease = try leaseStore.get(operation.leaseID)
