@@ -14,6 +14,7 @@ import AgentKeyringSealing
 import CryptoKit
 import Foundation
 import LocalAuthentication
+import OSLog
 import Security
 
 @MainActor
@@ -26,6 +27,10 @@ public final class MacKeys {
     }
 
     private let saved: Saved
+    #if DEBUG
+    /// Launched with -StandInKey YES: `saved` holds software keys.
+    private let standIn: Bool
+    #endif
     public let tls: RelayTLSIdentity
     public let receiving: P256.KeyAgreement.PrivateKey
     public let signingPublicKey: P256.Signing.PublicKey
@@ -33,6 +38,20 @@ public final class MacKeys {
     public let replyPublicKey: P256.Signing.PublicKey
 
     public init(service: String = (Bundle.main.bundleIdentifier ?? "com.agentkeyring") + ".keys.v2") throws {
+        #if DEBUG
+        standIn = StandInKey.isOn
+        if standIn {
+            saved = try Self.standInKeys()
+            tls = try RelayTLSIdentity.loadOrCreate(service: service + ".tls")
+            receiving = try P256.KeyAgreement.PrivateKey(rawRepresentation: saved.receiving)
+            signingPublicKey = try P256.Signing.PrivateKey(rawRepresentation: saved.signing).publicKey
+            openingPublicKey = try P256.KeyAgreement.PrivateKey(rawRepresentation: saved.opening).publicKey
+            replyPublicKey = try P256.Signing.PrivateKey(rawRepresentation: saved.reply).publicKey
+            Logger(subsystem: "com.agentkeyring.app", category: "Keys").notice(
+                "Stand-in key in use: software keys in the app's container replace the Secure Enclave, and Touch ID answers at once.")
+            return
+        }
+        #endif
         let keychain = RelayKeychain(service: service)
         if let bytes = try keychain.read("keys") {
             saved = try PropertyListDecoder().decode(Saved.self, from: bytes)
@@ -52,6 +71,22 @@ public final class MacKeys {
         openingPublicKey = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: saved.opening).publicKey
         replyPublicKey = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: saved.reply).publicKey
     }
+
+    #if DEBUG
+    /// Software keys in a file in the app's container, never in the keychain,
+    /// so a normal launch on the same Mac still finds only chip keys there.
+    private static func standInKeys() throws -> Saved {
+        let file = URL.applicationSupportDirectory.appending(path: "AgentKeyring/stand-in-keys.plist")
+        if FileManager.default.fileExists(atPath: file.path) {
+            return try PropertyListDecoder().decode(Saved.self, from: Data(contentsOf: file))
+        }
+        let keys = Saved(signing: P256.Signing.PrivateKey().rawRepresentation, opening: P256.KeyAgreement.PrivateKey().rawRepresentation,
+            reply: P256.Signing.PrivateKey().rawRepresentation, receiving: P256.KeyAgreement.PrivateKey().rawRepresentation)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PropertyListEncoder().encode(keys).write(to: file, options: .atomic)
+        return keys
+    }
+    #endif
 
     private static func access(_ flags: SecAccessControlCreateFlags) throws -> SecAccessControl {
         var error: Unmanaged<CFError>?
@@ -90,19 +125,28 @@ public final class MacKeys {
 
     /// Signs with the Secure Enclave key, using a context Josh has just approved.
     public func sign(_ payload: Data, context: LAContext) throws -> Data {
-        try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: saved.signing, authenticationContext: context)
+        #if DEBUG
+        if standIn { return try P256.Signing.PrivateKey(rawRepresentation: saved.signing).signature(for: payload).derRepresentation }
+        #endif
+        return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: saved.signing, authenticationContext: context)
             .signature(for: payload).derRepresentation
     }
 
     public func signReply(_ payload: Data) throws -> Data {
-        try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: saved.reply).signature(for: payload).derRepresentation
+        #if DEBUG
+        if standIn { return try P256.Signing.PrivateKey(rawRepresentation: saved.reply).signature(for: payload).derRepresentation }
+        #endif
+        return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: saved.reply).signature(for: payload).derRepresentation
     }
 
     public var replyKeyID: String { Sealing.keyID(replyPublicKey.x963Representation) }
 
     /// Opens a login sealed to this Mac, using a context Josh has just approved.
     public func open(_ sealed: Agentkeyring_V2_SealedLogin, context: LAContext) throws -> Agentkeyring_V2_LoginSecret {
-        try Sealing.open(sealed, with: SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: saved.opening,
+        #if DEBUG
+        if standIn { return try Sealing.open(sealed, with: P256.KeyAgreement.PrivateKey(rawRepresentation: saved.opening)) }
+        #endif
+        return try Sealing.open(sealed, with: SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: saved.opening,
             authenticationContext: context))
     }
 }
