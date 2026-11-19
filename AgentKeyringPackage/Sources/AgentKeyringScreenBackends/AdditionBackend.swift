@@ -37,7 +37,8 @@ public final class AdditionBackend: MacApprovalBackend {
             request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
                 agent: RequestingAgent(name: setup.agent, machine: "This Mac", address: "", isLocal: true),
                 access: .setUp(lead: SetupCopy.addingComputerLead(agent: setup.agent), detail: "",
-                    footer: SetupCopy.addingComputerFooter(machine.label, staysOn: true), denied: SetupCopy.notAdded(machine.label)),
+                    footer: SetupCopy.addingComputerFooter(machine.label, staysOn: true), denied: SetupCopy.notAdded(machine.label),
+                    replies: true),
                 agentReason: setup.reason, askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
         } else if let join = device.joins.first(where: { MacDevice.joinID($0) == id }) {
             let asked = Date(timeIntervalSince1970: TimeInterval(join.askedUnixSeconds))
@@ -45,15 +46,17 @@ public final class AdditionBackend: MacApprovalBackend {
             case let .device(joining)?:
                 request = AccessRequest(id: id, login: RequestedLogin(site: joining.label, account: ""),
                     agent: RequestingAgent(name: joining.label, machine: joining.label, address: "", isLocal: false),
-                    access: .setUp(lead: SetupCopy.addingDeviceLead(watch: joining.kind == .watch),
+                    access: .setUp(lead: SetupCopy.addingDeviceLead,
                         detail: SetupCopy.addingDeviceDetail(watch: joining.kind == .watch),
-                        footer: SetupCopy.addingDeviceFooter(watch: joining.kind == .watch), denied: SetupCopy.notAdded(joining.label)),
+                        footer: SetupCopy.addingDeviceFooter(watch: joining.kind == .watch), denied: SetupCopy.notAdded(joining.label),
+                        replies: false),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case let .machine(machine)?:
                 request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
                     agent: RequestingAgent(name: "An agent", machine: machine.label, address: "", isLocal: false),
                     access: .setUp(lead: SetupCopy.addingLead, detail: "",
-                        footer: SetupCopy.addingComputerFooter(machine.label, staysOn: false), denied: SetupCopy.notAdded(machine.label)),
+                        footer: SetupCopy.addingComputerFooter(machine.label, staysOn: false), denied: SetupCopy.notAdded(machine.label),
+                        replies: false),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case nil: request = nil
             }

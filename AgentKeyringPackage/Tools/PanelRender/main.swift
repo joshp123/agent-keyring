@@ -21,6 +21,18 @@ var denied = request; denied.state = .denied(by: .mac, reply: "The invoice is in
 let practice = AccessRequest.practice(id: "practice", state: .waitingForYou(until: .distantFuture))
 let practiceApproved = AccessRequest.practice(id: "practice", state: .approved(by: .mac, until: .now))
 let agentLine = FirstRunCopy.agentLine(appPath: "/Applications/Agent Keyring.app")
+var cancelled = request; cancelled.state = .cancelled
+let addComputer = AccessRequest(id: "c", login: RequestedLogin(site: "Mac mini", account: ""),
+    agent: RequestingAgent(name: "Claude Code", machine: "", address: "", isLocal: true),
+    access: .setUp(lead: SetupCopy.addingComputerLead(agent: "Claude Code"), detail: "",
+        footer: SetupCopy.addingComputerFooter("Mac mini", staysOn: true), denied: SetupCopy.notAdded("Mac mini"), replies: true),
+    agentReason: "You asked me to set up Agent Keyring on Mac mini.", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
+let addPhone = AccessRequest(id: "p", login: RequestedLogin(site: "iPhone 17 Pro", account: ""),
+    agent: RequestingAgent(name: "iPhone 17 Pro", machine: "iPhone 17 Pro", address: ""),
+    access: .setUp(lead: SetupCopy.addingDeviceLead, detail: SetupCopy.addingDeviceDetail(watch: false),
+        footer: SetupCopy.addingDeviceFooter(watch: false), denied: SetupCopy.notAdded("iPhone 17 Pro"), replies: false),
+    agentReason: "", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
+var computerDenied = addComputer; computerDenied.state = .denied(by: .mac, reply: nil, askAgainAfter: nil)
 let cases: [(String, AnyView)] = [
     ("waiting", AnyView(ReviewRendering.panel(request))),
     ("waiting-for-touch", AnyView(ReviewRendering.panel(request, waiting: true))),
@@ -29,6 +41,10 @@ let cases: [(String, AnyView)] = [
     ("typing", AnyView(ReviewRendering.panel(request, reply: "The invoice is in my email. Use that."))),
     ("approved", AnyView(ReviewRendering.panel(approved))),
     ("denied", AnyView(ReviewRendering.panel(denied))),
+    ("cancelled", AnyView(ReviewRendering.panel(cancelled))),
+    ("add-computer", AnyView(ReviewRendering.panel(addComputer))),
+    ("add-computer-denied", AnyView(ReviewRendering.panel(computerDenied))),
+    ("add-iphone", AnyView(ReviewRendering.panel(addPhone))),
     ("practice", AnyView(ReviewRendering.panel(practice))),
     ("practice-after-click", AnyView(ReviewRendering.panel(practice, waiting: true))),
     ("practice-approved", AnyView(ReviewRendering.panel(practiceApproved))),

@@ -86,7 +86,7 @@ public final class MacMenuBarModel {
     public var waiting: [AccessRequest] { requests.filter(\.state.isWaitingForYou) }
     public var inUse: [AccessRequest] { requests.filter(\.state.isInUse) }
     public var recent: [AccessRequest] {
-        Array(requests.filter { !$0.state.isWaitingForYou && !$0.state.isInUse }
+        Array(requests.filter { !$0.state.isWaitingForYou && !$0.state.isInUse && Calendar.current.isDateInToday($0.askedAt) }
             .sorted { $0.askedAt > $1.askedAt }.prefix(4))
     }
 
@@ -152,7 +152,7 @@ public struct MacMenuBarView: View {
                 .padding(14)
             }
             if !model.waiting.isEmpty || !model.enrolments.isEmpty {
-                MenuSection(title: "Waiting for you") {
+                MenuSection(title: AccessRequestCopy.waitingForYou) {
                     ForEach(model.enrolments) { enrolment in
                         JoiningMenuRow(enrolment: enrolment) { model.reviewEnrolment(enrolment.id) }
                     }
@@ -162,21 +162,21 @@ public struct MacMenuBarView: View {
                 }
             }
             if !model.inUse.isEmpty {
-                MenuSection(title: "In use now") {
+                MenuSection(title: AccessRequestCopy.inUse) {
                     ForEach(model.inUse) { request in
                         InUseMenuRow(request: request) { Task { await model.endAccess(request.id) } }
                     }
                 }
             }
             if model.attentionCount == 0 && model.inUse.isEmpty {
-                Text("No agent is using a password now.")
+                Text(AccessRequestCopy.nothing)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
             }
             if !model.recent.isEmpty {
-                MenuSection(title: "Recent") {
+                MenuSection(title: AccessRequestCopy.earlierToday) {
                     ForEach(model.recent) { request in
                         RecentMenuRow(request: request) { Task { await model.allowAskingAgain(request.id) } }
                     }
@@ -265,7 +265,7 @@ private struct WaitingMenuRow: View {
                         .foregroundStyle(KeyringColour.signal)
                 }
             }
-            Button("Review", action: review)
+            Button(AccessRequestCopy.show, action: review)
                 .buttonStyle(.borderedProminent)
                 .tint(KeyringColour.signal)
                 .controlSize(.small)
@@ -290,7 +290,7 @@ private struct JoiningMenuRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button(SetupCopy.review, action: review)
+            Button(AccessRequestCopy.show, action: review)
                 .buttonStyle(.borderedProminent)
                 .tint(KeyringColour.signal)
                 .controlSize(.small)
@@ -319,7 +319,7 @@ private struct InUseMenuRow: View {
                         .foregroundStyle(KeyringColour.approveText)
                 }
             }
-            Button("End", action: end)
+            Button(AccessRequestCopy.stop, action: end)
                 .buttonStyle(.borderless)
                 .foregroundStyle(KeyringColour.denyText)
                 .fontWeight(.medium)

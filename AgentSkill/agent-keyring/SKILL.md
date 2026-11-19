@@ -86,9 +86,9 @@ What you need, and cannot provide yourself: SSH to each computer without a passw
 
 **4. Ask the user, once.** In one message, using what you found, ask only what their request has not already told you:
 
-- Which other computers run agents that need your passwords?
-- Do you want to approve requests on your iPhone and Apple Watch?
-- "Requests reach your iPhone, and your other computers reach this Mac, through a computer of yours that stays on. Which one should that be?" Suggest the one already running the relay.
+- Which other computers run your agents?
+- Do you want to approve from your iPhone and Apple Watch?
+- "Requests reach your iPhone and Apple Watch through a computer of yours that stays on. Which one should that be?" Suggest the one already running the relay.
 
 Say what you will call each computer, as the user would name it ("Mac mini", "Linux server"), not its network name. Name the computers that cannot join yet, and what each lacks, so they don't pick one expecting it to work. If more than one relay runs on a computer, an older version is probably still running beside the current one: show the user both command lines and ask which is current, in the same message.
 

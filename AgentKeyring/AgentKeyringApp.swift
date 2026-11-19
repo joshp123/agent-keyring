@@ -144,7 +144,7 @@ private struct FirstRunHome: View {
             } else {
                 MacFirstRunView(step: step, problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text },
                     openPasswords: model.openPasswordsExport, showAutoFill: model.showAutoFillHelp,
-                    askForAutoFill: model.askToTurnOnAutoFill, sendAnother: model.sendSelfTestAgain,
+                    askForAutoFill: model.askToTurnOnAutoFill, tryAgain: model.sendSelfTestAgain,
                     done: {
                         dismissWindow(id: "main")
                         model.finishFirstRun()

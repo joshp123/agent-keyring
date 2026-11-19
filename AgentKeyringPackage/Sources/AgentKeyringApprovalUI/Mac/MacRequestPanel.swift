@@ -50,8 +50,8 @@ struct MacApprovalPanelView: View {
         VStack(spacing: 14) {
             header
             if let setUp { setUpBody(setUp) } else { requestBody }
-            if setUp != nil {
-                HStack { Spacer(); denyButton }
+            if let setUp, !setUp.replies {
+                wideDenyButton
             } else {
                 replyRow
             }
@@ -68,12 +68,12 @@ struct MacApprovalPanelView: View {
         .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
     }
 
-    private var setUp: (lead: String, detail: String, footer: String, denied: String)? {
-        if case let .setUp(lead, detail, footer, denied) = request.access { return (lead, detail, footer, denied) }
+    private var setUp: (lead: String, detail: String, footer: String, denied: String, replies: Bool)? {
+        if case let .setUp(lead, detail, footer, denied, replies) = request.access { return (lead, detail, footer, denied, replies) }
         return nil
     }
 
-    private func setUpBody(_ setUp: (lead: String, detail: String, footer: String, denied: String)) -> some View {
+    private func setUpBody(_ setUp: (lead: String, detail: String, footer: String, denied: String, replies: Bool)) -> some View {
         VStack(spacing: 10) {
             VStack(spacing: 1) {
                 Text(setUp.lead).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
@@ -170,11 +170,24 @@ struct MacApprovalPanelView: View {
         }
     }
 
+    /// Adding a device: nobody to reply to, so Deny takes the whole width.
+    private var wideDenyButton: some View {
+        Button { Task { await model.deny() } } label: {
+            Text(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny)
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.deny)
+                .frame(maxWidth: .infinity).frame(height: 44)
+                .background(RequestToken.fill, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(sending != nil)
+    }
+
     private var denyButton: some View {
         Button { Task { await model.deny() } } label: {
             Text(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny)
                 .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.onAnswer)
-                .padding(.horizontal, setUp != nil ? 22 : 18).frame(height: 36)
+                .padding(.horizontal, 18).frame(height: 36)
                 .background(RequestToken.deny, in: Capsule())
                 .contentShape(Capsule())
         }
@@ -264,9 +277,9 @@ struct MacApprovalPanelView: View {
     private var outcomeTitle: String {
         switch request.state {
         case let .approved(surface, _): surface == .iPhone ? AccessRequestCopy.approvedOnPhone : AccessRequestCopy.approved
-        case let .denied(_, reply, _): reply == nil ? AccessRequestCopy.denied : AccessRequestCopy.deniedWithWords
+        case .denied: AccessRequestCopy.denied
         case .unanswered: AccessRequestCopy.noAnswer
-        case .cancelled: AccessRequestCopy.stopped(agent)
+        case .cancelled: AccessRequestCopy.cancelled
         default: AccessRequestCopy.outcomeWord(request.state)
         }
     }
@@ -280,6 +293,7 @@ struct MacApprovalPanelView: View {
         case .denied where isPractice: nil
         case .denied: AccessRequestCopy.wasTold(agent)
         case .unanswered: AccessRequestCopy.ended(agent)
+        case .cancelled: AccessRequestCopy.stopped(agent)
         default: nil
         }
     }

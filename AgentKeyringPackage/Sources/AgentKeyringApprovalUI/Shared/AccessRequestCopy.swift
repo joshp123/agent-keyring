@@ -12,6 +12,14 @@ public enum AccessRequestCopy {
 
     public static let letAskAgain = "Let it ask again"
 
+    // The menu bar
+    public static let waitingForYou = "Waiting for you"
+    public static let inUse = "In use"
+    public static let earlierToday = "Earlier today"
+    public static let nothing = "Nothing waiting. Nothing in use."
+    public static let show = "Show"
+    public static let stop = "Stop"
+
     // The request panel
     public static func wants(_ agent: RequestingAgent) -> String {
         agent.isLocal ? "\(agent.name) on this Mac wants" : "\(agent.name) on \(agent.machine) wants"
@@ -30,9 +38,9 @@ public enum AccessRequestCopy {
     public static let approved = "Approved"
     public static let approvedOnPhone = "Approved on your iPhone"
     public static let denied = "Denied"
-    public static let deniedWithWords = "Denied, with your words"
     public static let noAnswer = "No answer"
-    public static func stopped(_ agent: String) -> String { "\(agent) stopped asking" }
+    public static let cancelled = "Cancelled"
+    public static func stopped(_ agent: String) -> String { "\(agent) stopped asking before you answered." }
     public static func canUseUntil(_ agent: String, _ time: String) -> String { "\(agent) can use this password until \(time) at the latest." }
     public static func youTold(_ agent: String, _ reply: String) -> String { "You told \(agent): “\(reply)”" }
     public static func wasTold(_ agent: String) -> String { "\(agent) was told." }
@@ -54,7 +62,7 @@ public enum AccessRequestCopy {
         case .waitingForYou: "Waiting"
         case .sendingAnswer: "Sending"
         case .waitingForMac: "Waiting for your Mac"
-        case .approved(.automaticRule, _): "Used"
+        case .approved(.automaticRule, _): "Automatic"
         case .approved: "In use"
         case .denied: "Denied"
         case .unanswered: "No answer"

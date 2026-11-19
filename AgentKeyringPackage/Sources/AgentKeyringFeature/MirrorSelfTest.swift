@@ -30,7 +30,7 @@ extension MirrorAppModel {
 
     /// Offers the practice request during first run, once there are passwords.
     func offerSelfTestIfNeeded() {
-        // One he denied is not offered again by itself: the window has Send Another.
+        // One he denied is not offered again by itself: the window has Try Again.
         guard status != nil, !firstRunFinished, selfTest == .notRun else { return }
         selfTest = .waiting
     }
@@ -76,7 +76,7 @@ extension MirrorAppModel {
         selfTest = .declined
     }
 
-    /// "Send Another".
+    /// "Try Again".
     public func sendSelfTestAgain() {
         selfTest = .waiting
     }

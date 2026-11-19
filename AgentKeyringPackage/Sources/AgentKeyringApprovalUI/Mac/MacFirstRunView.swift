@@ -33,18 +33,18 @@ public struct MacFirstRunView: View {
     let openPasswords: () -> Void
     let showAutoFill: () -> Void
     let askForAutoFill: () -> Void
-    let sendAnother: () -> Void
+    let tryAgain: () -> Void
     let done: () -> Void
 
     public init(step: FirstRunStep, problem: String? = nil, openPasswords: @escaping () -> Void = {},
         showAutoFill: @escaping () -> Void = {}, askForAutoFill: @escaping () -> Void = {},
-        sendAnother: @escaping () -> Void = {}, done: @escaping () -> Void = {}) {
+        tryAgain: @escaping () -> Void = {}, done: @escaping () -> Void = {}) {
         self.step = step
         self.problem = problem
         self.openPasswords = openPasswords
         self.showAutoFill = showAutoFill
         self.askForAutoFill = askForAutoFill
-        self.sendAnother = sendAnother
+        self.tryAgain = tryAgain
         self.done = done
     }
 
@@ -65,7 +65,8 @@ public struct MacFirstRunView: View {
     /// Paper draws each screen at its own width.
     private var width: CGFloat {
         switch step {
-        case .export, .setUp: 460
+        case .export: 520
+        case .setUp: 500
         case .autoFill: 420
         case .autoFillNotNow, .noneArrived, .copying, .practice: 400
         }
@@ -124,7 +125,7 @@ public struct MacFirstRunView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 20)
             .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
-            if denied { WideButton(title: FirstRunCopy.sendAnother, action: sendAnother) }
+            if denied { WideButton(title: FirstRunCopy.tryAgain, action: tryAgain) }
         case let .setUp(agentLine):
             Header(mark: .done, title: FirstRunCopy.setUpTitle, titleSize: 22, sentence: FirstRunCopy.setUpBody)
             Box {
@@ -199,11 +200,12 @@ struct AgentLineBox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(caption).font(.system(size: 13)).lineSpacing(3).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Text(line).font(.system(size: 12, design: .monospaced)).foregroundStyle(RequestToken.ink)
-                    .lineLimit(1).truncationMode(.tail).textSelection(.enabled)
-                    .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                    .background(RequestToken.surface, in: .rect(cornerRadius: 8))
+            Text(line).font(.system(size: 11, design: .monospaced)).lineSpacing(3).foregroundStyle(RequestToken.ink)
+                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(RequestToken.surface, in: .rect(cornerRadius: 8))
+            HStack {
+                Spacer()
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(line, forType: .string)
@@ -211,7 +213,7 @@ struct AgentLineBox: View {
                 } label: {
                     Text(didCopy ? FirstRunCopy.copied : FirstRunCopy.copy).font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(RequestToken.surface)
-                        .padding(.horizontal, 16).frame(height: 32)
+                        .padding(.horizontal, 16).frame(height: 30)
                         .background(RequestToken.ink, in: Capsule())
                         .contentShape(Capsule())
                 }
