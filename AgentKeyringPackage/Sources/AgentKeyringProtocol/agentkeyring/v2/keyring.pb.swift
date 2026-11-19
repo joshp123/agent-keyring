@@ -1355,6 +1355,10 @@ public nonisolated struct Agentkeyring_V2_RequestReference: Sendable {
 
   public var requestID: String = String()
 
+  /// With end, from the machine that asked: it answered the request itself (a
+  /// Mac's own agents), "approved" or "denied", so the devices show that.
+  public var answeredHere: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3546,7 +3550,7 @@ nonisolated extension Agentkeyring_V2_Empty: SwiftProtobuf.Message, SwiftProtobu
 
 nonisolated extension Agentkeyring_V2_RequestReference: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RequestReference"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}answered_here\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3555,6 +3559,7 @@ nonisolated extension Agentkeyring_V2_RequestReference: SwiftProtobuf.Message, S
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.answeredHere) }()
       default: break
       }
     }
@@ -3564,11 +3569,15 @@ nonisolated extension Agentkeyring_V2_RequestReference: SwiftProtobuf.Message, S
     if !self.requestID.isEmpty {
       try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
     }
+    if !self.answeredHere.isEmpty {
+      try visitor.visitSingularStringField(value: self.answeredHere, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentkeyring_V2_RequestReference, rhs: Agentkeyring_V2_RequestReference) -> Bool {
     if lhs.requestID != rhs.requestID {return false}
+    if lhs.answeredHere != rhs.answeredHere {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

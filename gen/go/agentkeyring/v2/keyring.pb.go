@@ -2687,8 +2687,11 @@ func (*Empty) Descriptor() ([]byte, []int) {
 }
 
 type RequestReference struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RequestId string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// With end, from the machine that asked: it answered the request itself (a
+	// Mac's own agents), "approved" or "denied", so the devices show that.
+	AnsweredHere  string `protobuf:"bytes,2,opt,name=answered_here,json=answeredHere,proto3" json:"answered_here,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2726,6 +2729,13 @@ func (*RequestReference) Descriptor() ([]byte, []int) {
 func (x *RequestReference) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
+	}
+	return ""
+}
+
+func (x *RequestReference) GetAnsweredHere() string {
+	if x != nil {
+		return x.AnsweredHere
 	}
 	return ""
 }
@@ -4081,10 +4091,11 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\rmembers_chain\x18\r \x01(\v2\x1d.agentkeyring.v2.MembersChainH\x00R\fmembersChain\x12\"\n" +
 	"\rend_of_stream\x18\v \x01(\bR\vendOfStreamB\b\n" +
 	"\x06result\"\a\n" +
-	"\x05Empty\"1\n" +
+	"\x05Empty\"V\n" +
 	"\x10RequestReference\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\"\xbb\x01\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
+	"\ranswered_here\x18\x02 \x01(\tR\fansweredHere\"\xbb\x01\n" +
 	"\n" +
 	"AskRequest\x12\x19\n" +
 	"\blogin_id\x18\x01 \x01(\tR\aloginId\x12\x16\n" +

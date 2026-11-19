@@ -247,7 +247,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         let state: AccessRequestState
         let now = Int64(Date().timeIntervalSince1970)
         if work.hasOutcome {
-            state = Self.state(work.outcome, now: now)
+            state = Self.state(work.outcome, now: now, members: members)
         } else if let approved = self.state.answered[request.requestID] {
             state = .sendingAnswer(approved ? .approve : .deny)
         } else {
@@ -262,13 +262,17 @@ public final class PhoneRelayBackend: PhoneBackend {
             agentReason: request.reason, askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: state)
     }
 
-    nonisolated static func state(_ lease: Lease, now: Int64) -> AccessRequestState {
+    nonisolated static func state(_ lease: Lease, now: Int64, members: Members? = nil) -> AccessRequestState {
         let notAfter = Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds))
+        // "Approved on your Mac" when a Mac answered, by the label the relay records.
+        let byMac = members?.devices.contains { $0.kind == .mac && $0.label == lease.answeredBy } == true
+            || members?.machines.contains { $0.label == lease.answeredBy } == true
+        let surface: ApprovalSurface = byMac ? .mac : .iPhone
         switch lease.state {
         case .waiting: return .waitingForYou(until: Date(timeIntervalSince1970: Double(lease.answerByUnixSeconds)))
-        case .approved: return lease.notAfterUnixSeconds > now ? .approved(by: .iPhone, until: notAfter) : .expired(at: notAfter)
+        case .approved: return lease.notAfterUnixSeconds > now ? .approved(by: surface, until: notAfter) : .expired(at: notAfter)
         case .denied:
-            return .denied(by: .iPhone, reply: lease.reply.isEmpty ? nil : lease.reply,
+            return .denied(by: surface, reply: lease.reply.isEmpty ? nil : lease.reply,
                            askAgainAfter: lease.retryNotBeforeUnixSeconds > 0 ? Date(timeIntervalSince1970: Double(lease.retryNotBeforeUnixSeconds)) : nil)
         case .ended: return .ended(at: notAfter)
         case .cancelled: return .cancelled

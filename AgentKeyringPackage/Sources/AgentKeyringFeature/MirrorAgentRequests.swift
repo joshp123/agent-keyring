@@ -153,12 +153,34 @@ extension MirrorAppModel {
         ask.clientRequestID = lease.leaseID
         let leaseID = lease.leaseID
         if alsoHere {
-            // Answered on this Mac first: the iPhone and Watch stop showing it.
+            // The iPhone and Watch follow what happens here: an answer on this
+            // Mac shows there as answered on the Mac, and Stop there ends it here.
             Task { [weak self] in
                 guard let self else { return }
+                defer { self.device?.forget(leaseID) }
+                var stage = Agentkeyring_V1_LeaseState.pending
                 for await leases in self.leaseStore.changes() {
-                    guard let current = leases.first(where: { $0.leaseID == leaseID }) else { continue }
-                    if current.state != .pending { await self.device?.stopAsking(leaseID); return }
+                    guard let current = leases.first(where: { $0.leaseID == leaseID }), current.state != stage else { continue }
+                    let byThisMac = current.approvedBy == .mac || current.approvedBy == .unspecified
+                    switch (stage, current.state) {
+                    case (.pending, .active) where byThisMac:
+                        stage = .active
+                        await self.device?.stopAsking(leaseID, answeredHere: "approved")
+                        Task { [weak self] in
+                            if await self?.device?.stoppedOnDevice(leaseID) == true { _ = try? self?.leaseStore.end(leaseID) }
+                        }
+                    case (.pending, .denied) where byThisMac:
+                        await self.device?.stopAsking(leaseID, answeredHere: "denied")
+                        return
+                    case (.pending, .active):
+                        return // Answered on a device: the relay already knows.
+                    case (.active, _):
+                        await self.device?.stopAsking(leaseID) // Released or out of time.
+                        return
+                    default:
+                        if current.approvedBy == .mac || current.state != .denied { await self.device?.stopAsking(leaseID) }
+                        return
+                    }
                 }
             }
         }
@@ -173,6 +195,7 @@ extension MirrorAppModel {
                 case let .denied(reply): _ = try self.leaseStore.deny(leaseID, reply: reply, approvedBy: .iphone)
                 case .unanswered, .cancelled: if !alsoHere { try self.leaseStore.expire() }
                 }
+                if !alsoHere { self.device?.forget(leaseID) }
             } catch {
                 if alsoHere {
                     leaseLogger.notice("This request is shown only on this Mac: \(String(describing: error), privacy: .public)")

@@ -540,7 +540,6 @@ public final class MacDevice {
         let asked = try await call(.ask(ask))
         let requestID = asked.lease.requestID
         askedForAgents[ask.clientRequestID] = requestID
-        defer { askedForAgents.removeValue(forKey: ask.clientRequestID) }
         var request = Agentkeyring_V2_RelayRequest()
         var reference = Agentkeyring_V2_RequestReference()
         reference.requestID = requestID
@@ -563,11 +562,30 @@ public final class MacDevice {
         }
     }
 
-    /// The agent stopped asking: the iPhone and Watch stop showing the request.
-    public func stopAsking(_ clientRequestID: String) async {
+    /// The agent stopped asking, or its approval ended: the iPhone and Watch
+    /// show the request as ended. With `answeredHere` ("approved" or "denied"),
+    /// this Mac answered it itself, and the devices show that instead.
+    public func stopAsking(_ clientRequestID: String, answeredHere: String = "") async {
         guard let id = askedForAgents[clientRequestID] else { return }
-        _ = try? await call(.end(Self.reference(id)))
+        var reference = Self.reference(id)
+        reference.answeredHere = answeredHere
+        _ = try? await call(.end(reference))
     }
+
+    /// Follows a request this Mac approved itself until it ends; true if a
+    /// device ended it (Stop on the iPhone or Watch).
+    public func stoppedOnDevice(_ clientRequestID: String) async -> Bool {
+        guard let id = askedForAgents[clientRequestID], let relay else { return false }
+        var request = Agentkeyring_V2_RelayRequest()
+        request.method = .watch(Self.reference(id))
+        var final = Agentkeyring_V2_Lease()
+        _ = try? await relay.stream(request) { response in
+            if case let .lease(lease) = response.result { final = lease }
+        }
+        return final.state == .ended && !final.endedBy.isEmpty
+    }
+
+    public func forget(_ clientRequestID: String) { askedForAgents.removeValue(forKey: clientRequestID) }
 
     /// A change away from Ask on iPhone or Watch, which only the iPhone may
     /// make: proposed, signed with the reply key (it grants nothing by

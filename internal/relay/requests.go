@@ -165,7 +165,7 @@ func (s *Server) collect(who caller, id string) (*pb.Approval, error) {
 
 // end stops a request: the machine that asked, when it is done or stops
 // asking; or a device, which can end an approval early (Stop).
-func (s *Server) end(ctx context.Context, who caller, id string) (*pb.Lease, error) {
+func (s *Server) end(ctx context.Context, who caller, id, answeredHere string) (*pb.Lease, error) {
 	var lease *pb.Lease
 	var wasWaiting bool
 	err := s.Store.update(func(data *saved) error {
@@ -180,10 +180,17 @@ func (s *Server) end(ctx context.Context, who caller, id string) (*pb.Lease, err
 		if err != nil {
 			return err
 		}
-		switch r.State {
-		case pb.LeaseState_LEASE_STATE_WAITING:
+		switch {
+		case r.State == pb.LeaseState_LEASE_STATE_WAITING && who.machine != nil && answeredHere == "approved":
+			// A Mac answered its own agent's request itself: the devices show it as approved there.
+			r.State, r.AnsweredBy, r.NotAfter = pb.LeaseState_LEASE_STATE_APPROVED, who.machine.Label, s.now().Unix()+keyring.ApprovalSeconds
+			lease = r.lease(id)
+			return nil
+		case r.State == pb.LeaseState_LEASE_STATE_WAITING && who.machine != nil && answeredHere == "denied":
+			r.State, r.AnsweredBy = pb.LeaseState_LEASE_STATE_DENIED, who.machine.Label
+		case r.State == pb.LeaseState_LEASE_STATE_WAITING:
 			r.State, wasWaiting = pb.LeaseState_LEASE_STATE_CANCELLED, true
-		case pb.LeaseState_LEASE_STATE_APPROVED:
+		case r.State == pb.LeaseState_LEASE_STATE_APPROVED:
 			r.State = pb.LeaseState_LEASE_STATE_ENDED
 			if who.device != nil {
 				r.EndedBy = who.device.Label

@@ -378,6 +378,9 @@ message Empty {}
 
 message RequestReference {
   string request_id = 1;
+  // With end, from the machine that asked: it answered the request itself (a
+  // Mac's own agents), "approved" or "denied", so the devices show that.
+  string answered_here = 2;
 }
 
 // The relay refuses a reason over 400 bytes, and agent, project or task over

@@ -200,7 +200,7 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 		if who.machine == nil && who.device == nil {
 			return isMachine()
 		}
-		lease, err := s.end(ctx, who, method.End.RequestId)
+		lease, err := s.end(ctx, who, method.End.RequestId, method.End.AnsweredHere)
 		if err != nil {
 			return err
 		}
