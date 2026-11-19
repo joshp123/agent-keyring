@@ -345,8 +345,20 @@ public final class PhoneRelayBackend: PhoneBackend {
         looking?.cancel(); looking = nil
     }
 
-    func receive(_ work: Work) {
+    func receive(_ work: Work, refreshed: Bool = false) {
         guard let request = try? Sealing.parseRequest(work.request) else { return }
+        // Only a request the computer it names signed: the relay can't make one up or pass one off as another's.
+        let signed: Bool = {
+            guard let trusted = members, let ownKeyID = try? Sealing.keyID(keys.signingPublicKey()) else { return false }
+            do { try Sealing.checkRequest(work, members: trusted, ownKeyID: ownKeyID); return true } catch { return false }
+        }()
+        guard signed else {
+            // A computer added since this iPhone last looked: fetch the lists, then check again once.
+            if !refreshed, members?.machines.contains(where: { $0.machineID == request.machineID }) != true {
+                Task { try? await refreshMembersAndCatalogue(); receive(work, refreshed: true) }
+            }
+            return
+        }
         // The relay writes a request once; a later Work for it may only add the outcome.
         if let saved = state.work[request.requestID].flatMap({ try? Work(serializedBytes: $0) }), saved.request != work.request { return }
         var next = state

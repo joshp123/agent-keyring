@@ -301,8 +301,8 @@ public final class MacDevice {
 
     private func receive(_ work: Agentkeyring_V2_Work) {
         // Only a request the computer it names signed: the relay can't make one up.
-        guard let members, let request = try? Sealing.parseRequest(work.request),
-              (try? Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceKeyID)) != nil else { return }
+        guard let members, let request = try? Sealing.parseRequest(work.request) else { return }
+        do { try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceKeyID) } catch { return }
         // Not its own agents' requests, which it shows itself and passed on to the iPhone and Watch;
         // but Stop on one of them there ends the approval here.
         if request.machineID == keys.machineID {
