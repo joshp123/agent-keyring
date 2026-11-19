@@ -317,7 +317,8 @@ struct PhoneLoginsView: View {
                             }
                         } label: {
                             HStack(spacing: 2) {
-                                Text(PhoneCopy.rule(login.rule))
+                                // The row has room for the short name only; the menu shows the full one.
+                                Text(login.rule == .askOnIPhoneOrWatch ? PhoneCopy.ruleShortPhoneOrWatch : PhoneCopy.rule(login.rule))
                                 Image(systemName: "chevron.down").font(.caption.weight(.bold))
                             }
                             .font(.subheadline).foregroundStyle(Phone.ink2)
@@ -352,7 +353,12 @@ struct PhoneDevicesView: View {
                             titleVisibility: .visible, presenting: removing) { device in
             Button(PhoneCopy.remove, role: .destructive) { Task { await model.remove(device: device.id) } }
             Button(PhoneCopy.cancel, role: .cancel) {}
-        } message: { device in Text(PhoneCopy.removeDetail(device)) }
+        } message: { device in Text(PhoneCopy.removeDetail(device, alsoAsks: alsoAsks(device))) }
+    }
+
+    /// A Mac that approves and whose agents ask: one Remove takes both.
+    private func alsoAsks(_ device: PhoneDevice) -> Bool {
+        device.role == .approves && model.snapshot.devices.contains { $0.role == .asks && $0.name == device.name }
     }
 
     private var removingShown: Binding<Bool> {
@@ -392,7 +398,8 @@ struct PhoneSettingsView: View {
                 } footer: { Text(PhoneCopy.timeSensitiveDetail) }
                 Section {
                     Toggle(PhoneCopy.quietHours, isOn: binding(\.quietHours)).tint(Phone.approve)
-                    if settings.quietHours {
+                        .disabled(!settings.timeSensitive)
+                    if settings.quietHours && settings.timeSensitive {
                         DatePicker(PhoneCopy.from, selection: time(\.quietFrom), displayedComponents: .hourAndMinute)
                         DatePicker(PhoneCopy.to, selection: time(\.quietTo), displayedComponents: .hourAndMinute)
                     }

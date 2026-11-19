@@ -139,10 +139,12 @@ public final class PhoneRelayBackend: PhoneBackend {
                            : (login.phoneAndWatchOnly ? .askOnIPhoneOrWatch : .ask))
         }
         let mine = state.deviceKeyID
+        // "Face ID · Ready" once the device's latest self-test passed; Apple Watch's comes in this iPhone's report.
+        func detail(_ how: String?, ready: Bool) -> String? { ready ? [how, PhoneCopy.ready].compactMap { $0 }.joined(separator: " · ") : how }
         let devices = members.devices.map { device in
-            PhoneDevice(id: device.keyID, name: device.label, detail: Self.howItApproves(device.kind), role: .approves,
-                        isThisIPhone: device.keyID == mine)
-        } + members.machines.map { PhoneDevice(id: $0.machineID, name: $0.label, role: .asks) }
+            PhoneDevice(id: device.keyID, name: device.label, detail: detail(Self.howItApproves(device.kind), ready: readyDevices.contains(device.keyID)),
+                        role: .approves, isThisIPhone: device.keyID == mine)
+        } + members.machines.map { PhoneDevice(id: $0.machineID, name: $0.label, detail: detail(nil, ready: readyDevices.contains($0.machineID)), role: .asks) }
         let pendingWatch = state.watchDevice.flatMap { try? Agentkeyring_V2_Device(serializedBytes: $0) }
         var snapshot = PhoneSnapshot(firstRun: firstRun, requests: requests, logins: logins, devices: devices)
         snapshot.joined = true
@@ -286,8 +288,8 @@ public final class PhoneRelayBackend: PhoneBackend {
     static func howItApproves(_ kind: Agentkeyring_V2_DeviceKind) -> String? {
         switch kind {
         case .iphone: PhoneCopy.faceID
-        case .watch: "One tap, unlocked on your wrist"
-        case .mac: "Touch ID, with the lid open"
+        case .watch: "One tap"
+        case .mac: "Touch ID"
         default: nil
         }
     }
@@ -356,6 +358,7 @@ public final class PhoneRelayBackend: PhoneBackend {
             try accept(members: signed)
         }
         if case let .signed(signed) = try await relay.call(Self.method { $0.catalogue = .init() }).result { try accept(catalogue: signed) }
+        if case let .selfTests(tests) = try? await relay.call(Self.method { $0.selfTests = .init() }).result { noteSelfTests(tests) }
     }
 
     func accept(members signed: SignedDocument) throws {
@@ -625,6 +628,24 @@ public final class PhoneRelayBackend: PhoneBackend {
         _ = try? await relay().call(Self.method { $0.answer = Sealing.plainDeny(requestID: id) })
     }
 
+    /// Device key ids and machine ids whose latest self-test passed every check that matters.
+    private var readyDevices: Set<String> = [] { didSet { publish() } }
+
+    private func noteSelfTests(_ tests: Agentkeyring_V2_SelfTests) {
+        guard let members else { return }
+        var ready: Set<String> = []
+        for signed in tests.reports {
+            guard (try? Sealing.verify(signed, members: members, allowReplyKey: true)) != nil,
+                  let report = try? Agentkeyring_V2_SelfTestReport(serializedBytes: signed.payload) else { continue }
+            // Being off the wrist at the moment of the test is not a fault.
+            let mine = report.checks.filter { !$0.name.hasPrefix("watch ") }
+            if !mine.isEmpty, mine.allSatisfy(\.passed) { ready.insert(report.deviceKeyID) }
+            let watch = report.checks.filter { $0.name.hasPrefix("watch ") && $0.name != "watch onWristAndUnlocked" }
+            if !watch.isEmpty, watch.allSatisfy(\.passed), let id = members.devices.first(where: { $0.kind == .watch })?.keyID { ready.insert(id) }
+        }
+        readyDevices = ready
+    }
+
     /// Removes a device or machine: the next Members, signed after Face ID.
     public func remove(device deviceID: String) async throws {
         guard var next = members else { return }
@@ -633,8 +654,13 @@ public final class PhoneRelayBackend: PhoneBackend {
         let name = next.devices.first { $0.keyID == deviceID }?.label ?? next.machines.first { $0.machineID == deviceID }?.label ?? ""
         try await keys.authorize(context, reason: "Remove \(name).")
         next.revision += 1
+        // A Mac both approves and has agents that ask: one Remove takes both.
+        let mac = next.devices.first { $0.keyID == deviceID && $0.kind == .mac }
         next.devices.removeAll { $0.keyID == deviceID }
-        next.machines.removeAll { $0.machineID == deviceID }
+        next.machines.removeAll { machine in
+            machine.machineID == deviceID
+                || mac.map { !$0.tlsPublicKey.isEmpty && $0.tlsPublicKey == machine.tlsPublicKey || $0.label == machine.label } == true
+        }
         let signed = try Sealing.signed(next.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
         _ = try await relay().call(Self.method { $0.publishMembers = signed })
         try accept(members: signed)

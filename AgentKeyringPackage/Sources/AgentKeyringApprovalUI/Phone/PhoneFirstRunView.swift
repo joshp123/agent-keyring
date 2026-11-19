@@ -16,7 +16,8 @@ struct PhoneFirstRunView: View {
     var body: some View {
         switch stage {
         case let .findingMac(macAsked, longWait):
-            PhoneWelcome {
+            // After two minutes, Open Settings: iCloud Keychain is the one cause the app cannot see.
+            PhoneWelcome(button: !macAsked && longWait ? PhoneCopy.openSettings : nil) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(macAsked ? PhoneCopy.approveOnMac : PhoneCopy.finishOnMac)
                         .font(.title3.weight(.semibold)).foregroundStyle(Phone.ink)
@@ -55,9 +56,25 @@ struct PhoneFirstRunView: View {
 
 /// The first screen: the icon, the name, what the app is for, and what it waits for.
 private struct PhoneWelcome<Status: View>: View {
+    var button: String? = nil
     @ViewBuilder let status: Status
 
     var body: some View {
+        VStack(spacing: 0) {
+            content.frame(maxHeight: .infinity, alignment: .top)
+            if let button {
+                Button(button) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+                .buttonStyle(PillButtonStyle(fill: Phone.ink, text: Phone.surface))
+                .padding(.horizontal, 24)
+                .padding(.bottom, 30)
+            }
+        }
+        .background(Phone.surface)
+    }
+
+    private var content: some View {
         VStack(spacing: 40) {
             VStack(spacing: 18) {
                 KeyholeIcon(size: 64)

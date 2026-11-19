@@ -9,7 +9,7 @@ import Foundation
 public enum PhoneCopy {
     // The request, in the app and in the held notification.
     public static let appName = "Agent Keyring"
-    public static func wants(_ agent: RequestingAgent) -> String { "\(agent.name) on \(agent.machine) wants" }
+    public static func wants(_ agent: RequestingAgent) -> String { agent.machine.isEmpty ? "\(agent.name) wants" : "\(agent.name) on \(agent.machine) wants" }
     public static func quoted(_ reason: String) -> String { "“\(reason)”" }
     public static func replyPlaceholder(_ agent: RequestingAgent) -> String { "What should \(agent.name) do instead?" }
     /// Not in Paper: when the agent's name is too long for the box beside Deny.
@@ -47,7 +47,7 @@ public enum PhoneCopy {
         case let .denied(_, reply?, _): return "Denied\(on). You told \(request.agent.name): \(quoted(reply))"
         case .denied: return "Denied\(on)."
         case .unanswered: return "No answer. The request ended after 10 minutes, and \(request.agent.name) can ask again."
-        case .cancelled: return "Withdrawn. \(request.agent.name) stopped asking before you answered."
+        case .cancelled: return "Cancelled. \(request.agent.name) stopped asking before you answered."
         default: return "This request has ended."
         }
     }
@@ -92,13 +92,15 @@ public enum PhoneCopy {
         case .blockedByRule: (.denied, "Blocked")
         case .denied: (.denied, "Denied")
         case .unanswered: (.noAnswer, "No answer")
-        case .cancelled, .waitingForYou, .sendingAnswer, .waitingForMac: (.noAnswer, "Withdrawn")
+        case .cancelled, .waitingForYou, .sendingAnswer, .waitingForMac: (.noAnswer, "Cancelled")
         }
     }
 
     // Passwords.
     public static let passwords = "Passwords"
     public static let search = "Search"
+    /// The Passwords list row, where the full name would wrap.
+    public static let ruleShortPhoneOrWatch = "iPhone or Apple Watch"
     public static func rule(_ rule: PhoneLogin.Rule) -> String {
         switch rule {
         case .ask: "Ask"
@@ -128,21 +130,21 @@ public enum PhoneCopy {
 
     // First run (Paper, "First run", "On iPhone"; first-run-v2.md).
     public static let appLead = "Approve or deny your agents’ requests from this iPhone."
-    public static let approveOnMac = "Approve this iPhone on your Mac"
-    public static let approveOnMacDetail = "A request to add it has appeared there."
+    public static let approveOnMac = "Approve on your Mac"
+    public static let approveOnMacDetail = "A request to add this iPhone is waiting there."
     public static let finishOnMac = "Finish on your Mac first"
-    public static let finishOnMacDetail = "Ask an agent on your Mac to set up your iPhone. This iPhone then connects by itself."
+    public static let finishOnMacDetail = "Set up Agent Keyring on your Mac, then ask an agent there to add your iPhone. This iPhone connects by itself."
     /// After two minutes with nothing found.
-    public static let finishOnMacLongWait = "If that is done, check that iCloud Keychain is on, on this iPhone and on your Mac."
+    public static let finishOnMacLongWait = "Already done? Check that iCloud Keychain is on for this iPhone and your Mac."
     public static let notificationsTitle = "Get requests when your iPhone is locked"
     public static let notificationsLead = "Agent Keyring sends a notification each time an agent asks for a password."
     public static let continueButton = "Continue"
-    public static let notificationsOff = "Notifications are off, so requests can’t get to this iPhone."
+    public static let notificationsOff = "Turn on notifications so requests appear on your Lock Screen and Apple Watch."
     public static let openSettings = "Open Settings"
     // The practice request: the real request's layout.
     public static let practice = "Practice"
     public static let practiceAgent = "Agent Keyring"
-    public static let practiceMachine = "this iPhone"
+    public static let practiceMachine = ""
     public static let practiceSite = "example.com"
     public static let practiceAccount = "you@example.com"
     public static let practiceReason = "This is a practice request. No real password is used."
@@ -152,17 +154,17 @@ public enum PhoneCopy {
     public static let practiceAgainDetail = "Approve one to finish setting up."
     public static let sendAnother = "Send Another"
     public static let setUpTitle = "You’re set up"
-    public static let setUpLead = "Requests arrive as notifications. Touch and hold one to approve or deny."
+    public static let setUpLead = "Requests arrive as notifications. Tap one to open it, or touch and hold to approve or deny."
     public static let done = "Done"
     // Activity after first run.
     public static let noRequestsYet = "No requests yet"
     public static let noRequestsDetail = "When an agent asks for a password, the request appears here."
     public static let addAppleWatch = "Add Apple Watch"
     public static let addAppleWatchDetail = "Open Agent Keyring on your Apple Watch to approve from your wrist."
-    public static let stillConnecting = "This iPhone is still connecting. Until it has, requests appear only while Agent Keyring is open."
+    public static let stillConnecting = "This iPhone is still connecting. Until it finishes, requests appear only while Agent Keyring is open."
     public static func relayOffline(_ name: String?) -> String {
         // Not in Paper without a name: the relay's computer is not yet named in what the iPhone receives.
-        "\(name ?? "The computer that passes on your requests") is offline. Check that it is awake and online."
+        "\(name ?? "The computer that passes on your requests") is offline. Check that it is turned on and connected."
     }
     public static func notice(_ notice: PhoneNotice) -> String {
         switch notice {
@@ -182,9 +184,9 @@ public enum PhoneCopy {
     public static let quietHoursDetail = "During quiet hours, requests don’t break through a Focus."
     public static let watchFollows = "Apple Watch follows these settings."
     // Apple Watch's request to be added (Paper, "On Apple Watch").
-    public static let addWatchLead = "Agent Keyring on Apple Watch wants to add"
+    public static let addWatchLead = "Add to Agent Keyring"
     public static let pairedWithThisIPhone = "Paired with this iPhone"
-    public static let watchFootnote = "It approves requests with one tap while it is unlocked on your wrist. Remove it at any time in Devices."
+    public static let watchFootnote = "It approves requests with one tap while unlocked on your wrist. Remove it in Devices."
     // A rule change the Mac sent (Paper, "Logins and rules").
     public static func ruleChangeLead(_ c: PhoneRuleProposal) -> String {
         c.changes.count == 1 ? "\(c.from) wants to change the rule for" : "\(c.from) wants to change the rules for"
@@ -236,10 +238,17 @@ public enum PhoneCopy {
     public static let changeFailed = "That change wasn’t saved. Try again."
     public static let ok = "OK"
     public static func removeQuestion(_ name: String) -> String { "Remove \(name)?" }
-    public static func removeDetail(_ device: PhoneDevice) -> String {
-        device.role == .approves ? "It will no longer approve requests. You can add it again."
-            : "Agents on it will no longer be able to ask to use your passwords."
+    /// `alsoAsks`: a Mac both approves and has agents that ask; one Remove takes both.
+    public static func removeDetail(_ device: PhoneDevice, alsoAsks: Bool = false) -> String {
+        if device.role == .approves {
+            return alsoAsks ? "It will no longer approve requests, and agents on it can no longer ask for your passwords."
+                : "It will no longer approve requests. You can add it again."
+        }
+        return "Agents on it can no longer ask for your passwords."
     }
+    // Devices list (Paper, "On iPhone and Apple Watch", Devices).
+    public static let ready = "Ready"
+    public static let passesRequests = "Passes requests to iPhone and Apple Watch"
 
     public static func clock(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en_GB")))

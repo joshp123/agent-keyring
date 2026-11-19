@@ -148,11 +148,11 @@ public final class PhoneSampleBackend: PhoneBackend {
             PhoneLogin(id: "l7", site: "shop.example", account: "josh@example.com", rule: .ask),
         ]
         let devices = [
-            PhoneDevice(id: "d1", name: "iPhone", detail: PhoneCopy.faceID, role: .approves, isThisIPhone: true),
-            PhoneDevice(id: "d2", name: "Apple Watch Ultra 3", detail: "One tap, unlocked on your wrist", role: .approves),
-            PhoneDevice(id: "d3", name: "MacBook Pro", detail: "Touch ID, with the lid open", role: .approves),
+            PhoneDevice(id: "d1", name: "iPhone", detail: "Face ID · Ready", role: .approves, isThisIPhone: true),
+            PhoneDevice(id: "d2", name: "Apple Watch Ultra 3", detail: "One tap · Ready", role: .approves),
+            PhoneDevice(id: "d3", name: "MacBook Pro", detail: "Touch ID · Ready", role: .approves),
             PhoneDevice(id: "d4", name: "MacBook Pro", role: .asks),
-            PhoneDevice(id: "d5", name: "Mac mini", detail: "Requests reach your iPhone through it", role: .asks),
+            PhoneDevice(id: "d5", name: "Mac mini", detail: "Passes requests to iPhone and Apple Watch · Ready", role: .asks),
             PhoneDevice(id: "d6", name: "Linux server", role: .asks),
         ]
         return PhoneSnapshot(firstRun: nil, requests: requests, logins: logins, devices: devices)
