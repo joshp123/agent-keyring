@@ -17,7 +17,5 @@
     <array><string>remote-notification</string></array>
     <key>AgentKeyringKeychainGroup</key>
     <string>$(AppIdentifierPrefix)$(AGENT_KEYRING_BUNDLE_ID).watch</string>
-    <key>AgentKeyringAPNSEnvironment</key>
-    <string>$(AGENT_KEYRING_APNS_ENVIRONMENT)</string>
 </dict>
 </plist>

@@ -25,6 +25,8 @@ final class WatchLink: NSObject, WCSessionDelegate {
     private var membersContext: [String: Any]? {
         guard let members = relay.signedMembers, let answerURL = relay.relayAnswerURL else { return nil }
         var context: [String: Any] = ["members": members, "relayAnswerURL": answerURL]
+        // Apple Watch names every request from this signed Catalogue, not from what the relay sends.
+        if let catalogue = relay.signedCatalogue { context["catalogue"] = catalogue }
         if let settings = try? PropertyListEncoder().encode(relay.notificationSettings) { context["settings"] = settings }
         return context
     }

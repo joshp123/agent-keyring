@@ -4,8 +4,6 @@
 <dict>
     <key>AgentKeyringKeychainGroup</key>
     <string>$(AppIdentifierPrefix)com.joshpalmer.AgentKeyring.shared</string>
-    <key>AgentKeyringAPNSEnvironment</key>
-    <string>$(AGENT_KEYRING_APNS_ENVIRONMENT)</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

@@ -232,6 +232,15 @@ public enum Sealing {
         return machine
     }
 
+    /// The password a request is for, from the signed Catalogue only: never the
+    /// login the relay sends beside it, which the relay could dress as any site.
+    /// A login missing from the Catalogue, or set to Blocked, can't be approved.
+    public static func signedLogin(for request: KeyringRequest, in catalogue: Catalogue?) throws -> Agentkeyring_V2_Login {
+        guard let login = catalogue?.logins.first(where: { $0.loginID == request.loginID }) else { throw Failure.wrongLogin }
+        guard login.rule != .blocked else { throw Failure.notAllowedForSigner }
+        return login
+    }
+
     public static func parseRequest(_ bytes: Data) throws -> KeyringRequest {
         let request = try KeyringRequest(serializedBytes: bytes)
         guard request.domain == "agentkeyring.request.v2" else { throw Failure.wrongDomain }

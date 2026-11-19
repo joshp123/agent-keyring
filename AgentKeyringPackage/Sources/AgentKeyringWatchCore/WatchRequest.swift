@@ -47,8 +47,8 @@ public struct WatchRequest: Sendable, Equatable {
         let request = try Sealing.parseRequest(work.request)
         guard let members = saved.signedMembers else { throw Unreadable.notSetUp }
         guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { throw Unreadable.unknownMachine }
-        // The push names the login from the signed catalogue; the saved one is a fallback.
-        let login = work.hasLogin ? work.login : saved.signedCatalogue?.logins.first { $0.loginID == request.loginID }
+        // Named from the signed Catalogue the iPhone handed over, never from what the relay sends beside the request.
+        let login = try? Sealing.signedLogin(for: request, in: saved.signedCatalogue)
         let agent = request.agent.isEmpty ? "An agent" : request.agent
         let minutes = max(1, Int((request.answerByUnixSeconds - request.askedUnixSeconds) / 60))
         let state: State = work.hasOutcome ? .ended(outcome(work.outcome, members: members, agent: agent, minutes: minutes)) : .waiting

@@ -6,6 +6,7 @@
 import AgentKeyringApprovalUI
 import AgentKeyringPhoneApprover
 import AgentKeyringRelaySupport
+import AgentKeyringSealing
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -34,6 +35,7 @@ struct AgentKeyringPhoneApp: App {
                 .onChange(of: delegate.model.snapshot.devices, initial: true) { delegate.watch?.sendMembers() }
                 // Apple Watch follows the iPhone's notification settings.
                 .onChange(of: delegate.model.snapshot.settings) { delegate.watch?.sendMembers() }
+                .onChange(of: delegate.model.snapshot.logins) { delegate.watch?.sendMembers() }
                 .task { await delegate.noteNotificationSettings() }
         }
     }
@@ -92,7 +94,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         pushAddress = deviceToken
-        let production = (Bundle.main.object(forInfoDictionaryKey: "AgentKeyringAPNSEnvironment") as? String) == "production"
+        let production = PushEnvironment.isProduction
         Task {
             do {
                 try await relay?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production)

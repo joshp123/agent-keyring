@@ -136,7 +136,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         let logins = (catalogue?.logins ?? []).map { login in
             PhoneLogin(id: login.loginID, site: Self.site(login), account: login.account,
                        rule: login.rule == .automatic ? .automatic : login.rule == .blocked ? .blocked
-                           : (login.phoneAndWatchOnly ? .askOnIPhoneOrWatch : .ask))
+                           : .ask)
         }
         let mine = state.deviceKeyID
         // "Face ID · Ready" once the device's latest self-test passed; Apple Watch's comes in this iPhone's report.
@@ -156,7 +156,6 @@ public final class PhoneRelayBackend: PhoneBackend {
         snapshot.notices = notices(members: members, pendingWatch: pendingWatch)
         snapshot.settings = phoneSettings
         snapshot.deviceRequest = pendingWatch.map { PhoneDeviceRequest(id: $0.keyID, name: $0.label, detail: PhoneCopy.pairedWithThisIPhone) }
-        snapshot.ruleChanges = ruleChangeWork.compactMap { Self.ruleProposal($0.work, members, catalogue) }
         return snapshot
     }
 
@@ -265,6 +264,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     nonisolated static func state(_ lease: Lease, now: Int64, members: Members? = nil) -> AccessRequestState {
         let notAfter = Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds))
         // "Approved on your Mac" when a Mac answered, by the label the relay records.
+        // Only a Mac in the list of devices counts: any computer could name itself in what the relay records.
         let byMac = members?.devices.contains { $0.kind == .mac && $0.label == lease.answeredBy } == true
         let surface: ApprovalSurface = byMac ? .mac : .iPhone
         switch lease.state {
@@ -280,7 +280,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 
     nonisolated static func rule(_ login: Agentkeyring_V2_Login) -> PhoneLogin.Rule {
-        login.rule == .automatic ? .automatic : login.rule == .blocked ? .blocked : login.phoneAndWatchOnly ? .askOnIPhoneOrWatch : .ask
+        login.rule == .automatic ? .automatic : login.rule == .blocked ? .blocked : .ask
     }
 
     nonisolated static func site(_ login: Agentkeyring_V2_Login) -> String {
@@ -430,10 +430,9 @@ public final class PhoneRelayBackend: PhoneBackend {
         if isPractice(requestID) { return try await approveTest() }
         let work = try await currentWork(requestID)
         let request = try Sealing.parseRequest(work.request)
-        guard let members, let catalogue,
+        guard let members, let login = try? Sealing.signedLogin(for: request, in: catalogue),
               let machine = members.machines.first(where: { $0.machineID == request.machineID }),
-              let login = catalogue.logins.first(where: { $0.loginID == request.loginID }),
-              login.rule != .blocked, work.hasSealedLogin else {
+              work.hasSealedLogin else {
             throw KeyringRelayError(code: .notAllowed, message: "This iPhone may not approve this request.")
         }
         let context = LAContext()
@@ -502,7 +501,6 @@ public final class PhoneRelayBackend: PhoneBackend {
         change.loginID = loginID
         switch rule {
         case .ask: change.rule = .ask
-        case .askOnIPhoneOrWatch: change.rule = .ask; change.phoneAndWatchOnly = true
         case .automatic: change.rule = .automatic
         case .blocked: change.rule = .blocked
         }
@@ -568,7 +566,11 @@ public final class PhoneRelayBackend: PhoneBackend {
                     }
                 }
             }
-            if old.rule == .automatic && login.rule != .automatic { batch.withdrawnLoginIds.append(change.loginID) }
+            // Leaving Automatic, or becoming Blocked: no computer keeps a copy. (Withdrawing devices' own copies
+            // of a Blocked password needs the relay to take that, which the protocol does not yet carry.)
+            if (old.rule == .automatic && login.rule != .automatic) || (login.rule == .blocked && old.rule != .blocked) {
+                batch.withdrawnLoginIds.append(change.loginID)
+            }
             next.logins[index] = login
         }
         next.revision += 1
@@ -580,79 +582,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         }
     }
 
-    /// The rule changes the Mac sent, signed by a listed device, with their proposals.
-    private var ruleChangeWork: [(work: Work, proposal: Agentkeyring_V2_RuleProposal)] {
-        guard let members else { return [] }
-        return state.work.values.compactMap { data in
-            guard let work = try? Work(serializedBytes: data), work.hasProposal,
-                  let proposal = try? Agentkeyring_V2_RuleProposal(serializedBytes: work.proposal.payload),
-                  proposal.domain == "agentkeyring.proposal.v2",
-                  (try? Sealing.verify(work.proposal, members: members, allowReplyKey: true)) != nil else { return nil }
-            return (work, proposal)
-        }
-    }
 
-    private func waitingRuleChange(_ id: String) -> (work: Work, proposal: Agentkeyring_V2_RuleProposal)? {
-        ruleChangeWork.first { !$0.work.hasOutcome && (try? Sealing.parseRequest($0.work.request))?.requestID == id }
-    }
 
-    /// A rule change in words: who sent it, each login's rule now and the rule it asks for.
-    nonisolated static func ruleProposal(_ work: Work, _ members: Members, _ catalogue: Catalogue?,
-                                         answering: Bool = false) -> PhoneRuleProposal? {
-        guard work.hasProposal, let request = try? Sealing.parseRequest(work.request),
-              let proposal = try? Agentkeyring_V2_RuleProposal(serializedBytes: work.proposal.payload) else { return nil }
-        let from = members.devices.first { $0.keyID == work.proposal.signerKeyID || $0.replyKeyID == work.proposal.signerKeyID }?.label ?? request.agent
-        func rule(_ rule: Agentkeyring_V2_Rule, _ phoneAndWatchOnly: Bool) -> PhoneLogin.Rule {
-            rule == .automatic ? .automatic : rule == .blocked ? .blocked : phoneAndWatchOnly ? .askOnIPhoneOrWatch : .ask
-        }
-        let changes = proposal.changes.map { change in
-            let login = catalogue?.logins.first { $0.loginID == change.loginID }
-            return PhoneRuleProposal.Change(site: login.map(site) ?? change.loginID, account: login?.account ?? "",
-                                            from: login.map { rule($0.rule, $0.phoneAndWatchOnly) } ?? .askOnIPhoneOrWatch,
-                                            to: rule(change.rule, change.phoneAndWatchOnly))
-        }
-        let now = Int64(Date().timeIntervalSince1970)
-        let state: AccessRequestState = work.hasOutcome ? Self.state(work.outcome, now: now)
-            : answering ? .sendingAnswer(.approve)
-            : request.answerByUnixSeconds > now ? .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds))) : .unanswered
-        return PhoneRuleProposal(id: request.requestID, from: from, changes: changes,
-                                 askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)), state: state)
-    }
 
-    /// A pushed rule change, for the notification service extension.
-    nonisolated public static func notifiedProposal(_ userInfo: [AnyHashable: Any], shared: PhoneSharedContext,
-                                                    open: (Agentkeyring_V2_Notice, String) throws -> Agentkeyring_V2_Work) -> PhoneRuleProposal? {
-        guard let base64 = userInfo["akr"] as? String, let bytes = Data(base64Encoded: base64),
-              let notice = try? Agentkeyring_V2_Notice(serializedBytes: bytes), let saved = shared.read(),
-              let keyID = saved.deviceKeyID, let work = try? open(notice, keyID), work.hasProposal,
-              let members = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) }).flatMap({ try? Members(serializedBytes: $0.payload) })
-        else { return nil }
-        let catalogue = saved.catalogue.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Catalogue(serializedBytes: $0.payload) }
-        return ruleProposal(work, members, catalogue)
-    }
 
-    /// Approving a rule change publishes its rules, then answers it.
-    public func approveRuleChange(_ id: String) async throws {
-        guard let (work, proposal) = waitingRuleChange(id) else { return }
-        let context = LAContext()
-        defer { context.invalidate() }
-        try await keys.authorize(context, reason: "Change the rules your Mac asked for.")
-        try await publish(proposal.changes, context: context)
-        var answer = Agentkeyring_V2_Answer()
-        answer.domain = "agentkeyring.answer.v2"
-        answer.requestSha256 = Sealing.sha256(work.request)
-        answer.choice = .approve
-        answer.decidedUnixSeconds = Int64(Date().timeIntervalSince1970)
-        answer.notAfterUnixSeconds = answer.decidedUnixSeconds + 60
-        var upload = AnswerUpload()
-        upload.answer = try Sealing.signed(answer.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
-        _ = try await relay().call(Self.method { $0.answer = upload })
-    }
 
-    public func denyRuleChange(_ id: String) async {
-        guard waitingRuleChange(id) != nil else { return }
-        _ = try? await relay().call(Self.method { $0.answer = Sealing.plainDeny(requestID: id) })
-    }
 
     /// Device key ids and machine ids whose latest self-test passed every check that matters.
     private var readyDevices: Set<String> = [] { didSet { publish() } }
@@ -706,7 +640,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation",
                                     kSecAttrAccount as String: "relay", kSecAttrSynchronizable as String: true,
-                                    kSecAttrAccessGroup as String: "7M8BR7R488.com.joshpalmer.AgentKeyring.shared",
+                                    kSecAttrAccessGroup as String: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String ?? "",
                                     kSecUseDataProtectionKeychain as String: true, kSecReturnData as String: true]
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
@@ -1019,6 +953,8 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// The signed Members bytes, for the Watch.
     public var signedMembers: Data? { state.members }
+    /// The signed Catalogue, as the relay sent it, for Apple Watch.
+    public var signedCatalogue: Data? { state.catalogue }
 
     /// Tells the relay where to wake this iPhone, and the key its notices are sealed to.
     public func registerPush(token: Data, topic: String, production: Bool) async throws {

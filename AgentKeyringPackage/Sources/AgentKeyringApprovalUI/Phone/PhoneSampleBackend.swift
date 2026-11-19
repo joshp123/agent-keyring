@@ -14,7 +14,7 @@ public final class PhoneSampleBackend: PhoneBackend {
     private var subscribers: [UUID: AsyncStream<PhoneSnapshot>.Continuation] = [:]
 
     /// `step` is one of Paper's first-run iPhone screens: finding, asked, long-wait, notifications, notifications-off,
-    /// practice, practice-again, done, empty (Activity after Done), add-watch, proposal or proposal-several; nil is the app in use.
+    /// practice, practice-again, done, empty (Activity after Done), or add-watch; nil is the app in use.
     public init(step: String? = nil, now: Date = .now) {
         snapshot = Self.paper(now: now)
         if let step { Self.firstRun(step, into: &snapshot) }
@@ -56,33 +56,12 @@ public final class PhoneSampleBackend: PhoneBackend {
     public func finishFirstRun() async { Self.firstRun("empty", into: &snapshot) }
     public func dismiss(_ notice: PhoneNotice) async { snapshot.notices.removeAll { $0 == notice } }
     public func setSettings(_ settings: PhoneSettings) async { snapshot.settings = settings }
-    public func approveRuleChange(_ id: String) async throws { settle(id, .approved(by: .iPhone, until: .now)) }
-    public func denyRuleChange(_ id: String) async { settle(id, .denied(by: .iPhone, reply: nil, askAgainAfter: nil)) }
-    private func settle(_ id: String, _ state: AccessRequestState) {
-        guard let index = snapshot.ruleChanges.firstIndex(where: { $0.id == id }) else { return }
-        snapshot.ruleChanges[index].state = state
-    }
     public func sendTestAgain() async {}
     public func approveDevice(_ id: String) async throws { snapshot.deviceRequest = nil }
     public func denyDevice(_ id: String) async { snapshot.deviceRequest = nil }
 
     /// Paper's first-run iPhone screens.
     static func firstRun(_ step: String, into snapshot: inout PhoneSnapshot) {
-        switch step {
-        case "proposal":
-            snapshot.ruleChanges = [
-                PhoneRuleProposal(id: "p1", from: "MacBook Pro", changes: [.init(site: "bank.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .ask)],
-                                  askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600))),
-            ]
-            return
-        case "proposal-several":
-            snapshot.ruleChanges = [PhoneRuleProposal(id: "p2", from: "MacBook Pro", changes: [
-                .init(site: "bank.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .ask),
-                .init(site: "mail.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .automatic),
-            ], askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))]
-            return
-        default: break
-        }
         snapshot.requests = []; snapshot.practiceRequest = nil; snapshot.deviceRequest = nil; snapshot.notices = []
         switch step {
         case "finding": snapshot.firstRun = .findingMac(macAsked: false, longWait: false)
@@ -142,8 +121,8 @@ public final class PhoneSampleBackend: PhoneBackend {
             PhoneLogin(id: "l1", site: "example.com", account: "josh@example.com", rule: .ask),
             PhoneLogin(id: "l2", site: "news.example", account: "josh@example.com", rule: .ask),
             PhoneLogin(id: "l3", site: "example.org", account: "josh@example.org", rule: .ask),
-            PhoneLogin(id: "l4", site: "bank.example", account: "josh@example.com", rule: .askOnIPhoneOrWatch),
-            PhoneLogin(id: "l5", site: "mail.example", account: "josh@example.com", rule: .askOnIPhoneOrWatch),
+            PhoneLogin(id: "l4", site: "bank.example", account: "josh@example.com", rule: .ask),
+            PhoneLogin(id: "l5", site: "mail.example", account: "josh@example.com", rule: .ask),
             PhoneLogin(id: "l6", site: "forum.example", account: "josh", rule: .automatic),
             PhoneLogin(id: "l7", site: "shop.example", account: "josh@example.com", rule: .ask),
         ]

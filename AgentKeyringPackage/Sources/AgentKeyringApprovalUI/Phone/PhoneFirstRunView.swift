@@ -131,16 +131,13 @@ private struct PhoneStep: View {
     }
 }
 
-/// A device's request to be added and a rule change from the Mac: the request
-/// sheet with only Deny and Approve with Face ID.
+/// Apple Watch's request to be added: the request sheet with only Deny and
+/// Approve with Face ID.
 struct PhoneSimpleRequestView: View {
     let model: PhoneModel
     let lead: String
     let title: String
     let detail: String?
-    /// A rule change's lines under the title: the change in semibold, then what it would allow.
-    var change: [String] = []
-    var allows: String? = nil
     let footnote: String
     var dismissable = false
     /// Paper's request to add a device: Deny above the approve button, the same size.
@@ -161,14 +158,6 @@ struct PhoneSimpleRequestView: View {
                     Text(lead).font(.subheadline).foregroundStyle(Phone.ink2)
                     Text(title).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
                     if let detail { Text(detail).font(.subheadline).foregroundStyle(Phone.ink2) }
-                }
-                if !change.isEmpty || allows != nil {
-                    VStack(spacing: 4) {
-                        ForEach(Array(change.enumerated()), id: \.offset) { index, line in
-                            Text(line).font(.title3.weight(index == 0 ? .semibold : .regular)).foregroundStyle(Phone.ink)
-                        }
-                        if let allows { Text(allows).font(.title3).foregroundStyle(Phone.ink) }
-                    }
                 }
             }
             .multilineTextAlignment(.center)
