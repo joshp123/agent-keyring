@@ -14,29 +14,39 @@ import WatchKit
 
 @MainActor @Observable
 final class RequestModel {
-    var request: WatchRequest?
-    var unreadable = false
-    var answer: String?
-    var busy = false
+    /// What the card shows: one state, so an answer can only follow the request on screen.
+    enum Card {
+        case opening
+        /// The Watch lacks the list of devices to read it, and has asked its iPhone.
+        case unreadable
+        case showing(WatchRequest)
+        case sending(WatchRequest)
+        case answered(WatchRequest, String)
+    }
+
+    private(set) var card = Card.opening
     var dismiss: () -> Void = {}
+    /// Reads the request again while the list comes from the iPhone; replaced by the next notification.
+    private var reading: Task<Void, Never>?
 
     func show(_ userInfo: [AnyHashable: Any]) {
-        answer = nil
-        unreadable = false
+        reading?.cancel()
         if let opened = try? WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: WatchStore().read()) {
-            request = opened
+            card = .showing(opened)
             return
         }
+        card = .opening
         // The Watch may not have the latest list of devices: ask its iPhone, then read it again.
         let copy = WatchUserInfo(userInfo)
-        Task {
+        reading = Task {
             _ = await WatchLink.shared.askForMembers()
             // The list may also come the slow way, once the iPhone app next runs.
             for attempt in 0..<10 {
+                guard !Task.isCancelled else { return }
                 if let opened = try? WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) {
-                    request = opened; unreadable = false; return
+                    card = .showing(opened); return
                 }
-                if attempt == 0 { unreadable = true }
+                if attempt == 0 { card = .unreadable }
                 try? await Task.sleep(for: .seconds(1))
             }
             do { _ = try WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) }
@@ -44,9 +54,13 @@ final class RequestModel {
         }
     }
 
+    func close() { reading?.cancel() }
+
+    var isSending: Bool { if case .sending = card { true } else { false } }
+
     func respond(approve: Bool) {
-        guard let request, !busy, answer == nil else { return }
-        busy = true
+        guard case let .showing(request) = card else { return }
+        card = .sending(request)
         Task {
             let line = await withExpiringActivity {
                 do {
@@ -65,8 +79,7 @@ final class RequestModel {
                     return approve ? "Not approved. Try on your iPhone." : "Not sent. Try on your iPhone."
                 }
             }
-            answer = line
-            busy = false
+            card = .answered(request, line)
             try? await Task.sleep(for: .seconds(1.2))
             dismiss()
         }
@@ -101,6 +114,11 @@ final class RequestController: WKUserNotificationHostingController<RequestView> 
         model.dismiss = { [weak self] in self?.performDismissAction() }
         model.show(notification.request.content.userInfo)
     }
+
+    override func didDeactivate() {
+        model.close()
+        super.didDeactivate()
+    }
 }
 
 struct RequestView: View {
@@ -112,10 +130,10 @@ struct RequestView: View {
 
     var body: some View {
         Group {
-            if let request = model.request {
-                content(request)
-            } else if model.unreadable {
-                Text("Open Agent Keyring on your iPhone to see this request.").font(.system(size: 15))
+            switch model.card {
+            case .opening: EmptyView()
+            case .unreadable: Text("Open Agent Keyring on your iPhone to see this request.").font(.system(size: 15))
+            case let .showing(request), let .sending(request), let .answered(request, _): content(request)
             }
         }
         .multilineTextAlignment(.center)
@@ -142,14 +160,14 @@ struct RequestView: View {
                 case .ended(let outcome):
                     Text(outcome).font(.system(size: 15, weight: .semibold))
                 case .waiting:
-                    if let answer = model.answer {
-                        Text(answer).font(.system(size: 15, weight: .semibold))
+                    if case let .answered(_, line) = model.card {
+                        Text(line).font(.system(size: 15, weight: .semibold))
                     } else {
                         HStack(spacing: 5) {
                             button("Deny", color: Self.deny) { model.respond(approve: false) }
                             button("Approve", color: Self.approve) { model.respond(approve: true) }
                         }
-                        .disabled(model.busy)
+                        .disabled(model.isSending)
                         .padding(.horizontal, 8)
                     }
                 }

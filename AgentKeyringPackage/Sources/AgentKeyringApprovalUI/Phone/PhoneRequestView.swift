@@ -16,7 +16,7 @@ struct PhoneRequestView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PhoneRequestHeader(agent: request.agent, badge: practice ? (request.agent.project ?? PhoneCopy.practice) : nil)
+            PhoneRequestHeader(agent: request.agent)
                 .padding(.top, 14)
             PhoneRequestBody(request: request)
                 .frame(maxHeight: .infinity)

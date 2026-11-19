@@ -13,8 +13,8 @@ public struct PhoneRootView: View {
 
     public var body: some View {
         Group {
-            if let stage = model.snapshot.firstRun {
-                PhoneFirstRunView(stage: stage, model: model)
+            if model.snapshot.firstRun != .finished {
+                PhoneFirstRunView(stage: model.snapshot.firstRun, model: model)
             } else {
                 TabView(selection: $model.tab) {
                     Tab(value: PhoneTab.activity) { PhoneActivityView(model: model) } label: {
@@ -49,14 +49,14 @@ public struct PhoneRootView: View {
         Binding(get: { model.failure != nil && model.shownRequestID == nil }, set: { if !$0 { model.dismissFailure() } })
     }
 
-    /// The practice request comes up by itself once it arrives.
+    /// The practice request, while first run has it open.
     private var practiceShown: Binding<AccessRequest?> {
-        Binding(get: { model.snapshot.firstRun == .practice ? model.snapshot.practiceRequest : nil }, set: { _ in })
+        Binding(get: { model.snapshot.practiceRequest }, set: { _ in })
     }
 
 
     private var deviceShown: Binding<PhoneDeviceRequest?> {
-        Binding(get: { model.snapshot.firstRun == nil || model.snapshot.firstRun == .done ? model.snapshot.deviceRequest : nil }, set: { _ in })
+        Binding(get: { model.snapshot.firstRun == .finished || model.snapshot.firstRun == .ready ? model.snapshot.deviceRequest : nil }, set: { _ in })
     }
 
     private var shownRequest: Binding<AccessRequest?> {

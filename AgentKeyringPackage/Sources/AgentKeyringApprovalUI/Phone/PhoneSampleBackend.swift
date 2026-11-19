@@ -13,8 +13,9 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
     private var subscribers: [UUID: AsyncStream<PhoneSnapshot>.Continuation] = [:]
 
-    /// `step` is one of Paper's first-run iPhone screens: finding, asked, long-wait, notifications, notifications-off,
-    /// practice, practice-again, done, empty (Activity after Done), or add-watch; nil is the app in use.
+    /// `step` is one of Paper's first-run iPhone screens: start, long-wait, add-computer, approve-on-mac, denied,
+    /// notifications, notifications-off, practice-waiting, practice, not-arrived, setting-up, ready, empty (Activity
+    /// after Done), or add-watch; nil is the app in use.
     public init(step: String? = nil, now: Date = .now) {
         snapshot = Self.paper(now: now)
         if let step { Self.firstRun(step, into: &snapshot) }
@@ -32,11 +33,12 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
 
     public func approve(_ requestID: String, reusingUnlock: Bool) async throws {
-        if requestID == snapshot.practiceRequest?.id { Self.firstRun("done", into: &snapshot); return }
+        if requestID == snapshot.practiceRequest?.id { await firstRun(snapshot.firstRun == .practice ? .practiceEnded : .closePractice); return }
         update(requestID) { .approved(by: .iPhone, until: .now.addingTimeInterval(RequestedAccess.longestLease)) }
     }
 
     public func deny(_ requestID: String, reply: String?) async throws {
+        if requestID == snapshot.practiceRequest?.id { await firstRun(snapshot.firstRun == .practice ? .practiceEnded : .closePractice); return }
         update(requestID) { .denied(by: .iPhone, reply: reply, askAgainAfter: .now.addingTimeInterval(1800)) }
     }
 
@@ -52,36 +54,40 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
 
     public func join(invitation: String) async throws {}
-    public func notifications(allowed: Bool) async {}
-    public func finishFirstRun() async { Self.firstRun("empty", into: &snapshot) }
+    public func firstRun(_ event: PhoneFirstRun.Event) async {
+        var next = snapshot
+        next.firstRun = snapshot.firstRun.on(event)
+        next.practiceRequest = Self.practiceOpen(next.firstRun) ? .practice() : nil
+        snapshot = next
+    }
     public func dismiss(_ notice: PhoneNotice) async { snapshot.notices.removeAll { $0 == notice } }
     public func setSettings(_ settings: PhoneSettings) async { snapshot.settings = settings }
-    public func sendTestAgain() async {}
     public func approveDevice(_ id: String) async throws { snapshot.deviceRequest = nil }
     public func denyDevice(_ id: String) async { snapshot.deviceRequest = nil }
 
+    static func practiceOpen(_ stage: PhoneFirstRun) -> Bool {
+        if case .welcome(_, true) = stage { return true }
+        return stage == .practice
+    }
+
     /// Paper's first-run iPhone screens.
     static func firstRun(_ step: String, into snapshot: inout PhoneSnapshot) {
-        snapshot.requests = []; snapshot.practiceRequest = nil; snapshot.deviceRequest = nil; snapshot.notices = []
-        switch step {
-        case "finding": snapshot.firstRun = .findingMac(macAsked: false, longWait: false)
-        case "asked": snapshot.firstRun = .findingMac(macAsked: true, longWait: false)
-        case "long-wait": snapshot.firstRun = .findingMac(macAsked: false, longWait: true)
-        case "notifications": snapshot.firstRun = .notifications
-        case "notifications-off": snapshot.firstRun = .notificationsOff
-        case "practice":
-            snapshot.firstRun = .practice
-            snapshot.practiceRequest = AccessRequest(
-                id: "practice", login: RequestedLogin(site: PhoneCopy.practiceSite, account: PhoneCopy.practiceAccount),
-                agent: RequestingAgent(name: PhoneCopy.practiceAgent, machine: PhoneCopy.practiceMachine, address: ""),
-                access: .login, agentReason: PhoneCopy.practiceReason, askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
-        case "practice-again": snapshot.firstRun = .practiceAgain
-        case "done": snapshot.firstRun = .done
-        case "add-watch":
-            snapshot.firstRun = nil
+        snapshot.requests = []; snapshot.deviceRequest = nil; snapshot.notices = []
+        snapshot.relayName = "Mac mini"; snapshot.watchPaired = true
+        let stages: [String: PhoneFirstRun] = [
+            "start": .start, "long-wait": .welcome(.startOnMac(longWait: true), practising: false),
+            "add-computer": .welcome(.addComputer(mac: "MacBook Pro"), practising: false),
+            "approve-on-mac": .welcome(.approveOnMac(mac: "MacBook Pro"), practising: false),
+            "denied": .welcome(.denied(mac: "MacBook Pro"), practising: false),
+            "notifications": .notifications, "notifications-off": .notificationsOff,
+            "practice-waiting": .practiceWaiting(arrived: false), "practice": .practice,
+            "not-arrived": .practiceNotArrived, "setting-up": .settingUpNotifications, "ready": .ready,
+        ]
+        snapshot.firstRun = stages[step] ?? .finished
+        snapshot.practiceRequest = practiceOpen(snapshot.firstRun) ? .practice() : nil
+        if step == "add-watch" {
             snapshot.deviceRequest = PhoneDeviceRequest(id: "watch", name: "Apple Watch Ultra 3", detail: PhoneCopy.pairedWithThisIPhone)
-        default:
-            snapshot.firstRun = nil
+        } else if stages[step] == nil {
             snapshot.notices = [.addAppleWatch]
         }
     }
@@ -134,6 +140,6 @@ public final class PhoneSampleBackend: PhoneBackend {
             PhoneDevice(id: "d5", name: "Mac mini", detail: "Passes requests to iPhone and Apple Watch · Ready", role: .asks),
             PhoneDevice(id: "d6", name: "Linux server", role: .asks),
         ]
-        return PhoneSnapshot(firstRun: nil, requests: requests, logins: logins, devices: devices)
+        return PhoneSnapshot(firstRun: .finished, requests: requests, logins: logins, devices: devices)
     }
 }

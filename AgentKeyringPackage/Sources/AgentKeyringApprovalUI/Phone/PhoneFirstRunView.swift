@@ -1,133 +1,198 @@
 // Written by AI on 2026.11.19 by model Claude Opus 5.5.
 //
-// First run on the iPhone (Paper, "First run", row "On iPhone"): one screen
-// at a time, ending in Done. The app still checks itself and reports to the
+// First run on the iPhone (Paper, "First run", iPhone row): one screen for
+// each state of PhoneFirstRun. The app still checks itself and reports to the
 // relay; none of that is shown here.
 
 #if os(iOS)
 import SwiftUI
 import UIKit
 
-/// The screen for where first run stands. The practice request is a sheet over it.
+/// One screen per state of first run; the practice request is a sheet over it.
 struct PhoneFirstRunView: View {
     let stage: PhoneFirstRun
     let model: PhoneModel
 
     var body: some View {
+        let relay = model.snapshot.relayName
         switch stage {
-        case let .findingMac(macAsked, longWait):
-            // After two minutes, Open Settings: iCloud Keychain is the one cause the app cannot see.
-            PhoneWelcome(button: !macAsked && longWait ? PhoneCopy.openSettings : nil) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(macAsked ? PhoneCopy.approveOnMac : PhoneCopy.finishOnMac)
-                        .font(.title3.weight(.semibold)).foregroundStyle(Phone.ink)
-                    Text(macAsked ? PhoneCopy.approveOnMacDetail : PhoneCopy.finishOnMacDetail)
-                        .font(.subheadline).foregroundStyle(Phone.ink2)
-                    if !macAsked && longWait {
-                        Text(PhoneCopy.finishOnMacLongWait)
-                            .font(.subheadline).foregroundStyle(Phone.ink2).padding(.top, 8)
+        case let .welcome(card, _):
+            welcome(card)
+        case .notifications, .askingNotifications:
+            PhoneStep(title: PhoneCopy.notificationsTitle, lines: [PhoneCopy.notificationsLead, PhoneCopy.notificationsFocus]) {
+                PhoneButton(PhoneCopy.continueButton) { await model.askAboutNotifications() }
+            }
+        case .notificationsOff:
+            PhoneStep(title: PhoneCopy.notificationsOffTitle, lines: [PhoneCopy.notificationsOff]) {
+                PhoneButton(PhoneCopy.openSettings) {
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) { await UIApplication.shared.open(url) }
+                }
+                PhoneButton(PhoneCopy.continueWithout, secondary: true) { await model.firstRun(.continueWithoutNotifications) }
+            }
+        case .practiceWaiting, .practice:
+            PhoneStep(title: PhoneCopy.practiceCheckTitle, lines: [PhoneCopy.practiceCheckDetail(relay)]) {
+                PhoneWaitingLine(text: PhoneCopy.practiceWaiting)
+            }
+        case .practiceNotArrived:
+            PhoneStep(title: PhoneCopy.practiceNotArrivedTitle, lines: [PhoneCopy.practiceNotArrivedDetail(relay)]) {
+                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.tryAgain) }
+            }
+        case .settingUpNotifications:
+            PhoneStep(title: PhoneCopy.settingUpTitle, lines: [PhoneCopy.settingUpDetail]) { EmptyView() }
+        case .ready, .finished:
+            PhoneReady(watch: model.snapshot.watchPaired) { await model.firstRun(.done) }
+        }
+    }
+
+    @ViewBuilder private func welcome(_ card: PhoneWelcomeCard) -> some View {
+        switch card {
+        case let .startOnMac(longWait):
+            PhoneWelcome(title: PhoneCopy.startOnMac, lines: [PhoneCopy.startOnMacDetail] + (longWait ? [PhoneCopy.startOnMacLongWait] : [])) {
+                PhoneButton(PhoneCopy.tryPractice, secondary: true) { await model.firstRun(.tryPractice) }
+            }
+        case let .addComputer(mac):
+            PhoneWelcome(title: PhoneCopy.addComputer, lines: [PhoneCopy.addComputerDetail(mac)]) {
+                PhoneButton(PhoneCopy.tryPractice, secondary: true) { await model.firstRun(.tryPractice) }
+            }
+        case let .approveOnMac(mac):
+            PhoneWelcome(title: PhoneCopy.approveOn(mac), lines: [PhoneCopy.approveOnDetail(mac)]) {
+                PhoneWaitingLine(text: PhoneCopy.waitingFor(mac))
+            }
+        case let .denied(mac):
+            PhoneWelcome(title: PhoneCopy.didNotAdd(mac), lines: [PhoneCopy.didNotAddDetail(mac)]) {
+                PhoneButton(PhoneCopy.askAgain) { await model.firstRun(.askAgain) }
+            }
+        }
+    }
+}
+
+/// The first screen: the icon, the name, what the app is for, and a card for where setup stands.
+private struct PhoneWelcome<Bottom: View>: View {
+    let title: String
+    let lines: [String]
+    @ViewBuilder let bottom: Bottom
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 32) {
+                VStack(spacing: 16) {
+                    KeyholeIcon(size: 64)
+                    VStack(spacing: 8) {
+                        Text(PhoneCopy.appName).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
+                        Text(PhoneCopy.appLead).font(.body).foregroundStyle(Phone.ink2)
                     }
+                    .multilineTextAlignment(.center)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title).font(.title3.weight(.semibold)).foregroundStyle(Phone.ink)
+                    ForEach(lines, id: \.self) { Text($0).font(.subheadline).foregroundStyle(Phone.ink2) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 18).padding(.horizontal, 20)
                 .background(Phone.fill, in: .rect(cornerRadius: 22))
             }
-        case .notifications, .practice:
-            // The practice request comes up over this screen as a sheet.
-            PhoneStep(title: PhoneCopy.notificationsTitle, lead: PhoneCopy.notificationsLead,
-                      button: stage == .notifications ? PhoneCopy.continueButton : nil) {
-                await model.askAboutNotifications()
-            }
-        case .notificationsOff:
-            PhoneStep(title: nil, lead: PhoneCopy.notificationsOff, button: PhoneCopy.openSettings) {
-                if let url = URL(string: UIApplication.openNotificationSettingsURLString) { await UIApplication.shared.open(url) }
-            }
-        case .practiceAgain:
-            PhoneStep(title: PhoneCopy.practiceAgainTitle, lead: PhoneCopy.practiceAgainDetail, button: PhoneCopy.sendAnother) {
-                await model.sendTestAgain()
-            }
-        case .done:
-            PhoneStep(title: PhoneCopy.setUpTitle, lead: PhoneCopy.setUpLead, button: PhoneCopy.done, tick: true) {
-                await model.finishFirstRun()
-            }
-        }
-    }
-}
-
-/// The first screen: the icon, the name, what the app is for, and what it waits for.
-private struct PhoneWelcome<Status: View>: View {
-    var button: String? = nil
-    @ViewBuilder let status: Status
-
-    var body: some View {
-        VStack(spacing: 0) {
-            content.frame(maxHeight: .infinity, alignment: .top)
-            if let button {
-                Button(button) {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                }
-                .buttonStyle(PillButtonStyle(fill: Phone.ink, text: Phone.surface))
-                .padding(.horizontal, 24)
-                .padding(.bottom, 30)
-            }
-        }
-        .background(Phone.surface)
-    }
-
-    private var content: some View {
-        VStack(spacing: 40) {
-            VStack(spacing: 18) {
-                KeyholeIcon(size: 64)
-                VStack(spacing: 8) {
-                    Text(PhoneCopy.appName).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
-                    Text(PhoneCopy.appLead).font(.body).foregroundStyle(Phone.ink2)
-                }
-                .multilineTextAlignment(.center)
-            }
-            status
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.top, 40)
+            VStack(spacing: 10) { bottom }
         }
         .padding(.horizontal, 24)
-        .padding(.top, 70)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 30)
         .background(Phone.surface)
     }
 }
 
-/// One step: a title, a sentence, and one black button at the bottom.
-private struct PhoneStep: View {
-    let title: String?
-    let lead: String
-    let button: String?
-    var tick = false
-    let action: () async -> Void
+/// One step: the bell in its tile, a title, its sentences, and the buttons at the bottom.
+private struct PhoneStep<Bottom: View>: View {
+    let title: String
+    let lines: [String]
+    @ViewBuilder let bottom: Bottom
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 18) {
-                if tick {
-                    Circle().fill(Phone.approve).frame(width: 64, height: 64)
-                        .overlay(Image(systemName: "checkmark").font(.system(size: 30, weight: .bold)).foregroundStyle(Phone.onAnswer))
-                }
-                VStack(spacing: 8) {
-                    if let title {
-                        Text(title).font(tick ? .largeTitle.bold() : .title.bold()).tracking(-0.6).foregroundStyle(Phone.ink)
-                    }
-                    Text(lead).font(title == nil ? .title3 : .body).foregroundStyle(title == nil ? Phone.ink : Phone.ink2)
+            VStack(spacing: 22) {
+                Image(systemName: "bell").font(.system(size: 32)).foregroundStyle(Phone.accent)
+                    .frame(width: 72, height: 72).background(Phone.fill, in: .rect(cornerRadius: 18))
+                VStack(spacing: 14) {
+                    Text(title).font(.title.bold()).tracking(-0.6).foregroundStyle(Phone.ink)
+                    ForEach(lines, id: \.self) { Text($0).font(.body).foregroundStyle(Phone.ink2) }
                 }
                 .multilineTextAlignment(.center)
             }
-            .padding(.horizontal, 28)
-            .frame(maxHeight: .infinity)
-            .padding(.bottom, 60)
-            if let button {
-                Button(button) { Task { await action() } }
-                    .buttonStyle(PillButtonStyle(fill: Phone.ink, text: Phone.surface))
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 30)
-            }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.top, 100)
+            VStack(spacing: 10) { bottom }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 30)
         .background(Phone.surface)
+    }
+}
+
+/// Ready: what to expect from now on, and Done.
+private struct PhoneReady: View {
+    let watch: Bool
+    let done: () async -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 32) {
+                VStack(spacing: 16) {
+                    Circle().fill(Phone.approve).frame(width: 64, height: 64)
+                        .overlay(Image(systemName: "checkmark").font(.system(size: 28, weight: .bold)).foregroundStyle(Phone.onAnswer))
+                    Text(PhoneCopy.readyTitle).font(.title.bold()).tracking(-0.6).foregroundStyle(Phone.ink)
+                }
+                VStack(alignment: .leading, spacing: 22) {
+                    row("bell", PhoneCopy.readyNotifications, PhoneCopy.readyNotificationsDetail)
+                    row("clock", PhoneCopy.readyActivity, PhoneCopy.readyActivityDetail)
+                    if watch { row("applewatch", PhoneCopy.readyWatch, PhoneCopy.readyWatchDetail) }
+                }
+            }
+            .frame(maxHeight: .infinity)
+            PhoneButton(PhoneCopy.done) { await done() }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 30)
+        .background(Phone.surface)
+    }
+
+    private func row(_ symbol: String, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(Phone.accent).frame(width: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body.weight(.semibold)).foregroundStyle(Phone.ink)
+                Text(detail).font(.subheadline).foregroundStyle(Phone.ink2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// A pill at the bottom: black, or grey for the second choice.
+private struct PhoneButton: View {
+    let title: String
+    var secondary = false
+    let action: () async -> Void
+
+    init(_ title: String, secondary: Bool = false, action: @escaping () async -> Void) {
+        self.title = title; self.secondary = secondary; self.action = action
+    }
+
+    var body: some View {
+        Button(title) { Task { await action() } }
+            .buttonStyle(PillButtonStyle(fill: secondary ? Phone.fill : Phone.ink, text: secondary ? Phone.ink : Phone.surface))
+    }
+}
+
+/// A spinner and what the screen waits for, where a button would be.
+private struct PhoneWaitingLine: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+            Text(text).font(.subheadline).foregroundStyle(Phone.ink2)
+        }
+        .frame(height: 50)
     }
 }
 

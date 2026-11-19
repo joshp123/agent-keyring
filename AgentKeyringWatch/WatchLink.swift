@@ -125,23 +125,17 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         Task { await refreshSetup() }
     }
 
-    /// The Watch's one line: not added yet, a problem he can fix, waiting for Apple, or Ready.
+    /// Where setup stands, worked out again from what the Watch can read about itself.
     func refreshSetup() async {
         let saved = WatchStore().read()
-        let listed = saved.lists((try? WatchKeys().keyID()) ?? "")
-        // Any Members at all means the iPhone has joined; until it lists this Apple Watch, the request waits there.
-        let phoneSetUp = saved.signedMembers != nil
         var error: NSError?
-        let passcode = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        let asked = settings.authorizationStatus != .notDetermined
-        let allowed = settings.authorizationStatus == .authorized
-        let hasAddress = pushToken != nil
-        let setup: WatchModel.Setup = !listed ? (phoneSetUp ? .approveOnIPhone : .setUpIPhone)
-            : !passcode ? .failed(WatchCopy.noPasscode)
-            : asked && !allowed ? .failed(WatchCopy.notificationsOff)
-            : !hasAddress ? .waitingForApple
-            : .ready
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        let setup = WatchSetup(passcode: LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error),
+                               // Any Members at all means the iPhone has joined; until it lists this Apple Watch, the request waits there.
+                               phoneJoined: saved.signedMembers != nil,
+                               listed: saved.lists((try? WatchKeys().keyID()) ?? ""),
+                               notifications: status == .notDetermined ? .notAsked : status == .denied ? .denied : .allowed,
+                               pushAddress: pushToken != nil)
         let inUse = WatchStore().read().currentInUse
         await MainActor.run { WatchModel.shared.setup = setup; WatchModel.shared.inUse = inUse }
     }
