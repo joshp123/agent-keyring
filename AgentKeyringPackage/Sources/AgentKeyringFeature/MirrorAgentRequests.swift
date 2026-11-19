@@ -159,7 +159,7 @@ extension MirrorAppModel {
                     await self.device?.stopAsking(leaseID, answeredHere: "denied")
                     return
                 case (.pending, .active):
-                    return // Answered on a device: the relay already knows.
+                    stage = .active // Answered on a device: the relay already knows, but not when it is released here.
                 case (.active, _):
                     await self.device?.stopAsking(leaseID) // Released or out of time.
                     return
