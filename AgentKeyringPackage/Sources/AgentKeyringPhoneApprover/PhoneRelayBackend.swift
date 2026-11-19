@@ -42,6 +42,8 @@ struct PhoneSavedState: Codable {
     var settings: NotificationSettings?
     /// He closed the "Add Apple Watch" card.
     var watchCardDismissed: Bool?
+    /// Apple Watch's practice request has ended, however it ended: it is not sent again.
+    var watchPracticed: Bool?
 }
 
 /// What the notification service extension needs to name a request: this
@@ -701,7 +703,14 @@ public final class PhoneRelayBackend: PhoneBackend {
         looking = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, self.state.deviceKeyID == nil else { break }
-                if self.firstRun.mayJoin, let link = self.linkInvitation ?? self.invitation(),
+                let link = self.linkInvitation ?? self.invitation()
+                // The Mac names itself before any computer that stays on exists: an invitation with no relay.
+                if let invite = link.flatMap(Self.invite), invite.relayHost.isEmpty, invite.secret.isEmpty {
+                    self.apply(.macWithoutComputer(mac: invite.inviterLabel.isEmpty ? nil : invite.inviterLabel))
+                    try? await Task.sleep(for: .seconds(3))
+                    continue
+                }
+                if self.firstRun.mayJoin, let link,
                    self.failedJoin.map({ $0.link != link || Date().timeIntervalSince($0.at) > 30 }) ?? true {
                     do { try await self.joinNow(link) } catch {
                         self.failedJoin = (link, Date())
@@ -731,12 +740,17 @@ public final class PhoneRelayBackend: PhoneBackend {
         lookForMac()
     }
 
-    /// Joins with an invitation link: `agentkeyring://join?invite=<JoinInvite, base64url>`.
-    private func joinNow(_ link: String) async throws {
+    /// The `JoinInvite` in an `agentkeyring://join?invite=<base64url>` link.
+    nonisolated static func invite(_ link: String) -> Agentkeyring_V2_JoinInvite? {
         guard let url = URLComponents(string: link), url.scheme == "agentkeyring", url.host == "join",
               let encoded = url.queryItems?.first(where: { $0.name == "invite" })?.value,
-              let bytes = Data(base64URL: encoded), let invite = try? Agentkeyring_V2_JoinInvite(serializedBytes: bytes),
-              !invite.relayHost.isEmpty, invite.relayPort > 0, invite.relayPort <= UInt32(UInt16.max) else {
+              let bytes = Data(base64URL: encoded) else { return nil }
+        return try? Agentkeyring_V2_JoinInvite(serializedBytes: bytes)
+    }
+
+    /// Joins with an invitation link: `agentkeyring://join?invite=<JoinInvite, base64url>`.
+    private func joinNow(_ link: String) async throws {
+        guard let invite = Self.invite(link), !invite.relayHost.isEmpty, invite.relayPort > 0, invite.relayPort <= UInt32(UInt16.max) else {
             throw KeyringRelayError(code: .invalid, message: "That is not an Agent Keyring invitation.")
         }
         guard invite.expiresUnixSeconds > Int64(Date().timeIntervalSince1970) else {
@@ -926,6 +940,32 @@ public final class PhoneRelayBackend: PhoneBackend {
         next.watchSelfTest = plist
         save(next)
         Task { await reportSelfTest() }
+        askForWatchPractice()
+    }
+
+    private var watchPracticeTask: Task<Void, Never>?
+
+    /// Apple Watch's own practice request (Paper, "First run", Apple Watch row), once it is
+    /// added and its self-test says a push can reach it. The relay sends it to the Watch only.
+    private func askForWatchPractice() {
+        guard state.watchPracticed != true, watchPracticeTask == nil,
+              let watch = members?.devices.first(where: { $0.kind == .watch }),
+              let data = state.watchSelfTest,
+              let test = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              test["notificationsAllowed"] as? Bool == true, test["pushAddress"] as? Bool == true else { return }
+        watchPracticeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                for try await response in try self.relay().stream(Self.method { $0.testRequest.forDeviceKeyID = watch.keyID }) {
+                    guard case let .lease(lease) = response.result, lease.state != .waiting else { continue }
+                    PhoneDiagnostics.note("Apple Watch's practice request ended: \(lease.state)")
+                    var done = self.state
+                    done.watchPracticed = true
+                    self.save(done)
+                }
+            } catch { PhoneDiagnostics.note("Apple Watch's practice request failed: \(error)") }
+            self.watchPracticeTask = nil
+        }
     }
 
     /// Where the Watch posts its answers: the relay's own address, over HTTPS.
@@ -1001,6 +1041,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         done.watchDevice = nil
         save(done)
         if let push = state.watchPush { await registerWatchPush(push) }
+        askForWatchPractice()
     }
 
     /// The signed Members bytes, for the Watch.

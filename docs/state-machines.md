@@ -202,6 +202,9 @@ These are observations kept only for the self-test the relay stores. Nothing on 
 - `notificationsAllowed`: what iOS allows, read each time the app comes to the front.
 - `openingWorks`: the opening key opened a sealed password.
 - `practiceOutcome`: how the last practice request ended.
+- `watchPracticed`: Apple Watch's practice request has ended. It is saved, so the Watch gets one only.
+
+Where the welcome card comes from: the look for the Mac reads the item the Mac leaves in iCloud Keychain every three seconds. No item is `noMac`. An item that names the Mac but has no relay and no secret is `macWithoutComputer`. A full invitation is joined; waiting is `joinWaiting` and a refusal is `joinRefused`, both with the Mac's name from the invitation.
 
 ### Reachable faults closed
 
@@ -237,7 +240,7 @@ So the state cannot drift from those facts. The Watch works it out again when th
 ### What must always be true
 
 - watchOS asks about notifications only after the iPhone has added this Watch. Before this build, it asked the first time the app was opened.
-- The Watch shows Ready once it is listed and allowed and has a push address. The board puts a practice request to the Watch before Ready. That waits for the relay to send one to the Watch.
+- The Watch shows Ready once it is listed and allowed and has a push address. Its practice request then arrives as a notification over Ready: the iPhone asks the relay for it once the Watch's self-test says notifications are allowed and it has a push address, and asks only once (`watchPracticed`, saved on the iPhone). Ready does not wait for the practice, so a push that never comes cannot keep the Watch from Ready.
 
 ## Apple Watch: a request's card
 
@@ -247,7 +250,7 @@ Code: `RequestModel.Card` in `AgentKeyringWatch/RequestView.swift`.
 |---|---|
 | `opening` | nothing yet |
 | `unreadable` | "Open Agent Keyring on your iPhone to see this request." The Watch has asked its iPhone for the list of devices. |
-| `showing(request)` | the request, with Deny and Approve |
+| `showing(request)` | the request, with Deny and Approve. Its own practice request reads "Practice request: an agent wants" example.com, and Approve sends a signed answer with nothing delivered. |
 | `sending(request)` | the same request, with the buttons disabled |
 | `answered(request, line)` | the same request and "Approved" or "Denied". The card closes 1.2 seconds later. |
 
