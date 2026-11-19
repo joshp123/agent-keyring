@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdh"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
@@ -241,7 +242,8 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 		return err
 	}
 	joining := &pb.Machine{MachineId: keyring.KeyID(spki), Label: name, TlsPublicKey: spki, ReceivingPublicKey: client.receiving.PublicKey().Bytes()}
-	join := &pb.JoinRequest{Joining: &pb.JoinRequest_Machine{Machine: joining}}
+	join := &pb.JoinRequest{Joining: &pb.JoinRequest_Machine{Machine: joining},
+		RefusalKeySha256: keyring.SHA256(keyring.RefusalKey(invite.Secret, joining.MachineId))}
 	join.Proof = keyring.JoinProof(invite.Secret, join)
 	var observed []byte
 	var status *pb.JoinStatus
@@ -261,6 +263,16 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 	case pb.JoinState_JOIN_STATE_APPROVED:
 	case pb.JoinState_JOIN_STATE_EXPIRED:
 		return errors.New("Nobody approved this machine within 10 minutes. Run 'agent-keyring invite' on the Mac and enrol again.")
+	case pb.JoinState_JOIN_STATE_REFUSED:
+		refusal := status.GetRefusal()
+		if !hmac.Equal(refusal.GetReplyProof(), keyring.RefusalReplyProof(invite.Secret, joining.MachineId, refusal.GetReply())) {
+			return errors.New("The relay says this computer was denied, but the denial is not from the Mac that invited it.")
+		}
+		text := "Josh denied adding this computer."
+		if refusal.Reply != "" {
+			text += " Reply: " + printable(refusal.Reply)
+		}
+		return errors.New(text)
 	default:
 		return errors.New("This machine was not approved.")
 	}
@@ -285,4 +297,15 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 	}
 	fmt.Fprintf(output, "Joined as %q. Agents here can ask for logins.\n", name)
 	return nil
+}
+
+// printable replaces control characters, so words from a device cannot
+// rewrite the agent's terminal.
+func printable(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return ' '
+		}
+		return r
+	}, value)
 }

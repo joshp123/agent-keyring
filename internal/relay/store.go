@@ -57,6 +57,7 @@ type join struct {
 	Node    string       `json:"node"`
 	Asked   int64        `json:"asked"`
 	State   pb.JoinState `json:"state"`
+	Refusal []byte       `json:"refusal,omitempty"` // JoinRefusal, once refused.
 }
 
 type use struct {

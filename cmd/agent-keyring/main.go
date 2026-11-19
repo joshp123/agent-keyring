@@ -36,6 +36,7 @@ const help = `Agent Keyring: use a saved login for one task.
   release LEASE             End permission when the task is done
   skill                     Print the bundled agent instructions
   install                   Link the command and skills; register browser helpers
+  install --undo            Put back the links install replaced
   install --browser-profile DIRECTORY
                             Register a helper only in this browser user-data directory
   machines                  List the computers on this Tailscale network
@@ -92,7 +93,7 @@ func parse(args []string) (arguments, error) {
 		}
 		name, value, hasValue := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
 		switch name {
-		case "no-wait", "wait", "again":
+		case "no-wait", "wait", "again", "undo":
 			if hasValue {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
@@ -166,6 +167,9 @@ func run(ctx context.Context, args []string) (int, error) {
 			break
 		}
 	}
+	if code, handled, err := earlier(args); handled {
+		return code, err
+	}
 	command := args[0]
 	a, err := parse(args[1:])
 	if err != nil {
@@ -177,6 +181,12 @@ func run(ctx context.Context, args []string) (int, error) {
 				return 2, errors.New("install --browser-profile takes only the browser's user-data directory.")
 			}
 			return 0, installNativeHost(a.options["browser-profile"])
+		}
+		if command == "install" && a.flags["undo"] {
+			if len(args) != 2 {
+				return 2, errors.New("install --undo takes nothing else.")
+			}
+			return 0, undoInstall()
 		}
 		if len(args) != 1 {
 			return 2, errors.New("This command takes no arguments.")
