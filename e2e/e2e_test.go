@@ -358,7 +358,7 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 
 	t.Run("a device answers its practice request at first run", func(t *testing.T) {
 		out := r.device("self-test")
-		if !strings.Contains(out, `Agent Keyring (Practice) wants example.com, you@example.com: "This is a practice request. No real password is used."`) ||
+		if !strings.Contains(out, `Agent Keyring (Practice) wants example.com, you@example.com: "You asked me to download October’s invoice."`) ||
 			!strings.Contains(out, "Practice request: LEASE_STATE_APPROVED") {
 			t.Fatalf("self-test said %q", out)
 		}
