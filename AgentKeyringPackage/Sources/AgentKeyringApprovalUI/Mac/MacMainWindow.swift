@@ -414,7 +414,7 @@ private struct DevicesTab: View {
                 heading(MainWindowCopy.agentsAskFrom)
                 Spacer()
                 Text(MainWindowCopy.automaticPasswords).font(.system(size: 12)).foregroundStyle(RequestToken.ink2)
-                    .frame(width: 120).padding(.trailing, 96)
+                    .fixedSize().frame(width: 120).padding(.trailing, 96)
             }
             ForEach(model.snapshot.machines) { machine in
                 DeviceLine(symbol: machine.isThisMac ? "laptopcomputer" : "macmini",
@@ -430,6 +430,8 @@ private struct DevicesTab: View {
                 }
             }
             AgentLineBox(caption: MainWindowCopy.toAdd, line: FirstRunCopy.agentLine)
+                .padding(14)
+                .background(RequestToken.fill, in: .rect(cornerRadius: 12))
                 .padding(.horizontal, 20).padding(.vertical, 12)
                 .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
         }

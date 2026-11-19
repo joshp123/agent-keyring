@@ -229,12 +229,12 @@ struct MacApprovalPanelView: View {
     }
 
     @ViewBuilder private var answered: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: outcomeSymbol)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(outcomeColour)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(outcomeTitle).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
+        HStack(spacing: 12) {
+            Circle().fill(outcomeColour).frame(width: 28, height: 28).overlay {
+                Image(systemName: outcomeSymbol).font(.system(size: 13, weight: .heavy)).foregroundStyle(RequestToken.onAnswer)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(outcomeTitle).font(.system(size: 15, weight: .bold)).foregroundStyle(RequestToken.ink)
                 if let detail = outcomeDetail {
                     Text(detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -242,13 +242,13 @@ struct MacApprovalPanelView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 20).padding(.vertical, 16)
+        .padding(.horizontal, 20).padding(.vertical, 14)
     }
 
     private var outcomeSymbol: String {
         switch request.state {
-        case .approved: "checkmark.circle.fill"
-        case .denied, .blockedByRule: "xmark.circle.fill"
+        case .approved: "checkmark"
+        case .denied, .blockedByRule: "xmark"
         default: "clock"
         }
     }

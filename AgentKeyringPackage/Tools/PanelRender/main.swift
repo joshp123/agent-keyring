@@ -4,6 +4,7 @@
 // dark, for a design check against Paper. Nothing appears on screen.
 import AgentKeyringApprovalUI
 import AppKit
+import LocalAuthentication
 import SwiftUI
 
 _ = NSApplication.shared
@@ -40,8 +41,38 @@ let cases: [(String, AnyView)] = [
     ("first-run-2-practice-denied", AnyView(MacFirstRunView(step: .practice(passwords: 542, denied: true)))),
     ("first-run-3-set-up", AnyView(MacFirstRunView(step: .setUp(agentLine: agentLine)))),
 ]
+final class StubBackend: MainWindowBackend {
+    func updates() -> AsyncStream<MainSnapshot> { AsyncStream { $0.finish() } }
+    func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws {}
+    func proposeRules(_ changes: [UUID: LoginRule]) async throws -> ProposalOutcome { .approved }
+    func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {}
+    func remove(id: String, context: LAContext) async throws {}
+    func importAgain() {}
+}
+let thisMac = DeviceRow(id: "d1", name: "MacBook Pro", kind: .mac, lastTested: .now, isThisMac: true)
+let logins = [("example.com", LoginRule.ask), ("news.example", .ask), ("forum.example", .automatic), ("old.example", .blocked)]
+    .map { LoginRow(id: UUID(), site: $0.0, account: "josh@example.com", rule: $0.1) }
+let alone = MainSnapshot(logins: logins, importedAt: .now, devices: [thisMac],
+    machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true, isAlwaysOn: false, automatic: false, lastTested: nil)])
+let everything = MainSnapshot(logins: logins, importedAt: .now,
+    devices: [DeviceRow(id: "d2", name: "iPhone 17 Pro", kind: .iPhone, lastTested: .now, isThisMac: false),
+        DeviceRow(id: "d3", name: "Apple Watch Ultra 3", kind: .watch, lastTested: .now, isThisMac: false), thisMac],
+    machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true, isAlwaysOn: false, automatic: true, lastTested: nil),
+        MachineRow(id: "m2", name: "Mac mini", isThisMac: false, isAlwaysOn: true, automatic: true, lastTested: nil),
+        MachineRow(id: "m3", name: "Linux server", isThisMac: false, isAlwaysOn: false, automatic: false, lastTested: nil)])
+@MainActor func mainWindow(_ snapshot: MainSnapshot, tab: MacMainModel.Tab, makeAutomatic: Bool = false) -> AnyView {
+    let model = MacMainModel(backend: StubBackend(), initial: snapshot)
+    model.tab = tab
+    if makeAutomatic { model.choose(.automatic, for: snapshot.logins[1]) }
+    return AnyView(MacMainWindowView(model: model))
+}
 MainActor.assumeIsolated {
-    for (name, view) in cases {
+    let windows: [(String, AnyView)] = [
+        ("devices-this-mac-only", mainWindow(alone, tab: .devices)),
+        ("devices-everything", mainWindow(everything, tab: .devices)),
+        ("passwords-rule-bar-automatic", mainWindow(everything, tab: .logins, makeAutomatic: true)),
+    ]
+    for (name, view) in cases + windows {
         for (scheme, label) in [(ColorScheme.light, "light"), (.dark, "dark")] {
             let renderer = ImageRenderer(content: view.environment(\.colorScheme, scheme).padding(30).background(scheme == .dark ? Color(white: 0.1) : Color(white: 0.93)))
             renderer.scale = 2
