@@ -57,13 +57,16 @@ public final class MacDevice {
     /// is shown only if its proof checks against one of them.
     private var invitations: [Data: Date] = [:]
     @ObservationIgnored private var running: Task<Void, Never>?
-    private let file = URL.applicationSupportDirectory.appending(path: "AgentKeyring/relay-v2.plist")
+    /// The saved relay and members live in the app's own keychain, where no
+    /// other program running as Josh can read or change them.
+    private let keychain = RelayKeychain(service: (Bundle.main.bundleIdentifier ?? "com.agentkeyring") + ".relay.v2",
+        accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
 
     init(keys: MacKeys, store: LoginStore, catalogueLogins: @escaping @MainActor () async throws -> [Agentkeyring_V2_Login]) {
         self.keys = keys
         self.store = store
         self.catalogueLogins = catalogueLogins
-        if let bytes = try? Data(contentsOf: file), let saved = try? PropertyListDecoder().decode(Saved.self, from: bytes) {
+        if let bytes = readSaved(), let saved = try? PropertyListDecoder().decode(Saved.self, from: bytes) {
             self.saved = saved
             members = Self.parse(saved.members)
         }
@@ -85,10 +88,28 @@ public final class MacDevice {
         return try? Agentkeyring_V2_Members(serializedBytes: document.payload)
     }
 
-    private func persist() throws {
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try PropertyListEncoder().encode(saved).write(to: file, options: .atomic)
+    private func readSaved() -> Data? {
+        #if DEBUG
+        if keys.standIn { return try? Data(contentsOf: Self.standInFile) }
+        #endif
+        return try? keychain.read("saved")
     }
+
+    private func persist() throws {
+        let bytes = try PropertyListEncoder().encode(saved)
+        #if DEBUG
+        if keys.standIn {
+            try FileManager.default.createDirectory(at: Self.standInFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            return try bytes.write(to: Self.standInFile, options: .atomic)
+        }
+        #endif
+        try keychain.write(bytes, account: "saved")
+    }
+
+    #if DEBUG
+    /// With the stand-in key, in the container beside its keys, so a fresh container starts fresh.
+    private static let standInFile = URL.applicationSupportDirectory.appending(path: "AgentKeyring/stand-in-relay.plist")
+    #endif
 
     private var relay: KeyringRelay? {
         guard let saved else { return nil }

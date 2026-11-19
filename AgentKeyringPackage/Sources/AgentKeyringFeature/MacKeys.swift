@@ -29,7 +29,7 @@ public final class MacKeys {
     private let saved: Saved
     #if DEBUG
     /// Launched with -StandInKey YES: `saved` holds software keys.
-    private let standIn: Bool
+    let standIn: Bool
     #endif
     public let tls: RelayTLSIdentity
     public let receiving: P256.KeyAgreement.PrivateKey
