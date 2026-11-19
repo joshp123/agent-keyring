@@ -168,9 +168,14 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// The practice request in the real request's layout.
     nonisolated static func practiceRequest(_ work: Work) -> AccessRequest? {
         guard let request = try? Sealing.parseRequest(work.request) else { return nil }
-        return AccessRequest(id: request.requestID, login: RequestedLogin(site: PhoneCopy.practiceSite, account: PhoneCopy.practiceAccount),
-                             agent: RequestingAgent(name: PhoneCopy.practiceAgent, machine: PhoneCopy.practiceMachine, address: ""),
-                             access: .login, agentReason: PhoneCopy.practiceReason,
+        // The relay's words for the practice request; the app's own only if an older relay sent none.
+        func or(_ value: String, _ fallback: String) -> String { value.isEmpty ? fallback : value }
+        let site = work.hasLogin ? (work.login.sites.first ?? work.login.title) : ""
+        return AccessRequest(id: request.requestID,
+                             login: RequestedLogin(site: or(site, PhoneCopy.practiceSite), account: or(work.login.account, PhoneCopy.practiceAccount)),
+                             agent: RequestingAgent(name: or(request.agent, PhoneCopy.practiceAgent), machine: PhoneCopy.practiceMachine, address: "",
+                                                    project: or(request.project, PhoneCopy.practice)),
+                             access: .login, agentReason: or(request.reason, PhoneCopy.practiceReason),
                              askedAt: Date(timeIntervalSince1970: Double(request.askedUnixSeconds)),
                              state: .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds))))
     }
