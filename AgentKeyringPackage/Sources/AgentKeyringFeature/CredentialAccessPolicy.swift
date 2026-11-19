@@ -132,12 +132,16 @@ public final class CredentialAccessController {
         isSavingRules = true
         defer { isSavingRules = false }
         errorMessage = nil
+        // The new rules are current while they are sealed and published, so the
+        // catalogue the other devices get says them; a failure puts the old back.
+        let previous = policies
+        policies = proposed
         do {
-            try await beforeSave?(policies, proposed, context)
+            try await beforeSave?(previous, proposed, context)
             try store.save(proposed)
-            policies = proposed
             updateRowPolicies()
         } catch {
+            policies = previous
             errorMessage = rulesFailureMessage(error)
         }
     }
