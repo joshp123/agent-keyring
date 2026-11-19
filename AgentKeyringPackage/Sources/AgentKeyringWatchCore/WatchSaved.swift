@@ -15,6 +15,8 @@ public struct WatchSaved: Codable, Sendable, Equatable {
     public var members: Data?
     public var catalogue: Data?
     public var answerURL: String?
+    /// The iPhone's notification settings, which Apple Watch follows.
+    public var settings: NotificationSettings?
 
     public init(members: Data? = nil, catalogue: Data? = nil, answerURL: String? = nil) {
         self.members = members; self.catalogue = catalogue; self.answerURL = answerURL
@@ -28,6 +30,9 @@ public struct WatchSaved: Codable, Sendable, Equatable {
         catalogue.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Catalogue(serializedBytes: $0.payload) }
     }
 
+    /// Whether a request arriving now may break through a Focus.
+    public var breaksThroughFocus: Bool { (settings ?? NotificationSettings()).breaksThroughFocus() }
+
     /// The Watch is set up once a Members the iPhone signed lists it.
     public func lists(_ keyID: String) -> Bool { signedMembers?.devices.contains { $0.keyID == keyID } ?? false }
 
@@ -35,8 +40,9 @@ public struct WatchSaved: Codable, Sendable, Equatable {
     /// paired iPhone, over Watch Connectivity, so the Watch takes any newer one
     /// that is signed by a device it names itself. Unlike a machine, it need
     /// not follow every revision in between: it may have missed some while asleep.
-    public func merging(members newMembers: Data?, catalogue newCatalogue: Data?, answerURL newURL: String?) -> WatchSaved {
+    public func merging(members newMembers: Data?, catalogue newCatalogue: Data?, answerURL newURL: String?, settings newSettings: Data? = nil) -> WatchSaved {
         var merged = self
+        if let newSettings, let settings = try? PropertyListDecoder().decode(NotificationSettings.self, from: newSettings) { merged.settings = settings }
         if let newMembers, let document = try? SignedDocument(serializedBytes: newMembers),
            let next = try? Sealing.verifiedMembers(document, current: nil),
            next.revision > (signedMembers?.revision ?? 0) {

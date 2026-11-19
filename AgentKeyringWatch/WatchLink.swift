@@ -120,23 +120,26 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         let store = WatchStore()
         let saved = store.read()
         let next = saved.merging(members: payload["members"] as? Data, catalogue: payload["catalogue"] as? Data,
-                                 answerURL: payload["relayAnswerURL"] as? String)
+                                 answerURL: payload["relayAnswerURL"] as? String, settings: payload["settings"] as? Data)
         if next != saved { store.write(next) }
         Task { await refreshSetup() }
     }
 
     /// The Watch's one line: not added yet, a problem he can fix, waiting for Apple, or Ready.
     func refreshSetup() async {
-        let listed = WatchStore().read().lists((try? WatchKeys().keyID()) ?? "")
+        let saved = WatchStore().read()
+        let listed = saved.lists((try? WatchKeys().keyID()) ?? "")
+        // Any Members at all means the iPhone has joined; until it lists this Apple Watch, the request waits there.
+        let phoneSetUp = saved.signedMembers != nil
         var error: NSError?
         let passcode = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         let asked = settings.authorizationStatus != .notDetermined
         let allowed = settings.authorizationStatus == .authorized
         let hasAddress = pushToken != nil
-        let setup: WatchModel.Setup = !listed ? .waitingForIPhone
-            : !passcode ? .failed("Your Watch has no passcode, so it can’t approve. Set one in the Watch app on your iPhone.")
-            : asked && !allowed ? .failed("Notifications are off on your Watch, so requests can’t reach it. Turn them on in the Watch app on your iPhone.")
+        let setup: WatchModel.Setup = !listed ? (phoneSetUp ? .approveOnIPhone : .setUpIPhone)
+            : !passcode ? .failed(WatchCopy.noPasscode)
+            : asked && !allowed ? .failed(WatchCopy.notificationsOff)
             : !hasAddress ? .waitingForApple
             : .ready
         await MainActor.run { WatchModel.shared.setup = setup }

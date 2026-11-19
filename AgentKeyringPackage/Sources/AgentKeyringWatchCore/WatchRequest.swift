@@ -60,7 +60,7 @@ public struct WatchRequest: Sendable, Equatable {
         public var description: String {
             switch self {
             case .noNotice: "the push carried no notice"
-            case .notSetUp: "the Watch has no Members yet"
+            case .notSetUp: "Apple Watch has no Members yet"
             case .unknownMachine: "the asking machine is not in Members"
             }
         }
@@ -74,7 +74,7 @@ public struct WatchRequest: Sendable, Equatable {
     static func outcome(_ lease: Agentkeyring_V2_Lease, members: Members, agent: String, minutes: Int) -> String {
         let on = members.devices.first { $0.label == lease.answeredBy }.map { device -> String in
             switch device.kind {
-            case .watch: "on your Watch"
+            case .watch: "on your Apple Watch"
             case .iphone: "on your iPhone"
             case .mac: "on your Mac"
             default: "on \(device.label)"

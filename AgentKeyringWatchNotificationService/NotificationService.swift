@@ -16,8 +16,9 @@ final class NotificationService: UNNotificationServiceExtension {
             contentHandler(request.content); return
         }
         do {
-            let opened = try WatchRequest.from(userInfo: content.userInfo, keys: WatchKeys(), saved: WatchStore().read())
-            WatchWords.write(opened, into: content)
+            let saved = WatchStore().read()
+            let opened = try WatchRequest.from(userInfo: content.userInfo, keys: WatchKeys(), saved: saved)
+            WatchWords.write(opened, into: content, breaksThroughFocus: saved.breaksThroughFocus)
         } catch {
             WatchWords.writeFallback(into: content)
         }

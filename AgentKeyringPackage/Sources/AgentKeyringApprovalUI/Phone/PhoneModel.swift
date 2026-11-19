@@ -49,39 +49,54 @@ public enum PhoneTab: String, Hashable, Sendable {
     case activity, logins, devices
 }
 
-/// One line of first run's self-ticking list (Paper, "First run").
-public struct PhoneSetupLine: Identifiable, Hashable, Sendable {
-    public enum Mark: Hashable, Sendable {
-        /// A tick.
-        case done
-        /// A dark ring: working, or waiting for him.
-        case working
-        /// A pale ring: not yet.
-        case notYet
-        /// A red mark, with one sentence in the detail.
-        case failed
-    }
-
-    public let id: String
-    public var mark: Mark
-    public var title: String
-    public var detail: String?
-    /// The line's one button, if it has one.
-    public enum Action: Hashable, Sendable { case openSettings, sendTestAgain }
-    public var action: Action?
-
-    public init(id: String, mark: Mark, title: String, detail: String? = nil, action: Action? = nil) {
-        self.id = id; self.mark = mark; self.title = title; self.detail = detail; self.action = action
-    }
+/// Where first run stands (Paper, "First run", "On iPhone"): one screen at a
+/// time, ending in Done. Nil once he has tapped Done.
+public enum PhoneFirstRun: Hashable, Sendable {
+    /// Not joined yet. `macAsked`: the Mac has been asked to add this iPhone.
+    /// `longWait`: nothing found for two minutes.
+    case findingMac(macAsked: Bool, longWait: Bool)
+    /// Joined; the screen before iOS's notification question.
+    case notifications
+    /// iOS's question was answered Don't Allow.
+    case notificationsOff
+    /// The practice request, as a sheet, while it waits.
+    case practice
+    /// The practice request was denied or ran out; he can send another.
+    case practiceAgain
+    /// Approved: "You're set up" and Done.
+    case done
 }
 
-public struct PhoneSetup: Hashable, Sendable {
-    public var lines: [PhoneSetupLine]
-    /// Joined, notifications on, requests reach it, and the test approved.
-    public var isReady: Bool
+/// One sentence in Activity when something needs him, or an offer he can dismiss.
+public enum PhoneNotice: Hashable, Sendable, Identifiable {
+    /// Apple has not yet given this iPhone a push address.
+    case stillConnecting
+    /// The computer the relay runs on can't be reached; its name if known.
+    case relayOffline(String?)
+    /// An Apple Watch is paired and has not been added.
+    case addAppleWatch
 
-    public init(lines: [PhoneSetupLine], isReady: Bool) { self.lines = lines; self.isReady = isReady }
-    public static let ready = PhoneSetup(lines: [], isReady: true)
+    public var id: String {
+        switch self {
+        case .stillConnecting: "stillConnecting"
+        case .relayOffline: "relayOffline"
+        case .addAppleWatch: "addAppleWatch"
+        }
+    }
+    public var dismissable: Bool { self == .addAppleWatch }
+}
+
+/// The two notification settings (Paper, "On iPhone and Apple Watch", Settings).
+public struct PhoneSettings: Hashable, Sendable {
+    public var timeSensitive: Bool
+    public var quietHours: Bool
+    /// Minutes after midnight.
+    public var quietFrom: Int
+    public var quietTo: Int
+
+    public init(timeSensitive: Bool = true, quietHours: Bool = false, quietFrom: Int = 23 * 60, quietTo: Int = 7 * 60) {
+        self.timeSensitive = timeSensitive; self.quietHours = quietHours; self.quietFrom = quietFrom; self.quietTo = quietTo
+    }
 }
 
 /// A device asking to approve requests, answered here like a login request.
@@ -122,24 +137,25 @@ public struct PhoneRuleProposal: Identifiable, Hashable, Sendable {
 }
 
 public struct PhoneSnapshot: Hashable, Sendable {
-    public var setup: PhoneSetup
     public var requests: [AccessRequest]
     public var logins: [PhoneLogin]
     public var devices: [PhoneDevice]
-    /// First run's test request, while it waits for Face ID.
-    public var testRequest: String?
+    /// Nil once first run is finished.
+    public var firstRun: PhoneFirstRun?
+    /// First run's practice request, in the real request's layout, while it waits.
+    public var practiceRequest: AccessRequest?
+    public var notices: [PhoneNotice] = []
+    public var settings = PhoneSettings()
     public var deviceRequest: PhoneDeviceRequest?
     /// Rule changes sent here, waiting and finished.
     public var ruleChanges: [PhoneRuleProposal] = []
     /// In the signed list of devices.
     public var joined = false
-    /// Joined, and iOS has not yet been asked about notifications.
-    public var asksAboutNotifications = false
 
-    public init(setup: PhoneSetup, requests: [AccessRequest] = [], logins: [PhoneLogin] = [], devices: [PhoneDevice] = [],
-                testRequest: String? = nil, deviceRequest: PhoneDeviceRequest? = nil) {
-        self.setup = setup; self.requests = requests; self.logins = logins; self.devices = devices
-        self.testRequest = testRequest; self.deviceRequest = deviceRequest
+    public init(firstRun: PhoneFirstRun?, requests: [AccessRequest] = [], logins: [PhoneLogin] = [], devices: [PhoneDevice] = [],
+                practiceRequest: AccessRequest? = nil, deviceRequest: PhoneDeviceRequest? = nil) {
+        self.firstRun = firstRun; self.requests = requests; self.logins = logins; self.devices = devices
+        self.practiceRequest = practiceRequest; self.deviceRequest = deviceRequest
     }
 }
 
@@ -161,11 +177,12 @@ public protocol PhoneBackend: AnyObject {
     func join(invitation: String) async throws
     /// What iOS answered when asked about notifications.
     func notifications(allowed: Bool) async
-    /// First run's test request: Face ID proves the chip and the round trip.
-    func approveTest() async throws
-    func denyTest() async
-    /// Sends the test request again after it was denied or ran out.
+    /// Sends the practice request again after it was denied or ran out.
     func sendTestAgain() async
+    /// Done on "You're set up".
+    func finishFirstRun() async
+    func dismiss(_ notice: PhoneNotice) async
+    func setSettings(_ settings: PhoneSettings) async
     /// A new device's request to approve requests: Face ID signs it in.
     func approveDevice(_ id: String) async throws
     func denyDevice(_ id: String) async
@@ -247,18 +264,25 @@ public final class PhoneModel {
         try? await backend.join(invitation: invitation)
     }
 
-    /// iOS's own question, asked once, straight after joining.
+    /// What iOS now allows, read again each time the app comes to the front: he may
+    /// have turned notifications on in Settings, and first run then carries on by itself.
+    public func recheckNotifications() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.authorizationStatus != .notDetermined else { return }
+        let allowed = settings.authorizationStatus == .authorized
+        if snapshot.firstRun == .notificationsOff ? allowed : !allowed { await backend.notifications(allowed: allowed) }
+    }
+
+    /// iOS's own question, raised by Continue on the screen that says why.
     public func askAboutNotifications() async {
         let allowed = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         await backend.notifications(allowed: allowed)
     }
 
-    public func approveTest() async {
-        await answer(.approve) { try await backend.approveTest() }
-    }
-
-    public func denyTest() async { await backend.denyTest() }
     public func sendTestAgain() async { await backend.sendTestAgain() }
+    public func finishFirstRun() async { await backend.finishFirstRun(); tab = .activity }
+    public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
+    public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
 
     public func approveDevice(_ id: String) async {
         await answer(.approve) { try await backend.approveDevice(id) }
