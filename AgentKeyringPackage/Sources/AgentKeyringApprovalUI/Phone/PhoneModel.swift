@@ -264,6 +264,15 @@ public final class PhoneModel {
         try? await backend.join(invitation: invitation)
     }
 
+    /// What iOS now allows, read again each time the app comes to the front: he may
+    /// have turned notifications on in Settings, and first run then carries on by itself.
+    public func recheckNotifications() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.authorizationStatus != .notDetermined else { return }
+        let allowed = settings.authorizationStatus == .authorized
+        if snapshot.firstRun == .notificationsOff ? allowed : !allowed { await backend.notifications(allowed: allowed) }
+    }
+
     /// iOS's own question, raised by Continue on the screen that says why.
     public func askAboutNotifications() async {
         let allowed = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false

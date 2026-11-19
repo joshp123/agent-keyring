@@ -20,7 +20,10 @@ struct AgentKeyringPhoneApp: App {
             PhoneRootView(model: delegate.model)
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     // In front: follow the relay, or until joined keep looking for the Mac's invitation.
-                    if phase == .active { delegate.relay?.start() } else if phase == .background { delegate.relay?.stop() }
+                    if phase == .active {
+                        delegate.relay?.start()
+                        Task { await delegate.model.recheckNotifications() }
+                    } else if phase == .background { delegate.relay?.stop() }
                 }
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
                 .onOpenURL { url in Task { await delegate.model.join(invitation: url.absoluteString) } }
