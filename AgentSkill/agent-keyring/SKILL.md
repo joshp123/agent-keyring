@@ -59,49 +59,49 @@ How it fits together: the Mac holds the passwords and shows each request. Other 
 
 When you talk to the user, say "password", not "login"; "computer", not "machine"; and "Apple Watch" in full.
 
-**1. Give this Mac's agents the command and this skill.** On a new Mac nothing is on the path yet, so use the app's own command by its full path:
+**1. Give this Mac's agents the command and this skill.** Do this every time; it is safe to repeat. On a new Mac nothing is on the path yet, so use the app's own command by its full path:
 
 ```sh
 "/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" install
 ```
 
-This links `agent-keyring` into `~/.local/bin`, links this skill for Codex and Claude Code, and registers the browser extension's helper. If `command -v agent-keyring` still finds nothing, `~/.local/bin` is not on your path: in the steps below, use the full path wherever they say `agent-keyring` on this Mac. If `install` says a folder is read-only because something else manages it, such as a Nix or Home Manager configuration, tell the user what it said at the end, and carry on; don't change their configuration.
+This links `agent-keyring` into `~/.local/bin`, links this skill for Codex and Claude Code, and registers the browser extension's helper. If `command -v agent-keyring` still finds nothing, `~/.local/bin` is not on your path: in the steps below, use the full path wherever they say `agent-keyring` on this Mac. If `install` stops at a folder that is read-only because something else manages it, such as a Nix or Home Manager configuration, it has not registered the browser helper either: tell the user what it said at the end, and carry on; don't change their configuration.
 
 **2. See what is already done.** `agent-keyring relay-status` prints one of:
 
 - `not-started`: carry on with step 3.
 - `waiting`: a setup was started earlier and the computer that stays on never joined. Its link has expired; carry on with step 3, and step 5 starts it again.
-- `connected`: the computer that stays on is already set up. Skip its question in step 4, and after asking go to step 6.
+- `connected`: this Mac already reaches the relay, so the computer that stays on has joined. Skip its question in step 4, and after asking go to step 6.
 
 **3. Find out what you can before asking.** `agent-keyring machines` lists the computers on their Tailscale network, with this Mac first. For each other computer that is online, check over SSH whether it has the command and whether it runs the relay:
 
 ```sh
-ssh -o BatchMode=yes HOST 'command -v agent-keyring'
-ssh -o BatchMode=yes HOST "ps -axo command | grep '[a]gent-keyring-relay'"   # its address follows --listen
+ssh -o BatchMode=yes -o ConnectTimeout=5 HOST '$SHELL -lc "command -v agent-keyring"'
+ssh -o BatchMode=yes -o ConnectTimeout=5 HOST "ps -axo command | grep '[a]gent-keyring-relay'"   # its address follows --listen
 ```
 
-Use the address `machines` printed, or the user's own name for the computer if their `~/.ssh/config` has one. `BatchMode` makes a password prompt fail instead of waiting. A non-interactive SSH shell can have a shorter path than a terminal, so before you decide the command is missing, look for it in a login shell too. The relay's `--listen` address is always that computer's Tailscale IP and a port.
+For HOST, use the user's own name for the computer if their `~/.ssh/config` has one, and otherwise the address `machines` printed. `BatchMode` makes a password prompt fail instead of waiting; if `ssh` exits with status 255, it could not connect, and the problem is SSH, not the command. The first check runs a login shell, because a plain SSH command can have a shorter path: in the `enrol` commands below, use the full path it printed in place of `agent-keyring`. The relay's `--listen` address is always that computer's Tailscale IP and a port.
 
-What you need, and cannot provide yourself: SSH to each computer without a password; the `agent-keyring` command already installed on each one; and on the computer that stays on, the relay already running as a service. Agent Keyring cannot install itself on another computer yet. Today the only route is a Nix configuration with the `agent-keyring` and `agent-keyring-relay` packages from Agent Keyring's repository (github.com/joshp123/agent-keyring); the relay runs as a service with `--listen` set to the computer's Tailscale IP and a port. Don't install, copy or start anything on another computer yourself. Where something is missing, the user has to add it.
+What you need, and cannot provide yourself: SSH to each computer without a password; the `agent-keyring` command already installed on each one; and on the computer that stays on, the relay already running as a service. Agent Keyring cannot install itself on another computer yet. Today the only route is a Nix configuration with the `agent-keyring` and `agent-keyring-relay` packages from Agent Keyring's repository (github.com/joshp123/agent-keyring); the relay runs as a service with `--listen` set to the computer's Tailscale IP and a port. Apart from running `enrol` there, don't install, copy or start anything on another computer yourself. Where something is missing, the user has to add it.
 
-**4. Ask the user, once.** In one message, using what you found:
+**4. Ask the user, once.** In one message, using what you found, ask only what their request has not already told you:
 
 - Which other computers run agents that need your passwords?
 - Do you want to approve requests on your iPhone and Apple Watch?
 - "Requests reach your iPhone, and your other computers reach this Mac, through a computer of yours that stays on. Which one should that be?" Suggest the one already running the relay.
 
-Say what you will call each computer, as the user would name it ("Mac mini", "Linux server"), not its network name. Say what is missing on any computer they might pick, so they can choose with that in mind. If more than one relay runs on a computer, an older version is probably still running beside the current one: ask which address to use in the same message.
+Say what you will call each computer, as the user would name it ("Mac mini", "Linux server"), not its network name. Name the computers that cannot join yet, and what each lacks, so they don't pick one expecting it to work. If more than one relay runs on a computer, an older version is probably still running beside the current one: show the user both command lines and ask which is current, in the same message.
 
-If they want neither other computers nor the iPhone, this Mac is set up after step 1: tell them so and stop. If the computer that stays on lacks the command or the relay, nothing beyond this Mac can be set up yet: tell them what it needs and stop.
+If they want neither other computers nor the iPhone, this Mac is set up after step 1: tell them so and stop. If the computer that stays on lacks the command or the relay, nothing beyond this Mac can be set up yet: tell them what it needs and stop. Otherwise set up the computer that stays on even if none of the other computers they want can join yet: the iPhone and later computers need it.
 
-**5. Connect this Mac to the relay, and add the computer that stays on.** It joins even if no agents run on it; the Mac's setup finishes when it does. Use the address from `--listen`, and the computer's name in both places:
+**5. Connect this Mac to the relay, and add the computer that stays on.** That computer joins even if no agents run on it, and the relay works once it has. Give `--relay` the address after `--listen`, and use the computer's name in both `--reason` and `--name`:
 
 ```sh
-link=$(agent-keyring setup-relay --relay 100.64.0.1:17445 --reason "You asked me to set up Agent Keyring on Mac mini.")
+link=$(agent-keyring setup-relay --relay IP:PORT --reason "You asked me to set up Agent Keyring on Mac mini.")
 ssh HOST "agent-keyring enrol --name 'Mac mini' --invite '$link'"
 ```
 
-The link works for one computer, for ten minutes from when `setup-relay` printed it. `enrol` then waits, for up to ten minutes more, until the user approves on the Mac. Keep it running, in the background if your tool allows, and tell the user that a request to add that computer is waiting on their Mac. When `enrol` prints `Joined`, run `agent-keyring relay-status` every few seconds until it prints `connected`. If `enrol` ends without `Joined`, the request was denied or nobody answered: tell the user, and make a new link only if they want to try again.
+`setup-relay` prints the link straight away. The link works for one computer, for ten minutes. `enrol` then waits, for up to ten minutes more, until the user approves on the Mac. Keep it running, in the background if your tool allows, and tell the user that a request to add that computer is waiting on their Mac. When `enrol` prints `Joined`, run `agent-keyring relay-status` every few seconds until it prints `connected`. If `enrol` ends without `Joined`, the request was denied or nobody answered: tell the user, and make a new link only if they want to try again.
 
 **6. Add each other computer.** The same, with a new link for each:
 
