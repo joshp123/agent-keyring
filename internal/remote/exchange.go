@@ -242,9 +242,9 @@ func (c *Client) follow(ctx context.Context, leaseID string, receive func(*v1.Le
 // given, so it works for its window even if the relay cannot be reached, and
 // deletes it once the relay says the request has ended (a device can stop an
 // approval early).
-func (c *Client) keepApproval(ctx context.Context, state *clientstate.State, saved *clientstate.ExpectedRequest, now v1.LeaseState) {
+func (c *Client) keepApproval(ctx context.Context, state *clientstate.State, saved *clientstate.ExpectedRequest, current v1.LeaseState) {
 	switch {
-	case now == v1.LeaseState_LEASE_STATE_ACTIVE && len(saved.Approval) == 0:
+	case current == v1.LeaseState_LEASE_STATE_ACTIVE && len(saved.Approval) == 0:
 		members, err := c.members(ctx)
 		if err != nil {
 			return
@@ -260,10 +260,12 @@ func (c *Client) keepApproval(ctx context.Context, state *clientstate.State, sav
 		answer, _, _ := keyring.VerifiedAnswer(approval, members)
 		raw, _ := proto.Marshal(approval)
 		c.save(ctx, saved.Scope.RequestId, func(e *clientstate.ExpectedRequest) {
-			e.Approval, e.ApprovalNotAfterUnixSeconds = raw, answer.NotAfterUnixSeconds
+			if !e.Ended { // A release may have run meanwhile.
+				e.Approval, e.ApprovalNotAfterUnixSeconds = raw, answer.NotAfterUnixSeconds
+			}
 		})
 		saved.Approval, saved.ApprovalNotAfterUnixSeconds = raw, answer.NotAfterUnixSeconds
-	case now != v1.LeaseState_LEASE_STATE_ACTIVE && now != v1.LeaseState_LEASE_STATE_PENDING && len(saved.Approval) > 0:
+	case current != v1.LeaseState_LEASE_STATE_ACTIVE && current != v1.LeaseState_LEASE_STATE_PENDING && len(saved.Approval) > 0:
 		c.save(ctx, saved.Scope.RequestId, func(e *clientstate.ExpectedRequest) { e.Approval = nil })
 		saved.Approval = nil
 	}
