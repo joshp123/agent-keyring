@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/keyring"
@@ -124,5 +125,61 @@ func TestTheLargestRequestFitsInAPush(t *testing.T) {
 		t.Fatalf("the push is %d bytes; Apple carries 4096", size)
 	} else {
 		t.Logf("largest push: %d bytes", size)
+	}
+}
+
+// After the Apple Watch joins, its iPhone asks for a practice request for it;
+// only the Watch can answer it, and no other device can ask for one for it.
+func TestTheAppleWatchGetsItsOwnPracticeRequest(t *testing.T) {
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Store: store}
+	watchKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	watchPublic := elliptic.Marshal(elliptic.P256(), watchKey.X, watchKey.Y)
+	iphone := &pb.Device{KeyId: "iphone", Kind: pb.DeviceKind_DEVICE_KIND_IPHONE, Label: "iPhone"}
+	mac := &pb.Device{KeyId: "mac", Kind: pb.DeviceKind_DEVICE_KIND_MAC, Label: "MacBook Pro"}
+	watch := &pb.Device{KeyId: keyring.KeyID(watchPublic), Kind: pb.DeviceKind_DEVICE_KIND_WATCH, Label: "Apple Watch", SigningPublicKey: watchPublic}
+	store.members = &pb.Members{Devices: []*pb.Device{iphone, mac, watch}}
+	ignore := func(*pb.RelayResponse) error { return nil }
+	if err := s.testRequest(context.Background(), caller{device: mac}, watch.KeyId, ignore); err == nil {
+		t.Fatal("a Mac asked for a practice request for the Apple Watch")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	outcome := make(chan *pb.Lease, 1)
+	go s.testRequest(ctx, caller{device: iphone}, watch.KeyId, func(response *pb.RelayResponse) error {
+		if lease := response.GetLease(); lease.GetState() != pb.LeaseState_LEASE_STATE_WAITING {
+			outcome <- lease
+		}
+		return nil
+	})
+	var work *pb.Work
+	for deadline := time.Now().Add(5 * time.Second); work == nil && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		store.read(func(data *saved) {
+			for id, r := range data.Requests {
+				if r.ForDevice == watch.KeyId {
+					work, _ = s.work(watch, id, data)
+				}
+			}
+		})
+	}
+	if work == nil {
+		t.Fatal("no practice request for the Apple Watch")
+	}
+	now := time.Now()
+	payload, _ := proto.Marshal(&pb.Answer{Domain: keyring.AnswerDomain, RequestSha256: keyring.SHA256(work.Request), Choice: pb.Choice_CHOICE_APPROVE,
+		DecidedUnixSeconds: now.Unix(), NotAfterUnixSeconds: now.Unix() + 60})
+	byIPhone, _ := keyring.Sign(payload, "iphone", keyring.SoftwareSigner(watchKey))
+	if _, err := s.answer(ctx, caller{device: iphone}, &pb.AnswerUpload{Answer: byIPhone}); err == nil {
+		t.Fatal("another device answered the Apple Watch's practice request")
+	}
+	signed, _ := keyring.Sign(payload, watch.KeyId, keyring.SoftwareSigner(watchKey))
+	if _, err := s.answer(ctx, caller{device: watch}, &pb.AnswerUpload{Answer: signed}); err != nil {
+		t.Fatalf("the Apple Watch's answer: %v", err)
+	}
+	if lease := <-outcome; lease.State != pb.LeaseState_LEASE_STATE_APPROVED {
+		t.Fatalf("the iPhone saw %v", lease.State)
 	}
 }

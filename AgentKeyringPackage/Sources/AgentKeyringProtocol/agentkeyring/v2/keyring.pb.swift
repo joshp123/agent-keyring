@@ -1078,12 +1078,13 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     set {method = .pendingJoins(newValue)}
   }
 
-  /// Devices: a request with no login, for this device only, pushed like
-  /// any other. Streams Lease until it is answered or unanswered.
-  public var testRequest: Agentkeyring_V2_Empty {
+  /// Devices: a request with no login, for this device or (from its
+  /// iPhone) its Apple Watch, pushed like any other. Streams Lease until it
+  /// is answered or unanswered.
+  public var testRequest: Agentkeyring_V2_TestRequest {
     get {
       if case .testRequest(let v)? = method {return v}
-      return Agentkeyring_V2_Empty()
+      return Agentkeyring_V2_TestRequest()
     }
     set {method = .testRequest(newValue)}
   }
@@ -1161,9 +1162,10 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     case join(Agentkeyring_V2_JoinRequest)
     /// Devices: returns PendingJoins.
     case pendingJoins(Agentkeyring_V2_Empty)
-    /// Devices: a request with no login, for this device only, pushed like
-    /// any other. Streams Lease until it is answered or unanswered.
-    case testRequest(Agentkeyring_V2_Empty)
+    /// Devices: a request with no login, for this device or (from its
+    /// iPhone) its Apple Watch, pushed like any other. Streams Lease until it
+    /// is answered or unanswered.
+    case testRequest(Agentkeyring_V2_TestRequest)
     /// Devices: SelfTestReport, signed by the reply key.
     case reportSelfTest(Agentkeyring_V2_Signed)
     /// Devices and machines: returns SelfTests.
@@ -1310,6 +1312,21 @@ public nonisolated struct Agentkeyring_V2_Empty: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// The practice request (test_request). Empty for the calling device's own; an
+/// iPhone names its Apple Watch, which answers it with a signed Answer like
+/// any other.
+public nonisolated struct Agentkeyring_V2_TestRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var forDeviceKeyID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1527,7 +1544,11 @@ public nonisolated struct Agentkeyring_V2_JoinRefusal: Sendable {
 /// service "com.joshpalmer.AgentKeyring.invitation", account "relay", value
 /// this message serialized), and gives it to an agent setting up a machine as
 /// "agentkeyring://join?invite=" followed by this message in base64url. Each
-/// secret admits one joiner; the inviting device then issues a new one.
+/// secret admits one joiner; the inviting device then issues a new one. From
+/// the start of the Mac's first run until a computer that stays on exists, the
+/// item holds only inviter_key_id and inviter_label: no relay and no secret.
+/// So no item means no Mac yet; a name only means the Mac is set up but has no
+/// computer that stays on yet; a full one is an invitation to join.
 public nonisolated struct Agentkeyring_V2_JoinInvite: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2946,7 +2967,7 @@ nonisolated extension Agentkeyring_V2_RelayRequest: SwiftProtobuf.Message, Swift
         }
       }()
       case 20: try {
-        var v: Agentkeyring_V2_Empty?
+        var v: Agentkeyring_V2_TestRequest?
         var hadOneofValue = false
         if let current = self.method {
           hadOneofValue = true
@@ -3392,6 +3413,36 @@ nonisolated extension Agentkeyring_V2_Empty: SwiftProtobuf.Message, SwiftProtobu
   }
 
   public static func ==(lhs: Agentkeyring_V2_Empty, rhs: Agentkeyring_V2_Empty) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V2_TestRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".TestRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}for_device_key_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.forDeviceKeyID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.forDeviceKeyID.isEmpty {
+      try visitor.visitSingularStringField(value: self.forDeviceKeyID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V2_TestRequest, rhs: Agentkeyring_V2_TestRequest) -> Bool {
+    if lhs.forDeviceKeyID != rhs.forDeviceKeyID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

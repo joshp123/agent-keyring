@@ -512,7 +512,7 @@ func (d *device) answer(ctx context.Context, approve bool, deny string, denyPlai
 // request, approves it with a signed answer and no delivery, and reports.
 func (d *device) selfTest(ctx context.Context) error {
 	outcome := make(chan *pb.Lease, 1)
-	go d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_TestRequest{TestRequest: &pb.Empty{}}}, nil, func(response *pb.RelayResponse) bool {
+	go d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_TestRequest{TestRequest: &pb.TestRequest{}}}, nil, func(response *pb.RelayResponse) bool {
 		if lease := response.GetLease(); lease != nil && lease.State != pb.LeaseState_LEASE_STATE_WAITING {
 			outcome <- lease
 			return false

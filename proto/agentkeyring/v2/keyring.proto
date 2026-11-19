@@ -347,9 +347,10 @@ message RelayRequest {
     // Joining: a machine or device not yet in Members. Streams JoinStatus.
     JoinRequest join = 18;
     Empty pending_joins = 19;              // Devices: returns PendingJoins.
-    // Devices: a request with no login, for this device only, pushed like
-    // any other. Streams Lease until it is answered or unanswered.
-    Empty test_request = 20;
+    // Devices: a request with no login, for this device or (from its
+    // iPhone) its Apple Watch, pushed like any other. Streams Lease until it
+    // is answered or unanswered.
+    TestRequest test_request = 20;
     Signed report_self_test = 21;          // Devices: SelfTestReport, signed by the reply key.
     Empty self_tests = 22;                 // Devices and machines: returns SelfTests.
     // Devices and machines: every Members revision after this one, oldest
@@ -380,6 +381,13 @@ message RelayResponse {
 }
 
 message Empty {}
+
+// The practice request (test_request). Empty for the calling device's own; an
+// iPhone names its Apple Watch, which answers it with a signed Answer like
+// any other.
+message TestRequest {
+  string for_device_key_id = 1;
+}
 
 message RequestReference {
   string request_id = 1;
@@ -467,7 +475,11 @@ message JoinRefusal {
 // service "com.joshpalmer.AgentKeyring.invitation", account "relay", value
 // this message serialized), and gives it to an agent setting up a machine as
 // "agentkeyring://join?invite=" followed by this message in base64url. Each
-// secret admits one joiner; the inviting device then issues a new one.
+// secret admits one joiner; the inviting device then issues a new one. From
+// the start of the Mac's first run until a computer that stays on exists, the
+// item holds only inviter_key_id and inviter_label: no relay and no secret.
+// So no item means no Mac yet; a name only means the Mac is set up but has no
+// computer that stays on yet; a full one is an invitation to join.
 message JoinInvite {
   string relay_host = 1;
   uint32 relay_port = 2;
