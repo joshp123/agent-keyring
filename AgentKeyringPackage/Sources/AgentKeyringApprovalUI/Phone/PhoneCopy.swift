@@ -163,7 +163,7 @@ public enum PhoneCopy {
     public static let addAppleWatchDetail = "Open Agent Keyring on your Apple Watch to approve from your wrist."
     public static let stillConnecting = "This iPhone is still connecting. Until it finishes, requests appear only while Agent Keyring is open."
     public static func relayOffline(_ name: String?) -> String {
-        // Not in Paper without a name: the relay's computer is not yet named in what the iPhone receives.
+        // Paper names the computer (Members.relay_machine_id); the words without a name are for a relay that names none.
         "\(name ?? "The computer that passes on your requests") is offline. Check that it is turned on and connected."
     }
     public static func notice(_ notice: PhoneNotice) -> String {

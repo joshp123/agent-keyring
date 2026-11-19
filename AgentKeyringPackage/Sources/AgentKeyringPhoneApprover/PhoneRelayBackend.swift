@@ -144,7 +144,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         let devices = members.devices.map { device in
             PhoneDevice(id: device.keyID, name: device.label, detail: detail(Self.howItApproves(device.kind), ready: readyDevices.contains(device.keyID)),
                         role: .approves, isThisIPhone: device.keyID == mine)
-        } + members.machines.map { PhoneDevice(id: $0.machineID, name: $0.label, detail: detail(nil, ready: readyDevices.contains($0.machineID)), role: .asks) }
+        } + members.machines.map { machine in
+            // The computer that stays on passes requests to the iPhone and Apple Watch.
+            let passes = machine.machineID == members.relayMachineID ? PhoneCopy.passesRequests : nil
+            return PhoneDevice(id: machine.machineID, name: machine.label, detail: detail(passes, ready: readyDevices.contains(machine.machineID)), role: .asks)
+        }
         let pendingWatch = state.watchDevice.flatMap { try? Agentkeyring_V2_Device(serializedBytes: $0) }
         var snapshot = PhoneSnapshot(firstRun: firstRun, requests: requests, logins: logins, devices: devices)
         snapshot.joined = true
@@ -183,7 +187,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// One sentence in Activity for what needs him, after first run.
     private func notices(members: Members, pendingWatch: Agentkeyring_V2_Device?) -> [PhoneNotice] {
         var notices: [PhoneNotice] = []
-        if connectionFailed != nil { notices.append(.relayOffline(nil)) }
+        if connectionFailed != nil { notices.append(.relayOffline(members.machines.first { $0.machineID == members.relayMachineID }?.label)) }
         else if noPushAddress && !pushRegistered && !state.pushSeen { notices.append(.stillConnecting) }
         if watchPaired, pendingWatch == nil, !members.devices.contains(where: { $0.kind == .watch }), state.watchCardDismissed != true {
             notices.append(.addAppleWatch)
