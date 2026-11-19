@@ -333,6 +333,13 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 		return send(&pb.RelayResponse{Result: &pb.RelayResponse_SealedLogins{SealedLogins: s.sealedFor(who.device.KeyId)}, EndOfStream: true})
 	case *pb.RelayRequest_Join:
 		return s.join(ctx, who, method.Join, send)
+	case *pb.RelayRequest_RefuseJoin:
+		// The Mac refuses the computer that stays on before it has joined
+		// itself; the key, not the caller, says who may.
+		if err := s.refuseJoin(method.RefuseJoin); err != nil {
+			return err
+		}
+		return send(done())
 	case *pb.RelayRequest_PendingJoins:
 		// Before anyone has set the relay up, the first device sees the
 		// machine it is setting up beside it; a join shows nowhere without a

@@ -38,7 +38,7 @@ public final class AdditionBackend: MacApprovalBackend {
                 agent: RequestingAgent(name: setup.agent, machine: "This Mac", address: "", isLocal: true),
                 access: .setUp(lead: SetupCopy.addingComputerLead(agent: setup.agent), detail: "",
                     footer: SetupCopy.addingComputerFooter(machine.label, staysOn: true), denied: SetupCopy.notAdded(machine.label),
-                    replies: true),
+                    replies: setup.refusable),
                 agentReason: setup.reason, askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
         } else if let join = device.joins.first(where: { MacDevice.joinID($0) == id }) {
             let asked = Date(timeIntervalSince1970: TimeInterval(join.askedUnixSeconds))
@@ -56,7 +56,7 @@ public final class AdditionBackend: MacApprovalBackend {
                     agent: RequestingAgent(name: "An agent", machine: machine.label, address: "", isLocal: false),
                     access: .setUp(lead: SetupCopy.addingLead, detail: "",
                         footer: SetupCopy.addingComputerFooter(machine.label, staysOn: false), denied: SetupCopy.notAdded(machine.label),
-                        replies: false),
+                        replies: !join.request.refusalKeySha256.isEmpty),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case nil: request = nil
             }
@@ -102,8 +102,11 @@ public final class AdditionBackend: MacApprovalBackend {
 
     public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         cancelAuthentication(requestID: requestID)
-        if requestID == Self.setupID { model.device?.abandonSetup() } else { model.device?.hideJoin(requestID) }
-        let state = AccessRequestState.denied(by: .mac, reply: nil, askAgainAfter: nil)
+        let told = requestID == Self.setupID
+            ? await model.device?.refuseSetup(reply: reply ?? "") ?? false
+            : await model.device?.refuseJoin(requestID, reply: reply ?? "") ?? false
+        // The words show as sent only if the waiting agent will get them.
+        let state = AccessRequestState.denied(by: .mac, reply: told ? reply : nil, askAgainAfter: nil)
         answered[requestID] = state
         return state
     }

@@ -145,4 +145,13 @@ struct SealingTests {
         #expect(Sealing.joinProof(secret: Data(repeating: 1, count: 32), joining: joining) == joining.proof)
         #expect(Sealing.joinProof(secret: Data(repeating: 2, count: 32), joining: joining) != joining.proof)
     }
+
+    @Test("A refusal made in Go checks in Swift")
+    func refusalFromGo() throws {
+        let refusal = try Agentkeyring_V2_JoinRefusal(serializedBytes: Data(contentsOf: Self.folder.appending(path: "go-refusal.pb")))
+        let secret = Data(repeating: 1, count: 32)
+        #expect(Sealing.refusalKey(secret: secret, machineID: refusal.joinerID) == refusal.key)
+        #expect(Sealing.refusalReplyProof(secret: secret, machineID: refusal.joinerID, reply: refusal.reply) == refusal.replyProof)
+        #expect(Sealing.refusalReplyProof(secret: secret, machineID: refusal.joinerID, reply: "Something else.") != refusal.replyProof)
+    }
 }

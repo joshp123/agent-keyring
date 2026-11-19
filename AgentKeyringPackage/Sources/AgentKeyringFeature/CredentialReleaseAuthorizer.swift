@@ -89,6 +89,9 @@ public enum OwnerConfirmation {
     public static func confirm(_ context: LAContext, reason: String, until deadline: Date) async throws {
         try Task.checkCancellation()
         guard deadline > Date() else { throw CredentialReleaseAuthorizationError.expired }
+        #if DEBUG
+        if StandInKey.isOn { return }
+        #endif
         context.touchIDAuthenticationAllowableReuseDuration = 0
         context.localizedFallbackTitle = ""
         context.localizedCancelTitle = "Cancel"

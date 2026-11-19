@@ -12,7 +12,7 @@ import AppKit
 import SwiftUI
 
 public enum FirstRunStep: Hashable, Sendable {
-    /// Copy your passwords from Passwords, with the link "Agent Keyring isn't in the list?".
+    /// Copy from the Passwords app, with the link "Don't see Agent Keyring in Passwords?".
     case export
     /// From that link: one Continue, which raises macOS's AutoFill question.
     case autoFill(canAsk: Bool)
@@ -23,6 +23,10 @@ public enum FirstRunStep: Hashable, Sendable {
     case copying
     /// The practice request is beside the pointer; `denied` after he denied it.
     case practice(passwords: Int, denied: Bool)
+    /// In place of the practice step: Touch ID has no fingerprint and no Apple Watch can approve.
+    case needsFingerprint
+    /// In place of the practice step: the lid is shut, so Touch ID is off.
+    case lidClosed
     case setUp(agentLine: String)
 }
 
@@ -34,17 +38,19 @@ public struct MacFirstRunView: View {
     let showAutoFill: () -> Void
     let askForAutoFill: () -> Void
     let tryAgain: () -> Void
+    let openTouchIDSettings: () -> Void
     let done: () -> Void
 
     public init(step: FirstRunStep, problem: String? = nil, openPasswords: @escaping () -> Void = {},
         showAutoFill: @escaping () -> Void = {}, askForAutoFill: @escaping () -> Void = {},
-        tryAgain: @escaping () -> Void = {}, done: @escaping () -> Void = {}) {
+        tryAgain: @escaping () -> Void = {}, openTouchIDSettings: @escaping () -> Void = {}, done: @escaping () -> Void = {}) {
         self.step = step
         self.problem = problem
         self.openPasswords = openPasswords
         self.showAutoFill = showAutoFill
         self.askForAutoFill = askForAutoFill
         self.tryAgain = tryAgain
+        self.openTouchIDSettings = openTouchIDSettings
         self.done = done
     }
 
@@ -68,7 +74,7 @@ public struct MacFirstRunView: View {
         case .export: 520
         case .setUp: 500
         case .autoFill: 420
-        case .autoFillNotNow, .noneArrived, .copying, .practice: 400
+        case .autoFillNotNow, .noneArrived, .copying, .practice, .needsFingerprint, .lidClosed: 400
         }
     }
 
@@ -112,6 +118,11 @@ public struct MacFirstRunView: View {
         case .noneArrived:
             Sentence(FirstRunCopy.noneArrived)
             WideButton(title: FirstRunCopy.openPasswords, action: openPasswords)
+        case .needsFingerprint:
+            Sentence(FirstRunCopy.needsFingerprint)
+            WideButton(title: FirstRunCopy.openSystemSettings, action: openTouchIDSettings)
+        case .lidClosed:
+            Sentence(FirstRunCopy.openTheLid)
         case .copying:
             Header(mark: .app(44), title: FirstRunCopy.copying, titleSize: 22, sentence: nil)
             ProgressView().controlSize(.small)

@@ -18,6 +18,35 @@ final class AgentKeyringPresentation {
 
     func requestAccessWindow() { requestMainWindow(.logins) }
 
+    @ObservationIgnored private var tip: NSPanel?
+
+    /// After first run's Done: "Agent Keyring stays here." under the menu bar
+    /// icon for a few seconds. It takes no clicks and never activates the app.
+    func showMenuBarTip() {
+        guard tip == nil, let item = NSApp.windows.first(where: { String(describing: type(of: $0)).contains("NSStatusBarWindow") })
+        else { return }
+        let hosting = NSHostingView(rootView: MenuBarTipView())
+        let size = hosting.fittingSize
+        let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered, defer: false)
+        panel.contentView = hosting
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = .statusBar
+        let icon = item.frame
+        // The view has 16 points of room around the bubble for its shadow.
+        panel.setFrameOrigin(NSPoint(x: icon.midX - size.width / 2, y: icon.minY - 6 + 16 - size.height))
+        panel.orderFrontRegardless()
+        tip = panel
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            self?.tip?.orderOut(nil)
+            self?.tip = nil
+        }
+    }
+
 
 }
 
@@ -63,7 +92,7 @@ struct AgentKeyringMenuBarLabel: View {
     let menuBar: MacMenuBarModel
 
     var body: some View {
-        MacMenuBarLabel(waitingCount: menuBar.attentionCount)
+        MacMenuBarLabel()
             .accessibilityIdentifier("agent-keyring-menu")
             .onChange(of: presentation.mainWindowRequest, initial: true) { _, request in
                 guard request > 0 else { return }

@@ -21,6 +21,8 @@ enum RequestToken {
     static let deny = Color(light: 0xD5302A, dark: 0xE5453D)
     /// Links, such as "Agent Keyring isn't in the list?".
     static let brand = Color(light: 0x1447E6, dark: 0x5B8CFF)
+    /// A finished request that was neither approved nor denied, in lists.
+    static let idle = Color(light: 0xB4B4BC, dark: 0x6E6E76)
     static let onAnswer = Color.white
     static let width: CGFloat = 420
     static let radius: CGFloat = 18
@@ -155,10 +157,10 @@ struct MacApprovalPanelView: View {
             // ImageRenderer cannot draw a text field; the off-screen check shows its placeholder.
             Group {
                 if ReviewRendering.isOn && model.replyDraft.isEmpty {
-                    Text(AccessRequestCopy.replyPlaceholder(agent)).foregroundStyle(RequestToken.ink2).lineLimit(1)
+                    Text(placeholder).foregroundStyle(RequestToken.ink2).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    TextField(AccessRequestCopy.replyPlaceholder(agent), text: $model.replyDraft).textFieldStyle(.plain)
+                    TextField(placeholder, text: $model.replyDraft).textFieldStyle(.plain)
                 }
             }
                 .font(.system(size: 14)).foregroundStyle(RequestToken.ink)
@@ -196,20 +198,44 @@ struct MacApprovalPanelView: View {
     }
 
     private var touchIDAvailable: Bool {
-        LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        canAsk(LAContext(), .deviceOwnerAuthenticationWithBiometrics)
     }
 
     private enum Approver { case touchID, watch, none }
 
     private var approver: Approver {
         let context = LAContext()
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) { return .touchID }
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithCompanion, error: nil) ? .watch : .none
+        if canAsk(context, .deviceOwnerAuthenticationWithBiometrics) { return .touchID }
+        return canAsk(context, .deviceOwnerAuthenticationWithCompanion) ? .watch : .none
     }
 
     /// One green button. Clicking it opens macOS's Touch ID or Apple Watch
     /// dialog; while that is up, the button is outlined and says what to do.
-    private var approveLine: some View {
+    /// "What should Codex do instead?", or "What should it do instead?" when
+    /// the agent's name would not fit beside Deny.
+    private var placeholder: String {
+        let full = AccessRequestCopy.replyPlaceholder(agent)
+        let deny = (AccessRequestCopy.deny as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold)]).width + 36
+        let room = RequestToken.width - 40 - 8 - deny - 32
+        let needed = (full as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
+        return needed <= room ? full : AccessRequestCopy.replyPlaceholderShort
+    }
+
+    @ViewBuilder private var approveLine: some View {
+        if model.lidClosed {
+            VStack(spacing: 1) {
+                Text(model.approvesElsewhere ? AccessRequestCopy.approveElsewhere : AccessRequestCopy.openTheLid)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                Text(AccessRequestCopy.lidClosed).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+        } else {
+            greenButton
+        }
+    }
+
+    private var greenButton: some View {
         Button { model.approve() } label: {
             Text(approveText)
                 .font(.system(size: 13, weight: .semibold))
@@ -315,11 +341,15 @@ public enum ReviewRendering {
         func allowAskingAgain(requestID: String) async throws -> AccessRequestState { request.state }
     }
 
-    /// `waiting`: as while macOS's dialog is open.
-    @MainActor public static func panel(_ request: AccessRequest, reply: String = "", waiting: Bool = false) -> some View {
+    /// `waiting`: as while macOS's dialog is open. `lidClosed` and
+    /// `approvesElsewhere` as `ApprovalPresenter` sets them.
+    @MainActor public static func panel(_ request: AccessRequest, reply: String = "", waiting: Bool = false,
+        lidClosed: Bool = false, approvesElsewhere: Bool = false) -> some View {
         isOn = true
         let model = MacApprovalModel(request: request, backend: Backend(request))
         model.replyDraft = reply
+        model.lidClosed = lidClosed
+        model.approvesElsewhere = approvesElsewhere
         if waiting { model.approve() }
         return MacApprovalPanelView(model: model)
     }

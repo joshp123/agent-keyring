@@ -6,6 +6,7 @@
 // always there: type a reply first, then Deny sends it.
 
 #if os(macOS)
+import AgentKeyringApprovalCore
 import AppKit
 import LocalAuthentication
 import LocalAuthenticationEmbeddedUI
@@ -58,6 +59,10 @@ public final class MacApprovalModel {
     public private(set) var failure: String?
     /// True from the click on Approve until Josh confirms in macOS's dialog.
     public private(set) var isWaitingForTouch = false
+    /// The lid is shut, so Touch ID is off. Set by whoever shows the panel.
+    public var lidClosed = false
+    /// The iPhone or Apple Watch also has this request, so it can be answered there.
+    public var approvesElsewhere = false
     /// Called when Josh is done with the panel.
     public var close: () -> Void = {}
     /// Called once the request has an answer, from here or elsewhere.
@@ -166,7 +171,15 @@ public final class MacApprovalModel {
 
 /// Touch ID when the lid is open, otherwise the Watch.
 public func ownerApprovalSymbol(_ context: LAContext = LAContext()) -> String {
-    context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) ? "touchid" : "applewatch"
+    canAsk(context, .deviceOwnerAuthenticationWithBiometrics) ? "touchid" : "applewatch"
+}
+
+/// Whether macOS can ask for this policy now; always, with the stand-in key.
+func canAsk(_ context: LAContext, _ policy: LAPolicy) -> Bool {
+    #if DEBUG
+    if StandInKey.isOn { return true }
+    #endif
+    return context.canEvaluatePolicy(policy, error: nil)
 }
 
 /// The approve button outside the request panel: a click starts macOS's own

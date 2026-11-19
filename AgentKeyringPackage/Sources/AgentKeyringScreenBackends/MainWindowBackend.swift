@@ -50,11 +50,19 @@ public final class AppMainWindowBackend: MainWindowBackend {
     /// One Touch ID for every change, with our sentence in macOS's dialog.
     public func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws {
         let rows = model.accessControl.rows.filter { changes[$0.id] != nil }
+        let automatic = rows.filter { changes[$0.id] == .automatic }
+        let computers = ["this Mac"] + (model.device?.members?.machines ?? [])
+            .filter { $0.machineID != model.device?.ownMachineID }.map(\.label)
+        func site(_ row: AccessCredentialRow) -> String { row.website.isEmpty ? row.title : row.website }
         let reason: String
-        if rows.count == 1, let row = rows.first, let next = changes[row.id] {
-            reason = "change \(row.website.isEmpty ? row.title : row.website) from \(LoginRule(row.policy).name) to \(next.name)"
+        if automatic.count == 1, let row = automatic.first {
+            reason = MainWindowCopy.automaticReason(computers, site: site(row))
+        } else if automatic.count > 1 {
+            reason = MainWindowCopy.automaticReason(computers, count: automatic.count)
+        } else if rows.count == 1, let row = rows.first, let next = changes[row.id] {
+            reason = MainWindowCopy.changeReason(site: site(row), from: LoginRule(row.policy).name, to: next.name)
         } else {
-            reason = "change the rules for \(rows.count) passwords"
+            reason = MainWindowCopy.changeReason(count: rows.count)
         }
         try await confirmed { try await OwnerConfirmation.confirm(context, reason: reason, until: .now.addingTimeInterval(600)) }
         await model.accessControl.setPolicies(changes.mapValues(CredentialAccessPolicy.init), context: context)

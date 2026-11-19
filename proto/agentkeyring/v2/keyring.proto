@@ -71,6 +71,9 @@ message Members {
   repeated Device devices = 3;
   repeated Machine machines = 4;
   bytes relay_tls_public_key = 5;  // SPKI DER; machines and devices pin it.
+  // The machine that runs the relay and passes requests on to the iPhone and
+  // Apple Watch (the computer that stays on). Empty until one is added.
+  string relay_machine_id = 6;
 }
 
 message Device {
@@ -347,6 +350,8 @@ message RelayRequest {
     // first, so each can be checked against the one before. Returns
     // MembersChain.
     uint64 members_since = 24;
+    // The inviting device, joined or not: refuses a machine's join. Returns Done.
+    JoinRefusal refuse_join = 25;
   }
 }
 
@@ -446,6 +451,25 @@ message JoinRequest {
   // Strings as UTF-8. A device shows only a join whose proof checks against
   // an invitation it issued; the relay cannot make one.
   bytes proof = 3;
+  // A machine: SHA-256 of its refusal key, HMAC-SHA256 under
+  // JoinInvite.secret over "agentkeyring.refusal.v2", "key", machine_id
+  // (each part length-prefixed as in proof). Only the inviter can refuse
+  // the join, by sending that key; empty means it cannot be refused.
+  bytes refusal_key_sha256 = 4;
+}
+
+// The inviting device refuses a machine's join, with words for the agent
+// waiting on it. The relay takes it only if SHA-256(key) is the join's
+// refusal_key_sha256, and ends the join with JOIN_STATE_REFUSED and this.
+// The joiner shows the words only if reply_proof is HMAC-SHA256 under
+// JoinInvite.secret over "agentkeyring.refusal.v2", "reply", machine_id,
+// reply: the relay sees the key but never the secret, so it cannot change
+// them.
+message JoinRefusal {
+  string joiner_id = 1;            // Machine.machine_id.
+  bytes key = 2;
+  string reply = 3;
+  bytes reply_proof = 4;
 }
 
 // An invitation from an approving device. The Mac keeps the current one in
@@ -492,13 +516,14 @@ message JoinStatus {
   // Approved: the Members that lists the joiner. Check it is signed and lists
   // exactly the keys sent, then pin it and its relay key.
   Signed members = 2;
+  JoinRefusal refusal = 3;         // Refused: the inviter's words, if its proof checks.
 }
 
 enum JoinState {
   JOIN_STATE_UNSPECIFIED = 0;
   JOIN_STATE_WAITING = 1;          // Shown on the devices; nobody has answered.
   JOIN_STATE_APPROVED = 2;
-  JOIN_STATE_REFUSED = 3;
+  JOIN_STATE_REFUSED = 3;          // The inviter refused it (refuse_join).
   JOIN_STATE_EXPIRED = 4;          // Ten minutes passed.
 }
 

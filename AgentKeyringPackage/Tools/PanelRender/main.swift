@@ -33,6 +33,30 @@ let addPhone = AccessRequest(id: "p", login: RequestedLogin(site: "iPhone 17 Pro
         footer: SetupCopy.addingDeviceFooter(watch: false), denied: SetupCopy.notAdded("iPhone 17 Pro"), replies: false),
     agentReason: "", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
 var computerDenied = addComputer; computerDenied.state = .denied(by: .mac, reply: nil, askAgainAfter: nil)
+let invited = AccessRequest(id: "i", login: RequestedLogin(site: "Mac mini", account: ""),
+    agent: RequestingAgent(name: "An agent", machine: "Mac mini", address: ""),
+    access: .setUp(lead: SetupCopy.addingLead, detail: "",
+        footer: SetupCopy.addingComputerFooter("Mac mini", staysOn: false), denied: SetupCopy.notAdded("Mac mini"), replies: false),
+    agentReason: "", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
+var longName = request; longName.agent.name = "Research Assistant for Bookkeeping"
+func at(_ hour: Int, _ minute: Int) -> Date { Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: .now)! }
+func row(_ site: String, _ agent: String, _ computer: String?, _ hour: Int, _ minute: Int, _ state: AccessRequestState, project: String? = nil, automatic: Bool = false) -> AccessRequest {
+    AccessRequest(id: site + agent + "\(hour)", login: RequestedLogin(site: site, account: "josh@example.com"),
+        agent: RequestingAgent(name: agent, machine: computer ?? "", address: "", project: project, isLocal: computer == nil),
+        access: .login, agentReason: "", askedAt: at(hour, minute), state: state, byAutomaticRule: automatic)
+}
+let earlier = [row("shop.example", "Claude Code", nil, 13, 40, .released(at: at(13, 50))),
+    row("forum.example", "Codex", "Linux server", 13, 12, .denied(by: .mac, reply: nil, askAgainAfter: nil)),
+    row("example.com", "Codex", "Mac mini", 11, 5, .unanswered),
+    row("news.example", "Codex", "Mac mini", 9, 30, .released(at: at(9, 31)), automatic: true)]
+final class MenuStub: MacMenuBarBackend {
+    func updates() -> AsyncStream<MacMenuBarSnapshot> { AsyncStream { $0.finish() } }
+    func endAccess(requestID: String) async throws -> AccessRequestState { .cancelled }
+    func allowAskingAgain(requestID: String) async throws -> AccessRequestState { .cancelled }
+}
+@MainActor func menu(_ snapshot: MacMenuBarSnapshot) -> AnyView {
+    AnyView(MacMenuBarView(model: MacMenuBarModel(backend: MenuStub(), initial: snapshot)).clipShape(.rect(cornerRadius: 16)))
+}
 let cases: [(String, AnyView)] = [
     ("waiting", AnyView(ReviewRendering.panel(request))),
     ("waiting-for-touch", AnyView(ReviewRendering.panel(request, waiting: true))),
@@ -45,6 +69,10 @@ let cases: [(String, AnyView)] = [
     ("add-computer", AnyView(ReviewRendering.panel(addComputer))),
     ("add-computer-denied", AnyView(ReviewRendering.panel(computerDenied))),
     ("add-iphone", AnyView(ReviewRendering.panel(addPhone))),
+    ("add-computer-without-agent", AnyView(ReviewRendering.panel(invited))),
+    ("long-agent-name", AnyView(ReviewRendering.panel(longName))),
+    ("lid-closed-elsewhere", AnyView(ReviewRendering.panel(request, lidClosed: true, approvesElsewhere: true))),
+    ("practice-lid-closed", AnyView(ReviewRendering.panel(practice, lidClosed: true))),
     ("practice", AnyView(ReviewRendering.panel(practice))),
     ("practice-after-click", AnyView(ReviewRendering.panel(practice, waiting: true))),
     ("practice-approved", AnyView(ReviewRendering.panel(practiceApproved))),
@@ -56,6 +84,9 @@ let cases: [(String, AnyView)] = [
     ("first-run-2-practice", AnyView(MacFirstRunView(step: .practice(passwords: 542, denied: false)))),
     ("first-run-2-practice-denied", AnyView(MacFirstRunView(step: .practice(passwords: 542, denied: true)))),
     ("first-run-3-set-up", AnyView(MacFirstRunView(step: .setUp(agentLine: agentLine)))),
+    ("first-run-needs-fingerprint", AnyView(MacFirstRunView(step: .needsFingerprint))),
+    ("first-run-lid-closed", AnyView(MacFirstRunView(step: .lidClosed))),
+    ("menu-bar-tip", AnyView(MenuBarTipView())),
 ]
 final class StubBackend: MainWindowBackend {
     func updates() -> AsyncStream<MainSnapshot> { AsyncStream { $0.finish() } }
@@ -84,6 +115,11 @@ let everything = MainSnapshot(logins: logins, importedAt: .now,
 }
 MainActor.assumeIsolated {
     let windows: [(String, AnyView)] = [
+        ("menu-bar-open", menu(MacMenuBarSnapshot(requests: [
+            row("example.com", "Codex", "Mac mini", 14, 1, .waitingForYou(until: .now.addingTimeInterval(500)), project: "bookkeeping"),
+            row("example.org", "Claude Code", nil, 14, 2, .approved(by: .mac, until: at(14, 32)))] + earlier, passwordCount: 542))),
+        ("menu-bar-nothing", menu(MacMenuBarSnapshot(requests: earlier, passwordCount: 542))),
+        ("menu-bar-offline", menu(MacMenuBarSnapshot(requests: earlier, offlineComputer: "Mac mini", passwordCount: 542))),
         ("devices-this-mac-only", mainWindow(alone, tab: .devices)),
         ("devices-everything", mainWindow(everything, tab: .devices)),
         ("passwords-rule-bar-automatic", mainWindow(everything, tab: .logins, makeAutomatic: true)),

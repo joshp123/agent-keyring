@@ -59,6 +59,9 @@ public enum FirstRunCopy {
 
     public static let noneArrived = "No passwords copied yet. In Passwords, choose File > Export All Items to App, then Agent Keyring."
     public static let copying = "Copying your passwords…"
+    public static let needsFingerprint = "Add a fingerprint in System Settings to approve requests on this Mac."
+    public static let openSystemSettings = "Open System Settings"
+    public static let openTheLid = "Open the lid to approve with Touch ID."
 
     // When the passwords arrive
     public static func copied(_ count: Int) -> String { count == 1 ? "1 password copied" : "\(count) passwords copied" }
@@ -76,6 +79,8 @@ public enum FirstRunCopy {
     public static let copy = "Copy"
     public static let copied = "Copied"
     public static let done = "Done"
+    /// Under the menu bar icon after Done.
+    public static let staysHere = "Agent Keyring stays here."
 
     /// The line Josh pastes into an agent: something it can run on a Mac where
     /// nothing is installed yet, which prints the skill.
@@ -140,11 +145,22 @@ public enum MainWindowCopy {
     public static let watchApproves = "One tap"
     public static let staysOn = "Passes requests to iPhone and Apple Watch"
     public static let ready = "Ready"
-    /// After "Agent Keyring is trying to"; `computer` is nil for this Mac.
+    // macOS's dialog, after "Agent Keyring is trying to" (page "The request", board "On the Mac").
+    /// The Automatic switch in Devices; `computer` is nil for this Mac.
     public static func automaticReason(_ computer: String?, on: Bool) -> String {
         let name = computer ?? "this Mac"
-        return on ? "let \(name) get Automatic passwords" : "stop \(name) getting Automatic passwords"
+        return on ? "let agents on \(name) use your Automatic passwords without asking"
+            : "stop agents on \(name) using your Automatic passwords"
     }
+    /// Making one password Automatic, naming every computer that will get it.
+    public static func automaticReason(_ computers: [String], site: String) -> String {
+        "let agents on \(list(computers)) use your \(site) password without asking"
+    }
+    public static func automaticReason(_ computers: [String], count: Int) -> String {
+        "let agents on \(list(computers)) use \(count) passwords without asking"
+    }
+    public static func changeReason(site: String, from: String, to: String) -> String { "change \(site) from \(from) to \(to)" }
+    public static func changeReason(count: Int) -> String { "change the rules for \(count) passwords" }
     public static let toAdd = "To add a computer, iPhone or Apple Watch, paste this into any agent on this Mac."
 
     /// "a", "a and b", "a, b and c".

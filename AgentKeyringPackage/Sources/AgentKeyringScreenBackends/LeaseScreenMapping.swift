@@ -33,7 +33,8 @@ public enum LeaseScreenMapping {
             agentReason: lease.reason,
             askedAt: date(lease.requestedAtUnixSeconds),
             state: state(lease),
-            events: events(lease, agentName: agentName, machine: machine))
+            events: events(lease, agentName: agentName, machine: machine),
+            byAutomaticRule: lease.approvedBy == .automaticRule)
     }
 
     static func state(_ lease: Agentkeyring_V1_Lease) -> AccessRequestState {

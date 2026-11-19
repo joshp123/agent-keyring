@@ -72,7 +72,11 @@ public final class MacDevice {
     public var waitingRequests: [Agentkeyring_V2_Request] { waiting.values.compactMap { try? Sealing.parseRequest($0.request) } }
     public var ownMachineID: String { keys.machineID }
     public var ownDeviceID: String { keys.deviceKeyID }
-    public var alwaysOnMachineID: String? { saved?.alwaysOnMachineID }
+    /// The computer that stays on, as the signed list names it; older lists only on this Mac.
+    public var alwaysOnMachineID: String? {
+        if let id = members?.relayMachineID, !id.isEmpty { return id }
+        return saved?.alwaysOnMachineID
+    }
 
     private static func parse(_ signed: Data) -> Agentkeyring_V2_Members? {
         guard let document = try? Agentkeyring_V2_Signed(serializedBytes: signed) else { return nil }
@@ -105,6 +109,8 @@ public final class MacDevice {
         public let reason: String
         /// The always-on machine, once its join proves the setup invitation.
         public internal(set) var machine: Agentkeyring_V2_Machine?
+        /// Its command can be told it was denied (it sent a refusal key's hash).
+        public internal(set) var refusable = false
     }
 
     public private(set) var setup: Setup?
@@ -139,7 +145,10 @@ public final class MacDevice {
                         self.abandonSetup()
                         return
                     }
-                    if case let .machine(machine)? = proven.first?.request.joining { self.setup?.machine = machine }
+                    if let join = proven.first, case let .machine(machine)? = join.request.joining {
+                        self.setup?.machine = machine
+                        self.setup?.refusable = !join.request.refusalKeySha256.isEmpty
+                    }
                     let invited = response.pendingJoins.joins.filter { join in
                         self.invitations.keys.contains { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof }
                     }
@@ -151,6 +160,32 @@ public final class MacDevice {
             }
         }
         return "agentkeyring://join?invite=" + (try invite.serializedData()).base64URLEncoded
+    }
+
+    /// Josh denied the computer that stays on: the agent waiting on its
+    /// enrol hears at once, with his words. Setup ends either way. True if
+    /// the relay took the denial.
+    public func refuseSetup(reply: String) async -> Bool {
+        defer { abandonSetup() }
+        guard let setup, setup.refusable, let machine = setup.machine, let secret = setupSecret, let pin = setupPin else { return false }
+        var request = Agentkeyring_V2_RelayRequest()
+        request.method = .refuseJoin(Self.refusal(machineID: machine.machineID, secret: secret, reply: reply))
+        do {
+            _ = try await KeyringRelay(endpoint: setup.endpoint, identity: keys.tls, pin: pin).call(request)
+            return true
+        } catch {
+            deviceLogger.error("Could not tell \(machine.label, privacy: .public) it was denied: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    static func refusal(machineID: String, secret: Data, reply: String) -> Agentkeyring_V2_JoinRefusal {
+        var refusal = Agentkeyring_V2_JoinRefusal()
+        refusal.joinerID = machineID
+        refusal.key = Sealing.refusalKey(secret: secret, machineID: machineID)
+        refusal.reply = reply
+        refusal.replyProof = Sealing.refusalReplyProof(secret: secret, machineID: machineID, reply: reply)
+        return refusal
     }
 
     public func abandonSetup() {
@@ -176,6 +211,7 @@ public final class MacDevice {
         members.devices = [keys.device]
         members.machines = [thisMac, always]
         members.relayTlsPublicKey = pin
+        members.relayMachineID = always.machineID
         let signed = try Sealing.signed(members.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
         saved = Saved(endpoint: setup.endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0,
             alwaysOnMachineID: always.machineID)
@@ -561,7 +597,27 @@ public final class MacDevice {
         if case .device? = join.request.joining { leaveDeviceInvitation(replacing: true) }
     }
 
-    /// "Not now": the relay lets the request run out after ten minutes.
+    /// Josh denied a computer: the agent waiting on its enrol hears at once,
+    /// with his words, and its invitation is withdrawn. A device, or a
+    /// computer whose command cannot be refused, is only hidden. True if the
+    /// relay took the denial.
+    public func refuseJoin(_ id: String, reply: String) async -> Bool {
+        defer { hideJoin(id) }
+        guard let join = joins.first(where: { Self.joinID($0) == id }), case let .machine(machine)? = join.request.joining,
+            !join.request.refusalKeySha256.isEmpty,
+            let secret = invitations.keys.first(where: { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof })
+        else { return false }
+        invitations.removeValue(forKey: secret)
+        do {
+            _ = try await call(.refuseJoin(Self.refusal(machineID: machine.machineID, secret: secret, reply: reply)))
+            return true
+        } catch {
+            deviceLogger.error("Could not tell \(machine.label, privacy: .public) it was denied: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    /// The relay lets the request run out after ten minutes.
     public func hideJoin(_ id: String) {
         hiddenJoins.insert(id)
         joins.removeAll { Self.joinID($0) == id }

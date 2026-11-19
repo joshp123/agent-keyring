@@ -134,3 +134,21 @@ func TestAJoinProofIsTheSameInGoAndSwift(t *testing.T) {
 		}
 	}
 }
+
+func TestARefusalIsTheSameInGoAndSwift(t *testing.T) {
+	secret := make([]byte, 32)
+	for i := range secret {
+		secret[i] = 1
+	}
+	refusal := &pb.JoinRefusal{JoinerId: "machine-id", Key: RefusalKey(secret, "machine-id"), Reply: "Not this one.",
+		ReplyProof: RefusalReplyProof(secret, "machine-id", "Not this one.")}
+	if string(RefusalReplyProof(secret, "machine-id", "Something else.")) == string(refusal.ReplyProof) || string(RefusalKey(secret[:31], "machine-id")) == string(refusal.Key) {
+		t.Fatal("the refusal does not depend on its words and the secret")
+	}
+	if os.Getenv("AKR_WRITE_VECTORS") == "1" {
+		raw, _ := proto.Marshal(refusal)
+		if err := os.WriteFile(vectors+"go-refusal.pb", raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

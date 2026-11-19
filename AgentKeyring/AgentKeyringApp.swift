@@ -32,7 +32,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         }
         // Before the socket opens, so no request reaches the old system prompt.
         approvals.start()
-        // At launch, not when the window opens: the icon shows the waiting count.
+        // At launch, not when the window opens, so the menu is ready when clicked.
         Task { [menuBar] in await menuBar.followUpdates() }
         do { try model.startAgentListener() }
         catch { NSLog("Agent Keyring could not start the agent socket: %@", String(describing: error)) }
@@ -103,7 +103,7 @@ private struct HomeWindow: View {
             if model.firstRunFinished {
                 if let main { MacMainWindowView(model: main) } else { ProgressView().padding(40) }
             } else {
-                FirstRunHome(model: model)
+                FirstRunHome(model: model, presentation: presentation)
             }
         }
         .onAppear {
@@ -120,14 +120,23 @@ private struct HomeWindow: View {
 
 private struct FirstRunHome: View {
     let model: MirrorAppModel
+    let presentation: AgentKeyringPresentation
     @Environment(\.dismissWindow) private var dismissWindow
+    /// Read again when the screens change (the lid) and when he comes back (a fingerprint added).
+    @State private var lidClosed = MacApprover.lidIsClosed
+    @State private var needsFingerprint = MacApprover.needsFingerprint
 
     private var step: FirstRunStep {
         if model.isImporting { return .copying }
         if let status = model.status {
+            if case .passed = model.selfTest {} else if lidClosed {
+                return .lidClosed
+            } else if needsFingerprint {
+                return .needsFingerprint
+            }
             return switch model.selfTest {
             case .passed: .setUp(agentLine: FirstRunCopy.agentLine)
-            case .declined, .failed: .practice(passwords: status.credentialItemCount, denied: true)
+            case .declined: .practice(passwords: status.credentialItemCount, denied: true)
             case .waiting, .notRun: .practice(passwords: status.credentialItemCount, denied: false)
             }
         }
@@ -145,13 +154,22 @@ private struct FirstRunHome: View {
                 MacFirstRunView(step: step, problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text },
                     openPasswords: model.openPasswordsExport, showAutoFill: model.showAutoFillHelp,
                     askForAutoFill: model.askToTurnOnAutoFill, tryAgain: model.sendSelfTestAgain,
+                    openTouchIDSettings: { NSWorkspace.shared.open(MacApprover.touchIDSettings) },
                     done: {
                         dismissWindow(id: "main")
                         model.finishFirstRun()
+                        presentation.showMenuBarTip()
                     })
             }
         }
         .task { await model.loadStatus() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            lidClosed = MacApprover.lidIsClosed
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            lidClosed = MacApprover.lidIsClosed
+            needsFingerprint = MacApprover.needsFingerprint
+        }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
     }
 }

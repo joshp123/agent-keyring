@@ -59,26 +59,6 @@ extension NSColor {
 }
 #endif
 
-/// The colour that goes with an outcome word. Nil means plain secondary text.
-public func outcomeColour(_ state: AccessRequestState) -> Color? {
-    switch state {
-    case .approved, .released: KeyringColour.approveText
-    case .denied, .blockedByRule: KeyringColour.denyText
-    case .waitingForYou, .sendingAnswer, .waitingForMac: KeyringColour.signal
-    case .unanswered, .cancelled, .expired, .ended: nil
-    }
-}
-
-/// The symbol that goes with an outcome sentence.
-public func outcomeSymbol(_ state: AccessRequestState) -> String {
-    switch state {
-    case .approved, .released: "checkmark.circle.fill"
-    case .denied, .blockedByRule: "xmark.circle.fill"
-    case .waitingForYou, .sendingAnswer, .waitingForMac: "clock"
-    case .unanswered, .cancelled, .expired, .ended: "clock.badge.xmark"
-    }
-}
-
 /// A 0.5 pt rule, the only divider the screens use.
 public struct Hairline: View {
     public init() {}

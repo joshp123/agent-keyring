@@ -87,6 +87,21 @@ public enum Sealing {
         return Data(HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: secret)))
     }
 
+    /// What only the inviter can send to refuse a machine's join (keyring.proto, JoinRequest.refusal_key_sha256).
+    public static func refusalKey(secret: Data, machineID: String) -> Data {
+        refusalMAC(secret: secret, parts: ["key", machineID])
+    }
+
+    /// Binds the inviter's words to a refusal (keyring.proto, JoinRefusal.reply_proof).
+    public static func refusalReplyProof(secret: Data, machineID: String, reply: String) -> Data {
+        refusalMAC(secret: secret, parts: ["reply", machineID, reply])
+    }
+
+    private static func refusalMAC(secret: Data, parts: [String]) -> Data {
+        let message = (["agentkeyring.refusal.v2"] + parts).reduce(Data()) { $0 + lengthPrefixed(Data($1.utf8)) }
+        return Data(HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: secret)))
+    }
+
     // MARK: Answers
 
     /// Approves a request: the opened login, sealed again for the asking
