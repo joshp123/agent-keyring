@@ -42,61 +42,111 @@ public enum SetupCopy {
 /// Every sentence of the first-run windows (MacFirstRunView) and the
 /// practice request, from the Paper board "First run".
 public enum FirstRunCopy {
-    // The first window
+    // Welcome
     public static let title = "Agent Keyring"
-    public static let intro = "Your AI agents ask before they use your passwords. You approve or deny."
-    public static let copyHeading = "Copy from the Passwords app"
-    public static let copyDetail = "The copy is kept locked on your own devices."
-    public static let steps = ["In Passwords, choose File > Export All Items to App.", "Choose Agent Keyring."]
-    public static let openPasswords = "Open Passwords"
-    public static let notInList = "Don’t see Agent Keyring in Passwords?"
+    public static let intro = "AI agents such as Claude Code and Codex sometimes need to sign in to a website to finish a task. Agent Keyring gives an agent your password only when you approve."
+    public static let points: [(symbol: String, title: String, body: String)] = [
+        ("checkmark.shield", "You approve each request",
+         "When an agent needs a password, a request shows you the website, the agent and why it asks. Approve it on your Mac, iPhone or Apple Watch, or deny it and tell the agent what to do instead."),
+        ("clock", "One approval covers one task", "The agent can use the password for the task you approved, for 30 minutes at most."),
+        ("lock", "Your passwords stay on your devices",
+         "Agent Keyring copies them from the Passwords app. It sends a password only to agents you allow."),
+    ]
+    public static let getStarted = "Get Started"
 
-    // Only from that link, before macOS's AutoFill question
-    public static let autoFillTitle = "Allow export from Passwords"
-    public static let autoFillBody = "macOS uses its AutoFill setting to choose which apps Passwords can export to. Agent Keyring never fills in passwords."
-    public static let autoFillNotNow = "Turn on AutoFill for Agent Keyring so Passwords can export to it. Agent Keyring never fills in passwords."
+    // The practice request
+    public static let tryPractice = "Try a practice request"
+    public static let practiceIntro = "This is how an agent asks for a password. The website and account are made up, and nothing is shared."
+    public static let toApprove = "To approve, click the green button, then use Touch ID."
+    public static let toDeny = "To deny, click Deny. You can first type what the agent should do instead."
+    public static let approveToContinue = "To continue setting up, approve it. This also checks that Touch ID works with Agent Keyring."
+    public static let youDeniedIt = "You denied it"
+    public static let realAgentWouldRead = "A real agent would get no password and would read your reply:"
+    public static let realAgentWouldStop = "A real agent would get no password."
+    public static let approveOneToContinue = "To continue setting up, approve a practice request."
+    public static let tryAgain = "Try Again"
+    public static let addFingerprint = "Add a fingerprint"
+    public static let addFingerprintBody = "You approve requests on this Mac with Touch ID, but Touch ID has no fingerprint yet. Add one in System Settings, then come back here."
+    public static let openTouchIDSettings = "Open Touch ID Settings"
+    public static let openTheLid = "Open the lid"
+    public static let openTheLidBody = "Touch ID is on the keyboard, so you can’t use it while the lid is closed. The practice request appears when you open the lid."
+
+    // Copy your passwords
+    public static let copyTitle = "Copy your passwords"
+    public static let copyBody = "Agent Keyring works from its own copy of your passwords. The Passwords app can send it one."
+    /// Markdown: the menu items and buttons are in bold.
+    public static let steps = [
+        "In the Passwords app, choose **File > Export All Items to App**, then click **Continue**.",
+        "When macOS asks, use Touch ID or enter your Mac’s login password.",
+        "Choose **Agent Keyring** and click **Continue**, then **Continue in “Agent Keyring”**.",
+    ]
+    public static let deletesNothing = "Exporting deletes nothing from the Passwords app. Passwords you save later stay there until you copy them again."
+    public static let waitingForPasswords = "Waiting for your passwords…"
+    public static let noneArrived = "No passwords have arrived yet. In step 3, check that you chose Agent Keyring and clicked Continue in “Agent Keyring”."
+    public static let openPasswords = "Open Passwords"
+    public static let useSample = "Use a Sample Password"
+    public static let sampleNote = "No passwords yet, or want to look round first? Try everything with a sample password for example.com. When you copy your own, the sample goes."
+    public static let copying = "Copying your passwords…"
+
+    // Set up your agents
+    public static func copied(_ count: Int) -> String { count == 1 ? "1 password copied" : "\(count) passwords copied" }
+    public static let mustAskAny = "An agent must ask you before it uses any of them."
+    public static let sampleAdded = "1 sample password added"
+    public static let sampleDetail = "example.com, you@example.com, password “hello”. An agent must ask you before it uses it."
+    public static let setUpTitle = "Set up your agents"
+    public static let setUpBody = "Your agents need Agent Keyring’s instructions before they can ask for a password. An agent can set this up for you. Send this message to Claude Code, Codex or another agent on this Mac:"
+    public static let copyMessage = "Copy Message"
+    public static let copied = "Copied"
+    public static let connectsEvery = "It connects every agent on this Mac at once. Then it asks you which of your other computers should use Agent Keyring, and whether to add your iPhone and Apple Watch."
+    public static let waitingForAgent = "Waiting for your agent. This window moves on when it has set up the agents on this Mac."
+    public static let doThisLater = "Do This Later"
+
+    // While the agent adds computers
+    public static let thisMac = "This Mac"
+    public static let thisMacDetail = "Its agents can ask for your passwords."
+    public static let stayingOnAdded = "Added. It stays on and passes requests to your iPhone and Apple Watch."
+    /// Not drawn: a computer added that is not the one that stays on.
+    public static let computerAdded = "Added. Its agents can ask for your passwords."
+    public static let approveToAdd = "Approve the request beside your pointer to add it."
+    public static let continueNote = "A request waits beside your pointer until you answer it, so you can continue now."
     public static let continueButton = "Continue"
 
-    public static let noneArrived = "No passwords copied yet. In Passwords, choose File > Export All Items to App, then Agent Keyring."
-    public static let copying = "Copying your passwords…"
-    public static let needsFingerprint = "Add a fingerprint in System Settings to approve requests on this Mac."
-    public static let openSystemSettings = "Open System Settings"
-    public static let openTheLid = "Open the lid to approve with Touch ID."
-
-    // When the passwords arrive
-    public static func copied(_ count: Int) -> String { count == 1 ? "1 password copied" : "\(count) passwords copied" }
-    public static let alwaysAsk = "Agents always ask before using one."
-    public static let tryPractice = "Try a practice request"
-    public static let approveIt = "Approve it to finish setting up."
-    public static let approveOne = "Approve one to finish setting up."
-    public static let tryAgain = "Try Again"
-
-    // After he approves
-    public static let setUpTitle = "You’re set up on this Mac"
-    public static let setUpBody = "A request appears beside your pointer whenever an agent needs a password."
-    public static let tellAgents = "Tell your agents"
-    public static let tellAgentsBody = "Paste this into any agent on this Mac. It sets up your agents here, and can add your iPhone, Apple Watch and other computers."
-    public static let copy = "Copy"
-    public static let copied = "Copied"
+    // Ready
+    public static let ready = "Agent Keyring is ready"
+    public static let almostReady = "Agent Keyring is almost ready"
+    public static let notSetUpTitle = "Your agents are not set up yet"
+    public static let notSetUpBody = "They can’t ask for passwords until an agent on this Mac sets them up. To send an agent the setup message, click the keyhole in the menu bar, then Devices."
+    public static let readyPoints: [(symbol: String, title: String, body: String)] = [
+        ("cursorarrow.rays", "Requests appear beside your pointer",
+         "To approve one, click the green button and use Touch ID. To deny it, click Deny, with a reply if you want."),
+        ("keyhole", "Agent Keyring stays in the menu bar",
+         "Click the keyhole to see requests waiting for you, passwords agents are using now and what happened earlier. Click Stop to end an approval early."),
+        ("list.bullet", "Choose which passwords agents must ask for",
+         "Agents must ask you before using any password. To change that for one, or to copy more from the Passwords app, click the keyhole in the menu bar and open your list of passwords."),
+    ]
+    public static let phoneTitle = "Approve on your iPhone and Apple Watch"
+    public static let phoneBody = "Install Agent Keyring on your iPhone and open it. It finds this Mac by itself. Requests then reach your iPhone and Apple Watch too, even with the lid closed."
+    public static let phoneLaterTitle = "Add your iPhone and Apple Watch later"
+    public static let phoneLaterBody = "They need a computer of yours that stays on, such as a Mac mini. An agent sets one up when you send it the same setup message."
     public static let done = "Done"
     /// Under the menu bar icon after Done.
     public static let staysHere = "Agent Keyring stays here."
 
-    /// The line Josh pastes into an agent: something it can run on a Mac where
+    /// The message he sends an agent: something it can run on a Mac where
     /// nothing is installed yet, which prints the skill.
     public static func agentLine(appPath: String) -> String {
-        "Set up Agent Keyring: run \"\(appPath)/Contents/Helpers/agent-keyring\" skill"
+        "Set up Agent Keyring for me. Its instructions are inside the app: run \"\(appPath)/Contents/Helpers/agent-keyring\" skill"
     }
     public static var agentLine: String { agentLine(appPath: Bundle.main.bundleURL.path) }
+    public static let copy = "Copy"
 
-    // The practice request
+    // The practice request in the panel
     public static let practiceAgent = "Agent Keyring"
+    public static let practiceWants = "Practice request: an agent wants"
     public static let practiceSite = "example.com"
     public static let practiceAccount = "you@example.com"
-    public static let practiceReason = "This is a practice request. No real password is used."
-    /// Where a real request shows the project.
-    public static let practicePlace = "Practice"
-    public static let practiceFooter = "An approval lasts for one task, 30 minutes at most."
+    public static let practiceReason = "You asked me to download October’s invoice."
+    public static let practiceFooter = "Practice only. No password is shared."
     public static let practiceApproved = "No real password was used."
     /// After "Agent Keyring is trying to" in macOS's dialog.
     public static let practiceReasonInDialog = "use a practice password for \(practiceSite), \(practiceAccount)"
@@ -110,6 +160,8 @@ public enum MainWindowCopy {
     public static let all = "All"
     public static let copyAgain = "Copy Again"
     public static let noneCopied = "No passwords copied yet."
+    public static let sampleOnly = "example.com is a sample password. When you copy your own from the Passwords app, it goes."
+    public static let copyFromPasswords = "Copy from Passwords"
     public static func copiedOn(_ date: String) -> String { "Copied from Passwords on \(date). To add newer passwords, copy them again." }
 
     // The rule bar

@@ -45,6 +45,8 @@ extension MirrorAppModel {
                     _ = try macKeys()
                     result.relayStatus = device!.connection == .connected ? "connected"
                         : device!.isJoined || device!.setup != nil ? "waiting" : "not-started"
+                case .agentsSetUp:
+                    noteAgentsSetUp()
                 default: throw LeaseFailure(.invalidArgument, "Choose a setup action: start-relay or relay-status.")
                 }
                 response.setup = result

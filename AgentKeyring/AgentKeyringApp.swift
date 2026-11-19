@@ -53,7 +53,6 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
         do {
             Task { @MainActor in
                 await model.loadStatus()
-                await model.importMadeUpLoginsIfAsked()
                 if !model.firstRunFinished { presentation.requestMainWindow() }
             }
         }
@@ -114,7 +113,7 @@ private struct HomeWindow: View {
             main?.tab = presentation.tab
         }
         .onChange(of: presentation.mainWindowRequest) { main?.tab = presentation.tab }
-        .background(FloatingWhile(isOn: model.awaitingExport))
+        .background(FloatingWhile(isOn: model.firstRun == .copyPasswords(.waiting)))
     }
 }
 
@@ -126,40 +125,65 @@ private struct FirstRunHome: View {
     @State private var lidClosed = MacApprover.lidIsClosed
     @State private var needsFingerprint = MacApprover.needsFingerprint
 
-    private var step: FirstRunStep {
-        if model.isImporting { return .copying }
-        if let status = model.status {
-            if case .passed = model.selfTest {} else if lidClosed {
-                return .lidClosed
-            } else if needsFingerprint {
-                return .needsFingerprint
-            }
-            return switch model.selfTest {
-            case .passed: .setUp(agentLine: FirstRunCopy.agentLine)
-            case .declined: .practice(passwords: status.credentialItemCount, denied: true)
-            case .waiting, .notRun: .practice(passwords: status.credentialItemCount, denied: false)
-            }
+    /// The screen is first run's state, with the facts beside it: Touch ID, and the computers.
+    private var screen: FirstRunScreen? {
+        switch model.firstRun {
+        case .welcome: .welcome
+        case .practice: lidClosed ? .lidClosed : needsFingerprint ? .needsFingerprint : .practice
+        case let .practiceDenied(reply): .practiceDenied(reply: reply)
+        case let .copyPasswords(export): .copyPasswords(waiting: export == .waiting, noneArrived: export == .noneArrived)
+        case .copying: .copying
+        case let .setUpAgents(.passwords(count), messageCopied):
+            .setUpAgents(copiedTitle: FirstRunCopy.copied(count), copiedDetail: FirstRunCopy.mustAskAny, messageCopied: messageCopied)
+        case let .setUpAgents(.sample, messageCopied):
+            .setUpAgents(copiedTitle: FirstRunCopy.sampleAdded, copiedDetail: FirstRunCopy.sampleDetail, messageCopied: messageCopied)
+        case .computers: .computers(computers)
+        case .ready: .ready(phoneLater: model.device?.alwaysOnMachineID == nil)
+        case .almostReady: .almostReady
+        case .finished: nil
         }
-        if model.showsAutoFillHelp {
-            return model.providerState == .notNow ? .autoFillNotNow(canAsk: model.canAskAgain) : .autoFill(canAsk: model.canAskAgain)
+    }
+
+    /// This Mac, each computer added, and each one waiting for his approval.
+    private var computers: [ComputerLine] {
+        let device = model.device
+        var lines = [ComputerLine(id: "this-mac", name: FirstRunCopy.thisMac, detail: FirstRunCopy.thisMacDetail, added: true)]
+        for machine in device?.members?.machines ?? [] where machine.machineID != device?.ownMachineID {
+            lines.append(ComputerLine(id: machine.machineID, name: machine.label,
+                detail: machine.machineID == device?.alwaysOnMachineID ? FirstRunCopy.stayingOnAdded : FirstRunCopy.computerAdded, added: true))
         }
-        return model.exportTimedOut ? .noneArrived : .export
+        var waiting = (device?.joins ?? []).compactMap { $0.request.machine }
+        if let machine = device?.setup?.machine { waiting.append(machine) }
+        for machine in waiting where !lines.contains(where: { $0.id == machine.machineID }) {
+            lines.append(ComputerLine(id: machine.machineID, name: machine.label, detail: FirstRunCopy.approveToAdd, added: false))
+        }
+        return lines
+    }
+
+    private var actions: FirstRunActions {
+        var actions = FirstRunActions()
+        actions.getStarted = { model.send(.getStarted) }
+        actions.tryAgain = { model.send(.tryAgain) }
+        actions.openTouchIDSettings = { NSWorkspace.shared.open(MacApprover.touchIDSettings) }
+        actions.openPasswords = model.openPasswordsExport
+        actions.useSample = { Task { await model.useSamplePassword() } }
+        actions.copyMessage = { model.send(.copyMessage) }
+        actions.doThisLater = { model.send(.doThisLater) }
+        actions.continueOn = { model.send(.continueOn) }
+        actions.done = {
+            dismissWindow(id: "main")
+            model.finishFirstRun()
+            presentation.showMenuBarTip()
+        }
+        return actions
     }
 
     var body: some View {
         Group {
             if model.isLoading {
                 ProgressView().padding(40)
-            } else {
-                MacFirstRunView(step: step, problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text },
-                    openPasswords: model.openPasswordsExport, showAutoFill: model.showAutoFillHelp,
-                    askForAutoFill: model.askToTurnOnAutoFill, tryAgain: model.sendSelfTestAgain,
-                    openTouchIDSettings: { NSWorkspace.shared.open(MacApprover.touchIDSettings) },
-                    done: {
-                        dismissWindow(id: "main")
-                        model.finishFirstRun()
-                        presentation.showMenuBarTip()
-                    })
+            } else if let screen {
+                MacFirstRunView(screen: screen, problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text }, actions: actions)
             }
         }
         .task { await model.loadStatus() }

@@ -475,6 +475,7 @@ message JoinInvite {
   string inviter_key_id = 4;       // The inviting device's key id: Members must be signed by it.
   bytes secret = 5;                // 32 random bytes.
   int64 expires_unix_seconds = 6;
+  string inviter_label = 7;        // The inviting device as he named it, e.g. "MacBook Pro".
 }
 
 // What a device found when it tested itself, the payload of a Signed by its

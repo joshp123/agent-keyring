@@ -26,7 +26,7 @@ public final class AppMainWindowBackend: MainWindowBackend {
         let device = model.device
         let members = device?.members
         let tested = device?.lastTested ?? [:]
-        let macTested: Date? = if case let .passed(at) = model.selfTest { at } else { nil }
+        let macTested = model.testedAt
         let devices: [DeviceRow] = members.map { members in
             members.devices.map { d in
                 DeviceRow(id: d.keyID, name: d.label, kind: d.kind == .iphone ? .iPhone : d.kind == .watch ? .watch : .mac,
@@ -40,7 +40,8 @@ public final class AppMainWindowBackend: MainWindowBackend {
             }
         } ?? [MachineRow(id: device?.ownMachineID ?? "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true,
             isAlwaysOn: false, automatic: model.automaticOnThisMac, lastTested: nil)]
-        return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, devices: devices, machines: machines)
+        return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, sampleOnly: model.status?.sampleOnly == true,
+            devices: devices, machines: machines)
     }
 
     public func updates() -> AsyncStream<MainSnapshot> {

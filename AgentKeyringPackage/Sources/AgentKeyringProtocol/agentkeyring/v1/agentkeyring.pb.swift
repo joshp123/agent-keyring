@@ -988,6 +988,9 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
 
     /// A one-time link for one machine to join (v2 JoinInvite).
     case invite // = 5
+
+    /// `agent-keyring install` ran on this Mac: first run moves on.
+    case agentsSetUp // = 6
     case UNRECOGNIZED(Int)
 
     public init() {
@@ -1002,6 +1005,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       case 3: self = .verifyMachine
       case 4: self = .relayStatus
       case 5: self = .invite
+      case 6: self = .agentsSetUp
       default: self = .UNRECOGNIZED(rawValue)
       }
     }
@@ -1014,6 +1018,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       case .verifyMachine: return 3
       case .relayStatus: return 4
       case .invite: return 5
+      case .agentsSetUp: return 6
       case .UNRECOGNIZED(let i): return i
       }
     }
@@ -1026,6 +1031,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       .verifyMachine,
       .relayStatus,
       .invite,
+      .agentsSetUp,
     ]
 
   }
@@ -2230,7 +2236,7 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
 }
 
 nonisolated extension Agentkeyring_V1_SetupRequest.Action: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0\u{1}INVITE\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0\u{1}INVITE\0\u{1}AGENTS_SET_UP\0")
 }
 
 nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {

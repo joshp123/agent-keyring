@@ -28,7 +28,8 @@ extension MirrorGeneration {
             scope: scope,
             credentialItemCount: items.count,
             skippedCredentialCount: skippedCredentialCount,
-            skippedCredentialSummary: skippedCredentialSummary
+            skippedCredentialSummary: skippedCredentialSummary,
+            sampleOnly: items.count == 1 && items[0].isSample
         )
     }
 }

@@ -52,39 +52,25 @@ extension MirrorAppModel {
         Task { await importCredentials(token: token) }
     }
 
-    /// "Agent Keyring isn't in the list?": the screen before macOS's AutoFill question.
-    public func showAutoFillHelp() {
-        showsAutoFillHelp = true
-    }
-
-    /// macOS shows "Turn on AutoFill from “Agent Keyring”?"; it answers a second
-    /// request only 10 seconds after the last. Turn On returns to the export.
-    public func askToTurnOnAutoFill() {
-        providerState = .requesting
-        canAskAgain = false
-        notice = nil
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(10))
-            self?.canAskAgain = true
-        }
-        ASSettingsHelper.requestToTurnOnCredentialProviderExtension { [weak self] enabled in
-            Task { @MainActor in
-                self?.providerState = enabled ? .enabled : .notNow
-                if enabled { self?.showsAutoFillHelp = false }
-            }
-        }
-    }
-
+    /// "Open Passwords". After five minutes with nothing arrived, first run says so;
+    /// passwords that arrived first have already moved it on, so the late timer changes nothing.
     public func openPasswordsExport() {
-        awaitingExport = true
-        exportTimedOut = false
+        send(.openPasswords)
         exportTimeout?.cancel()
         exportTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(300))
-            guard !Task.isCancelled, let self, self.awaitingExport, !self.isImporting else { return }
-            self.exportTimedOut = true
+            guard !Task.isCancelled else { return }
+            self?.send(.exportTimedOut)
         }
         openPasswords()
+    }
+
+    /// "Use a Sample Password": one ordinary Ask password, which his first copy from Passwords replaces.
+    public func useSamplePassword() async {
+        guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.sampleExporter,
+            exporterDisplayName: "Sample", items: [MirrorItem.sample], skippedCredentialCount: 0), hadExistingMirror: status != nil)
+        else { return }
+        send(.useSample)
     }
 
     public func openPasswords() {
@@ -120,10 +106,9 @@ extension MirrorAppModel {
     }
 
     func importCredentials(token: UUID) async {
-        isImporting = true
-        exportTimedOut = false
+        send(.importStarted)
+        exportTimeout?.cancel()
         notice = nil
-        defer { isImporting = false; awaitingExport = false }
 
         credentialExchangeLogger.info("Credential import started")
 
@@ -141,13 +126,20 @@ extension MirrorAppModel {
                 "Credential transfer failed [\(failure.diagnostic, privacy: .public)]"
             )
             notice = MirrorNotice(kind: .error, text: failure.message)
+            send(.importFailed)
             return
         }
 
-        await importBatch(mapper.map(exportedData, scope: .unknown), hadExistingMirror: hadExistingMirror)
+        if await importBatch(mapper.map(exportedData, scope: .unknown), hadExistingMirror: hadExistingMirror), let status {
+            send(.imported(count: status.credentialItemCount))
+        } else {
+            send(.importFailed)
+        }
     }
 
-    func importBatch(_ importBatch: MirrorImportBatch, hadExistingMirror: Bool) async {
+    /// True once the import is sealed and saved.
+    @discardableResult
+    func importBatch(_ importBatch: MirrorImportBatch, hadExistingMirror: Bool) async -> Bool {
         let generation: MirrorGeneration
         do {
             credentialExchangeLogger.info(
@@ -174,7 +166,7 @@ extension MirrorAppModel {
                     ? "Passwords sent your passwords, but Agent Keyring could not lock them away. Your earlier copy was not changed."
                     : "Passwords sent your passwords, but Agent Keyring could not lock them away."
             )
-            return
+            return false
         }
 
         credentialExchangeLogger.info("Saved encrypted mirror with \(generation.items.count, privacy: .public) items")
@@ -182,7 +174,6 @@ extension MirrorAppModel {
         leaseLogins = generation.metadata.candidates
         await accessControl.refresh(from: generation)
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
-        offerSelfTestIfNeeded()
         if device?.isJoined == true {
             // Josh approves sending the list in a panel beside his window.
             importedLoginsAwaitApproval = true
@@ -191,34 +182,6 @@ extension MirrorAppModel {
         } else {
             notice = MirrorNotice(kind: .information, text: "Your passwords are copied.")
         }
+        return true
     }
 }
-
-@available(macOS 26.0, *)
-extension MirrorAppModel {
-    /// Only in a debug build, and only when launched with --import-made-up-logins.
-    public func importMadeUpLoginsIfAsked() async {
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--import-made-up-logins"), status == nil { await importMadeUpLogins() }
-        #endif
-    }
-}
-
-#if DEBUG
-@available(macOS 26.0, *)
-extension MirrorAppModel {
-    /// For trying first run on a Mac whose Passwords holds real logins: the
-    /// same import, with made-up example.com logins in place of the export.
-    public func importMadeUpLogins() async {
-        isImporting = true
-        defer { isImporting = false; awaitingExport = false }
-        let items = ["mail.example.com", "shop.example.com", "bank.example.net"].map { site in
-            MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "made-up", accountID: Data("made-up".utf8),
-                itemID: Data(site.utf8)), title: site, origins: ["https://\(site)"],
-                credentials: [.password(userName: "josh@example.com", password: "made-up-password-for-\(site)")])
-        }
-        await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: "made-up",
-            exporterDisplayName: "Made-up logins", items: items, skippedCredentialCount: 0), hadExistingMirror: status != nil)
-    }
-}
-#endif

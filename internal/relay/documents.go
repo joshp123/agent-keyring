@@ -71,10 +71,15 @@ func (s *Server) publishCatalogue(document *pb.Signed) error {
 		}
 		data.Catalogue = marshal(document)
 		s.Store.catalogue = next
-		for _, login := range next.Logins { // A Blocked login has no copy here.
-			if login.Rule == pb.Rule_RULE_BLOCKED {
-				for opener := range data.Sealed {
-					delete(data.Sealed[opener], login.LoginId)
+		// A login that is Blocked, or no longer listed (a sample password his own copy replaced), has no copy here.
+		kept := map[string]bool{}
+		for _, login := range next.Logins {
+			kept[login.LoginId] = login.Rule != pb.Rule_RULE_BLOCKED
+		}
+		for opener := range data.Sealed {
+			for id := range data.Sealed[opener] {
+				if !kept[id] {
+					delete(data.Sealed[opener], id)
 				}
 			}
 		}

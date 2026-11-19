@@ -1548,6 +1548,9 @@ public nonisolated struct Agentkeyring_V2_JoinInvite: Sendable {
 
   public var expiresUnixSeconds: Int64 = 0
 
+  /// The inviting device as he named it, e.g. "MacBook Pro".
+  public var inviterLabel: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3747,7 +3750,7 @@ nonisolated extension Agentkeyring_V2_JoinRefusal: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Agentkeyring_V2_JoinInvite: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".JoinInvite"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}relay_host\0\u{3}relay_port\0\u{3}relay_tls_sha256\0\u{3}inviter_key_id\0\u{1}secret\0\u{3}expires_unix_seconds\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}relay_host\0\u{3}relay_port\0\u{3}relay_tls_sha256\0\u{3}inviter_key_id\0\u{1}secret\0\u{3}expires_unix_seconds\0\u{3}inviter_label\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3761,6 +3764,7 @@ nonisolated extension Agentkeyring_V2_JoinInvite: SwiftProtobuf.Message, SwiftPr
       case 4: try { try decoder.decodeSingularStringField(value: &self.inviterKeyID) }()
       case 5: try { try decoder.decodeSingularBytesField(value: &self.secret) }()
       case 6: try { try decoder.decodeSingularInt64Field(value: &self.expiresUnixSeconds) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.inviterLabel) }()
       default: break
       }
     }
@@ -3785,6 +3789,9 @@ nonisolated extension Agentkeyring_V2_JoinInvite: SwiftProtobuf.Message, SwiftPr
     if self.expiresUnixSeconds != 0 {
       try visitor.visitSingularInt64Field(value: self.expiresUnixSeconds, fieldNumber: 6)
     }
+    if !self.inviterLabel.isEmpty {
+      try visitor.visitSingularStringField(value: self.inviterLabel, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3795,6 +3802,7 @@ nonisolated extension Agentkeyring_V2_JoinInvite: SwiftProtobuf.Message, SwiftPr
     if lhs.inviterKeyID != rhs.inviterKeyID {return false}
     if lhs.secret != rhs.secret {return false}
     if lhs.expiresUnixSeconds != rhs.expiresUnixSeconds {return false}
+    if lhs.inviterLabel != rhs.inviterLabel {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -62,12 +62,15 @@ public struct MachineRow: Identifiable, Hashable, Sendable {
 public struct MainSnapshot: Hashable, Sendable {
     public var logins: [LoginRow]
     public var importedAt: Date?
+    /// The only password is first run's sample.
+    public var sampleOnly: Bool
     public var devices: [DeviceRow]
     public var machines: [MachineRow]
 
-    public init(logins: [LoginRow], importedAt: Date?, devices: [DeviceRow], machines: [MachineRow]) {
+    public init(logins: [LoginRow], importedAt: Date?, sampleOnly: Bool = false, devices: [DeviceRow], machines: [MachineRow]) {
         self.logins = logins
         self.importedAt = importedAt
+        self.sampleOnly = sampleOnly
         self.devices = devices
         self.machines = machines
     }
@@ -311,7 +314,8 @@ private struct LoginsTab: View {
             if model.pending.isEmpty {
                 Text(imported).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Pill(title: MainWindowCopy.copyAgain, style: .quiet, action: model.importAgain)
+                Pill(title: model.snapshot.sampleOnly ? MainWindowCopy.copyFromPasswords : MainWindowCopy.copyAgain,
+                    style: .quiet, action: model.importAgain)
             } else {
                 Text(model.pendingSentence)
                     .font(.system(size: 14)).foregroundStyle(RequestToken.ink)
@@ -325,6 +329,7 @@ private struct LoginsTab: View {
     }
 
     private var imported: String {
+        if model.snapshot.sampleOnly { return MainWindowCopy.sampleOnly }
         guard let at = model.snapshot.importedAt else { return MainWindowCopy.noneCopied }
         return MainWindowCopy.copiedOn(at.formatted(.dateTime.day().month(.wide)))
     }
@@ -387,8 +392,6 @@ private struct DevicesTab: View {
                 }
             }
             AgentLineBox(caption: MainWindowCopy.toAdd, line: FirstRunCopy.agentLine)
-                .padding(14)
-                .background(RequestToken.fill, in: .rect(cornerRadius: 12))
                 .padding(.horizontal, 20).padding(.vertical, 12)
                 .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
         }

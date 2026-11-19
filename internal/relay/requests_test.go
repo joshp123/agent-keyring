@@ -91,6 +91,15 @@ func TestABlockedLoginHasNoCopyOnTheRelay(t *testing.T) {
 	if !slices.Equal(held("iphone"), []string{"mail"}) || len(held("mini")) != 0 {
 		t.Fatalf("a later export put a Blocked login back: iPhone holds %v, mini holds %v", held("iphone"), held("mini"))
 	}
+	// His own copy replaces the sample password: a login no longer listed keeps no copy.
+	payload, _ := proto.Marshal(&pb.Catalogue{Domain: keyring.CatalogueDomain, Revision: 3, Logins: []*pb.Login{{LoginId: "shop", Rule: pb.Rule_RULE_ASK}}})
+	signed, _ := keyring.Sign(payload, "mac", keyring.SoftwareSigner(key))
+	if err := s.publishCatalogue(signed); err != nil {
+		t.Fatal(err)
+	}
+	if len(held("iphone")) != 0 {
+		t.Fatalf("a login no longer listed kept its copies: iPhone holds %v", held("iphone"))
+	}
 }
 
 // A request at every size limit the relay allows, signed, with a sealed copy

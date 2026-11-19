@@ -22,10 +22,10 @@ public final class SelfTestBackend: MacApprovalBackend {
     }
 
     public var request: AccessRequest {
-        let state: AccessRequestState = switch model.selfTest {
-        case .waiting, .notRun: .waitingForYou(until: .distantFuture)
-        case let .passed(at): .approved(by: .mac, until: at)
-        case .declined: .denied(by: .mac, reply: nil, askAgainAfter: nil)
+        let state: AccessRequestState = switch model.firstRun {
+        case .practice: .waitingForYou(until: .distantFuture)
+        case let .practiceDenied(reply): .denied(by: .mac, reply: reply.isEmpty ? nil : reply, askAgainAfter: nil)
+        default: .approved(by: .mac, until: model.testedAt ?? .now)
         }
         return .practice(id: Self.requestID, state: state)
     }
@@ -53,8 +53,8 @@ public final class SelfTestBackend: MacApprovalBackend {
 
     public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         cancelAuthentication(requestID: requestID)
-        model.declineSelfTest()
-        return .denied(by: .mac, reply: nil, askAgainAfter: nil)
+        model.send(.practiceDenied(reply: reply ?? ""))
+        return request.state
     }
 
     public func allowAskingAgain(requestID: String) async throws -> AccessRequestState { request.state }

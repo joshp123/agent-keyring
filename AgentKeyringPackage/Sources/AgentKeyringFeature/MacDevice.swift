@@ -427,6 +427,7 @@ public final class MacDevice {
         invite.relayPort = UInt32(endpoint.port)
         invite.relayTlsSha256 = Sealing.sha256(pin)
         invite.inviterKeyID = keys.deviceKeyID
+        invite.inviterLabel = keys.device.label
         invite.secret = secret
         invite.expiresUnixSeconds = Int64(expires.timeIntervalSince1970)
         return invite

@@ -188,3 +188,18 @@ struct SnapshotMergerTests {
         )
     }
 }
+
+struct SamplePasswordTests {
+    @Test("His first copy from Passwords replaces the sample password")
+    func sampleReplaced() throws {
+        let merger = SnapshotMerger()
+        let sample = try merger.merge(previous: nil, importBatch: MirrorImportBatch(scope: .full, exportedAt: .now,
+            exporterIdentifier: MirrorItem.sampleExporter, exporterDisplayName: "Sample", items: [MirrorItem.sample], skippedCredentialCount: 0))
+        #expect(sample.items.count == 1 && sample.items[0].isSample)
+        let own = MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(exporterIdentifier: "com.apple.Passwords", accountID: Data("a".utf8),
+            itemID: Data("1".utf8)), title: "Example", origins: ["https://example.org"], credentials: [.password(userName: "josh", password: "x")])
+        let copied = try merger.merge(previous: sample, importBatch: MirrorImportBatch(scope: .unknown, exportedAt: .now,
+            exporterIdentifier: "com.apple.Passwords", exporterDisplayName: "Passwords", items: [own], skippedCredentialCount: 0))
+        #expect(copied.items.map(\.title) == ["Example"])
+    }
+}

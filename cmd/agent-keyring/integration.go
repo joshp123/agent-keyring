@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 )
 
 func contentsPath() string {
@@ -97,6 +99,7 @@ func integration(command string) error {
 	if err = install(home, executable, filepath.Dir(source)); err != nil {
 		return err
 	}
+	tellTheApp()
 	fmt.Fprintln(os.Stderr, "For sign-ins, use Agent Keyring. Run `agent-keyring skill` for the workflow.")
 	return installBrowserHosts()
 }
@@ -307,4 +310,16 @@ func startApp(ctx context.Context, contents string) error {
 		return errors.New("Could not start Agent Keyring. Open the app, then try this command again.")
 	}
 	return nil
+}
+
+// tellTheApp lets Agent Keyring on this Mac know its agents are set up, so
+// first run moves on. Best effort: on another computer there is no app to tell.
+func tellTheApp() {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	local, err := localSetupAuthority(ctx)
+	if err != nil {
+		return
+	}
+	local.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_Setup{Setup: &pb.SetupRequest{Action: pb.SetupRequest_AGENTS_SET_UP}}})
 }

@@ -3153,6 +3153,7 @@ type JoinInvite struct {
 	InviterKeyId       string                 `protobuf:"bytes,4,opt,name=inviter_key_id,json=inviterKeyId,proto3" json:"inviter_key_id,omitempty"`       // The inviting device's key id: Members must be signed by it.
 	Secret             []byte                 `protobuf:"bytes,5,opt,name=secret,proto3" json:"secret,omitempty"`                                         // 32 random bytes.
 	ExpiresUnixSeconds int64                  `protobuf:"varint,6,opt,name=expires_unix_seconds,json=expiresUnixSeconds,proto3" json:"expires_unix_seconds,omitempty"`
+	InviterLabel       string                 `protobuf:"bytes,7,opt,name=inviter_label,json=inviterLabel,proto3" json:"inviter_label,omitempty"` // The inviting device as he named it, e.g. "MacBook Pro".
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -3227,6 +3228,13 @@ func (x *JoinInvite) GetExpiresUnixSeconds() int64 {
 		return x.ExpiresUnixSeconds
 	}
 	return 0
+}
+
+func (x *JoinInvite) GetInviterLabel() string {
+	if x != nil {
+		return x.InviterLabel
+	}
+	return ""
 }
 
 // What a device found when it tested itself, the payload of a Signed by its
@@ -3887,7 +3895,7 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x03key\x18\x02 \x01(\fR\x03key\x12\x14\n" +
 	"\x05reply\x18\x03 \x01(\tR\x05reply\x12\x1f\n" +
 	"\vreply_proof\x18\x04 \x01(\fR\n" +
-	"replyProof\"\xe4\x01\n" +
+	"replyProof\"\x89\x02\n" +
 	"\n" +
 	"JoinInvite\x12\x1d\n" +
 	"\n" +
@@ -3897,7 +3905,8 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x10relay_tls_sha256\x18\x03 \x01(\fR\x0erelayTlsSha256\x12$\n" +
 	"\x0einviter_key_id\x18\x04 \x01(\tR\finviterKeyId\x12\x16\n" +
 	"\x06secret\x18\x05 \x01(\fR\x06secret\x120\n" +
-	"\x14expires_unix_seconds\x18\x06 \x01(\x03R\x12expiresUnixSeconds\"\xb4\x01\n" +
+	"\x14expires_unix_seconds\x18\x06 \x01(\x03R\x12expiresUnixSeconds\x12#\n" +
+	"\rinviter_label\x18\a \x01(\tR\finviterLabel\"\xb4\x01\n" +
 	"\x0eSelfTestReport\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\"\n" +
 	"\rdevice_key_id\x18\x02 \x01(\tR\vdeviceKeyId\x12.\n" +

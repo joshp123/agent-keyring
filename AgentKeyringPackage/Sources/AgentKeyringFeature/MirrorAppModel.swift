@@ -5,17 +5,6 @@ import Foundation
 import Observation
 import OSLog
 
-/// AutoFill from Agent Keyring, which macOS may want on before Passwords
-/// lists the app as an export destination. First run asks only from its link.
-public enum ProviderEnablementState: Equatable, Sendable {
-    case unknown
-    /// macOS's question "Turn on AutoFill from “Agent Keyring”?" is up.
-    case requesting
-    case enabled
-    /// He answered Not Now.
-    case notNow
-}
-
 public enum MirrorNoticeKind: Equatable, Sendable {
     case information
     case warning
@@ -38,12 +27,6 @@ public struct MirrorNotice: Equatable, Sendable {
 public final class MirrorAppModel {
     public internal(set) var status: SafeMirrorStatus?
     public private(set) var isLoading = true
-    public internal(set) var isImporting = false
-    public internal(set) var providerState = ProviderEnablementState.unknown
-    /// He clicked "Agent Keyring isn't in the list?" and has not yet turned AutoFill on.
-    public internal(set) var showsAutoFillHelp = false
-    /// macOS answers a second request only 10 seconds after the last one.
-    public internal(set) var canAskAgain = true
     public internal(set) var notice: MirrorNotice?
     public let accessControl: CredentialAccessController
     public var syncReminders: MirrorSyncReminders?
@@ -61,21 +44,18 @@ public final class MirrorAppModel {
     var isApprovingLease = false
     public internal(set) var leaseLogins: [CredentialCandidate] = []
     let bridge: AgentBridgeDirectory
-    public internal(set) var selfTest = MacSelfTest.notRun
-    /// From Open Passwords until the logins arrive: the window stays above Passwords.
-    public internal(set) var awaitingExport = false {
-        didSet { if !awaitingExport { exportTimeout?.cancel(); exportTimeout = nil } }
-    }
+    /// When this Mac last passed its practice request: Touch ID, its chip keys and sealing work.
+    public internal(set) var testedAt: Date?
+    /// Where first run is (FirstRun.swift); saved, so a restart resumes it.
+    public private(set) var firstRun: FirstRun
     @ObservationIgnored var exportTimeout: Task<Void, Never>?
-    /// Five minutes after Open Passwords, nothing has arrived.
-    public internal(set) var exportTimedOut = false
     /// This Mac's Automatic switch while it is not joined to a relay; once
     /// joined, its entry in the members list decides.
     var savedAutomaticOnThisMac: Bool {
         didSet { settings.set(savedAutomaticOnThisMac, forKey: Self.automaticOnThisMacKey) }
     }
     /// He clicked Done at the end of first run. Until then the window opens at launch.
-    public private(set) var firstRunFinished: Bool
+    public var firstRunFinished: Bool { firstRun == .finished }
     let settings: UserDefaults
     var handledTokens = Set<UUID>()
     var agentListener: AgentBridgeServer?
@@ -98,10 +78,9 @@ public final class MirrorAppModel {
         self.accessControl = accessControl
         self.settings = settings
         self.leaseStore = leaseStore
-        // A Mac that passed the old test request before first run had a Done finished it then.
         savedAutomaticOnThisMac = settings.bool(forKey: Self.automaticOnThisMacKey)
-        firstRunFinished = settings.bool(forKey: Self.firstRunFinishedKey) || settings.object(forKey: Self.testedAtKey) != nil
-        if let tested = settings.object(forKey: Self.testedAtKey) as? Date { selfTest = .passed(tested) }
+        testedAt = settings.object(forKey: Self.testedAtKey) as? Date
+        firstRun = Self.savedFirstRun(settings)
         accessControl.beforeSave = { [weak self] old, new, context in
             try await self?.applyRuleChange(from: old, to: new, context: context)
         }
@@ -111,12 +90,36 @@ public final class MirrorAppModel {
         }
     }
 
+    static let firstRunKey = "firstRun"
     static let firstRunFinishedKey = "firstRunFinished"
+    static let agentsSetUpKey = "agentsSetUp"
+
+    /// The saved state, resumed. A Mac that finished first run before it was
+    /// saved this way, or whose saved state a later build cannot read, is never stuck.
+    static func savedFirstRun(_ settings: UserDefaults) -> FirstRun {
+        if let data = settings.data(forKey: firstRunKey), let saved = try? JSONDecoder().decode(FirstRun.self, from: data) {
+            return saved.resumed
+        }
+        return settings.bool(forKey: firstRunFinishedKey) || settings.object(forKey: testedAtKey) != nil ? .finished : .welcome
+    }
+
+    /// Moves first run on, as the board draws it, and saves where it is.
+    public func send(_ event: FirstRun.Event) {
+        let next = firstRun.after(event).settled(agentsSetUp: settings.bool(forKey: Self.agentsSetUpKey))
+        guard next != firstRun else { return }
+        firstRun = next
+        settings.set(try? JSONEncoder().encode(next), forKey: Self.firstRunKey)
+    }
+
+    /// `agent-keyring install` ran on this Mac.
+    func noteAgentsSetUp() {
+        settings.set(true, forKey: Self.agentsSetUpKey)
+        send(.agentsSetUp)
+    }
 
     /// "Done": the first-run window closes and the main window takes its place.
     public func finishFirstRun() {
-        firstRunFinished = true
-        settings.set(true, forKey: Self.firstRunFinishedKey)
+        send(.done)
     }
 
     var currentPolicies: [UUID: CredentialAccessPolicy] {
@@ -159,7 +162,6 @@ public final class MirrorAppModel {
         }
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
         if (try? macKeys()) != nil { device?.start() }
-        offerSelfTestIfNeeded()
     }
 
 }

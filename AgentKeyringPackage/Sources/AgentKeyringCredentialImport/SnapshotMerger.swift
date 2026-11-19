@@ -16,7 +16,8 @@ public struct SnapshotMerger: Sendable {
         previous: MirrorGeneration?,
         importBatch: MirrorImportBatch
     ) throws -> MirrorGeneration {
-        let previousItems = previous?.items ?? []
+        // A copy from Passwords replaces the sample password.
+        let previousItems = (previous?.items ?? []).filter { importBatch.exporterIdentifier == MirrorItem.sampleExporter || !$0.isSample }
         try validateUniqueSourceIdentities(previousItems)
         try validateUniqueSourceIdentities(importBatch.items)
 
