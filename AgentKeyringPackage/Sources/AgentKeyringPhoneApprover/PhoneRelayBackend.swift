@@ -77,6 +77,9 @@ public struct PhoneSharedContext {
         }
     }
 
+    /// Forgets what the extension was handed: the keychain keeps it when the app is removed.
+    public func delete() { SecItemDelete(query as CFDictionary) }
+
     func read() -> PhoneSavedState? {
         var read = query
         read[kSecReturnData as String] = true

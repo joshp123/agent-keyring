@@ -20,6 +20,14 @@ let log = Logger(subsystem: "com.joshpalmer.AgentKeyring.Watch", category: "watc
 struct AgentKeyringWatchApp: App {
     @WKApplicationDelegateAdaptor(WatchDelegate.self) private var delegate
 
+    init() {
+        // A new install: removing the app cleared its own settings but not its keychain. The keys stay.
+        if !UserDefaults.standard.bool(forKey: "installed") {
+            WatchStore().delete()
+            UserDefaults.standard.set(true, forKey: "installed")
+        }
+    }
+
     var body: some Scene {
         WindowGroup { WatchHome(model: WatchModel.shared) }
         WKNotificationScene(controller: RequestController.self, category: WatchWords.requestCategory)

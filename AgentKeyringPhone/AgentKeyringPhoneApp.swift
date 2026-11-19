@@ -61,6 +61,11 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             backend = sample; relay = nil
             model = PhoneModel(backend: sample, initial: sample.current)
         } else {
+            // A new install: removing the app cleared its own files but not its keychain. The keys stay.
+            if !UserDefaults.standard.bool(forKey: "installed") {
+                PhoneSharedContext(accessGroup: Self.keychainGroup).delete()
+                UserDefaults.standard.set(true, forKey: "installed")
+            }
             #if targetEnvironment(simulator)
             let keys: any PhoneDeviceKeys = PhoneSoftwareKeys()
             #else
