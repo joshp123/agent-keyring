@@ -142,7 +142,26 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
             : asked && !allowed ? .failed(WatchCopy.notificationsOff)
             : !hasAddress ? .waitingForApple
             : .ready
-        await MainActor.run { WatchModel.shared.setup = setup }
+        let inUse = WatchStore().read().currentInUse
+        await MainActor.run { WatchModel.shared.setup = setup; WatchModel.shared.inUse = inUse }
+    }
+
+    /// Stop on Apple Watch: the iPhone ends the approval at the relay. True once it has.
+    func stop(_ id: String) async -> Bool {
+        let session = WCSession.default
+        activate()
+        for _ in 0..<30 where session.activationState != .activated || !session.isReachable { try? await Task.sleep(for: .milliseconds(100)) }
+        guard session.isReachable else { return false }
+        let stopped: Bool = await withCheckedContinuation { done in
+            session.sendMessage(["stop": id], replyHandler: { done.resume(returning: $0["stopped"] as? Bool ?? false) },
+                                errorHandler: { _ in done.resume(returning: false) })
+        }
+        if stopped {
+            let store = WatchStore()
+            store.write(store.read().removingInUse(id))
+            await refreshSetup()
+        }
+        return stopped
     }
 
     /// Asks the iPhone for the current list of devices, for a request this Watch

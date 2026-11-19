@@ -50,7 +50,15 @@ final class RequestModel {
         Task {
             let line = await withExpiringActivity {
                 do {
-                    if approve { _ = try await WatchAnswers().approve(request) } else { _ = try await WatchAnswers().deny(request, words: "") }
+                    if approve {
+                        let lease = try await WatchAnswers().approve(request)
+                        // In use on this Apple Watch until the approval ends.
+                        if lease.state == .approved, lease.notAfterUnixSeconds > 0 {
+                            let store = WatchStore()
+                            store.write(store.read().addingInUse(WatchInUse(id: request.id, site: request.site, who: request.who,
+                                                                            until: Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds)))))
+                        }
+                    } else { _ = try await WatchAnswers().deny(request, words: "") }
                     return approve ? "Approved" : "Denied"
                 } catch {
                     WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") did not reach the relay: \(error)")

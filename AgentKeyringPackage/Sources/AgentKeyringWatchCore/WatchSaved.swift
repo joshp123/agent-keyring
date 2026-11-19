@@ -17,6 +17,8 @@ public struct WatchSaved: Codable, Sendable, Equatable {
     public var answerURL: String?
     /// The iPhone's notification settings, which Apple Watch follows.
     public var settings: NotificationSettings?
+    /// Approvals that still last, from the outcome pushes every device receives.
+    public var inUse: [WatchInUse]?
 
     public init(members: Data? = nil, catalogue: Data? = nil, answerURL: String? = nil) {
         self.members = members; self.catalogue = catalogue; self.answerURL = answerURL
@@ -28,6 +30,30 @@ public struct WatchSaved: Codable, Sendable, Equatable {
 
     public var signedCatalogue: Catalogue? {
         catalogue.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Catalogue(serializedBytes: $0.payload) }
+    }
+
+    /// What is in use now, soonest ending last.
+    public var currentInUse: [WatchInUse] { (inUse ?? []).filter { $0.until > .now }.sorted { $0.until > $1.until } }
+
+    /// Notes a request's state: an approval that lasts is in use; any other end removes it.
+    public func noting(_ request: WatchRequest) -> WatchSaved {
+        var next = self
+        var list = currentInUse.filter { $0.id != request.id }
+        if let until = request.inUseUntil { list.append(WatchInUse(id: request.id, site: request.site, who: request.who, until: until)) }
+        next.inUse = list
+        return next
+    }
+
+    public func addingInUse(_ item: WatchInUse) -> WatchSaved {
+        var next = self
+        next.inUse = currentInUse.filter { $0.id != item.id } + [item]
+        return next
+    }
+
+    public func removingInUse(_ id: String) -> WatchSaved {
+        var next = self
+        next.inUse = currentInUse.filter { $0.id != id }
+        return next
     }
 
     /// Whether a request arriving now may break through a Focus.
@@ -55,6 +81,17 @@ public struct WatchSaved: Codable, Sendable, Equatable {
         if let newURL, !newURL.isEmpty { merged.answerURL = newURL }
         return merged
     }
+}
+
+/// One approval that still lasts (Paper, "On iPhone and Apple Watch", Apple Watch, "In use").
+public struct WatchInUse: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let site: String
+    /// "Claude Code on MacBook Pro".
+    public let who: String
+    public let until: Date
+
+    public init(id: String, site: String, who: String, until: Date) { self.id = id; self.site = site; self.who = who; self.until = until }
 }
 
 public struct WatchStore: Sendable {

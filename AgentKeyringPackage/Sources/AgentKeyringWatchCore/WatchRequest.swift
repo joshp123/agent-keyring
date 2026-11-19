@@ -24,6 +24,10 @@ public struct WatchRequest: Sendable, Equatable {
     public let project: String?
     public let reason: String
     public let state: State
+    /// "Claude Code on MacBook Pro".
+    public let who: String
+    /// While an approval lasts: when it ends.
+    public let inUseUntil: Date?
 
     /// Opens the push's notice and names everything in it. Fails with one
     /// reason, for the report; the Watch then shows a plain line.
@@ -48,11 +52,13 @@ public struct WatchRequest: Sendable, Equatable {
         let agent = request.agent.isEmpty ? "An agent" : request.agent
         let minutes = max(1, Int((request.answerByUnixSeconds - request.askedUnixSeconds) / 60))
         let state: State = work.hasOutcome ? .ended(outcome(work.outcome, members: members, agent: agent, minutes: minutes)) : .waiting
+        let until = work.hasOutcome && work.outcome.state == .approved && work.outcome.notAfterUnixSeconds > Int64(Date().timeIntervalSince1970)
+            ? Date(timeIntervalSince1970: Double(work.outcome.notAfterUnixSeconds)) : nil
         return WatchRequest(
             work: try work.serializedData(), id: request.requestID,
             site: login.map(site) ?? request.loginID, account: login?.account ?? "", sites: login?.sites ?? [],
             agent: agent, wants: "\(agent) on \(machine.label) wants", project: request.project.isEmpty ? nil : request.project,
-            reason: request.reason, state: state)
+            reason: request.reason, state: state, who: "\(agent) on \(machine.label)", inUseUntil: until)
     }
 
     public enum Unreadable: Error, CustomStringConvertible {
@@ -89,7 +95,7 @@ public struct WatchRequest: Sendable, Equatable {
         case .unanswered:
             return "No answer. The request ended after \(minutes) minutes, and \(agent) can ask again."
         case .cancelled:
-            return "Withdrawn. \(agent) stopped asking before you answered."
+            return "Cancelled. \(agent) stopped asking before you answered."
         default:
             return "Ended."
         }

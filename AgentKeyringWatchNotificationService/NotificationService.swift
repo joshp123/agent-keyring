@@ -19,6 +19,9 @@ final class NotificationService: UNNotificationServiceExtension {
             let saved = WatchStore().read()
             let opened = try WatchRequest.from(userInfo: content.userInfo, keys: WatchKeys(), saved: saved)
             WatchWords.write(opened, into: content, breaksThroughFocus: saved.breaksThroughFocus)
+            // An approval from any device arrives here as its outcome: it is in use until it ends.
+            let noted = saved.noting(opened)
+            if noted != saved { WatchStore().write(noted) }
         } catch {
             WatchWords.writeFallback(into: content)
         }

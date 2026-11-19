@@ -32,6 +32,7 @@ final class WatchModel {
     static let shared = WatchModel()
 
     enum Setup: Equatable { case setUpIPhone, approveOnIPhone, waitingForApple, ready, failed(String) }
+    var inUse: [WatchInUse] = WatchStore().read().currentInUse
     var setup: Setup = {
         let saved = WatchStore().read()
         return saved.lists((try? WatchKeys().keyID()) ?? "") ? .ready : saved.signedMembers != nil ? .approveOnIPhone : .setUpIPhone
@@ -121,12 +122,27 @@ enum WatchCopy {
     static let waitingForAppleDetail = "Requests can’t reach your Apple Watch yet."
     static let noPasscode = "Set a passcode in the Apple Watch app on your iPhone to approve from your wrist."
     static let notificationsOff = "Turn on notifications for Agent Keyring in the Apple Watch app on your iPhone."
+    static let inUse = "In use"
+    static let stop = "Stop"
+    /// Not on the board: when Stop can't reach the iPhone.
+    static let stopFailed = "Couldn’t stop it. Try on your iPhone."
+    static func until(_ date: Date) -> String {
+        "until " + date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en_GB")))
+    }
 }
 
 struct WatchHome: View {
     let model: WatchModel
 
     var body: some View {
+        // Only "In use" while something is in use; otherwise the one line for where it stands.
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let inUse = model.inUse.filter { $0.until > context.date }
+            if model.setup == .ready && !inUse.isEmpty { WatchInUseList(items: inUse) } else { status }
+        }
+    }
+
+    private var status: some View {
         VStack(spacing: 6) {
             switch model.setup {
             case .setUpIPhone: titled(WatchCopy.setUpIPhone, WatchCopy.setUpIPhoneDetail)
@@ -145,6 +161,45 @@ struct WatchHome: View {
     @ViewBuilder private func titled(_ title: String, _ detail: String) -> some View {
         Text(title).font(.system(size: 20, weight: .semibold)).multilineTextAlignment(.center)
         Text(detail).font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+    }
+}
+
+/// Paper, "On iPhone and Apple Watch", Apple Watch: "In use", each with Stop.
+struct WatchInUseList: View {
+    let items: [WatchInUse]
+    @State private var stopping: String?
+    @State private var failed: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(WatchCopy.inUse).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                ForEach(items) { item in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(item.site).font(.system(size: 16, weight: .semibold))
+                        Text(item.who).font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text(WatchCopy.until(item.until)).font(.system(size: 13)).foregroundStyle(.secondary)
+                        if failed == item.id {
+                            Text(WatchCopy.stopFailed).font(.system(size: 13)).padding(.top, 4)
+                        }
+                        Button(WatchCopy.stop) {
+                            stopping = item.id
+                            Task {
+                                let stopped = await WatchLink.shared.stop(item.id)
+                                failed = stopped ? nil : item.id
+                                stopping = nil
+                            }
+                        }
+                        .font(.system(size: 16, weight: .semibold))
+                        .disabled(stopping != nil)
+                        .padding(.top, 8)
+                    }
+                    .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.12), in: .rect(cornerRadius: 20))
+                }
+            }
+        }
     }
 }
 

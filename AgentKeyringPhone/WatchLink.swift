@@ -71,7 +71,14 @@ final class WatchLink: NSObject, WCSessionDelegate {
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any],
                              replyHandler: @escaping ([String: Any]) -> Void) {
         let reply = UncheckedReply(replyHandler)
+        let stop = message["stop"] as? String
         Task { @MainActor in
+            // Stop on Apple Watch: it cannot reach the relay's device methods, so the iPhone ends the approval.
+            if let stop {
+                do { try await self.relay.stop(stop); PhoneDiagnostics.note("Stopped from Apple Watch"); reply.call(["stopped": true]) }
+                catch { PhoneDiagnostics.note("Stop from Apple Watch failed: \(error)"); reply.call(["stopped": false]) }
+                return
+            }
             PhoneDiagnostics.note("The Watch asked for Members at once")
             reply.call(self.membersContext ?? [:])
         }
