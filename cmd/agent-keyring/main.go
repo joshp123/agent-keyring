@@ -38,6 +38,7 @@ const help = `Agent Keyring: use a saved login for one task.
   install                   Link the command and skills; register browser helpers
   install --browser-profile DIRECTORY
                             Register a helper only in this browser user-data directory
+  machines                  List the computers on this Tailscale network
   enrol --name NAME --invite LINK
                             Join this machine, with a link from 'invite' on the Mac
   invite                    On the Mac: print a one-time link for one machine to join
@@ -181,6 +182,15 @@ func run(ctx context.Context, args []string) (int, error) {
 			return 2, errors.New("This command takes no arguments.")
 		}
 		return 0, integration(command)
+	}
+	if command == "machines" {
+		if len(args) != 1 {
+			return 2, errors.New("This command takes no arguments.")
+		}
+		if err = machines(); err != nil {
+			return 1, err
+		}
+		return 0, nil
 	}
 	if command == "tabs" || command == "fields" {
 		return inspectBrowser(ctx, command, a)

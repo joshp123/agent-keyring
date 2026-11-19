@@ -318,3 +318,29 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	})
 }
+
+// An agent lists the computers on the tailnet to ask which ones to set up.
+// A stand-in tailscale command prints what Tailscale's own prints.
+func TestMachinesListsTheTailnet(t *testing.T) {
+	p := build(t)
+	bin := t.TempDir()
+	status := `{"Self": {"HostName": "Example’s MacBook Pro", "DNSName": "laptop.example.ts.net.", "OS": "macOS", "Online": true},
+	  "Peer": {
+	    "nodekey:1": {"HostName": "server", "DNSName": "server.example.ts.net.", "OS": "linux", "Online": false},
+	    "nodekey:2": {"HostName": "localhost", "DNSName": "phone.example.ts.net.", "OS": "iOS", "Online": true},
+	    "nodekey:3": {"HostName": "mini", "DNSName": "mac-mini.example.ts.net.", "OS": "macOS", "Online": true}}}`
+	if err := os.WriteFile(filepath.Join(bin, "tailscale"), []byte("#!/bin/sh\ncat <<'END'\n"+status+"\nEND\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(p.command, "machines")
+	command.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin")
+	out, err := command.CombinedOutput()
+	want := `COMPUTER                SYSTEM  ONLINE  ADDRESS
+laptop (this computer)  macOS   yes     laptop.example.ts.net
+mac-mini                macOS   yes     mac-mini.example.ts.net
+server                  linux   no      server.example.ts.net
+`
+	if err != nil || string(out) != want {
+		t.Fatalf("machines: %v\n%s", err, out)
+	}
+}
