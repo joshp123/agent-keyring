@@ -116,7 +116,7 @@ final class ApprovalPresenter {
         case .sendImported:
             let model = model
             ask(SetupCopy.sendImportedTitle, SetupCopy.sendImportedBody,
-                reason: "let agents on your other machines use the logins you just imported",
+                reason: SetupCopy.sendImportedReason,
                 perform: { context in try await model.sendImportedLogins(context: context) },
                 declined: { model.declineSendingImportedLogins() })
         case .selfTest:

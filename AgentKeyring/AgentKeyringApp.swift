@@ -54,7 +54,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 await model.loadStatus()
                 await model.importMadeUpLoginsIfAsked()
-                if model.status == nil { presentation.requestMainWindow() }
+                if !model.firstRunFinished { presentation.requestMainWindow() }
             }
         }
 
@@ -92,21 +92,15 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
 
 }
 
-/// First run until this Mac has passed its test, then the Logins and Devices tabs.
+/// First run until Josh clicks its Done, then the Passwords and Devices tabs.
 private struct HomeWindow: View {
     let model: MirrorAppModel
     let presentation: AgentKeyringPresentation
     @State private var main: MacMainModel?
 
-    private var setUp: Bool {
-        if model.status == nil { return false }
-        if case .passed = model.selfTest { return true }
-        return false
-    }
-
     var body: some View {
         Group {
-            if setUp {
+            if model.firstRunFinished {
                 if let main { MacMainWindowView(model: main) } else { ProgressView().padding(40) }
             } else {
                 FirstRunHome(model: model)
@@ -126,26 +120,21 @@ private struct HomeWindow: View {
 
 private struct FirstRunHome: View {
     let model: MirrorAppModel
+    @Environment(\.dismissWindow) private var dismissWindow
 
-    private var state: FirstRunState {
-        let imported: FirstRunState.Import
-        if model.isImporting { imported = .importing }
-        else if let status = model.status { imported = .done(logins: status.credentialItemCount) }
-        else {
-            switch model.providerState {
-            case .unknown, .requesting: imported = .turnOn
-            case .enabled: imported = .needsExport(oldAppInstalled: model.oldAppInstalled)
-            case .notNow: imported = .autoFillOff(chosenNotNow: true, canAskAgain: model.canAskAgain)
-            case .off: imported = .autoFillOff(chosenNotNow: false, canAskAgain: model.canAskAgain)
+    private var step: FirstRunStep {
+        if model.isImporting { return .copying }
+        if let status = model.status {
+            return switch model.selfTest {
+            case .passed: .setUp(agentLine: FirstRunCopy.agentLine)
+            case .declined, .failed: .practice(passwords: status.credentialItemCount, denied: true)
+            case .waiting, .notRun: .practice(passwords: status.credentialItemCount, denied: false)
             }
         }
-        let test: FirstRunState.Test = switch model.selfTest {
-        case let .passed(at): .passed(at)
-        case let .failed(message): .failed(message)
-        case .declined: .declined
-        case .waiting, .notRun: .waiting
+        if model.showsAutoFillHelp {
+            return model.providerState == .notNow ? .autoFillNotNow(canAsk: model.canAskAgain) : .autoFill(canAsk: model.canAskAgain)
         }
-        return FirstRunState(imported: imported, test: test, alwaysOnReady: model.device?.isJoined == true)
+        return model.exportTimedOut ? .noneArrived : .export
     }
 
     var body: some View {
@@ -153,22 +142,16 @@ private struct FirstRunHome: View {
             if model.isLoading {
                 ProgressView().padding(40)
             } else {
-                VStack(alignment: .leading) {
-                    MacFirstRunView(state: state, askAgain: model.askToTurnOnAutoFill, openPasswords: model.openPasswordsExport,
-                        sendTestAgain: model.sendSelfTestAgain)
-                    if let notice = model.notice, notice.kind != .information {
-                        Text(notice.text).font(.callout).padding(.horizontal, 28).padding(.bottom, 20)
-                    }
-                }
+                MacFirstRunView(step: step, problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text },
+                    openPasswords: model.openPasswordsExport, showAutoFill: model.showAutoFillHelp,
+                    askForAutoFill: model.askToTurnOnAutoFill, sendAnother: model.sendSelfTestAgain,
+                    done: {
+                        dismissWindow(id: "main")
+                        model.finishFirstRun()
+                    })
             }
         }
-        .task {
-            await model.loadStatus()
-            model.askToTurnOnAutoFillIfNeeded()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await model.recheckAutoFill() }
-        }
+        .task { await model.loadStatus() }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
     }
 }

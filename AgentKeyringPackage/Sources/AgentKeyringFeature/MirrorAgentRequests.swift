@@ -79,7 +79,7 @@ extension MirrorAppModel {
                 try await refreshLeasePolicy()
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
                 response.lease = try leaseStore.request(incoming, login: login,
-                    policy: login.map { accessControl.policy(for: $0.id) } ?? .block,
+                    policy: login.map { localPolicy(for: $0.id) } ?? .block,
                     requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project))
                 if let login, accessControl.policy(for: login.id) == .askOnPhone, response.lease.state == .pending {
                     askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name)
@@ -145,7 +145,7 @@ extension MirrorAppModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                guard let device = self.device else { throw LeaseFailure(.unavailable, "This Mac is not connected to your iPhone or Watch.") }
+                guard let device = self.device else { throw LeaseFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.") }
                 switch try await device.askDevices(ask) {
                 case let .approved(contents): try self.leaseStore.approveFromDevices(leaseID, contents: contents)
                 case let .denied(reply): _ = try self.leaseStore.deny(leaseID, reply: reply, approvedBy: .iphone)

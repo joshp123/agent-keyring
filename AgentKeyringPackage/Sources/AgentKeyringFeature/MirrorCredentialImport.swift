@@ -38,7 +38,7 @@ extension MirrorAppModel {
             notice = MirrorNotice(
                 kind: .error,
                 text:
-                    "Apple Passwords opened Agent Keyring without an import token. Try the export again."
+                    "Passwords opened Agent Keyring without sending your passwords. Try the export again."
             )
             return
         }
@@ -52,28 +52,13 @@ extension MirrorAppModel {
         Task { await importCredentials(token: token) }
     }
 
-    /// Whether AutoFill from this app's extension is on. Each extension has its
-    /// own setting: 0.2.5's being on says nothing about this one.
-    func autoFillIsOn() async -> Bool {
-        await withCheckedContinuation { continuation in
-            ASCredentialIdentityStore.shared.getState { continuation.resume(returning: $0.isEnabled) }
-        }
+    /// "Agent Keyring isn't in the list?": the screen before macOS's AutoFill question.
+    public func showAutoFillHelp() {
+        showsAutoFillHelp = true
     }
 
-    /// First run asks macOS as its window opens, unless loading found AutoFill
-    /// from Agent Keyring already on; then the import step shows at once.
-    public func askToTurnOnAutoFillIfNeeded() {
-        guard status == nil, providerState == .unknown else { return }
-        askToTurnOnAutoFill()
-    }
-
-    /// He may switch it on or off in System Settings while first run waits.
-    public func recheckAutoFill() async {
-        guard status == nil, providerState != .unknown, providerState != .requesting else { return }
-        if await autoFillIsOn() { providerState = .enabled } else if providerState == .enabled { providerState = .off }
-    }
-
-    /// macOS shows "Turn on AutoFill from “Agent Keyring”?" by itself; "Ask Again" calls this too.
+    /// macOS shows "Turn on AutoFill from “Agent Keyring”?"; it answers a second
+    /// request only 10 seconds after the last. Turn On returns to the export.
     public func askToTurnOnAutoFill() {
         providerState = .requesting
         canAskAgain = false
@@ -83,26 +68,21 @@ extension MirrorAppModel {
             self?.canAskAgain = true
         }
         ASSettingsHelper.requestToTurnOnCredentialProviderExtension { [weak self] enabled in
-            Task { @MainActor in self?.providerState = enabled ? .enabled : .notNow }
+            Task { @MainActor in
+                self?.providerState = enabled ? .enabled : .notNow
+                if enabled { self?.showsAutoFillHelp = false }
+            }
         }
-    }
-
-    /// 0.2.5, whose extension Passwords also lists as "Agent Keyring". Only
-    /// whether it is installed is asked of macOS; nothing of it is read.
-    public var oldAppInstalled: Bool {
-        guard let mine = Bundle.main.bundleIdentifier, mine.hasSuffix(".Mac") else { return false }
-        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: String(mine.dropLast(4))) != nil
     }
 
     public func openPasswordsExport() {
         awaitingExport = true
+        exportTimedOut = false
         exportTimeout?.cancel()
         exportTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(300))
             guard !Task.isCancelled, let self, self.awaitingExport, !self.isImporting else { return }
-            self.notice = MirrorNotice(kind: .error, text: self.oldAppInstalled
-                ? "No logins arrived from Passwords. They may have gone to the old Agent Keyring. In Passwords, choose File > Export All Items to App > Agent Keyring again, and pick the one with the blue keyhole."
-                : "No logins arrived from Passwords. In Passwords, choose File > Export All Items to App > Agent Keyring again.")
+            self.exportTimedOut = true
         }
         openPasswords()
     }
@@ -112,7 +92,7 @@ extension MirrorAppModel {
             let url = NSWorkspace.shared.urlForApplication(
                 withBundleIdentifier: "com.apple.Passwords")
         else {
-            notice = MirrorNotice(kind: .error, text: "Apple Passwords could not be opened.")
+            notice = MirrorNotice(kind: .error, text: "Passwords could not be opened.")
             return
         }
         NSWorkspace.shared.openApplication(
@@ -123,7 +103,7 @@ extension MirrorAppModel {
             Task { @MainActor in
                 self?.notice = MirrorNotice(
                     kind: .error,
-                    text: "Apple Passwords could not be opened."
+                    text: "Passwords could not be opened."
                 )
             }
         }
@@ -141,6 +121,7 @@ extension MirrorAppModel {
 
     func importCredentials(token: UUID) async {
         isImporting = true
+        exportTimedOut = false
         notice = nil
         defer { isImporting = false; awaitingExport = false }
 
@@ -189,8 +170,8 @@ extension MirrorAppModel {
             notice = MirrorNotice(
                 kind: .error,
                 text: hadExistingMirror
-                    ? "Passwords transferred the logins, but Agent Keyring could not seal them. Your earlier import was not changed."
-                    : "Passwords transferred the logins, but Agent Keyring could not seal them."
+                    ? "Passwords sent your passwords, but Agent Keyring could not lock them away. Your earlier copy was not changed."
+                    : "Passwords sent your passwords, but Agent Keyring could not lock them away."
             )
             return
         }
@@ -205,9 +186,9 @@ extension MirrorAppModel {
             // Josh approves sending the list in a panel beside his window.
             importedLoginsAwaitApproval = true
             notice = MirrorNotice(kind: .information,
-                text: "Import complete. Your iPhone and other machines get the new list once you allow it.")
+                text: "Your passwords are copied. Your iPhone and other computers get them once you allow it.")
         } else {
-            notice = MirrorNotice(kind: .information, text: "Import complete. Exported logins have been updated.")
+            notice = MirrorNotice(kind: .information, text: "Your passwords are copied.")
         }
     }
 }
