@@ -209,7 +209,7 @@ public nonisolated enum Agentkeyring_V2_LeaseState: SwiftProtobuf.Enum, Swift.Ca
   /// Nobody answered by answer_by.
   case unanswered // = 4
 
-  /// The agent said it was done, or 30 minutes passed.
+  /// The agent said it was done, 30 minutes passed, or a device stopped it (ended_by).
   case ended // = 5
 
   /// The agent stopped asking.
@@ -746,6 +746,9 @@ public nonisolated struct Agentkeyring_V2_Lease: Sendable {
 
   /// A denial holds the login off for 30 minutes.
   public var retryNotBeforeUnixSeconds: Int64 = 0
+
+  /// Device.label when a device ended an approval early (Stop).
+  public var endedBy: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2499,7 +2502,7 @@ nonisolated extension Agentkeyring_V2_TimedCode: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V2_Lease: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Lease"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}login_id\0\u{1}state\0\u{3}answer_by_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}answered_by\0\u{1}reply\0\u{3}retry_not_before_unix_seconds\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}login_id\0\u{1}state\0\u{3}answer_by_unix_seconds\0\u{3}not_after_unix_seconds\0\u{3}answered_by\0\u{1}reply\0\u{3}retry_not_before_unix_seconds\0\u{3}ended_by\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2515,6 +2518,7 @@ nonisolated extension Agentkeyring_V2_Lease: SwiftProtobuf.Message, SwiftProtobu
       case 6: try { try decoder.decodeSingularStringField(value: &self.answeredBy) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.reply) }()
       case 8: try { try decoder.decodeSingularInt64Field(value: &self.retryNotBeforeUnixSeconds) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.endedBy) }()
       default: break
       }
     }
@@ -2545,6 +2549,9 @@ nonisolated extension Agentkeyring_V2_Lease: SwiftProtobuf.Message, SwiftProtobu
     if self.retryNotBeforeUnixSeconds != 0 {
       try visitor.visitSingularInt64Field(value: self.retryNotBeforeUnixSeconds, fieldNumber: 8)
     }
+    if !self.endedBy.isEmpty {
+      try visitor.visitSingularStringField(value: self.endedBy, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2557,6 +2564,7 @@ nonisolated extension Agentkeyring_V2_Lease: SwiftProtobuf.Message, SwiftProtobu
     if lhs.answeredBy != rhs.answeredBy {return false}
     if lhs.reply != rhs.reply {return false}
     if lhs.retryNotBeforeUnixSeconds != rhs.retryNotBeforeUnixSeconds {return false}
+    if lhs.endedBy != rhs.endedBy {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -226,7 +226,7 @@ const (
 	LeaseState_LEASE_STATE_APPROVED    LeaseState = 2 // Collect the delivery.
 	LeaseState_LEASE_STATE_DENIED      LeaseState = 3
 	LeaseState_LEASE_STATE_UNANSWERED  LeaseState = 4 // Nobody answered by answer_by.
-	LeaseState_LEASE_STATE_ENDED       LeaseState = 5 // The agent said it was done, or 30 minutes passed.
+	LeaseState_LEASE_STATE_ENDED       LeaseState = 5 // The agent said it was done, 30 minutes passed, or a device stopped it (ended_by).
 	LeaseState_LEASE_STATE_CANCELLED   LeaseState = 6 // The agent stopped asking.
 )
 
@@ -1503,6 +1503,7 @@ type Lease struct {
 	AnsweredBy                string                 `protobuf:"bytes,6,opt,name=answered_by,json=answeredBy,proto3" json:"answered_by,omitempty"`                                                     // Device.label, once answered.
 	Reply                     string                 `protobuf:"bytes,7,opt,name=reply,proto3" json:"reply,omitempty"`                                                                                 // Display only; show the words from collect's signed answer.
 	RetryNotBeforeUnixSeconds int64                  `protobuf:"varint,8,opt,name=retry_not_before_unix_seconds,json=retryNotBeforeUnixSeconds,proto3" json:"retry_not_before_unix_seconds,omitempty"` // A denial holds the login off for 30 minutes.
+	EndedBy                   string                 `protobuf:"bytes,9,opt,name=ended_by,json=endedBy,proto3" json:"ended_by,omitempty"`                                                              // Device.label when a device ended an approval early (Stop).
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -1591,6 +1592,13 @@ func (x *Lease) GetRetryNotBeforeUnixSeconds() int64 {
 		return x.RetryNotBeforeUnixSeconds
 	}
 	return 0
+}
+
+func (x *Lease) GetEndedBy() string {
+	if x != nil {
+		return x.EndedBy
+	}
+	return ""
 }
 
 // Everything the asking machine needs to check an answer itself: an approval,
@@ -3987,7 +3995,7 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\tTimedCode\x125\n" +
 	"\x17valid_from_unix_seconds\x18\x01 \x01(\x03R\x14validFromUnixSeconds\x127\n" +
 	"\x18valid_until_unix_seconds\x18\x02 \x01(\x03R\x15validUntilUnixSeconds\x12\x12\n" +
-	"\x04code\x18\x03 \x01(\tR\x04code\"\xd7\x02\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\"\xf2\x02\n" +
 	"\x05Lease\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
@@ -3998,7 +4006,8 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\vanswered_by\x18\x06 \x01(\tR\n" +
 	"answeredBy\x12\x14\n" +
 	"\x05reply\x18\a \x01(\tR\x05reply\x12@\n" +
-	"\x1dretry_not_before_unix_seconds\x18\b \x01(\x03R\x19retryNotBeforeUnixSeconds\"\x8c\x01\n" +
+	"\x1dretry_not_before_unix_seconds\x18\b \x01(\x03R\x19retryNotBeforeUnixSeconds\x12\x19\n" +
+	"\bended_by\x18\t \x01(\tR\aendedBy\"\x8c\x01\n" +
 	"\bApproval\x12\x18\n" +
 	"\arequest\x18\x01 \x01(\fR\arequest\x12/\n" +
 	"\x06answer\x18\x02 \x01(\v2\x17.agentkeyring.v2.SignedR\x06answer\x125\n" +

@@ -277,6 +277,24 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		}
 	})
 
+	t.Run("Stop on a device ends the approval, and the agent is told so", func(t *testing.T) {
+		asking := start(linux.command("lease", "login-ask", "--task", "stop", "--reason", "You asked me to check the invoice."))
+		r.device("answer", "--approve")
+		got := wait(t, asking, "lease")
+		if got.err != nil {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		lease := strings.TrimSpace(got.stdout)
+		r.device("stop", "--request", lease)
+		status := wait(t, start(linux.command("status", lease)), "status")
+		if !strings.Contains(status.stdout, lease+": stopped by Josh") {
+			t.Fatalf("want stopped by Josh, got %q %v", status.stdout, status.err)
+		}
+		if read := wait(t, start(linux.command("read", lease, "--field", "password")), "read"); read.err == nil {
+			t.Fatalf("a stopped approval still delivered")
+		}
+	})
+
 	t.Run("nobody answers", func(t *testing.T) {
 		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Second try."))
 		r.device("answer", "--ignore")

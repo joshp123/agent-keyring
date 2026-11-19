@@ -39,7 +39,8 @@ func (r *request) lease(id string) *pb.Lease {
 	parsed := &pb.Request{}
 	unmarshal(r.Request, parsed)
 	return &pb.Lease{RequestId: id, LoginId: parsed.LoginId, State: r.State, AnswerByUnixSeconds: r.AnswerBy,
-		NotAfterUnixSeconds: r.NotAfter, AnsweredBy: r.AnsweredBy, Reply: r.Reply, RetryNotBeforeUnixSeconds: r.RetryNotBefore}
+		NotAfterUnixSeconds: r.NotAfter, AnsweredBy: r.AnsweredBy, Reply: r.Reply, RetryNotBeforeUnixSeconds: r.RetryNotBefore,
+		EndedBy: r.EndedBy}
 }
 
 func (s *Server) ask(ctx context.Context, who caller, ask *pb.AskRequest) (*pb.Lease, error) {
@@ -184,6 +185,9 @@ func (s *Server) end(ctx context.Context, who caller, id string) (*pb.Lease, err
 			r.State, wasWaiting = pb.LeaseState_LEASE_STATE_CANCELLED, true
 		case pb.LeaseState_LEASE_STATE_APPROVED:
 			r.State = pb.LeaseState_LEASE_STATE_ENDED
+			if who.device != nil {
+				r.EndedBy = who.device.Label
+			}
 		}
 		r.Ended = s.now().Unix()
 		lease = r.lease(id)

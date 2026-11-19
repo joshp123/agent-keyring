@@ -318,7 +318,9 @@ func (c *Client) translate(ctx context.Context, scope *v1.RequestLeaseRequest, r
 		lease.State = v1.LeaseState_LEASE_STATE_CANCELLED
 	case pb.LeaseState_LEASE_STATE_ENDED:
 		lease.State = v1.LeaseState_LEASE_STATE_RELEASED
-		if remote.NotAfterUnixSeconds > 0 && time.Now().Unix() >= remote.NotAfterUnixSeconds {
+		if remote.EndedBy != "" {
+			lease.State = v1.LeaseState_LEASE_STATE_REVOKED
+		} else if remote.NotAfterUnixSeconds > 0 && time.Now().Unix() >= remote.NotAfterUnixSeconds {
 			lease.State = v1.LeaseState_LEASE_STATE_EXPIRED
 		}
 	default:

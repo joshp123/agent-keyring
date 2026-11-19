@@ -50,6 +50,7 @@ type request struct {
 	Reply           string        `json:"reply,omitempty"`
 	RetryNotBefore  int64         `json:"retry_not_before,omitempty"`
 	Ended           int64         `json:"ended,omitempty"`
+	EndedBy         string        `json:"ended_by,omitempty"` // The device that stopped an approval early.
 }
 
 type join struct {

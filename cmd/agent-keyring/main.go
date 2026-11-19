@@ -428,7 +428,7 @@ func leaseState(state pb.LeaseState) string {
 	case 5:
 		return "released"
 	case 6:
-		return "revoked"
+		return "stopped by Josh"
 	case 7:
 		return "cancelled"
 	case 8:
@@ -444,7 +444,7 @@ func leaseError(lease *pb.Lease) error {
 	if lease.Reply != "" {
 		text += " Reply: " + safe(lease.Reply)
 	}
-	if lease.State == pb.LeaseState_LEASE_STATE_EXPIRED {
+	if lease.State == pb.LeaseState_LEASE_STATE_EXPIRED || lease.State == pb.LeaseState_LEASE_STATE_REVOKED {
 		text += " Request a new lease only if this task still needs the login."
 	}
 	return errors.New(text)

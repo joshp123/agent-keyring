@@ -99,6 +99,7 @@ func main() {
 	keysOnly := flags.Bool("keys-only", false, "create keys and publish nothing (init)")
 	reply := flags.String("reply", "", "words for the waiting agent (refuse-joins)")
 	rule := flags.String("rule", "", "ask, automatic, blocked or phone-and-watch (propose)")
+	request := flags.String("request", "", "request id (stop)")
 	flags.Parse(os.Args[2:])
 	ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
 	defer cancel()
@@ -118,6 +119,11 @@ func main() {
 		err = withDevice(*state, func(d *device) error { return d.selfTest(ctx) })
 	case "propose":
 		err = withDevice(*state, func(d *device) error { return d.propose(ctx, *login, *rule) })
+	case "stop":
+		err = withDevice(*state, func(d *device) error {
+			_, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_End{End: &pb.RequestReference{RequestId: *request}}}, nil)
+			return err
+		})
 	case "answer":
 		err = withDevice(*state, func(d *device) error { return d.answer(ctx, *approve, *deny, *denyPlain, *ignore) })
 	default:

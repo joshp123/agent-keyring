@@ -239,6 +239,7 @@ message Lease {
   string answered_by = 6;            // Device.label, once answered.
   string reply = 7;                  // Display only; show the words from collect's signed answer.
   int64 retry_not_before_unix_seconds = 8;  // A denial holds the login off for 30 minutes.
+  string ended_by = 9;               // Device.label when a device ended an approval early (Stop).
 }
 
 enum LeaseState {
@@ -247,7 +248,7 @@ enum LeaseState {
   LEASE_STATE_APPROVED = 2;        // Collect the delivery.
   LEASE_STATE_DENIED = 3;
   LEASE_STATE_UNANSWERED = 4;      // Nobody answered by answer_by.
-  LEASE_STATE_ENDED = 5;           // The agent said it was done, or 30 minutes passed.
+  LEASE_STATE_ENDED = 5;           // The agent said it was done, 30 minutes passed, or a device stopped it (ended_by).
   LEASE_STATE_CANCELLED = 6;       // The agent stopped asking.
 }
 
