@@ -1,0 +1,16 @@
+// Written by AI on 2026.11.19 by model claude opus 5.5.
+// The team and bundle prefix come from Config/Local.xcconfig, like the app's.
+#include "../../../Config/Identity.xcconfig"
+
+DEVELOPMENT_TEAM = $(AGENT_KEYRING_TEAM_ID)
+CODE_SIGN_STYLE = Automatic
+MACOSX_DEPLOYMENT_TARGET = 26.0
+SDKROOT = macosx
+// Swift 5 mode: ASCredentialExportManager is not Sendable, and its async calls leave the main actor.
+SWIFT_VERSION = 5.0
+ALWAYS_SEARCH_USER_PATHS = NO
+ENABLE_APP_SANDBOX = YES
+ENABLE_HARDENED_RUNTIME = YES
+GENERATE_INFOPLIST_FILE = NO
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1

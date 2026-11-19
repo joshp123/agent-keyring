@@ -6,6 +6,7 @@
 // connect and join panels have their own copy of the same flow.
 
 #if os(macOS)
+import AgentKeyringApprovalCore
 import LocalAuthentication
 import Observation
 import SwiftUI
@@ -89,6 +90,9 @@ public final class OwnerApproval: Identifiable {
     }
 
     private func evaluate(_ context: LAContext) async throws -> Bool {
+        #if DEBUG
+        if StandInKey.isOn { return true }
+        #endif
         context.touchIDAuthenticationAllowableReuseDuration = 0
         context.localizedFallbackTitle = ""
         let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
@@ -121,7 +125,7 @@ public final class OwnerApproval: Identifiable {
     private func prepare() {
         failure = nil
         let next = LAContext()
-        guard next.canEvaluatePolicy(ownerApprovalPolicy, error: nil) else {
+        guard canAsk(next, ownerApprovalPolicy) else {
             failure = "Touch ID or Apple Watch isn't available. Check that one is ready."
             return
         }

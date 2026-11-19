@@ -196,15 +196,15 @@ struct MacApprovalPanelView: View {
     }
 
     private var touchIDAvailable: Bool {
-        LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        canAsk(LAContext(), .deviceOwnerAuthenticationWithBiometrics)
     }
 
     private enum Approver { case touchID, watch, none }
 
     private var approver: Approver {
         let context = LAContext()
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) { return .touchID }
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithCompanion, error: nil) ? .watch : .none
+        if canAsk(context, .deviceOwnerAuthenticationWithBiometrics) { return .touchID }
+        return canAsk(context, .deviceOwnerAuthenticationWithCompanion) ? .watch : .none
     }
 
     /// One green button. Clicking it opens macOS's Touch ID or Apple Watch
