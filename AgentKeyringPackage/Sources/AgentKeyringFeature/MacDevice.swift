@@ -50,8 +50,19 @@ public final class MacDevice {
     /// A newer catalogue another device signed (a rule changed on the iPhone),
     /// with this Mac's own Automatic copies as the relay now holds them.
     var onCatalogue: (@MainActor (Agentkeyring_V2_Catalogue, [Agentkeyring_V2_SealedLogin]) async -> Void)?
-    private var saved: Saved?
-    private var setupPin: Data?
+    /// Not set up, an agent setting up the computer that stays on, or joined
+    /// to its relay. Only Touch ID on "add Mac mini" moves it to joined.
+    private enum Lifecycle {
+        case notSetUp
+        case settingUp(Setup)
+        case joined(Saved)
+    }
+
+    private var lifecycle = Lifecycle.notSetUp
+    private var saved: Saved? {
+        get { if case let .joined(saved) = lifecycle { saved } else { nil } }
+        set { if let newValue { lifecycle = .joined(newValue) } else if case .joined = lifecycle { lifecycle = .notSetUp } }
+    }
     private var hiddenJoins = Set<String>()
     /// Invitations this Mac issued and nobody has used: secret, expiry. A join
     /// is shown only if its proof checks against one of them.
@@ -134,10 +145,16 @@ public final class MacDevice {
         public internal(set) var machine: Agentkeyring_V2_Machine?
         /// Its command can be told it was denied (it sent a refusal key's hash).
         public internal(set) var refusable = false
+        /// The relay's TLS key, as first seen.
+        let pin: Data
+        /// The setup invitation's one-time secret.
+        let secret: Data
     }
 
-    public private(set) var setup: Setup?
-    private var setupSecret: Data?
+    public private(set) var setup: Setup? {
+        get { if case let .settingUp(setup) = lifecycle { setup } else { nil } }
+        set { if let newValue { lifecycle = .settingUp(newValue) } else if case .settingUp = lifecycle { lifecycle = .notSetUp } }
+    }
     @ObservationIgnored private var setupWatch: Task<Void, Never>?
 
     /// An agent ran `agent-keyring setup-relay`: note the relay's key, and give
@@ -150,10 +167,8 @@ public final class MacDevice {
         request.method = .members(Agentkeyring_V2_Empty())
         _ = try? await KeyringRelay(endpoint: endpoint, identity: keys.tls, pin: nil).call(request) { observed = $0 }
         guard !observed.isEmpty else { throw RelayFailure(.unavailable, "The relay could not be reached at \(endpoint.host).") }
-        setupPin = observed
-        setup = Setup(endpoint: endpoint, agent: agent, reason: reason)
         let invite = invitation(endpoint: endpoint, pin: observed, lasting: 600)
-        setupSecret = invite.secret
+        setup = Setup(endpoint: endpoint, agent: agent, reason: reason, pin: observed, secret: invite.secret)
         leaveDeviceInvitation(endpoint: endpoint, pin: observed)
         setupWatch?.cancel()
         setupWatch = Task { [weak self] in
@@ -161,7 +176,7 @@ public final class MacDevice {
                 var request = Agentkeyring_V2_RelayRequest()
                 request.method = .pendingJoins(Agentkeyring_V2_Empty())
                 if let response = try? await KeyringRelay(endpoint: endpoint, identity: self.keys.tls, pin: observed).call(request),
-                    let secret = self.setupSecret {
+                    let secret = self.setup?.secret {
                     let proven = response.pendingJoins.joins.filter { Sealing.joinProof(secret: secret, joining: $0.request) == $0.request.proof }
                     if Set(proven.map(Self.joinID)).count > 1 {
                         deviceLogger.error("Two machines proved the setup invitation; setup is cancelled.")
@@ -190,11 +205,12 @@ public final class MacDevice {
     /// the relay took the denial.
     public func refuseSetup(reply: String) async -> Bool {
         defer { abandonSetup() }
-        guard let setup, setup.refusable, let machine = setup.machine, let secret = setupSecret, let pin = setupPin else { return false }
+        guard let setup, setup.refusable, let machine = setup.machine else { return false }
+        let secret = setup.secret
         var request = Agentkeyring_V2_RelayRequest()
         request.method = .refuseJoin(Self.refusal(machineID: machine.machineID, secret: secret, reply: reply))
         do {
-            _ = try await KeyringRelay(endpoint: setup.endpoint, identity: keys.tls, pin: pin).call(request)
+            _ = try await KeyringRelay(endpoint: setup.endpoint, identity: keys.tls, pin: setup.pin).call(request)
             return true
         } catch {
             deviceLogger.error("Could not tell \(machine.label, privacy: .public) it was denied: \(String(describing: error), privacy: .public)")
@@ -214,8 +230,6 @@ public final class MacDevice {
     public func abandonSetup() {
         setupWatch?.cancel()
         setup = nil
-        setupPin = nil
-        setupSecret = nil
     }
 
     /// Josh approved with Touch ID: this Mac becomes the first device, and the
@@ -223,7 +237,8 @@ public final class MacDevice {
     /// The new computer gets no Automatic passwords until he sets one to
     /// Automatic and approves the computers the rule bar names.
     public func confirmSetup(thisMacAutomatic: Bool, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
-        guard let setup, let always = setup.machine, let pin = setupPin else { return }
+        guard let setup, let always = setup.machine else { return }
+        let pin = setup.pin
         try await confirm(context, reason: "add \(always.label)")
         onAuthenticated()
         var thisMac = keys.machine
@@ -241,7 +256,7 @@ public final class MacDevice {
         do {
             _ = try await call(.publishMembers(signed))
         } catch {
-            saved = nil
+            lifecycle = .settingUp(setup)
             throw error
         }
         self.members = members
@@ -413,8 +428,8 @@ public final class MacDevice {
     private func invitation(lasting seconds: TimeInterval) throws -> Agentkeyring_V2_JoinInvite {
         if let saved { return invitation(endpoint: saved.endpoint, pin: saved.pin, lasting: seconds) }
         // While the always-on machine is being set up, others may join too.
-        guard let setup, let setupPin else { throw RelayFailure(.unavailable, "Connect this Mac to the relay first: agent-keyring setup-relay.") }
-        return invitation(endpoint: setup.endpoint, pin: setupPin, lasting: seconds)
+        guard let setup else { throw RelayFailure(.unavailable, "Connect this Mac to the relay first: agent-keyring setup-relay.") }
+        return invitation(endpoint: setup.endpoint, pin: setup.pin, lasting: seconds)
     }
 
     private func invitation(endpoint: RelayEndpoint, pin: Data, lasting seconds: TimeInterval) -> Agentkeyring_V2_JoinInvite {

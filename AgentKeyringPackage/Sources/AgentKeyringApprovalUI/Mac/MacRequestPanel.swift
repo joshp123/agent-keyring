@@ -346,7 +346,7 @@ public enum ReviewRendering {
         isOn = true
         let model = MacApprovalModel(request: request, backend: Backend(request))
         model.replyDraft = reply
-        model.lidClosed = lidClosed
+        model.lidClosedInRender = lidClosed
         model.approvesElsewhere = approvesElsewhere
         if waiting { model.approve() }
         return MacApprovalPanelView(model: model)
@@ -499,6 +499,26 @@ final class RequestPanel: NSPanel {
         y = min(max(y, screen.minY + margin), screen.maxY - margin - size.height)
         return CGRect(x: x, y: y, width: size.width, height: size.height)
     }
+
+    /// Beside Agent Keyring's own window (first run's, which explains the
+    /// request, or the main window), never over it: on its right if there is
+    /// room, else on its left, else the window moves aside to make room.
+    /// Returns the panel's frame and the window's, which may have moved.
+    static func frame(size: CGSize, beside window: CGRect, visibleFrames: [CGRect]) -> (panel: CGRect, window: CGRect) {
+        let gap: CGFloat = 16, margin: CGFloat = 12
+        let screen = visibleFrames.first { $0.contains(CGPoint(x: window.midX, y: window.midY)) } ?? visibleFrames.first ?? .zero
+        var window = window
+        let room = { (x: CGFloat) in x >= screen.minX + margin && x + size.width <= screen.maxX - margin }
+        var x = window.maxX + gap
+        if !room(x) { x = window.minX - gap - size.width }
+        if !room(x) {
+            // Neither side has room: the window moves to the left edge, the panel goes beside it.
+            window.origin.x = max(screen.minX + margin, min(window.minX, screen.maxX - margin - size.width - gap - window.width))
+            x = min(window.maxX + gap, screen.maxX - margin - size.width)
+        }
+        let y = min(max(window.maxY - size.height, screen.minY + margin), screen.maxY - margin - size.height)
+        return (CGRect(x: x, y: y, width: size.width, height: size.height), window)
+    }
 }
 
 /// The panel is never key until clicked, so the first click must reach the
@@ -546,9 +566,16 @@ final class RequestPanelHost {
 
     func show() {
         hosting.layoutSubtreeIfNeeded()
-        let height = max(hosting.intrinsicContentSize.height, 100).rounded(.up)
-        panel.show(at: RequestPanel.frame(size: CGSize(width: RequestToken.width, height: height),
-            pointer: NSEvent.mouseLocation, visibleFrames: NSScreen.screens.map(\.visibleFrame)))
+        let size = CGSize(width: RequestToken.width, height: max(hosting.intrinsicContentSize.height, 100).rounded(.up))
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        // Agent Keyring's own window on screen (first run, or the main window) is where he is looking.
+        if let own = NSApp.windows.first(where: { $0.isVisible && !($0 is NSPanel) && $0.level == .normal && $0.frame.width > 300 }) {
+            let placed = RequestPanel.frame(size: size, beside: own.frame, visibleFrames: screens)
+            if placed.window != own.frame { own.setFrame(placed.window, display: true, animate: true) }
+            panel.show(at: placed.panel)
+        } else {
+            panel.show(at: RequestPanel.frame(size: size, pointer: NSEvent.mouseLocation, visibleFrames: screens))
+        }
     }
 }
 #endif

@@ -74,12 +74,18 @@ public enum FirstRunCopy {
     // Copy your passwords
     public static let copyTitle = "Copy your passwords"
     public static let copyBody = "Agent Keyring works from its own copy of your passwords. The Passwords app can send it one."
-    /// Markdown: the menu items and buttons are in bold.
+    /// Markdown: the menu items and buttons are in bold. Step 3 is followed by
+    /// this app's row as Passwords' list shows it.
     public static let steps = [
         "In the Passwords app, choose **File > Export All Items to App**, then click **Continue**.",
         "When macOS asks, use Touch ID or enter your Mac’s login password.",
-        "Choose **Agent Keyring** and click **Continue**, then **Continue in “Agent Keyring”**.",
+        "Choose this app, click **Continue**, then **Continue in “Agent Keyring”**:",
     ]
+    public static let appName = "Agent Keyring"
+    public static let earlierVersion = "If you also see “AgentKeyring”, that is the earlier version. Don’t choose it."
+    public static let notInList = "Agent Keyring isn’t in the list?"
+    public static let allowExportTitle = "Allow export from Passwords"
+    public static let allowExportBody = "macOS uses its AutoFill setting to choose which apps Passwords can export to. Agent Keyring never fills in passwords."
     public static let deletesNothing = "Exporting deletes nothing from the Passwords app. Passwords you save later stay there until you copy them again."
     public static let waitingForPasswords = "Waiting for your passwords…"
     public static let noneArrived = "No passwords have arrived yet. In step 3, check that you chose Agent Keyring and clicked Continue in “Agent Keyring”."
@@ -87,35 +93,29 @@ public enum FirstRunCopy {
     public static let useSample = "Use a Sample Password"
     public static let sampleNote = "No passwords yet, or want to look round first? Try everything with a sample password for example.com. When you copy your own, the sample goes."
     public static let copying = "Copying your passwords…"
+    public static let cancel = "Cancel"
+    public static let copyOwn = "Copy Your Own Passwords"
 
     // Set up your agents
     public static func copied(_ count: Int) -> String { count == 1 ? "1 password copied" : "\(count) passwords copied" }
     public static let mustAskAny = "An agent must ask you before it uses any of them."
     public static let sampleAdded = "1 sample password added"
-    public static let sampleDetail = "example.com, you@example.com, password “hello”. An agent must ask you before it uses it."
+    public static let sampleDetail = "example.com, you@example.com, password “hello”."
     public static let setUpTitle = "Set up your agents"
-    public static let setUpBody = "Your agents need Agent Keyring’s instructions before they can ask for a password. An agent can set this up for you. Send this message to Claude Code, Codex or another agent on this Mac:"
+    public static let setUpBody = "Agents such as Claude Code and Codex need Agent Keyring’s command and instructions before they can ask for a password."
+    public static let setUpAgentsButton = "Set Up Agents on This Mac"
+    public static let setUpAgentsNote = "This adds the agent-keyring command and instructions for Claude Code and Codex. Agents already using an earlier Agent Keyring switch to this one."
+    public static let agentsSetUp = "Agents on this Mac can now ask for passwords."
+    public static let otherDevicesTitle = "Your other computers, iPhone and Apple Watch"
+    public static let otherDevicesBody = "An agent adds these for you. Send it this message, and it asks which ones you want. You can do this later from Devices."
     public static let copyMessage = "Copy Message"
     public static let copied = "Copied"
-    public static let connectsEvery = "It connects every agent on this Mac at once. Then it asks you which of your other computers should use Agent Keyring, and whether to add your iPhone and Apple Watch."
-    public static let waitingForAgent = "Waiting for your agent. This window moves on when it has set up the agents on this Mac."
-    public static let doThisLater = "Do This Later"
-
-    // While the agent adds computers
-    public static let thisMac = "This Mac"
-    public static let thisMacDetail = "Its agents can ask for your passwords."
-    public static let stayingOnAdded = "Added. It stays on and passes requests to your iPhone and Apple Watch."
-    /// Not drawn: a computer added that is not the one that stays on.
-    public static let computerAdded = "Added. Its agents can ask for your passwords."
-    public static let approveToAdd = "Approve the request beside your pointer to add it."
-    public static let continueNote = "A request waits beside your pointer until you answer it, so you can continue now."
     public static let continueButton = "Continue"
 
     // Ready
     public static let ready = "Agent Keyring is ready"
-    public static let almostReady = "Agent Keyring is almost ready"
-    public static let notSetUpTitle = "Your agents are not set up yet"
-    public static let notSetUpBody = "They can’t ask for passwords until an agent on this Mac sets them up. To send an agent the setup message, click the keyhole in the menu bar, then Devices."
+    public static let sampleTitle = "You are using a sample password"
+    public static let sampleBody = "example.com is only for trying Agent Keyring. Copy your own passwords when you want your agents to use them."
     public static let readyPoints: [(symbol: String, title: String, body: String)] = [
         ("cursorarrow.rays", "Requests appear beside your pointer",
          "To approve one, click the green button and use Touch ID. To deny it, click Deny, with a reply if you want."),
@@ -127,7 +127,7 @@ public enum FirstRunCopy {
     public static let phoneTitle = "Approve on your iPhone and Apple Watch"
     public static let phoneBody = "Install Agent Keyring on your iPhone and open it. It finds this Mac by itself. Requests then reach your iPhone and Apple Watch too, even with the lid closed."
     public static let phoneLaterTitle = "Add your iPhone and Apple Watch later"
-    public static let phoneLaterBody = "They need a computer of yours that stays on, such as a Mac mini. An agent sets one up when you send it the same setup message."
+    public static let phoneLaterBody = "They need a computer of yours that stays on, such as a Mac mini. To have an agent set one up, click the keyhole in the menu bar, open Devices and copy the message there."
     public static let done = "Done"
     /// Under the menu bar icon after Done.
     public static let staysHere = "Agent Keyring stays here."
