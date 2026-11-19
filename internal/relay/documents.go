@@ -14,27 +14,29 @@ import (
 
 // publishMembers accepts the next list of devices and machines. The very
 // first comes from a device it lists, over that device's own connection.
+// Both publish methods check a new document against the current one inside the
+// store's lock, so two published at once cannot leave the older one in place.
 func (s *Server) publishMembers(who caller, document *pb.Signed) error {
-	current, _ := s.Store.documents()
-	next, err := keyring.VerifiedMembers(document, current)
-	if err != nil {
-		return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Members refused: "+err.Error())
-	}
-	if !bytes.Equal(next.RelayTlsPublicKey, s.ownSPKI()) {
-		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "These members name a different relay.")
-	}
-	if current == nil {
-		listed := false
-		for _, d := range next.Devices {
-			listed = listed || (len(d.TlsPublicKey) > 0 && bytes.Equal(d.TlsPublicKey, who.spki))
-		}
-		if !listed {
-			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The first members must come from a device they list.")
-		}
-	} else if who.device == nil {
-		return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only a device may change the members.")
-	}
 	return s.Store.update(func(data *saved) error {
+		current, _ := s.Store.documentsLocked()
+		next, err := keyring.VerifiedMembers(document, current)
+		if err != nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Members refused: "+err.Error())
+		}
+		if !bytes.Equal(next.RelayTlsPublicKey, s.ownSPKI()) {
+			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "These members name a different relay.")
+		}
+		if current == nil {
+			listed := false
+			for _, d := range next.Devices {
+				listed = listed || (len(d.TlsPublicKey) > 0 && bytes.Equal(d.TlsPublicKey, who.spki))
+			}
+			if !listed {
+				return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The first members must come from a device they list.")
+			}
+		} else if who.device == nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only a device may change the members.")
+		}
 		data.Members = marshal(document)
 		data.MembersHistory = append(data.MembersHistory, data.Members)
 		s.Store.members = next
@@ -61,12 +63,12 @@ func (s *Server) publishMembers(who caller, document *pb.Signed) error {
 }
 
 func (s *Server) publishCatalogue(document *pb.Signed) error {
-	members, current := s.Store.documents()
-	next, err := keyring.VerifiedCatalogue(document, members, current)
-	if err != nil {
-		return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Catalogue refused: "+err.Error())
-	}
 	return s.Store.update(func(data *saved) error {
+		members, current := s.Store.documentsLocked()
+		next, err := keyring.VerifiedCatalogue(document, members, current)
+		if err != nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Catalogue refused: "+err.Error())
+		}
 		data.Catalogue = marshal(document)
 		s.Store.catalogue = next
 		return nil

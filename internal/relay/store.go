@@ -141,8 +141,21 @@ func (s *Store) update(change func(*saved) error) error {
 	if err != nil {
 		return err
 	}
+	// Written, flushed to disk, then renamed over the old file: a crash leaves one or the other whole.
 	temporary := s.path + ".new"
-	if err := os.WriteFile(temporary, raw, 0o600); err != nil {
+	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(raw); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
 		return err
 	}
 	if err := os.Rename(temporary, s.path); err != nil {
