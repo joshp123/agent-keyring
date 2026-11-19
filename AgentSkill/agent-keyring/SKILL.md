@@ -1,8 +1,8 @@
 ---
 name: agent-keyring
-description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation. Use whenever a task needs a login, a password or a two-factor code. Never ask the user to type or paste a password."
+description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation, and set Agent Keyring up on the user's Mac and their other computers. Use whenever a task needs a login, a password or a two-factor code, and when the user asks you to set up Agent Keyring. Never ask the user to type or paste a password."
 metadata:
-  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5"
+  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5; setting up from one line on 2026-11-19 by model claude opus 5.5"
 ---
 
 # Agent Keyring
@@ -12,6 +12,8 @@ Agent Keyring holds the user's saved logins. You lease one login for the task yo
 The values go into the sign-in form or the program, not into your output. Keep it that way: your conversation is stored, and the user is trusting the tool with their accounts.
 
 If your harness has its own secret prompt, such as T3 Code's `request_secret`, don't use it for a login the user has saved. It asks them to type the password, which is what this tool exists to avoid.
+
+If the user asked you to set up Agent Keyring, read "Setting up" below first.
 
 ## The shape of every sign-in
 
@@ -49,30 +51,70 @@ agent-keyring read "$lease" --field password | gh auth login --with-token
 
 **Two-factor codes.** Authenticator codes saved with the login come from Agent Keyring (`--code` when filling, `--field one-time-code` otherwise). Codes sent by SMS or email come from your own tools for the user's messages or mail, if you have them. Get them yourself rather than asking the user.
 
-## On another machine
+## Setting up
 
-To set up the user's always-on machine (the one that runs the relay, such as a Mac mini), start the relay there, then on the Mac:
+The user has installed the Agent Keyring app on their Mac and copied their passwords into it, then asked you to set it up. Your job is to get agents on every computer they choose able to ask for passwords, with as little of their attention as possible: you do the work, and you ask them only what you cannot find out, in one message.
 
-```sh
-link=$(agent-keyring setup-relay --relay RELAY_HOST:PORT --reason "You asked me to set up Agent Keyring on the Mac mini.")
-```
+How it fits together: the Mac holds the passwords and shows each request. Other computers, and the iPhone and Apple Watch, reach the Mac through a relay, a small service on one computer of theirs that stays on, such as a Mac mini or a home server. That computer joins first; each other computer then joins with a one-time link from the Mac. Every join is one request the user approves on the Mac.
 
-On the always-on machine, over SSH, run its standalone command with that link and leave it waiting:
+When you talk to the user, say "password", not "login"; "computer", not "machine"; and "Apple Watch" in full.
 
-```sh
-agent-keyring enrol --name "Mac mini" --invite "$link"
-```
-
-The Mac then shows the user one request to add that machine. Check `agent-keyring relay-status` on the Mac until it says `connected`.
-
-To add another machine later, get a one-time link from the Mac and enrol with it the same way:
+**1. Give this Mac's agents the command and this skill.** On a new Mac nothing is on the path yet, so use the app's own command by its full path:
 
 ```sh
-link=$(agent-keyring invite)          # on the Mac; valid for 10 minutes, for one machine
-agent-keyring enrol --name "build server" --invite "$link"   # on the machine
+"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" install
 ```
 
-Each machine is one request on the Mac. After that, the commands above work the same on that machine. Answers can take longer, because the user may approve on their iPhone.
+This links `agent-keyring` into `~/.local/bin`, links this skill for Codex and Claude Code, and registers the browser extension's helper. If `command -v agent-keyring` still finds nothing, `~/.local/bin` is not on your path: in the steps below, use the full path wherever they say `agent-keyring` on this Mac. If `install` says a folder is read-only because something else manages it, such as a Nix or Home Manager configuration, tell the user what it said at the end, and carry on; don't change their configuration.
+
+**2. See what is already done.** `agent-keyring relay-status` prints one of:
+
+- `not-started`: carry on with step 3.
+- `waiting`: a setup was started earlier and the computer that stays on never joined. Its link has expired; carry on with step 3, and step 5 starts it again.
+- `connected`: the computer that stays on is already set up. Skip its question in step 4, and after asking go to step 6.
+
+**3. Find out what you can before asking.** `agent-keyring machines` lists the computers on their Tailscale network, with this Mac first. For each other computer that is online, check over SSH whether it has the command and whether it runs the relay:
+
+```sh
+ssh -o BatchMode=yes HOST 'command -v agent-keyring'
+ssh -o BatchMode=yes HOST "ps -axo command | grep '[a]gent-keyring-relay'"   # its address follows --listen
+```
+
+Use the address `machines` printed, or the user's own name for the computer if their `~/.ssh/config` has one. `BatchMode` makes a password prompt fail instead of waiting. A non-interactive SSH shell can have a shorter path than a terminal, so before you decide the command is missing, look for it in a login shell too. The relay's `--listen` address is always that computer's Tailscale IP and a port.
+
+What you need, and cannot provide yourself: SSH to each computer without a password; the `agent-keyring` command already installed on each one; and on the computer that stays on, the relay already running as a service. Agent Keyring cannot install itself on another computer yet. Today the only route is a Nix configuration with the `agent-keyring` and `agent-keyring-relay` packages from Agent Keyring's repository (github.com/joshp123/agent-keyring); the relay runs as a service with `--listen` set to the computer's Tailscale IP and a port. Don't install, copy or start anything on another computer yourself. Where something is missing, the user has to add it.
+
+**4. Ask the user, once.** In one message, using what you found:
+
+- Which other computers run agents that need your passwords?
+- Do you want to approve requests on your iPhone and Apple Watch?
+- "Requests reach your iPhone, and your other computers reach this Mac, through a computer of yours that stays on. Which one should that be?" Suggest the one already running the relay.
+
+Say what you will call each computer, as the user would name it ("Mac mini", "Linux server"), not its network name. Say what is missing on any computer they might pick, so they can choose with that in mind. If more than one relay runs on a computer, an older version is probably still running beside the current one: ask which address to use in the same message.
+
+If they want neither other computers nor the iPhone, this Mac is set up after step 1: tell them so and stop. If the computer that stays on lacks the command or the relay, nothing beyond this Mac can be set up yet: tell them what it needs and stop.
+
+**5. Connect this Mac to the relay, and add the computer that stays on.** It joins even if no agents run on it; the Mac's setup finishes when it does. Use the address from `--listen`, and the computer's name in both places:
+
+```sh
+link=$(agent-keyring setup-relay --relay 100.64.0.1:17445 --reason "You asked me to set up Agent Keyring on Mac mini.")
+ssh HOST "agent-keyring enrol --name 'Mac mini' --invite '$link'"
+```
+
+The link works for one computer, for ten minutes from when `setup-relay` printed it. `enrol` then waits, for up to ten minutes more, until the user approves on the Mac. Keep it running, in the background if your tool allows, and tell the user that a request to add that computer is waiting on their Mac. When `enrol` prints `Joined`, run `agent-keyring relay-status` every few seconds until it prints `connected`. If `enrol` ends without `Joined`, the request was denied or nobody answered: tell the user, and make a new link only if they want to try again.
+
+**6. Add each other computer.** The same, with a new link for each:
+
+```sh
+link=$(agent-keyring invite)
+ssh HOST "agent-keyring enrol --name 'Linux server' --invite '$link'"
+```
+
+You can run several at once; the Mac shows the requests one after another. Agents on each computer that joined find these instructions with `agent-keyring skill` there, and use Agent Keyring the same way as on the Mac. Answers can take longer, because the user may approve on their iPhone.
+
+**7. The iPhone and Apple Watch,** if they want them. Tell the user to open Agent Keyring on their iPhone: it finds its invitation through iCloud Keychain, and a request to add it appears on the Mac. Then to open Agent Keyring on their Apple Watch, after the iPhone: the request to add it appears on the iPhone. You cannot install the apps or see whether these joined.
+
+**8. Finish with one message:** which computers are set up, what the user still has to do on the iPhone and Apple Watch, and for each computer left out, what it needs.
 
 ## When it doesn't work
 
