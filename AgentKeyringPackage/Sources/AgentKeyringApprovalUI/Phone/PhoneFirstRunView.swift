@@ -1,95 +1,121 @@
-// Written by AI on 2026.11.18 by model Claude Opus 5.5.
+// Written by AI on 2026.11.19 by model Claude Opus 5.5.
 //
-// First run on the iPhone (Paper, "First run"): one list that ticks itself.
-// The app joins, asks iOS's question and tests itself; he only answers iOS
-// and the requests. The same list, all ticked, greets him once it is ready.
+// First run on the iPhone (Paper, "First run", row "On iPhone"): one screen
+// at a time, ending in Done. The app still checks itself and reports to the
+// relay; none of that is shown here.
 
 #if os(iOS)
 import SwiftUI
 import UIKit
 
-struct PhoneSetupList: View {
-    let setup: PhoneSetup
+/// The screen for where first run stands. The practice request is a sheet over it.
+struct PhoneFirstRunView: View {
+    let stage: PhoneFirstRun
     let model: PhoneModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 14) {
+        switch stage {
+        case let .findingMac(macAsked, longWait):
+            PhoneWelcome {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(macAsked ? PhoneCopy.approveOnMac : PhoneCopy.finishOnMac)
+                        .font(.title3.weight(.semibold)).foregroundStyle(Phone.ink)
+                    Text(macAsked ? PhoneCopy.approveOnMacDetail : PhoneCopy.finishOnMacDetail)
+                        .font(.subheadline).foregroundStyle(Phone.ink2)
+                    if !macAsked && longWait {
+                        Text(PhoneCopy.finishOnMacLongWait)
+                            .font(.subheadline).foregroundStyle(Phone.ink2).padding(.top, 8)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 18).padding(.horizontal, 20)
+                .background(Phone.fill, in: .rect(cornerRadius: 22))
+            }
+        case .notifications, .practice:
+            // The practice request comes up over this screen as a sheet.
+            PhoneStep(title: PhoneCopy.notificationsTitle, lead: PhoneCopy.notificationsLead,
+                      button: stage == .notifications ? PhoneCopy.continueButton : nil) {
+                await model.askAboutNotifications()
+            }
+        case .notificationsOff:
+            PhoneStep(title: nil, lead: PhoneCopy.notificationsOff, button: PhoneCopy.openSettings) {
+                if let url = URL(string: UIApplication.openNotificationSettingsURLString) { await UIApplication.shared.open(url) }
+            }
+        case .practiceAgain:
+            PhoneStep(title: PhoneCopy.practiceAgainTitle, lead: PhoneCopy.practiceAgainDetail, button: PhoneCopy.sendAnother) {
+                await model.sendTestAgain()
+            }
+        case .done:
+            PhoneStep(title: PhoneCopy.setUpTitle, lead: PhoneCopy.setUpLead, button: PhoneCopy.done, tick: true) {
+                await model.finishFirstRun()
+            }
+        }
+    }
+}
+
+/// The first screen: the icon, the name, what the app is for, and what it waits for.
+private struct PhoneWelcome<Status: View>: View {
+    @ViewBuilder let status: Status
+
+    var body: some View {
+        VStack(spacing: 40) {
+            VStack(spacing: 18) {
                 KeyholeIcon(size: 64)
-                VStack(spacing: 4) {
+                VStack(spacing: 8) {
                     Text(PhoneCopy.appName).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
-                    Text(setup.isReady ? PhoneCopy.readyLead : PhoneCopy.firstRunLead)
-                        .font(.body).foregroundStyle(Phone.ink2)
+                    Text(PhoneCopy.appLead).font(.body).foregroundStyle(Phone.ink2)
                 }
                 .multilineTextAlignment(.center)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 34)
-            .padding(.bottom, 26)
-
-            VStack(spacing: 0) {
-                ForEach(setup.lines) { line in
-                    Divider().overlay(Phone.line)
-                    SetupLineView(line: line, model: model)
-                }
-                Divider().overlay(Phone.line)
-            }
-            Spacer(minLength: 0)
+            status
         }
         .padding(.horizontal, 24)
+        .padding(.top, 70)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Phone.surface)
     }
 }
 
-private struct SetupLineView: View {
-    let line: PhoneSetupLine
-    let model: PhoneModel
+/// One step: a title, a sentence, and one black button at the bottom.
+private struct PhoneStep: View {
+    let title: String?
+    let lead: String
+    let button: String?
+    var tick = false
+    let action: () async -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            mark.frame(width: 26, height: 26)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(line.title).font(.body.weight(.semibold)).foregroundStyle(line.mark == .notYet ? Phone.ink2 : Phone.ink)
-                if let detail = line.detail {
-                    Text(detail).font(.subheadline).foregroundStyle(Phone.ink2)
+        VStack(spacing: 0) {
+            VStack(spacing: 18) {
+                if tick {
+                    Circle().fill(Phone.approve).frame(width: 64, height: 64)
+                        .overlay(Image(systemName: "checkmark").font(.system(size: 30, weight: .bold)).foregroundStyle(Phone.onAnswer))
                 }
-                if let action = line.action {
-                    Button(action == .openSettings ? PhoneCopy.openSettings : PhoneCopy.sendTestAgain) {
-                        switch action {
-                        case .openSettings:
-                            if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
-                        case .sendTestAgain:
-                            Task { await model.sendTestAgain() }
-                        }
+                VStack(spacing: 8) {
+                    if let title {
+                        Text(title).font(tick ? .largeTitle.bold() : .title.bold()).tracking(-0.6).foregroundStyle(Phone.ink)
                     }
-                    .buttonStyle(RowButtonStyle(fill: Phone.ink, text: Phone.surface))
-                    .padding(.top, 6)
+                    Text(lead).font(title == nil ? .title3 : .body).foregroundStyle(title == nil ? Phone.ink : Phone.ink2)
                 }
+                .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 28)
+            .frame(maxHeight: .infinity)
+            .padding(.bottom, 60)
+            if let button {
+                Button(button) { Task { await action() } }
+                    .buttonStyle(PillButtonStyle(fill: Phone.ink, text: Phone.surface))
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 30)
+            }
         }
-        .padding(.vertical, 13)
-    }
-
-    @ViewBuilder private var mark: some View {
-        switch line.mark {
-        case .done:
-            Circle().fill(Phone.approve)
-                .overlay(Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy)).foregroundStyle(Phone.onAnswer))
-        case .working:
-            Circle().strokeBorder(Phone.ink, lineWidth: 3)
-        case .notYet:
-            Circle().strokeBorder(Phone.line, lineWidth: 3)
-        case .failed:
-            Circle().fill(Phone.deny)
-                .overlay(Image(systemName: "exclamationmark").font(.system(size: 13, weight: .heavy)).foregroundStyle(Phone.onAnswer))
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Phone.surface)
     }
 }
 
-/// The test request and a new device's request: the same sheet as a login
-/// request, with only Deny and Approve with Face ID.
+/// A device's request to be added and a rule change from the Mac: the request
+/// sheet with only Deny and Approve with Face ID.
 struct PhoneSimpleRequestView: View {
     let model: PhoneModel
     let lead: String
@@ -100,6 +126,8 @@ struct PhoneSimpleRequestView: View {
     var allows: String? = nil
     let footnote: String
     var dismissable = false
+    /// Paper's request to add a device: Deny above the approve button, the same size.
+    var stackedDeny = false
     let approve: () async -> Void
     let deny: () async -> Void
 
@@ -130,10 +158,15 @@ struct PhoneSimpleRequestView: View {
             .frame(maxHeight: .infinity)
             .padding(.bottom, 40)
             VStack(spacing: 10) {
-                Button(PhoneCopy.deny) { Task { await deny() } }
-                    .buttonStyle(PillButtonStyle(fill: Phone.deny, height: 50, stretches: false))
-                    .fixedSize()
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                if stackedDeny {
+                    Button(PhoneCopy.deny) { Task { await deny() } }
+                        .buttonStyle(PillButtonStyle(fill: Phone.fill, text: Phone.deny))
+                } else {
+                    Button(PhoneCopy.deny) { Task { await deny() } }
+                        .buttonStyle(PillButtonStyle(fill: Phone.deny, height: 50, stretches: false))
+                        .fixedSize()
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
                 Button { Task { await approve() } } label: {
                     Label(PhoneCopy.approveWithFaceID, systemImage: "faceid").labelStyle(.titleAndIcon)
                 }

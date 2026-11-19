@@ -10,11 +10,13 @@ import SwiftUI
 /// The top line: the keyhole and "Agent Keyring", and the project at the right.
 public struct PhoneRequestHeader: View {
     let agent: RequestingAgent
+    /// In place of the project: "Practice" on first run's practice request.
+    var badge: String?
     var textStyle: Font = .subheadline
     var iconSize: CGFloat = 22
 
-    public init(agent: RequestingAgent, compact: Bool = false) {
-        self.agent = agent
+    public init(agent: RequestingAgent, badge: String? = nil, compact: Bool = false) {
+        self.agent = agent; self.badge = badge
         if compact { textStyle = .footnote; iconSize = 20 }
     }
 
@@ -25,7 +27,9 @@ public struct PhoneRequestHeader: View {
                 Text(PhoneCopy.appName).fontWeight(.semibold).foregroundStyle(Phone.ink2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if let scope = PhoneCopy.scope(agent) {
+            if let badge {
+                Text(badge).fontWeight(.semibold).foregroundStyle(Phone.ink)
+            } else if let scope = PhoneCopy.scope(agent) {
                 HStack(spacing: 5) {
                     Text(scope.label).foregroundStyle(Phone.ink2)
                     Text(scope.name).fontWeight(.semibold).foregroundStyle(Phone.ink)

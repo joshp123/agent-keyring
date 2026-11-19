@@ -17,7 +17,7 @@ public enum PhoneCopy {
     public static let deny = "Deny"
     public static let approveWithFaceID = "Approve with Face ID"
     public static func lasts(_ agent: RequestingAgent) -> String {
-        "\(agent.name) can use this login for this task, 30 minutes at most."
+        "\(agent.name) can use this password for this task, 30 minutes at most."
     }
 
     /// "Project bookkeeping", "Folder Downloads", or nothing.
@@ -29,7 +29,7 @@ public enum PhoneCopy {
 
     // The notification on the Lock Screen.
     public static func notificationTitle(_ request: AccessRequest) -> String { request.login.site }
-    public static func notificationSubtitle(_ agent: RequestingAgent) -> String { "\(agent.name) on \(agent.machine) wants this login" }
+    public static func notificationSubtitle(_ agent: RequestingAgent) -> String { "\(agent.name) on \(agent.machine) wants this password" }
     public static func notificationBody(_ request: AccessRequest) -> String {
         let reason = quoted(request.agentReason)
         if let project = request.agent.project, !project.isEmpty {
@@ -43,7 +43,7 @@ public enum PhoneCopy {
     public static func outcomeBody(_ request: AccessRequest, answeredBy device: String?) -> String {
         let on = device.map { " on your \($0)" } ?? ""
         switch request.state {
-        case let .approved(_, until): return "Approved\(on). \(request.agent.name) can use this login until \(clock(until)) at the latest."
+        case let .approved(_, until): return "Approved\(on). \(request.agent.name) can use this password until \(clock(until)) at the latest."
         case let .denied(_, reply?, _): return "Denied\(on). You told \(request.agent.name): \(quoted(reply))"
         case .denied: return "Denied\(on)."
         case .unanswered: return "No answer. The request ended after 10 minutes, and \(request.agent.name) can ask again."
@@ -53,7 +53,7 @@ public enum PhoneCopy {
     }
 
     /// Shown if the request's words cannot be opened in time.
-    public static let notificationFallbackTitle = "An agent wants to use a login."
+    public static let notificationFallbackTitle = "An agent wants to use a password."
     public static let notificationFallbackBody = "Open Agent Keyring to see the request."
 
     // The buttons iOS draws under a held notification.
@@ -96,16 +96,25 @@ public enum PhoneCopy {
         }
     }
 
-    // Logins.
-    public static let logins = "Logins"
+    // Passwords.
+    public static let passwords = "Passwords"
     public static let search = "Search"
     public static func rule(_ rule: PhoneLogin.Rule) -> String {
         switch rule {
         case .ask: "Ask"
-        case .askOnIPhoneOrWatch: "Ask on iPhone or Watch"
+        case .askOnIPhoneOrWatch: "Ask on iPhone or Apple Watch"
         case .automatic: "Automatic"
         case .blocked: "Blocked"
         }
+    }
+
+    /// Face ID's sentence when a password becomes Automatic (Paper, "Passwords and rules", in the Mac's words).
+    public static func automaticReason(site: String, from: PhoneLogin.Rule, computers: [String]) -> String {
+        "\(site) changes from \(rule(from)) to Automatic. Agents on \(list(computers)) will get it without asking."
+    }
+    /// "A", "A and B", "A, B and C".
+    public static func list(_ names: [String]) -> String {
+        names.count <= 1 ? (names.first ?? "") : names.dropLast().joined(separator: ", ") + " and " + names.last!
     }
 
     // Devices.
@@ -117,50 +126,71 @@ public enum PhoneCopy {
     public static let remove = "Remove"
     public static let cancel = "Cancel"
 
-    // First run (Paper, "First run").
-    public static let firstRunLead = "Approve or deny your AI agents’ requests on this iPhone."
-    public static let readyLead = "This iPhone is ready. Requests appear here."
+    // First run (Paper, "First run", "On iPhone"; first-run-v2.md).
+    public static let appLead = "Approve or deny your agents’ requests from this iPhone."
     public static let approveOnMac = "Approve this iPhone on your Mac"
-    public static let approveOnMacDetail = "A request is waiting there. Click its green button, then touch the sensor."
-    public static let macAdded = "Your Mac added this iPhone"
-    public static let waitingForMac = "Waiting for your Mac"
-    public static let waitingForMacDetail = "Set up Agent Keyring on your Mac first. This iPhone then finds it by itself."
-    /// After two minutes with no invitation: the one cause the app cannot see.
-    public static let noMacYet = "No Mac found yet"
-    public static let noMacYetDetail = "If Agent Keyring is set up on your Mac, check that iCloud Keychain is on, on this iPhone and on the Mac."
-    public static let notificationsOn = "Notifications are on"
-    public static let notificationsOff = "Notifications are off"
-    public static let notificationsOffDetail = "Requests can’t reach this iPhone until you turn them on in Settings."
+    public static let approveOnMacDetail = "A request to add it has appeared there."
+    public static let finishOnMac = "Finish on your Mac first"
+    public static let finishOnMacDetail = "Ask an agent on your Mac to set up your iPhone. This iPhone then connects by itself."
+    /// After two minutes with nothing found.
+    public static let finishOnMacLongWait = "If that is done, check that iCloud Keychain is on, on this iPhone and on your Mac."
+    public static let notificationsTitle = "Get requests when your iPhone is locked"
+    public static let notificationsLead = "Agent Keyring sends a notification each time an agent asks for a password."
+    public static let continueButton = "Continue"
+    public static let notificationsOff = "Notifications are off, so requests can’t get to this iPhone."
     public static let openSettings = "Open Settings"
-    public static let requestsReach = "Requests reach this iPhone"
-    /// Apple has given no push address yet: requests still arrive while the app is open.
-    public static let waitingForApple = "Requests appear only while Agent Keyring is open"
-    public static let waitingForAppleDetail = "This iPhone is still waiting for Apple. You need do nothing unless this lasts; then check the internet connection."
-    public static let cantReachRelay = "This iPhone can’t reach Mac mini. Check that Tailscale is on."
-    public static let noAlwaysOn = "Your Mac has no always-on machine yet, so requests can’t reach this iPhone. Add one on your Mac."
-    public static let testApproved = "You approved the test request with Face ID"
-    public static let notTested = "This iPhone is not tested yet"
-    public static let testDenied = "You denied the test request, so Face ID has not been tried."
-    public static let testUnanswered = "The test request ended with no answer, so Face ID has not been tried."
-    public static let sendTestAgain = "Send It Again"
-    public static let addWatch = "Add your Watch"
-    public static let addWatchOpen = "Open Agent Keyring on your Watch."
-    public static let addWatchApprove = "Approve the Watch’s request with Face ID."
-    public static func deviceWorks(_ name: String) -> String { "\(name) works" }
-
-    // The test request and a new device's request, as sheets.
-    public static let testFrom = "A test from Agent Keyring"
-    public static let testTitle = "Test request"
-    public static let noLoginUsed = "No login is used"
-    public static let testFootnote = "Approve it to finish setting up."
-    public static let newDevice = "A new device wants to approve requests"
+    // The practice request: the real request's layout.
+    public static let practice = "Practice"
+    public static let practiceAgent = "Agent Keyring"
+    public static let practiceMachine = "this iPhone"
+    public static let practiceSite = "example.com"
+    public static let practiceAccount = "you@example.com"
+    public static let practiceReason = "This is a practice request. No real password is used."
+    public static let practiceLasts = "An approval lasts for one task, 30 minutes at most."
+    /// Not drawn for the iPhone: the Mac's words for a practice request denied or left.
+    public static let practiceAgainTitle = "Try a practice request"
+    public static let practiceAgainDetail = "Approve one to finish setting up."
+    public static let sendAnother = "Send Another"
+    public static let setUpTitle = "You’re set up"
+    public static let setUpLead = "Requests arrive as notifications. Touch and hold one to approve or deny."
+    public static let done = "Done"
+    // Activity after first run.
+    public static let noRequestsYet = "No requests yet"
+    public static let noRequestsDetail = "When an agent asks for a password, the request appears here."
+    public static let addAppleWatch = "Add Apple Watch"
+    public static let addAppleWatchDetail = "Open Agent Keyring on your Apple Watch to approve from your wrist."
+    public static let stillConnecting = "This iPhone is still connecting. Until it has, requests appear only while Agent Keyring is open."
+    public static func relayOffline(_ name: String?) -> String {
+        // Not in Paper without a name: the relay's computer is not yet named in what the iPhone receives.
+        "\(name ?? "The computer that passes on your requests") is offline. Check that it is awake and online."
+    }
+    public static func notice(_ notice: PhoneNotice) -> String {
+        switch notice {
+        case .stillConnecting: stillConnecting
+        case let .relayOffline(name): relayOffline(name)
+        case .addAppleWatch: addAppleWatchDetail
+        }
+    }
+    public static let close = "Close"
+    // Settings (Paper, "On iPhone and Apple Watch", iPhone, Settings).
+    public static let settings = "Settings"
+    public static let timeSensitive = "Time Sensitive Notifications"
+    public static let timeSensitiveDetail = "Requests can break through a Focus, such as Sleep, while an agent is waiting."
+    public static let quietHours = "Quiet Hours"
+    public static let from = "From"
+    public static let to = "To"
+    public static let quietHoursDetail = "During quiet hours, requests don’t break through a Focus."
+    public static let watchFollows = "Apple Watch follows these settings."
+    // Apple Watch's request to be added (Paper, "On Apple Watch").
+    public static let addWatchLead = "Agent Keyring on Apple Watch wants to add"
     public static let pairedWithThisIPhone = "Paired with this iPhone"
+    public static let watchFootnote = "It approves requests with one tap while it is unlocked on your wrist. Remove it at any time in Devices."
     // A rule change the Mac sent (Paper, "Logins and rules").
     public static func ruleChangeLead(_ c: PhoneRuleProposal) -> String {
         c.changes.count == 1 ? "\(c.from) wants to change the rule for" : "\(c.from) wants to change the rules for"
     }
     public static func ruleChangeTitle(_ c: PhoneRuleProposal) -> String {
-        c.changes.count == 1 ? c.changes[0].site : "\(c.changes.count) logins"
+        c.changes.count == 1 ? c.changes[0].site : "\(c.changes.count) passwords"
     }
     /// The account under the site; none for several logins.
     public static func ruleChangeAccount(_ c: PhoneRuleProposal) -> String? { c.changes.count == 1 ? c.changes[0].account : nil }
@@ -175,9 +205,9 @@ public enum PhoneCopy {
     }
     static func allows(_ to: PhoneLogin.Rule, from device: String) -> String {
         switch to {
-        case .ask: "\(device) could then approve requests for this login with Touch ID."
-        case .automatic: "Agents on machines you allow could then get this login without asking."
-        case .blocked: "No agent could then use this login, and \(device) could change its rule again with Touch ID."
+        case .ask: "\(device) could then approve requests for this password with Touch ID."
+        case .automatic: "Agents could then get this password without asking."
+        case .blocked: "No agent could then use this password, and \(device) could change its rule again with Touch ID."
         case .askOnIPhoneOrWatch: ""
         }
     }
@@ -197,7 +227,6 @@ public enum PhoneCopy {
     private static func ruleChangeTo(_ c: PhoneRuleProposal) -> String { c.changes.first.map { rule($0.to) } ?? "" }
     public static func ruleChangeWaitingDetail(_ c: PhoneRuleProposal) -> String { "\(c.from) · rule change to \(ruleChangeTo(c))" }
     public static func ruleChangeHistoryDetail(_ c: PhoneRuleProposal) -> String { "\(clock(c.askedAt)) · Rule change to \(ruleChangeTo(c))" }
-    public static let watchFootnote = "It will approve with one tap while it is on your wrist and unlocked. You can remove it at any time."
 
     // Failures.
     public static let answerFailed = "Your answer wasn’t sent. Try again."
@@ -209,7 +238,7 @@ public enum PhoneCopy {
     public static func removeQuestion(_ name: String) -> String { "Remove \(name)?" }
     public static func removeDetail(_ device: PhoneDevice) -> String {
         device.role == .approves ? "It will no longer approve requests. You can add it again."
-            : "Agents on it will no longer be able to ask to use your logins."
+            : "Agents on it will no longer be able to ask to use your passwords."
     }
 
     public static func clock(_ date: Date) -> String {

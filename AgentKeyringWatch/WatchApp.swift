@@ -31,8 +31,11 @@ struct AgentKeyringWatchApp: App {
 final class WatchModel {
     static let shared = WatchModel()
 
-    enum Setup: Equatable { case waitingForIPhone, waitingForApple, ready, failed(String) }
-    var setup: Setup = WatchStore().read().lists((try? WatchKeys().keyID()) ?? "") ? .ready : .waitingForIPhone
+    enum Setup: Equatable { case setUpIPhone, approveOnIPhone, waitingForApple, ready, failed(String) }
+    var setup: Setup = {
+        let saved = WatchStore().read()
+        return saved.lists((try? WatchKeys().keyID()) ?? "") ? .ready : saved.signedMembers != nil ? .approveOnIPhone : .setUpIPhone
+    }()
 }
 
 final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -104,25 +107,44 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
     }
 }
 
+/// Apple Watch's words on its own screen (Paper, "First run", "On Apple Watch"
+/// and "When something needs you"). The line stands alone, with no mark.
+enum WatchCopy {
+    static let setUpIPhone = "Set up your iPhone first"
+    static let setUpIPhoneDetail = "Open Agent Keyring on your iPhone."
+    static let approveOnIPhone = "Approve on your iPhone"
+    static let approveOnIPhoneDetail = "A request to add this Apple Watch has appeared there."
+    static let ready = "Ready"
+    static let readyDetail = "Requests arrive as notifications."
+    /// Not on the second board: kept from the first.
+    static let waitingForApple = "Waiting for Apple"
+    static let waitingForAppleDetail = "Requests can’t reach your Apple Watch yet."
+    static let noPasscode = "Set a passcode in the Apple Watch app on your iPhone to approve from your wrist."
+    static let notificationsOff = "Turn on notifications for Agent Keyring in the Apple Watch app on your iPhone."
+}
+
 struct WatchHome: View {
     let model: WatchModel
 
     var body: some View {
         VStack(spacing: 6) {
             switch model.setup {
-            case .waitingForIPhone:
-                Text("Not set up yet. Set up Agent Keyring on your iPhone.")
-                    .font(.system(size: 15)).multilineTextAlignment(.center)
+            case .setUpIPhone: titled(WatchCopy.setUpIPhone, WatchCopy.setUpIPhoneDetail)
+            case .approveOnIPhone: titled(WatchCopy.approveOnIPhone, WatchCopy.approveOnIPhoneDetail)
+            case .waitingForApple: titled(WatchCopy.waitingForApple, WatchCopy.waitingForAppleDetail)
             case .ready:
-                Text("Ready").font(.system(size: 28, weight: .bold))
-            case .waitingForApple:
-                Text("Waiting for Apple").font(.system(size: 20, weight: .semibold))
-                Text("Requests can’t reach your Watch yet.").font(.system(size: 15)).multilineTextAlignment(.center)
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 40)).foregroundStyle(.white, .green)
+                titled(WatchCopy.ready, WatchCopy.readyDetail)
             case .failed(let line):
                 Text(line).font(.system(size: 15)).multilineTextAlignment(.center)
             }
         }
         .padding(.horizontal)
+    }
+
+    @ViewBuilder private func titled(_ title: String, _ detail: String) -> some View {
+        Text(title).font(.system(size: 20, weight: .semibold)).multilineTextAlignment(.center)
+        Text(detail).font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
     }
 }
 

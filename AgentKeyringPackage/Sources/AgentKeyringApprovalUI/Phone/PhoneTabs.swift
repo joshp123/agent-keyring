@@ -1,7 +1,7 @@
 // Written by AI on 2026.11.18 by model Claude Opus 5.5.
 //
-// The app after first run (Paper, "On the iPhone and Watch"): Activity,
-// Logins and Devices, the same three things as the Mac.
+// The app after first run (Paper, "On iPhone and Apple Watch"): Activity,
+// Passwords and Devices, the same three things as the Mac.
 
 #if os(iOS)
 import SwiftUI
@@ -13,21 +13,21 @@ public struct PhoneRootView: View {
 
     public var body: some View {
         Group {
-            if model.snapshot.setup.isReady {
+            if let stage = model.snapshot.firstRun {
+                PhoneFirstRunView(stage: stage, model: model)
+            } else {
                 TabView(selection: $model.tab) {
                     Tab(value: PhoneTab.activity) { PhoneActivityView(model: model) } label: {
                         Label { Text(PhoneCopy.activity) } icon: { Image(uiImage: TabGlyph.outline("clock")) }
                     }
                     Tab(value: PhoneTab.logins) { PhoneLoginsView(model: model) } label: {
-                        Label { Text(PhoneCopy.logins) } icon: { Image(uiImage: KeyholeGlyph.image) }
+                        Label { Text(PhoneCopy.passwords) } icon: { Image(uiImage: KeyholeGlyph.image) }
                     }
                     Tab(value: PhoneTab.devices) { PhoneDevicesView(model: model) } label: {
                         Label { Text(PhoneCopy.devices) } icon: { Image(uiImage: TabGlyph.outline("iphone")) }
                     }
                 }
                 .tint(Phone.ink)
-            } else {
-                PhoneSetupList(setup: model.snapshot.setup, model: model)
             }
         }
         .task { await model.followUpdates() }
@@ -35,9 +35,8 @@ public struct PhoneRootView: View {
         .sheet(item: shownRequest) { request in
             PhoneRequestView(model: model, request: request)
         }
-        .sheet(isPresented: testShown) {
-            PhoneSimpleRequestView(model: model, lead: PhoneCopy.testFrom, title: PhoneCopy.testTitle, detail: PhoneCopy.noLoginUsed,
-                                   footnote: PhoneCopy.testFootnote, approve: { await model.approveTest() }, deny: { await model.denyTest() })
+        .sheet(item: practiceShown) { request in
+            PhoneRequestView(model: model, request: request, practice: true).interactiveDismissDisabled()
         }
         .sheet(item: ruleChangeShown) { change in
             let lines = PhoneCopy.ruleChangeLines(change)
@@ -47,8 +46,8 @@ public struct PhoneRootView: View {
                                    approve: { await model.approveRuleChange(change.id) }, deny: { await model.denyRuleChange(change.id) })
         }
         .sheet(item: deviceShown) { device in
-            PhoneSimpleRequestView(model: model, lead: PhoneCopy.newDevice, title: device.name, detail: device.detail,
-                                   footnote: PhoneCopy.watchFootnote, approve: { await model.approveDevice(device.id) },
+            PhoneSimpleRequestView(model: model, lead: PhoneCopy.addWatchLead, title: device.name, detail: device.detail,
+                                   footnote: PhoneCopy.watchFootnote, stackedDeny: true, approve: { await model.approveDevice(device.id) },
                                    deny: { await model.denyDevice(device.id) })
         }
     }
@@ -57,8 +56,9 @@ public struct PhoneRootView: View {
         Binding(get: { model.failure != nil && model.shownRequestID == nil }, set: { if !$0 { model.dismissFailure() } })
     }
 
-    private var testShown: Binding<Bool> {
-        Binding(get: { model.snapshot.testRequest != nil && model.shownRequestID == nil }, set: { _ in })
+    /// The practice request comes up by itself once it arrives.
+    private var practiceShown: Binding<AccessRequest?> {
+        Binding(get: { model.snapshot.firstRun == .practice ? model.snapshot.practiceRequest : nil }, set: { _ in })
     }
 
     /// A rule change opens from its notification or from Show in Activity, as a login request does.
@@ -68,7 +68,7 @@ public struct PhoneRootView: View {
     }
 
     private var deviceShown: Binding<PhoneDeviceRequest?> {
-        Binding(get: { model.snapshot.testRequest == nil ? model.snapshot.deviceRequest : nil }, set: { _ in })
+        Binding(get: { model.snapshot.firstRun == nil || model.snapshot.firstRun == .done ? model.snapshot.deviceRequest : nil }, set: { _ in })
     }
 
     private var shownRequest: Binding<AccessRequest?> {
@@ -80,6 +80,8 @@ public struct PhoneRootView: View {
 /// A grouped list on Paper's grey page, with Paper's section headings.
 private struct PhoneList<Content: View>: View {
     let title: String
+    /// A text button at the top right: Activity's Settings.
+    var trailing: (label: String, action: () -> Void)? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -90,6 +92,11 @@ private struct PhoneList<Content: View>: View {
                 .background(Phone.page)
                 .listSectionSpacing(14)
                 .navigationTitle(title)
+                .toolbar {
+                    if let trailing {
+                        ToolbarItem(placement: .topBarTrailing) { Button(trailing.label, action: trailing.action) }
+                    }
+                }
         }
     }
 }
@@ -127,17 +134,61 @@ private extension View {
 struct PhoneActivityView: View {
     let model: PhoneModel
 
+    @State private var settingsShown = false
+
     var body: some View {
-        // Until the first request, the finished first-run list says it is ready.
-        if model.snapshot.requests.isEmpty && model.snapshot.ruleChanges.isEmpty && !model.snapshot.setup.lines.isEmpty {
-            PhoneSetupList(setup: model.snapshot.setup, model: model)
-        } else {
-            requests
+        requests
+            .sheet(isPresented: $settingsShown) { PhoneSettingsView(model: model) }
+    }
+
+    private var isEmpty: Bool { model.snapshot.requests.isEmpty && model.snapshot.ruleChanges.isEmpty }
+
+    @ViewBuilder private var notices: some View {
+        ForEach(model.snapshot.notices) { notice in
+            Section {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if notice == .addAppleWatch {
+                            Text(PhoneCopy.addAppleWatch).font(.body.weight(.semibold)).foregroundStyle(Phone.ink)
+                        }
+                        Text(PhoneCopy.notice(notice)).font(.subheadline).foregroundStyle(notice == .addAppleWatch ? Phone.ink2 : Phone.ink)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if notice.dismissable {
+                        Button { Task { await model.dismiss(notice) } } label: {
+                            Image(systemName: "xmark").font(.system(size: 13, weight: .bold)).foregroundStyle(Phone.ink2)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(PhoneCopy.close)
+                    }
+                }
+                .padding(.vertical, 2)
+                .phoneRow()
+            }
         }
     }
 
     private var requests: some View {
-        PhoneList(title: PhoneCopy.activity) {
+        PhoneList(title: PhoneCopy.activity, trailing: (PhoneCopy.settings, { settingsShown = true })) {
+            notices
+            if isEmpty {
+                Section {
+                    VStack(spacing: 4) {
+                        Text(PhoneCopy.noRequestsYet).font(.title3.weight(.semibold)).foregroundStyle(Phone.ink)
+                        Text(PhoneCopy.noRequestsDetail).font(.subheadline).foregroundStyle(Phone.ink2)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 150)
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                activity
+            }
+        }
+    }
+
+    @ViewBuilder private var activity: some View {
             Section {
                 if model.waiting.isEmpty && model.waitingRuleChanges.isEmpty {
                     Text(PhoneCopy.nothingWaiting).font(.body).foregroundStyle(Phone.ink2).phoneRow()
@@ -186,7 +237,6 @@ struct PhoneActivityView: View {
                     }
                 } header: { SectionTitle(day.title) }
             }
-        }
     }
 
     /// A finished request or rule change, as one line of history.
@@ -256,7 +306,7 @@ struct PhoneLoginsView: View {
     @State private var query = ""
 
     var body: some View {
-        PhoneList(title: PhoneCopy.logins) {
+        PhoneList(title: PhoneCopy.passwords) {
             Section {
                 ForEach(shown) { login in
                     HStack(spacing: 10) {
@@ -326,6 +376,59 @@ struct PhoneDevicesView: View {
                 }
             } header: { SectionTitle(title) }
         }
+    }
+}
+/// Paper, "On iPhone and Apple Watch", iPhone, Settings: Time Sensitive and Quiet Hours.
+struct PhoneSettingsView: View {
+    let model: PhoneModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let settings = model.snapshot.settings
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle(PhoneCopy.timeSensitive, isOn: binding(\.timeSensitive)).tint(Phone.approve)
+                } footer: { Text(PhoneCopy.timeSensitiveDetail) }
+                Section {
+                    Toggle(PhoneCopy.quietHours, isOn: binding(\.quietHours)).tint(Phone.approve)
+                    if settings.quietHours {
+                        DatePicker(PhoneCopy.from, selection: time(\.quietFrom), displayedComponents: .hourAndMinute)
+                        DatePicker(PhoneCopy.to, selection: time(\.quietTo), displayedComponents: .hourAndMinute)
+                    }
+                } footer: {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(PhoneCopy.quietHoursDetail)
+                        Text(PhoneCopy.watchFollows)
+                    }
+                }
+            }
+            .navigationTitle(PhoneCopy.settings)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(PhoneCopy.done) { dismiss() } } }
+        }
+        .environment(\.locale, Locale(identifier: "en_GB"))
+    }
+
+    private func binding(_ path: WritableKeyPath<PhoneSettings, Bool>) -> Binding<Bool> {
+        Binding(get: { model.snapshot.settings[keyPath: path] }, set: { value in
+            var next = model.snapshot.settings
+            next[keyPath: path] = value
+            Task { await model.setSettings(next) }
+        })
+    }
+
+    /// Minutes after midnight, as a time of day for the picker.
+    private func time(_ path: WritableKeyPath<PhoneSettings, Int>) -> Binding<Date> {
+        let calendar = Calendar.current
+        return Binding(get: {
+            calendar.date(bySettingHour: model.snapshot.settings[keyPath: path] / 60, minute: model.snapshot.settings[keyPath: path] % 60,
+                          second: 0, of: .now) ?? .now
+        }, set: { date in
+            let parts = calendar.dateComponents([.hour, .minute], from: date)
+            var next = model.snapshot.settings
+            next[keyPath: path] = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+            Task { await model.setSettings(next) }
+        })
     }
 }
 #endif

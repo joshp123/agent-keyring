@@ -29,10 +29,8 @@ struct AgentKeyringPhoneApp: App {
                 }
                 // The Watch learns of every change to the list of devices, its own admission first of all.
                 .onChange(of: delegate.model.snapshot.devices, initial: true) { delegate.watch?.sendMembers() }
-                // Straight after joining, iOS's own question: the one tap iOS requires.
-                .onChange(of: delegate.model.snapshot.asksAboutNotifications, initial: true) { _, asks in
-                    if asks { Task { await delegate.model.askAboutNotifications(); await delegate.noteNotificationSettings() } }
-                }
+                // Apple Watch follows the iPhone's notification settings.
+                .onChange(of: delegate.model.snapshot.settings) { delegate.watch?.sendMembers() }
                 .task { await delegate.noteNotificationSettings() }
         }
     }

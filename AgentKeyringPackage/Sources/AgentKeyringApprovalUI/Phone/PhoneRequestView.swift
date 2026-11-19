@@ -10,11 +10,13 @@ import SwiftUI
 struct PhoneRequestView: View {
     @Bindable var model: PhoneModel
     let request: AccessRequest
+    /// First run's practice request: the same layout, the practice words.
+    var practice = false
     @FocusState private var replyFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            PhoneRequestHeader(agent: request.agent)
+            PhoneRequestHeader(agent: request.agent, badge: practice ? PhoneCopy.practice : nil)
                 .padding(.top, 14)
             PhoneRequestBody(request: request)
                 .frame(maxHeight: .infinity)
@@ -81,7 +83,7 @@ struct PhoneRequestView: View {
             }
             .buttonStyle(PillButtonStyle(fill: Phone.approve))
             if !replyFocused {
-                Text(PhoneCopy.lasts(request.agent))
+                Text(practice ? PhoneCopy.practiceLasts : PhoneCopy.lasts(request.agent))
                     .font(.footnote).foregroundStyle(Phone.ink2)
                     .multilineTextAlignment(.center)
             }

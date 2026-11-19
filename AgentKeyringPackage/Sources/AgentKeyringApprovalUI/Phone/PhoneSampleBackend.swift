@@ -13,9 +13,10 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
     private var subscribers: [UUID: AsyncStream<PhoneSnapshot>.Continuation] = [:]
 
-    /// `step` is one of Paper's first-run iPhone screens: 4, 6, 7, 7-ready, 9, ready, notifications-off, proposal or proposal-several (a rule change the Mac sent); nil is the app in use.
+    /// `step` is one of Paper's first-run iPhone screens: finding, asked, long-wait, notifications, notifications-off,
+    /// practice, practice-again, done, empty (Activity after Done), add-watch, proposal or proposal-several; nil is the app in use.
     public init(step: String? = nil, now: Date = .now) {
-        snapshot = Self.paper(setup: .ready, now: now)
+        snapshot = Self.paper(now: now)
         if let step { Self.firstRun(step, into: &snapshot) }
     }
 
@@ -31,6 +32,7 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
 
     public func approve(_ requestID: String, reusingUnlock: Bool) async throws {
+        if requestID == snapshot.practiceRequest?.id { Self.firstRun("done", into: &snapshot); return }
         update(requestID) { .approved(by: .iPhone, until: .now.addingTimeInterval(RequestedAccess.longestLease)) }
     }
 
@@ -51,8 +53,9 @@ public final class PhoneSampleBackend: PhoneBackend {
 
     public func join(invitation: String) async throws {}
     public func notifications(allowed: Bool) async {}
-    public func approveTest() async throws { Self.firstRun("7-ready", into: &snapshot) }
-    public func denyTest() async {}
+    public func finishFirstRun() async { Self.firstRun("empty", into: &snapshot) }
+    public func dismiss(_ notice: PhoneNotice) async { snapshot.notices.removeAll { $0 == notice } }
+    public func setSettings(_ settings: PhoneSettings) async { snapshot.settings = settings }
     public func approveRuleChange(_ id: String) async throws { settle(id, .approved(by: .iPhone, until: .now)) }
     public func denyRuleChange(_ id: String) async { settle(id, .denied(by: .iPhone, reply: nil, askAgainAfter: nil)) }
     private func settle(_ id: String, _ state: AccessRequestState) {
@@ -60,54 +63,47 @@ public final class PhoneSampleBackend: PhoneBackend {
         snapshot.ruleChanges[index].state = state
     }
     public func sendTestAgain() async {}
-    public func approveDevice(_ id: String) async throws { Self.firstRun("ready", into: &snapshot) }
+    public func approveDevice(_ id: String) async throws { snapshot.deviceRequest = nil }
     public func denyDevice(_ id: String) async { snapshot.deviceRequest = nil }
 
-    /// Paper's first-run iPhone screens, with no requests yet.
+    /// Paper's first-run iPhone screens.
     static func firstRun(_ step: String, into snapshot: inout PhoneSnapshot) {
-        typealias L = PhoneSetupLine
-        let added = L(id: "join", mark: .done, title: PhoneCopy.macAdded)
-        let notes = L(id: "notifications", mark: .done, title: PhoneCopy.notificationsOn)
-        let reach = L(id: "reach", mark: .done, title: PhoneCopy.requestsReach)
-        let test = L(id: "test", mark: .done, title: PhoneCopy.testApproved)
-        snapshot.requests = []; snapshot.testRequest = nil; snapshot.deviceRequest = nil
         switch step {
         case "proposal":
-            snapshot = paper(setup: .ready, now: .now)
             snapshot.ruleChanges = [
                 PhoneRuleProposal(id: "p1", from: "MacBook Pro", changes: [.init(site: "bank.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .ask)],
                                   askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600))),
-                PhoneRuleProposal(id: "p0", from: "MacBook Pro", changes: [.init(site: "mail.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .ask)],
-                                  askedAt: .now.addingTimeInterval(-420), state: .approved(by: .iPhone, until: .now)),
             ]
             return
         case "proposal-several":
-            snapshot = paper(setup: .ready, now: .now)
             snapshot.ruleChanges = [PhoneRuleProposal(id: "p2", from: "MacBook Pro", changes: [
                 .init(site: "bank.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .ask),
                 .init(site: "mail.example", account: "josh@example.com", from: .askOnIPhoneOrWatch, to: .automatic),
             ], askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))]
             return
-        case "4":
-            snapshot.setup = PhoneSetup(lines: [L(id: "join", mark: .working, title: PhoneCopy.approveOnMac, detail: PhoneCopy.approveOnMacDetail)], isReady: false)
-        case "6":
-            snapshot.setup = PhoneSetup(lines: [added, L(id: "notifications", mark: .working, title: PhoneCopy.notificationsOn)], isReady: false)
-        case "notifications-off":
-            snapshot.setup = PhoneSetup(lines: [added, L(id: "notifications", mark: .failed, title: PhoneCopy.notificationsOff,
-                                                         detail: PhoneCopy.notificationsOffDetail, action: .openSettings)], isReady: false)
-        case "7":
-            snapshot.setup = PhoneSetup(lines: [added, notes, reach, L(id: "test", mark: .working, title: PhoneCopy.testApproved)], isReady: false)
-            snapshot.testRequest = "test"
-        case "7-ready":
-            snapshot.setup = PhoneSetup(lines: [added, notes, reach, test,
-                                                L(id: "watch", mark: .notYet, title: PhoneCopy.addWatch, detail: PhoneCopy.addWatchOpen)], isReady: true)
-        case "9":
-            snapshot.setup = PhoneSetup(lines: [added, notes, reach, test,
-                                                L(id: "watch", mark: .working, title: PhoneCopy.addWatch, detail: PhoneCopy.addWatchApprove)], isReady: true)
+        default: break
+        }
+        snapshot.requests = []; snapshot.practiceRequest = nil; snapshot.deviceRequest = nil; snapshot.notices = []
+        switch step {
+        case "finding": snapshot.firstRun = .findingMac(macAsked: false, longWait: false)
+        case "asked": snapshot.firstRun = .findingMac(macAsked: true, longWait: false)
+        case "long-wait": snapshot.firstRun = .findingMac(macAsked: false, longWait: true)
+        case "notifications": snapshot.firstRun = .notifications
+        case "notifications-off": snapshot.firstRun = .notificationsOff
+        case "practice":
+            snapshot.firstRun = .practice
+            snapshot.practiceRequest = AccessRequest(
+                id: "practice", login: RequestedLogin(site: PhoneCopy.practiceSite, account: PhoneCopy.practiceAccount),
+                agent: RequestingAgent(name: PhoneCopy.practiceAgent, machine: PhoneCopy.practiceMachine, address: ""),
+                access: .login, agentReason: PhoneCopy.practiceReason, askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
+        case "practice-again": snapshot.firstRun = .practiceAgain
+        case "done": snapshot.firstRun = .done
+        case "add-watch":
+            snapshot.firstRun = nil
             snapshot.deviceRequest = PhoneDeviceRequest(id: "watch", name: "Apple Watch Ultra 3", detail: PhoneCopy.pairedWithThisIPhone)
         default:
-            snapshot.setup = PhoneSetup(lines: [added, notes, reach, test,
-                                                L(id: "watch", mark: .done, title: PhoneCopy.deviceWorks("Apple Watch Ultra 3"))], isReady: true)
+            snapshot.firstRun = nil
+            snapshot.notices = [.addAppleWatch]
         }
     }
 
@@ -117,7 +113,7 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
 
     /// The board "On the iPhone and Watch", at 14:02 today.
-    static func paper(setup: PhoneSetup, now: Date) -> PhoneSnapshot {
+    static func paper(now: Date) -> PhoneSnapshot {
         let calendar = Calendar.current
         func at(_ hour: Int, _ minute: Int) -> Date {
             calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) ?? now
@@ -156,9 +152,9 @@ public final class PhoneSampleBackend: PhoneBackend {
             PhoneDevice(id: "d2", name: "Apple Watch Ultra 3", detail: "One tap, unlocked on your wrist", role: .approves),
             PhoneDevice(id: "d3", name: "MacBook Pro", detail: "Touch ID, with the lid open", role: .approves),
             PhoneDevice(id: "d4", name: "MacBook Pro", role: .asks),
-            PhoneDevice(id: "d5", name: "Mac mini", detail: "Always on. Passes requests to your iPhone and Watch.", role: .asks),
+            PhoneDevice(id: "d5", name: "Mac mini", detail: "Requests reach your iPhone through it", role: .asks),
             PhoneDevice(id: "d6", name: "Linux server", role: .asks),
         ]
-        return PhoneSnapshot(setup: setup, requests: requests, logins: logins, devices: devices)
+        return PhoneSnapshot(firstRun: nil, requests: requests, logins: logins, devices: devices)
     }
 }

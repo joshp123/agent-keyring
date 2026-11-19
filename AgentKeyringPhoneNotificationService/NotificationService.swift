@@ -22,7 +22,7 @@ final class NotificationService: UNNotificationServiceExtension {
             if case .waitingForYou = change.state {
                 content.title = PhoneCopy.ruleChangeNotificationTitle(change)
                 content.body = PhoneCopy.ruleChangeNotificationBody(change)
-                content.interruptionLevel = .timeSensitive
+                content.interruptionLevel = PhoneNoticeReader.level()
             } else {
                 // Its outcome replaces it quietly; the Mac says what happened.
                 content.title = PhoneCopy.ruleChangeTitle(change)
@@ -32,6 +32,7 @@ final class NotificationService: UNNotificationServiceExtension {
             contentHandler(content); return
         }
         guard let words = PhoneNoticeReader.words(content.userInfo) else {
+            content.interruptionLevel = PhoneNoticeReader.level()
             content.title = PhoneCopy.notificationFallbackTitle
             content.body = PhoneCopy.notificationFallbackBody
             contentHandler(content); return
@@ -43,7 +44,7 @@ final class NotificationService: UNNotificationServiceExtension {
             content.subtitle = PhoneCopy.notificationSubtitle(words.request.agent)
             content.body = PhoneCopy.notificationBody(words.request)
             content.categoryIdentifier = PhoneNotification.requestCategory
-            content.interruptionLevel = .timeSensitive
+            content.interruptionLevel = PhoneNoticeReader.level()
         } else {
             content.body = PhoneCopy.outcomeBody(words.request, answeredBy: words.answeredBy)
             content.categoryIdentifier = ""
