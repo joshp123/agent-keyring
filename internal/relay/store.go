@@ -31,17 +31,15 @@ type saved struct {
 	HeldOff        map[string]int64             `json:"held_off"` // Machine id "/" login id: until.
 	Pushes         map[string][]byte            `json:"pushes"`   // Device key id: PushRegistration.
 	Joins          map[string]*join             `json:"joins"`    // Joiner id.
-	Uses           []use                        `json:"uses,omitempty"`
 	SelfTests      map[string][]byte            `json:"self_tests,omitempty"` // Device key id: Signed SelfTestReport.
 }
 
 type request struct {
 	Request         []byte        `json:"request"` // Exact Request bytes.
 	MachineID       string        `json:"machine_id"`
+	Signature       []byte        `json:"signature,omitempty"`  // The asking machine's, over Request.
 	ForDevice       string        `json:"for_device,omitempty"` // A device's own test request.
-	Proposal        []byte        `json:"proposal,omitempty"`   // Signed RuleProposal.
-	ProposedBy      string        `json:"proposed_by,omitempty"`
-	ClientRequestID string        `json:"client_request_id,omitempty"`
+	Automatic       bool          `json:"automatic,omitempty"`  // Granted at once by an Automatic rule.
 	State           pb.LeaseState `json:"state"`
 	Answer          []byte        `json:"answer,omitempty"` // AnswerUpload, as received.
 	AnsweredBy      string        `json:"answered_by,omitempty"`
@@ -55,18 +53,11 @@ type request struct {
 
 type join struct {
 	Request []byte       `json:"request"` // JoinRequest.
+	SPKI    []byte       `json:"spki"`    // The connection that sent it.
 	Node    string       `json:"node"`
 	Asked   int64        `json:"asked"`
 	State   pb.JoinState `json:"state"`
 	Refusal []byte       `json:"refusal,omitempty"` // JoinRefusal, once refused.
-}
-
-type use struct {
-	MachineID string `json:"machine_id"`
-	LoginID   string `json:"login_id"`
-	Agent     string `json:"agent"`
-	Reason    string `json:"reason"`
-	At        int64  `json:"at"`
 }
 
 // Store keeps the saved state, its parsed documents, and a signal for
@@ -92,21 +83,7 @@ func OpenStore(directory string) (*Store, error) {
 			return nil, err
 		}
 	}
-	if s.data.Sealed == nil {
-		s.data.Sealed = map[string]map[string][]byte{}
-	}
-	if s.data.Requests == nil {
-		s.data.Requests = map[string]*request{}
-	}
-	if s.data.HeldOff == nil {
-		s.data.HeldOff = map[string]int64{}
-	}
-	if s.data.Pushes == nil {
-		s.data.Pushes = map[string][]byte{}
-	}
-	if s.data.Joins == nil {
-		s.data.Joins = map[string]*join{}
-	}
+	s.data.fill()
 	if len(s.data.Members) > 0 {
 		signed := &pb.Signed{}
 		if err := proto.Unmarshal(s.data.Members, signed); err != nil {
@@ -130,14 +107,55 @@ func OpenStore(directory string) (*Store, error) {
 	return s, nil
 }
 
-// update runs change under the lock, saves, and wakes everyone waiting.
+func (d *saved) fill() {
+	if d.Sealed == nil {
+		d.Sealed = map[string]map[string][]byte{}
+	}
+	if d.Requests == nil {
+		d.Requests = map[string]*request{}
+	}
+	if d.HeldOff == nil {
+		d.HeldOff = map[string]int64{}
+	}
+	if d.Pushes == nil {
+		d.Pushes = map[string][]byte{}
+	}
+	if d.Joins == nil {
+		d.Joins = map[string]*join{}
+	}
+}
+
+// update runs change on a copy under the lock, saves it, and only then makes
+// it current and wakes everyone waiting: a change that fails, or a disk that
+// refuses it, leaves the relay as it was.
 func (s *Store) update(change func(*saved) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := change(&s.data); err != nil {
+	current, err := json.Marshal(&s.data)
+	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(&s.data)
+	var next saved
+	if err := json.Unmarshal(current, &next); err != nil {
+		return err
+	}
+	next.fill()
+	members, catalogue := s.members, s.catalogue
+	if err := s.write(change, &next); err != nil {
+		s.members, s.catalogue = members, catalogue
+		return err
+	}
+	s.data = next
+	close(s.changed)
+	s.changed = make(chan struct{})
+	return nil
+}
+
+func (s *Store) write(change func(*saved) error, next *saved) error {
+	if err := change(next); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(next)
 	if err != nil {
 		return err
 	}
@@ -158,12 +176,7 @@ func (s *Store) update(change func(*saved) error) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(temporary, s.path); err != nil {
-		return err
-	}
-	close(s.changed)
-	s.changed = make(chan struct{})
-	return nil
+	return os.Rename(temporary, s.path)
 }
 
 // read runs look under the lock and returns a channel closed on the next change.

@@ -173,11 +173,11 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 		return nil
 	}
 	switch method := request.Method.(type) {
-	case *pb.RelayRequest_Ask:
+	case *pb.RelayRequest_AskSigned:
 		if err := isMachine(); err != nil {
 			return err
 		}
-		lease, err := s.ask(ctx, who, method.Ask)
+		lease, err := s.ask(ctx, who, method.AskSigned)
 		if err != nil {
 			return err
 		}
@@ -215,14 +215,6 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 			return err
 		}
 		return send(&pb.RelayResponse{Result: &pb.RelayResponse_SealedLogins{SealedLogins: s.sealedFor(who.machine.MachineId)}, EndOfStream: true})
-	case *pb.RelayRequest_ReportUse:
-		if err := isMachine(); err != nil {
-			return err
-		}
-		if err := s.reportUse(who, method.ReportUse); err != nil {
-			return err
-		}
-		return send(done())
 	case *pb.RelayRequest_Members:
 		if who.machine == nil && who.device == nil {
 			return isMachine()
@@ -269,11 +261,6 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 			return err
 		}
 		return send(done())
-	case *pb.RelayRequest_ProposeRules:
-		if err := isDevice(); err != nil {
-			return err
-		}
-		return s.proposeRules(ctx, who, method.ProposeRules, send)
 	case *pb.RelayRequest_MembersSince:
 		if who.machine == nil && who.device == nil {
 			return isMachine()

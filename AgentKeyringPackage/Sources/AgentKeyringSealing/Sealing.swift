@@ -22,7 +22,7 @@ public typealias Catalogue = Agentkeyring_V2_Catalogue
 public enum Sealing {
     public enum Failure: Error, Equatable {
         case wrongDomain, wrongLogin, notForThisRequest, badSignature, unknownSigner, staleRevision, expired
-        /// A reply key signed something other than a denial, or a MacBook changed a login only the iPhone or Watch may change.
+        /// A reply key signed something other than a denial, or a device changed its kind.
         case notAllowedForSigner
     }
 
@@ -54,25 +54,34 @@ public enum Sealing {
 
     /// Seals one login to a device's opening key, or to an Automatic machine's
     /// receiving key, signed by the sealing device so no relay can forge it.
-    public static func seal(_ secret: LoginSecret, to publicKey: P256.KeyAgreement.PublicKey, openerID: String, signer: Signer) throws -> SealedLogin {
+    /// `version` is when the secret was imported (Login.version): a reseal
+    /// keeps the version of the copy it opened, or openers refuse it.
+    public static func seal(_ secret: LoginSecret, version: UInt64, to publicKey: P256.KeyAgreement.PublicKey, openerID: String,
+        signer: Signer) throws -> SealedLogin {
         var sender = try HPKE.Sender(recipientKey: publicKey, ciphersuite: suite, info: loginInfo)
         var sealed = SealedLogin()
         sealed.loginID = secret.loginID
         sealed.openerID = openerID
         sealed.ciphertext = try sender.seal(secret.serializedData(), authenticating: loginAAD(openerID: openerID, loginID: secret.loginID))
         sealed.encapsulatedKey = sender.encapsulatedKey
+        sealed.version = version
         sealed.signerKeyID = signer.keyID
         sealed.signature = try signer.sign(sealedMessage(sealed))
         return sealed
     }
 
     static func sealedMessage(_ sealed: SealedLogin) -> Data {
-        [Data("agentkeyring.sealed.v2".utf8), Data(sealed.loginID.utf8), Data(sealed.openerID.utf8), sealed.encapsulatedKey, sealed.ciphertext]
-            .reduce(Data()) { $0 + lengthPrefixed($1) }
+        var version = sealed.version.bigEndian
+        return [Data("agentkeyring.sealed.v2".utf8), Data(sealed.loginID.utf8), Data(sealed.openerID.utf8), sealed.encapsulatedKey, sealed.ciphertext]
+            .reduce(Data()) { $0 + lengthPrefixed($1) } + withUnsafeBytes(of: &version) { Data($0) }
     }
 
-    /// A sealed copy only if a device in `members` signed it.
-    public static func checkSealed(_ sealed: SealedLogin, members: Members) throws {
+    /// A sealed copy only if a device in `members` signed it and, given the
+    /// login from a signed catalogue, it is that login's current version: a
+    /// relay can neither forge, relabel nor roll back a copy. Pass no login
+    /// only for copies that never pass through the relay (the Mac's own).
+    public static func checkSealed(_ sealed: SealedLogin, members: Members, listed: Agentkeyring_V2_Login?) throws {
+        if let listed, listed.loginID != sealed.loginID || listed.version != sealed.version { throw Failure.wrongLogin }
         try verify(sealedDocument(sealed), members: members, allowReplyKey: true)
     }
 
@@ -204,6 +213,25 @@ public enum Sealing {
         return upload
     }
 
+    /// A request a device may show and answer: signed by the machine it names,
+    /// with that machine's TLS key as `members` lists it, so the relay can
+    /// neither make one up nor send the answer to another machine. Returns the
+    /// machine, or nil for this device's own practice request.
+    @discardableResult
+    public static func checkRequest(_ work: Agentkeyring_V2_Work, members: Members, ownKeyID: String) throws -> Agentkeyring_V2_Machine? {
+        let request = try parseRequest(work.request)
+        if work.requestSignature.isEmpty, !request.forDeviceKeyID.isEmpty, request.forDeviceKeyID == ownKeyID,
+            request.machineID.isEmpty, request.loginID.isEmpty {
+            return nil
+        }
+        guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { throw Failure.unknownSigner }
+        guard let key = try? P256.Signing.PublicKey(derRepresentation: machine.tlsPublicKey),
+            let signature = try? P256.Signing.ECDSASignature(derRepresentation: work.requestSignature),
+            key.isValidSignature(signature, for: work.request)
+        else { throw Failure.badSignature }
+        return machine
+    }
+
     public static func parseRequest(_ bytes: Data) throws -> KeyringRequest {
         let request = try KeyringRequest(serializedBytes: bytes)
         guard request.domain == "agentkeyring.request.v2" else { throw Failure.wrongDomain }
@@ -215,7 +243,8 @@ public enum Sealing {
         members: Members, with key: Key, now: Date = .now) throws -> DeliveryContents {
         let answer = try verifiedAnswer(approval, members: members)
         guard answer.choice == .approve, answer.deliverySha256 == sha256(approval.delivery.ciphertext) else { throw Failure.notForThisRequest }
-        guard answer.notAfterUnixSeconds > Int64(now.timeIntervalSince1970) else { throw Failure.expired }
+        guard answer.notAfterUnixSeconds > Int64(now.timeIntervalSince1970),
+            answer.notAfterUnixSeconds <= answer.decidedUnixSeconds + approvalSeconds else { throw Failure.expired }
         var recipient = try HPKE.Recipient(privateKey: key, ciphersuite: suite, info: deliveryInfo,
             encapsulatedKey: approval.delivery.encapsulatedKey)
         let contents = try DeliveryContents(serializedBytes: recipient.open(approval.delivery.ciphertext,
@@ -282,7 +311,7 @@ public enum Sealing {
         if let current {
             guard next.revision > current.revision else { throw Failure.staleRevision }
             try verify(document, members: current)
-            // A device keeps the kind it joined as: a Mac may not become an iPhone.
+            // A device keeps the kind it joined as: the relay trusts a Mac and a Watch by kind.
             let kinds = Dictionary(current.devices.map { ($0.keyID, $0.kind) }, uniquingKeysWith: { first, _ in first })
             guard next.devices.allSatisfy({ kinds[$0.keyID] == nil || kinds[$0.keyID] == $0.kind }) else { throw Failure.notAllowedForSigner }
         } else {
@@ -291,22 +320,12 @@ public enum Sealing {
         return next
     }
 
-    /// A new Catalogue, if signed by a device in `members` and newer. A MacBook
-    /// may not change a login that only the iPhone or Watch may approve.
+    /// A new Catalogue, if signed by a device in `members` and newer than the one held.
     public static func verifiedCatalogue(_ document: SignedDocument, members: Members, current: Catalogue?) throws -> Catalogue {
-        let signer = try verify(document, members: members)
+        try verify(document, members: members)
         let catalogue = try Catalogue(serializedBytes: document.payload)
         guard catalogue.domain == "agentkeyring.catalogue.v2" else { throw Failure.wrongDomain }
-        guard let current else { return catalogue }
-        guard catalogue.revision > current.revision else { throw Failure.staleRevision }
-        if signer.kind == .mac {
-            let next = Dictionary(catalogue.logins.map { ($0.loginID, $0) }, uniquingKeysWith: { first, _ in first })
-            for login in current.logins where login.phoneAndWatchOnly {
-                guard let changed = next[login.loginID], changed.rule == login.rule, changed.phoneAndWatchOnly else {
-                    throw Failure.notAllowedForSigner
-                }
-            }
-        }
+        if let current, catalogue.revision <= current.revision { throw Failure.staleRevision }
         return catalogue
     }
 }

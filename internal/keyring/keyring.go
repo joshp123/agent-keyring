@@ -18,6 +18,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -36,7 +37,6 @@ const (
 	CatalogueDomain = "agentkeyring.catalogue.v2"
 	RequestDomain   = "agentkeyring.request.v2"
 	SelfTestDomain  = "agentkeyring.selftest.v2"
-	ProposalDomain  = "agentkeyring.proposal.v2"
 	AnswerDomain    = "agentkeyring.answer.v2"
 	SealedDomain    = "agentkeyring.sealed.v2"
 	ApprovalSeconds = 1800
@@ -105,8 +105,9 @@ func open(private *ecdh.PrivateKey, info, enc, aad, ciphertext []byte) ([]byte, 
 }
 
 // SealLogin seals one login to a device's opening key or a machine's receiving
-// key, signed by the sealing device's reply key (replyKeyID, sign).
-func SealLogin(secret *pb.LoginSecret, publicKey []byte, openerID, replyKeyID string, sign Signer) (*pb.SealedLogin, error) {
+// key, signed by the sealing device's reply key (replyKeyID, sign). version is
+// the secret's import (Login.version): a reseal keeps the opened copy's.
+func SealLogin(secret *pb.LoginSecret, version uint64, publicKey []byte, openerID, replyKeyID string, sign Signer) (*pb.SealedLogin, error) {
 	plaintext, err := proto.Marshal(secret)
 	if err != nil {
 		return nil, err
@@ -115,7 +116,7 @@ func SealLogin(secret *pb.LoginSecret, publicKey []byte, openerID, replyKeyID st
 	if err != nil {
 		return nil, err
 	}
-	sealed := &pb.SealedLogin{LoginId: secret.LoginId, OpenerId: openerID, EncapsulatedKey: enc, Ciphertext: ciphertext, SignerKeyId: replyKeyID}
+	sealed := &pb.SealedLogin{LoginId: secret.LoginId, OpenerId: openerID, EncapsulatedKey: enc, Ciphertext: ciphertext, SignerKeyId: replyKeyID, Version: version}
 	if sealed.Signature, err = sign(sealedMessage(sealed)); err != nil {
 		return nil, err
 	}
@@ -123,12 +124,17 @@ func SealLogin(secret *pb.LoginSecret, publicKey []byte, openerID, replyKeyID st
 }
 
 func sealedMessage(sealed *pb.SealedLogin) []byte {
-	return lengthPrefixed(SealedDomain, sealed.LoginId, sealed.OpenerId, string(sealed.EncapsulatedKey), string(sealed.Ciphertext))
+	message := lengthPrefixed(SealedDomain, sealed.LoginId, sealed.OpenerId, string(sealed.EncapsulatedKey), string(sealed.Ciphertext))
+	return binary.BigEndian.AppendUint64(message, sealed.Version)
 }
 
-// CheckSealed accepts a sealed copy only if a device in members signed it, so
-// a relay can neither make one up nor relabel one.
-func CheckSealed(sealed *pb.SealedLogin, members *pb.Members) error {
+// CheckSealed accepts a sealed copy of the login the signed catalogue lists
+// only if a device in members signed it and it is the catalogue's version, so
+// a relay can neither make one up, relabel one, nor serve an older one.
+func CheckSealed(sealed *pb.SealedLogin, members *pb.Members, listed *pb.Login) error {
+	if listed == nil || sealed.LoginId != listed.LoginId || sealed.Version != listed.Version {
+		return ErrMismatch
+	}
 	_, err := Verify(&pb.Signed{Payload: sealedMessage(sealed), SignerKeyId: sealed.SignerKeyId, Signature: sealed.Signature}, members, true)
 	return err
 }
@@ -177,6 +183,36 @@ func OpenNotice(notice *pb.Notice, private *ecdh.PrivateKey, deviceKeyID string)
 	}
 	work := &pb.Work{}
 	return work, proto.Unmarshal(plaintext, work)
+}
+
+// SignRequest is the asking machine's request, signed with its TLS key.
+func SignRequest(request *pb.Request, sign Signer) (*pb.Signed, error) {
+	payload, err := proto.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	return Sign(payload, request.MachineId, sign)
+}
+
+// CheckRequest accepts a request only if the machine it names in members
+// signed it with its TLS key, so a relay can neither make one up nor send an
+// answer to another machine.
+func CheckRequest(requestBytes, signature []byte, members *pb.Members) (*pb.Request, *pb.Machine, error) {
+	request, err := ParseRequest(requestBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	index := slices.IndexFunc(members.GetMachines(), func(m *pb.Machine) bool { return m.MachineId == request.MachineId })
+	if index < 0 {
+		return nil, nil, ErrUnknownSigner
+	}
+	machine := members.Machines[index]
+	key, err := x509.ParsePKIXPublicKey(machine.TlsPublicKey)
+	public, ok := key.(*ecdsa.PublicKey)
+	if err != nil || !ok || !ecdsa.VerifyASN1(public, SHA256(requestBytes), signature) {
+		return nil, nil, ErrBadSignature
+	}
+	return request, machine, nil
 }
 
 // ParseRequest reads Request bytes and checks their domain.
@@ -356,8 +392,8 @@ func VerifiedMembers(signed *pb.Signed, current *pb.Members) (*pb.Members, error
 	if _, err := Verify(signed, trusted, false); err != nil {
 		return nil, err
 	}
-	// A device keeps the kind it joined as: a Mac may not become an iPhone and
-	// then change what only the iPhone or Watch may change.
+	// A device keeps the kind it joined as: the relay lets a Mac answer its own
+	// agents' requests and a Watch post answers, by kind.
 	for _, before := range current.GetDevices() {
 		for _, after := range next.Devices {
 			if after.KeyId == before.KeyId && after.Kind != before.Kind {
@@ -369,10 +405,8 @@ func VerifiedMembers(signed *pb.Signed, current *pb.Members) (*pb.Members, error
 }
 
 // VerifiedCatalogue accepts a newer Catalogue signed by a device in members.
-// A MacBook may not change a login that only the iPhone or Watch may approve.
 func VerifiedCatalogue(signed *pb.Signed, members *pb.Members, current *pb.Catalogue) (*pb.Catalogue, error) {
-	signer, err := Verify(signed, members, false)
-	if err != nil {
+	if _, err := Verify(signed, members, false); err != nil {
 		return nil, err
 	}
 	next := &pb.Catalogue{}
@@ -382,22 +416,8 @@ func VerifiedCatalogue(signed *pb.Signed, members *pb.Members, current *pb.Catal
 	if next.Domain != CatalogueDomain {
 		return nil, ErrWrongDomain
 	}
-	if current == nil {
-		return next, nil
-	}
-	if next.Revision <= current.Revision {
+	if current != nil && next.Revision <= current.Revision {
 		return nil, ErrStale
-	}
-	if signer.Kind == pb.DeviceKind_DEVICE_KIND_MAC {
-		for _, before := range current.Logins {
-			if !before.PhoneAndWatchOnly {
-				continue
-			}
-			index := slices.IndexFunc(next.Logins, func(login *pb.Login) bool { return login.LoginId == before.LoginId })
-			if index < 0 || next.Logins[index].Rule != before.Rule || !next.Logins[index].PhoneAndWatchOnly {
-				return nil, ErrNotAllowed
-			}
-		}
 	}
 	return next, nil
 }

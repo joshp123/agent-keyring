@@ -106,9 +106,7 @@ message Machine {
 
 // The logins and their rules: names readable, secrets never. Signed by any
 // device in the current Members, with its signing key. Same revision rule as
-// Members. A Catalogue signed by a MacBook must leave every login that was
-// phone_and_watch_only exactly as it was, so only the iPhone or Watch can
-// change those.
+// Members: machines and devices keep the highest revision they have seen.
 message Catalogue {
   string domain = 1;  // "agentkeyring.catalogue.v2"
   uint64 revision = 2;
@@ -123,9 +121,11 @@ message Login {
   string account = 4;
   bool has_one_time_code = 5;
   Rule rule = 6;
-  // Only the iPhone and the Watch may approve: the login is not sealed to any
-  // MacBook. Devices refuse to approve it otherwise.
-  bool phone_and_watch_only = 7;
+  reserved 7;                      // Approval on the iPhone or Watch only: cut.
+  // The version of every sealed copy of this login (SealedLogin.version).
+  // Whoever publishes a catalogue carries it over unchanged; only a new import
+  // of the secret changes it. Openers refuse a copy of another version.
+  uint64 version = 8;
 }
 
 enum Rule {
@@ -150,10 +150,14 @@ message SealedLogin {
   // The device that sealed it, by its reply key (no Face ID or Touch ID), so a
   // relay can neither forge a copy nor pass one off as another login's:
   // ECDSA P-256 SHA-256, DER, over "agentkeyring.sealed.v2" and the
-  // length-prefixed login_id, opener_id, encapsulated_key and ciphertext.
-  // Openers check it against a device in their Members before opening.
+  // length-prefixed login_id, opener_id, encapsulated_key and ciphertext,
+  // then version as 8 bytes big-endian. Openers check it against a device in
+  // their Members before opening.
   string signer_key_id = 5;        // Device.reply_key_id.
   bytes signature = 6;
+  // When the secret was imported, in Unix nanoseconds. Resealing keeps it, so
+  // a relay cannot serve an older copy: it must equal the catalogue's Login.version.
+  uint64 version = 7;
 }
 
 message LoginSecret {
@@ -172,17 +176,18 @@ message LoginSecret {
 }
 
 // ---- Requests and answers --------------------------------------------------
-
-
-
-// Written once by the relay from the asking machine's request. Devices show
-// what they parse from these exact bytes, check the login against their own
-// catalogue and the machine against their own Members, and answer over them.
+// Written and signed by the asking machine with its TLS key (RelayRequest.ask_signed;
+// Work.request_signature). Devices check the signature against the machine
+// their own Members lists as machine_id, show what they parse from these exact
+// bytes, check the login against their own catalogue, and answer over them.
+// The relay refuses one whose asked time is over 5 minutes from its clock,
+// which waits over 10 minutes, or whose reason is over 400 bytes or agent,
+// project or task over 100, so that a Work still fits in a push.
 message Request {
   string domain = 1;               // "agentkeyring.request.v2"
-  string request_id = 2;           // Chosen by the relay, unique.
+  string request_id = 2;           // Chosen by the asking machine: 16 random bytes, hex.
   string login_id = 3;
-  string machine_id = 4;           // The machine whose TLS key made the request.
+  string machine_id = 4;           // The machine that signed it.
   reserved 5, 6;                   // Purpose and program: one approval covers fill and read.
   string reason = 7;               // The agent's own words.
   string agent = 8;                // The agent's claim, e.g. "Codex".
@@ -191,9 +196,13 @@ message Request {
   int64 asked_unix_seconds = 11;
   int64 answer_by_unix_seconds = 12;  // After this the request is unanswered.
   // A device's own test request (test_request): it names no login and no
-  // machine, goes only to this device, and is approved by a signed Answer
-  // with no delivery.
+  // machine, is written by the relay unsigned, goes only to this device, and
+  // is approved by a signed Answer with no delivery.
   string for_device_key_id = 13;
+  // The machine uses its own copy of an Automatic login: the relay grants it
+  // at once, for 30 minutes, if the catalogue says Automatic and Members
+  // allows this machine. Devices show it in use and may stop it.
+  bool automatic = 14;
 }
 
 // A device's answer, the payload of a Signed by that device's signing key.
@@ -252,6 +261,7 @@ message Lease {
   string reply = 7;                  // Display only; show the words from collect's signed answer.
   int64 retry_not_before_unix_seconds = 8;  // A denial holds the login off for 30 minutes.
   string ended_by = 9;               // Device.label when a device ended an approval early (Stop).
+  bool automatic = 10;               // Granted at once by the login's Automatic rule.
 }
 
 enum LeaseState {
@@ -279,31 +289,17 @@ message Approval {
 // beside the Members and Catalogue the iPhone keeps in step on it.
 message Work {
   bytes request = 1;               // The exact Request bytes.
+  // The asking machine's signature over request, by its TLS key. Empty only
+  // for a device's own test request.
+  bytes request_signature = 6;
   SealedLogin sealed_login = 2;    // This login, sealed to this device. Absent if it may not approve it.
   // Set once the request has ended: answered here or elsewhere, or no answer
   // in time. Show the outcome and clear the request.
   Lease outcome = 3;
-  Login login = 4;                 // The login from the signed catalogue: its title, account and sites.
-  // Set for a rule change another device proposed (propose_rules). Approving
-  // it is publishing a catalogue with these rules, and the sealed or
-  // withdrawn copies they need, then a signed Answer with no delivery.
-  Signed proposal = 5;
-}
-
-// A rule change a device proposes and only the iPhone may make (the Watch
-// approves with one tap and no face, so it is not shown these), the
-// payload of a Signed by the proposer's reply key: it grants nothing until a
-// device that can make the change approves it.
-message RuleProposal {
-  string domain = 1;               // "agentkeyring.proposal.v2"
-  repeated RuleChange changes = 2;
-  int64 asked_unix_seconds = 3;
-}
-
-message RuleChange {
-  string login_id = 1;
-  Rule rule = 2;
-  bool phone_and_watch_only = 3;
+  // The login as the relay's catalogue lists it. Unsigned here: devices show
+  // and check the login from their own signed catalogue.
+  Login login = 4;
+  reserved 5;                      // Rule proposals: cut with the fourth rule.
 }
 
 // The push. Apple carries nothing readable about a request. The relay sends:
@@ -327,15 +323,15 @@ message Notice {
 // ---- The relay's methods ---------------------------------------------------
 
 message RelayRequest {
+  reserved 1, 7, 23;               // Unsigned asks, use reports, rule proposals.
   oneof method {
     // Asking machines.
-    AskRequest ask = 1;
+    Signed ask_signed = 26;        // A Request, signed by this machine's TLS key; signer_key_id is its machine_id. Returns Lease.
     RequestReference watch = 2;            // Streams Lease until it is final.
     RequestReference collect = 3;          // Returns Approval once approved, or denied with words.
     RequestReference end = 4;              // Done with it, or stop asking.
     FindRequest find = 5;                  // Returns FindResult from the catalogue.
     Empty automatic_logins = 6;            // Returns SealedLogins sealed to this machine.
-    UseReport report_use = 7;              // An Automatic login was used.
     // Devices (by TLS key) and machines alike.
     Empty members = 8;                     // Returns Signed (Members).
     Empty catalogue = 9;                   // Returns Signed (Catalogue).
@@ -356,9 +352,6 @@ message RelayRequest {
     Empty test_request = 20;
     Signed report_self_test = 21;          // Devices: SelfTestReport, signed by the reply key.
     Empty self_tests = 22;                 // Devices and machines: returns SelfTests.
-    // Devices: a rule change for the iPhone to approve. Streams
-    // Lease until it is answered or unanswered.
-    Signed propose_rules = 23;
     // Devices and machines: every Members revision after this one, oldest
     // first, so each can be checked against the one before. Returns
     // MembersChain.
@@ -395,32 +388,12 @@ message RequestReference {
   string answered_here = 2;
 }
 
-// The relay refuses a reason over 400 bytes, and agent, project or task over
-// 100, so that a Work still fits in a push.
-message AskRequest {
-  string login_id = 1;
-  reserved 2, 3;                   // Purpose and program.
-  string reason = 4;
-  string agent = 5;
-  string project = 6;
-  string task = 7;
-  // The machine's retry key: the same key returns the same request.
-  string client_request_id = 8;
-}
-
 message FindRequest {
   string query = 1;                // Words matched against title, sites and account.
 }
 
 message FindResult {
   repeated Login logins = 1;
-}
-
-message UseReport {
-  string login_id = 1;
-  string agent = 2;
-  string reason = 3;
-  int64 used_unix_seconds = 4;
 }
 
 message SealedLogins {

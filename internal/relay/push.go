@@ -26,14 +26,14 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 	var expires int64
 	s.Store.read(func(data *saved) {
 		r := data.Requests[id]
-		if r == nil {
+		if r == nil || r.Automatic { // An Automatic use is shown in the apps, never pushed.
 			return
 		}
 		expires = r.AnswerBy
 		for keyID, raw := range data.Pushes {
 			d := device(members, keyID)
 			registration := &pb.PushRegistration{}
-			if d == nil || unmarshal(raw, registration) != nil || (r.ForDevice != "" && r.ForDevice != d.KeyId) || r.ProposedBy == d.KeyId || (len(r.Proposal) > 0 && d.Kind != pb.DeviceKind_DEVICE_KIND_IPHONE) {
+			if d == nil || unmarshal(raw, registration) != nil || (r.ForDevice != "" && r.ForDevice != d.KeyId) {
 				continue
 			}
 			if work, err := s.work(d, id, data); err == nil {

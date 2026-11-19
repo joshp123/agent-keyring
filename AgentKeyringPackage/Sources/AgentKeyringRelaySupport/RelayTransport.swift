@@ -8,17 +8,14 @@ import SwiftProtobuf
 public struct RelayEndpoint: Codable, Equatable, Sendable {
     public let host: String
     public let port: UInt16
-    // Older saved endpoints have no proof override and keep loopback disabled.
-    private let allowsLoopbackForProof: Bool?
 
-    public init(host: String, port: UInt16, allowsLoopbackForProof: Bool = false) throws {
+    public init(host: String, port: UInt16) throws {
         guard port > 0, !host.isEmpty, !host.contains("/"), !host.contains("@"), !host.utf8.contains(0),
               host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
             throw RelayFailure(.invalidArgument, "Enter the relay's host name and port.")
         }
         self.host = host
         self.port = port
-        self.allowsLoopbackForProof = allowsLoopbackForProof ? true : nil
     }
 
     public func permitsResolvedEndpoint(_ endpoint: NWEndpoint?) -> Bool {
@@ -28,7 +25,6 @@ public struct RelayEndpoint: Codable, Equatable, Sendable {
         case let .ipv6(address):
             if address.isIPv4Mapped, let ipv4 = address.asIPv4 { return permitsIPv4(ipv4) }
             return address.rawValue.starts(with: [0xfd, 0x7a, 0x11, 0x5c, 0xa1, 0xe0])
-                || (allowsLoopbackForProof == true && address.isLoopback)
         case .name: return false
         @unknown default: return false
         }
@@ -36,8 +32,7 @@ public struct RelayEndpoint: Codable, Equatable, Sendable {
 
     private func permitsIPv4(_ address: IPv4Address) -> Bool {
         let bytes = address.rawValue
-        return (bytes[0] == 100 && (64...127).contains(bytes[1]))
-            || (allowsLoopbackForProof == true && address.isLoopback)
+        return bytes[0] == 100 && (64...127).contains(bytes[1])
     }
 }
 
@@ -79,27 +74,30 @@ public final class RelayConnection: @unchecked Sendable {
     public func open() async throws {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                let finish: @Sendable (Error?) -> Void = { error in
+                // Only the first outcome counts; later states of an open connection are for its reads.
+                let finish: @Sendable (Error?) -> Bool = { error in
                     let first = self.lock.withLock { if self.opened { return false }; self.opened = true; return true }
-                    guard first else { return }
+                    guard first else { return false }
                     if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                    return true
                 }
                 connection.stateUpdateHandler = { state in
                     switch state {
                     case .ready:
-                        do { try self.requireTailnetPeer(); finish(nil) }
-                        catch { finish(error); self.cancel() }
-                    case let .failed(error): finish(error)
-                    case let .waiting(error): finish(error); self.cancel()
-                    case .cancelled: finish(CancellationError())
+                        do { try self.requireTailnetPeer(); _ = finish(nil) }
+                        catch { _ = finish(error); self.cancel() }
+                    case let .failed(error): _ = finish(error)
+                    // While opening, no route means the relay is not there; once open, a
+                    // network handoff passes through waiting and the connection carries on.
+                    case let .waiting(error): if finish(error) { self.cancel() }
+                    case .cancelled: _ = finish(CancellationError())
                     default: break
                     }
                 }
                 connection.start(queue: queue)
                 queue.asyncAfter(deadline: .now() + 10) {
                     let stillOpening = self.lock.withLock { !self.opened }
-                    if stillOpening {
-                        finish(RelayFailure(.unavailable, "The relay could not be reached."))
+                    if stillOpening, finish(RelayFailure(.unavailable, "The relay could not be reached.")) {
                         self.cancel()
                     }
                 }
@@ -108,9 +106,7 @@ public final class RelayConnection: @unchecked Sendable {
         try Task.checkCancellation()
     }
 
-    public func send(_ request: Agentkeyring_V1_RelayWireRequest) async throws { try await sendFrame(request) }
-
-    /// One framed message, of any protocol version.
+    /// One framed message.
     public func sendFrame(_ request: some SwiftProtobuf.Message) async throws {
         try requireTailnetPeer()
         let data = try request.serializedData()
@@ -133,13 +129,7 @@ public final class RelayConnection: @unchecked Sendable {
         }
     }
 
-    public func next() async throws -> Agentkeyring_V1_RelayWireResponse {
-        let response: Agentkeyring_V1_RelayWireResponse = try await nextFrame()
-        if case let .error(error) = response.response { throw RelayFailure(error.code, error.message) }
-        return response
-    }
-
-    /// The next framed message, of any protocol version. Frames are at most 4 MiB.
+    /// The next framed message. Frames are at most 4 MiB.
     public func nextFrame<Response: SwiftProtobuf.Message>() async throws -> Response {
         let header = try await read(4)
         let size = header.withUnsafeBytes { UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self)) }
@@ -166,48 +156,4 @@ public final class RelayConnection: @unchecked Sendable {
     }
     public func cancel() { connection.cancel() }
     deinit { connection.cancel() }
-}
-
-public struct RelayTransport: Sendable {
-    public let endpoint: RelayEndpoint
-    public let identity: RelayTLSIdentity
-    public let pin: Data?
-    private let receivingTrustUpdate: (@Sendable (Agentkeyring_V1_TrustUpdate) async throws -> Void)?
-
-    public init(endpoint: RelayEndpoint, identity: RelayTLSIdentity, pin: Data?,
-                receivingTrustUpdate: (@Sendable (Agentkeyring_V1_TrustUpdate) async throws -> Void)? = nil) {
-        self.endpoint = endpoint; self.identity = identity; self.pin = pin
-        self.receivingTrustUpdate = receivingTrustUpdate
-    }
-
-    public func open(_ request: Agentkeyring_V1_RelayWireRequest) async throws -> RelayConnection {
-        let connection = RelayConnection(endpoint: endpoint, identity: identity, pin: pin)
-        do {
-            try await connection.open()
-            try await connection.send(request)
-            return connection
-        } catch { connection.cancel(); throw error }
-    }
-
-    public func call(_ request: Agentkeyring_V1_RelayWireRequest,
-                     onTrustUpdate: (@Sendable (Agentkeyring_V1_TrustUpdate) async throws -> Void)? = nil) async throws -> Agentkeyring_V1_RelayWireResponse {
-        let connection = try await open(request)
-        defer { connection.cancel() }
-        return try await withThrowingTaskGroup(of: Agentkeyring_V1_RelayWireResponse.self) { tasks in
-            tasks.addTask {
-                while true {
-                    let response = try await connection.next()
-                    if case let .trustUpdate(update) = response.response {
-                        guard let receivingTrustUpdate = onTrustUpdate ?? receivingTrustUpdate else {
-                            throw RelayFailure(.unavailable, "This connection cannot save a signed trust update.")
-                        }
-                        try await receivingTrustUpdate(update)
-                    } else { return response }
-                }
-            }
-            tasks.addTask { try await Task.sleep(for: .seconds(15)); throw RelayFailure(.unavailable, "The relay did not acknowledge the request.") }
-            defer { tasks.cancelAll(); connection.cancel() }
-            return try await tasks.next()!
-        }
-    }
 }

@@ -1,6 +1,6 @@
 // Written by AI on 2026.10.31 by Claude Opus 5.5 and GPT-6 Astra.
-// Local contract for RFC 0004. Remote enrolment, sealed bundles and approvers
-// are in relay.proto (RFCs 0005 and 0006). Lease and receiver results contain no
+// Local contract for RFC 0004: the command and the Mac app on one machine.
+// Everything between machines is in agentkeyring/v2. Lease and receiver results contain no
 // passwords, OTP codes or seeds. Delivery carries values to the client; the
 // explicit agent-process `read` route outputs its selected value.
 // Find includes account metadata. Transport authentication
@@ -9,8 +9,6 @@
 syntax = "proto3";
 
 package agentkeyring.v1;
-
-import "agentkeyring/v1/bundle.proto";
 
 option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1";
 
@@ -127,10 +125,7 @@ message Lease {
   // (zero until then). For display; deadlines come from the fields above.
   int64 requested_at_unix_seconds = 17;
   int64 ended_at_unix_seconds = 18;
-  // Relay only: a HUMAN or fully verified PHONE denial and exact request bytes, with no
-  // bundle, when a remote denial carries a reply. The receiver verifies them
-  // like an approval before it shows `reply`; otherwise it shows no reply.
-  SealedDelivery signed_denial = 19;
+  reserved 19;                        // Signed denials of the first relay.
 }
 
 enum LeaseState {
@@ -232,11 +227,12 @@ message Delivery {
   oneof result {
     // Local socket only. Never sent over a network.
     CredentialValues values = 1;
-    // Through the relay: sealed to the enrolled receiver, with the signed
-    // decision so the receiver can check who approved what (bundle.proto).
-    SealedDelivery sealed = 2;
+    // Through the relay: the command opens the device's sealed answer itself.
+    OpenedHere sealed = 2;
   }
 }
+
+message OpenedHere {}
 
 message CredentialValues {
   string username = 1;

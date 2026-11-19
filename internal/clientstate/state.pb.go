@@ -254,10 +254,7 @@ type ExpectedRequest struct {
 	state   protoimpl.MessageState  `protogen:"open.v1"`
 	Scope   *v1.RequestLeaseRequest `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
 	LeaseId string                  `protobuf:"bytes,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
-	// Automatic logins only: this machine opens its own sealed copy, with no
-	// request to the relay, until this time.
-	AutomaticNotAfterUnixSeconds int64 `protobuf:"varint,3,opt,name=automatic_not_after_unix_seconds,json=automaticNotAfterUnixSeconds,proto3" json:"automatic_not_after_unix_seconds,omitempty"`
-	Ended                        bool  `protobuf:"varint,4,opt,name=ended,proto3" json:"ended,omitempty"`
+	Ended   bool                    `protobuf:"varint,4,opt,name=ended,proto3" json:"ended,omitempty"`
 	// A device's approval, as the relay gave it (agentkeyring.v2.Approval),
 	// kept for its window so it still works if the relay cannot be reached.
 	// Its delivery is sealed to this machine's receiving key; it holds the
@@ -265,8 +262,15 @@ type ExpectedRequest struct {
 	// each use, and deleted on release or once approval_not_after has passed.
 	Approval                    []byte `protobuf:"bytes,5,opt,name=approval,proto3" json:"approval,omitempty"`
 	ApprovalNotAfterUnixSeconds int64  `protobuf:"varint,6,opt,name=approval_not_after_unix_seconds,json=approvalNotAfterUnixSeconds,proto3" json:"approval_not_after_unix_seconds,omitempty"` // From the signed answer.
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// The request this machine wrote and signed (agentkeyring.v2.Signed),
+	// saved before it is sent so a retry sends the same bytes. Approvals and
+	// denials are checked against these exact bytes.
+	Request []byte `protobuf:"bytes,7,opt,name=request,proto3" json:"request,omitempty"`
+	// An Automatic login: this machine opens its own sealed copy while the
+	// relay says the use is approved.
+	Automatic     bool `protobuf:"varint,8,opt,name=automatic,proto3" json:"automatic,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExpectedRequest) Reset() {
@@ -313,13 +317,6 @@ func (x *ExpectedRequest) GetLeaseId() string {
 	return ""
 }
 
-func (x *ExpectedRequest) GetAutomaticNotAfterUnixSeconds() int64 {
-	if x != nil {
-		return x.AutomaticNotAfterUnixSeconds
-	}
-	return 0
-}
-
 func (x *ExpectedRequest) GetEnded() bool {
 	if x != nil {
 		return x.Ended
@@ -339,6 +336,20 @@ func (x *ExpectedRequest) GetApprovalNotAfterUnixSeconds() int64 {
 		return x.ApprovalNotAfterUnixSeconds
 	}
 	return 0
+}
+
+func (x *ExpectedRequest) GetRequest() []byte {
+	if x != nil {
+		return x.Request
+	}
+	return nil
+}
+
+func (x *ExpectedRequest) GetAutomatic() bool {
+	if x != nil {
+		return x.Automatic
+	}
+	return false
 }
 
 type OperationReceipt struct {
@@ -483,14 +494,15 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\x10\vJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10\"`\n" +
 	"\x0eLocalAuthority\x121\n" +
 	"\x14application_contents\x18\x01 \x01(\tR\x13applicationContents\x12\x1b\n" +
-	"\tbundle_id\x18\x02 \x01(\tR\bbundleId\"\xa8\x02\n" +
+	"\tbundle_id\x18\x02 \x01(\tR\bbundleId\"\x9e\x02\n" +
 	"\x0fExpectedRequest\x12:\n" +
 	"\x05scope\x18\x01 \x01(\v2$.agentkeyring.v1.RequestLeaseRequestR\x05scope\x12\x19\n" +
-	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12F\n" +
-	" automatic_not_after_unix_seconds\x18\x03 \x01(\x03R\x1cautomaticNotAfterUnixSeconds\x12\x14\n" +
+	"\blease_id\x18\x02 \x01(\tR\aleaseId\x12\x14\n" +
 	"\x05ended\x18\x04 \x01(\bR\x05ended\x12\x1a\n" +
 	"\bapproval\x18\x05 \x01(\fR\bapproval\x12D\n" +
-	"\x1fapproval_not_after_unix_seconds\x18\x06 \x01(\x03R\x1bapprovalNotAfterUnixSeconds\"\x8a\x02\n" +
+	"\x1fapproval_not_after_unix_seconds\x18\x06 \x01(\x03R\x1bapprovalNotAfterUnixSeconds\x12\x18\n" +
+	"\arequest\x18\a \x01(\fR\arequest\x12\x1c\n" +
+	"\tautomatic\x18\b \x01(\bR\tautomaticJ\x04\b\x03\x10\x04\"\x8a\x02\n" +
 	"\x10OperationReceipt\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x16\n" +

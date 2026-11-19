@@ -164,14 +164,17 @@ func (s *Server) join(ctx context.Context, who caller, request *pb.JoinRequest, 
 		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "Join as a machine or a device.")
 	}
 	now := s.now()
-	members, _ := s.Store.documents()
-	alreadyMember := device(members, id) != nil || machine(members, id) != nil
 	err := s.Store.update(func(data *saved) error {
+		members, _ := s.Store.documentsLocked()
+		// Already a member, rejoining with the same TLS key (a machine's id is its TLS key's hash).
 		state := pb.JoinState_JOIN_STATE_WAITING
-		if alreadyMember {
+		if d := device(members, id); machine(members, id) != nil || (d != nil && (who.device != nil || bytes.Equal(d.TlsPublicKey, who.spki))) {
 			state = pb.JoinState_JOIN_STATE_APPROVED
 		}
-		data.Joins[id] = &join{Request: marshal(request), Node: who.node, Asked: now.Unix(), State: state}
+		if existing := data.Joins[id]; existing != nil && existing.State == pb.JoinState_JOIN_STATE_WAITING && !bytes.Equal(existing.SPKI, who.spki) {
+			return fail(pb.ErrorCode_ERROR_CODE_CONFLICT, "Another join with these keys is waiting.")
+		}
+		data.Joins[id] = &join{Request: marshal(request), SPKI: who.spki, Node: who.node, Asked: now.Unix(), State: state}
 		return nil
 	})
 	if err != nil {
