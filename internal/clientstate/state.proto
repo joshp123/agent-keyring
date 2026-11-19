@@ -1,4 +1,4 @@
-// Written by AI on 2026.10.31 by model gpt-6.1-sol.
+// Written by AI on 2026.10.31 by model gpt-6.1-sol; the saved approval by claude opus 5.5 on 2026.11.19.
 syntax = "proto3";
 package agentkeyring.clientstate;
 import "agentkeyring/v1/agentkeyring.proto";
@@ -34,6 +34,13 @@ message ExpectedRequest {
   // request to the relay, until this time.
   int64 automatic_not_after_unix_seconds = 3;
   bool ended = 4;
+  // A device's approval, as the relay gave it (agentkeyring.v2.Approval),
+  // kept for its window so it still works if the relay cannot be reached.
+  // Its delivery is sealed to this machine's receiving key; it holds the
+  // window's one-time codes, never the code secret. It is checked again on
+  // each use, and deleted on release or once approval_not_after has passed.
+  bytes approval = 5;
+  int64 approval_not_after_unix_seconds = 6;  // From the signed answer.
 }
 message OperationReceipt {
   string lease_id = 1;

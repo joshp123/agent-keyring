@@ -1,4 +1,4 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5.
+// Written by AI on 2026.11.18 by model claude opus 5.5; the saved approval on 2026.11.19.
 package remote
 
 import (
@@ -203,19 +203,86 @@ func (c *Client) follow(ctx context.Context, leaseID string, receive func(*v1.Le
 		receive(lease)
 		return nil
 	}
+	if saved.Ended {
+		lease := scoped(saved.Scope, leaseID)
+		lease.State, lease.NotAfterUnixSeconds = v1.LeaseState_LEASE_STATE_RELEASED, saved.ApprovalNotAfterUnixSeconds
+		receive(lease)
+		return nil
+	}
 	var translateError error
+	answered := false
 	err = c.relay(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Watch{Watch: &pb.RequestReference{RequestId: leaseID}}}, func(response *pb.RelayResponse) bool {
 		lease, err := c.translate(ctx, saved.Scope, response.GetLease())
 		if err != nil {
 			translateError = err
 			return false
 		}
+		answered = true
+		c.keepApproval(ctx, state, saved, lease.State)
 		return receive(lease)
 	})
 	if translateError != nil {
 		return translateError
 	}
+	if err != nil && !answered && saved.ApprovalNotAfterUnixSeconds > 0 {
+		// The relay is unreachable or has lost the request, but a device's
+		// approval is saved here: its window decides.
+		lease := scoped(saved.Scope, leaseID)
+		lease.State, lease.NotAfterUnixSeconds = v1.LeaseState_LEASE_STATE_ACTIVE, saved.ApprovalNotAfterUnixSeconds
+		if time.Now().Unix() >= saved.ApprovalNotAfterUnixSeconds {
+			lease.State = v1.LeaseState_LEASE_STATE_EXPIRED
+		}
+		receive(lease)
+		return nil
+	}
 	return err
+}
+
+// keepApproval saves a device's approval the first time the relay says it was
+// given, so it works for its window even if the relay cannot be reached, and
+// deletes it once the relay says the request has ended (a device can stop an
+// approval early).
+func (c *Client) keepApproval(ctx context.Context, state *clientstate.State, saved *clientstate.ExpectedRequest, current v1.LeaseState) {
+	switch {
+	case current == v1.LeaseState_LEASE_STATE_ACTIVE && len(saved.Approval) == 0:
+		members, err := c.members(ctx)
+		if err != nil {
+			return
+		}
+		response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Collect{Collect: &pb.RequestReference{RequestId: saved.LeaseId}}})
+		if err != nil {
+			return
+		}
+		approval := response.GetApproval()
+		if _, err := c.approved(approval, state, saved, members, time.Now()); err != nil {
+			return
+		}
+		answer, _, _ := keyring.VerifiedAnswer(approval, members)
+		raw, _ := proto.Marshal(approval)
+		c.save(ctx, saved.Scope.RequestId, func(e *clientstate.ExpectedRequest) {
+			if !e.Ended { // A release may have run meanwhile.
+				e.Approval, e.ApprovalNotAfterUnixSeconds = raw, answer.NotAfterUnixSeconds
+			}
+		})
+		saved.Approval, saved.ApprovalNotAfterUnixSeconds = raw, answer.NotAfterUnixSeconds
+	case current != v1.LeaseState_LEASE_STATE_ACTIVE && current != v1.LeaseState_LEASE_STATE_PENDING && len(saved.Approval) > 0:
+		c.save(ctx, saved.Scope.RequestId, func(e *clientstate.ExpectedRequest) { e.Approval = nil })
+		saved.Approval = nil
+	}
+}
+
+// approved checks a device's approval for this machine's saved request, as
+// on every use, and opens it with this machine's receiving key.
+func (c *Client) approved(approval *pb.Approval, state *clientstate.State, saved *clientstate.ExpectedRequest, members *pb.Members, now time.Time) (*pb.DeliveryContents, error) {
+	request, err := keyring.ParseRequest(approval.GetRequest())
+	if err != nil || request.RequestId != saved.LeaseId || request.MachineId != state.RecipientId || request.LoginId != saved.Scope.LoginId {
+		return nil, errors.New("The relay returned an approval for a different request.")
+	}
+	contents, err := keyring.OpenApproval(approval, members, c.receiving, now)
+	if err != nil {
+		return nil, fmt.Errorf("This approval could not be checked or opened: %w", err)
+	}
+	return contents, nil
 }
 
 func scoped(scope *v1.RequestLeaseRequest, leaseID string) *v1.Lease {
@@ -292,9 +359,13 @@ func (c *Client) end(ctx context.Context, leaseID string) (*v1.Lease, error) {
 		}
 		return c.lease(ctx, leaseID)
 	}
+	// This machine stops using the approval first, whether or not the relay hears.
+	if err := c.save(ctx, saved.Scope.RequestId, func(e *clientstate.ExpectedRequest) { e.Ended, e.Approval = true, nil }); err != nil {
+		return nil, err
+	}
 	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_End{End: &pb.RequestReference{RequestId: leaseID}}})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Released on this machine, which will not use the login again. The relay could not be told, so Josh's devices show it as approved until it ends; run release again when the relay is back. %w", err)
 	}
 	return c.translate(ctx, saved.Scope, response.GetLease())
 }
@@ -333,22 +404,28 @@ func (c *Client) openValues(ctx context.Context, lease *v1.Lease, _ *v1.Delivery
 		}
 		sites = automaticSites
 	} else {
+		if saved.Ended {
+			return nil, nil, errors.New("This lease was released. Lease again if the task still needs the login.")
+		}
 		members, err := c.members(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Collect{Collect: &pb.RequestReference{RequestId: lease.LeaseId}}})
+		approval := &pb.Approval{}
+		if len(saved.Approval) > 0 {
+			if err := proto.Unmarshal(saved.Approval, approval); err != nil {
+				return nil, nil, errors.New("This machine's saved approval is unreadable. Lease again.")
+			}
+		} else {
+			response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Collect{Collect: &pb.RequestReference{RequestId: lease.LeaseId}}})
+			if err != nil {
+				return nil, nil, err
+			}
+			approval = response.GetApproval()
+		}
+		contents, err := c.approved(approval, state, saved, members, now)
 		if err != nil {
 			return nil, nil, err
-		}
-		approval := response.GetApproval()
-		request, err := keyring.ParseRequest(approval.GetRequest())
-		if err != nil || request.RequestId != lease.LeaseId || request.MachineId != state.RecipientId || request.LoginId != saved.Scope.LoginId {
-			return nil, nil, errors.New("The relay returned an approval for a different request.")
-		}
-		contents, err := keyring.OpenApproval(approval, members, c.receiving, now)
-		if err != nil {
-			return nil, nil, fmt.Errorf("This approval could not be checked or opened: %w", err)
 		}
 		username, password, sites, codes = contents.Username, contents.Password, contents.Sites, contents.OneTimeCodes
 	}
