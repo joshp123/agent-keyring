@@ -49,24 +49,6 @@ public enum PhoneTab: String, Hashable, Sendable {
     case activity, logins, devices
 }
 
-/// Where first run stands (Paper, "First run", "On iPhone"): one screen at a
-/// time, ending in Done. Nil once he has tapped Done.
-public enum PhoneFirstRun: Hashable, Sendable {
-    /// Not joined yet. `macAsked`: the Mac has been asked to add this iPhone.
-    /// `longWait`: nothing found for two minutes.
-    case findingMac(macAsked: Bool, longWait: Bool)
-    /// Joined; the screen before iOS's notification question.
-    case notifications
-    /// iOS's question was answered Don't Allow.
-    case notificationsOff
-    /// The practice request, as a sheet, while it waits.
-    case practice
-    /// The practice request was denied or ran out; he can send another.
-    case practiceAgain
-    /// Approved: "You're set up" and Done.
-    case done
-}
-
 /// One sentence in Activity when something needs him, or an offer he can dismiss.
 public enum PhoneNotice: Hashable, Sendable, Identifiable {
     /// Apple has not yet given this iPhone a push address.
@@ -115,17 +97,20 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var requests: [AccessRequest]
     public var logins: [PhoneLogin]
     public var devices: [PhoneDevice]
-    /// Nil once first run is finished.
-    public var firstRun: PhoneFirstRun?
-    /// First run's practice request, in the real request's layout, while it waits.
+    public var firstRun: PhoneFirstRun
+    /// First run's practice request, in the real request's layout, while it is open.
     public var practiceRequest: AccessRequest?
+    /// The computer that stays on and passes requests to this iPhone, by name.
+    public var relayName: String?
+    /// An Apple Watch with the app is paired with this iPhone.
+    public var watchPaired = false
     public var notices: [PhoneNotice] = []
     public var settings = PhoneSettings()
     public var deviceRequest: PhoneDeviceRequest?
     /// In the signed list of devices.
     public var joined = false
 
-    public init(firstRun: PhoneFirstRun?, requests: [AccessRequest] = [], logins: [PhoneLogin] = [], devices: [PhoneDevice] = [],
+    public init(firstRun: PhoneFirstRun, requests: [AccessRequest] = [], logins: [PhoneLogin] = [], devices: [PhoneDevice] = [],
                 practiceRequest: AccessRequest? = nil, deviceRequest: PhoneDeviceRequest? = nil) {
         self.firstRun = firstRun; self.requests = requests; self.logins = logins; self.devices = devices
         self.practiceRequest = practiceRequest; self.deviceRequest = deviceRequest
@@ -148,12 +133,8 @@ public protocol PhoneBackend: AnyObject {
     func remove(device deviceID: String) async throws
     /// Joins from the Mac's invitation (an `agentkeyring://join` link).
     func join(invitation: String) async throws
-    /// What iOS answered when asked about notifications.
-    func notifications(allowed: Bool) async
-    /// Sends the practice request again after it was denied or ran out.
-    func sendTestAgain() async
-    /// Done on "You're set up".
-    func finishFirstRun() async
+    /// A step of first run: a tap, or what iOS answered.
+    func firstRun(_ event: PhoneFirstRun.Event) async
     func dismiss(_ notice: PhoneNotice) async
     func setSettings(_ settings: PhoneSettings) async
     /// A new device's request to approve requests: Face ID signs it in.
@@ -233,18 +214,21 @@ public final class PhoneModel {
     public func recheckNotifications() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         guard settings.authorizationStatus != .notDetermined else { return }
-        let allowed = settings.authorizationStatus == .authorized
-        if snapshot.firstRun == .notificationsOff ? allowed : !allowed { await backend.notifications(allowed: allowed) }
+        await backend.firstRun(.notificationsAnswered(allowed: settings.authorizationStatus == .authorized))
     }
 
     /// iOS's own question, raised by Continue on the screen that says why.
     public func askAboutNotifications() async {
+        guard snapshot.firstRun == .notifications else { return }
+        await backend.firstRun(.continueTapped)
         let allowed = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
-        await backend.notifications(allowed: allowed)
+        await backend.firstRun(.notificationsAnswered(allowed: allowed))
     }
 
-    public func sendTestAgain() async { await backend.sendTestAgain() }
-    public func finishFirstRun() async { await backend.finishFirstRun(); tab = .activity }
+    public func firstRun(_ event: PhoneFirstRun.Event) async {
+        await backend.firstRun(event)
+        if event == .done { tab = .activity }
+    }
     public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
     public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
 

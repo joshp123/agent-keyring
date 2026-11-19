@@ -118,6 +118,11 @@ public struct WatchStore: Sendable {
         return saved
     }
 
+    /// Forgets what the iPhone handed over. A new install starts here: the
+    /// keychain keeps this item when the app is removed, and an earlier install's
+    /// list of devices would never let the new one in.
+    public func delete() { SecItemDelete(query as CFDictionary) }
+
     public func write(_ saved: WatchSaved) {
         guard let data = try? PropertyListEncoder().encode(saved) else { return }
         let updated = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)

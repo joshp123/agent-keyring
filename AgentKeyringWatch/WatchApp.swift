@@ -20,20 +20,27 @@ let log = Logger(subsystem: "com.joshpalmer.AgentKeyring.Watch", category: "watc
 struct AgentKeyringWatchApp: App {
     @WKApplicationDelegateAdaptor(WatchDelegate.self) private var delegate
 
+    init() {
+        // A new install: removing the app cleared its own settings but not its keychain. The keys stay.
+        if !UserDefaults.standard.bool(forKey: "installed") {
+            WatchStore().delete()
+            UserDefaults.standard.set(true, forKey: "installed")
+        }
+    }
+
     var body: some Scene {
         WindowGroup { WatchHome(model: WatchModel.shared) }
         WKNotificationScene(controller: RequestController.self, category: WatchWords.requestCategory)
     }
 }
 
-/// What the Watch's own screen shows: one plain line.
+/// What the Watch's own screen shows: where setup stands, or what is in use.
 @MainActor @Observable
 final class WatchModel {
     static let shared = WatchModel()
 
-    enum Setup: Equatable { case setUpIPhone, approveOnIPhone, waitingForApple, ready, failed(String) }
     var inUse: [WatchInUse] = WatchStore().read().currentInUse
-    var setup: Setup = {
+    var setup: WatchSetup = {
         let saved = WatchStore().read()
         return saved.lists((try? WatchKeys().keyID()) ?? "") ? .ready : saved.signedMembers != nil ? .approveOnIPhone : .setUpIPhone
     }()
@@ -49,9 +56,7 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
     }
 
     func applicationDidBecomeActive() {
-        // Apple asks the person once, the first time the app is in front.
         Task {
-            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
             await WatchLink.shared.refreshSetup()
             await WatchLink.shared.sendHandOver()
         }
@@ -108,20 +113,21 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
     }
 }
 
-/// Apple Watch's words on its own screen (Paper, "First run", "On Apple Watch"
-/// and "When something needs you"). The line stands alone, with no mark.
+/// Apple Watch's words on its own screen (Paper, "First run", Apple Watch row).
 enum WatchCopy {
-    static let setUpIPhone = "Set up your iPhone first"
-    static let setUpIPhoneDetail = "Open Agent Keyring on your iPhone."
-    static let approveOnIPhone = "Approve on your iPhone"
-    static let approveOnIPhoneDetail = "A request to add this Apple Watch has appeared there."
-    static let ready = "Ready"
-    static let readyDetail = "Requests arrive as notifications."
-    /// Not on the second board: kept from the first.
-    static let waitingForApple = "Waiting for Apple"
-    static let waitingForAppleDetail = "Requests can’t reach your Apple Watch yet."
-    static let noPasscode = "Set a passcode in the Apple Watch app on your iPhone to approve from your wrist."
-    static let notificationsOff = "Turn on notifications for Agent Keyring in the Apple Watch app on your iPhone."
+    static let appName = "Agent Keyring"
+    static func line(_ setup: WatchSetup) -> (title: String, detail: String) {
+        switch setup {
+        case .noPasscode: ("Set a passcode", "To approve from your wrist, set one in the Apple Watch app on your iPhone.")
+        case .setUpIPhone: ("Set up your iPhone first", "Then this Apple Watch can approve your AI agents’ password requests with a tap.")
+        case .approveOnIPhone: ("Approve on your iPhone", "A request to add this Apple Watch is on your iPhone. Approve it with Face ID.")
+        case .notifications: ("Answer on your wrist", "Allow notifications, and requests appear here. Approve or deny with a tap.")
+        case .notificationsOff: ("Notifications are off", "Turn them on in the Apple Watch app on your iPhone, under Notifications.")
+        case .settingUpNotifications: ("Setting up notifications", "Apple is connecting this Apple Watch for notifications. This usually takes a few seconds.")
+        case .ready: ("Ready", "When an agent asks for a password, tap Approve or Deny on its notification.")
+        }
+    }
+    static let continueButton = "Continue"
     static let inUse = "In use"
     static let stop = "Stop"
     /// Not on the board: when Stop can't reach the iPhone.
@@ -133,34 +139,46 @@ enum WatchCopy {
 
 struct WatchHome: View {
     let model: WatchModel
+    @State private var asking = false
 
     var body: some View {
-        // Only "In use" while something is in use; otherwise the one line for where it stands.
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            let inUse = model.inUse.filter { $0.until > context.date }
-            if model.setup == .ready && !inUse.isEmpty { WatchInUseList(items: inUse) } else { status }
+        NavigationStack {
+            // Only "In use" while something is in use; otherwise the one line for where setup stands.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                let inUse = model.inUse.filter { $0.until > context.date }
+                if model.setup == .ready && !inUse.isEmpty { WatchInUseList(items: inUse) } else { status }
+            }
+            .navigationTitle(WatchCopy.appName)
         }
     }
 
     private var status: some View {
-        VStack(spacing: 6) {
-            switch model.setup {
-            case .setUpIPhone: titled(WatchCopy.setUpIPhone, WatchCopy.setUpIPhoneDetail)
-            case .approveOnIPhone: titled(WatchCopy.approveOnIPhone, WatchCopy.approveOnIPhoneDetail)
-            case .waitingForApple: titled(WatchCopy.waitingForApple, WatchCopy.waitingForAppleDetail)
-            case .ready:
-                Image(systemName: "checkmark.circle.fill").font(.system(size: 40)).foregroundStyle(.white, .green)
-                titled(WatchCopy.ready, WatchCopy.readyDetail)
-            case .failed(let line):
-                Text(line).font(.system(size: 15)).multilineTextAlignment(.center)
+        let line = WatchCopy.line(model.setup)
+        return ScrollView {
+            VStack(spacing: 6) {
+                if model.setup == .ready {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 40)).foregroundStyle(.white, .green)
+                }
+                Text(line.title).font(.system(size: 20, weight: .semibold))
+                Text(line.detail).font(.system(size: 13)).foregroundStyle(.secondary)
+                if model.setup == .notifications {
+                    // watchOS's own question, only once the iPhone has added this Apple Watch.
+                    Button(WatchCopy.continueButton) {
+                        asking = true
+                        Task {
+                            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+                            await WatchLink.shared.refreshSetup()
+                            await WatchLink.shared.sendHandOver()
+                            asking = false
+                        }
+                    }
+                    .disabled(asking)
+                    .padding(.top, 8)
+                }
             }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
-    }
-
-    @ViewBuilder private func titled(_ title: String, _ detail: String) -> some View {
-        Text(title).font(.system(size: 20, weight: .semibold)).multilineTextAlignment(.center)
-        Text(detail).font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
     }
 }
 

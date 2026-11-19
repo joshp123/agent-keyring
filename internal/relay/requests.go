@@ -246,7 +246,7 @@ func (s *Server) testRequest(ctx context.Context, who caller, forDevice string, 
 	s.Store.update(func(data *saved) error {
 		data.Requests[id] = &request{ForDevice: target.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: answerBy,
 			Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id,
-				Reason: "This is a practice request. No real password is used.", Agent: "Agent Keyring", Project: "Practice", ForDeviceKeyId: target.KeyId,
+				Reason: "You asked me to download October’s invoice.", Agent: "Agent Keyring", Project: "Practice", ForDeviceKeyId: target.KeyId,
 				AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: answerBy})}
 		return nil
 	})

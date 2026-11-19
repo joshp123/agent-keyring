@@ -20,6 +20,8 @@ enum Phone {
     static let deny = Color(light: 0xD5302A, dark: 0xE5453D)
     static let noAnswer = Color(light: 0xB4B4BC, dark: 0x6E6E76)
     static let onAnswer = Color.white
+    /// The icons on first run's screens.
+    static let accent = Color(light: 0x1447E6, dark: 0x5B8CFF)
 }
 
 /// A pill-shaped button filled with one colour, 52 pt or 50 pt high.

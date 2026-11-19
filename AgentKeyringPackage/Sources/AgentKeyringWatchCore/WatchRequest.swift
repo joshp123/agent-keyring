@@ -28,24 +28,34 @@ public struct WatchRequest: Sendable, Equatable {
     public let who: String
     /// While an approval lasts: when it ends.
     public let inUseUntil: Date?
+    /// The practice request the iPhone asks for after adding this Apple Watch.
+    public let isPractice: Bool
 
     /// Opens the push's notice and names everything in it. Fails with one
     /// reason, for the report; the Watch then shows a plain line.
     public static func from(userInfo: [AnyHashable: Any], keys: WatchKeys, saved: WatchSaved) throws -> WatchRequest {
         if let base64 = userInfo[workKey] as? String, let bytes = Data(base64Encoded: base64) {
-            return try from(work: Agentkeyring_V2_Work(serializedBytes: bytes), saved: saved)
+            return try from(work: Agentkeyring_V2_Work(serializedBytes: bytes), saved: saved, ownKeyID: keys.keyID())
         }
         guard let base64 = userInfo["akr"] as? String, let bytes = Data(base64Encoded: base64) else { throw Unreadable.noNotice }
         let notice = try Agentkeyring_V2_Notice(serializedBytes: bytes)
-        return try from(work: keys.openNotice(notice, deviceKeyID: keys.keyID()), saved: saved)
+        return try from(work: keys.openNotice(notice, deviceKeyID: keys.keyID()), saved: saved, ownKeyID: keys.keyID())
     }
 
     /// Where the extension leaves the opened Work for the app's own layout.
     public static let workKey = "akrWork"
 
-    public static func from(work: Agentkeyring_V2_Work, saved: WatchSaved) throws -> WatchRequest {
+    public static func from(work: Agentkeyring_V2_Work, saved: WatchSaved, ownKeyID: String) throws -> WatchRequest {
         let request = try Sealing.parseRequest(work.request)
         guard let members = saved.signedMembers else { throw Unreadable.notSetUp }
+        // This Apple Watch's own practice request: no computer and no password, the board's words.
+        if (try? Sealing.checkRequest(work, members: members, ownKeyID: ownKeyID)) == .some(nil) {
+            let state: State = work.hasOutcome ? .ended(outcome(work.outcome, members: members, agent: "The practice", minutes: 10)) : .waiting
+            return WatchRequest(work: try work.serializedData(), id: request.requestID, site: "example.com", account: "you@example.com",
+                                sites: [], agent: "Agent Keyring", wants: "Practice request: an agent wants", project: nil,
+                                reason: "You asked me to download October’s invoice.", state: state, who: "Practice", inUseUntil: nil,
+                                isPractice: true)
+        }
         guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { throw Unreadable.unknownMachine }
         // Signed by the computer it names, so a relay can't hand one computer's request to another.
         // A practice request names no computer and carries no password.
@@ -63,7 +73,7 @@ public struct WatchRequest: Sendable, Equatable {
             work: try work.serializedData(), id: request.requestID,
             site: login.map(site) ?? request.loginID, account: login?.account ?? "", sites: login?.sites ?? [],
             agent: agent, wants: "\(agent) on \(machine.label) wants", project: request.project.isEmpty ? nil : request.project,
-            reason: request.reason, state: state, who: "\(agent) on \(machine.label)", inUseUntil: until)
+            reason: request.reason, state: state, who: "\(agent) on \(machine.label)", inUseUntil: until, isPractice: false)
     }
 
     public enum Unreadable: Error, CustomStringConvertible {

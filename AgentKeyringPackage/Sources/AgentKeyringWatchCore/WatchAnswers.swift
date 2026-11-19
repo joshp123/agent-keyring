@@ -23,6 +23,18 @@ public struct WatchAnswers: Sendable {
         let saved = store.read()
         guard let members = saved.signedMembers else { throw WatchFailure.notSetUp }
         let work = try Agentkeyring_V2_Work(serializedBytes: request.work)
+        // The practice request: a signed answer with nothing delivered.
+        if request.isPractice {
+            var answer = Agentkeyring_V2_Answer()
+            answer.domain = "agentkeyring.answer.v2"
+            answer.requestSha256 = Sealing.sha256(work.request)
+            answer.choice = .approve
+            answer.decidedUnixSeconds = Int64(Date().timeIntervalSince1970)
+            answer.notAfterUnixSeconds = answer.decidedUnixSeconds + 60
+            var upload = AnswerUpload()
+            upload.answer = try Sealing.signed(answer.serializedData(), by: keys.keyID(), sign: keys.sign)
+            return try await post(upload, saved: saved)
+        }
         guard work.hasSealedLogin else { throw WatchFailure.notInRequest }
         let parsed = try Sealing.parseRequest(work.request)
         // The site Apple Watch showed and the sites the approval names both come from the signed Catalogue.
@@ -30,7 +42,10 @@ public struct WatchAnswers: Sendable {
         guard let machine = members.machines.first(where: { $0.machineID == parsed.machineID }),
               let receiving = try? P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)
         else { throw WatchFailure.unknownMachine }
+        // The relay is not trusted to say which copy is which: a device signed it, it is the current version, and it was sealed as this login.
+        try Sealing.checkSealed(work.sealedLogin, members: members, listed: login)
         let secret = try keys.open(work.sealedLogin)
+        try Sealing.checkBound(secret, title: login.title, sites: login.sites, account: login.account)
         let upload = try Sealing.approve(request: work.request, secret: secret, sites: login.sites,
                                          receivingKey: receiving, signerKeyID: keys.keyID(), sign: keys.sign)
         return try await post(upload, saved: saved)

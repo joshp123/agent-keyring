@@ -61,6 +61,11 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             backend = sample; relay = nil
             model = PhoneModel(backend: sample, initial: sample.current)
         } else {
+            // A new install: removing the app cleared its own files but not its keychain. The keys stay.
+            if !UserDefaults.standard.bool(forKey: "installed") {
+                PhoneSharedContext(accessGroup: Self.keychainGroup).delete()
+                UserDefaults.standard.set(true, forKey: "installed")
+            }
             #if targetEnvironment(simulator)
             let keys: any PhoneDeviceKeys = PhoneSoftwareKeys()
             #else
@@ -81,19 +86,12 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         #endif
     }
 
-    private var pushAddress: Data?
-
-    /// Asks Apple for this iPhone's push address, and notes if none has come 30 seconds later.
+    /// Asks Apple for this iPhone's push address; first run says so if none has come 30 seconds later.
     func askForPushAddress() {
         UIApplication.shared.registerForRemoteNotifications()
-        Task {
-            try? await Task.sleep(for: .seconds(30))
-            if pushAddress == nil { PhoneDiagnostics.note("Apple has not given a push address after 30 seconds"); relay?.pushAddressMissing() }
-        }
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        pushAddress = deviceToken
         let production = PushEnvironment.isProduction
         Task {
             do {
@@ -163,6 +161,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         switch action {
         case PhoneNotification.approveAction:
             // The Face ID that unlocked the phone a moment ago counts, so it is one look, not two.
+            relay?.notificationOpened(id)
             model.shownRequestID = id
             await model.approve(id, reusingUnlock: true)
         case PhoneNotification.denyAction:
@@ -173,6 +172,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             do { try await backend.deny(id, reply: words.isEmpty ? nil : words); PhoneDiagnostics.note("Deny and Explain: sent, \(words.count) characters") }
             catch { PhoneDiagnostics.note("Deny and Explain: failed, \(error)") }
         default:
+            relay?.notificationOpened(id)
             model.shownRequestID = id
         }
     }
