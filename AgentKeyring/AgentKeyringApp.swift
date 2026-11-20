@@ -190,7 +190,7 @@ private struct FirstRunHome: View {
         }
         actions.tryAgain = { model.send(.tryAgain) }
         actions.openTouchIDSettings = { NSWorkspace.shared.open(MacApprover.touchIDSettings) }
-        actions.useSample = { Task { await model.useSamplePassword() } }
+        actions.useSample = { Task { await model.useTestPassword() } }
         actions.copyOwn = { model.send(.copyOwn) }
         actions.continueOn = { model.send(.continueOn) }
         actions.skip = { model.send(.skip) }

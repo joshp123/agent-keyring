@@ -96,10 +96,10 @@ extension MirrorAppModel {
         }
     }
 
-    /// "Use a Sample Password": one ordinary Ask password, which his first copy from Passwords replaces.
-    public func useSamplePassword() async {
-        guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.sampleExporter,
-            exporterDisplayName: "Sample", items: [MirrorItem.sample], skippedCredentialCount: 0), hadExistingMirror: status != nil)
+    /// The test password only, for now: every copy keeps it, so this is a copy of nothing.
+    public func useTestPassword() async {
+        guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.testPasswordSource,
+            exporterDisplayName: "Test password", items: [], skippedCredentialCount: 0), hadExistingMirror: status != nil)
         else { return }
         closePasswordsCopy()
         send(.useSample)
@@ -161,21 +161,28 @@ extension MirrorAppModel {
             return
         }
 
-        if await importBatch(mapper.map(exportedData, scope: .unknown), hadExistingMirror: hadExistingMirror), let status {
+        let copied = mapper.map(exportedData, scope: .unknown)
+        if await importBatch(copied, hadExistingMirror: hadExistingMirror) {
             closePasswordsCopy()
-            send(.imported(count: status.credentialItemCount))
+            send(.imported(count: copied.items.count))
         }
     }
 
     /// True once the import is sealed and saved.
     @discardableResult
-    func importBatch(_ importBatch: MirrorImportBatch, hadExistingMirror: Bool) async -> Bool {
+    func importBatch(_ copied: MirrorImportBatch, hadExistingMirror: Bool) async -> Bool {
         let generation: MirrorGeneration
         do {
+            // Every copy keeps one test password; the first one brings it.
+            let previous = try await store.loadCurrent()
+            let importBatch = previous?.items.contains(where: \.isTestPassword) == true ? copied
+                : MirrorImportBatch(scope: copied.scope, exportedAt: copied.exportedAt, exporterIdentifier: copied.exporterIdentifier,
+                    exporterDisplayName: copied.exporterDisplayName, items: copied.items + [MirrorItem.testPassword],
+                    skippedCredentialCount: copied.skippedCredentialCount, skippedCredentialSummary: copied.skippedCredentialSummary)
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
-            generation = try merger.merge(previous: try await store.loadCurrent(), importBatch: importBatch)
+            generation = try merger.merge(previous: previous, importBatch: importBatch)
             // Seal only what arrived: a login missing from this export keeps
             // its earlier copies, and the saved list holds no secrets to seal.
             let arrived = Set(importBatch.items.map(\.sourceIdentity))

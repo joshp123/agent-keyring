@@ -182,7 +182,7 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
     public let credentialItemCount: Int
     public let skippedCredentialCount: Int
     public let skippedCredentialSummary: MirrorSkippedCredentialSummary?
-    /// The only password is the sample (nil in a status saved before there was one).
+    /// The only password is the test password (nil in a status saved before there was one).
     public let sampleOnly: Bool?
 
     public init(
@@ -227,13 +227,15 @@ public enum MirrorError: Error, Equatable, LocalizedError {
 }
 
 extension MirrorItem {
-    /// The sample password first run offers before any are copied (Paper, "First run",
-    /// "After Use a Sample Password"). A copy from Passwords replaces it.
-    public static let sampleExporter = "agent-keyring.sample"
-    public static var sample: MirrorItem {
-        MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(exporterIdentifier: sampleExporter, accountID: Data("sample".utf8),
+    /// The test password Agent Keyring always keeps, beside his own: for
+    /// practice, and for an agent to try the whole route with a secret that
+    /// does not matter. An ordinary Ask password, in the list and the
+    /// catalogue like any other.
+    public static let testPasswordSource = "agent-keyring.sample"
+    public static var testPassword: MirrorItem {
+        MirrorItem(id: UUID(), sourceIdentity: MirrorSourceIdentity(exporterIdentifier: testPasswordSource, accountID: Data("sample".utf8),
             itemID: Data("example.com".utf8)), title: "example.com", origins: ["https://example.com"],
             credentials: [.password(userName: "you@example.com", password: "hello")])
     }
-    public var isSample: Bool { sourceIdentity.exporterIdentifier == Self.sampleExporter }
+    public var isTestPassword: Bool { sourceIdentity.exporterIdentifier == Self.testPasswordSource }
 }

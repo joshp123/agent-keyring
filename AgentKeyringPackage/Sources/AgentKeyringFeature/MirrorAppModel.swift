@@ -237,7 +237,7 @@ public final class MirrorAppModel {
             problem = MessageCopy.copyUnreadable
             return
         }
-        try? leaseStore.reconcile(logins: leaseLogins + [PracticePassword.candidate], policies: currentPolicies)
+        try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
         if (try? macKeys()) != nil {
             device?.start()
             if firstRun.devices?.iPhone == true { device?.leaveNameForIPhone() }
