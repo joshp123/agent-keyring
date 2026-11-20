@@ -29,6 +29,12 @@ public final class AdditionBackend: MacApprovalBackend {
         if let state = answered[id], let last = lastShown[id] {
             var request = last
             request.state = state
+            // A new device is being given its copies: the panel says how far, and stays until it is done.
+            if let filling = model.device?.filling, filling.deviceKeyID == id,
+               case let .setUp(lead, detail, footer, denied, replies, _) = last.access {
+                request.access = .setUp(lead: lead, detail: detail, footer: footer, denied: denied, replies: replies,
+                    approved: SetupCopy.filling(filling.label, done: filling.done, total: filling.total))
+            }
             return request
         }
         guard let device = model.device else { return nil }

@@ -39,20 +39,24 @@ extension MirrorAppModel {
             testedAt = now
             send(.practicePassed)
             selfTestLogger.notice("Self-test passed: Touch ID, the opening key and the signing key all work.")
-            await device?.reportSelfTest(passed: true, error: "")
+            await reportStatus()
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw error
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             // The request stays up with the error under it, so he can try again there.
             selfTestLogger.error("Self-test failed: \(message, privacy: .public)")
-            await device?.reportSelfTest(passed: false, error: message)
+            await reportStatus(practiceFailure: message)
             throw error
         }
     }
 
-    /// The relay keeps each device's last test; a Mac that joins later sends the one it has.
-    public func reportLastSelfTest() async {
-        if testedAt != nil { await device?.reportSelfTest(passed: true, error: "") }
+    /// The relay keeps each device's status report; a Mac that joins later sends the one it has.
+    public func reportLastSelfTest() async { await reportStatus() }
+
+    /// This Mac's status report: its journey step, and its practice result if it has one.
+    func reportStatus(practiceFailure: String? = nil) async {
+        let practice: (passed: Bool, error: String)? = practiceFailure.map { (false, $0) } ?? (testedAt != nil ? (true, "") : nil)
+        await device?.reportStatus(firstRun, practice: practice)
     }
 }

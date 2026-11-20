@@ -12,6 +12,8 @@ import SwiftUI
 
 public enum FirstRunScreen: Equatable, Sendable {
     case welcome
+    /// "Which devices do you want to use?" Interim until the board is drawn.
+    case chooseDevices
     case practice
     case practiceDenied(reply: String)
     /// In place of the practice request: Touch ID has no fingerprint.
@@ -67,6 +69,8 @@ public struct PracticeRow: Identifiable, Hashable, Sendable {
 
 public struct FirstRunActions {
     public var getStarted: () -> Void = {}
+    /// iPhone, Apple Watch, other computers.
+    public var chooseDevices: (Bool, Bool, Bool) -> Void = { _, _, _ in }
     public var tryAgain: () -> Void = {}
     public var openTouchIDSettings: () -> Void = {}
     public var openPasswords: () -> Void = {}
@@ -119,6 +123,7 @@ public struct MacFirstRunView: View {
     private var width: CGFloat {
         switch screen {
         case .welcome, .stayingOn: 520
+        case .chooseDevices: 460
         case .practice, .practiceDenied, .needsFingerprint, .lidClosed, .copying: 400
         case .connecting: 360
         case .allowExport: 420
@@ -147,6 +152,8 @@ public struct MacFirstRunView: View {
             .frame(maxWidth: .infinity)
             Points(FirstRunCopy.points.map { ($0.symbol, $0.title, $0.body) })
             WideButton(FirstRunCopy.getStarted, action: actions.getStarted)
+        case .chooseDevices:
+            ChooseDevices(choose: actions.chooseDevices)
         case .practice:
             Heading(FirstRunCopy.tryPractice, FirstRunCopy.practiceIntro)
             VStack(alignment: .leading, spacing: 12) {
@@ -469,6 +476,24 @@ private struct DarkPill: View {
                 .opacity(isEnabled ? 1 : 0.4)
         }
         .buttonStyle(.plain).fixedSize()
+    }
+}
+
+/// Interim until the board is drawn: the devices he will use beside this Mac.
+private struct ChooseDevices: View {
+    let choose: (Bool, Bool, Bool) -> Void
+    @State private var iPhone = true
+    @State private var watch = true
+    @State private var computers = false
+    var body: some View {
+        Heading(FirstRunCopy.chooseTitle, FirstRunCopy.chooseBody)
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(FirstRunCopy.chooseIPhone, isOn: $iPhone)
+            Toggle(FirstRunCopy.chooseWatch, isOn: $watch)
+            Toggle(FirstRunCopy.chooseComputers, isOn: $computers)
+        }
+        .toggleStyle(.checkbox).font(.system(size: 14))
+        WideButton(FirstRunCopy.continueButton) { choose(iPhone, watch, computers) }
     }
 }
 

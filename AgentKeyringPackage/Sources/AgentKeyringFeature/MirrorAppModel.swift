@@ -128,11 +128,31 @@ public final class MirrorAppModel {
 
     /// Moves first run on, as the board draws it, and saves where it is.
     public func send(_ event: FirstRun.Event) {
-        let next = firstRun.after(event, joined: device?.isJoined == true)
+        let next = firstRun.after(event, facts: firstRunFacts)
         guard next != firstRun else { return }
         DiagnosticLog.record("firstrun", "moved", ["from": "\(firstRun)", "to": "\(next)", "by": "\(event)"])
         firstRun = next
         settings.set(try? JSONEncoder().encode(next), forKey: Self.firstRunKey)
+        // A step that finished while he is in another app: the Dock icon bounces
+        // once, and the window waits behind; it is never pushed in front.
+        if !NSApplication.shared.isActive, [.deviceDone, .connected].contains(event) || { if case .imported = event { true } else { false } }() {
+            NSApplication.shared.requestUserAttention(.informationalRequest)
+        }
+        Task { await reportStatus() }
+    }
+
+    /// What the world says is already done, for the journey to pass over.
+    var firstRunFacts: FirstRun.Facts {
+        let devices = device?.members?.devices ?? []
+        let iPhone = devices.first { $0.kind == .iphone }
+        return FirstRun.Facts(alwaysOn: device?.isJoined == true,
+            iPhoneDone: iPhone.map { device?.reports[$0.keyID]?.finished == true } ?? false,
+            watchJoined: devices.contains { $0.kind == .watch })
+    }
+
+    /// The iPhone finished its first run, or the Apple Watch joined: the Mac's window for it moves on.
+    func noteDevicesChanged() {
+        send(.deviceDone)
     }
 
     /// The last practice request on each device he answers on, by device key.
@@ -205,6 +225,7 @@ public final class MirrorAppModel {
         device = MacDevice(keys: made, store: store) { [weak self] in try await self?.catalogueLogins() ?? [] }
         device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
         device?.onStoppedOnDevice = { [weak self] leaseID in _ = try? self?.leaseStore.revoke(leaseID) }
+        device?.onDevicesChanged = { [weak self] in self?.noteDevicesChanged() }
         return made
     }
 

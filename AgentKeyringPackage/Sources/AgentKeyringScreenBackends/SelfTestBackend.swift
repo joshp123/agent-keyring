@@ -24,8 +24,8 @@ public final class SelfTestBackend: MacApprovalBackend {
     public var request: AccessRequest {
         // First run's own practice, or one sent from Devices or "Try a request on each device".
         let state: AccessRequestState = switch (model.firstRun, model.practiceResults[model.thisMacDeviceKey]) {
-        case (.practice, _), (_, .sent?): .waitingForYou(until: .distantFuture)
-        case let (.practiceDenied(reply), _), let (_, .denied(_, reply)?): .denied(by: .mac, reply: reply.isEmpty ? nil : reply, askAgainAfter: nil)
+        case (.journey(_, .practice), _), (_, .sent?): .waitingForYou(until: .distantFuture)
+        case let (.journey(_, .practiceDenied(reply)), _), let (_, .denied(_, reply)?): .denied(by: .mac, reply: reply.isEmpty ? nil : reply, askAgainAfter: nil)
         default: .approved(by: .mac, until: model.testedAt ?? .now)
         }
         return .practice(id: Self.requestID, state: state)

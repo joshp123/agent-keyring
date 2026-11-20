@@ -71,7 +71,7 @@ struct MacApprovalPanelView: View {
     }
 
     private var setUp: (lead: String, detail: String, footer: String, denied: String, replies: Bool)? {
-        if case let .setUp(lead, detail, footer, denied, replies) = request.access { return (lead, detail, footer, denied, replies) }
+        if case let .setUp(lead, detail, footer, denied, replies, _) = request.access { return (lead, detail, footer, denied, replies) }
         return nil
     }
 
@@ -311,7 +311,8 @@ struct MacApprovalPanelView: View {
     private var outcomeDetail: String? {
         switch request.state {
         case .approved where isPractice: FirstRunCopy.practiceApproved
-        case .approved where setUp != nil: AccessRequestCopy.added(request.login.site)
+        case .approved where setUp != nil:
+            if case let .setUp(_, _, _, _, _, approved) = request.access, !approved.isEmpty { approved } else { AccessRequestCopy.added(request.login.site) }
         case let .approved(_, until): AccessRequestCopy.canUseUntil(agent, AccessRequestCopy.clock(until))
         case let .denied(_, reply?, _): AccessRequestCopy.youTold(agent, reply)
         case .denied where setUp != nil: setUp?.denied

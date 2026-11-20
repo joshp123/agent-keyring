@@ -31,6 +31,10 @@ public enum SetupCopy {
             : "Agents on \(name) can ask for your passwords. Remove it in Devices."
     }
     public static let addingDeviceLead = "Add to Agent Keyring"
+    /// While a new device is given its copies, under "Approved".
+    public static func filling(_ name: String, done: Int, total: Int) -> String {
+        "\(name) added. Copying your passwords to it: \(done) of \(total)."
+    }
     public static func addingDeviceDetail(watch: Bool) -> String { watch ? "Paired with your iPhone" : "Same Apple Account" }
     public static func addingDeviceFooter(watch: Bool) -> String {
         watch ? "It approves requests with one tap while unlocked on your wrist. Remove it in Devices."
@@ -115,6 +119,12 @@ public enum FirstRunCopy {
     public static func approvedRequest(agent: String, site: String) -> String { "\(agent) asked for \(site), and you approved it." }
     public static let copied = "Copied"
     public static let continueButton = "Continue"
+    // Which devices (interim until the board is drawn)
+    public static let chooseTitle = "Which devices will you use?"
+    public static let chooseBody = "Agent Keyring sets up only what you choose. You can add the others later, from Devices."
+    public static let chooseIPhone = "iPhone, to approve with Face ID"
+    public static let chooseWatch = "Apple Watch, to approve with a tap"
+    public static let chooseComputers = "Other computers where agents work"
     public static let skip = "Skip"
 
     // A computer that stays on
