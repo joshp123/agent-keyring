@@ -77,9 +77,11 @@ What must always be true:
 - **A restart never strands him.** Every state resumes as saved, and a copy starts again from the steps. If a later build cannot read the saved state, first run starts at welcome. A Mac that finished first run before this state was saved opens as finished.
 - **A fresh container is a new install.** On its first launch the app deletes what an earlier install left in the keychain (its relay and members, its rules, the name it left for the iPhone in iCloud Keychain) and keeps this Mac's keys (`MirrorAppModel.forgetPreviousInstall`).
 - **There is always exactly one test password.** A copy from Passwords keeps it; nothing removes it.
+- **A copy from Passwords replaces the list, one entry for one entry** (`SnapshotMerger`). The Passwords app gives every item new ids on each export, so an entry is matched by those ids first and then by its sites, account names and title, one to one, keeping the earlier entry's id and so its rule. When two earlier entries fit one, the one with a rule he set is kept. An entry the copy leaves out goes from the list, and the next Touch ID that sends the list removes its copies from the relay; the test password stays.
 
 Found and fixed (tests in `FirstRunTests`, and `TestABlockedLoginHasNoCopyOnTheRelay` in `internal/relay`):
 
+- **A second copy from Passwords doubled the list** (20 Nov): every item arrived with new ids, so nothing matched and the earlier entries were all kept. The next copy goes back to one of each, keeping the entries his rules are on (`SnapshotMergerTests`).
 - **A late timer.** The five-minute timer moves the copy on only from `waiting`, so it cannot fire after the passwords arrived.
 - **Adding his iPhone froze the Mac for about two minutes** (20 Nov): about four Secure Enclave operations for each of 547 passwords ran on the main thread before the iPhone was even added, and the iPhone gave up and asked again. The iPhone is now added first and its copies follow off the main thread, with progress.
 - **"Add your Apple Watch" showed its steps after the Watch had joined from the iPhone**, and the Mac stood still while the iPhone finished: first run moved only on his buttons. Joins and other devices' finishes are now events, and the journey passes over what is done (`FirstRunTests`).

@@ -80,7 +80,7 @@ func (s *Server) publishCatalogue(document *pb.Signed) error {
 		}
 		data.Catalogue = marshal(document)
 		s.Store.catalogue = next
-		// A login that is Blocked, or no longer listed (a sample password his own copy replaced), has no copy here.
+		// A login that is Blocked, or no longer listed (gone from his latest copy from Passwords), has no copy here.
 		kept := map[string]bool{}
 		for _, login := range next.Logins {
 			kept[login.LoginId] = login.Rule != pb.Rule_RULE_BLOCKED
