@@ -389,7 +389,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		if a.flags["wait"] {
 			return 0, waitLease(ctx, client, lease)
 		}
-		fmt.Printf("%s: %s\nTask: %s\n", safe(lease.LeaseId), leaseState(lease.State), safe(lease.TaskRef))
+		fmt.Printf("%s: %s\nTask: %s\n", safe(lease.LeaseId), leaseOutcome(lease), safe(lease.TaskRef))
 		if lease.NotAfterUnixSeconds > 0 {
 			fmt.Println("Ends:", time.Unix(lease.NotAfterUnixSeconds, 0).Local().Format(time.RFC3339))
 		}
@@ -408,7 +408,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		if r.GetLease() == nil {
 			return 1, errors.New("Agent Keyring did not confirm release.")
 		}
-		fmt.Fprintln(os.Stderr, "Lease", leaseState(r.GetLease().State)+".")
+		fmt.Fprintln(os.Stderr, "Lease", leaseOutcome(r.GetLease())+".")
 		return 0, nil
 	case "read":
 		if err = a.check("field", ""); err != nil {
@@ -455,7 +455,7 @@ func leaseState(state pb.LeaseState) string {
 	case 5:
 		return "released"
 	case 6:
-		return "stopped by Josh"
+		return "ended early"
 	case 7:
 		return "cancelled"
 	case 8:
@@ -463,11 +463,21 @@ func leaseState(state pb.LeaseState) string {
 	}
 	return "unknown"
 }
+// leaseOutcome is the state's word, and for a lease ended early, what ended
+// it, in the words of whoever ended it: Josh's Stop, a rule he changed, or a
+// password that left the list. Never "stopped by Josh" when he did not.
+func leaseOutcome(lease *pb.Lease) string {
+	if lease.State == pb.LeaseState_LEASE_STATE_REVOKED && len(lease.StatusLines) > 0 {
+		return "ended: " + strings.TrimSuffix(safe(lease.StatusLines[0]), ".")
+	}
+	return leaseState(lease.State)
+}
+
 func leaseError(lease *pb.Lease) error {
 	if lease.State == pb.LeaseState_LEASE_STATE_UNANSWERED {
 		return errors.New("No answer. Nobody answered within 10 minutes. This is not a refusal. You can ask again.")
 	}
-	text := "This lease is " + leaseState(lease.State) + "."
+	text := "This lease is " + leaseOutcome(lease) + "."
 	if lease.Reply != "" {
 		text += " Reply: " + safe(lease.Reply)
 	}

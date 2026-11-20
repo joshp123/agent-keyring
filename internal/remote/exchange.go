@@ -345,6 +345,7 @@ func (c *Client) translate(ctx context.Context, saved *clientstate.ExpectedReque
 		lease.State = v1.LeaseState_LEASE_STATE_RELEASED
 		if remote.EndedBy != "" {
 			lease.State = v1.LeaseState_LEASE_STATE_REVOKED
+			lease.StatusLines = []string{"Josh stopped it on " + remote.EndedBy + "."}
 		} else if remote.NotAfterUnixSeconds > 0 && time.Now().Unix() >= remote.NotAfterUnixSeconds {
 			lease.State = v1.LeaseState_LEASE_STATE_EXPIRED
 		}

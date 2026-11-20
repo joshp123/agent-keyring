@@ -323,7 +323,7 @@ public final class CredentialLeaseStore {
         guard !lease.state.isTerminal else { return lease }
         lease.state = .revoked
         lease.endedAtUnixSeconds = Self.now
-        lease.statusLines = ["You ended access to this login."]
+        lease.statusLines = ["Josh stopped it."]
         try saveLease(lease)
         return lease
     }
@@ -346,13 +346,14 @@ public final class CredentialLeaseStore {
             let rule = login.map { policies[$0.id, default: .ask] }
             if login == nil || rule == .block || (saved.automatic && rule != .allowAutomatically) {
                 lease.state = .revoked
-                lease.statusLines = ["Access to this login changed. The lease was ended."]
+                lease.statusLines = [login == nil ? "This password is no longer in Agent Keyring, so the lease ended."
+                    : "Josh changed this password's rule, so the lease ended."]
             } else if let login, !lease.sites.isEmpty {
                 // A password with no website (a server's, an app's) has no sites to narrow.
                 lease.sites = lease.sites.filter { login.origins.contains($0) }
                 if lease.sites.isEmpty {
                     lease.state = .revoked
-                    lease.statusLines = ["The password's websites changed. The lease was ended."]
+                    lease.statusLines = ["This password's websites changed, so the lease ended."]
                 }
             }
             if lease.state.isTerminal { lease.endedAtUnixSeconds = Self.now }

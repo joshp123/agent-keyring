@@ -321,8 +321,8 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		lease := strings.TrimSpace(got.stdout)
 		r.device("stop", "--request", lease)
 		status := wait(t, start(linux.command("status", lease)), "status")
-		if !strings.Contains(status.stdout, lease+": stopped by Josh") {
-			t.Fatalf("want stopped by Josh, got %q %v", status.stdout, status.err)
+		if !strings.Contains(status.stdout, lease+": ended: Josh stopped it on ") {
+			t.Fatalf("want Josh's Stop, got %q %v", status.stdout, status.err)
 		}
 		if read := wait(t, start(linux.command("read", lease, "--field", "password")), "read"); read.err == nil {
 			t.Fatalf("a stopped approval still delivered")
