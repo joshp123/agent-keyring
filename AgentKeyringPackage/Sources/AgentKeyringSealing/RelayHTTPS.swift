@@ -10,18 +10,30 @@ import Security
 
 public enum RelayHTTPS {
     /// POSTs a protobuf body to a path on the relay, pinned to its key in Members, and returns the reply.
+    /// `timeout` is a deadline for the whole call, not only for silence on the connection.
     public static func post(_ body: Data, host: String, port: UInt16, path: String, pinned spki: Data,
                             timeout: TimeInterval = 15) async throws -> Data {
         var parts = URLComponents()
         parts.scheme = "https"; parts.host = host; parts.port = Int(port); parts.path = path
         guard let url = parts.url, !spki.isEmpty else { throw Failure(status: 0, words: "no relay address or key") }
-        var request = URLRequest(url: url, timeoutInterval: timeout)
-        request.httpMethod = "POST"
-        request.setValue("application/x-protobuf", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
+        let request = {
+            var request = URLRequest(url: url, timeoutInterval: timeout)
+            request.httpMethod = "POST"
+            request.setValue("application/x-protobuf", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+            return request
+        }()
         let session = URLSession(configuration: .ephemeral, delegate: Pin(spki: spki), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        let (data, response) = try await session.data(for: request)
+        defer { session.invalidateAndCancel() }
+        let (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
+            group.addTask { try await session.data(for: request) }
+            group.addTask {
+                try await Task.sleep(for: .seconds(timeout))
+                throw Failure(status: 0, words: "no answer within \(Int(timeout)) seconds")
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw Failure(status: status, words: String(decoding: data.prefix(300), as: UTF8.self)) }
         return data

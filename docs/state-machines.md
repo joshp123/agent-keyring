@@ -263,7 +263,7 @@ What each state starts:
 ### The one journey
 
 Each device's status report (`SelfTestReport`, signed with its reply key) carries its step on the journey, whether its part is finished, and its checklist. The iPhone sends a new one when its step changes, when what iOS allows for notifications changes, and when Apple Watch's facts change.
-- Step: `IPHONE` until `addWatch`, then `WATCH`; `READY` with `finished` once first run is over.
+- Step: `IPHONE` until `addWatch`, then `WATCH`, then `READY` once first run is over. `finished` is set from `addWatch` on: the iPhone's own part is done, and adding Apple Watch is the Watch's step.
 - Checklist, by the names every device uses: `linked`, `notifications`, `time_sensitive`, `practice`. Then, while a Watch is paired or listed, Apple Watch's on its behalf, since it reports through this iPhone: `watch installed`, `watch opened`, `watch added`, `watch notifications`, `watch push_address`, `watch practice`. Lines only the logs need follow (`push address`, `push reached this iPhone`, `opening key`, `watch problem`).
 - Reading: when `Changes.reports_revision` rises on the work stream, the iPhone fetches every report, keeps those whose signature checks against the list of devices, and takes the Mac's journey (its steps, in order) and each other device's step into the snapshot (`PhoneJourney`), so each page can say where to go next.
 - Filling: after joining, `Changes.sealed_for_you` over the count of passwords not Blocked is how far this iPhone's copies have come (`PhoneSnapshot.filling`, absent once they are all here).
@@ -271,7 +271,7 @@ Each device's status report (`SelfTestReport`, signed with its reply key) carrie
 ### When a request arrives
 
 The relay hears when a request has reached each device, so the Mac can say where it is.
-- iPhone, notification extension: on naming a waiting request, before it shows, it posts an unsigned `Arrival` naming SHA-256 of its push address to the relay's HTTPS door (`POST /v2/arrived`), giving up after two seconds. The phone may be locked, and the reply key needs it unlocked; the note grants nothing.
+- iPhone, notification extension: on naming a waiting request, before it shows, it posts an unsigned `Arrival` naming SHA-256 of its push address to the relay's HTTPS door (`POST /v2/arrived`), giving up after two seconds however far the call has got. The phone may be locked, and the reply key needs it unlocked; the note grants nothing.
 - iPhone app: the first time it holds a waiting request's work, it sends an `Arrival` signed with its reply key (`arrived` on the framed connection). The relay keeps the first arrival only.
 - Apple Watch, notification extension: on naming a waiting request it posts an `Arrival` signed with its reply key to the same HTTPS door, giving up after two seconds.
 - Both extensions' Info.plists turn off App Transport Security's default, as the Watch app's does: the relay has no public certificate, and the pin to its key in the list of devices is the check.

@@ -522,7 +522,8 @@ public final class PhoneRelayBackend: PhoneBackend {
                   let report = try? Agentkeyring_V2_SelfTestReport(serializedBytes: document.payload),
                   report.deviceKeyID == signer.keyID, signer.keyID != state.deviceKeyID else { continue }
             let place = PhoneJourney.Place(device: signer.label, step: Self.step(report.step), finished: report.finished)
-            if signer.kind == .mac, next.mac == nil {
+            // The Mac whose report carries the journey: a second Mac in the list has an empty one.
+            if signer.kind == .mac, next.steps.isEmpty, next.mac == nil || !report.journey.isEmpty {
                 next.mac = place
                 next.steps = report.journey.compactMap(Self.step)
             } else {
@@ -1137,7 +1138,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         report.deviceKeyID = keyID
         report.testedUnixSeconds = Int64(Date().timeIntervalSince1970)
         report.step = Self.step(firstRun.journeyStep)
-        report.finished = firstRun == .finished
+        // The iPhone's own part is done once it is joined, notified and practised: adding Apple Watch is the Watch's step.
+        report.finished = firstRun.journeyStep != .iPhone
         // The checklist first, by the names every device uses, then what only the logs need.
         report.checks = [
             check("linked", true),
@@ -1408,7 +1410,7 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     private func save(_ next: PhoneSavedState) {
         let sharedChanged = next.members != state.members || next.catalogue != state.catalogue || next.deviceKeyID != state.deviceKeyID
-            || next.settings != state.settings
+            || next.settings != state.settings || next.endpoint != state.endpoint || next.pushTokenSHA256 != state.pushTokenSHA256
         state = next
         if sharedChanged { shared.write(next) }
         do {
