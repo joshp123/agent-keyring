@@ -75,3 +75,29 @@ public enum RelayHTTPS {
         }
     }
 }
+
+/// Telling the relay a request has reached this device, from a notification extension, around showing it.
+/// The iPhone's and Apple Watch's extensions both go through here, so one line decides the order for both.
+public enum ArrivalNote {
+    /// The notification waits for the note, at most `deadline`. Set to false to show it first and send the
+    /// note after, accepting that iOS may end the extension before the note is sent.
+    public static let notificationWaits = true
+    public static let deadline: TimeInterval = 1
+
+    /// Sends the note, logs how long it took, and shows the notification, in the order above.
+    public static func send(request id: String, log: DeviceLog, _ note: @escaping @Sendable () async throws -> Void,
+                            show: @escaping @Sendable () -> Void) {
+        Task {
+            if !notificationWaits { show() }
+            let start = Date()
+            func elapsed() -> String { "\(Int(Date().timeIntervalSince(start) * 1000))" }
+            do {
+                try await note()
+                log.note("push", "arrival sent", ["request": id, "ms": elapsed()])
+            } catch {
+                log.note("push", "arrival not sent", ["request": id, "ms": elapsed(), "error": "\(error)"])
+            }
+            if notificationWaits { show() }
+        }
+    }
+}

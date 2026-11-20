@@ -60,8 +60,7 @@ public struct WatchAnswers: Sendable {
     }
 
     /// Tells the relay this request has reached this Apple Watch, so the Mac can say where it is.
-    /// Signed with the reply key, which works while the Watch is unlocked. It gives up after two seconds:
-    /// the notification waits for it.
+    /// Signed with the reply key, which works while the Watch is unlocked. It gives up after `ArrivalNote.deadline`.
     public func arrived(_ request: WatchRequest) async throws {
         let saved = store.read()
         var arrival = Agentkeyring_V2_Arrival()
@@ -70,7 +69,7 @@ public struct WatchAnswers: Sendable {
         arrival.deviceKeyID = try keys.keyID()
         arrival.arrivedUnixSeconds = Int64(Date().timeIntervalSince1970)
         let signed = try Sealing.signed(arrival.serializedData(), by: Sealing.keyID(keys.replyPublicKey()), sign: keys.signReply)
-        _ = try await send(signed.serializedData(), to: "/v2/arrived", saved: saved, timeout: 2)
+        _ = try await send(signed.serializedData(), to: "/v2/arrived", saved: saved, timeout: ArrivalNote.deadline)
     }
 
     func post(_ upload: AnswerUpload, saved: WatchSaved) async throws -> Agentkeyring_V2_Lease {

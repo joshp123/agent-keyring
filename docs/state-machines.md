@@ -279,9 +279,10 @@ Each device's status report (`SelfTestReport`, signed with its reply key) carrie
 ### When a request arrives
 
 The relay hears when a request has reached each device, so the Mac can say where it is.
-- iPhone, notification extension: on naming a waiting request, before it shows, it posts an unsigned `Arrival` naming SHA-256 of its push address to the relay's HTTPS door (`POST /v2/arrived`), giving up after two seconds however far the call has got. The phone may be locked, and the reply key needs it unlocked; the note grants nothing.
+- iPhone, notification extension: on naming a waiting request, before it shows, it posts an unsigned `Arrival` naming SHA-256 of its push address to the relay's HTTPS door (`POST /v2/arrived`), giving up after one second however far the call has got. The phone may be locked, and the reply key needs it unlocked; the note grants nothing.
 - iPhone app: the first time it holds a waiting request's work, it sends an `Arrival` signed with its reply key (`arrived` on the framed connection). The relay keeps the first arrival only.
-- Apple Watch, notification extension: on naming a waiting request it posts an `Arrival` signed with its reply key to the same HTTPS door, giving up after two seconds.
+- Apple Watch, notification extension: on naming a waiting request it posts an `Arrival` signed with its reply key to the same HTTPS door, giving up after one second.
+- Both extensions go through `ArrivalNote`: the notification shows the moment the note's call returns, and the log records how long it took (`arrival sent` or `arrival not sent`, with `ms`). `ArrivalNote.notificationWaits` is the one switch: set to false, the notification shows first and the note follows, and may be lost when iOS ends the extension.
 - Both extensions' Info.plists turn off App Transport Security's default, as the Watch app's does: the relay has no public certificate, and the pin to its key in the list of devices is the check.
 
 ## iPhone: every day

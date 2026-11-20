@@ -1331,7 +1331,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// Whether a request arriving now may break through a Focus, from the iPhone's Settings.
     /// Tells the relay a request has reached this iPhone, from the notification extension. The phone
     /// may be locked, so it signs nothing: the note names the push address instead, and grants nothing.
-    /// It gives up after two seconds: the notification waits for it.
+    /// It gives up after `ArrivalNote.deadline`.
     nonisolated public static func noteArrival(_ requestID: String, shared: PhoneSharedContext) async throws {
         guard let saved = shared.read(), let keyID = saved.deviceKeyID, let endpoint = saved.endpoint,
               let hash = saved.pushTokenSHA256,
@@ -1346,7 +1346,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         arrival.pushTokenSha256 = hash
         var note = SignedDocument()
         note.payload = try arrival.serializedData()
-        _ = try await RelayHTTPS.post(note.serializedData(), host: endpoint.host, port: endpoint.port, path: "/v2/arrived", pinned: pinned, timeout: 2)
+        _ = try await RelayHTTPS.post(note.serializedData(), host: endpoint.host, port: endpoint.port, path: "/v2/arrived", pinned: pinned, timeout: ArrivalNote.deadline)
     }
 
     nonisolated public static func breaksThroughFocus(_ shared: PhoneSharedContext) -> Bool {

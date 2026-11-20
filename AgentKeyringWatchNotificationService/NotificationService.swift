@@ -32,13 +32,9 @@ final class NotificationService: UNNotificationServiceExtension {
             WatchWords.writeFallback(into: content)
         }
         guard let arriving else { return contentHandler(content) }
-        // The relay hears that the request reached the wrist before it shows.
+        // The relay hears that the request reached the wrist.
         let done = UncheckedContent(handler: contentHandler, content: content)
-        Task {
-            do { try await WatchAnswers().arrived(arriving); log.note("push", "arrival sent", ["request": arriving.id]) }
-            catch { log.note("push", "arrival not sent", ["request": arriving.id, "error": "\(error)"]) }
-            done.call()
-        }
+        ArrivalNote.send(request: arriving.id, log: log, { try await WatchAnswers().arrived(arriving) }, show: done.call)
     }
 }
 
