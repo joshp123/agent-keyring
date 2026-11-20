@@ -73,6 +73,17 @@ public final class AppMainWindowBackend: MainWindowBackend {
     /// Copy from Passwords: Passwords opens, and the window shows the steps until the passwords arrive.
     public func importAgain() { model.openPasswordsExport() }
 
+    /// The computer that stays on which announced itself through iCloud Keychain, by name.
+    public var offeredRelay: String? { model.device?.relayOffer()?.label }
+
+    /// "Connect to Mac mini?": the announced relay, after Touch ID. Nothing typed.
+    public func connectOffered(onAuthenticated: @MainActor () -> Void = {}) async throws {
+        guard let device = model.device, let offer = device.relayOffer() else {
+            throw ScreenFailure(message: "No computer that stays on has announced itself. Open Agent Keyring on it, signed in to the same Apple Account.")
+        }
+        try await screenErrors { try await device.connect(to: offer, context: LAContext(), onAuthenticated: onAuthenticated) }
+    }
+
     /// "Connect a computer of yours that stays on": the address of the relay
     /// already running there ("100.64.0.5:17445" or "mac-mini:17445"), then
     /// Touch ID. Onboarding and Add Computer in Devices use the same.

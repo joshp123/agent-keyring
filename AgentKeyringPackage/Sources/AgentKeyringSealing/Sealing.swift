@@ -143,6 +143,15 @@ public enum Sealing {
         refusalMAC(secret: secret, parts: ["key", machineID])
     }
 
+    /// What a first members list carries to show its device got the relay's
+    /// one-time secret from the relay's own computer (keyring.proto, Members.setup_proof).
+    public static func setupProof(secret: Data, relaySPKI: Data, firstDeviceKeyID: String) -> Data {
+        var message = Data("agentkeyring.setup.v2".utf8)
+        message.append(relaySPKI)
+        message.append(Data(firstDeviceKeyID.utf8))
+        return Data(HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: secret)))
+    }
+
     /// Binds the inviter's words to a refusal (keyring.proto, JoinRefusal.reply_proof).
     public static func refusalReplyProof(secret: Data, machineID: String, reply: String) -> Data {
         refusalMAC(secret: secret, parts: ["reply", machineID, reply])

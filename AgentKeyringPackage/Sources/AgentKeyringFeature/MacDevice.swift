@@ -270,7 +270,8 @@ public final class MacDevice {
     /// is the first device there, and the only computer, until an agent adds
     /// others. A relay this Mac already belongs to (its keys survive a new
     /// install) is joined again as it is; one that belongs to other devices is refused.
-    public func connect(to endpoint: RelayEndpoint, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
+    public func connect(to endpoint: RelayEndpoint, context: LAContext, expecting: Data? = nil, proof: Data? = nil,
+        onAuthenticated: @MainActor () -> Void) async throws {
         if let saved {
             if saved.endpoint == endpoint { return } // Walking first run again on a Mac already connected there.
             throw RelayFailure(.conflict, "This Mac is already connected to the computer at \(saved.endpoint.host).")
@@ -280,6 +281,7 @@ public final class MacDevice {
         request.method = .members(Agentkeyring_V2_Empty())
         let response = try? await KeyringRelay(endpoint: endpoint, identity: keys.tls, pin: nil).call(request) { pin = $0 }
         guard !pin.isEmpty else { throw RelayFailure(.unavailable, "Nothing answered at \(endpoint.host):\(endpoint.port). Check that the computer is on and its relay is running.") }
+        if let expecting, expecting != pin { throw RelayFailure(.permissionDenied, "The computer at \(endpoint.host) is not the one that announced itself.") }
         var existing: (document: Agentkeyring_V2_Signed, members: Agentkeyring_V2_Members)?
         if case let .signed(document)? = response?.result, !document.payload.isEmpty {
             guard let members = try? Sealing.verifiedMembers(document, current: nil),
@@ -307,6 +309,7 @@ public final class MacDevice {
             members.devices = [keys.device]
             members.machines = [keys.machine]
             members.relayTlsPublicKey = pin
+            if let proof { members.setupProof = proof }
             let signed = try Sealing.signed(members.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
             saved = Saved(endpoint: endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0)
             do {
@@ -330,7 +333,15 @@ public final class MacDevice {
     // MARK: Staying connected
 
     public func start() {
-        guard saved != nil, running == nil else { return leaveDeviceInvitation() }
+        guard saved != nil else {
+            // The computer that stays on announces its relay instead of naming itself for a new iPhone.
+            Task {
+                hostsRelay = await announceIfRelayHere()
+                if !hostsRelay { leaveDeviceInvitation() }
+            }
+            return
+        }
+        guard running == nil else { return leaveDeviceInvitation() }
         leaveDeviceInvitation()
         running = Task { [weak self] in
             while let self, !Task.isCancelled, let relay = self.relay {
@@ -442,6 +453,8 @@ public final class MacDevice {
     }
 
     @ObservationIgnored private var reportsRevision: UInt64 = 0
+    /// This Mac runs the relay itself: it is the computer that stays on, not one he approves on.
+    public private(set) var hostsRelay = false
 
     /// When this connection last heard from the relay.
     @ObservationIgnored private var heard = ContinuousClock.now

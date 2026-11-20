@@ -200,6 +200,13 @@ struct SealingTests {
         #expect(Sealing.joinProof(secret: Data(repeating: 2, count: 32), joining: joining) != joining.proof)
     }
 
+    @Test("The Mac's proof for an empty relay is the one the relay in Go checks")
+    func setupProofMatchesGo() {
+        // The same vector is checked against Go in internal/keyring (TestSetupProofMatchesTheMac).
+        let proof = Sealing.setupProof(secret: Data(repeating: 1, count: 32), relaySPKI: Data("spki".utf8), firstDeviceKeyID: "mac")
+        #expect(proof.map { String(format: "%02x", $0) }.joined() == "8572ae376638705097f47924d256bf18bf09e85ab4eaeaa4fe57ad27392da3bb")
+    }
+
     @Test("A refusal made in Go checks in Swift")
     func refusalFromGo() throws {
         let refusal = try Agentkeyring_V2_JoinRefusal(serializedBytes: Data(contentsOf: Self.folder.appending(path: "go-refusal.pb")))
