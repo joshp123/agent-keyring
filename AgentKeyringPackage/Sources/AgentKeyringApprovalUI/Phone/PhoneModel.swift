@@ -74,6 +74,12 @@ public enum PhoneNotice: Hashable, Sendable, Identifiable {
     public var dismissable: Bool { self == .addAppleWatch }
 }
 
+public struct PhoneFill: Hashable, Sendable {
+    public var copied: Int
+    public var of: Int
+    public init(copied: Int, of: Int) { self.copied = copied; self.of = of }
+}
+
 /// The one journey, as the Mac publishes it: the steps for the devices he chose, in order, the same on
 /// every device, and where each device is on it. Read from the devices' signed status reports.
 public struct PhoneJourney: Hashable, Sendable {
@@ -182,6 +188,8 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var notificationFacts = PhoneNotificationFacts()
     public var deviceRequest: PhoneDeviceRequest?
     public var journey = PhoneJourney()
+    /// While this iPhone's copies of the passwords arrive after joining: how many are here, of how many.
+    public var filling: PhoneFill?
     /// In the signed list of devices.
     public var joined = false
 

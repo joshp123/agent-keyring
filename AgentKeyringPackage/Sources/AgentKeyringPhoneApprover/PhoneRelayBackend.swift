@@ -187,6 +187,9 @@ public final class PhoneRelayBackend: PhoneBackend {
         snapshot.settings = phoneSettings
         snapshot.notificationFacts = facts
         snapshot.journey = journey
+        // Blocked passwords have no copies anywhere, so they are not waited for.
+        let copies = catalogue?.logins.filter { $0.rule != .blocked }.count ?? 0
+        if let sealedForYou, sealedForYou < copies { snapshot.filling = PhoneFill(copied: sealedForYou, of: copies) }
         snapshot.deviceRequest = pendingWatch.map { PhoneDeviceRequest(id: $0.keyID, name: $0.label, detail: PhoneCopy.pairedWithThisIPhone) }
         return snapshot
     }
@@ -509,6 +512,7 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// What changed at the relay. A new status report: read where the other devices are.
     private func follow(_ changes: Agentkeyring_V2_Changes) async {
+        if Int(changes.sealedForYou) != sealedForYou { sealedForYou = Int(changes.sealedForYou); publish() }
         guard changes.reportsRevision != reportsRevision else { return }
         reportsRevision = changes.reportsRevision
         guard let members, case let .selfTests(tests)? = try? await relay().call(Self.method { $0.selfTests = .init() }).result else { return }
@@ -533,6 +537,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         }
     }
     private var reportsRevision: UInt64?
+    private var sealedForYou: Int?
     private var journey = PhoneJourney()
 
     nonisolated static func step(_ step: Agentkeyring_V2_JourneyStep) -> PhoneJourney.Step? {

@@ -285,7 +285,7 @@ public enum PhoneCopy {
     // Apple Watch's request to be added (Paper, "On Apple Watch").
     public static let addWatchLead = "Add to Agent Keyring"
     public static let pairedWithThisIPhone = "Paired with this iPhone"
-    public static let watchFootnote = "It approves requests with one tap while unlocked on your wrist. Remove it in Devices."
+    public static let watchFootnote = "Adding it gives it your passwords, locked to its own Secure Enclave, and asks for Face ID. It then approves requests with one tap while unlocked on your wrist. Remove it in Devices."
 
     // Failures.
     public static let answerFailed = "Your answer wasn’t sent. Try again."

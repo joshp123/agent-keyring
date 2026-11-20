@@ -141,7 +141,6 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         return true
     }
 
-    /// The practice request first run is waiting on or showing.
     /// This iPhone's step on the one journey: adding Apple Watch is the Watch's step, everything before it the iPhone's.
     public var journeyStep: PhoneJourney.Step {
         switch self {
@@ -151,6 +150,7 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         }
     }
 
+    /// The practice request first run is waiting on or showing.
     public var practiceID: String? {
         switch self {
         case let .practiceWaiting(id, _), let .settingUpNotifications(id), let .practiceNotArrived(id), let .practice(id): id
