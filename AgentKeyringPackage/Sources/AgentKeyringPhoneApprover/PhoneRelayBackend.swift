@@ -365,6 +365,12 @@ public final class PhoneRelayBackend: PhoneBackend {
         if firstRun == .practiceWaiting(arrived: false), practiceTimer == nil { beginPractice() }
         else if firstRun.wantsPractice, practiceTask == nil, pushRegistered || firstRun == .settingUpNotifications { askForPractice() }
         guard following == nil, state.endpoint != nil else { return }
+        uploading = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.uploadLog()
+                do { try await Task.sleep(for: .seconds(300)) } catch { return }
+            }
+        }
         following = Task { [weak self] in
             var delay = 1
             while !Task.isCancelled {
@@ -390,6 +396,8 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     public func stop() {
         following?.cancel(); following = nil
+        uploading?.cancel(); uploading = nil
+        Task { await uploadLog() }
         looking?.cancel(); looking = nil
     }
 
@@ -575,6 +583,7 @@ public final class PhoneRelayBackend: PhoneBackend {
                 return
             }
             PhoneDiagnostics.note("Answer not sent: \(error)")
+            Task { await uploadLog() }
             var undo = state
             undo.answered[requestID] = nil
             save(undo)
@@ -951,6 +960,26 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 
     private var openingWorks: Bool?
+
+    /// The recent log, Apple Watch's lines with it, signed with the reply key, for the relay to keep:
+    /// `agent-keyring logs` on the Mac reads it back. Sent on leaving the screen, every 5 minutes while
+    /// open, and after an answer fails.
+    public func uploadLog() async {
+        guard let keyID = state.deviceKeyID, state.endpoint != nil else { return }
+        PhoneDiagnostics.log.collect()
+        var log = Agentkeyring_V2_DeviceLog()
+        log.domain = "agentkeyring.log.v2"
+        log.deviceKeyID = keyID
+        log.lines = PhoneDiagnostics.log.lines()
+        let background = PhoneBackgroundTime.begin("Log upload")
+        defer { PhoneBackgroundTime.end(background) }
+        do {
+            let signed = try Sealing.signed(log.serializedData(), by: Sealing.keyID(keys.replyPublicKey())) { try keys.signReply($0) }
+            _ = try await relay().call(Self.method { $0.reportLog = signed })
+        } catch { logger.error("Log not uploaded: \(String(describing: error), privacy: .public)") }
+    }
+
+    private var uploading: Task<Void, Never>?
 
     /// What this iPhone found, signed with its reply key, for the relay to keep.
     public func reportSelfTest() async {
