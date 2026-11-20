@@ -17,8 +17,8 @@ public struct PhoneRootView: View {
                 PhoneFirstRunView(stage: model.snapshot.firstRun, model: model)
             } else {
                 TabView(selection: $model.tab) {
-                    Tab(value: PhoneTab.activity) { PhoneActivityView(model: model) } label: {
-                        Label { Text(PhoneCopy.activity) } icon: { Image(uiImage: TabGlyph.outline("clock")) }
+                    Tab(value: PhoneTab.home) { PhoneHomeView(model: model) } label: {
+                        Label { Text(PhoneCopy.home) } icon: { Image(uiImage: TabGlyph.outline("clock")) }
                     }
                     Tab(value: PhoneTab.logins) { PhoneLoginsView(model: model) } label: {
                         Label { Text(PhoneCopy.passwords) } icon: { Image(uiImage: KeyholeGlyph.image) }
@@ -33,7 +33,7 @@ public struct PhoneRootView: View {
         .task { await model.followUpdates() }
         .alert(model.failure ?? "", isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sheet(item: shownRequest) { request in
-            PhoneRequestView(model: model, request: request)
+            PhoneRequestView(model: model, request: request, practice: request.agent.name == PhoneCopy.practiceAgent)
         }
         .sheet(item: practiceShown) { request in
             PhoneRequestView(model: model, request: request, practice: true).interactiveDismissDisabled()
@@ -56,7 +56,7 @@ public struct PhoneRootView: View {
 
 
     private var deviceShown: Binding<PhoneDeviceRequest?> {
-        Binding(get: { model.snapshot.firstRun == .finished || model.snapshot.firstRun == .ready ? model.snapshot.deviceRequest : nil }, set: { _ in })
+        Binding(get: { [.finished, .addWatch].contains(model.snapshot.firstRun) ? model.snapshot.deviceRequest : nil }, set: { _ in })
     }
 
     private var shownRequest: Binding<AccessRequest?> {
@@ -119,78 +119,20 @@ private extension View {
     }
 }
 
-struct PhoneActivityView: View {
+/// Home (Paper, "iPhone every day"): whether everything works, what needs an answer, what is in use, earlier today.
+struct PhoneHomeView: View {
     let model: PhoneModel
 
     @State private var settingsShown = false
 
     var body: some View {
-        requests
-            .sheet(isPresented: $settingsShown) { PhoneSettingsView(model: model) }
-    }
-
-    private var isEmpty: Bool { model.snapshot.requests.isEmpty }
-
-    @ViewBuilder private var notices: some View {
-        ForEach(model.snapshot.notices) { notice in
-            Section {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        if notice == .addAppleWatch {
-                            Text(PhoneCopy.addAppleWatch).font(.body.weight(.semibold)).foregroundStyle(Phone.ink)
-                        }
-                        Text(PhoneCopy.notice(notice)).font(.subheadline).foregroundStyle(notice == .addAppleWatch ? Phone.ink2 : Phone.ink)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if notice.dismissable {
-                        Button { Task { await model.dismiss(notice) } } label: {
-                            Image(systemName: "xmark").font(.system(size: 13, weight: .bold)).foregroundStyle(Phone.ink2)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(PhoneCopy.close)
-                    }
-                }
-                .padding(.vertical, 2)
-                .phoneRow()
-            }
-        }
-    }
-
-    private var requests: some View {
-        PhoneList(title: PhoneCopy.activity, trailing: (PhoneCopy.settings, { settingsShown = true })) {
-            notices
-            if isEmpty {
+        PhoneList(title: PhoneCopy.appName, trailing: (PhoneCopy.settings, { settingsShown = true })) {
+            status
+            if !model.waiting.isEmpty {
                 Section {
-                    VStack(spacing: 4) {
-                        Text(PhoneCopy.noRequestsYet).font(.title3.weight(.semibold)).foregroundStyle(Phone.ink)
-                        Text(PhoneCopy.noRequestsDetail).font(.subheadline).foregroundStyle(Phone.ink2)
-                    }
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 150)
-                    .listRowBackground(Color.clear)
-                }
-            } else {
-                activity
+                    ForEach(model.waiting) { request in waitingCard(request).phoneRow() }
+                } header: { SectionTitle(PhoneCopy.needsYourAnswer) }
             }
-        }
-    }
-
-    @ViewBuilder private var activity: some View {
-            Section {
-                if model.waiting.isEmpty {
-                    Text(PhoneCopy.nothingWaiting).font(.body).foregroundStyle(Phone.ink2).phoneRow()
-                }
-                ForEach(model.waiting) { request in
-                    HStack(spacing: 10) {
-                        TwoLines(title: request.login.site, detail: PhoneCopy.waitingDetail(request.agent))
-                        Button(PhoneCopy.show) { model.shownRequestID = request.id }
-                            .buttonStyle(RowButtonStyle(fill: Phone.ink, text: Phone.surface))
-                    }
-                    .phoneRow()
-                }
-            } header: { SectionTitle(PhoneCopy.waitingForYou) }
-
             if !model.inUse.isEmpty {
                 Section {
                     ForEach(model.inUse) { request in
@@ -205,34 +147,67 @@ struct PhoneActivityView: View {
                     }
                 } header: { SectionTitle(PhoneCopy.inUse) }
             }
-
-            ForEach(days, id: \.title) { day in
+            if !earlier.isEmpty {
                 Section {
-                    ForEach(day.entries) { entry in
+                    ForEach(earlier) { request in
                         HStack(spacing: 10) {
-                            TwoLines(title: entry.title, detail: entry.detail)
-                            OutcomeMark(state: entry.state)
+                            TwoLines(title: request.login.site, detail: PhoneCopy.historyDetail(request))
+                            OutcomeMark(state: request.state)
                         }
                         .phoneRow()
                     }
-                } header: { SectionTitle(day.title) }
+                } header: { SectionTitle(PhoneCopy.earlierToday) }
             }
+        }
+        .sheet(isPresented: $settingsShown) { PhoneSettingsView(model: model) }
     }
 
-    /// A finished request or rule change, as one line of history.
-    private struct Entry: Identifiable {
-        let id: String
-        let title: String
-        let detail: String
-        let state: AccessRequestState
-        let at: Date
+    /// Ready, or the one line that says what is wrong; Send Practice Request either way.
+    private var status: some View {
+        let problem = model.snapshot.notices.first { $0 != .addAppleWatch }
+        let computers = model.snapshot.devices.filter { $0.role == .asks }.map(\.name)
+        let mac = model.snapshot.devices.contains { $0.role == .approves && $0.detail == PhoneCopy.answersWithTouchID }
+        let watch = model.snapshot.devices.contains { $0.role == .approves && $0.detail == PhoneCopy.answersWithTap }
+        return Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Circle().fill(problem == nil ? Phone.approve : Phone.noAnswer).frame(width: 9, height: 9)
+                    Text(problem == nil ? PhoneCopy.homeReady : PhoneCopy.notice(problem!)).font(.body.weight(.semibold)).foregroundStyle(Phone.ink)
+                }
+                if problem == nil {
+                    Text(PhoneCopy.homeReadyDetail(computers: computers, watch: watch, mac: mac)).font(.subheadline).foregroundStyle(Phone.ink2)
+                }
+                Button(PhoneCopy.sendPractice) { Task { await model.sendPractice() } }
+                    .buttonStyle(RowButtonStyle(fill: Phone.fill, text: Phone.ink))
+                    .padding(.top, 2)
+            }
+            .padding(.vertical, 6)
+            .phoneRow()
+        }
     }
 
-    private var days: [(title: String, entries: [Entry])] {
-        let entries = model.finished.map { Entry(id: $0.id, title: $0.login.site, detail: PhoneCopy.historyDetail($0), state: $0.state, at: $0.askedAt) }
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: entries) { calendar.startOfDay(for: $0.at) }
-        return grouped.keys.sorted(by: >).map { (PhoneCopy.day($0), grouped[$0]!.sorted { $0.at > $1.at }) }
+    /// The request in place: who, the site, the reason, then Deny… (the reply box) and Approve.
+    private func waitingCard(_ request: AccessRequest) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(PhoneCopy.homeDetail(request.agent)).font(.footnote).foregroundStyle(Phone.ink2).lineLimit(1)
+            Text(request.login.site).font(.title3.bold()).foregroundStyle(Phone.ink).lineLimit(1).minimumScaleFactor(0.6)
+            if !request.agentReason.isEmpty {
+                Text(PhoneCopy.quoted(request.agentReason)).font(.subheadline).foregroundStyle(Phone.ink).lineLimit(3)
+            }
+            HStack(spacing: 8) {
+                Button(PhoneCopy.denyEllipsis) { model.shownRequestID = request.id }
+                    .buttonStyle(PillButtonStyle(fill: Phone.fill, text: Phone.deny, height: 40))
+                Button(PhoneCopy.approve) { Task { await model.approve(request.id) } }
+                    .buttonStyle(PillButtonStyle(fill: Phone.approve, height: 40))
+            }
+            .disabled(model.answering != nil)
+            .padding(.top, 6)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var earlier: [AccessRequest] {
+        model.finished.filter { Calendar.current.isDateInToday($0.askedAt) }
     }
 }
 
@@ -286,6 +261,18 @@ struct PhoneLoginsView: View {
     var body: some View {
         PhoneList(title: PhoneCopy.passwords) {
             Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(PhoneCopy.passwordsCount(model.snapshot.logins.count)).font(.subheadline).foregroundStyle(Phone.ink)
+                    VStack(alignment: .leading, spacing: 2) {
+                        meaning(PhoneCopy.rule(.ask), PhoneCopy.askMeans)
+                        meaning(PhoneCopy.rule(.automatic), PhoneCopy.automaticMeans)
+                        meaning(PhoneCopy.rule(.blocked), PhoneCopy.blockedMeans)
+                    }
+                }
+                .padding(.vertical, 6)
+                .phoneRow()
+            }
+            Section {
                 ForEach(shown) { login in
                     HStack(spacing: 10) {
                         TwoLines(title: login.site, detail: login.account)
@@ -307,6 +294,10 @@ struct PhoneLoginsView: View {
             }
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: PhoneCopy.search)
+    }
+
+    private func meaning(_ rule: String, _ means: String) -> some View {
+        (Text(rule + ": ").fontWeight(.semibold) + Text(means)).font(.footnote).foregroundStyle(Phone.ink)
     }
 
     private var shown: [PhoneLogin] {
@@ -349,7 +340,12 @@ struct PhoneDevicesView: View {
                 ForEach(rows) { device in
                     HStack(spacing: 10) {
                         TwoLines(title: device.isThisIPhone ? PhoneCopy.thisIPhone : device.name, detail: device.detail)
-                        if !device.isThisIPhone {
+                        if device.canPractice {
+                            Button(PhoneCopy.practiceShort) { Task { await model.sendPractice(to: device.id) } }
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(Phone.accent)
+                                .buttonStyle(.borderless)
+                        }
+                        if device.canRemove && !device.isThisIPhone {
                             Button(PhoneCopy.remove) { removing = device }
                                 .font(.subheadline.weight(.semibold)).foregroundStyle(Phone.deny)
                                 .buttonStyle(.borderless)

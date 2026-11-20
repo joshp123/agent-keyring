@@ -16,6 +16,9 @@ import LocalAuthentication
 import OSLog
 import Security
 import UserNotifications
+#if canImport(UIKit)
+import UIKit
+#endif
 
 typealias Work = Agentkeyring_V2_Work
 typealias Lease = Agentkeyring_V2_Lease
@@ -30,8 +33,9 @@ struct PhoneSavedState: Codable {
     var answered: [String: Bool] = [:]
     /// This iPhone's Device.key_id, once joined; the extension needs it to open a notice.
     var deviceKeyID: String?
-    /// Where first run stands once joined; nil reads as its first step after joining.
-    var firstRun: PhoneFirstRun?
+    /// Where first run stands once joined; nil reads as its first step after joining. A step an
+    /// earlier build saved that this build no longer has also reads as nil, never as a broken state.
+    @Lenient var firstRun: PhoneFirstRun?
     /// A push reached this iPhone since it joined.
     var pushSeen = false
     /// What the Watch found when it tested itself, as its app sent it (a property list).
@@ -43,8 +47,29 @@ struct PhoneSavedState: Codable {
     var settings: NotificationSettings?
     /// He closed the "Add Apple Watch" card.
     var watchCardDismissed: Bool?
-    /// Apple Watch's practice request has ended, however it ended: it is not sent again.
+    /// Apple Watch's practice request has been sent: it is not sent again.
     var watchPracticed: Bool?
+}
+
+/// A saved value that reads as nil when its form has changed, so the rest of the saved state still reads.
+@propertyWrapper
+struct Lenient<Value: Codable>: Codable {
+    var wrappedValue: Value?
+    init(wrappedValue: Value?) { self.wrappedValue = wrappedValue }
+    init(from decoder: Decoder) throws { wrappedValue = try? Value(from: decoder) }
+    func encode(to encoder: Encoder) throws { try wrappedValue.encode(to: encoder) }
+}
+
+extension KeyedDecodingContainer {
+    func decode<Value>(_ type: Lenient<Value>.Type, forKey key: Key) throws -> Lenient<Value> {
+        try decodeIfPresent(type, forKey: key) ?? Lenient(wrappedValue: nil)
+    }
+}
+
+extension KeyedEncodingContainer {
+    mutating func encode<Value>(_ value: Lenient<Value>, forKey key: Key) throws {
+        try encodeIfPresent(value.wrappedValue, forKey: key)
+    }
 }
 
 /// What the notification service extension needs to name a request: this
@@ -138,15 +163,14 @@ public final class PhoneRelayBackend: PhoneBackend {
                            : .ask)
         }
         let mine = state.deviceKeyID
-        // "Face ID · Ready" once the device's latest self-test passed; Apple Watch's comes in this iPhone's report.
-        func detail(_ how: String?, ready: Bool) -> String? { ready ? [how, PhoneCopy.ready].compactMap { $0 }.joined(separator: " · ") : how }
+        let macLabels = Set(members.devices.filter { $0.kind == .mac }.map(\.label))
         let devices = members.devices.map { device in
-            PhoneDevice(id: device.keyID, name: device.label, detail: detail(Self.howItApproves(device.kind), ready: readyDevices.contains(device.keyID)),
-                        role: .approves, isThisIPhone: device.keyID == mine)
+            PhoneDevice(id: device.keyID, name: device.label, detail: Self.howItApproves(device.kind), role: .approves,
+                        isThisIPhone: device.keyID == mine, canPractice: device.keyID != mine, canRemove: device.keyID != mine)
         } + members.machines.map { machine in
-            // The computer that stays on passes requests to the iPhone and Apple Watch.
+            // The computer that stays on passes requests to this iPhone. A Mac is removed from its row above, both at once.
             let passes = machine.machineID == members.relayMachineID ? PhoneCopy.passesRequests : nil
-            return PhoneDevice(id: machine.machineID, name: machine.label, detail: detail(passes, ready: readyDevices.contains(machine.machineID)), role: .asks)
+            return PhoneDevice(id: machine.machineID, name: machine.label, detail: passes, role: .asks, canRemove: !macLabels.contains(machine.label))
         }
         let pendingWatch = state.watchDevice.flatMap { try? Agentkeyring_V2_Device(serializedBytes: $0) }
         var snapshot = PhoneSnapshot(firstRun: firstRun, requests: requests, logins: logins, devices: devices)
@@ -154,6 +178,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         snapshot.practiceRequest = practiceOpen
         snapshot.relayName = members.machines.first { $0.machineID == members.relayMachineID }?.label
         snapshot.watchPaired = watchPaired
+        snapshot.watchToAdd = watchPaired && !members.devices.contains { $0.kind == .watch }
         snapshot.notices = notices(members: members, pendingWatch: pendingWatch)
         snapshot.settings = phoneSettings
         snapshot.deviceRequest = pendingWatch.map { PhoneDeviceRequest(id: $0.keyID, name: $0.label, detail: PhoneCopy.pairedWithThisIPhone) }
@@ -168,6 +193,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     private func apply(_ event: PhoneFirstRun.Event) {
         let next = firstRun.on(event)
         guard next != firstRun else { return }
+        PhoneDiagnostics.log.note("firstrun", "moved", ["from": "\(firstRun)", "to": "\(next)", "by": "\(event)"])
         firstRun = next
         if state.deviceKeyID != nil {
             var saved = state
@@ -205,9 +231,6 @@ public final class PhoneRelayBackend: PhoneBackend {
         var notices: [PhoneNotice] = []
         if connectionFailed != nil { notices.append(.relayOffline(members.machines.first { $0.machineID == members.relayMachineID }?.label)) }
         else if !pushRegistered && !state.pushSeen { notices.append(.stillConnecting) }
-        if watchPaired, pendingWatch == nil, !members.devices.contains(where: { $0.kind == .watch }), state.watchCardDismissed != true {
-            notices.append(.addAppleWatch)
-        }
         return notices
     }
 
@@ -256,8 +279,14 @@ public final class PhoneRelayBackend: PhoneBackend {
     private var connectionFailed: Error? { didSet { publish() } }
 
     private func accessRequest(_ work: Work, _ members: Members, _ catalogue: Catalogue?) -> AccessRequest? {
-        guard let request = try? Sealing.parseRequest(work.request),
-              let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { return nil }
+        guard let request = try? Sealing.parseRequest(work.request) else { return nil }
+        // A practice request sent from Home or Devices: answered like any other, with the practice words.
+        if isPracticeWork(work) {
+            var practice = Self.practiceRequest(request)
+            practice.state = work.hasOutcome ? Self.state(work.outcome, now: Int64(Date().timeIntervalSince1970), members: members) : practice.state
+            return practice
+        }
+        guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { return nil }
         let login = catalogue?.logins.first { $0.loginID == request.loginID }
         let state: AccessRequestState
         let now = Int64(Date().timeIntervalSince1970)
@@ -315,9 +344,9 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     static func howItApproves(_ kind: Agentkeyring_V2_DeviceKind) -> String? {
         switch kind {
-        case .iphone: PhoneCopy.faceID
-        case .watch: "One tap"
-        case .mac: "Touch ID"
+        case .iphone: PhoneCopy.answersWithFaceID
+        case .watch: PhoneCopy.answersWithTap
+        case .mac: PhoneCopy.answersWithTouchID
         default: nil
         }
     }
@@ -386,7 +415,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         save(next)
         // The practice request reaches first run here too, so its end is seen even if its own stream was lost.
         if isPracticeWork(work) {
-            if work.hasOutcome { practiceOutcome = Self.latched(practiceOutcome, work.outcome.state); apply(.practiceEnded) }
+            if work.hasOutcome { practiceOutcome = Self.latched(practiceOutcome, work.outcome.state); apply(.practiceEnded(Self.outcome(work.outcome.state))) }
             else { apply(.practiceArrived(pushExpected: notificationsAllowed && pushRegistered)) }
             return
         }
@@ -417,7 +446,6 @@ public final class PhoneRelayBackend: PhoneBackend {
             try accept(members: signed)
         }
         if case let .signed(signed) = try await relay.call(Self.method { $0.catalogue = .init() }).result { try accept(catalogue: signed) }
-        if case let .selfTests(tests) = try? await relay.call(Self.method { $0.selfTests = .init() }).result { noteSelfTests(tests) }
     }
 
     func accept(members signed: SignedDocument) throws {
@@ -651,24 +679,6 @@ public final class PhoneRelayBackend: PhoneBackend {
 
 
 
-    /// Device key ids and machine ids whose latest self-test passed every check that matters.
-    private var readyDevices: Set<String> = [] { didSet { publish() } }
-
-    private func noteSelfTests(_ tests: Agentkeyring_V2_SelfTests) {
-        guard let members else { return }
-        var ready: Set<String> = []
-        for signed in tests.reports {
-            guard (try? Sealing.verify(signed, members: members, allowReplyKey: true)) != nil,
-                  let report = try? Agentkeyring_V2_SelfTestReport(serializedBytes: signed.payload) else { continue }
-            // Being off the wrist at the moment of the test is not a fault.
-            let mine = report.checks.filter { !$0.name.hasPrefix("watch ") }
-            if !mine.isEmpty, mine.allSatisfy(\.passed) { ready.insert(report.deviceKeyID) }
-            let watch = report.checks.filter { $0.name.hasPrefix("watch ") && $0.name != "watch onWristAndUnlocked" }
-            if !watch.isEmpty, watch.allSatisfy(\.passed), let id = members.devices.first(where: { $0.kind == .watch })?.keyID { ready.insert(id) }
-        }
-        readyDevices = ready
-    }
-
     /// Removes a device or machine: the next Members, signed after Face ID.
     public func remove(device deviceID: String) async throws {
         guard var next = members else { return }
@@ -830,6 +840,14 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// How the last practice request ended, for the self-test report.
     private var practiceOutcome: Agentkeyring_V2_LeaseState?
 
+    nonisolated static func outcome(_ state: Agentkeyring_V2_LeaseState) -> PhonePracticeOutcome {
+        switch state {
+        case .approved, .ended: .approved
+        case .denied: .denied
+        default: .noAnswer
+        }
+    }
+
     /// An approved practice stays approved: a minute later its approval ends, which is not a failure.
     nonisolated static func latched(_ old: Agentkeyring_V2_LeaseState?, _ new: Agentkeyring_V2_LeaseState) -> Agentkeyring_V2_LeaseState {
         old == .approved ? .approved : new
@@ -868,7 +886,7 @@ public final class PhoneRelayBackend: PhoneBackend {
                 for try await response in try self.relay().stream(Self.method { $0.testRequest = .init() }) {
                     guard case let .lease(lease) = response.result, lease.state != .waiting else { continue }
                     self.practiceOutcome = Self.latched(self.practiceOutcome, lease.state)
-                    self.apply(.practiceEnded)
+                    self.apply(.practiceEnded(Self.outcome(lease.state)))
                     await self.reportSelfTest()
                 }
             } catch { PhoneDiagnostics.note("Practice request failed: \(error)") }
@@ -882,6 +900,7 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// A tap on a notification: the practice request opens over first run.
     public func notificationOpened(_ requestID: String) {
+        PhoneDiagnostics.log.note("notification", "opened", ["request": requestID])
         if isPractice(requestID) { return apply(.practiceTapped) }
         // Opened from the Lock Screen while the app was away: its stream has not sent the request yet, so ask for it.
         guard state.work[requestID] == nil, state.endpoint != nil else { return }
@@ -975,10 +994,9 @@ public final class PhoneRelayBackend: PhoneBackend {
         askForWatchPractice()
     }
 
-    private var watchPracticeTask: Task<Void, Never>?
-
     /// Apple Watch's own practice request (Paper, "First run", Apple Watch row), once it is
     /// added and its self-test says a push can reach it. The relay sends it to the Watch only.
+    /// Apple Watch's own practice request once it is added and its self-test says a push can reach it, sent once.
     private func askForWatchPractice() {
         guard state.watchPracticed != true, watchPracticeTask == nil,
               let watch = members?.devices.first(where: { $0.kind == .watch }),
@@ -987,17 +1005,36 @@ public final class PhoneRelayBackend: PhoneBackend {
               test["notificationsAllowed"] as? Bool == true, test["pushAddress"] as? Bool == true else { return }
         watchPracticeTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                for try await response in try self.relay().stream(Self.method { $0.testRequest.forDeviceKeyID = watch.keyID }) {
-                    guard case let .lease(lease) = response.result, lease.state != .waiting else { continue }
-                    PhoneDiagnostics.note("Apple Watch's practice request ended: \(lease.state)")
-                    var done = self.state
-                    done.watchPracticed = true
-                    self.save(done)
-                }
-            } catch { PhoneDiagnostics.note("Apple Watch's practice request failed: \(error)") }
+            if await self.askRelayForPractice(for: watch.keyID) {
+                var done = self.state
+                done.watchPracticed = true
+                self.save(done)
+            }
             self.watchPracticeTask = nil
         }
+    }
+
+    private var watchPracticeTask: Task<Void, Never>?
+
+    /// Practice on Home (this iPhone) or on a row in Devices (another device).
+    public func sendPractice(to deviceID: String?) async {
+        guard let deviceID, deviceID != state.deviceKeyID else { return askForPractice() }
+        _ = await askRelayForPractice(for: deviceID)
+    }
+
+    /// Asks the relay to make a practice request for another device. True once the relay has made and pushed it:
+    /// that is all the iPhone waits for, with time asked of iOS so that leaving the app at once does not cut it short.
+    private func askRelayForPractice(for deviceID: String) async -> Bool {
+        let background = PhoneBackgroundTime.begin("A practice request")
+        defer { PhoneBackgroundTime.end(background) }
+        do {
+            for try await response in try relay().stream(Self.method { $0.testRequest.forDeviceKeyID = deviceID }) {
+                guard case .lease = response.result else { continue }
+                PhoneDiagnostics.log.note("practice", "sent", ["device": String(deviceID.prefix(16))])
+                return true
+            }
+        } catch { PhoneDiagnostics.log.note("practice", "not sent", ["device": String(deviceID.prefix(16)), "error": "\(error)"]) }
+        return false
     }
 
     /// Where the Watch posts its answers: the relay's own address, over HTTPS.
@@ -1069,6 +1106,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         try accept(members: signed)
         _ = try await relay.call(Self.method { $0.publishSealedLogins = forWatch })
         PhoneDiagnostics.note("Watch added: \(forWatch.logins.count) logins sealed to it")
+        apply(.watchDone)
         var done = state
         done.watchDevice = nil
         save(done)
@@ -1175,10 +1213,22 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 }
 
+/// Time asked of iOS to finish one call after the app leaves the screen.
+enum PhoneBackgroundTime {
+    #if canImport(UIKit)
+    @MainActor static func begin(_ name: String) -> UIBackgroundTaskIdentifier { UIApplication.shared.beginBackgroundTask(withName: name) }
+    @MainActor static func end(_ task: UIBackgroundTaskIdentifier) { if task != .invalid { UIApplication.shared.endBackgroundTask(task) } }
+    #else
+    static func begin(_ name: String) -> Int { 0 }
+    static func end(_ task: Int) {}
+    #endif
+}
+
 /// The notifications this app has shown for a request.
 public enum PhoneNotifications {
     /// Removes a request's notification once it is answered or has ended, so none is left behind.
     public static func remove(_ requestID: String) {
+        PhoneDiagnostics.log.note("notification", "removed", ["request": requestID])
         #if os(iOS)
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [requestID])

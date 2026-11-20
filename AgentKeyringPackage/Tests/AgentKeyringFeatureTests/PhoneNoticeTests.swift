@@ -70,6 +70,23 @@ struct PhoneNoticeTests {
     }
 }
 
+/// His iPhone holds state saved by the build before this one; a first-run step that build had and this one has not
+/// must read as nil, never wipe the rest (the join, the lists, the settings).
+@Test("Saved state from an earlier build with a step this build dropped still reads")
+func earlierBuildsFirstRunStillReads() throws {
+    var saved = PhoneSavedState()
+    saved.deviceKeyID = "phone"
+    saved.firstRun = .finished
+    var plist = try PropertyListSerialization.propertyList(from: PropertyListEncoder().encode(saved), format: nil) as! [String: Any]
+    #expect(try PropertyListDecoder().decode(PhoneSavedState.self, from: PropertyListEncoder().encode(saved)).firstRun == .finished)
+    plist["firstRun"] = ["ready": [String: Any]()]
+    let old = try PropertyListDecoder().decode(PhoneSavedState.self, from: PropertyListSerialization.data(fromPropertyList: plist, format: .binary, options: 0))
+    #expect(old.deviceKeyID == "phone")
+    #expect(old.firstRun == nil)
+    saved.firstRun = nil
+    #expect(try PropertyListDecoder().decode(PhoneSavedState.self, from: PropertyListEncoder().encode(saved)).firstRun == nil)
+}
+
 /// Keys that are never reached: an answered request needs none.
 @MainActor struct NoKeys: PhoneDeviceKeys {
     struct Unused: Error {}

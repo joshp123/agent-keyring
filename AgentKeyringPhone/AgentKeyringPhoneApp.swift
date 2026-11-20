@@ -23,6 +23,7 @@ struct AgentKeyringPhoneApp: App {
                     // In front: follow the relay, or until joined keep looking for the Mac's invitation.
                     if phase == .active {
                         delegate.relay?.start()
+                        PhoneDiagnostics.log.collect()
                         Task { await delegate.model.recheckNotifications() }
                     } else if phase == .background { delegate.relay?.stop() }
                 }

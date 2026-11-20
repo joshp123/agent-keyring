@@ -89,6 +89,9 @@ final class WatchLink: NSObject, WCSessionDelegate {
     /// The Watch's keys and its self-test, as Data, so they can cross to the main actor.
     nonisolated private static func plain(_ payload: [String: Any]) -> [String: Data] {
         var result = payload.compactMapValues { $0 as? Data }
+        if let lines = payload["log"] as? [String] {
+            result["log"] = try? PropertyListSerialization.data(fromPropertyList: lines, format: .binary, options: 0)
+        }
         if let test = payload["watchSelfTest"] as? [String: Any] {
             result["watchSelfTest"] = try? PropertyListSerialization.data(fromPropertyList: test, format: .binary, options: 0)
         }
@@ -100,6 +103,10 @@ final class WatchLink: NSObject, WCSessionDelegate {
             relay.watchOffered(device: payload["watchDevice"], push: payload["watchPush"])
         }
         if let test = payload["watchSelfTest"] { relay.watchTested(test) }
+        // Apple Watch's recent log lines, kept beside the iPhone's own.
+        if let data = payload["log"], let lines = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] {
+            PhoneDiagnostics.log.merge(lines)
+        }
     }
 
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {

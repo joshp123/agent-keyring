@@ -13,28 +13,41 @@ struct PhoneFirstRunTests {
         events.reduce(start) { $0.on($1) }
     }
 
-    @Test("Opening the app, being approved on the Mac, allowing notifications and approving the practice ends on Ready")
+    @Test("The board's path: approved on the Mac, notifications on, a practice he sends himself, its result, then Apple Watch")
     func theBoardsPath() {
-        let end = run(.start, .noMac(longWait: false), .joinWaiting(mac: nil), .joined, .continueTapped,
-                      .notificationsAnswered(allowed: true), .practiceArrived(pushExpected: true), .practiceTapped, .practiceEnded)
-        #expect(end == .ready)
-        #expect(end.on(.done) == .finished)
+        let result = run(.start, .noMac(longWait: false), .joinWaiting(mac: nil), .joined, .continueTapped,
+                         .notificationsAnswered(allowed: true), .sendPractice, .practiceArrived(pushExpected: true), .practiceTapped,
+                         .practiceEnded(.approved))
+        #expect(result == .practiceResult(.approved))
+        #expect(result.on(.continueAfterPractice(watchToAdd: true)) == .addWatch)
+        #expect(result.on(.continueAfterPractice(watchToAdd: true)).on(.watchDone) == .finished)
+        #expect(result.on(.continueAfterPractice(watchToAdd: false)) == .finished)
+    }
+
+    /// Josh, 20 Nov: "the first example popup immediately disappears when you click approve on iphone ... app immediately jumps screen".
+    @Test("The practice's result stays on screen until he goes on, and Send Another sends a new one")
+    func resultStays() {
+        let result = PhoneFirstRun.practiceResult(.denied)
+        #expect(run(result, .practiceArrived(pushExpected: true), .practiceTimedOut(pushAddress: true), .noMac(longWait: true)) == result)
+        #expect(result.on(.sendPractice) == .practiceWaiting(arrived: false))
+        #expect(PhoneFirstRun.practiceOffer.on(.practiceArrived(pushExpected: false)) == .practiceOffer)
     }
 
     /// Before: the practice's end was read only from its own stream. If that was lost while the
     /// app was away (he answered from the Lock Screen), first run stayed on a screen with no button.
     @Test("A practice answered while its own stream was lost still ends first run, from the work stream")
     func practiceEndSeenOnTheWorkStream() {
-        #expect(run(.practiceWaiting(arrived: true), .practiceEnded) == .ready)
-        #expect(run(.practiceWaiting(arrived: false), .practiceEnded) == .ready)
+        #expect(run(.practiceWaiting(arrived: true), .practiceEnded(.approved)) == .practiceResult(.approved))
+        #expect(run(.practiceWaiting(arrived: false), .practiceEnded(.noAnswer)) == .practiceResult(.noAnswer))
     }
 
-    @Test("After a relaunch mid-practice, first run asks for a practice request again")
+    @Test("After a relaunch mid-practice, first run offers the practice request again")
     func relaunchMidPractice() {
-        for stage in [PhoneFirstRun.practice, .practiceWaiting(arrived: true), .settingUpNotifications, .practiceNotArrived] {
-            #expect(stage.restored == .practiceWaiting(arrived: false))
-            #expect(stage.restored.wantsPractice)
+        for stage in [PhoneFirstRun.practice, .practiceWaiting(arrived: true), .settingUpNotifications, .practiceNotArrived, .practiceResult(.approved)] {
+            #expect(stage.restored == .practiceOffer)
+            #expect(!stage.restored.wantsPractice)
         }
+        #expect(PhoneFirstRun.addWatch.restored == .addWatch)
         #expect(PhoneFirstRun.askingNotifications.restored == .notifications)
         #expect(PhoneFirstRun.welcome(.approveOnMac(mac: nil), practising: true).restored == .start)
         #expect(PhoneFirstRun.finished.restored == .finished)
@@ -67,17 +80,18 @@ struct PhoneFirstRunTests {
         #expect(run(.notifications, .continueTapped, .continueTapped) == .askingNotifications)
         // The app reads iOS's answer again when it comes back to the front; the dialog also returns it.
         #expect(run(.askingNotifications, .notificationsAnswered(allowed: true), .notificationsAnswered(allowed: true))
-                == .practiceWaiting(arrived: false))
+                == .practiceOffer)
         #expect(run(.finished, .notificationsAnswered(allowed: false)) == .finished)
-        #expect(run(.practice, .done) == .practice)
-        #expect(run(.notifications, .practiceEnded) == .notifications)
+        #expect(run(.practice, .watchDone) == .practice)
+        #expect(run(.notifications, .practiceEnded(.approved)) == .notifications)
+        #expect(run(.finished, .sendPractice) == .finished)
     }
 
     @Test("Notifications turned on in Settings, or Continue Without, both go on to the practice request")
     func notificationsOff() {
         #expect(run(.askingNotifications, .notificationsAnswered(allowed: false)) == .notificationsOff)
-        #expect(run(.notificationsOff, .notificationsAnswered(allowed: true)) == .practiceWaiting(arrived: false))
-        #expect(run(.notificationsOff, .continueWithoutNotifications, .practiceArrived(pushExpected: false)) == .practice)
+        #expect(run(.notificationsOff, .notificationsAnswered(allowed: true)) == .practiceOffer)
+        #expect(run(.notificationsOff, .continueWithoutNotifications, .sendPractice, .practiceArrived(pushExpected: false)) == .practice)
     }
 
     @Test("The practice before joining opens over the first screen and closes back to it")

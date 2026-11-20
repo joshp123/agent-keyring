@@ -15,6 +15,9 @@ import LocalAuthentication
 import UserNotifications
 import WatchConnectivity
 
+/// The Watch app's lines, or its notification extension's, in the ring they share.
+let watchLog = DeviceLog(device: "watch")
+
 final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
     static let shared = WatchLink()
 
@@ -62,7 +65,9 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         let session = WCSession.default
         guard session.activationState == .activated else { return }
         let keys = WatchKeys()
-        var payload: [String: Any] = ["watchSelfTest": await selfTest(keys)]
+        // The Watch's recent log lines ride along; the iPhone keeps them in its own ring.
+        watchLog.collect()
+        var payload: [String: Any] = ["watchSelfTest": await selfTest(keys), "log": watchLog.lines(last: 200)]
         do {
             payload["watchDevice"] = try keys.device().serializedData()
             if let token = pushToken {
@@ -83,6 +88,7 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
 
     /// A problem the person sees as one plain line; the detail goes to the iPhone, which reports it.
     func report(problem: String) {
+        watchLog.note("app", "problem", ["msg": problem])
         lastProblem = problem
         log.error("\(problem, privacy: .public)")
         Task { await sendHandOver() }
@@ -128,6 +134,9 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
 
     /// Where setup stands, worked out again from what the Watch can read about itself.
     func refreshSetup() async {
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "SampleSetup") != nil { return }
+        #endif
         let saved = WatchStore().read()
         var error: NSError?
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus

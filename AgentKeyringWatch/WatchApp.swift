@@ -41,6 +41,13 @@ final class WatchModel {
 
     var inUse: [WatchInUse] = WatchStore().read().currentInUse
     var setup: WatchSetup = {
+        #if DEBUG
+        // For comparing screens with Paper in the simulator: -SampleSetup notifications.
+        let samples: [String: WatchSetup] = ["no-passcode": .noPasscode, "set-up-iphone": .setUpIPhone, "approve-on-iphone": .approveOnIPhone,
+                                             "notifications": .notifications, "notifications-off": .notificationsOff,
+                                             "setting-up": .settingUpNotifications, "ready": .ready]
+        if let name = UserDefaults.standard.string(forKey: "SampleSetup"), let sample = samples[name] { return sample }
+        #endif
         let saved = WatchStore().read()
         return saved.lists((try? WatchKeys().keyID()) ?? "") ? .ready : saved.signedMembers != nil ? .approveOnIPhone : .setUpIPhone
     }()
@@ -53,6 +60,12 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         center.setNotificationCategories([WatchDelegate.requestCategory])
         WatchLink.shared.activate()
         WKApplication.shared().registerForRemoteNotifications()
+        #if DEBUG
+        // For looking at the request card in the simulator: -AskNotifications YES.
+        if UserDefaults.standard.bool(forKey: "AskNotifications") {
+            Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+        }
+        #endif
     }
 
     func applicationDidBecomeActive() {
@@ -62,14 +75,9 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         }
     }
 
-    /// Approve, Deny and Deny and Explain, all Apple's own buttons under the request, so they are one kind.
-    /// Approve needs the Watch unlocked on the wrist; Deny and Deny and Explain are marked destructive.
-    static let requestCategory = UNNotificationCategory(identifier: WatchWords.requestCategory, actions: [
-        UNNotificationAction(identifier: WatchWords.approve, title: "Approve", options: [.authenticationRequired]),
-        UNNotificationAction(identifier: WatchWords.deny, title: "Deny", options: [.destructive]),
-        UNTextInputNotificationAction(identifier: WatchWords.denyAndExplain, title: "Deny and Explain", options: [.destructive],
-                                      textInputButtonTitle: "Done", textInputPlaceholder: "What should it do instead?"),
-    ], intentIdentifiers: [])
+    /// No notification actions of Apple's: Approve, Deny and Deny and Explain are our own three buttons in the
+    /// request's card, one kind, and with no action of Apple's there is nothing for a Double Tap to choose.
+    static let requestCategory = UNNotificationCategory(identifier: WatchWords.requestCategory, actions: [], intentIdentifiers: [])
 
     func didRegisterForRemoteNotifications(withDeviceToken deviceToken: Data) {
         WatchLink.shared.pushToken = deviceToken
@@ -79,6 +87,7 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
     /// A silent push: a request was answered or ended. Its notification goes, and "In use" follows its outcome.
     func didReceiveRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> WKBackgroundFetchResult {
         guard (userInfo["aps"] as? [String: Any])?["alert"] == nil, let id = userInfo["id"] as? String else { return .noData }
+        watchLog.note("notification", "removed", ["request": id, "by": "silent push"])
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [id])
         let same = await center.deliveredNotifications().filter { $0.request.content.threadIdentifier == id }.map(\.request.identifier)
@@ -110,22 +119,9 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         }
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
-                                            withCompletionHandler completionHandler: @escaping () -> Void) {
-        let action = response.actionIdentifier
-        guard [WatchWords.approve, WatchWords.deny, WatchWords.denyAndExplain].contains(action),
-              let request = try? WatchRequest.from(userInfo: response.notification.request.content.userInfo,
-                                                   keys: WatchKeys(), saved: WatchStore().read()) else { completionHandler(); return }
-        let words = (response as? UNTextInputNotificationResponse)?.userText ?? ""
-        let done = UncheckedHandler(completionHandler)
-        Task {
-            await WatchDelegate.answer(request, approve: action == WatchWords.approve, words: words)
-            done.call()
-        }
-    }
-
-    /// Sends the answer; if it does not reach the relay, one notification says so.
-    static func answer(_ request: WatchRequest, approve: Bool, words: String) async {
+    /// Sends the answer from the request's card. True once the relay has it.
+    static func answer(_ request: WatchRequest, approve: Bool, words: String) async -> Bool {
+        watchLog.note("answer", "started", ["request": request.id, "choice": approve ? "approve" : words.isEmpty ? "deny" : "deny-with-words"])
         do {
             if approve {
                 let lease = try await WatchAnswers().approve(request)
@@ -138,12 +134,11 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
             } else {
                 _ = try await WatchAnswers().deny(request, words: words)
             }
+            watchLog.note("answer", "sent", ["request": request.id])
+            return true
         } catch {
             WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") did not reach the relay: \(error)")
-            let content = UNMutableNotificationContent()
-            content.title = request.site
-            content.body = approve ? "Not approved. Try on your iPhone." : "Not sent. Try on your iPhone."
-            try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "failed-" + request.id, content: content, trigger: nil))
+            return false
         }
     }
 
@@ -153,17 +148,17 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
     }
 }
 
-/// Apple Watch's words on its own screen (Paper, "First run", Apple Watch row).
+/// Apple Watch's words on its own screen (Paper, "First run and the app", board "iPhone and Apple Watch").
 enum WatchCopy {
     static func line(_ setup: WatchSetup) -> (title: String, detail: String) {
         switch setup {
         case .noPasscode: ("Set a passcode", "To approve from your wrist, set one in the Apple Watch app on your iPhone.")
-        case .setUpIPhone: ("Set up your iPhone first", "Then this Apple Watch can approve your AI agents’ password requests with a tap.")
-        case .approveOnIPhone: ("Approve on your iPhone", "A request to add this Apple Watch is on your iPhone. Approve it with Face ID.")
-        case .notifications: ("Answer on your wrist", "Allow notifications, and requests appear here. Approve or deny with a tap.")
+        case .setUpIPhone: ("Agent Keyring", "Approve your AI agents’ password requests with a tap. Set up Agent Keyring on your iPhone first.")
+        case .approveOnIPhone: ("Approve on your iPhone", "Your iPhone is asking to add this Apple Watch. Approve it there with Face ID.")
+        case .notifications: ("Turn on notifications", "Requests then appear on your wrist. Approve or deny with a tap.")
         case .notificationsOff: ("Notifications are off", "Turn them on in the Apple Watch app on your iPhone, under Notifications.")
         case .settingUpNotifications: ("Setting up notifications", "Apple is connecting this Apple Watch for notifications. This usually takes a few seconds.")
-        case .ready: ("Ready", "When an agent asks for a password, tap Approve or Deny on its notification.")
+        case .ready: ("Ready", "Requests appear here as notifications. Tap Approve or Deny.")
         }
     }
     static let continueButton = "Continue"
@@ -192,11 +187,13 @@ struct WatchHome: View {
     private var status: some View {
         let line = WatchCopy.line(model.setup)
         return ScrollView {
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 if model.setup == .ready {
-                    Image(systemName: "checkmark.circle.fill").font(.system(size: 40)).foregroundStyle(.white, .green)
+                    Circle().fill(Color(red: 0x23 / 255, green: 0xA4 / 255, blue: 0x55 / 255)).frame(width: 54, height: 54)
+                        .overlay(Image(systemName: "checkmark").font(.system(size: 26, weight: .bold)).foregroundStyle(.white))
+                        .padding(.bottom, 6)
                 }
-                Text(line.title).font(.system(size: 20, weight: .semibold))
+                Text(line.title).font(.system(size: 19, weight: .bold))
                 Text(line.detail).font(.system(size: 13)).foregroundStyle(.secondary)
                 if model.setup == .notifications {
                     // watchOS's own question, only once the iPhone has added this Apple Watch.
@@ -209,12 +206,17 @@ struct WatchHome: View {
                             asking = false
                         }
                     }
+                    .font(.system(size: 16, weight: .semibold))
+                    .buttonStyle(.plain)
+                    .frame(width: 170, height: 40)
+                    .background(Color.white.opacity(0.18), in: .capsule)
                     .disabled(asking)
                     .padding(.top, 8)
                 }
             }
             .multilineTextAlignment(.center)
-            .padding(.horizontal)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, minHeight: 170)
         }
     }
 }

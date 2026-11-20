@@ -29,6 +29,10 @@ struct PhoneFirstRunView: View {
                 }
                 PhoneButton(PhoneCopy.continueWithout, secondary: true) { await model.firstRun(.continueWithoutNotifications) }
             }
+        case .practiceOffer:
+            PhoneStep(title: PhoneCopy.practiceOfferTitle, lines: [PhoneCopy.practiceOfferDetail]) {
+                PhoneButton(PhoneCopy.sendPractice) { await model.firstRun(.sendPractice) }
+            }
         case .practiceWaiting, .practice:
             PhoneStep(title: PhoneCopy.practiceCheckTitle, lines: [PhoneCopy.practiceCheckDetail(relay)]) {
                 PhoneWaitingLine(text: PhoneCopy.practiceWaiting)
@@ -39,8 +43,22 @@ struct PhoneFirstRunView: View {
             }
         case .settingUpNotifications:
             PhoneStep(title: PhoneCopy.settingUpTitle, lines: [PhoneCopy.settingUpDetail]) { EmptyView() }
-        case .ready, .finished:
-            PhoneReady(watch: model.snapshot.watchPaired) { await model.firstRun(.done) }
+        case let .practiceResult(outcome):
+            PhoneStep(title: PhoneCopy.practiceResultTitle(outcome), lines: [PhoneCopy.practiceResultDetail(outcome)],
+                      mark: outcome == .approved ? .approved : outcome == .denied ? .denied : nil) {
+                PhoneButton(PhoneCopy.sendAnother, secondary: true) { await model.firstRun(.sendPractice) }
+                PhoneButton(PhoneCopy.continueButton) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watchToAdd)) }
+            }
+        case .addWatch:
+            PhoneStep(title: PhoneCopy.addWatchTitle, lines: [PhoneCopy.addWatchDetail, PhoneCopy.addWatchInstall], icon: "applewatch") {
+                PhoneButton(PhoneCopy.openWatchApp) {
+                    if let url = URL(string: "itms-watchs://") { await UIApplication.shared.open(url) }
+                }
+                Button(PhoneCopy.skip) { Task { await model.firstRun(.watchDone) } }
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(Phone.accent).frame(height: 36)
+            }
+        case .finished:
+            EmptyView()
         }
     }
 
@@ -78,7 +96,7 @@ private struct PhoneWelcome<Bottom: View>: View {
                 VStack(spacing: 16) {
                     KeyholeIcon(size: 64)
                     VStack(spacing: 8) {
-                        Text(PhoneCopy.appName).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
+                        Text(PhoneCopy.welcomeTitle).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
                         Text(PhoneCopy.appLead).font(.body).foregroundStyle(Phone.ink2)
                     }
                     .multilineTextAlignment(.center)
@@ -103,15 +121,28 @@ private struct PhoneWelcome<Bottom: View>: View {
 
 /// One step: the bell in its tile, a title, its sentences, and the buttons at the bottom.
 private struct PhoneStep<Bottom: View>: View {
+    enum Mark { case approved, denied }
     let title: String
     let lines: [String]
+    var icon = "bell"
+    /// In place of the icon: a green tick or a red cross, for the practice's result.
+    var mark: Mark? = nil
     @ViewBuilder let bottom: Bottom
+
+    init(title: String, lines: [String], icon: String = "bell", mark: Mark? = nil, @ViewBuilder bottom: () -> Bottom) {
+        self.title = title; self.lines = lines; self.icon = icon; self.mark = mark; self.bottom = bottom()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 22) {
-                Image(systemName: "bell").font(.system(size: 32)).foregroundStyle(Phone.accent)
-                    .frame(width: 72, height: 72).background(Phone.fill, in: .rect(cornerRadius: 18))
+                if let mark {
+                    Circle().fill(mark == .approved ? Phone.approve : Phone.deny).frame(width: 64, height: 64)
+                        .overlay(Image(systemName: mark == .approved ? "checkmark" : "xmark").font(.system(size: 28, weight: .bold)).foregroundStyle(Phone.onAnswer))
+                } else {
+                    Image(systemName: icon).font(.system(size: 32)).foregroundStyle(Phone.accent)
+                        .frame(width: 72, height: 72).background(Phone.fill, in: .rect(cornerRadius: 18))
+                }
                 VStack(spacing: 14) {
                     Text(title).font(.title.bold()).tracking(-0.6).foregroundStyle(Phone.ink)
                     ForEach(lines, id: \.self) { Text($0).font(.body).foregroundStyle(Phone.ink2) }
@@ -125,45 +156,6 @@ private struct PhoneStep<Bottom: View>: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 30)
         .background(Phone.surface)
-    }
-}
-
-/// Ready: what to expect from now on, and Done.
-private struct PhoneReady: View {
-    let watch: Bool
-    let done: () async -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 32) {
-                VStack(spacing: 16) {
-                    Circle().fill(Phone.approve).frame(width: 64, height: 64)
-                        .overlay(Image(systemName: "checkmark").font(.system(size: 28, weight: .bold)).foregroundStyle(Phone.onAnswer))
-                    Text(PhoneCopy.readyTitle).font(.title.bold()).tracking(-0.6).foregroundStyle(Phone.ink)
-                }
-                VStack(alignment: .leading, spacing: 22) {
-                    row("bell", PhoneCopy.readyNotifications, PhoneCopy.readyNotificationsDetail)
-                    row("clock", PhoneCopy.readyActivity, PhoneCopy.readyActivityDetail)
-                    if watch { row("applewatch", PhoneCopy.readyWatch, PhoneCopy.readyWatchDetail) }
-                }
-            }
-            .frame(maxHeight: .infinity)
-            PhoneButton(PhoneCopy.done) { await done() }
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 30)
-        .background(Phone.surface)
-    }
-
-    private func row(_ symbol: String, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(Phone.accent).frame(width: 32)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.body.weight(.semibold)).foregroundStyle(Phone.ink)
-                Text(detail).font(.subheadline).foregroundStyle(Phone.ink2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }
 

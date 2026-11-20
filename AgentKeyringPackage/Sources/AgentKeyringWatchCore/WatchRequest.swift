@@ -42,6 +42,15 @@ public struct WatchRequest: Sendable, Equatable {
         return try from(work: keys.openNotice(notice, deviceKeyID: keys.keyID()), saved: saved, ownKeyID: keys.keyID())
     }
 
+    #if DEBUG
+    /// Paper's request, for looking at the card in the simulator (a push carrying "akrSample").
+    public static var sample: WatchRequest { WatchRequest(work: Data(), id: "sample", site: "example.com",
+                                            account: UserDefaults.standard.string(forKey: "SampleAccount") ?? "you@example.com", sites: [],
+                                            agent: "Claude Code", wants: "Claude Code on MacBook Pro (M4) wants", project: "agent-keyring",
+                                            reason: "Test 3: APPROVE on Apple Watch.", state: .waiting, who: "Codex on Linux server",
+                                            inUseUntil: nil, isPractice: false) }
+    #endif
+
     /// Where the extension leaves the opened Work for the app's own layout.
     public static let workKey = "akrWork"
 
@@ -52,7 +61,7 @@ public struct WatchRequest: Sendable, Equatable {
         if try isOwnPractice(work, members: members, ownKeyID: ownKeyID) {
             let state: State = work.hasOutcome ? .ended(outcome(work.outcome, members: members, agent: "The practice", minutes: 10)) : .waiting
             return WatchRequest(work: try work.serializedData(), id: request.requestID, site: "example.com", account: "you@example.com",
-                                sites: [], agent: "Agent Keyring", wants: "Practice request: an agent wants", project: nil,
+                                sites: [], agent: "Agent Keyring", wants: "Practice: an agent wants", project: nil,
                                 reason: "You asked me to download October’s invoice.", state: state, who: "Practice", inUseUntil: nil,
                                 isPractice: true)
         }

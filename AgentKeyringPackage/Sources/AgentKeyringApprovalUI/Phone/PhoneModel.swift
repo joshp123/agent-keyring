@@ -39,14 +39,20 @@ public struct PhoneDevice: Identifiable, Hashable, Sendable {
     public var detail: String?
     public var role: Role
     public var isThisIPhone: Bool
+    /// Practice on its row: a device he answers on, other than this iPhone.
+    public var canPractice: Bool
+    /// Remove on its row: not this iPhone, and not a Mac's computer row (its device row removes both).
+    public var canRemove: Bool
 
-    public init(id: String, name: String, detail: String? = nil, role: Role, isThisIPhone: Bool = false) {
+    public init(id: String, name: String, detail: String? = nil, role: Role, isThisIPhone: Bool = false,
+                canPractice: Bool = false, canRemove: Bool = true) {
         self.id = id; self.name = name; self.detail = detail; self.role = role; self.isThisIPhone = isThisIPhone
+        self.canPractice = canPractice; self.canRemove = canRemove
     }
 }
 
 public enum PhoneTab: String, Hashable, Sendable {
-    case activity, logins, devices
+    case home, logins, devices
 }
 
 /// One sentence in Activity when something needs him, or an offer he can dismiss.
@@ -104,6 +110,8 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var relayName: String?
     /// An Apple Watch with the app is paired with this iPhone.
     public var watchPaired = false
+    /// That Apple Watch is not yet in the list of devices.
+    public var watchToAdd = false
     public var notices: [PhoneNotice] = []
     public var settings = PhoneSettings()
     public var deviceRequest: PhoneDeviceRequest?
@@ -135,6 +143,8 @@ public protocol PhoneBackend: AnyObject {
     func join(invitation: String) async throws
     /// A step of first run: a tap, or what iOS answered.
     func firstRun(_ event: PhoneFirstRun.Event) async
+    /// A practice request to this iPhone (nil) or to another device he answers on.
+    func sendPractice(to deviceID: String?) async
     func dismiss(_ notice: PhoneNotice) async
     func setSettings(_ settings: PhoneSettings) async
     /// A new device's request to approve requests: Face ID signs it in.
@@ -146,10 +156,10 @@ public protocol PhoneBackend: AnyObject {
 @Observable
 public final class PhoneModel {
     public private(set) var snapshot: PhoneSnapshot
-    public var tab = PhoneTab.activity
+    public var tab = PhoneTab.home
     /// The request on screen, from a tap on a notification or on Show.
     public var shownRequestID: String? {
-        didSet { if shownRequestID != nil { tab = .activity } }
+        didSet { if shownRequestID != nil { tab = .home } }
     }
     public var replyDraft = ""
     public private(set) var answering: AnswerChoice?
@@ -227,8 +237,10 @@ public final class PhoneModel {
 
     public func firstRun(_ event: PhoneFirstRun.Event) async {
         await backend.firstRun(event)
-        if event == .done { tab = .activity }
+        if snapshot.firstRun == .finished { tab = .home }
     }
+
+    public func sendPractice(to deviceID: String? = nil) async { await backend.sendPractice(to: deviceID) }
     public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
     public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
 

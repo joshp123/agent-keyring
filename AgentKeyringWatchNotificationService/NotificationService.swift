@@ -6,6 +6,7 @@
 // this Watch's notice key. The opened request is left in the notification
 // for the app's own layout.
 
+import AgentKeyringSealing
 import AgentKeyringWatchCore
 import UserNotifications
 
@@ -22,7 +23,9 @@ final class NotificationService: UNNotificationServiceExtension {
             // An approval from any device arrives here as its outcome: it is in use until it ends.
             let noted = saved.noting(opened)
             if noted != saved { WatchStore().write(noted) }
+            DeviceLog(device: "watch-notice").note("push", "named", ["request": opened.id])
         } catch {
+            DeviceLog(device: "watch-notice").note("push", "refused", ["reason": "\(error)"])
             WatchWords.writeFallback(into: content)
         }
         contentHandler(content)
