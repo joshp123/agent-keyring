@@ -31,9 +31,13 @@ final class RequestModel {
         #if DEBUG
         if userInfo["akrSample"] != nil { card = .showing(.sample); return }
         #endif
-        if let opened = try? WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: WatchStore().read()) {
+        do {
+            let opened = try WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: WatchStore().read())
             card = .showing(opened)
+            watchLog.note("card", "shown", ["request": opened.id])
             return
+        } catch {
+            watchLog.note("card", "unreadable", ["error": "\(error)"])
         }
         card = .opening
         // The Watch may not have the latest list of devices: ask its iPhone, then read it again.
@@ -44,7 +48,9 @@ final class RequestModel {
             for attempt in 0..<10 {
                 guard !Task.isCancelled else { return }
                 if let opened = try? WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) {
-                    card = .showing(opened); return
+                    card = .showing(opened)
+                    watchLog.note("card", "shown", ["request": opened.id, "after": "\(attempt) s"])
+                    return
                 }
                 if attempt == 0 { card = .unreadable }
                 try? await Task.sleep(for: .seconds(1))
@@ -64,8 +70,7 @@ final class RequestModel {
         card = .sending(request)
         Task {
             let sent = await WatchDelegate.answer(request, approve: approve, words: words)
-            let line = sent ? (approve ? "Approved" : "Denied") : (approve ? "Not approved. Try on your iPhone." : "Not sent. Try on your iPhone.")
-            card = .answered(request, line)
+            card = .answered(request, WatchCopy.answered(approve: approve, sent: sent))
             try? await Task.sleep(for: .seconds(1.2))
             dismiss()
         }
@@ -108,7 +113,7 @@ struct RequestView: View {
         Group {
             switch model.card {
             case .opening: EmptyView()
-            case .unreadable: Text("Open Agent Keyring on your iPhone to see this request.").font(.system(size: 15))
+            case .unreadable: Text(WatchCopy.unreadable).font(.system(size: 15))
             case let .showing(request), let .sending(request), let .answered(request, _): content(request)
             }
         }
@@ -132,8 +137,8 @@ struct RequestView: View {
             }
             if isOpen(request) {
                 // His words for the agent, from watchOS's own input (dictation, Scribble or keyboard).
-                TextFieldLink(prompt: Text("What should it do instead?")) {
-                    pillLabel("Deny and Explain", Self.explain, text: Self.deny)
+                TextFieldLink(prompt: Text(WatchCopy.whatInstead)) {
+                    pillLabel(WatchCopy.denyAndExplain, Self.explain, text: Self.deny)
                 } onSubmit: { words in
                     let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty { model.respond(approve: false, words: trimmed) }
@@ -144,7 +149,7 @@ struct RequestView: View {
                 .padding(.top, 10)
             }
             if let project = request.project {
-                Text("Project \(project)").font(.system(size: 12)).foregroundStyle(Self.ink2).lineLimit(1).padding(.top, 8)
+                Text(WatchCopy.project(project)).font(.system(size: 12)).foregroundStyle(Self.ink2).lineLimit(1).padding(.top, 8)
             }
         }
     }
@@ -163,8 +168,8 @@ struct RequestView: View {
             Text(line).font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
         } else {
             HStack(spacing: 5) {
-                pill("Deny", Self.deny) { model.respond(approve: false) }
-                pill("Approve", Self.approve) { model.respond(approve: true) }
+                pill(WatchCopy.deny, Self.deny) { model.respond(approve: false) }
+                pill(WatchCopy.approve, Self.approve) { model.respond(approve: true) }
             }
             .disabled(model.isSending)
             .padding(.horizontal, 4)

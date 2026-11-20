@@ -117,6 +117,7 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         result["notificationsAllowed"] = settings.authorizationStatus == .authorized
         result["timeSensitiveAllowed"] = settings.timeSensitiveSetting == .enabled
         result["pushAddress"] = pushToken != nil
+        result["practiceAnswered"] = WatchStore().read().practiceAnswered == true
         if let lastProblem { result["problem"] = lastProblem }
         return result
     }

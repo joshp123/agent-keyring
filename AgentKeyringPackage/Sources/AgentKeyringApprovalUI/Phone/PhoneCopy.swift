@@ -307,6 +307,14 @@ public enum PhoneCopy {
     public static let ready = "Ready"
     public static let passesRequests = "Stays on, and passes requests to this iPhone"
 
+    // What Face ID says it is for.
+    public static let faceIDPractice = "Approve the practice request."
+    public static func faceIDApprove(agent: String, computer: String, site: String) -> String {
+        "Let \(agent) on \(computer) use \(site) for up to 30 minutes."
+    }
+    public static func faceIDRemove(_ name: String) -> String { "Remove \(name)." }
+    public static let faceIDAddWatch = "Let your Apple Watch approve requests."
+
     public static func clock(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en_GB")))
     }

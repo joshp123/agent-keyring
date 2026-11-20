@@ -642,7 +642,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         if firstRun == .welcome(practising: true), requestID == AccessRequest.localPracticeID {
             let context = LAContext()
             defer { context.invalidate() }
-            try await keys.authorize(context, reason: "Approve the practice request.")
+            try await keys.authorize(context, reason: PhoneCopy.faceIDPractice)
             return apply(.closePractice)
         }
         if let work = practiceWork(requestID) { return try await approveTest(work) }
@@ -660,7 +660,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         if reusingUnlock { context.touchIDAuthenticationAllowableReuseDuration = 10 }
         // The relay is not trusted to say who asked: the machine named signed the request.
         try Sealing.checkRequest(work, members: members, ownKeyID: Sealing.keyID(keys.signingPublicKey()))
-        try await keys.authorize(context, reason: "Let \(request.agent) on \(machine.label) use \(Self.site(login)) for up to 30 minutes.")
+        try await keys.authorize(context, reason: PhoneCopy.faceIDApprove(agent: request.agent, computer: machine.label, site: Self.site(login)))
         // The relay is not trusted to say which copy is which: a device signed it, it is the current version, and it was sealed as this login.
         try Sealing.checkSealed(work.sealedLogin, members: members, listed: login)
         let secret = try keys.open(work.sealedLogin, context: context)
@@ -819,7 +819,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         let context = LAContext()
         defer { context.invalidate() }
         let name = next.devices.first { $0.keyID == deviceID }?.label ?? next.machines.first { $0.machineID == deviceID }?.label ?? ""
-        try await keys.authorize(context, reason: "Remove \(name).")
+        try await keys.authorize(context, reason: PhoneCopy.faceIDRemove(name))
         next.revision += 1
         // A Mac both approves and has agents that ask: one Remove takes both.
         let mac = next.devices.first { $0.keyID == deviceID && $0.kind == .mac }
@@ -1080,7 +1080,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     func approveTest(_ work: Work) async throws {
         let context = LAContext()
         defer { context.invalidate() }
-        try await keys.authorize(context, reason: "Approve the practice request.")
+        try await keys.authorize(context, reason: PhoneCopy.faceIDPractice)
         var answer = Agentkeyring_V2_Answer()
         answer.domain = "agentkeyring.answer.v2"
         answer.requestSha256 = Sealing.sha256(work.request)
@@ -1272,7 +1272,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         let watchKey = try P256.KeyAgreement.PublicKey(x963Representation: watch.openingPublicKey)
         let context = LAContext()
         defer { context.invalidate() }
-        try await keys.authorize(context, reason: "Let your Apple Watch approve requests.")
+        try await keys.authorize(context, reason: PhoneCopy.faceIDAddWatch)
         let relay = try relay()
         guard case let .sealedLogins(mine) = try await relay.call(Self.method { $0.sealedLogins = .init() }).result else {
             throw KeyringRelayError(code: .unavailable, message: "The relay sent no sealed logins.")

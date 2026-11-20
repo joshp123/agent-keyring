@@ -19,6 +19,8 @@ public struct WatchSaved: Codable, Sendable, Equatable {
     public var settings: NotificationSettings?
     /// Approvals that still last, from the outcome pushes every device receives.
     public var inUse: [WatchInUse]?
+    /// He has answered a practice request on this Apple Watch: the Watch step's last tick.
+    public var practiceAnswered: Bool?
 
     public init(members: Data? = nil, catalogue: Data? = nil, answerURL: String? = nil) {
         self.members = members; self.catalogue = catalogue; self.answerURL = answerURL
