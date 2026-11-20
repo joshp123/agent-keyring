@@ -279,6 +279,84 @@ func (LeaseState) EnumDescriptor() ([]byte, []int) {
 	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{3}
 }
 
+// The one journey of first run, the same list on every device. The Mac picks
+// the steps from the devices he chose; each device reports where it is.
+type JourneyStep int32
+
+const (
+	JourneyStep_JOURNEY_STEP_UNSPECIFIED    JourneyStep = 0
+	JourneyStep_JOURNEY_STEP_WELCOME        JourneyStep = 1
+	JourneyStep_JOURNEY_STEP_CHOOSE_DEVICES JourneyStep = 2
+	JourneyStep_JOURNEY_STEP_PRACTICE       JourneyStep = 3
+	JourneyStep_JOURNEY_STEP_PASSWORDS      JourneyStep = 4
+	JourneyStep_JOURNEY_STEP_AGENTS         JourneyStep = 5
+	JourneyStep_JOURNEY_STEP_ALWAYS_ON      JourneyStep = 6
+	JourneyStep_JOURNEY_STEP_IPHONE         JourneyStep = 7
+	JourneyStep_JOURNEY_STEP_WATCH          JourneyStep = 8
+	JourneyStep_JOURNEY_STEP_COMPUTERS      JourneyStep = 9
+	JourneyStep_JOURNEY_STEP_TRY_DEVICES    JourneyStep = 10
+	JourneyStep_JOURNEY_STEP_READY          JourneyStep = 11
+)
+
+// Enum value maps for JourneyStep.
+var (
+	JourneyStep_name = map[int32]string{
+		0:  "JOURNEY_STEP_UNSPECIFIED",
+		1:  "JOURNEY_STEP_WELCOME",
+		2:  "JOURNEY_STEP_CHOOSE_DEVICES",
+		3:  "JOURNEY_STEP_PRACTICE",
+		4:  "JOURNEY_STEP_PASSWORDS",
+		5:  "JOURNEY_STEP_AGENTS",
+		6:  "JOURNEY_STEP_ALWAYS_ON",
+		7:  "JOURNEY_STEP_IPHONE",
+		8:  "JOURNEY_STEP_WATCH",
+		9:  "JOURNEY_STEP_COMPUTERS",
+		10: "JOURNEY_STEP_TRY_DEVICES",
+		11: "JOURNEY_STEP_READY",
+	}
+	JourneyStep_value = map[string]int32{
+		"JOURNEY_STEP_UNSPECIFIED":    0,
+		"JOURNEY_STEP_WELCOME":        1,
+		"JOURNEY_STEP_CHOOSE_DEVICES": 2,
+		"JOURNEY_STEP_PRACTICE":       3,
+		"JOURNEY_STEP_PASSWORDS":      4,
+		"JOURNEY_STEP_AGENTS":         5,
+		"JOURNEY_STEP_ALWAYS_ON":      6,
+		"JOURNEY_STEP_IPHONE":         7,
+		"JOURNEY_STEP_WATCH":          8,
+		"JOURNEY_STEP_COMPUTERS":      9,
+		"JOURNEY_STEP_TRY_DEVICES":    10,
+		"JOURNEY_STEP_READY":          11,
+	}
+)
+
+func (x JourneyStep) Enum() *JourneyStep {
+	p := new(JourneyStep)
+	*p = x
+	return p
+}
+
+func (x JourneyStep) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JourneyStep) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentkeyring_v2_keyring_proto_enumTypes[4].Descriptor()
+}
+
+func (JourneyStep) Type() protoreflect.EnumType {
+	return &file_agentkeyring_v2_keyring_proto_enumTypes[4]
+}
+
+func (x JourneyStep) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JourneyStep.Descriptor instead.
+func (JourneyStep) EnumDescriptor() ([]byte, []int) {
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{4}
+}
+
 type JoinState int32
 
 const (
@@ -318,11 +396,11 @@ func (x JoinState) String() string {
 }
 
 func (JoinState) Descriptor() protoreflect.EnumDescriptor {
-	return file_agentkeyring_v2_keyring_proto_enumTypes[4].Descriptor()
+	return file_agentkeyring_v2_keyring_proto_enumTypes[5].Descriptor()
 }
 
 func (JoinState) Type() protoreflect.EnumType {
-	return &file_agentkeyring_v2_keyring_proto_enumTypes[4]
+	return &file_agentkeyring_v2_keyring_proto_enumTypes[5]
 }
 
 func (x JoinState) Number() protoreflect.EnumNumber {
@@ -331,7 +409,7 @@ func (x JoinState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JoinState.Descriptor instead.
 func (JoinState) EnumDescriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{4}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{5}
 }
 
 type ErrorCode int32
@@ -379,11 +457,11 @@ func (x ErrorCode) String() string {
 }
 
 func (ErrorCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_agentkeyring_v2_keyring_proto_enumTypes[5].Descriptor()
+	return file_agentkeyring_v2_keyring_proto_enumTypes[6].Descriptor()
 }
 
 func (ErrorCode) Type() protoreflect.EnumType {
-	return &file_agentkeyring_v2_keyring_proto_enumTypes[5]
+	return &file_agentkeyring_v2_keyring_proto_enumTypes[6]
 }
 
 func (x ErrorCode) Number() protoreflect.EnumNumber {
@@ -392,7 +470,7 @@ func (x ErrorCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ErrorCode.Descriptor instead.
 func (ErrorCode) EnumDescriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{5}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{6}
 }
 
 // The one envelope for everything signed. The payload's own domain field says
@@ -474,8 +552,13 @@ type Members struct {
 	// The machine that runs the relay and passes requests on to the iPhone and
 	// Apple Watch (the computer that stays on). Empty until one is added.
 	RelayMachineId string `protobuf:"bytes,6,opt,name=relay_machine_id,json=relayMachineId,proto3" json:"relay_machine_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Revision 1 only, on a relay that announced itself (SetupOffer):
+	// HMAC-SHA256 with the offer's secret over "agentkeyring.setup.v2", the
+	// relay's SPKI and the first device's key id. An empty relay that made an
+	// offer refuses a first list without it, so the first Mac to reach it cannot take it.
+	SetupProof    []byte `protobuf:"bytes,7,opt,name=setup_proof,json=setupProof,proto3" json:"setup_proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Members) Reset() {
@@ -548,6 +631,13 @@ func (x *Members) GetRelayMachineId() string {
 		return x.RelayMachineId
 	}
 	return ""
+}
+
+func (x *Members) GetSetupProof() []byte {
+	if x != nil {
+		return x.SetupProof
+	}
+	return nil
 }
 
 type Device struct {
@@ -1571,8 +1661,12 @@ type Lease struct {
 	RetryNotBeforeUnixSeconds int64                  `protobuf:"varint,8,opt,name=retry_not_before_unix_seconds,json=retryNotBeforeUnixSeconds,proto3" json:"retry_not_before_unix_seconds,omitempty"` // A denial holds the login off: 1, 5, then 15 minutes in a row.
 	EndedBy                   string                 `protobuf:"bytes,9,opt,name=ended_by,json=endedBy,proto3" json:"ended_by,omitempty"`                                                              // Device.label when a device ended an approval early (Stop).
 	Automatic                 bool                   `protobuf:"varint,10,opt,name=automatic,proto3" json:"automatic,omitempty"`                                                                       // Granted at once by the login's Automatic rule.
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// While it waits, how far it has got, for the screens to say truthfully:
+	PushedUnixSeconds  int64  `protobuf:"varint,11,opt,name=pushed_unix_seconds,json=pushedUnixSeconds,proto3" json:"pushed_unix_seconds,omitempty"`    // Apple accepted the push for it.
+	ArrivedUnixSeconds int64  `protobuf:"varint,12,opt,name=arrived_unix_seconds,json=arrivedUnixSeconds,proto3" json:"arrived_unix_seconds,omitempty"` // A device said it arrived (Arrival).
+	ArrivedOn          string `protobuf:"bytes,13,opt,name=arrived_on,json=arrivedOn,proto3" json:"arrived_on,omitempty"`                               // That device's label.
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Lease) Reset() {
@@ -1673,6 +1767,27 @@ func (x *Lease) GetAutomatic() bool {
 		return x.Automatic
 	}
 	return false
+}
+
+func (x *Lease) GetPushedUnixSeconds() int64 {
+	if x != nil {
+		return x.PushedUnixSeconds
+	}
+	return 0
+}
+
+func (x *Lease) GetArrivedUnixSeconds() int64 {
+	if x != nil {
+		return x.ArrivedUnixSeconds
+	}
+	return 0
+}
+
+func (x *Lease) GetArrivedOn() string {
+	if x != nil {
+		return x.ArrivedOn
+	}
+	return ""
 }
 
 // Everything the asking machine needs to check an answer itself: an approval,
@@ -1918,6 +2033,8 @@ type RelayRequest struct {
 	//	*RelayRequest_RefuseJoin
 	//	*RelayRequest_ReportLog
 	//	*RelayRequest_Logs
+	//	*RelayRequest_Arrived
+	//	*RelayRequest_SetupOffer
 	Method        isRelayRequest_Method `protobuf_oneof:"method"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2185,6 +2302,24 @@ func (x *RelayRequest) GetLogs() *LogsRequest {
 	return nil
 }
 
+func (x *RelayRequest) GetArrived() *Signed {
+	if x != nil {
+		if x, ok := x.Method.(*RelayRequest_Arrived); ok {
+			return x.Arrived
+		}
+	}
+	return nil
+}
+
+func (x *RelayRequest) GetSetupOffer() *Empty {
+	if x != nil {
+		if x, ok := x.Method.(*RelayRequest_SetupOffer); ok {
+			return x.SetupOffer
+		}
+	}
+	return nil
+}
+
 type isRelayRequest_Method interface {
 	isRelayRequest_Method()
 }
@@ -2304,6 +2439,19 @@ type RelayRequest_Logs struct {
 	Logs *LogsRequest `protobuf:"bytes,28,opt,name=logs,proto3,oneof"`
 }
 
+type RelayRequest_Arrived struct {
+	// Devices: a request reached this device (Arrival, signed by its reply
+	// key). The Watch posts the same to "POST /v2/arrived". Returns Done.
+	Arrived *Signed `protobuf:"bytes,29,opt,name=arrived,proto3,oneof"`
+}
+
+type RelayRequest_SetupOffer struct {
+	// From the relay's own computer only, while it has no members: the
+	// one-time secret our app there leaves in iCloud Keychain (RelayOffer).
+	// Returns SetupOffer.
+	SetupOffer *Empty `protobuf:"bytes,30,opt,name=setup_offer,json=setupOffer,proto3,oneof"`
+}
+
 func (*RelayRequest_AskSigned) isRelayRequest_Method() {}
 
 func (*RelayRequest_Watch) isRelayRequest_Method() {}
@@ -2353,6 +2501,10 @@ func (*RelayRequest_RefuseJoin) isRelayRequest_Method() {}
 func (*RelayRequest_ReportLog) isRelayRequest_Method() {}
 
 func (*RelayRequest_Logs) isRelayRequest_Method() {}
+
+func (*RelayRequest_Arrived) isRelayRequest_Method() {}
+
+func (*RelayRequest_SetupOffer) isRelayRequest_Method() {}
 
 // One line per thing a device did, and why, with no secrets and no site or
 // account names: "<UTC time, ms, ISO 8601> <device> <part> <event> key=value ...".
@@ -2416,6 +2568,204 @@ func (x *DeviceLog) GetLines() []string {
 	return nil
 }
 
+type Arrival struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Domain             string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // "agentkeyring.arrival.v2"
+	RequestId          string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	DeviceKeyId        string                 `protobuf:"bytes,3,opt,name=device_key_id,json=deviceKeyId,proto3" json:"device_key_id,omitempty"`
+	ArrivedUnixSeconds int64                  `protobuf:"varint,4,opt,name=arrived_unix_seconds,json=arrivedUnixSeconds,proto3" json:"arrived_unix_seconds,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *Arrival) Reset() {
+	*x = Arrival{}
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Arrival) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Arrival) ProtoMessage() {}
+
+func (x *Arrival) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Arrival.ProtoReflect.Descriptor instead.
+func (*Arrival) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *Arrival) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
+}
+
+func (x *Arrival) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *Arrival) GetDeviceKeyId() string {
+	if x != nil {
+		return x.DeviceKeyId
+	}
+	return ""
+}
+
+func (x *Arrival) GetArrivedUnixSeconds() int64 {
+	if x != nil {
+		return x.ArrivedUnixSeconds
+	}
+	return 0
+}
+
+type SetupOffer struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Secret            []byte                 `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`                                                    // 32 random bytes; the relay keeps it until its first members list.
+	RelayTlsPublicKey []byte                 `protobuf:"bytes,2,opt,name=relay_tls_public_key,json=relayTlsPublicKey,proto3" json:"relay_tls_public_key,omitempty"` // SPKI DER.
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SetupOffer) Reset() {
+	*x = SetupOffer{}
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetupOffer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetupOffer) ProtoMessage() {}
+
+func (x *SetupOffer) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetupOffer.ProtoReflect.Descriptor instead.
+func (*SetupOffer) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SetupOffer) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *SetupOffer) GetRelayTlsPublicKey() []byte {
+	if x != nil {
+		return x.RelayTlsPublicKey
+	}
+	return nil
+}
+
+// What our app on the computer that stays on leaves in iCloud Keychain, so a
+// Mac on the same Apple Account offers "Connect to Mac mini?" with nothing typed.
+type RelayOffer struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	RelayHost         string                 `protobuf:"bytes,1,opt,name=relay_host,json=relayHost,proto3" json:"relay_host,omitempty"`
+	RelayPort         uint32                 `protobuf:"varint,2,opt,name=relay_port,json=relayPort,proto3" json:"relay_port,omitempty"`
+	RelayTlsPublicKey []byte                 `protobuf:"bytes,3,opt,name=relay_tls_public_key,json=relayTlsPublicKey,proto3" json:"relay_tls_public_key,omitempty"` // SPKI DER, pinned on first contact.
+	Secret            []byte                 `protobuf:"bytes,4,opt,name=secret,proto3" json:"secret,omitempty"`                                                    // SetupOffer.secret.
+	Label             string                 `protobuf:"bytes,5,opt,name=label,proto3" json:"label,omitempty"`                                                      // The computer as macOS names it, e.g. "Mac mini".
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RelayOffer) Reset() {
+	*x = RelayOffer{}
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayOffer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayOffer) ProtoMessage() {}
+
+func (x *RelayOffer) ProtoReflect() protoreflect.Message {
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayOffer.ProtoReflect.Descriptor instead.
+func (*RelayOffer) Descriptor() ([]byte, []int) {
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *RelayOffer) GetRelayHost() string {
+	if x != nil {
+		return x.RelayHost
+	}
+	return ""
+}
+
+func (x *RelayOffer) GetRelayPort() uint32 {
+	if x != nil {
+		return x.RelayPort
+	}
+	return 0
+}
+
+func (x *RelayOffer) GetRelayTlsPublicKey() []byte {
+	if x != nil {
+		return x.RelayTlsPublicKey
+	}
+	return nil
+}
+
+func (x *RelayOffer) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *RelayOffer) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
 type LogsRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	SinceUnixSeconds int64                  `protobuf:"varint,1,opt,name=since_unix_seconds,json=sinceUnixSeconds,proto3" json:"since_unix_seconds,omitempty"` // 0: all it has.
@@ -2426,7 +2776,7 @@ type LogsRequest struct {
 
 func (x *LogsRequest) Reset() {
 	*x = LogsRequest{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[19]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2438,7 +2788,7 @@ func (x *LogsRequest) String() string {
 func (*LogsRequest) ProtoMessage() {}
 
 func (x *LogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[19]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2451,7 +2801,7 @@ func (x *LogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsRequest.ProtoReflect.Descriptor instead.
 func (*LogsRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{19}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *LogsRequest) GetSinceUnixSeconds() int64 {
@@ -2477,7 +2827,7 @@ type Logs struct {
 
 func (x *Logs) Reset() {
 	*x = Logs{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[20]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2489,7 +2839,7 @@ func (x *Logs) String() string {
 func (*Logs) ProtoMessage() {}
 
 func (x *Logs) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[20]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2502,7 +2852,7 @@ func (x *Logs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logs.ProtoReflect.Descriptor instead.
 func (*Logs) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{20}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Logs) GetLines() []string {
@@ -2530,6 +2880,7 @@ type RelayResponse struct {
 	//	*RelayResponse_MembersChain
 	//	*RelayResponse_Changes
 	//	*RelayResponse_Logs
+	//	*RelayResponse_SetupOffer
 	Result        isRelayResponse_Result `protobuf_oneof:"result"`
 	EndOfStream   bool                   `protobuf:"varint,11,opt,name=end_of_stream,json=endOfStream,proto3" json:"end_of_stream,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2538,7 +2889,7 @@ type RelayResponse struct {
 
 func (x *RelayResponse) Reset() {
 	*x = RelayResponse{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[21]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2550,7 +2901,7 @@ func (x *RelayResponse) String() string {
 func (*RelayResponse) ProtoMessage() {}
 
 func (x *RelayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[21]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2563,7 +2914,7 @@ func (x *RelayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayResponse.ProtoReflect.Descriptor instead.
 func (*RelayResponse) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{21}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *RelayResponse) GetResult() isRelayResponse_Result {
@@ -2699,6 +3050,15 @@ func (x *RelayResponse) GetLogs() *Logs {
 	return nil
 }
 
+func (x *RelayResponse) GetSetupOffer() *SetupOffer {
+	if x != nil {
+		if x, ok := x.Result.(*RelayResponse_SetupOffer); ok {
+			return x.SetupOffer
+		}
+	}
+	return nil
+}
+
 func (x *RelayResponse) GetEndOfStream() bool {
 	if x != nil {
 		return x.EndOfStream
@@ -2766,6 +3126,10 @@ type RelayResponse_Logs struct {
 	Logs *Logs `protobuf:"bytes,15,opt,name=logs,proto3,oneof"`
 }
 
+type RelayResponse_SetupOffer struct {
+	SetupOffer *SetupOffer `protobuf:"bytes,16,opt,name=setup_offer,json=setupOffer,proto3,oneof"`
+}
+
 func (*RelayResponse_Lease) isRelayResponse_Result() {}
 
 func (*RelayResponse_Approval) isRelayResponse_Result() {}
@@ -2794,6 +3158,8 @@ func (*RelayResponse_Changes) isRelayResponse_Result() {}
 
 func (*RelayResponse_Logs) isRelayResponse_Result() {}
 
+func (*RelayResponse_SetupOffer) isRelayResponse_Result() {}
+
 type Empty struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2802,7 +3168,7 @@ type Empty struct {
 
 func (x *Empty) Reset() {
 	*x = Empty{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[22]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2814,7 +3180,7 @@ func (x *Empty) String() string {
 func (*Empty) ProtoMessage() {}
 
 func (x *Empty) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[22]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2827,7 +3193,7 @@ func (x *Empty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Empty.ProtoReflect.Descriptor instead.
 func (*Empty) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{22}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{25}
 }
 
 // The practice request (test_request). Empty for the calling device's own; an
@@ -2836,13 +3202,17 @@ func (*Empty) Descriptor() ([]byte, []int) {
 type TestRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ForDeviceKeyId string                 `protobuf:"bytes,1,opt,name=for_device_key_id,json=forDeviceKeyId,proto3" json:"for_device_key_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Chosen by the asker, 32 hex digits, and saved: the same id again rejoins
+	// that practice request instead of making another. While one waits for a
+	// device, a new id gets the waiting one: at most one per device.
+	RequestId     string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TestRequest) Reset() {
 	*x = TestRequest{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[23]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2854,7 +3224,7 @@ func (x *TestRequest) String() string {
 func (*TestRequest) ProtoMessage() {}
 
 func (x *TestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[23]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2867,12 +3237,19 @@ func (x *TestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRequest.ProtoReflect.Descriptor instead.
 func (*TestRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{23}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *TestRequest) GetForDeviceKeyId() string {
 	if x != nil {
 		return x.ForDeviceKeyId
+	}
+	return ""
+}
+
+func (x *TestRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
 	}
 	return ""
 }
@@ -2889,7 +3266,7 @@ type RequestReference struct {
 
 func (x *RequestReference) Reset() {
 	*x = RequestReference{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[24]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2901,7 +3278,7 @@ func (x *RequestReference) String() string {
 func (*RequestReference) ProtoMessage() {}
 
 func (x *RequestReference) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[24]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2914,7 +3291,7 @@ func (x *RequestReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestReference.ProtoReflect.Descriptor instead.
 func (*RequestReference) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{24}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RequestReference) GetRequestId() string {
@@ -2940,7 +3317,7 @@ type FindRequest struct {
 
 func (x *FindRequest) Reset() {
 	*x = FindRequest{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[25]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2952,7 +3329,7 @@ func (x *FindRequest) String() string {
 func (*FindRequest) ProtoMessage() {}
 
 func (x *FindRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[25]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2965,7 +3342,7 @@ func (x *FindRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindRequest.ProtoReflect.Descriptor instead.
 func (*FindRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{25}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *FindRequest) GetQuery() string {
@@ -2984,7 +3361,7 @@ type FindResult struct {
 
 func (x *FindResult) Reset() {
 	*x = FindResult{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[26]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2996,7 +3373,7 @@ func (x *FindResult) String() string {
 func (*FindResult) ProtoMessage() {}
 
 func (x *FindResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[26]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3009,7 +3386,7 @@ func (x *FindResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindResult.ProtoReflect.Descriptor instead.
 func (*FindResult) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{26}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *FindResult) GetLogins() []*Login {
@@ -3034,7 +3411,7 @@ type SealedLogins struct {
 
 func (x *SealedLogins) Reset() {
 	*x = SealedLogins{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[27]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3046,7 +3423,7 @@ func (x *SealedLogins) String() string {
 func (*SealedLogins) ProtoMessage() {}
 
 func (x *SealedLogins) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[27]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3059,7 +3436,7 @@ func (x *SealedLogins) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SealedLogins.ProtoReflect.Descriptor instead.
 func (*SealedLogins) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{27}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SealedLogins) GetLogins() []*SealedLogin {
@@ -3099,7 +3476,7 @@ type AnswerUpload struct {
 
 func (x *AnswerUpload) Reset() {
 	*x = AnswerUpload{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[28]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3111,7 +3488,7 @@ func (x *AnswerUpload) String() string {
 func (*AnswerUpload) ProtoMessage() {}
 
 func (x *AnswerUpload) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[28]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3124,7 +3501,7 @@ func (x *AnswerUpload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnswerUpload.ProtoReflect.Descriptor instead.
 func (*AnswerUpload) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{28}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *AnswerUpload) GetAnswer() *Signed {
@@ -3161,7 +3538,7 @@ type PushRegistration struct {
 
 func (x *PushRegistration) Reset() {
 	*x = PushRegistration{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[29]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3173,7 +3550,7 @@ func (x *PushRegistration) String() string {
 func (*PushRegistration) ProtoMessage() {}
 
 func (x *PushRegistration) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[29]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3186,7 +3563,7 @@ func (x *PushRegistration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushRegistration.ProtoReflect.Descriptor instead.
 func (*PushRegistration) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{29}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PushRegistration) GetDeviceKeyId() string {
@@ -3254,7 +3631,7 @@ type JoinRequest struct {
 
 func (x *JoinRequest) Reset() {
 	*x = JoinRequest{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[30]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3266,7 +3643,7 @@ func (x *JoinRequest) String() string {
 func (*JoinRequest) ProtoMessage() {}
 
 func (x *JoinRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[30]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3279,7 +3656,7 @@ func (x *JoinRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinRequest.ProtoReflect.Descriptor instead.
 func (*JoinRequest) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{30}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *JoinRequest) GetJoining() isJoinRequest_Joining {
@@ -3356,7 +3733,7 @@ type JoinRefusal struct {
 
 func (x *JoinRefusal) Reset() {
 	*x = JoinRefusal{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[31]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3368,7 +3745,7 @@ func (x *JoinRefusal) String() string {
 func (*JoinRefusal) ProtoMessage() {}
 
 func (x *JoinRefusal) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[31]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3381,7 +3758,7 @@ func (x *JoinRefusal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinRefusal.ProtoReflect.Descriptor instead.
 func (*JoinRefusal) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{31}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *JoinRefusal) GetJoinerId() string {
@@ -3438,7 +3815,7 @@ type JoinInvite struct {
 
 func (x *JoinInvite) Reset() {
 	*x = JoinInvite{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[32]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3450,7 +3827,7 @@ func (x *JoinInvite) String() string {
 func (*JoinInvite) ProtoMessage() {}
 
 func (x *JoinInvite) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[32]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3463,7 +3840,7 @@ func (x *JoinInvite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinInvite.ProtoReflect.Descriptor instead.
 func (*JoinInvite) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{32}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *JoinInvite) GetRelayHost() string {
@@ -3522,14 +3899,17 @@ type SelfTestReport struct {
 	Domain            string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // "agentkeyring.selftest.v2"
 	DeviceKeyId       string                 `protobuf:"bytes,2,opt,name=device_key_id,json=deviceKeyId,proto3" json:"device_key_id,omitempty"`
 	TestedUnixSeconds int64                  `protobuf:"varint,3,opt,name=tested_unix_seconds,json=testedUnixSeconds,proto3" json:"tested_unix_seconds,omitempty"`
-	Checks            []*SelfTestCheck       `protobuf:"bytes,4,rep,name=checks,proto3" json:"checks,omitempty"`
+	Checks            []*SelfTestCheck       `protobuf:"bytes,4,rep,name=checks,proto3" json:"checks,omitempty"`                                            // Also the device's setup checklist, ticked from what it can see.
+	Journey           []JourneyStep          `protobuf:"varint,5,rep,packed,name=journey,proto3,enum=agentkeyring.v2.JourneyStep" json:"journey,omitempty"` // From the Mac only: the steps for the devices he chose, in order.
+	Step              JourneyStep            `protobuf:"varint,6,opt,name=step,proto3,enum=agentkeyring.v2.JourneyStep" json:"step,omitempty"`              // Where this device is in its first run.
+	Finished          bool                   `protobuf:"varint,7,opt,name=finished,proto3" json:"finished,omitempty"`                                       // This device's first run is done.
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SelfTestReport) Reset() {
 	*x = SelfTestReport{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[33]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3541,7 +3921,7 @@ func (x *SelfTestReport) String() string {
 func (*SelfTestReport) ProtoMessage() {}
 
 func (x *SelfTestReport) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[33]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3554,7 +3934,7 @@ func (x *SelfTestReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelfTestReport.ProtoReflect.Descriptor instead.
 func (*SelfTestReport) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{33}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SelfTestReport) GetDomain() string {
@@ -3585,6 +3965,27 @@ func (x *SelfTestReport) GetChecks() []*SelfTestCheck {
 	return nil
 }
 
+func (x *SelfTestReport) GetJourney() []JourneyStep {
+	if x != nil {
+		return x.Journey
+	}
+	return nil
+}
+
+func (x *SelfTestReport) GetStep() JourneyStep {
+	if x != nil {
+		return x.Step
+	}
+	return JourneyStep_JOURNEY_STEP_UNSPECIFIED
+}
+
+func (x *SelfTestReport) GetFinished() bool {
+	if x != nil {
+		return x.Finished
+	}
+	return false
+}
+
 type SelfTestCheck struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // For example "notifications" or "test request".
@@ -3596,7 +3997,7 @@ type SelfTestCheck struct {
 
 func (x *SelfTestCheck) Reset() {
 	*x = SelfTestCheck{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[34]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3608,7 +4009,7 @@ func (x *SelfTestCheck) String() string {
 func (*SelfTestCheck) ProtoMessage() {}
 
 func (x *SelfTestCheck) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[34]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3621,7 +4022,7 @@ func (x *SelfTestCheck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelfTestCheck.ProtoReflect.Descriptor instead.
 func (*SelfTestCheck) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{34}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SelfTestCheck) GetName() string {
@@ -3654,7 +4055,7 @@ type MembersChain struct {
 
 func (x *MembersChain) Reset() {
 	*x = MembersChain{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[35]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3666,7 +4067,7 @@ func (x *MembersChain) String() string {
 func (*MembersChain) ProtoMessage() {}
 
 func (x *MembersChain) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[35]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3679,7 +4080,7 @@ func (x *MembersChain) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MembersChain.ProtoReflect.Descriptor instead.
 func (*MembersChain) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{35}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *MembersChain) GetRevisions() []*Signed {
@@ -3698,7 +4099,7 @@ type SelfTests struct {
 
 func (x *SelfTests) Reset() {
 	*x = SelfTests{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[36]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3710,7 +4111,7 @@ func (x *SelfTests) String() string {
 func (*SelfTests) ProtoMessage() {}
 
 func (x *SelfTests) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[36]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3723,7 +4124,7 @@ func (x *SelfTests) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelfTests.ProtoReflect.Descriptor instead.
 func (*SelfTests) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{36}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *SelfTests) GetReports() []*Signed {
@@ -3746,7 +4147,7 @@ type JoinStatus struct {
 
 func (x *JoinStatus) Reset() {
 	*x = JoinStatus{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[37]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3758,7 +4159,7 @@ func (x *JoinStatus) String() string {
 func (*JoinStatus) ProtoMessage() {}
 
 func (x *JoinStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[37]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3771,7 +4172,7 @@ func (x *JoinStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinStatus.ProtoReflect.Descriptor instead.
 func (*JoinStatus) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{37}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *JoinStatus) GetState() JoinState {
@@ -3804,7 +4205,7 @@ type PendingJoins struct {
 
 func (x *PendingJoins) Reset() {
 	*x = PendingJoins{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[38]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3816,7 +4217,7 @@ func (x *PendingJoins) String() string {
 func (*PendingJoins) ProtoMessage() {}
 
 func (x *PendingJoins) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[38]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3829,7 +4230,7 @@ func (x *PendingJoins) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PendingJoins.ProtoReflect.Descriptor instead.
 func (*PendingJoins) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{38}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *PendingJoins) GetJoins() []*PendingJoin {
@@ -3847,14 +4248,16 @@ type Changes struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	MembersRevision   uint64                 `protobuf:"varint,1,opt,name=members_revision,json=membersRevision,proto3" json:"members_revision,omitempty"`
 	CatalogueRevision uint64                 `protobuf:"varint,2,opt,name=catalogue_revision,json=catalogueRevision,proto3" json:"catalogue_revision,omitempty"`
-	PendingJoins      []*PendingJoin         `protobuf:"bytes,3,rep,name=pending_joins,json=pendingJoins,proto3" json:"pending_joins,omitempty"` // To a Mac only: computers and devices waiting to join.
+	PendingJoins      []*PendingJoin         `protobuf:"bytes,3,rep,name=pending_joins,json=pendingJoins,proto3" json:"pending_joins,omitempty"`           // To a Mac only: computers and devices waiting to join.
+	ReportsRevision   uint64                 `protobuf:"varint,4,opt,name=reports_revision,json=reportsRevision,proto3" json:"reports_revision,omitempty"` // Rises when any device's status report changes; fetch self_tests.
+	SealedForYou      uint32                 `protobuf:"varint,5,opt,name=sealed_for_you,json=sealedForYou,proto3" json:"sealed_for_you,omitempty"`        // Sealed copies held for this device; with the catalogue's count, progress while a new device is filled.
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Changes) Reset() {
 	*x = Changes{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[39]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3866,7 +4269,7 @@ func (x *Changes) String() string {
 func (*Changes) ProtoMessage() {}
 
 func (x *Changes) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[39]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3879,7 +4282,7 @@ func (x *Changes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Changes.ProtoReflect.Descriptor instead.
 func (*Changes) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{39}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *Changes) GetMembersRevision() uint64 {
@@ -3903,6 +4306,20 @@ func (x *Changes) GetPendingJoins() []*PendingJoin {
 	return nil
 }
 
+func (x *Changes) GetReportsRevision() uint64 {
+	if x != nil {
+		return x.ReportsRevision
+	}
+	return 0
+}
+
+func (x *Changes) GetSealedForYou() uint32 {
+	if x != nil {
+		return x.SealedForYou
+	}
+	return 0
+}
+
 type PendingJoin struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Request           *JoinRequest           `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
@@ -3914,7 +4331,7 @@ type PendingJoin struct {
 
 func (x *PendingJoin) Reset() {
 	*x = PendingJoin{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[40]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3926,7 +4343,7 @@ func (x *PendingJoin) String() string {
 func (*PendingJoin) ProtoMessage() {}
 
 func (x *PendingJoin) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[40]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3939,7 +4356,7 @@ func (x *PendingJoin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PendingJoin.ProtoReflect.Descriptor instead.
 func (*PendingJoin) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{40}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *PendingJoin) GetRequest() *JoinRequest {
@@ -3973,7 +4390,7 @@ type Error struct {
 
 func (x *Error) Reset() {
 	*x = Error{}
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[41]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3985,7 +4402,7 @@ func (x *Error) String() string {
 func (*Error) ProtoMessage() {}
 
 func (x *Error) ProtoReflect() protoreflect.Message {
-	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[41]
+	mi := &file_agentkeyring_v2_keyring_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3998,7 +4415,7 @@ func (x *Error) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Error.ProtoReflect.Descriptor instead.
 func (*Error) Descriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{41}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *Error) GetCode() ErrorCode {
@@ -4023,14 +4440,16 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x06Signed\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\fR\tsignature\x12\"\n" +
-	"\rsigner_key_id\x18\x03 \x01(\tR\vsignerKeyId\"\x81\x02\n" +
+	"\rsigner_key_id\x18\x03 \x01(\tR\vsignerKeyId\"\xa2\x02\n" +
 	"\aMembers\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x121\n" +
 	"\adevices\x18\x03 \x03(\v2\x17.agentkeyring.v2.DeviceR\adevices\x124\n" +
 	"\bmachines\x18\x04 \x03(\v2\x18.agentkeyring.v2.MachineR\bmachines\x12/\n" +
 	"\x14relay_tls_public_key\x18\x05 \x01(\fR\x11relayTlsPublicKey\x12(\n" +
-	"\x10relay_machine_id\x18\x06 \x01(\tR\x0erelayMachineId\"\xb4\x02\n" +
+	"\x10relay_machine_id\x18\x06 \x01(\tR\x0erelayMachineId\x12\x1f\n" +
+	"\vsetup_proof\x18\a \x01(\fR\n" +
+	"setupProof\"\xb4\x02\n" +
 	"\x06Device\x12\x15\n" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12/\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x1b.agentkeyring.v2.DeviceKindR\x04kind\x12\x14\n" +
@@ -4123,7 +4542,7 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\tTimedCode\x125\n" +
 	"\x17valid_from_unix_seconds\x18\x01 \x01(\x03R\x14validFromUnixSeconds\x127\n" +
 	"\x18valid_until_unix_seconds\x18\x02 \x01(\x03R\x15validUntilUnixSeconds\x12\x12\n" +
-	"\x04code\x18\x03 \x01(\tR\x04code\"\x90\x03\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\"\x91\x04\n" +
 	"\x05Lease\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
@@ -4137,7 +4556,11 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x1dretry_not_before_unix_seconds\x18\b \x01(\x03R\x19retryNotBeforeUnixSeconds\x12\x19\n" +
 	"\bended_by\x18\t \x01(\tR\aendedBy\x12\x1c\n" +
 	"\tautomatic\x18\n" +
-	" \x01(\bR\tautomatic\"\x8c\x01\n" +
+	" \x01(\bR\tautomatic\x12.\n" +
+	"\x13pushed_unix_seconds\x18\v \x01(\x03R\x11pushedUnixSeconds\x120\n" +
+	"\x14arrived_unix_seconds\x18\f \x01(\x03R\x12arrivedUnixSeconds\x12\x1d\n" +
+	"\n" +
+	"arrived_on\x18\r \x01(\tR\tarrivedOn\"\x8c\x01\n" +
 	"\bApproval\x12\x18\n" +
 	"\arequest\x18\x01 \x01(\fR\arequest\x12/\n" +
 	"\x06answer\x18\x02 \x01(\v2\x17.agentkeyring.v2.SignedR\x06answer\x125\n" +
@@ -4152,7 +4575,7 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x10encapsulated_key\x18\x01 \x01(\fR\x0fencapsulatedKey\x12\x1e\n" +
 	"\n" +
 	"ciphertext\x18\x02 \x01(\fR\n" +
-	"ciphertext\"\xa0\f\n" +
+	"ciphertext\"\x90\r\n" +
 	"\fRelayRequest\x128\n" +
 	"\n" +
 	"ask_signed\x18\x1a \x01(\v2\x17.agentkeyring.v2.SignedH\x00R\taskSigned\x129\n" +
@@ -4184,18 +4607,40 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"refuseJoin\x128\n" +
 	"\n" +
 	"report_log\x18\x1b \x01(\v2\x17.agentkeyring.v2.SignedH\x00R\treportLog\x122\n" +
-	"\x04logs\x18\x1c \x01(\v2\x1c.agentkeyring.v2.LogsRequestH\x00R\x04logsB\b\n" +
+	"\x04logs\x18\x1c \x01(\v2\x1c.agentkeyring.v2.LogsRequestH\x00R\x04logs\x123\n" +
+	"\aarrived\x18\x1d \x01(\v2\x17.agentkeyring.v2.SignedH\x00R\aarrived\x129\n" +
+	"\vsetup_offer\x18\x1e \x01(\v2\x16.agentkeyring.v2.EmptyH\x00R\n" +
+	"setupOfferB\b\n" +
 	"\x06methodJ\x04\b\x01\x10\x02J\x04\b\a\x10\bJ\x04\b\x17\x10\x18\"]\n" +
 	"\tDeviceLog\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\"\n" +
 	"\rdevice_key_id\x18\x02 \x01(\tR\vdeviceKeyId\x12\x14\n" +
-	"\x05lines\x18\x03 \x03(\tR\x05lines\"Z\n" +
+	"\x05lines\x18\x03 \x03(\tR\x05lines\"\x96\x01\n" +
+	"\aArrival\x12\x16\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12\"\n" +
+	"\rdevice_key_id\x18\x03 \x01(\tR\vdeviceKeyId\x120\n" +
+	"\x14arrived_unix_seconds\x18\x04 \x01(\x03R\x12arrivedUnixSeconds\"U\n" +
+	"\n" +
+	"SetupOffer\x12\x16\n" +
+	"\x06secret\x18\x01 \x01(\fR\x06secret\x12/\n" +
+	"\x14relay_tls_public_key\x18\x02 \x01(\fR\x11relayTlsPublicKey\"\xa9\x01\n" +
+	"\n" +
+	"RelayOffer\x12\x1d\n" +
+	"\n" +
+	"relay_host\x18\x01 \x01(\tR\trelayHost\x12\x1d\n" +
+	"\n" +
+	"relay_port\x18\x02 \x01(\rR\trelayPort\x12/\n" +
+	"\x14relay_tls_public_key\x18\x03 \x01(\fR\x11relayTlsPublicKey\x12\x16\n" +
+	"\x06secret\x18\x04 \x01(\fR\x06secret\x12\x14\n" +
+	"\x05label\x18\x05 \x01(\tR\x05label\"Z\n" +
 	"\vLogsRequest\x12,\n" +
 	"\x12since_unix_seconds\x18\x01 \x01(\x03R\x10sinceUnixSeconds\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\"\x1c\n" +
 	"\x04Logs\x12\x14\n" +
-	"\x05lines\x18\x01 \x03(\tR\x05lines\"\xbc\x06\n" +
+	"\x05lines\x18\x01 \x03(\tR\x05lines\"\xfc\x06\n" +
 	"\rRelayResponse\x12.\n" +
 	"\x05lease\x18\x01 \x01(\v2\x16.agentkeyring.v2.LeaseH\x00R\x05lease\x127\n" +
 	"\bapproval\x18\x02 \x01(\v2\x19.agentkeyring.v2.ApprovalH\x00R\bapproval\x121\n" +
@@ -4212,12 +4657,16 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"self_tests\x18\f \x01(\v2\x1a.agentkeyring.v2.SelfTestsH\x00R\tselfTests\x12D\n" +
 	"\rmembers_chain\x18\r \x01(\v2\x1d.agentkeyring.v2.MembersChainH\x00R\fmembersChain\x124\n" +
 	"\achanges\x18\x0e \x01(\v2\x18.agentkeyring.v2.ChangesH\x00R\achanges\x12+\n" +
-	"\x04logs\x18\x0f \x01(\v2\x15.agentkeyring.v2.LogsH\x00R\x04logs\x12\"\n" +
+	"\x04logs\x18\x0f \x01(\v2\x15.agentkeyring.v2.LogsH\x00R\x04logs\x12>\n" +
+	"\vsetup_offer\x18\x10 \x01(\v2\x1b.agentkeyring.v2.SetupOfferH\x00R\n" +
+	"setupOffer\x12\"\n" +
 	"\rend_of_stream\x18\v \x01(\bR\vendOfStreamB\b\n" +
 	"\x06result\"\a\n" +
-	"\x05Empty\"8\n" +
+	"\x05Empty\"W\n" +
 	"\vTestRequest\x12)\n" +
-	"\x11for_device_key_id\x18\x01 \x01(\tR\x0eforDeviceKeyId\"V\n" +
+	"\x11for_device_key_id\x18\x01 \x01(\tR\x0eforDeviceKeyId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\"V\n" +
 	"\x10RequestReference\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
@@ -4265,12 +4714,15 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x0einviter_key_id\x18\x04 \x01(\tR\finviterKeyId\x12\x16\n" +
 	"\x06secret\x18\x05 \x01(\fR\x06secret\x120\n" +
 	"\x14expires_unix_seconds\x18\x06 \x01(\x03R\x12expiresUnixSeconds\x12#\n" +
-	"\rinviter_label\x18\a \x01(\tR\finviterLabel\"\xb4\x01\n" +
+	"\rinviter_label\x18\a \x01(\tR\finviterLabel\"\xba\x02\n" +
 	"\x0eSelfTestReport\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\"\n" +
 	"\rdevice_key_id\x18\x02 \x01(\tR\vdeviceKeyId\x12.\n" +
 	"\x13tested_unix_seconds\x18\x03 \x01(\x03R\x11testedUnixSeconds\x126\n" +
-	"\x06checks\x18\x04 \x03(\v2\x1e.agentkeyring.v2.SelfTestCheckR\x06checks\"Q\n" +
+	"\x06checks\x18\x04 \x03(\v2\x1e.agentkeyring.v2.SelfTestCheckR\x06checks\x126\n" +
+	"\ajourney\x18\x05 \x03(\x0e2\x1c.agentkeyring.v2.JourneyStepR\ajourney\x120\n" +
+	"\x04step\x18\x06 \x01(\x0e2\x1c.agentkeyring.v2.JourneyStepR\x04step\x12\x1a\n" +
+	"\bfinished\x18\a \x01(\bR\bfinished\"Q\n" +
 	"\rSelfTestCheck\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06passed\x18\x02 \x01(\bR\x06passed\x12\x14\n" +
@@ -4285,11 +4737,13 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\amembers\x18\x02 \x01(\v2\x17.agentkeyring.v2.SignedR\amembers\x126\n" +
 	"\arefusal\x18\x03 \x01(\v2\x1c.agentkeyring.v2.JoinRefusalR\arefusal\"B\n" +
 	"\fPendingJoins\x122\n" +
-	"\x05joins\x18\x01 \x03(\v2\x1c.agentkeyring.v2.PendingJoinR\x05joins\"\xa6\x01\n" +
+	"\x05joins\x18\x01 \x03(\v2\x1c.agentkeyring.v2.PendingJoinR\x05joins\"\xf7\x01\n" +
 	"\aChanges\x12)\n" +
 	"\x10members_revision\x18\x01 \x01(\x04R\x0fmembersRevision\x12-\n" +
 	"\x12catalogue_revision\x18\x02 \x01(\x04R\x11catalogueRevision\x12A\n" +
-	"\rpending_joins\x18\x03 \x03(\v2\x1c.agentkeyring.v2.PendingJoinR\fpendingJoins\"\xa3\x01\n" +
+	"\rpending_joins\x18\x03 \x03(\v2\x1c.agentkeyring.v2.PendingJoinR\fpendingJoins\x12)\n" +
+	"\x10reports_revision\x18\x04 \x01(\x04R\x0freportsRevision\x12$\n" +
+	"\x0esealed_for_you\x18\x05 \x01(\rR\fsealedForYou\"\xa3\x01\n" +
 	"\vPendingJoin\x126\n" +
 	"\arequest\x18\x01 \x01(\v2\x1c.agentkeyring.v2.JoinRequestR\arequest\x12.\n" +
 	"\x13tailscale_node_name\x18\x02 \x01(\tR\x11tailscaleNodeName\x12,\n" +
@@ -4320,7 +4774,21 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x12LEASE_STATE_DENIED\x10\x03\x12\x1a\n" +
 	"\x16LEASE_STATE_UNANSWERED\x10\x04\x12\x15\n" +
 	"\x11LEASE_STATE_ENDED\x10\x05\x12\x19\n" +
-	"\x15LEASE_STATE_CANCELLED\x10\x06*\x88\x01\n" +
+	"\x15LEASE_STATE_CANCELLED\x10\x06*\xd5\x02\n" +
+	"\vJourneyStep\x12\x1c\n" +
+	"\x18JOURNEY_STEP_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14JOURNEY_STEP_WELCOME\x10\x01\x12\x1f\n" +
+	"\x1bJOURNEY_STEP_CHOOSE_DEVICES\x10\x02\x12\x19\n" +
+	"\x15JOURNEY_STEP_PRACTICE\x10\x03\x12\x1a\n" +
+	"\x16JOURNEY_STEP_PASSWORDS\x10\x04\x12\x17\n" +
+	"\x13JOURNEY_STEP_AGENTS\x10\x05\x12\x1a\n" +
+	"\x16JOURNEY_STEP_ALWAYS_ON\x10\x06\x12\x17\n" +
+	"\x13JOURNEY_STEP_IPHONE\x10\a\x12\x16\n" +
+	"\x12JOURNEY_STEP_WATCH\x10\b\x12\x1a\n" +
+	"\x16JOURNEY_STEP_COMPUTERS\x10\t\x12\x1c\n" +
+	"\x18JOURNEY_STEP_TRY_DEVICES\x10\n" +
+	"\x12\x16\n" +
+	"\x12JOURNEY_STEP_READY\x10\v*\x88\x01\n" +
 	"\tJoinState\x12\x1a\n" +
 	"\x16JOIN_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOIN_STATE_WAITING\x10\x01\x12\x17\n" +
@@ -4348,131 +4816,140 @@ func file_agentkeyring_v2_keyring_proto_rawDescGZIP() []byte {
 	return file_agentkeyring_v2_keyring_proto_rawDescData
 }
 
-var file_agentkeyring_v2_keyring_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agentkeyring_v2_keyring_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_agentkeyring_v2_keyring_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_agentkeyring_v2_keyring_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_agentkeyring_v2_keyring_proto_goTypes = []any{
 	(DeviceKind)(0),          // 0: agentkeyring.v2.DeviceKind
 	(Rule)(0),                // 1: agentkeyring.v2.Rule
 	(Choice)(0),              // 2: agentkeyring.v2.Choice
 	(LeaseState)(0),          // 3: agentkeyring.v2.LeaseState
-	(JoinState)(0),           // 4: agentkeyring.v2.JoinState
-	(ErrorCode)(0),           // 5: agentkeyring.v2.ErrorCode
-	(*Signed)(nil),           // 6: agentkeyring.v2.Signed
-	(*Members)(nil),          // 7: agentkeyring.v2.Members
-	(*Device)(nil),           // 8: agentkeyring.v2.Device
-	(*Machine)(nil),          // 9: agentkeyring.v2.Machine
-	(*Catalogue)(nil),        // 10: agentkeyring.v2.Catalogue
-	(*Login)(nil),            // 11: agentkeyring.v2.Login
-	(*SealedLogin)(nil),      // 12: agentkeyring.v2.SealedLogin
-	(*LoginSecret)(nil),      // 13: agentkeyring.v2.LoginSecret
-	(*Request)(nil),          // 14: agentkeyring.v2.Request
-	(*Answer)(nil),           // 15: agentkeyring.v2.Answer
-	(*Delivery)(nil),         // 16: agentkeyring.v2.Delivery
-	(*DeliveryContents)(nil), // 17: agentkeyring.v2.DeliveryContents
-	(*TimedCode)(nil),        // 18: agentkeyring.v2.TimedCode
-	(*Lease)(nil),            // 19: agentkeyring.v2.Lease
-	(*Approval)(nil),         // 20: agentkeyring.v2.Approval
-	(*Work)(nil),             // 21: agentkeyring.v2.Work
-	(*Notice)(nil),           // 22: agentkeyring.v2.Notice
-	(*RelayRequest)(nil),     // 23: agentkeyring.v2.RelayRequest
-	(*DeviceLog)(nil),        // 24: agentkeyring.v2.DeviceLog
-	(*LogsRequest)(nil),      // 25: agentkeyring.v2.LogsRequest
-	(*Logs)(nil),             // 26: agentkeyring.v2.Logs
-	(*RelayResponse)(nil),    // 27: agentkeyring.v2.RelayResponse
-	(*Empty)(nil),            // 28: agentkeyring.v2.Empty
-	(*TestRequest)(nil),      // 29: agentkeyring.v2.TestRequest
-	(*RequestReference)(nil), // 30: agentkeyring.v2.RequestReference
-	(*FindRequest)(nil),      // 31: agentkeyring.v2.FindRequest
-	(*FindResult)(nil),       // 32: agentkeyring.v2.FindResult
-	(*SealedLogins)(nil),     // 33: agentkeyring.v2.SealedLogins
-	(*AnswerUpload)(nil),     // 34: agentkeyring.v2.AnswerUpload
-	(*PushRegistration)(nil), // 35: agentkeyring.v2.PushRegistration
-	(*JoinRequest)(nil),      // 36: agentkeyring.v2.JoinRequest
-	(*JoinRefusal)(nil),      // 37: agentkeyring.v2.JoinRefusal
-	(*JoinInvite)(nil),       // 38: agentkeyring.v2.JoinInvite
-	(*SelfTestReport)(nil),   // 39: agentkeyring.v2.SelfTestReport
-	(*SelfTestCheck)(nil),    // 40: agentkeyring.v2.SelfTestCheck
-	(*MembersChain)(nil),     // 41: agentkeyring.v2.MembersChain
-	(*SelfTests)(nil),        // 42: agentkeyring.v2.SelfTests
-	(*JoinStatus)(nil),       // 43: agentkeyring.v2.JoinStatus
-	(*PendingJoins)(nil),     // 44: agentkeyring.v2.PendingJoins
-	(*Changes)(nil),          // 45: agentkeyring.v2.Changes
-	(*PendingJoin)(nil),      // 46: agentkeyring.v2.PendingJoin
-	(*Error)(nil),            // 47: agentkeyring.v2.Error
+	(JourneyStep)(0),         // 4: agentkeyring.v2.JourneyStep
+	(JoinState)(0),           // 5: agentkeyring.v2.JoinState
+	(ErrorCode)(0),           // 6: agentkeyring.v2.ErrorCode
+	(*Signed)(nil),           // 7: agentkeyring.v2.Signed
+	(*Members)(nil),          // 8: agentkeyring.v2.Members
+	(*Device)(nil),           // 9: agentkeyring.v2.Device
+	(*Machine)(nil),          // 10: agentkeyring.v2.Machine
+	(*Catalogue)(nil),        // 11: agentkeyring.v2.Catalogue
+	(*Login)(nil),            // 12: agentkeyring.v2.Login
+	(*SealedLogin)(nil),      // 13: agentkeyring.v2.SealedLogin
+	(*LoginSecret)(nil),      // 14: agentkeyring.v2.LoginSecret
+	(*Request)(nil),          // 15: agentkeyring.v2.Request
+	(*Answer)(nil),           // 16: agentkeyring.v2.Answer
+	(*Delivery)(nil),         // 17: agentkeyring.v2.Delivery
+	(*DeliveryContents)(nil), // 18: agentkeyring.v2.DeliveryContents
+	(*TimedCode)(nil),        // 19: agentkeyring.v2.TimedCode
+	(*Lease)(nil),            // 20: agentkeyring.v2.Lease
+	(*Approval)(nil),         // 21: agentkeyring.v2.Approval
+	(*Work)(nil),             // 22: agentkeyring.v2.Work
+	(*Notice)(nil),           // 23: agentkeyring.v2.Notice
+	(*RelayRequest)(nil),     // 24: agentkeyring.v2.RelayRequest
+	(*DeviceLog)(nil),        // 25: agentkeyring.v2.DeviceLog
+	(*Arrival)(nil),          // 26: agentkeyring.v2.Arrival
+	(*SetupOffer)(nil),       // 27: agentkeyring.v2.SetupOffer
+	(*RelayOffer)(nil),       // 28: agentkeyring.v2.RelayOffer
+	(*LogsRequest)(nil),      // 29: agentkeyring.v2.LogsRequest
+	(*Logs)(nil),             // 30: agentkeyring.v2.Logs
+	(*RelayResponse)(nil),    // 31: agentkeyring.v2.RelayResponse
+	(*Empty)(nil),            // 32: agentkeyring.v2.Empty
+	(*TestRequest)(nil),      // 33: agentkeyring.v2.TestRequest
+	(*RequestReference)(nil), // 34: agentkeyring.v2.RequestReference
+	(*FindRequest)(nil),      // 35: agentkeyring.v2.FindRequest
+	(*FindResult)(nil),       // 36: agentkeyring.v2.FindResult
+	(*SealedLogins)(nil),     // 37: agentkeyring.v2.SealedLogins
+	(*AnswerUpload)(nil),     // 38: agentkeyring.v2.AnswerUpload
+	(*PushRegistration)(nil), // 39: agentkeyring.v2.PushRegistration
+	(*JoinRequest)(nil),      // 40: agentkeyring.v2.JoinRequest
+	(*JoinRefusal)(nil),      // 41: agentkeyring.v2.JoinRefusal
+	(*JoinInvite)(nil),       // 42: agentkeyring.v2.JoinInvite
+	(*SelfTestReport)(nil),   // 43: agentkeyring.v2.SelfTestReport
+	(*SelfTestCheck)(nil),    // 44: agentkeyring.v2.SelfTestCheck
+	(*MembersChain)(nil),     // 45: agentkeyring.v2.MembersChain
+	(*SelfTests)(nil),        // 46: agentkeyring.v2.SelfTests
+	(*JoinStatus)(nil),       // 47: agentkeyring.v2.JoinStatus
+	(*PendingJoins)(nil),     // 48: agentkeyring.v2.PendingJoins
+	(*Changes)(nil),          // 49: agentkeyring.v2.Changes
+	(*PendingJoin)(nil),      // 50: agentkeyring.v2.PendingJoin
+	(*Error)(nil),            // 51: agentkeyring.v2.Error
 }
 var file_agentkeyring_v2_keyring_proto_depIdxs = []int32{
-	8,  // 0: agentkeyring.v2.Members.devices:type_name -> agentkeyring.v2.Device
-	9,  // 1: agentkeyring.v2.Members.machines:type_name -> agentkeyring.v2.Machine
+	9,  // 0: agentkeyring.v2.Members.devices:type_name -> agentkeyring.v2.Device
+	10, // 1: agentkeyring.v2.Members.machines:type_name -> agentkeyring.v2.Machine
 	0,  // 2: agentkeyring.v2.Device.kind:type_name -> agentkeyring.v2.DeviceKind
-	11, // 3: agentkeyring.v2.Catalogue.logins:type_name -> agentkeyring.v2.Login
+	12, // 3: agentkeyring.v2.Catalogue.logins:type_name -> agentkeyring.v2.Login
 	1,  // 4: agentkeyring.v2.Login.rule:type_name -> agentkeyring.v2.Rule
 	2,  // 5: agentkeyring.v2.Answer.choice:type_name -> agentkeyring.v2.Choice
-	18, // 6: agentkeyring.v2.DeliveryContents.one_time_codes:type_name -> agentkeyring.v2.TimedCode
+	19, // 6: agentkeyring.v2.DeliveryContents.one_time_codes:type_name -> agentkeyring.v2.TimedCode
 	3,  // 7: agentkeyring.v2.Lease.state:type_name -> agentkeyring.v2.LeaseState
-	6,  // 8: agentkeyring.v2.Approval.answer:type_name -> agentkeyring.v2.Signed
-	16, // 9: agentkeyring.v2.Approval.delivery:type_name -> agentkeyring.v2.Delivery
-	12, // 10: agentkeyring.v2.Work.sealed_login:type_name -> agentkeyring.v2.SealedLogin
-	19, // 11: agentkeyring.v2.Work.outcome:type_name -> agentkeyring.v2.Lease
-	11, // 12: agentkeyring.v2.Work.login:type_name -> agentkeyring.v2.Login
-	6,  // 13: agentkeyring.v2.RelayRequest.ask_signed:type_name -> agentkeyring.v2.Signed
-	30, // 14: agentkeyring.v2.RelayRequest.watch:type_name -> agentkeyring.v2.RequestReference
-	30, // 15: agentkeyring.v2.RelayRequest.collect:type_name -> agentkeyring.v2.RequestReference
-	30, // 16: agentkeyring.v2.RelayRequest.end:type_name -> agentkeyring.v2.RequestReference
-	31, // 17: agentkeyring.v2.RelayRequest.find:type_name -> agentkeyring.v2.FindRequest
-	28, // 18: agentkeyring.v2.RelayRequest.automatic_logins:type_name -> agentkeyring.v2.Empty
-	28, // 19: agentkeyring.v2.RelayRequest.members:type_name -> agentkeyring.v2.Empty
-	28, // 20: agentkeyring.v2.RelayRequest.catalogue:type_name -> agentkeyring.v2.Empty
-	28, // 21: agentkeyring.v2.RelayRequest.watch_work:type_name -> agentkeyring.v2.Empty
-	30, // 22: agentkeyring.v2.RelayRequest.get_work:type_name -> agentkeyring.v2.RequestReference
-	34, // 23: agentkeyring.v2.RelayRequest.answer:type_name -> agentkeyring.v2.AnswerUpload
-	35, // 24: agentkeyring.v2.RelayRequest.register_push:type_name -> agentkeyring.v2.PushRegistration
-	6,  // 25: agentkeyring.v2.RelayRequest.publish_members:type_name -> agentkeyring.v2.Signed
-	6,  // 26: agentkeyring.v2.RelayRequest.publish_catalogue:type_name -> agentkeyring.v2.Signed
-	33, // 27: agentkeyring.v2.RelayRequest.publish_sealed_logins:type_name -> agentkeyring.v2.SealedLogins
-	28, // 28: agentkeyring.v2.RelayRequest.sealed_logins:type_name -> agentkeyring.v2.Empty
-	36, // 29: agentkeyring.v2.RelayRequest.join:type_name -> agentkeyring.v2.JoinRequest
-	28, // 30: agentkeyring.v2.RelayRequest.pending_joins:type_name -> agentkeyring.v2.Empty
-	29, // 31: agentkeyring.v2.RelayRequest.test_request:type_name -> agentkeyring.v2.TestRequest
-	6,  // 32: agentkeyring.v2.RelayRequest.report_self_test:type_name -> agentkeyring.v2.Signed
-	28, // 33: agentkeyring.v2.RelayRequest.self_tests:type_name -> agentkeyring.v2.Empty
-	37, // 34: agentkeyring.v2.RelayRequest.refuse_join:type_name -> agentkeyring.v2.JoinRefusal
-	6,  // 35: agentkeyring.v2.RelayRequest.report_log:type_name -> agentkeyring.v2.Signed
-	25, // 36: agentkeyring.v2.RelayRequest.logs:type_name -> agentkeyring.v2.LogsRequest
-	19, // 37: agentkeyring.v2.RelayResponse.lease:type_name -> agentkeyring.v2.Lease
-	20, // 38: agentkeyring.v2.RelayResponse.approval:type_name -> agentkeyring.v2.Approval
-	32, // 39: agentkeyring.v2.RelayResponse.find:type_name -> agentkeyring.v2.FindResult
-	33, // 40: agentkeyring.v2.RelayResponse.sealed_logins:type_name -> agentkeyring.v2.SealedLogins
-	6,  // 41: agentkeyring.v2.RelayResponse.signed:type_name -> agentkeyring.v2.Signed
-	21, // 42: agentkeyring.v2.RelayResponse.work:type_name -> agentkeyring.v2.Work
-	43, // 43: agentkeyring.v2.RelayResponse.join:type_name -> agentkeyring.v2.JoinStatus
-	44, // 44: agentkeyring.v2.RelayResponse.pending_joins:type_name -> agentkeyring.v2.PendingJoins
-	28, // 45: agentkeyring.v2.RelayResponse.done:type_name -> agentkeyring.v2.Empty
-	47, // 46: agentkeyring.v2.RelayResponse.error:type_name -> agentkeyring.v2.Error
-	42, // 47: agentkeyring.v2.RelayResponse.self_tests:type_name -> agentkeyring.v2.SelfTests
-	41, // 48: agentkeyring.v2.RelayResponse.members_chain:type_name -> agentkeyring.v2.MembersChain
-	45, // 49: agentkeyring.v2.RelayResponse.changes:type_name -> agentkeyring.v2.Changes
-	26, // 50: agentkeyring.v2.RelayResponse.logs:type_name -> agentkeyring.v2.Logs
-	11, // 51: agentkeyring.v2.FindResult.logins:type_name -> agentkeyring.v2.Login
-	12, // 52: agentkeyring.v2.SealedLogins.logins:type_name -> agentkeyring.v2.SealedLogin
-	6,  // 53: agentkeyring.v2.AnswerUpload.answer:type_name -> agentkeyring.v2.Signed
-	16, // 54: agentkeyring.v2.AnswerUpload.delivery:type_name -> agentkeyring.v2.Delivery
-	9,  // 55: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
-	8,  // 56: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
-	40, // 57: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck
-	6,  // 58: agentkeyring.v2.MembersChain.revisions:type_name -> agentkeyring.v2.Signed
-	6,  // 59: agentkeyring.v2.SelfTests.reports:type_name -> agentkeyring.v2.Signed
-	4,  // 60: agentkeyring.v2.JoinStatus.state:type_name -> agentkeyring.v2.JoinState
-	6,  // 61: agentkeyring.v2.JoinStatus.members:type_name -> agentkeyring.v2.Signed
-	37, // 62: agentkeyring.v2.JoinStatus.refusal:type_name -> agentkeyring.v2.JoinRefusal
-	46, // 63: agentkeyring.v2.PendingJoins.joins:type_name -> agentkeyring.v2.PendingJoin
-	46, // 64: agentkeyring.v2.Changes.pending_joins:type_name -> agentkeyring.v2.PendingJoin
-	36, // 65: agentkeyring.v2.PendingJoin.request:type_name -> agentkeyring.v2.JoinRequest
-	5,  // 66: agentkeyring.v2.Error.code:type_name -> agentkeyring.v2.ErrorCode
-	67, // [67:67] is the sub-list for method output_type
-	67, // [67:67] is the sub-list for method input_type
-	67, // [67:67] is the sub-list for extension type_name
-	67, // [67:67] is the sub-list for extension extendee
-	0,  // [0:67] is the sub-list for field type_name
+	7,  // 8: agentkeyring.v2.Approval.answer:type_name -> agentkeyring.v2.Signed
+	17, // 9: agentkeyring.v2.Approval.delivery:type_name -> agentkeyring.v2.Delivery
+	13, // 10: agentkeyring.v2.Work.sealed_login:type_name -> agentkeyring.v2.SealedLogin
+	20, // 11: agentkeyring.v2.Work.outcome:type_name -> agentkeyring.v2.Lease
+	12, // 12: agentkeyring.v2.Work.login:type_name -> agentkeyring.v2.Login
+	7,  // 13: agentkeyring.v2.RelayRequest.ask_signed:type_name -> agentkeyring.v2.Signed
+	34, // 14: agentkeyring.v2.RelayRequest.watch:type_name -> agentkeyring.v2.RequestReference
+	34, // 15: agentkeyring.v2.RelayRequest.collect:type_name -> agentkeyring.v2.RequestReference
+	34, // 16: agentkeyring.v2.RelayRequest.end:type_name -> agentkeyring.v2.RequestReference
+	35, // 17: agentkeyring.v2.RelayRequest.find:type_name -> agentkeyring.v2.FindRequest
+	32, // 18: agentkeyring.v2.RelayRequest.automatic_logins:type_name -> agentkeyring.v2.Empty
+	32, // 19: agentkeyring.v2.RelayRequest.members:type_name -> agentkeyring.v2.Empty
+	32, // 20: agentkeyring.v2.RelayRequest.catalogue:type_name -> agentkeyring.v2.Empty
+	32, // 21: agentkeyring.v2.RelayRequest.watch_work:type_name -> agentkeyring.v2.Empty
+	34, // 22: agentkeyring.v2.RelayRequest.get_work:type_name -> agentkeyring.v2.RequestReference
+	38, // 23: agentkeyring.v2.RelayRequest.answer:type_name -> agentkeyring.v2.AnswerUpload
+	39, // 24: agentkeyring.v2.RelayRequest.register_push:type_name -> agentkeyring.v2.PushRegistration
+	7,  // 25: agentkeyring.v2.RelayRequest.publish_members:type_name -> agentkeyring.v2.Signed
+	7,  // 26: agentkeyring.v2.RelayRequest.publish_catalogue:type_name -> agentkeyring.v2.Signed
+	37, // 27: agentkeyring.v2.RelayRequest.publish_sealed_logins:type_name -> agentkeyring.v2.SealedLogins
+	32, // 28: agentkeyring.v2.RelayRequest.sealed_logins:type_name -> agentkeyring.v2.Empty
+	40, // 29: agentkeyring.v2.RelayRequest.join:type_name -> agentkeyring.v2.JoinRequest
+	32, // 30: agentkeyring.v2.RelayRequest.pending_joins:type_name -> agentkeyring.v2.Empty
+	33, // 31: agentkeyring.v2.RelayRequest.test_request:type_name -> agentkeyring.v2.TestRequest
+	7,  // 32: agentkeyring.v2.RelayRequest.report_self_test:type_name -> agentkeyring.v2.Signed
+	32, // 33: agentkeyring.v2.RelayRequest.self_tests:type_name -> agentkeyring.v2.Empty
+	41, // 34: agentkeyring.v2.RelayRequest.refuse_join:type_name -> agentkeyring.v2.JoinRefusal
+	7,  // 35: agentkeyring.v2.RelayRequest.report_log:type_name -> agentkeyring.v2.Signed
+	29, // 36: agentkeyring.v2.RelayRequest.logs:type_name -> agentkeyring.v2.LogsRequest
+	7,  // 37: agentkeyring.v2.RelayRequest.arrived:type_name -> agentkeyring.v2.Signed
+	32, // 38: agentkeyring.v2.RelayRequest.setup_offer:type_name -> agentkeyring.v2.Empty
+	20, // 39: agentkeyring.v2.RelayResponse.lease:type_name -> agentkeyring.v2.Lease
+	21, // 40: agentkeyring.v2.RelayResponse.approval:type_name -> agentkeyring.v2.Approval
+	36, // 41: agentkeyring.v2.RelayResponse.find:type_name -> agentkeyring.v2.FindResult
+	37, // 42: agentkeyring.v2.RelayResponse.sealed_logins:type_name -> agentkeyring.v2.SealedLogins
+	7,  // 43: agentkeyring.v2.RelayResponse.signed:type_name -> agentkeyring.v2.Signed
+	22, // 44: agentkeyring.v2.RelayResponse.work:type_name -> agentkeyring.v2.Work
+	47, // 45: agentkeyring.v2.RelayResponse.join:type_name -> agentkeyring.v2.JoinStatus
+	48, // 46: agentkeyring.v2.RelayResponse.pending_joins:type_name -> agentkeyring.v2.PendingJoins
+	32, // 47: agentkeyring.v2.RelayResponse.done:type_name -> agentkeyring.v2.Empty
+	51, // 48: agentkeyring.v2.RelayResponse.error:type_name -> agentkeyring.v2.Error
+	46, // 49: agentkeyring.v2.RelayResponse.self_tests:type_name -> agentkeyring.v2.SelfTests
+	45, // 50: agentkeyring.v2.RelayResponse.members_chain:type_name -> agentkeyring.v2.MembersChain
+	49, // 51: agentkeyring.v2.RelayResponse.changes:type_name -> agentkeyring.v2.Changes
+	30, // 52: agentkeyring.v2.RelayResponse.logs:type_name -> agentkeyring.v2.Logs
+	27, // 53: agentkeyring.v2.RelayResponse.setup_offer:type_name -> agentkeyring.v2.SetupOffer
+	12, // 54: agentkeyring.v2.FindResult.logins:type_name -> agentkeyring.v2.Login
+	13, // 55: agentkeyring.v2.SealedLogins.logins:type_name -> agentkeyring.v2.SealedLogin
+	7,  // 56: agentkeyring.v2.AnswerUpload.answer:type_name -> agentkeyring.v2.Signed
+	17, // 57: agentkeyring.v2.AnswerUpload.delivery:type_name -> agentkeyring.v2.Delivery
+	10, // 58: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
+	9,  // 59: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
+	44, // 60: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck
+	4,  // 61: agentkeyring.v2.SelfTestReport.journey:type_name -> agentkeyring.v2.JourneyStep
+	4,  // 62: agentkeyring.v2.SelfTestReport.step:type_name -> agentkeyring.v2.JourneyStep
+	7,  // 63: agentkeyring.v2.MembersChain.revisions:type_name -> agentkeyring.v2.Signed
+	7,  // 64: agentkeyring.v2.SelfTests.reports:type_name -> agentkeyring.v2.Signed
+	5,  // 65: agentkeyring.v2.JoinStatus.state:type_name -> agentkeyring.v2.JoinState
+	7,  // 66: agentkeyring.v2.JoinStatus.members:type_name -> agentkeyring.v2.Signed
+	41, // 67: agentkeyring.v2.JoinStatus.refusal:type_name -> agentkeyring.v2.JoinRefusal
+	50, // 68: agentkeyring.v2.PendingJoins.joins:type_name -> agentkeyring.v2.PendingJoin
+	50, // 69: agentkeyring.v2.Changes.pending_joins:type_name -> agentkeyring.v2.PendingJoin
+	40, // 70: agentkeyring.v2.PendingJoin.request:type_name -> agentkeyring.v2.JoinRequest
+	6,  // 71: agentkeyring.v2.Error.code:type_name -> agentkeyring.v2.ErrorCode
+	72, // [72:72] is the sub-list for method output_type
+	72, // [72:72] is the sub-list for method input_type
+	72, // [72:72] is the sub-list for extension type_name
+	72, // [72:72] is the sub-list for extension extendee
+	0,  // [0:72] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v2_keyring_proto_init() }
@@ -4506,8 +4983,10 @@ func file_agentkeyring_v2_keyring_proto_init() {
 		(*RelayRequest_RefuseJoin)(nil),
 		(*RelayRequest_ReportLog)(nil),
 		(*RelayRequest_Logs)(nil),
+		(*RelayRequest_Arrived)(nil),
+		(*RelayRequest_SetupOffer)(nil),
 	}
-	file_agentkeyring_v2_keyring_proto_msgTypes[21].OneofWrappers = []any{
+	file_agentkeyring_v2_keyring_proto_msgTypes[24].OneofWrappers = []any{
 		(*RelayResponse_Lease)(nil),
 		(*RelayResponse_Approval)(nil),
 		(*RelayResponse_Find)(nil),
@@ -4522,8 +5001,9 @@ func file_agentkeyring_v2_keyring_proto_init() {
 		(*RelayResponse_MembersChain)(nil),
 		(*RelayResponse_Changes)(nil),
 		(*RelayResponse_Logs)(nil),
+		(*RelayResponse_SetupOffer)(nil),
 	}
-	file_agentkeyring_v2_keyring_proto_msgTypes[30].OneofWrappers = []any{
+	file_agentkeyring_v2_keyring_proto_msgTypes[33].OneofWrappers = []any{
 		(*JoinRequest_Machine)(nil),
 		(*JoinRequest_Device)(nil),
 	}
@@ -4532,8 +5012,8 @@ func file_agentkeyring_v2_keyring_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentkeyring_v2_keyring_proto_rawDesc), len(file_agentkeyring_v2_keyring_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   42,
+			NumEnums:      7,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

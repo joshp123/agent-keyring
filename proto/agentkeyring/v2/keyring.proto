@@ -74,6 +74,11 @@ message Members {
   // The machine that runs the relay and passes requests on to the iPhone and
   // Apple Watch (the computer that stays on). Empty until one is added.
   string relay_machine_id = 6;
+  // Revision 1 only, on a relay that announced itself (SetupOffer):
+  // HMAC-SHA256 with the offer's secret over "agentkeyring.setup.v2", the
+  // relay's SPKI and the first device's key id. An empty relay that made an
+  // offer refuses a first list without it, so the first Mac to reach it cannot take it.
+  bytes setup_proof = 7;
 }
 
 message Device {
@@ -262,6 +267,10 @@ message Lease {
   int64 retry_not_before_unix_seconds = 8;  // A denial holds the login off: 1, 5, then 15 minutes in a row.
   string ended_by = 9;               // Device.label when a device ended an approval early (Stop).
   bool automatic = 10;               // Granted at once by the login's Automatic rule.
+  // While it waits, how far it has got, for the screens to say truthfully:
+  int64 pushed_unix_seconds = 11;    // Apple accepted the push for it.
+  int64 arrived_unix_seconds = 12;   // A device said it arrived (Arrival).
+  string arrived_on = 13;            // That device's label.
 }
 
 enum LeaseState {
@@ -365,6 +374,13 @@ message RelayRequest {
     // Devices and machines: the relay's own recent lines and each device's
     // latest log, merged in time order. Returns Logs.
     LogsRequest logs = 28;
+    // Devices: a request reached this device (Arrival, signed by its reply
+    // key). The Watch posts the same to "POST /v2/arrived". Returns Done.
+    Signed arrived = 29;
+    // From the relay's own computer only, while it has no members: the
+    // one-time secret our app there leaves in iCloud Keychain (RelayOffer).
+    // Returns SetupOffer.
+    Empty setup_offer = 30;
   }
 }
 
@@ -374,6 +390,28 @@ message DeviceLog {
   string domain = 1;               // "agentkeyring.log.v2"
   string device_key_id = 2;
   repeated string lines = 3;       // Oldest first; the relay keeps the last 1,000.
+}
+
+message Arrival {
+  string domain = 1;               // "agentkeyring.arrival.v2"
+  string request_id = 2;
+  string device_key_id = 3;
+  int64 arrived_unix_seconds = 4;
+}
+
+message SetupOffer {
+  bytes secret = 1;                // 32 random bytes; the relay keeps it until its first members list.
+  bytes relay_tls_public_key = 2;  // SPKI DER.
+}
+
+// What our app on the computer that stays on leaves in iCloud Keychain, so a
+// Mac on the same Apple Account offers "Connect to Mac mini?" with nothing typed.
+message RelayOffer {
+  string relay_host = 1;
+  uint32 relay_port = 2;
+  bytes relay_tls_public_key = 3;  // SPKI DER, pinned on first contact.
+  bytes secret = 4;                // SetupOffer.secret.
+  string label = 5;                // The computer as macOS names it, e.g. "Mac mini".
 }
 
 message LogsRequest {
@@ -401,6 +439,7 @@ message RelayResponse {
     MembersChain members_chain = 13;
     Changes changes = 14;
     Logs logs = 15;
+    SetupOffer setup_offer = 16;
   }
   bool end_of_stream = 11;
 }
@@ -412,6 +451,10 @@ message Empty {}
 // any other.
 message TestRequest {
   string for_device_key_id = 1;
+  // Chosen by the asker, 32 hex digits, and saved: the same id again rejoins
+  // that practice request instead of making another. While one waits for a
+  // device, a new id gets the waiting one: at most one per device.
+  string request_id = 2;
 }
 
 message RequestReference {
@@ -521,7 +564,27 @@ message SelfTestReport {
   string domain = 1;               // "agentkeyring.selftest.v2"
   string device_key_id = 2;
   int64 tested_unix_seconds = 3;
-  repeated SelfTestCheck checks = 4;
+  repeated SelfTestCheck checks = 4;   // Also the device's setup checklist, ticked from what it can see.
+  repeated JourneyStep journey = 5;    // From the Mac only: the steps for the devices he chose, in order.
+  JourneyStep step = 6;                // Where this device is in its first run.
+  bool finished = 7;                   // This device's first run is done.
+}
+
+// The one journey of first run, the same list on every device. The Mac picks
+// the steps from the devices he chose; each device reports where it is.
+enum JourneyStep {
+  JOURNEY_STEP_UNSPECIFIED = 0;
+  JOURNEY_STEP_WELCOME = 1;
+  JOURNEY_STEP_CHOOSE_DEVICES = 2;
+  JOURNEY_STEP_PRACTICE = 3;
+  JOURNEY_STEP_PASSWORDS = 4;
+  JOURNEY_STEP_AGENTS = 5;
+  JOURNEY_STEP_ALWAYS_ON = 6;
+  JOURNEY_STEP_IPHONE = 7;
+  JOURNEY_STEP_WATCH = 8;
+  JOURNEY_STEP_COMPUTERS = 9;
+  JOURNEY_STEP_TRY_DEVICES = 10;
+  JOURNEY_STEP_READY = 11;
 }
 
 message SelfTestCheck {
@@ -566,6 +629,8 @@ message Changes {
   uint64 members_revision = 1;
   uint64 catalogue_revision = 2;
   repeated PendingJoin pending_joins = 3;  // To a Mac only: computers and devices waiting to join.
+  uint64 reports_revision = 4;     // Rises when any device's status report changes; fetch self_tests.
+  uint32 sealed_for_you = 5;       // Sealed copies held for this device; with the catalogue's count, progress while a new device is filled.
 }
 
 message PendingJoin {
