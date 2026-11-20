@@ -212,7 +212,7 @@ struct MacApprovalPanelView: View {
     /// "What should Codex do instead?", or "What should it do instead?" when
     /// the agent's name would not fit beside Deny.
     private var placeholder: String {
-        let full = AccessRequestCopy.replyPlaceholder(agent)
+        let full = AccessRequestCopy.replyPlaceholder(isPractice ? "the agent" : agent)
         let deny = (AccessRequestCopy.deny as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold)]).width + 36
         let room = RequestToken.width - 40 - 8 - deny - 32
         let needed = (full as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
@@ -311,6 +311,7 @@ struct MacApprovalPanelView: View {
     private var outcomeDetail: String? {
         switch request.state {
         case .approved where isPractice: FirstRunCopy.practiceApproved
+        case .approved where setUp != nil: AccessRequestCopy.added(request.login.site)
         case let .approved(_, until): AccessRequestCopy.canUseUntil(agent, AccessRequestCopy.clock(until))
         case let .denied(_, reply?, _): AccessRequestCopy.youTold(agent, reply)
         case .denied where setUp != nil: setUp?.denied

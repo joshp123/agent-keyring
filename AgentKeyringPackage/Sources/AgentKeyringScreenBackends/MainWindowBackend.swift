@@ -24,22 +24,13 @@ public final class AppMainWindowBackend: MainWindowBackend {
             LoginRow(id: $0.id, site: $0.website.isEmpty ? $0.title : $0.website, account: $0.account, rule: LoginRule($0.policy))
         }
         let device = model.device
-        let members = device?.members
-        let tested = device?.lastTested ?? [:]
-        let macTested = model.testedAt
-        let devices: [DeviceRow] = members.map { members in
-            members.devices.map { d in
-                DeviceRow(id: d.keyID, name: d.label, kind: d.kind == .iphone ? .iPhone : d.kind == .watch ? .watch : .mac,
-                    lastTested: d.keyID == device?.ownDeviceID ? macTested : tested[d.keyID], isThisMac: d.keyID == device?.ownDeviceID)
-            }
-        } ?? [DeviceRow(id: "this-mac", name: Host.current().localizedName ?? "Mac", kind: .mac, lastTested: macTested, isThisMac: true)]
-        let machines: [MachineRow] = members.map { members in
+        let devices = SetupScreens.practiceRows(model).map { DeviceRow(practice: $0, isThisMac: $0.id == model.thisMacDeviceKey) }
+        let machines: [MachineRow] = device?.members.map { members in
             members.machines.map { m in
                 MachineRow(id: m.machineID, name: m.label, isThisMac: m.machineID == device?.ownMachineID,
-                    isAlwaysOn: m.machineID == device?.alwaysOnMachineID, automatic: m.automaticAllowed, lastTested: nil)
+                    isAlwaysOn: m.machineID == device?.alwaysOnMachineID)
             }
-        } ?? [MachineRow(id: device?.ownMachineID ?? "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true,
-            isAlwaysOn: false, automatic: model.automaticOnThisMac, lastTested: nil)]
+        } ?? [MachineRow(id: device?.ownMachineID ?? "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true, isAlwaysOn: false)]
         return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, sampleOnly: model.status?.sampleOnly == true,
             devices: devices, machines: machines)
     }
@@ -70,13 +61,7 @@ public final class AppMainWindowBackend: MainWindowBackend {
         if let message = model.accessControl.errorMessage { throw ScreenFailure(message: message) }
     }
 
-    public func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {
-        let label = machineID == model.device?.ownMachineID ? nil : model.device?.members?.machines.first { $0.machineID == machineID }?.label
-        try await confirmed {
-            try await OwnerConfirmation.confirm(context, reason: MainWindowCopy.automaticReason(label, on: on), until: .now.addingTimeInterval(600))
-            try await model.setAutomatic([machineID: on], context: context)
-        }
-    }
+    public func sendPractice(deviceID: String) { Task { await model.sendPractice(to: deviceID) } }
 
     public func remove(id: String, context: LAContext) async throws {
         guard let device = model.device else { return }
@@ -85,6 +70,20 @@ public final class AppMainWindowBackend: MainWindowBackend {
 
     /// Copy from Passwords: Passwords opens, and the window shows the steps until the passwords arrive.
     public func importAgain() { model.openPasswordsExport() }
+
+    /// "Connect a computer of yours that stays on": the address of the relay
+    /// already running there ("100.64.0.5:17445" or "mac-mini:17445"), then
+    /// Touch ID. Onboarding and Add Computer in Devices use the same.
+    public func connectRelay(_ address: String, onAuthenticated: @MainActor () -> Void = {}) async throws {
+        guard let device = model.device else { throw ScreenFailure(message: "This Mac has no keys yet.") }
+        let parts = address.trimmingCharacters(in: .whitespaces).split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, let port = UInt16(parts[1]) else {
+            throw ScreenFailure(message: "Enter the computer's address and the relay's port, such as mac-mini:17445.")
+        }
+        try await screenErrors {
+            try await device.connect(to: try RelayEndpoint(host: String(parts[0]), port: port), context: LAContext(), onAuthenticated: onAuthenticated)
+        }
+    }
 
     private func confirmed(_ action: () async throws -> Void) async throws {
         do { try await screenErrors(action) }

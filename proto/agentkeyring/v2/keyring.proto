@@ -259,7 +259,7 @@ message Lease {
   int64 not_after_unix_seconds = 5;  // Set once approved.
   string answered_by = 6;            // Device.label, once answered.
   string reply = 7;                  // Display only; show the words from collect's signed answer.
-  int64 retry_not_before_unix_seconds = 8;  // A denial holds the login off for 30 minutes.
+  int64 retry_not_before_unix_seconds = 8;  // A denial holds the login off: 1, 5, then 15 minutes in a row.
   string ended_by = 9;               // Device.label when a device ended an approval early (Stop).
   bool automatic = 10;               // Granted at once by the login's Automatic rule.
 }
@@ -359,7 +359,30 @@ message RelayRequest {
     uint64 members_since = 24;
     // The inviting device, joined or not: refuses a machine's join. Returns Done.
     JoinRefusal refuse_join = 25;
+    // Devices: the device's recent log (DeviceLog), signed by its reply key.
+    // The relay keeps the latest from each device. Returns Done.
+    Signed report_log = 27;
+    // Devices and machines: the relay's own recent lines and each device's
+    // latest log, merged in time order. Returns Logs.
+    LogsRequest logs = 28;
   }
+}
+
+// One line per thing a device did, and why, with no secrets and no site or
+// account names: "<UTC time, ms, ISO 8601> <device> <part> <event> key=value ...".
+message DeviceLog {
+  string domain = 1;               // "agentkeyring.log.v2"
+  string device_key_id = 2;
+  repeated string lines = 3;       // Oldest first; the relay keeps the last 1,000.
+}
+
+message LogsRequest {
+  int64 since_unix_seconds = 1;    // 0: all it has.
+  string request_id = 2;           // Only lines that name this request.
+}
+
+message Logs {
+  repeated string lines = 1;       // Time order.
 }
 
 message RelayResponse {
@@ -376,6 +399,8 @@ message RelayResponse {
     Error error = 10;
     SelfTests self_tests = 12;
     MembersChain members_chain = 13;
+    Changes changes = 14;
+    Logs logs = 15;
   }
   bool end_of_stream = 11;
 }
@@ -533,6 +558,16 @@ message PendingJoins {
   repeated PendingJoin joins = 1;
 }
 
+// On watch_work, beside each Work: sent when the stream opens, whenever one of
+// these changes, and at least every 30 seconds, so a device notices a dead
+// connection and never polls. It names revisions only; the device fetches the
+// signed documents and checks them itself.
+message Changes {
+  uint64 members_revision = 1;
+  uint64 catalogue_revision = 2;
+  repeated PendingJoin pending_joins = 3;  // To a Mac only: computers and devices waiting to join.
+}
+
 message PendingJoin {
   JoinRequest request = 1;
   string tailscale_node_name = 2;  // From the relay's Tailscale lookup of the connection.
@@ -550,6 +585,6 @@ enum ErrorCode {
   ERROR_CODE_NOT_ALLOWED = 2;      // Unknown key, blocked login, or not this caller's.
   ERROR_CODE_NOT_FOUND = 3;
   ERROR_CODE_CONFLICT = 4;         // Already answered, or a stale revision.
-  ERROR_CODE_HELD_OFF = 5;         // Denied less than 30 minutes ago.
+  ERROR_CODE_HELD_OFF = 5;         // Denied a moment ago; the message says until when, and his words.
   ERROR_CODE_UNAVAILABLE = 6;
 }

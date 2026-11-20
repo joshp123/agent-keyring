@@ -137,6 +137,7 @@ public struct MenuBarTipView: View {
 
     public var body: some View {
         Text(FirstRunCopy.staysHere).font(.system(size: 13)).foregroundStyle(RequestToken.ink)
+            .fixedSize()
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(RequestToken.surface, in: .rect(cornerRadius: 10))
             .shadow(color: .black.opacity(0.2), radius: 12, y: 8)

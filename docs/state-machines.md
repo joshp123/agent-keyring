@@ -10,32 +10,45 @@ What this file does not claim: that no other state exists. The sections below ar
 
 ## Mac first run
 
-Code: `AgentKeyringFeature/FirstRun.swift` (states and transitions, pure), `MirrorAppModel.send` (saves each move), `AgentKeyring/AgentKeyringApp.swift` `FirstRunHome` (draws it). Paper: page "First run and the app", board "First run". Each picture on the board is a state, and each caption is a transition.
+Code: `AgentKeyringFeature/FirstRun.swift` (states and transitions, pure), `MirrorAppModel.send` (saves each move), `AgentKeyring/AgentKeyringApp.swift` `FirstRunHome` and `AgentKeyringScreenBackends/SetupScreens.swift` (draw it). Paper: page "First run and the app", board "Mac", ten steps, one window each. Each window is a state, and each button a transition.
 
-One value, `FirstRun`, is saved in the app's settings. It holds only which screen he is on and what he did there. Facts the world owns are read beside it and never copied into it:
+One value, `FirstRun`, is saved in the app's settings. It holds only which window he is on and what he did there. Facts the world owns are read beside it and never copied into it:
 
-- Touch ID can be used: `MacApprover.shared.state` (ready, lid closed, or no fingerprint), read again when the screens change, the Mac wakes or the app becomes active. The first-run window, the request panel and the presenter all read this one value.
+- Touch ID can be used: `MacApprover.shared.state` (ready, lid closed, or no fingerprint). The first-run window, the request panel and the presenter all read this one value.
 - The passwords: the store, and whether the only one is the sample.
-- Whether the agents on this Mac are set up: `~/.local/bin/agent-keyring` resolves to this app's own command (`AgentsOnThisMac`). It is read from the link each time the window is drawn and when Continue is pressed, so the app's button, an agent's own `install`, `install --undo` and a Nix switch all show up. Nothing remembers it.
-- Whether a computer that stays on exists: the members list.
+- The first request from an agent on this Mac that he approved ("Try it now"): read from the leases each time (`MirrorAppModel.firstApprovedRequest`).
+- Whether this Mac reaches a computer that stays on, and which devices and computers have joined: the members list. "Waiting for your iPhone" turns into "Josh's iPhone added." and Skip into Continue when an iPhone appears in it; the same for the Apple Watch, and for each computer on "Add other computers".
+- The last practice request on each device (`MirrorAppModel.practiceResults`, by device key): sent, approved, denied with his words, no answer, or failed. Not saved.
 
-| State | Screen | Event | Next |
+| State | Window | Event | Next |
 |---|---|---|---|
-| welcome | Welcome | Get Started | practice |
+| welcome | Welcome to Agent Keyring | Get Started | practice |
 | practice | Try a practice request (the panel beside the window) | approved with Touch ID | copyPasswords |
 | practice | | Deny, with or without words | practiceDenied(reply) |
 | practiceDenied(reply) | You denied it | Try Again | practice |
-| copyPasswords | Copy your passwords (see the copy below) | his passwords arrive and are sealed | setUpAgents(passwords(n)) |
-| copyPasswords | | Use a Sample Password | setUpAgents(sample) |
-| setUpAgents(copied) | N passwords copied, or 1 sample password added; Set up your agents | his own passwords arrive | setUpAgents(passwords(n)) |
-| setUpAgents(sample) | | Copy Your Own Passwords | copyPasswords |
-| setUpAgents | | Continue, only while the agents on this Mac are set up | ready |
-| ready | Agent Keyring is ready (the sample box while the sample is the only password; the iPhone line depends on a computer that stays on) | Copy Your Own Passwords | copyPasswords |
+| copyPasswords | Copy your passwords (see the copy below) | his passwords arrive and are sealed | tellAgents(passwords(n)) |
+| copyPasswords | | Use a Sample Password | tellAgents(sample) |
+| tellAgents(copied) | Tell your agents about Agent Keyring, and Try it now | his own passwords arrive | tellAgents(passwords(n)) |
+| tellAgents(sample) | | Copy Your Own Passwords | copyPasswords |
+| tellAgents | | Continue, this Mac not yet connected | stayingOn |
+| tellAgents | | Continue, this Mac already connected | addPhone |
+| stayingOn | Approve from your iPhone and Apple Watch (an address, then Connect) | Connect, and Touch ID approves it | addPhone |
+| stayingOn | | Use This Mac Alone | tryDevices |
+| addPhone | Add your iPhone | Continue, once it has joined | addWatch |
+| addPhone | | Skip | addComputers |
+| addWatch | Add your Apple Watch | Continue or Skip | addComputers |
+| addComputers | Add other computers (the one-time command) | Continue | tryDevices |
+| tryDevices | Try a request on each device | Continue | ready |
+| ready | Agent Keyring is ready (with devices, or this Mac alone; the sample box first while the sample is the only password) | Copy Your Own Passwords | copyPasswords |
 | ready | | Done | finished |
 
 An event the table has no row for leaves the state as it is.
 
-"Set Up Agents on This Mac" runs the app's own `agent-keyring install` inside the sandbox, which may write only the command's and the agents' folders (`Config/AgentKeyring.entitlements`). While it runs, or after it fails, the click has its own short-lived value, `AgentsSetUpClick` (working, or failed with the command's words); it is never saved, and a failure never hides the links: if they show the agents set up, the tick shows.
+While Connect waits for macOS's Touch ID dialog, the window says "Approve <name>" (`ConnectFlow`: idle, waiting for Touch ID, or failed with the reason, which the address field then shows). It is not saved: a restart in the middle shows the address field again.
+
+Devices opens the same windows in a sheet: Add iPhone or Apple Watch… (the computer that stays on first if there is none, then the iPhone, then the Apple Watch), Add Computer… (the computer that stays on first if there is none, then the command) and Tell Your Agents…. The sheet keeps only which of its windows shows; its buttons close it.
+
+Send Practice Request on another device asks the relay for a practice request for that device and waits for its answer (`MacDevice.practice(on:)`). On this Mac it marks the practice as sent, and the request panel shows the same practice request first run uses; its answer is recorded there.
 
 ### Copying from the Passwords app
 
@@ -66,7 +79,7 @@ What must always be true:
 Found and fixed (tests in `FirstRunTests`, `SamplePasswordTests`, and `TestABlockedLoginHasNoCopyOnTheRelay` in `internal/relay`):
 
 - **A late timer.** The five-minute timer moves the copy on only from `waiting`, so it cannot fire after the passwords arrived.
-- **A remembered "set up" that went stale.** The first build saved a flag when `install` ran; `install --undo` or a Nix switch left it saying yes. The links are now the only record.
+- **"Set Up Agents on This Mac" changed his folders.** The button and `install`'s link switching are gone; the app gives him a note for his agents and changes nothing.
 - **The ten flags first run replaced** (`isImporting`, `awaitingExport`, `exportTimedOut`, `showsAutoFillHelp`, `providerState`, `canAskAgain`, `selfTest`, `firstRunFinished`, the window's own `lidClosed` and `needsFingerprint`). Choosing the sample also closes an open copy, so the main window never opens later on a copy he abandoned.
 
 ## The lease, across the Mac, the relay and the command
@@ -88,9 +101,11 @@ What must always be true:
 
 - **Every answer is over the asking computer's signed bytes.** The command checks an approval and a denial's words against the request it saved before sending. The relay cannot answer one request with another's approval.
 - **A device's approval keeps working while the relay is down, until its 30 minutes end.** The command saves it on first sight, and deletes it when the relay says the request ended. This is so a relay restart does not break an approval he already gave.
-- **A denial holds the password off for that computer for 30 minutes, in one place for each kind of agent.**
-  - For an agent on another computer, the relay holds it off.
-  - For an agent on the Mac, the Mac's lease store holds it off. The Mac also tells the relay, so the iPhone and Apple Watch show the same outcome.
+- **A denial holds the password off for that computer briefly, in one place for each kind of agent.** A minute after the first denial, five after a second in a row, fifteen after more; an approval, or an hour with no denial, starts again at a minute. The agent is told the time it may ask again and his reply word for word.
+  - For an agent on another computer, the relay holds it off (`hold` in `store.go`: until, how many in a row, his words).
+  - For an agent on the Mac, the Mac's lease store holds it off (`Suppression`). The Mac also tells the relay, so the iPhone and Apple Watch show the same outcome.
+- **A device removed a moment ago cannot answer.** The relay checks an answer, and the asking computer's request, against the members list under the same lock that records it.
+- **Only a request that newly waits is a notification Josh sees and hears.** Every outcome (answered, stopped, released, cancelled, no answer) is a silent push with the request's `id`, so the iPhone and Apple Watch take the notification away.
 - **The Mac never waits for the relay.** A Mac agent's request is shown on the Mac at once, and also offered to the iPhone and Apple Watch when the relay can be reached. The first answer wins. The Mac's lease store is the record for that agent; the relay's copy follows it:
   - approved or denied on the Mac: `answered_here`;
   - released: `end`;
@@ -106,7 +121,13 @@ Found and fixed this week, each by a run that reached it:
 
 Known and left alone:
 
-- **Lifting a hold-off is local.** If Josh lifts a hold-off on the Mac ("Let it ask again"), only the Mac's own hold-off goes. The relay's hold-off for the Mac stays for its 30 minutes. In that time a Mac agent's request is shown on the Mac but not offered to the iPhone and Apple Watch.
+- **Lifting a hold-off is local.** If Josh lifts a hold-off on the Mac ("Let it ask again"), only the Mac's own hold-off goes. The relay's hold-off for the Mac stays for its minute or few. In that time a Mac agent's request is shown on the Mac but not offered to the iPhone and Apple Watch.
+
+Found and fixed on 20 November, from Josh's run on his own devices (tests in `internal/relay/requests_test.go`, `DenialHoldTests`):
+
+- **An answer from an Apple Watch added after the request was made never reached the Mac.** The Mac checked the answer against the members list it had when it connected, which did not list the Watch (`unknownSigner`). It now refreshes the list before it checks any answer, and hears of every new list on its connection (below).
+- **Outcomes buzzed again.** The relay sent the same sounding alert for the answer and the release as for the request, so his Apple Watch showed old requests after he had answered them.
+- **Thirty minutes after any denial** was too long for "not yet, fix this first".
 
 ## The Mac's approval panel
 
@@ -129,7 +150,7 @@ What must always be true:
 - **A Deny clicked while the dialog is up wins.** The dialog's own end changes `Local` only while it is still `authenticating` or `sending(approve)`.
 - **A touch that lands after another device answered releases nothing.** For an agent on the Mac, the lease store approves only a pending lease. For another computer, the relay refuses a second answer.
 
-The presenter puts up one panel at a time, as one value: idle, showing an item, or closing an item (the outcome stays 2.5 seconds, a denial 10). It always shows the first waiting item it can build; one whose request has gone is skipped, never left half-shown.
+The presenter puts up one panel at a time, as one value: idle, showing an item, or closing an item (the outcome stays 2.5 seconds, a denial 10; the practice request goes at once, since first run's window says what happened). It always shows the first waiting item it can build; one whose request has gone is skipped, never left half-shown.
 
 Found and fixed: the panel used to write "sending" into the request's own state, so an update arriving mid-send had to be skipped by hand, and the presenter kept six fields (`shownItem`, `shownRequest`, `question`, `showing`, `closingAfterAnswer`, `needsFingerprint`); a request that vanished between being chosen and being shown left the presenter pointing at the previous one. Test: `anUpdateWhileHisDenialIsSentDoesNotUndoIt`.
 
@@ -146,7 +167,14 @@ One value, `Lifecycle`: notSetUp, settingUp(Setup), or joined(Saved). `Setup` ca
 | settingUp | Touch ID on "add Mac mini", and the relay takes the members list | joined |
 | settingUp | Touch ID, but the relay refuses the list | settingUp (he can approve again) |
 
-What must always be true: joined is reached only by his Touch ID on the computer that stays on.
+| notSetUp | Josh enters the address of a relay already running ("Connect"), then Touch ID | joined: this Mac the first device and the only computer, or, if the relay already lists this Mac's keys, that list as it stands |
+| notSetUp | the relay at that address belongs to other devices | notSetUp, with the error |
+
+What must always be true: joined is reached only by his Touch ID, on the computer that stays on or on the address he entered.
+
+### Staying connected
+
+While joined, the Mac holds one connection to the relay (`watch_work`). On it come the requests, and `Changes`: the members revision, the catalogue revision and the computers waiting to join, sent when the connection opens, whenever one of them changes, and at least every 30 seconds. The Mac takes a newer members list or catalogue when `Changes` names one. If nothing arrives for 75 seconds the connection is dead without having closed, and the Mac connects again. Nothing polls: the Mac used to ask for waiting joins every 3 seconds, 20 new connections a minute, and never refreshed the members list between connections.
 
 Known and left alone: a restart of the Mac app in the middle of setup forgets it (settingUp is not saved). The agent's `enrol` then waits its ten minutes and stops with "no answer", and the agent runs `setup-relay` again. The connection, the members list and the running task are not part of this value: they follow the relay while joined.
 

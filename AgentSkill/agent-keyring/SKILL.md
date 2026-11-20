@@ -2,7 +2,7 @@
 name: agent-keyring
 description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation, and set Agent Keyring up on the user's Mac and their other computers. Use whenever a task needs a login, a password or a two-factor code, and when the user asks you to set up Agent Keyring. Never ask the user to type or paste a password."
 metadata:
-  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5; setting up from one line on 2026-11-19 by model claude opus 5.5; denials, undoing install and this Mac's own agents on 2026-11-19 by model claude opus 5.5"
+  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5; setting up from one line on 2026-11-19 by model claude opus 5.5; denials, undoing install and this Mac's own agents on 2026-11-19 by model claude opus 5.5; no more linking, --agent and short holds after a denial on 2026-11-20 by model claude opus 5.5"
 ---
 
 # Agent Keyring
@@ -19,12 +19,13 @@ If the user asked you to set up Agent Keyring, read "Setting up" below first.
 
 ```sh
 agent-keyring find example.com          # logins, accounts and login IDs; no secrets
-lease=$(agent-keyring lease LOGIN_ID --task "$task" --reason "What the user asked for, in one line")
+lease=$(agent-keyring lease LOGIN_ID --task "$task" --reason "What the user asked for, in one line" --agent "YOUR NAME")
 # ... use the lease, as many times as the task needs ...
 agent-keyring release "$lease"
 ```
 
 - **The task reference** names this job. Make one up when you start the job and keep it through every retry. A new job gets a new reference. Leases are per task, so a reused reference mixes jobs, and a fresh one for the same job asks the user again.
+- **The agent** is your own name as the user knows it, such as "Claude Code", "Codex" or "pi": put your own in place of YOUR NAME. It is shown as who is asking; without it, a request made over SSH can only say "an agent".
 - **The reason** is shown to the user when they are asked. Say what they asked you to do, plainly. It is labelled as your claim, so don't oversell it.
 - **`lease` waits** while the user is asked, for up to ten minutes, and prints only the lease ID. Keep it running and keep working on the task: the user's answer comes back to this command, not to your conversation, so if you stop or end your turn while it waits, the answer reaches nobody. Agent Keyring already shows the user what you asked for; you don't need to tell them. If your tool stops the command early, rejoin the same request with `agent-keyring status LEASE --wait`. Never start a new lease for the same task to retry; that one joins the waiting request anyway.
 
@@ -59,13 +60,13 @@ How it fits together: the Mac holds the passwords and shows each request. Other 
 
 When you talk to the user, say "password", not "login"; "computer", not "machine"; and "Apple Watch" in full.
 
-**1. Give this Mac's agents the command and this skill.** Do this every time; it is safe to repeat. On a new Mac nothing is on the path yet, so use the app's own command by its full path:
+**1. The command on this Mac.** Agent Keyring changes nothing in the user's folders or settings: it does not link itself onto the path. Run the app's own command by its full path:
 
 ```sh
-"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" install
+"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" skill
 ```
 
-This links `agent-keyring` into `~/.local/bin`, links this skill for Codex and Claude Code, and registers the browser extension's helper. From then on, every agent on this Mac uses this app. If `command -v agent-keyring` still finds nothing, `~/.local/bin` is not on your path: in the steps below, use the full path wherever they say `agent-keyring` on this Mac. If `install` says `Not changed` about a link because something else manages it, such as a Nix or Home Manager configuration, don't change that configuration: tell the user what it said at the end, and carry on. `install` also prints how to put back the links it replaced, with `install --undo`; run that only if the user asks.
+Wherever the steps below say `agent-keyring` on this Mac, use that full path, unless `command -v agent-keyring` already finds it. Never add it to their path, shell files or agent settings yourself; if they want that, they will do it or ask you. An earlier version's `install` may have changed some links; `install --undo` puts them back, and you run it only if the user asks.
 
 **2. See what is already done.** `agent-keyring relay-status` prints one of:
 
@@ -118,7 +119,7 @@ You can run several at once; the Mac shows the requests one after another. Agent
 
 ## When it doesn't work
 
-- **Denied.** The user said no, and any reply they wrote is printed. Do what it says, or stop and ask them.
+- **Denied.** The user said no, and any reply they wrote is printed word for word. Do what it says, or stop and ask them. The same password can be asked for again after a minute; after a second denial in a row, five minutes; after more, fifteen. The message says until when. Don't wait it out to ask again for the same thing: change what you do first.
 - **Unanswered.** Nobody answered in time. Tell the user, and try again when they are back, not in a loop.
 - **Expired or released.** Lease again for the same task. Automatic logins don't ask; others ask once.
 - **The page isn't the saved site.** You are not where the login belongs. Don't work around it.

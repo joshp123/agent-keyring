@@ -106,7 +106,9 @@ private struct HomeWindow: View {
                     problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text },
                     actions: copyActions(model))
             } else if model.firstRunFinished {
-                if let main { MacMainWindowView(model: main) } else { ProgressView().padding(40) }
+                if let main {
+                    MacMainWindowView(model: main) { sheet, close in AnyView(SetupSheet(sheet, model: model, close: close)) }
+                } else { ProgressView().padding(40) }
             } else {
                 FirstRunHome(model: model, presentation: presentation)
             }
@@ -119,7 +121,7 @@ private struct HomeWindow: View {
             main?.tab = presentation.tab
         }
         .onChange(of: presentation.mainWindowRequest) { main?.tab = presentation.tab }
-        .background(FloatingWhile(isOn: model.passwordsCopy == .waiting))
+        .background(BesidePasswords(isOn: model.passwordsCopy == .waiting))
     }
 }
 
@@ -147,10 +149,14 @@ private struct FirstRunHome: View {
     let model: MirrorAppModel
     let presentation: AgentKeyringPresentation
     @Environment(\.dismissWindow) private var dismissWindow
-    /// When he last came back to the app: the agents' links are read again then.
-    @State private var cameBack = Date.now
+    /// Connect on the window for a computer that stays on: waiting for Touch ID, or why it failed.
+    @State private var connect: ConnectFlow?
+    /// "Add other computers": the one-time command, made when that window opens.
+    @State private var command: String?
 
-    /// The screen is first run's state, with the facts beside it: Touch ID, the passwords and the agents' links.
+    /// The window is first run's state, with the facts beside it: Touch ID,
+    /// the passwords, the devices and computers that have joined, the leases
+    /// and the last practice results.
     private var screen: FirstRunScreen? {
         switch model.firstRun {
         case .welcome: .welcome
@@ -162,25 +168,14 @@ private struct FirstRunHome: View {
             }
         case let .practiceDenied(reply): .practiceDenied(reply: reply)
         case .copyPasswords: copyScreen(model.passwordsCopy ?? .steps, model: model, offerSample: true)
-        case let .setUpAgents(.passwords(count)):
-            .setUpAgents(copiedTitle: FirstRunCopy.copied(count), copiedDetail: FirstRunCopy.mustAskAny, sampleOnly: sampleOnly, agents: agents)
-        case .setUpAgents(.sample):
-            .setUpAgents(copiedTitle: FirstRunCopy.sampleAdded, copiedDetail: FirstRunCopy.sampleDetail, sampleOnly: sampleOnly, agents: agents)
-        case .ready: .ready(phoneLater: model.device?.alwaysOnMachineID == nil, sampleOnly: sampleOnly)
+        case let .tellAgents(copied): SetupScreens.tellAgents(model, copied: copied)
+        case .stayingOn: (connect ?? ConnectFlow(model: model)).screen
+        case .addPhone: SetupScreens.addPhone(model)
+        case .addWatch: SetupScreens.addWatch(model)
+        case .addComputers: SetupScreens.addComputers(model, command: command)
+        case .tryDevices: .tryDevices(SetupScreens.practiceRows(model))
+        case .ready: SetupScreens.ready(model)
         case .finished: nil
-        }
-    }
-
-    /// The only password is the sample, so first run offers the way back to copying his own.
-    private var sampleOnly: Bool { model.status?.sampleOnly == true }
-
-    /// "Set Up Agents on This Mac": running, failed, or else whatever the links say now.
-    private var agents: AgentsButton {
-        _ = cameBack
-        switch model.agentsSetUpClick {
-        case .working: return .working
-        case let .failed(message): return model.agentsSetUp ? .done : .failed(message)
-        case .idle: return model.agentsSetUp ? .done : .notYet
         }
     }
 
@@ -191,8 +186,15 @@ private struct FirstRunHome: View {
         actions.openTouchIDSettings = { NSWorkspace.shared.open(MacApprover.touchIDSettings) }
         actions.useSample = { Task { await model.useSamplePassword() } }
         actions.copyOwn = { model.send(.copyOwn) }
-        actions.setUpAgents = { Task { await model.setUpAgentsOnThisMac() } }
         actions.continueOn = { model.send(.continueOn) }
+        actions.skip = { model.send(.skip) }
+        actions.useThisMacAlone = { model.send(.useThisMacAlone) }
+        actions.connect = { address in
+            let flow = connect ?? ConnectFlow(model: model)
+            connect = flow
+            flow.connect(address) { model.send(.connected) }
+        }
+        actions.sendPractice = { key in Task { await model.sendPractice(to: key) } }
         actions.done = {
             dismissWindow(id: "main")
             model.finishFirstRun()
@@ -210,17 +212,63 @@ private struct FirstRunHome: View {
             }
         }
         .task { await model.loadStatus() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in cameBack = .now }
+        .onChange(of: model.firstRun == .addComputers, initial: true) { _, now in
+            if now, command == nil { command = SetupScreens.enrolCommand(model) }
+        }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
     }
 }
 
-/// Keeps the window above Passwords while he follows its menu path.
-private struct FloatingWhile: NSViewRepresentable {
+/// While he follows the steps in Passwords, the window moves beside the
+/// Passwords window, so neither covers the other or Apple's own dialogs. It
+/// never floats above other apps.
+private struct BesidePasswords: NSViewRepresentable {
     let isOn: Bool
     func makeNSView(context: Context) -> NSView { NSView() }
     func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { view.window?.level = isOn ? .floating : .normal }
+        guard isOn, !context.coordinator.placed else {
+            if !isOn { context.coordinator.placed = false }
+            return
+        }
+        context.coordinator.placed = true
+        Task { @MainActor [weak view] in
+            // Passwords takes a moment to open its window.
+            for _ in 0..<20 {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let window = view?.window else { return }
+                if let passwords = Self.passwordsFrame() {
+                    window.setFrame(Self.frame(for: window.frame.size, beside: passwords), display: true, animate: true)
+                    return
+                }
+            }
+        }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    final class Coordinator { var placed = false }
+
+    /// The Passwords window's frame in screen coordinates, from the window server's list.
+    static func passwordsFrame() -> CGRect? {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Passwords").first,
+            let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
+            let entry = list.first(where: { ($0[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier
+                && ($0[kCGWindowLayer as String] as? Int) == 0 }),
+            let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
+            let top = CGRect(dictionaryRepresentation: bounds), let primary = NSScreen.screens.first
+        else { return nil }
+        // The window server counts down from the top of the main screen; AppKit up from its bottom.
+        return CGRect(x: top.minX, y: primary.frame.maxY - top.maxY, width: top.width, height: top.height)
+    }
+
+    /// To the right of Passwords if it fits on that screen, else to its left,
+    /// else the screen's right edge; level with its top.
+    static func frame(for size: CGSize, beside passwords: CGRect) -> CGRect {
+        let screen = NSScreen.screens.first { $0.visibleFrame.intersects(passwords) }?.visibleFrame ?? passwords
+        let gap: CGFloat = 16
+        let x = passwords.maxX + gap + size.width <= screen.maxX ? passwords.maxX + gap
+            : passwords.minX - gap - size.width >= screen.minX ? passwords.minX - gap - size.width
+            : screen.maxX - size.width
+        let y = min(max(passwords.maxY - size.height, screen.minY), screen.maxY - size.height)
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 }
 

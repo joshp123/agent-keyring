@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	"github.com/joshp123/agent-keyring/internal/authority"
 	"github.com/joshp123/agent-keyring/internal/clientstate"
 	"github.com/joshp123/agent-keyring/internal/remote"
@@ -121,4 +122,28 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 		return local, nil
 	}
 	return authority.Client{}, errors.New("No authority is selected. Install the Mac app here, or run 'agent-keyring enrol --name NAME --invite LINK' with a link from 'agent-keyring invite' on the Mac.")
+}
+
+// gatherLogs asks the Mac app on this Mac, which adds the relay's and the
+// devices' lines when it is joined; on another computer, the relay itself.
+func gatherLogs(ctx context.Context, since int64, requestID string) ([]string, error) {
+	if local, err := localSetupAuthority(ctx); err == nil {
+		result, err := local.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_Setup{Setup: &pb.SetupRequest{
+			Action: pb.SetupRequest_LOGS, SinceUnixSeconds: since, RequestId: requestID}}})
+		if err == nil {
+			return result.GetSetup().GetLogLines(), nil
+		}
+		if _, statErr := os.Stat(local.Socket); statErr == nil {
+			return nil, err
+		}
+	}
+	store, err := clientstate.Default()
+	if err != nil {
+		return nil, err
+	}
+	client, err := remote.Load(ctx, store)
+	if err != nil {
+		return nil, errors.New("Neither the Mac app nor a relay is set up on this computer.")
+	}
+	return client.Logs(ctx, since, requestID)
 }

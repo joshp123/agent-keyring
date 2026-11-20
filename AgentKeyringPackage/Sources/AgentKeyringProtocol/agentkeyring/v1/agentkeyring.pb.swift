@@ -976,6 +976,12 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
   /// START_RELAY: the agent's words, shown with the request.
   public var reason: String = String()
 
+  /// LOGS: from this time; 0 for all.
+  public var sinceUnixSeconds: Int64 = 0
+
+  /// LOGS: only lines naming this request.
+  public var requestID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum Action: SwiftProtobuf.Enum, Swift.CaseIterable {
@@ -988,6 +994,9 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
 
     /// A one-time link for one machine to join (v2 JoinInvite).
     case invite // = 5
+
+    /// The Mac's recent log, with the relay's and the devices' if joined.
+    case logs // = 7
     case UNRECOGNIZED(Int)
 
     public init() {
@@ -1002,6 +1011,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       case 3: self = .verifyMachine
       case 4: self = .relayStatus
       case 5: self = .invite
+      case 7: self = .logs
       default: self = .UNRECOGNIZED(rawValue)
       }
     }
@@ -1014,6 +1024,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       case .verifyMachine: return 3
       case .relayStatus: return 4
       case .invite: return 5
+      case .logs: return 7
       case .UNRECOGNIZED(let i): return i
       }
     }
@@ -1026,6 +1037,7 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
       .verifyMachine,
       .relayStatus,
       .invite,
+      .logs,
     ]
 
   }
@@ -1043,6 +1055,9 @@ public nonisolated struct Agentkeyring_V1_SetupResponse: Sendable {
   public var relayStatus: String = String()
 
   public var invite: String = String()
+
+  /// LOGS, in time order.
+  public var logLines: [String] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2176,7 +2191,7 @@ nonisolated extension Agentkeyring_V1_WireResponse: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetupRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}action\0\u{1}host\0\u{1}port\0\u{1}code\0\u{3}machine_name\0\u{1}reason\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}action\0\u{1}host\0\u{1}port\0\u{1}code\0\u{3}machine_name\0\u{1}reason\0\u{3}since_unix_seconds\0\u{3}request_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2190,6 +2205,8 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
       case 4: try { try decoder.decodeSingularStringField(value: &self.code) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.machineName) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.reason) }()
+      case 7: try { try decoder.decodeSingularInt64Field(value: &self.sinceUnixSeconds) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
       default: break
       }
     }
@@ -2214,6 +2231,12 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
     if !self.reason.isEmpty {
       try visitor.visitSingularStringField(value: self.reason, fieldNumber: 6)
     }
+    if self.sinceUnixSeconds != 0 {
+      try visitor.visitSingularInt64Field(value: self.sinceUnixSeconds, fieldNumber: 7)
+    }
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2224,18 +2247,20 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
     if lhs.code != rhs.code {return false}
     if lhs.machineName != rhs.machineName {return false}
     if lhs.reason != rhs.reason {return false}
+    if lhs.sinceUnixSeconds != rhs.sinceUnixSeconds {return false}
+    if lhs.requestID != rhs.requestID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
 nonisolated extension Agentkeyring_V1_SetupRequest.Action: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0\u{1}INVITE\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0\u{1}INVITE\0\u{2}\u{2}LOGS\0")
 }
 
 nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetupResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}machine_name\0\u{3}relay_status\0\u{1}invite\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}machine_name\0\u{3}relay_status\0\u{1}invite\0\u{3}log_lines\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2246,6 +2271,7 @@ nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, Swif
       case 1: try { try decoder.decodeSingularStringField(value: &self.machineName) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.relayStatus) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.invite) }()
+      case 4: try { try decoder.decodeRepeatedStringField(value: &self.logLines) }()
       default: break
       }
     }
@@ -2261,6 +2287,9 @@ nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, Swif
     if !self.invite.isEmpty {
       try visitor.visitSingularStringField(value: self.invite, fieldNumber: 3)
     }
+    if !self.logLines.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.logLines, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2268,6 +2297,7 @@ nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, Swif
     if lhs.machineName != rhs.machineName {return false}
     if lhs.relayStatus != rhs.relayStatus {return false}
     if lhs.invite != rhs.invite {return false}
+    if lhs.logLines != rhs.logLines {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -15,13 +15,6 @@
 	<true/>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
-	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
-	<array>
-		<string>/.local/bin/</string>
-		<string>/.codex/skills/</string>
-		<string>/.claude/skills/</string>
-		<string>/.local/state/agent-keyring/</string>
-	</array>
 	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>

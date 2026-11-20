@@ -10,8 +10,16 @@ import (
 	"unicode"
 )
 
-// requesterLabel is a display claim, never an authorization credential.
-func requesterLabel() string {
+// requesterLabel names who is asking, for Josh to read: Claude Code or Codex
+// found among this command's parent processes, else the name the agent gave
+// with --agent, else the script or program that ran it. Processes that
+// only carry a session (sshd, login, tmux, launchd) name nobody, so a request
+// typed over SSH reads "an agent", never "sshd-session". A display claim,
+// never an authorization credential.
+func requesterLabel(given string) string {
+	if os.Getenv("CLAUDECODE") == "1" {
+		return "Claude Code"
+	}
 	pid := os.Getppid()
 	fallback := ""
 	for i := 0; i < 32 && pid > 1; i++ {
@@ -27,12 +35,19 @@ func requesterLabel() string {
 		if err != nil {
 			break
 		}
-		name := strings.ToLower(filepath.Base(fields[1]))
+		name := strings.ToLower(strings.TrimRight(filepath.Base(fields[1]), ":"))
 		switch name {
 		case "claude", "claude-code":
 			return "Claude Code"
 		case "codex", "codex-code-mode-host":
 			return "Codex"
+		}
+		if sessionOnly(name) {
+			break // Above this, nothing is the agent's.
+		}
+		if given != "" {
+			pid = parent
+			continue // Still looking for Claude Code or Codex, which beat a given name.
 		}
 		interpreter := name == "sh" || name == "bash" || name == "zsh" || name == "dash" || name == "fish" || name == "node" || strings.HasPrefix(name, "python") || name == "ruby" || name == "perl"
 		wrapper := interpreter || name == "env"
@@ -43,23 +58,40 @@ func requesterLabel() string {
 			}
 		}
 		if fallback == "" && !wrapper {
-			fallback = filepath.Base(fields[1])
+			fallback = strings.TrimRight(filepath.Base(fields[1]), ":")
 		}
 		pid = parent
 	}
-	fallback = strings.TrimSpace(strings.Map(func(r rune) rune {
+	if name := cleanLabel(given); name != "" {
+		return name
+	}
+	if name := cleanLabel(fallback); name != "" {
+		return name
+	}
+	return "an agent"
+}
+
+// sessionOnly is a process that starts a session for a person, not an agent.
+func sessionOnly(name string) bool {
+	switch name {
+	case "sshd", "sshd-session", "sshd-auth", "login", "launchd", "systemd", "tmux", "tmux: server", "screen", "mosh-server", "su", "sudo", "init":
+		return true
+	}
+	return strings.HasPrefix(name, "sshd")
+}
+
+// cleanLabel drops control characters, stray punctuation and anything too long to show.
+func cleanLabel(label string) string {
+	label = strings.Trim(strings.TrimSpace(strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1
 		}
 		return r
-	}, fallback))
-	if fallback == "" || fallback == "." {
-		return "an agent"
+	}, label)), ":;,. ")
+	if label == "" || len(label) > 100 {
+		return ""
 	}
-	if len(fallback) > 100 {
-		return "an agent"
-	}
-	return fallback
+	return label
 }
 
 // requesterProject is the main folder's name of the Git repository the

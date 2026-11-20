@@ -266,6 +266,68 @@ public final class MacDevice {
         start()
     }
 
+    /// Josh gave the address of a relay already running on a computer of his
+    /// that stays on: no command runs on this Mac. After his Touch ID this Mac
+    /// is the first device there, and the only computer, until an agent adds
+    /// others. A relay this Mac already belongs to (its keys survive a new
+    /// install) is joined again as it is; one that belongs to other devices is refused.
+    public func connect(to endpoint: RelayEndpoint, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
+        if let saved {
+            if saved.endpoint == endpoint { return } // Walking first run again on a Mac already connected there.
+            throw RelayFailure(.conflict, "This Mac is already connected to the computer at \(saved.endpoint.host).")
+        }
+        var pin = Data()
+        var request = Agentkeyring_V2_RelayRequest()
+        request.method = .members(Agentkeyring_V2_Empty())
+        let response = try? await KeyringRelay(endpoint: endpoint, identity: keys.tls, pin: nil).call(request) { pin = $0 }
+        guard !pin.isEmpty else { throw RelayFailure(.unavailable, "Nothing answered at \(endpoint.host):\(endpoint.port). Check that the computer is on and its relay is running.") }
+        var existing: (document: Agentkeyring_V2_Signed, members: Agentkeyring_V2_Members)?
+        if case let .signed(document)? = response?.result, !document.payload.isEmpty {
+            guard let members = try? Sealing.verifiedMembers(document, current: nil),
+                members.devices.contains(where: { $0.keyID == keys.deviceKeyID && $0.signingPublicKey == keys.device.signingPublicKey }) else {
+                throw RelayFailure(.conflict, "That relay is already set up with other devices.")
+            }
+            existing = (document, members)
+        }
+        try await confirm(context, reason: "connect to the computer that stays on at \(endpoint.host)")
+        onAuthenticated()
+        DiagnosticLog.record("relay", "connect", ["host": endpoint.host, "port": "\(endpoint.port)", "rejoined": existing == nil ? "no" : "yes"])
+        if let existing {
+            saved = Saved(endpoint: endpoint, pin: pin, members: try existing.document.serializedData(), catalogueRevision: 0,
+                alwaysOnMachineID: existing.members.relayMachineID.isEmpty ? nil : existing.members.relayMachineID)
+            members = existing.members
+            // The next catalogue must be newer than the one the relay and the iPhone hold.
+            if case let .signed(document)? = try? await call(.catalogue(Agentkeyring_V2_Empty())).result,
+                let current = try? Sealing.verifiedCatalogue(document, members: existing.members, current: nil) {
+                saved?.catalogueRevision = current.revision
+            }
+        } else {
+            var members = Agentkeyring_V2_Members()
+            members.domain = "agentkeyring.members.v2"
+            members.revision = 1
+            members.devices = [keys.device]
+            members.machines = [keys.machine]
+            members.relayTlsPublicKey = pin
+            let signed = try Sealing.signed(members.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
+            saved = Saved(endpoint: endpoint, pin: pin, members: try signed.serializedData(), catalogueRevision: 0)
+            do {
+                _ = try await call(.publishMembers(signed))
+            } catch {
+                saved = nil
+                throw error
+            }
+            self.members = members
+        }
+        do {
+            try await publish(context: context)
+            try persist()
+        } catch {
+            if readSaved() == nil { saved = nil } // Kept if the catalogue went out and only the copies failed.
+            throw error
+        }
+        start()
+    }
+
     // MARK: Staying connected
 
     public func start() {
@@ -277,21 +339,16 @@ public final class MacDevice {
                 do {
                     try await self.refreshMembers()
                     self.connection = .connected
+                    DiagnosticLog.record("relay", "connected", ["members": "\(self.members?.revision ?? 0)"])
                     await self.refreshSelfTests()
                     await self.followCatalogue()
                     await self.recheckWaiting()
-                    var request = Agentkeyring_V2_RelayRequest()
-                    request.method = .watchWork(Agentkeyring_V2_Empty())
-                    let joins = Task { await self.pollJoins() }
-                    defer { joins.cancel() }
-                    try await relay.stream(request) { response in
-                        self.connection = .connected
-                        if case let .work(work) = response.result { self.receive(work) }
-                    }
+                    try await self.follow(relay)
                 } catch is CancellationError {
                     return
                 } catch {
                     deviceLogger.notice("Relay connection ended: \(String(describing: error), privacy: .public)")
+                    DiagnosticLog.record("relay", "disconnected", ["reason": "\(error)"])
                 }
                 self.connection = .unreachable
                 try? await Task.sleep(for: .seconds(5))
@@ -317,7 +374,11 @@ public final class MacDevice {
     private func receive(_ work: Agentkeyring_V2_Work) {
         // Only a request the computer it names signed: the relay can't make one up.
         guard let members, let request = try? Sealing.parseRequest(work.request) else { return }
-        do { try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceKeyID) } catch { return }
+        do { try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceKeyID) } catch {
+            DiagnosticLog.record("work", "refused", ["request": request.requestID, "reason": "\(error)"])
+            return
+        }
+        DiagnosticLog.record("work", "seen", ["request": request.requestID, "state": work.hasOutcome ? "\(work.outcome.state)" : "waiting"])
         // Not its own agents' requests, which it shows itself and passed on to the iPhone and Watch;
         // but Stop on one of them there ends the approval here.
         if request.machineID == keys.machineID {
@@ -333,27 +394,58 @@ public final class MacDevice {
         }
     }
 
-    /// Also notices a connection that died without closing, since the work
-    /// stream itself is silent while nothing waits.
-    private func pollJoins() async {
-        var round = 0
-        while !Task.isCancelled {
-            round += 1
-            if round % 10 == 0 { await followCatalogue() }
-            do {
-                let response = try await call(.pendingJoins(Agentkeyring_V2_Empty()))
-                joins = invited(response.pendingJoins.joins).filter { !hiddenJoins.contains(Self.joinID($0)) }
-            } catch {
-                guard !Task.isCancelled else { return }
-                running?.cancel()
-                running = nil
-                connection = .unreachable
-                try? await Task.sleep(for: .seconds(5))
-                start()
-                return
+    /// One connection for as long as it lasts: the requests, and Changes when
+    /// the members list, the catalogue or the computers waiting to join change.
+    /// The relay sends Changes at least every 30 seconds, so silence for 75
+    /// means the connection died without closing.
+    private func follow(_ relay: KeyringRelay) async throws {
+        var request = Agentkeyring_V2_RelayRequest()
+        request.method = .watchWork(Agentkeyring_V2_Empty())
+        heard = .now
+        let following = Task { @MainActor in
+            try await relay.stream(request) { response in
+                self.heard = .now
+                self.connection = .connected
+                switch response.result {
+                case let .work(work)?: self.receive(work)
+                case let .changes(changes)?: await self.take(changes)
+                default: break
+                }
             }
-            try? await Task.sleep(for: .seconds(3))
         }
+        let watchdog = Task { @MainActor in
+            while !Task.isCancelled {
+                try await Task.sleep(for: .seconds(15))
+                if ContinuousClock.now - self.heard > .seconds(75) {
+                    deviceLogger.notice("The relay went quiet for 75 seconds; connecting again.")
+                    following.cancel()
+                }
+            }
+        }
+        defer { watchdog.cancel(); following.cancel() }
+        do {
+            try await withTaskCancellationHandler {
+                try await following.value
+            } onCancel: {
+                following.cancel()
+            }
+        } catch is CancellationError where !Task.isCancelled {
+            throw RelayFailure(.unavailable, "The relay went quiet.") // The watchdog, not the app, ended it: connect again.
+        }
+    }
+
+    /// When this connection last heard from the relay.
+    @ObservationIgnored private var heard = ContinuousClock.now
+
+    private func take(_ changes: Agentkeyring_V2_Changes) async {
+        joins = invited(changes.pendingJoins).filter { !hiddenJoins.contains(Self.joinID($0)) }
+        if changes.membersRevision > members?.revision ?? 0 {
+            DiagnosticLog.record("members", "changed", ["from": "\(members?.revision ?? 0)", "to": "\(changes.membersRevision)"])
+            do { try await refreshMembers() } catch {
+                deviceLogger.error("Could not take the new members list: \(String(describing: error), privacy: .public)")
+            }
+        }
+        if changes.catalogueRevision > saved?.catalogueRevision ?? 0 { await followCatalogue() }
     }
 
     /// Takes rule changes made on another device.
@@ -522,6 +614,7 @@ public final class MacDevice {
     public func approve(_ requestID: String, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard let work = waiting[requestID], let members else { throw RelayFailure(.notFound, "This request is no longer waiting.") }
         let request = try Sealing.parseRequest(work.request)
+        if isPractice(work) { return try await approvePractice(work, context: context, onAuthenticated: onAuthenticated) }
         guard let asking = try? Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceKeyID) else {
             throw RelayFailure(.permissionDenied, "The computer that asked is not one of yours.")
         }
@@ -544,6 +637,30 @@ public final class MacDevice {
         onAuthenticated()
         _ = try await call(.answer(upload))
         waiting.removeValue(forKey: requestID)
+    }
+
+    /// A practice request sent to this Mac from the iPhone or Devices: it names
+    /// this Mac's own device key and no password.
+    public func isPractice(_ work: Agentkeyring_V2_Work) -> Bool {
+        (try? Sealing.parseRequest(work.request))?.forDeviceKeyID == keys.deviceKeyID
+    }
+
+    /// Approved with Touch ID, as a real one: a signed answer with nothing delivered.
+    private func approvePractice(_ work: Agentkeyring_V2_Work, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
+        try await confirm(context, reason: "use a practice password for example.com, you@example.com")
+        var answer = Agentkeyring_V2_Answer()
+        answer.domain = "agentkeyring.answer.v2"
+        answer.requestSha256 = Sealing.sha256(work.request)
+        answer.choice = .approve
+        answer.decidedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        answer.notAfterUnixSeconds = answer.decidedUnixSeconds + 60
+        var upload = Agentkeyring_V2_AnswerUpload()
+        upload.answer = try Sealing.signed(answer.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
+        onAuthenticated()
+        _ = try await call(.answer(upload))
+        let id = (try? Sealing.parseRequest(work.request))?.requestID ?? ""
+        DiagnosticLog.record("practice", "approved", ["request": id])
+        waiting.removeValue(forKey: id)
     }
 
     /// Denies; words are signed with the reply key, which needs no Touch ID.
@@ -621,6 +738,7 @@ public final class MacDevice {
         let requestBytes = try ask.serializedData()
         let signed = try Sealing.signed(requestBytes, by: keys.machineID) { try keys.tls.sign($0) }
         askedForAgents[leaseID] = ask.requestID
+        DiagnosticLog.record("devices", "asked", ["lease": leaseID, "request": ask.requestID, "login": loginID])
         let asked = try await call(.askSigned(signed))
         var request = Agentkeyring_V2_RelayRequest()
         let reference = Self.reference(ask.requestID)
@@ -631,20 +749,51 @@ public final class MacDevice {
                 if case let .lease(lease) = response.result { final = lease }
             }
         }
+        // The answer may come from a device that joined after the request was
+        // made, such as an Apple Watch added on the iPhone: check it against
+        // the members list as it is now.
+        try? await refreshMembers()
+        let current = self.members ?? members
+        DiagnosticLog.record("devices", "answered", ["request": ask.requestID, "state": "\(final.state)", "by": final.answeredBy])
         // Answered in this Mac's own panel: there is nothing to collect.
-        if final.answeredBy == members.machines.first(where: { $0.machineID == keys.machineID })?.label { return .cancelled }
+        if final.answeredBy == current.machines.first(where: { $0.machineID == keys.machineID })?.label { return .cancelled }
         switch final.state {
         case .approved:
             let approval = try await call(.collect(reference)).approval
             guard approval.request == requestBytes else { throw RelayFailure(.permissionDenied, "The relay returned an answer to another request.") }
-            return .approved(try Sealing.openDelivery(approval, members: members, with: keys.receiving))
+            return .approved(try Sealing.openDelivery(approval, members: current, with: keys.receiving))
         case .denied:
             let approval = try? await call(.collect(reference)).approval
-            let reply = approval.flatMap { $0.request == requestBytes ? try? Sealing.verifiedAnswer($0, members: members).reply : nil } ?? ""
+            let reply = approval.flatMap { $0.request == requestBytes ? try? Sealing.verifiedAnswer($0, members: current).reply : nil } ?? ""
             return .denied(reply: reply)
         case .unanswered: return .unanswered
         default: return .cancelled
         }
+    }
+
+    /// The relay's recent lines and each device's latest log, for `agent-keyring logs`.
+    public func relayLogs(since: Int64, request: String) async throws -> [String] {
+        var logs = Agentkeyring_V2_LogsRequest()
+        logs.sinceUnixSeconds = since
+        logs.requestID = request
+        return try await call(.logs(logs)).logs.lines
+    }
+
+    /// A practice request on another device of Josh's (Test in Devices): it
+    /// arrives there like a real one, and this ends when that device answers.
+    public func practice(on deviceKeyID: String) async throws -> Agentkeyring_V2_Lease {
+        guard let relay, deviceKeyID != keys.deviceKeyID else {
+            throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.")
+        }
+        var test = Agentkeyring_V2_TestRequest()
+        test.forDeviceKeyID = deviceKeyID
+        var request = Agentkeyring_V2_RelayRequest()
+        request.method = .testRequest(test)
+        var final = Agentkeyring_V2_Lease()
+        try await relay.stream(request) { response in
+            if case let .lease(lease) = response.result { final = lease }
+        }
+        return final
     }
 
     /// The agent stopped asking, or its approval ended: the iPhone and Watch

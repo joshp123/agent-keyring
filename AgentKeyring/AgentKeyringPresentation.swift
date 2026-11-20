@@ -25,6 +25,11 @@ final class AgentKeyringPresentation {
     func showMenuBarTip() {
         guard tip == nil, let item = NSApp.windows.first(where: { String(describing: type(of: $0)).contains("NSStatusBarWindow") })
         else { return }
+        // With a full menu bar, or a tool that hides icons, the keyhole is not
+        // on screen; the tip would point at nothing, so it doesn't show.
+        guard item.occlusionState.contains(.visible),
+            let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: item.frame.midX, y: item.frame.midY)) })
+        else { return }
         let hosting = NSHostingView(rootView: MenuBarTipView())
         let size = hosting.fittingSize
         let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.nonactivatingPanel, .borderless],
@@ -37,7 +42,8 @@ final class AgentKeyringPresentation {
         panel.level = .statusBar
         let icon = item.frame
         // The view has 16 points of room around the bubble for its shadow.
-        panel.setFrameOrigin(NSPoint(x: icon.midX - size.width / 2, y: icon.minY - 6 + 16 - size.height))
+        let x = min(max(icon.midX - size.width / 2, screen.frame.minX), screen.frame.maxX - size.width)
+        panel.setFrameOrigin(NSPoint(x: x, y: icon.minY - 6 + 16 - size.height))
         panel.orderFrontRegardless()
         tip = panel
         Task { @MainActor [weak self] in

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"sync"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
@@ -16,13 +17,15 @@ import (
 )
 
 const (
-	heldOffFor = 30 * time.Minute
 	joinWithin = 10 * time.Minute
 )
 
 type Server struct {
 	Store       *Store
 	Push        *apns.Sender // Nil: no pushes; devices see work on their stream.
+	Ring        *Ring        // The relay's own recent log lines; nil keeps none.
+	logsMu      sync.Mutex
+	deviceLogs  map[string][]string // Device key id: its latest log.
 	Certificate tls.Certificate
 	Lookup      NodeLookup
 	Now         func() time.Time
@@ -253,6 +256,19 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 			return err
 		}
 		return s.testRequest(ctx, who, method.TestRequest.GetForDeviceKeyId(), send)
+	case *pb.RelayRequest_ReportLog:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		if err := s.reportLog(method.ReportLog); err != nil {
+			return err
+		}
+		return send(done())
+	case *pb.RelayRequest_Logs:
+		if who.machine == nil && who.device == nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only a computer or device of Josh's may read the logs.")
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Logs{Logs: s.logs(method.Logs)}, EndOfStream: true})
 	case *pb.RelayRequest_ReportSelfTest:
 		if err := isDevice(); err != nil {
 			return err

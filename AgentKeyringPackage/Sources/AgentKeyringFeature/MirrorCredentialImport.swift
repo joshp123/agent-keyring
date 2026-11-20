@@ -164,6 +164,7 @@ extension MirrorAppModel {
                 "Credential transfer failed [\(failure.diagnostic, privacy: .public)]"
             )
             notice = MirrorNotice(kind: .error, text: failure.message)
+            DiagnosticLog.record("copy", "failed", ["reason": failure.diagnostic])
             return
         }
 

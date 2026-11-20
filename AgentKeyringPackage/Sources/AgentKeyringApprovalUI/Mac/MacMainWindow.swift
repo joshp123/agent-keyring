@@ -1,11 +1,13 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5, from the Paper
-// boards "Passwords and rules" and "Devices" (page "First run and the app").
+// boards "Passwords and rules" and "Devices"; rebuilt on 2026.11.20 from the
+// board "Mac", "Every day" (page "First run and the app").
 //
 // The window after first run: Passwords, where each password has one rule and
 // rule changes are saved together with one Touch ID; and Devices, the devices
 // he approves on and the computers whose agents can ask.
 
 #if os(macOS)
+import AppKit
 import LocalAuthentication
 import Observation
 import SwiftUI
@@ -24,21 +26,23 @@ public struct LoginRow: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A device he answers on, with its last practice result in `detail`.
 public struct DeviceRow: Identifiable, Hashable, Sendable {
-    public enum Kind: Hashable, Sendable { case mac, iPhone, watch }
     public let id: String
-    public var name: String
-    public var kind: Kind
-    public var lastTested: Date?
+    public var practice: PracticeRow
     public var isThisMac: Bool
 
-    public init(id: String, name: String, kind: Kind, lastTested: Date?, isThisMac: Bool) {
-        self.id = id
-        self.name = name
-        self.kind = kind
-        self.lastTested = lastTested
+    public init(practice: PracticeRow, isThisMac: Bool) {
+        self.id = practice.id
+        self.practice = practice
         self.isThisMac = isThisMac
     }
+}
+
+/// What Devices' three buttons open: the same windows as first run, in a sheet.
+public enum DevicesSheet: String, Identifiable, Sendable {
+    case addPhoneOrWatch, addComputer, tellAgents
+    public var id: String { rawValue }
 }
 
 public struct MachineRow: Identifiable, Hashable, Sendable {
@@ -46,16 +50,12 @@ public struct MachineRow: Identifiable, Hashable, Sendable {
     public var name: String
     public var isThisMac: Bool
     public var isAlwaysOn: Bool
-    public var automatic: Bool
-    public var lastTested: Date?
 
-    public init(id: String, name: String, isThisMac: Bool, isAlwaysOn: Bool, automatic: Bool, lastTested: Date?) {
+    public init(id: String, name: String, isThisMac: Bool, isAlwaysOn: Bool) {
         self.id = id
         self.name = name
         self.isThisMac = isThisMac
         self.isAlwaysOn = isAlwaysOn
-        self.automatic = automatic
-        self.lastTested = lastTested
     }
 }
 
@@ -82,9 +82,10 @@ public struct MainSnapshot: Hashable, Sendable {
 public protocol MainWindowBackend: AnyObject {
     func updates() -> AsyncStream<MainSnapshot>
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws
-    func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws
     func remove(id: String, context: LAContext) async throws
     func importAgain()
+    /// Send Practice Request, by device key.
+    func sendPractice(deviceID: String)
 }
 
 @MainActor
@@ -154,8 +155,13 @@ public final class MacMainModel {
 
     public func save() { run { [pending, backend] context in try await backend.saveRules(pending, context: context) } done: { self.pending = [:] } }
 
-    public func setAutomatic(_ machine: MachineRow, on: Bool) {
-        run { [backend] context in try await backend.setAutomatic(machineID: machine.id, on: on, context: context) }
+    public func sendPractice(_ id: String) { backend.sendPractice(deviceID: id) }
+
+    /// Sort with AI: a prompt with each password's website, account and rule, never a password.
+    public func copySortPrompt() {
+        let rows = snapshot.logins.map { (site: $0.site, account: $0.account, rule: rule(of: $0).name) }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(MainWindowCopy.sortPrompt(rows), forType: .string)
     }
 
     public func remove(_ id: String) {
@@ -187,16 +193,20 @@ public final class MacMainModel {
 
 public struct MacMainWindowView: View {
     @Bindable var model: MacMainModel
+    /// The windows Devices' buttons open, drawn by the app.
+    let sheetContent: (DevicesSheet, @escaping () -> Void) -> AnyView
+    @State private var sheet: DevicesSheet?
 
-    public init(model: MacMainModel) {
+    public init(model: MacMainModel, sheet: @escaping (DevicesSheet, @escaping () -> Void) -> AnyView = { _, _ in AnyView(EmptyView()) }) {
         self.model = model
+        self.sheetContent = sheet
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             switch model.tab {
             case .logins: LoginsTab(model: model)
-            case .devices: DevicesTab(model: model)
+            case .devices: DevicesTab(model: model, open: { sheet = $0 })
             }
         }
         .frame(width: 820)
@@ -216,6 +226,7 @@ public struct MacMainWindowView: View {
             }
         }
         .toolbar(removing: .title)
+        .sheet(item: $sheet) { which in sheetContent(which) { sheet = nil } }
         .task { await model.followUpdates() }
         .alert("Agent Keyring", isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.dismissFailure() } })) {
             Button("OK") { model.dismissFailure() }
@@ -239,8 +250,31 @@ private struct SearchField: View {
 private struct LoginsTab: View {
     @Bindable var model: MacMainModel
 
+    @State private var promptCopied = false
+
     var body: some View {
         VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    rule(LoginRule.ask.name, MainWindowCopy.askExplained)
+                    rule(LoginRule.automatic.name, MainWindowCopy.automaticExplained)
+                    rule(LoginRule.blocked.name, MainWindowCopy.blockedExplained)
+                }
+                .padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(RequestToken.fill, in: .rect(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(MainWindowCopy.sortBody(model.snapshot.logins.count)).font(.system(size: 13)).lineSpacing(2)
+                        .foregroundStyle(RequestToken.ink).fixedSize(horizontal: false, vertical: true)
+                    Pill(title: promptCopied ? MainWindowCopy.sortCopied : MainWindowCopy.sortWithAI, style: .dark) {
+                        model.copySortPrompt()
+                        promptCopied = true
+                    }
+                }
+                .padding(14).frame(width: 300, alignment: .topLeading).frame(maxHeight: .infinity, alignment: .top)
+                .background(RequestToken.fill, in: .rect(cornerRadius: 14))
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 20).padding(.top, 14)
             HStack {
                 Picker(MainWindowCopy.all, selection: $model.filter) {
                     Text(label(MainWindowCopy.all, nil)).tag(LoginRule?.none)
@@ -250,7 +284,6 @@ private struct LoginsTab: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
-            .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(model.visibleLogins) { row in
@@ -269,6 +302,12 @@ private struct LoginsTab: View {
             .frame(height: 420)
             footer.overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
         }
+    }
+
+    /// "Ask: an agent asks you each time it needs the password."
+    private func rule(_ name: String, _ meaning: String) -> some View {
+        (Text(name + ": ").fontWeight(.semibold) + Text(meaning)).font(.system(size: 13)).lineSpacing(2)
+            .foregroundStyle(RequestToken.ink).fixedSize(horizontal: false, vertical: true)
     }
 
     /// "Ask 528": the rule and how many passwords have it, the count in grey.
@@ -333,65 +372,47 @@ private struct RuleMenu: View {
 
 private struct DevicesTab: View {
     @Bindable var model: MacMainModel
+    let open: (DevicesSheet) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            heading(MainWindowCopy.youApproveOn)
+            Text(MainWindowCopy.devicesIntro).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
+                .padding(.horizontal, 20).padding(.top, 16)
+            heading(MainWindowCopy.whereYouAnswer)
             ForEach(model.snapshot.devices) { device in
-                DeviceLine(symbol: symbol(device.kind), name: device.isThisMac ? MainWindowCopy.this(device.name) : device.name,
-                    detail: detail(device)) {
-                    if !device.isThisMac { Pill(title: MainWindowCopy.remove, style: .quiet) { model.remove(device.id) }.disabled(model.isWorking) }
+                let row = device.practice
+                DeviceLine(symbol: row.symbol, name: row.name, detail: row.detail, tone: row.tone) {
+                    Pill(title: FirstRunCopy.sendPractice, style: .quiet) { model.sendPractice(row.id) }.disabled(!row.canSend)
+                    if !device.isThisMac { Pill(title: MainWindowCopy.remove, style: .remove) { model.remove(device.id) }.disabled(model.isWorking) }
                 }
             }
-            HStack(alignment: .firstTextBaseline) {
-                heading(MainWindowCopy.agentsAskFrom)
-                Spacer()
-                Text(MainWindowCopy.automaticPasswords).font(.system(size: 12)).foregroundStyle(RequestToken.ink2)
-                    .fixedSize().frame(width: 120).padding(.trailing, 96)
-            }
+            rule
+            heading(MainWindowCopy.computersThatAsk)
             ForEach(model.snapshot.machines) { machine in
-                DeviceLine(symbol: machine.isThisMac ? "laptopcomputer" : "macmini",
-                    name: machine.isThisMac ? MainWindowCopy.this(machine.name) : machine.name, detail: machineDetail(machine)) {
-                    Toggle("", isOn: Binding(get: { machine.automatic }, set: { model.setAutomatic(machine, on: $0) }))
-                        .toggleStyle(.switch).labelsHidden().tint(RequestToken.approve)
-                        .disabled(model.isWorking)
-                        .frame(width: 120)
-                    if machine.isThisMac { Color.clear.frame(width: 76, height: 1) } else {
-                        Pill(title: MainWindowCopy.remove, style: .quiet) { model.remove(machine.id) }.disabled(model.isWorking)
-                            .frame(width: 76, alignment: .trailing)
-                    }
+                DeviceLine(symbol: machine.isThisMac ? "laptopcomputer" : "macmini", name: machine.name, detail: machineDetail(machine)) {
+                    if !machine.isThisMac { Pill(title: MainWindowCopy.remove, style: .remove) { model.remove(machine.id) }.disabled(model.isWorking) }
                 }
             }
-            AgentLineBox(caption: MainWindowCopy.toAdd, line: FirstRunCopy.agentLine)
-                .padding(.horizontal, 20).padding(.vertical, 12)
-                .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
+            rule
+            HStack(spacing: 8) {
+                Pill(title: MainWindowCopy.addPhoneOrWatch, style: .quiet) { open(.addPhoneOrWatch) }
+                Pill(title: MainWindowCopy.addComputer, style: .quiet) { open(.addComputer) }
+                Pill(title: MainWindowCopy.tellYourAgents, style: .quiet) { open(.tellAgents) }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 16)
         }
     }
+
+    /// The line under the last row of a list.
+    private var rule: some View { RequestToken.line.frame(height: 1).padding(.horizontal, 20) }
 
     private func heading(_ title: String) -> some View {
         Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
-            .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 10)
-    }
-
-    private func symbol(_ kind: DeviceRow.Kind) -> String {
-        switch kind {
-        case .mac: "laptopcomputer"
-        case .iPhone: "iphone"
-        case .watch: "applewatch"
-        }
-    }
-
-    private func detail(_ device: DeviceRow) -> String {
-        let how = switch device.kind {
-        case .mac: MainWindowCopy.macApproves
-        case .iPhone: MainWindowCopy.phoneApproves
-        case .watch: MainWindowCopy.watchApproves
-        }
-        return device.lastTested == nil ? how : how + " · " + MainWindowCopy.ready
+            .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 10)
     }
 
     private func machineDetail(_ machine: MachineRow) -> String? {
-        machine.isAlwaysOn ? MainWindowCopy.staysOn : nil
+        machine.isThisMac ? MainWindowCopy.thisMac : machine.isAlwaysOn ? MainWindowCopy.staysOn : nil
     }
 }
 
@@ -399,6 +420,7 @@ private struct DeviceLine<Trailing: View>: View {
     let symbol: String
     let name: String
     let detail: String?
+    var tone = PracticeRow.Tone.plain
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
@@ -406,31 +428,55 @@ private struct DeviceLine<Trailing: View>: View {
             Image(systemName: symbol).font(.system(size: 15)).foregroundStyle(RequestToken.ink).frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                if let detail { Text(detail).font(.system(size: 12)).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true) }
+                if let detail {
+                    Text(detail).font(.system(size: 13))
+                        .foregroundStyle(tone == .approved ? RequestToken.approve : tone == .denied ? RequestToken.deny : RequestToken.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }
-        .padding(.horizontal, 20).padding(.vertical, 10)
+        .padding(.vertical, 10)
         .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
+        .padding(.horizontal, 20)
     }
 }
 
 private struct Pill: View {
-    enum Style { case quiet, approve, dark }
+    enum Style { case quiet, approve, dark, remove }
     let title: String
     let style: Style
     let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
             Text(title).font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(style == .quiet ? RequestToken.ink : style == .dark ? RequestToken.surface : RequestToken.onAnswer)
-                .padding(.horizontal, style == .approve ? 16 : 12).frame(height: style == .quiet ? 28 : 32)
-                .background(style == .quiet ? RequestToken.fill : style == .dark ? RequestToken.ink : RequestToken.approve, in: Capsule())
+                .foregroundStyle(foreground)
+                .padding(.horizontal, style == .approve ? 16 : 12).frame(height: style == .approve ? 32 : 28)
+                .background(background, in: Capsule())
                 .contentShape(Capsule())
+                .opacity(isEnabled ? 1 : 0.5)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).fixedSize()
+    }
+
+    private var foreground: Color {
+        switch style {
+        case .quiet: RequestToken.ink
+        case .dark: RequestToken.surface
+        case .approve: RequestToken.onAnswer
+        case .remove: RequestToken.deny
+        }
+    }
+
+    private var background: Color {
+        switch style {
+        case .quiet, .remove: RequestToken.fill
+        case .dark: RequestToken.ink
+        case .approve: RequestToken.approve
+        }
     }
 }
 #endif

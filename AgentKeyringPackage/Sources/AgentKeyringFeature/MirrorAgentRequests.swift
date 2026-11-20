@@ -45,6 +45,14 @@ extension MirrorAppModel {
                     _ = try macKeys()
                     result.relayStatus = device!.connection == .connected ? "connected"
                         : device!.isJoined || device!.setup != nil ? "waiting" : "not-started"
+                case .logs:
+                    var lines = DiagnosticLog.recent(since: setup.sinceUnixSeconds, request: setup.requestID)
+                    if let device, device.isJoined {
+                        do { lines += try await device.relayLogs(since: setup.sinceUnixSeconds, request: setup.requestID) } catch {
+                            lines.append("\(Date.now.formatted(.iso8601)) mac logs relay-unreachable reason=\"\(error)\"")
+                        }
+                    }
+                    result.logLines = Array(Set(lines)).sorted()
                 default: throw LeaseFailure(.invalidArgument, "Choose a setup action: start-relay or relay-status.")
                 }
                 response.setup = result
@@ -78,11 +86,14 @@ extension MirrorAppModel {
             case let .requestLease(incoming):
                 try await refreshLeasePolicy()
                 let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
+                let requester = AgentRequester.from(peer: peer).named(incoming.agentLabel)
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { localPolicy(for: $0.id) } ?? .block,
-                    requester: CredentialLeaseRequester(AgentRequester.from(peer: peer), project: incoming.project))
+                    requester: CredentialLeaseRequester(requester, project: incoming.project))
+                DiagnosticLog.record("lease", "requested", ["lease": response.lease.leaseID, "login": incoming.loginID,
+                    "state": "\(response.lease.state)", "agent": requester.name])
                 if login != nil, response.lease.state == .pending, device?.isJoined == true {
-                    askDevices(for: response.lease, request: incoming, agent: AgentRequester.from(peer: peer).name)
+                    askDevices(for: response.lease, request: incoming, agent: requester.name)
                 }
             case let .getLease(reference):
                 try await refreshLeasePolicy()
@@ -183,6 +194,7 @@ extension MirrorAppModel {
                 }
             } catch {
                 leaseLogger.notice("This request is shown only on this Mac: \(String(describing: error), privacy: .public)")
+                DiagnosticLog.record("devices", "not-asked", ["lease": leaseID, "reason": "\(error)"])
             }
         }
     }

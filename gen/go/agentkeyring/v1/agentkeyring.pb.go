@@ -445,6 +445,7 @@ const (
 	SetupRequest_VERIFY_MACHINE     SetupRequest_Action = 3
 	SetupRequest_RELAY_STATUS       SetupRequest_Action = 4
 	SetupRequest_INVITE             SetupRequest_Action = 5 // A one-time link for one machine to join (v2 JoinInvite).
+	SetupRequest_LOGS               SetupRequest_Action = 7 // The Mac's recent log, with the relay's and the devices' if joined.
 )
 
 // Enum value maps for SetupRequest_Action.
@@ -456,6 +457,7 @@ var (
 		3: "VERIFY_MACHINE",
 		4: "RELAY_STATUS",
 		5: "INVITE",
+		7: "LOGS",
 	}
 	SetupRequest_Action_value = map[string]int32{
 		"ACTION_UNSPECIFIED": 0,
@@ -464,6 +466,7 @@ var (
 		"VERIFY_MACHINE":     3,
 		"RELAY_STATUS":       4,
 		"INVITE":             5,
+		"LOGS":               7,
 	}
 )
 
@@ -1907,15 +1910,17 @@ func (*WireResponse_Setup) isWireResponse_Response() {}
 // Local same-user socket only. The code must be read independently over SSH;
 // a value obtained from the relay connection does not establish trust.
 type SetupRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Action        SetupRequest_Action    `protobuf:"varint,1,opt,name=action,proto3,enum=agentkeyring.v1.SetupRequest_Action" json:"action,omitempty"`
-	Host          string                 `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
-	Port          uint32                 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
-	Code          string                 `protobuf:"bytes,4,opt,name=code,proto3" json:"code,omitempty"`
-	MachineName   string                 `protobuf:"bytes,5,opt,name=machine_name,json=machineName,proto3" json:"machine_name,omitempty"`
-	Reason        string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"` // START_RELAY: the agent's words, shown with the request.
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Action           SetupRequest_Action    `protobuf:"varint,1,opt,name=action,proto3,enum=agentkeyring.v1.SetupRequest_Action" json:"action,omitempty"`
+	Host             string                 `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
+	Port             uint32                 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
+	Code             string                 `protobuf:"bytes,4,opt,name=code,proto3" json:"code,omitempty"`
+	MachineName      string                 `protobuf:"bytes,5,opt,name=machine_name,json=machineName,proto3" json:"machine_name,omitempty"`
+	Reason           string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`                                                // START_RELAY: the agent's words, shown with the request.
+	SinceUnixSeconds int64                  `protobuf:"varint,7,opt,name=since_unix_seconds,json=sinceUnixSeconds,proto3" json:"since_unix_seconds,omitempty"` // LOGS: from this time; 0 for all.
+	RequestId        string                 `protobuf:"bytes,8,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`                         // LOGS: only lines naming this request.
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SetupRequest) Reset() {
@@ -1990,11 +1995,26 @@ func (x *SetupRequest) GetReason() string {
 	return ""
 }
 
+func (x *SetupRequest) GetSinceUnixSeconds() int64 {
+	if x != nil {
+		return x.SinceUnixSeconds
+	}
+	return 0
+}
+
+func (x *SetupRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
 type SetupResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MachineName   string                 `protobuf:"bytes,1,opt,name=machine_name,json=machineName,proto3" json:"machine_name,omitempty"`
 	RelayStatus   string                 `protobuf:"bytes,2,opt,name=relay_status,json=relayStatus,proto3" json:"relay_status,omitempty"`
 	Invite        string                 `protobuf:"bytes,3,opt,name=invite,proto3" json:"invite,omitempty"`
+	LogLines      []string               `protobuf:"bytes,4,rep,name=log_lines,json=logLines,proto3" json:"log_lines,omitempty"` // LOGS, in time order.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2048,6 +2068,13 @@ func (x *SetupResponse) GetInvite() string {
 		return x.Invite
 	}
 	return ""
+}
+
+func (x *SetupResponse) GetLogLines() []string {
+	if x != nil {
+		return x.LogLines
+	}
+	return nil
 }
 
 type RpcError struct {
@@ -2213,14 +2240,17 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\rend_of_stream\x18\x06 \x01(\bR\vendOfStreamB\n" +
 	"\n" +
 	"\bresponseJ\x04\b\x04\x10\x05J\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"\"\xc0\x02\n" +
+	"\"\x98\x03\n" +
 	"\fSetupRequest\x12<\n" +
 	"\x06action\x18\x01 \x01(\x0e2$.agentkeyring.v1.SetupRequest.ActionR\x06action\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\rR\x04port\x12\x12\n" +
 	"\x04code\x18\x04 \x01(\tR\x04code\x12!\n" +
 	"\fmachine_name\x18\x05 \x01(\tR\vmachineName\x12\x16\n" +
-	"\x06reason\x18\x06 \x01(\tR\x06reason\"{\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\x12,\n" +
+	"\x12since_unix_seconds\x18\a \x01(\x03R\x10sinceUnixSeconds\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\b \x01(\tR\trequestId\"\x85\x01\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vSTART_RELAY\x10\x01\x12\x10\n" +
@@ -2228,11 +2258,13 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\x0eVERIFY_MACHINE\x10\x03\x12\x10\n" +
 	"\fRELAY_STATUS\x10\x04\x12\n" +
 	"\n" +
-	"\x06INVITE\x10\x05\"\x04\b\x06\x10\x06\"m\n" +
+	"\x06INVITE\x10\x05\x12\b\n" +
+	"\x04LOGS\x10\a\"\x04\b\x06\x10\x06\"\x8a\x01\n" +
 	"\rSetupResponse\x12!\n" +
 	"\fmachine_name\x18\x01 \x01(\tR\vmachineName\x12!\n" +
 	"\frelay_status\x18\x02 \x01(\tR\vrelayStatus\x12\x16\n" +
-	"\x06invite\x18\x03 \x01(\tR\x06invite\"W\n" +
+	"\x06invite\x18\x03 \x01(\tR\x06invite\x12\x1b\n" +
+	"\tlog_lines\x18\x04 \x03(\tR\blogLines\"W\n" +
 	"\bRpcError\x121\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x1d.agentkeyring.v1.RpcErrorCodeR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage*r\n" +

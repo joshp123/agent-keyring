@@ -47,14 +47,13 @@ public final class MirrorAppModel {
     let bridge: AgentBridgeDirectory
     /// When this Mac last passed its practice request: Touch ID, its chip keys and sealing work.
     public internal(set) var testedAt: Date?
-    /// "Set Up Agents on This Mac" while it runs, or why it failed. Whether the
-    /// agents are set up is read from the links (`agentsSetUp`), never remembered.
-    public internal(set) var agentsSetUpClick = AgentsSetUpClick.idle
     /// Where first run is (FirstRun.swift); saved, so a restart resumes it.
     public private(set) var firstRun: FirstRun
     /// "Copy your passwords", from first run or the main window; nil when no
     /// copy is open. The main window shows it in place of the list while it is set.
-    public internal(set) var passwordsCopy: PasswordsCopy?
+    public internal(set) var passwordsCopy: PasswordsCopy? {
+        didSet { if passwordsCopy != oldValue { DiagnosticLog.record("copy", "moved", ["to": passwordsCopy.map { "\($0)" } ?? "closed"]) } }
+    }
     @ObservationIgnored var exportTimeout: Task<Void, Never>?
     /// This Mac's Automatic switch while it is not joined to a relay; once
     /// joined, its entry in the members list decides.
@@ -129,14 +128,54 @@ public final class MirrorAppModel {
 
     /// Moves first run on, as the board draws it, and saves where it is.
     public func send(_ event: FirstRun.Event) {
-        let next = firstRun.after(event, agentsSetUp: agentsSetUp)
+        let next = firstRun.after(event, joined: device?.isJoined == true)
         guard next != firstRun else { return }
+        DiagnosticLog.record("firstrun", "moved", ["from": "\(firstRun)", "to": "\(next)", "by": "\(event)"])
         firstRun = next
         settings.set(try? JSONEncoder().encode(next), forKey: Self.firstRunKey)
     }
 
-    /// Agents on this Mac ask this app: read from the command's link each time.
-    public var agentsSetUp: Bool { AgentsOnThisMac.areSetUp() }
+    /// The last practice request on each device he answers on, by device key.
+    public internal(set) var practiceResults: [String: PracticeResult] = [:]
+
+    /// This Mac's key in `practiceResults`.
+    public var thisMacDeviceKey: String { device?.ownDeviceID ?? "this-mac" }
+
+    /// "Send Practice Request": on this Mac the practice panel appears beside
+    /// the window; on another device it arrives like a real request, and the
+    /// row shows how it was answered.
+    public func sendPractice(to deviceKey: String) async {
+        practiceResults[deviceKey] = .sent
+        guard let device, deviceKey != thisMacDeviceKey else { return }
+        do {
+            let lease = try await device.practice(on: deviceKey)
+            practiceResults[deviceKey] = switch lease.state {
+            case .approved, .ended: .approved(at: .now)
+            case .denied: .denied(at: .now, reply: lease.reply)
+            default: .unanswered
+            }
+        } catch {
+            practiceResults[deviceKey] = .failed((error as? LocalizedError)?.errorDescription ?? "\(error)")
+        }
+    }
+
+    /// The practice here was answered: the request panel's backend says how.
+    public func notePracticeHere(_ result: PracticeResult) {
+        if practiceResults[thisMacDeviceKey] == .sent { practiceResults[thisMacDeviceKey] = result }
+    }
+
+    /// A practice request is waiting on this Mac, outside first run's own.
+    public var practiceWaitingHere: Bool { practiceResults[thisMacDeviceKey] == .sent }
+
+    /// "Try it now": the first request from an agent on this Mac that he
+    /// approved, as (agent, site); nil until there is one. Read from the leases.
+    public var firstApprovedRequest: (agent: String, site: String)? {
+        guard let lease = leaseStore.leases.filter({ $0.approvedAtUnixSeconds > 0 && $0.approvedBy != .automaticRule })
+            .min(by: { $0.approvedAtUnixSeconds < $1.approvedAtUnixSeconds }) else { return nil }
+        let site = lease.sites.first.map { URL(string: $0)?.host ?? $0 } ?? "a website"
+        return (leaseStore.requester(for: lease.leaseID)?.name ?? "An agent", site)
+    }
+
 
     /// "Done": the first-run window closes and the main window takes its place.
     public func finishFirstRun() {

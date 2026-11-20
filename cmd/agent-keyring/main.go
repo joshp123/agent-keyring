@@ -24,8 +24,9 @@ import (
 const help = `Agent Keyring: use a saved login for one task.
 
   find SITE                  Find login IDs (example.com is enough)
-  lease LOGIN --task TASK --reason REASON
-                             Ask once; print the lease ID when active
+  lease LOGIN --task TASK --reason REASON [--agent NAME]
+                             Ask once; print the lease ID when active. NAME is
+                             who Josh sees asking, such as Claude Code
   status LEASE [--wait]      Inspect a lease, or wait for its decision
   tabs                       List tabs in profiles with the browser extension
   fields --tab TARGET        List visible fields and selectors, never values
@@ -35,8 +36,7 @@ const help = `Agent Keyring: use a saved login for one task.
   read LEASE --field FIELD   Deliver a value to a private process pipe
   release LEASE             End permission when the task is done
   skill                     Print the bundled agent instructions
-  install                   Link the command and skills; register browser helpers
-  install --undo            Put back the links install replaced
+  install --undo            Put back the links an earlier version's install replaced
   install --browser-profile DIRECTORY
                             Register a helper only in this browser user-data directory
   machines                  List the computers on this Tailscale network
@@ -47,6 +47,9 @@ const help = `Agent Keyring: use a saved login for one task.
                             Start connecting this Mac to the relay on the computer
                             that stays on; prints the link that computer enrols with
   relay-status              Check whether this Mac has connected to the relay
+  logs [--since 30m] [--request ID]
+                            What the Mac, the relay, the iPhone and the Apple Watch
+                            did and why, in time order; no secrets
 
 A lease ends on release or 30 minutes after approval. It covers fill and read
 for that login; reuse it through retries and two-factor steps. Automatic
@@ -98,7 +101,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
+		case "task", "reason", "agent", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -199,6 +202,27 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		if err = machines(); err != nil {
 			return 1, err
+		}
+		return 0, nil
+	}
+	if command == "logs" {
+		if err = a.check("since request", ""); err != nil || len(a.positionals) != 0 || len(a.extra) != 0 {
+			return 2, errors.New("logs takes --since DURATION (such as 30m) and --request ID, both optional.")
+		}
+		var since int64
+		if text := a.options["since"]; text != "" {
+			duration, e := time.ParseDuration(text)
+			if e != nil || duration <= 0 {
+				return 2, errors.New("--since takes a duration such as 10m or 2h.")
+			}
+			since = time.Now().Add(-duration).Unix()
+		}
+		lines, e := gatherLogs(ctx, since, a.options["request"])
+		for _, line := range lines {
+			fmt.Println(safe(line))
+		}
+		if e != nil {
+			return 1, e
 		}
 		return 0, nil
 	}
@@ -332,7 +356,7 @@ func run(ctx context.Context, args []string) (int, error) {
 		if requestID == "" {
 			requestID = receiver.NewID()
 		}
-		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: id, TaskRef: a.options["task"], Reason: a.options["reason"], RequestId: requestID, AgentLabel: requesterLabel(), Project: requesterProject()}}})
+		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: id, TaskRef: a.options["task"], Reason: a.options["reason"], RequestId: requestID, AgentLabel: requesterLabel(a.options["agent"]), Project: requesterProject()}}})
 		if e != nil {
 			return 1, e
 		}
@@ -443,6 +467,9 @@ func leaseError(lease *pb.Lease) error {
 	text := "This lease is " + leaseState(lease.State) + "."
 	if lease.Reply != "" {
 		text += " Reply: " + safe(lease.Reply)
+	}
+	if lease.State == pb.LeaseState_LEASE_STATE_DENIED && lease.RetryNotBeforeUnixSeconds > 0 {
+		text += " You may ask again after " + time.Unix(lease.RetryNotBeforeUnixSeconds, 0).Format("15:04:05") + "."
 	}
 	if lease.State == pb.LeaseState_LEASE_STATE_EXPIRED || lease.State == pb.LeaseState_LEASE_STATE_REVOKED {
 		text += " Request a new lease only if this task still needs the login."

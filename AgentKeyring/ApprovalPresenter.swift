@@ -117,7 +117,7 @@ final class ApprovalPresenter {
         let remote = (device?.waitingRequests ?? []).map { (Item.remote($0.requestID), $0.askedUnixSeconds) }
         let sendImported: [Item] = model.importedLoginsAwaitApproval ? [.sendImported] : []
         // The window says "Open the lid" or "Add a fingerprint" in its place.
-        let selfTest: [Item] = model.firstRun == .practice && MacApprover.shared.state == .ready ? [.selfTest] : []
+        let selfTest: [Item] = (model.firstRun == .practice || model.practiceWaitingHere) && MacApprover.shared.state == .ready ? [.selfTest] : []
         return selfTest + relaySetup + joining + sendImported + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
     }
 
@@ -128,8 +128,9 @@ final class ApprovalPresenter {
         case let .showing(item, shown):
             presented.request?.moreWaiting = items.filter { $0 != item && $0.isRequest }.count
             guard !items.contains(item) else { return }
-            // A denial stays up long enough to take back with "Let it ask again".
-            let linger: Duration = presented.request?.isHoldingOff == true ? .seconds(10) : .seconds(2.5)
+            // A denial stays up long enough to take back with "Let it ask again";
+            // the practice request goes at once, as first run's window says what happened.
+            let linger: Duration = item == .selfTest ? .zero : presented.request?.isHoldingOff == true ? .seconds(10) : .seconds(2.5)
             presented = .closing(item, shown, Task { [weak self] in
                 try? await Task.sleep(for: linger)
                 guard !Task.isCancelled else { return }
@@ -155,6 +156,7 @@ final class ApprovalPresenter {
                 panel.show(question: SetupCopy.sendImportedTitle, message: SetupCopy.sendImportedBody, approval: approval)
             }
             presented = .showing(item, shown)
+            DiagnosticLog.record("panel", "shown", ["item": "\(item)"])
             return
         }
     }

@@ -38,9 +38,25 @@ public final class CredentialLeaseStore {
         var automatic: Bool
         var requester: CredentialLeaseRequester? = nil
     }
-    private struct Suppression: Codable {
+    /// After a denial the agent waits a minute before asking again; five after
+    /// a second denial in a row, fifteen after more. An approval, or an hour
+    /// with no denial, starts again at a minute. As the relay does for other computers.
+    struct Suppression: Codable {
         var until: Int64
         var reply: String
+        var inARow: Int?
+
+        static func after(_ previous: Suppression?, reply: String, now: Int64) -> Suppression {
+            let inARow = (previous.flatMap { now - $0.until <= 3600 ? ($0.inARow ?? 1) : nil } ?? 0) + 1
+            let wait: Int64 = inARow == 1 ? 60 : inARow == 2 ? 300 : 900
+            return Suppression(until: now + wait, reply: reply, inARow: inARow)
+        }
+    }
+
+    /// What the agent reads while it waits: when it may ask again, and Josh's words.
+    static func heldOff(_ until: Int64, reply: String) -> String {
+        let time = Date(timeIntervalSince1970: TimeInterval(until)).formatted(date: .omitted, time: .standard)
+        return "Josh denied this password. Ask again after \(time)." + (reply.isEmpty ? "" : " His reply, word for word: \"\(reply)\"")
     }
     private struct Snapshot: Codable {
         var version = 1
@@ -169,7 +185,7 @@ public final class CredentialLeaseStore {
             lease.endedAtUnixSeconds = now
             lease.retryNotBeforeUnixSeconds = suppression.until
             lease.reply = suppression.reply
-            lease.statusLines = ["A recent denial is still in effect. Wait for Josh to clear it or start a new request later."]
+            lease.statusLines = [Self.heldOff(suppression.until, reply: suppression.reply)]
         } else if policy == .allowAutomatically {
             lease.state = .active
             lease.approvedBy = .automaticRule
@@ -207,7 +223,17 @@ public final class CredentialLeaseStore {
         lease.statusLines = []
         opened[leaseID] = secret
         try saveLease(lease)
+        try forgetDenials(of: lease.loginID)
+        DiagnosticLog.record("lease", "approved", ["lease": leaseID, "by": "mac"])
         return lease
+    }
+
+    /// An approval: the next denial holds the agent off for a minute again.
+    private func forgetDenials(of loginID: String) throws {
+        guard snapshot?.suppressions[loginID] != nil else { return }
+        var next = snapshot!
+        next.suppressions.removeValue(forKey: loginID)
+        try commit(next)
     }
 
     /// The iPhone or Watch approved: what it sent, held in memory for the lease.
@@ -226,6 +252,8 @@ public final class CredentialLeaseStore {
         opened[leaseID] = secret
         openedCodes[leaseID] = contents.oneTimeCodes
         try saveLease(lease)
+        try forgetDenials(of: lease.loginID)
+        DiagnosticLog.record("lease", "approved", ["lease": leaseID, "by": "device"])
     }
 
     func openedCodes(for leaseID: String) -> [Agentkeyring_V2_TimedCode]? { openedCodes[leaseID] }
@@ -241,10 +269,12 @@ public final class CredentialLeaseStore {
         lease.reply = reply
         lease.approvedBy = approvedBy
         lease.endedAtUnixSeconds = Self.now
-        lease.retryNotBeforeUnixSeconds = lease.endedAtUnixSeconds + 1800
-        lease.statusLines = ["The request was denied."]
         var next = snapshot!
-        next.suppressions[lease.loginID] = Suppression(until: lease.retryNotBeforeUnixSeconds, reply: reply)
+        let hold = Suppression.after(next.suppressions[lease.loginID], reply: reply, now: lease.endedAtUnixSeconds)
+        lease.retryNotBeforeUnixSeconds = hold.until
+        lease.statusLines = ["The request was denied."]
+        next.suppressions[lease.loginID] = hold
+        DiagnosticLog.record("lease", "denied", ["lease": leaseID, "by": "\(approvedBy)", "held_until": "\(hold.until)", "in_a_row": "\(hold.inARow ?? 1)"])
         next.leases[leaseID]!.lease = try lease.serializedData()
         // One denial covers this recipient/login, including already waiting tasks.
         for (id, saved) in next.leases where id != leaseID {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/keyring"
@@ -28,7 +29,7 @@ type saved struct {
 	Catalogue      []byte                       `json:"catalogue,omitempty"` // Signed Catalogue.
 	Sealed         map[string]map[string][]byte `json:"sealed"`              // Opener id, login id: SealedLogin.
 	Requests       map[string]*request          `json:"requests"`
-	HeldOff        map[string]int64             `json:"held_off"` // Machine id "/" login id: until.
+	Holds          map[string]*hold             `json:"holds"`    // Machine id "/" login id: after a denial.
 	Pushes         map[string][]byte            `json:"pushes"`   // Device key id: PushRegistration.
 	Joins          map[string]*join             `json:"joins"`    // Joiner id.
 	SelfTests      map[string][]byte            `json:"self_tests,omitempty"` // Device key id: Signed SelfTestReport.
@@ -49,6 +50,38 @@ type request struct {
 	RetryNotBefore  int64         `json:"retry_not_before,omitempty"`
 	Ended           int64         `json:"ended,omitempty"`
 	EndedBy         string        `json:"ended_by,omitempty"` // The device that stopped an approval early.
+}
+
+// hold keeps one computer from asking for one password again straight after
+// Josh denied it: a minute after the first denial, five after a second in a
+// row, fifteen after more. An approval, or an hour with no denial, starts again.
+type hold struct {
+	Until  int64  `json:"until"`
+	InARow int    `json:"in_a_row"`
+	Reply  string `json:"reply,omitempty"` // His words with the last denial.
+}
+
+func holdFor(inARow int) time.Duration {
+	switch inARow {
+	case 1:
+		return time.Minute
+	case 2:
+		return 5 * time.Minute
+	default:
+		return 15 * time.Minute
+	}
+}
+
+// holdOff records a denial and returns when the computer may ask again.
+func (d *saved) holdOff(key, reply string, now time.Time) int64 {
+	h := d.Holds[key]
+	if h == nil || now.Unix()-h.Until > 3600 {
+		h = &hold{}
+	}
+	h.InARow++
+	h.Until, h.Reply = now.Add(holdFor(h.InARow)).Unix(), reply
+	d.Holds[key] = h
+	return h.Until
 }
 
 type join struct {
@@ -114,8 +147,8 @@ func (d *saved) fill() {
 	if d.Requests == nil {
 		d.Requests = map[string]*request{}
 	}
-	if d.HeldOff == nil {
-		d.HeldOff = map[string]int64{}
+	if d.Holds == nil {
+		d.Holds = map[string]*hold{}
 	}
 	if d.Pushes == nil {
 		d.Pushes = map[string][]byte{}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"log/slog"
+	"slices"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
@@ -247,16 +248,22 @@ func (s *Server) refuseJoin(refusal *pb.JoinRefusal) error {
 
 func (s *Server) pendingJoins() *pb.PendingJoins {
 	result := &pb.PendingJoins{}
-	s.Store.read(func(data *saved) {
-		for _, j := range data.Joins {
-			if j.State != pb.JoinState_JOIN_STATE_WAITING {
-				continue
-			}
-			request := &pb.JoinRequest{}
-			if unmarshal(j.Request, request) == nil {
-				result.Joins = append(result.Joins, &pb.PendingJoin{Request: request, TailscaleNodeName: j.Node, AskedUnixSeconds: j.Asked})
-			}
-		}
-	})
+	s.Store.read(func(data *saved) { result.Joins = pendingJoinsLocked(data) })
 	return result
+}
+
+// pendingJoinsLocked lists the joins still waiting, oldest first.
+func pendingJoinsLocked(data *saved) []*pb.PendingJoin {
+	var joins []*pb.PendingJoin
+	for _, j := range data.Joins {
+		if j.State != pb.JoinState_JOIN_STATE_WAITING {
+			continue
+		}
+		request := &pb.JoinRequest{}
+		if unmarshal(j.Request, request) == nil {
+			joins = append(joins, &pb.PendingJoin{Request: request, TailscaleNodeName: j.Node, AskedUnixSeconds: j.Asked})
+		}
+	}
+	slices.SortFunc(joins, func(a, b *pb.PendingJoin) int { return int(a.AskedUnixSeconds - b.AskedUnixSeconds) })
+	return joins
 }

@@ -342,8 +342,9 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 			t.Fatalf("want a denial with words, got %v\n%s", got.err, got.stderr)
 		}
 		again := wait(t, start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Fourth try.")), "lease")
-		if again.err == nil || !strings.Contains(again.stderr, "Josh denied this login for this machine") {
-			t.Fatalf("a denial holds the login off for 30 minutes; got %v\n%s", again.err, again.stderr)
+		if again.err == nil || !strings.Contains(again.stderr, "Josh denied this password for this computer. Ask again after") ||
+			!strings.Contains(again.stderr, "(in 1m0s). His reply, word for word: \"The invoice is in my email. Use that.\"") {
+			t.Fatalf("a denial holds the password off for a minute and says why; got %v\n%s", again.err, again.stderr)
 		}
 	})
 
@@ -483,12 +484,12 @@ func TestJoshDeniesAComputer(t *testing.T) {
 	}
 }
 
-// The agent in Josh's first run runs install, which switches this Mac's
-// agents from 0.2.5 to the new app in one go, and leaves Claude Code's
-// read-only, Nix-made folder as it is. Agents still following 0.2.5's
-// instructions are told to reread them, or reach their earlier buffer.
-// install --undo puts every link back exactly.
-func TestInstallSwitchesThisMacsAgentsAndBack(t *testing.T) {
+// Josh's Mac as the first run of 20 November left it: an earlier install
+// switched the command and Codex's link to the new app and wrote down what
+// they were. install no longer changes any link; agents still following
+// 0.2.5's instructions are told to reread them, or reach their earlier
+// buffer; install --undo still puts every link back exactly.
+func TestLinksAnEarlierInstallChangedStayHisToPutBack(t *testing.T) {
 	p := build(t)
 	scratch := t.TempDir()
 	home := filepath.Join(scratch, "home")
@@ -558,13 +559,26 @@ func TestInstallSwitchesThisMacsAgentsAndBack(t *testing.T) {
 		home + "/.claude/skills/agent-keyring": links[home+"/.claude/skills/agent-keyring"],
 	}
 
+	record := map[string]map[string]string{}
+	for _, link := range []string{home + "/.local/bin/agent-keyring", home + "/.codex/skills/agent-keyring"} {
+		os.Remove(link)
+		if err := os.Symlink(switched[link], link); err != nil {
+			t.Fatal(err)
+		}
+		record[link] = map[string]string{"previous": links[link], "installed": switched[link]}
+	}
+	recorded, _ := json.Marshal(record)
+	os.MkdirAll(home+"/.local/state/agent-keyring", 0o755)
+	if err := os.WriteFile(home+"/.local/state/agent-keyring/replaced-links.json", recorded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	got := agent(app+"/Helpers/agent-keyring", "install")
-	if exitCode(got) != 0 || !strings.Contains(got.stderr, "Not changed: "+home+"/.claude/skills/agent-keyring. Its folder is read-only") ||
-		!strings.Contains(got.stderr, "install --undo") {
+	if exitCode(got) != 0 || !strings.Contains(got.stderr, "no longer links itself") || !strings.Contains(got.stderr, "skill") {
 		t.Fatalf("install: %v\n%s", got.err, got.stderr)
 	}
 	if found := targets(); fmt.Sprint(found) != fmt.Sprint(switched) {
-		t.Fatalf("after install the links are %v", found)
+		t.Fatalf("install changed the links: %v", found)
 	}
 
 	command0 := home + "/.local/bin/agent-keyring" // What agents run.
@@ -585,13 +599,6 @@ func TestInstallSwitchesThisMacsAgentsAndBack(t *testing.T) {
 	}
 	if calls, _ := os.ReadFile(old + "/Helpers/calls"); string(calls) != "read "+reference+"\nclear "+reference+"\n" {
 		t.Fatalf("0.2.5's command was run with %q", calls)
-	}
-
-	if got = agent(command0, "install"); exitCode(got) != 0 || !strings.Contains(got.stderr, "Already linked: "+home+"/.codex/skills/agent-keyring") {
-		t.Fatalf("install again: %v\n%s", got.err, got.stderr)
-	}
-	if found := targets(); fmt.Sprint(found) != fmt.Sprint(switched) {
-		t.Fatalf("after installing again the links are %v", found)
 	}
 
 	got = agent(app+"/Helpers/agent-keyring", "install", "--undo")

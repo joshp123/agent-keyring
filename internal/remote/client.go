@@ -309,3 +309,12 @@ func printable(value string) string {
 		return r
 	}, value)
 }
+
+// Logs is the relay's own recent lines and each device's latest log, in time order.
+func (c *Client) Logs(ctx context.Context, since int64, requestID string) ([]string, error) {
+	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Logs{Logs: &pb.LogsRequest{SinceUnixSeconds: since, RequestId: requestID}}})
+	if err != nil {
+		return nil, err
+	}
+	return response.GetLogs().GetLines(), nil
+}

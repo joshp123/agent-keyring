@@ -19,6 +19,13 @@ import Observation
 public enum RelayScreenMapping {
     public static func accessRequest(_ work: Agentkeyring_V2_Work, device: MacDevice, logins: [CredentialCandidate]) -> AccessRequest? {
         guard let request = try? Sealing.parseRequest(work.request) else { return nil }
+        if device.isPractice(work) {
+            // From the iPhone or Devices: laid out as first run's practice request.
+            return AccessRequest(id: request.requestID, login: RequestedLogin(site: "example.com", account: "you@example.com"),
+                agent: RequestingAgent(name: request.agent, machine: "", address: "", project: "Practice", isLocal: true),
+                access: .practice, agentReason: request.reason, askedAt: date(request.askedUnixSeconds),
+                state: work.hasOutcome ? state(work.outcome, device: device) : .waitingForYou(until: date(request.answerByUnixSeconds)))
+        }
         let login = logins.first { $0.id.uuidString == request.loginID }
         let machine = device.members?.machines.first { $0.machineID == request.machineID }
         let outcome: Agentkeyring_V2_Lease? = work.hasOutcome ? work.outcome : nil
@@ -26,7 +33,7 @@ public enum RelayScreenMapping {
             id: request.requestID,
             login: RequestedLogin(site: LeaseScreenMapping.siteLabel(login?.origins.first ?? login?.title ?? "Unknown site"),
                 account: login?.username ?? login?.title ?? "Unknown account"),
-            agent: RequestingAgent(name: request.agent.isEmpty ? "An agent" : request.agent,
+            agent: RequestingAgent(name: request.agent.isEmpty ? "an agent" : request.agent,
                 machine: machine?.label ?? "Another computer", address: "",
                 project: request.project.isEmpty ? nil : request.project, isLocal: false),
             access: .login,
@@ -108,7 +115,7 @@ public final class RelayApprovalBackend: MacApprovalBackend {
     }
 
     public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
-        throw ScreenFailure(message: "A denial on another computer holds the password off for 30 minutes. It cannot be lifted from this Mac yet.")
+        throw ScreenFailure(message: "A denial on another computer holds the password off for a few minutes. It cannot be lifted from this Mac.")
     }
 }
 

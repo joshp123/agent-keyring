@@ -138,5 +138,7 @@ func run() error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Relay key %s. Machines see the first 16 characters when they join.\n", keyring.KeyID(spki))
-	return (&relay.Server{Store: store, Push: push, Certificate: certificate, Lookup: lookup, AnswerWithin: *answerWithin}).Serve(ctx, listener)
+	ring := &relay.Ring{}
+	slog.SetDefault(slog.New(ring.Handler(slog.NewTextHandler(os.Stderr, nil))))
+	return (&relay.Server{Store: store, Push: push, Ring: ring, Certificate: certificate, Lookup: lookup, AnswerWithin: *answerWithin}).Serve(ctx, listener)
 }

@@ -107,9 +107,10 @@ func (s *Sender) authorization() (string, error) {
 	return s.token, nil
 }
 
-// Send delivers one alert push. The payload is the caller's: it must carry
-// nothing readable about a request (keyring.proto, "The push").
-func (s *Sender) Send(ctx context.Context, token []byte, topic string, production bool, collapse string, expires int64, payload []byte) (Result, error) {
+// Send delivers one push: `visible`, an alert he sees; otherwise a silent
+// background push that wakes the app. The payload is the caller's: it must
+// carry nothing readable about a request (keyring.proto, "The push").
+func (s *Sender) Send(ctx context.Context, token []byte, topic string, production bool, collapse string, expires int64, payload []byte, visible bool) (Result, error) {
 	gateway := "https://api.sandbox.push.apple.com"
 	environment := "sandbox"
 	if production {
@@ -129,8 +130,13 @@ func (s *Sender) Send(ctx context.Context, token []byte, topic string, productio
 	}
 	request.Header.Set("authorization", "bearer "+authorization)
 	request.Header.Set("apns-topic", topic)
-	request.Header.Set("apns-push-type", "alert")
-	request.Header.Set("apns-priority", "10")
+	if visible {
+		request.Header.Set("apns-push-type", "alert")
+		request.Header.Set("apns-priority", "10")
+	} else {
+		request.Header.Set("apns-push-type", "background")
+		request.Header.Set("apns-priority", "5") // Apple requires 5 for background pushes.
+	}
 	request.Header.Set("apns-collapse-id", collapse)
 	request.Header.Set("apns-expiration", strconv.FormatInt(expires, 10))
 	request.Header.Set("content-type", "application/json")

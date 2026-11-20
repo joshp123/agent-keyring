@@ -29,6 +29,15 @@ public struct AgentRequester: Sendable {
         attribution(peerProcessIdentifier: peer.processIdentifier)
     }
 
+    /// Claude Code or Codex found among the asking processes wins; otherwise
+    /// the name the agent gave (`lease --agent`), else "an agent".
+    public func named(_ given: String) -> AgentRequester {
+        let given = given.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !["Claude Code", "Codex"].contains(name), !given.isEmpty, given.count <= 100 else { return self }
+        return AgentRequester(name: given, processIdentifier: processIdentifier, processStartTime: processStartTime,
+            workingDirectory: workingDirectory, machineName: machineName, networkAddress: networkAddress)
+    }
+
     static func attribution(peerProcessIdentifier: pid_t,
         processInfo: (pid_t) -> (executablePath: String, parentPID: pid_t)? = AgentDisplayLabel.processInformation,
         startTime: (pid_t) -> HarnessProcessStartTime? = processStartTime,

@@ -20,7 +20,7 @@ var approved = request; approved.state = .approved(by: .mac, until: .now.addingT
 var denied = request; denied.state = .denied(by: .mac, reply: "The invoice is in my email. Use that.", askAgainAfter: nil)
 let practice = AccessRequest.practice(id: "practice", state: .waitingForYou(until: .distantFuture))
 let practiceApproved = AccessRequest.practice(id: "practice", state: .approved(by: .mac, until: .now))
-let agentLine = FirstRunCopy.agentLine(appPath: "/Applications/Agent Keyring.app")
+let agentLine = FirstRunCopy.agentNote(appPath: "/Applications/Agent Keyring.app")
 var cancelled = request; cancelled.state = .cancelled
 let addComputer = AccessRequest(id: "c", login: RequestedLogin(site: "Mac mini", account: ""),
     agent: RequestingAgent(name: "Claude Code", machine: "", address: "", isLocal: true),
@@ -32,6 +32,11 @@ let addPhone = AccessRequest(id: "p", login: RequestedLogin(site: "iPhone 17 Pro
     access: .setUp(lead: SetupCopy.addingDeviceLead, detail: SetupCopy.addingDeviceDetail(watch: false),
         footer: SetupCopy.addingDeviceFooter(watch: false), denied: SetupCopy.notAdded("iPhone 17 Pro"), replies: false),
     agentReason: "", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
+let practiceRows = [
+    PracticeRow(id: "d1", name: "This Mac", symbol: "laptopcomputer", detail: FirstRunCopy.practiceApprovedAt("14:02", touchID: true), tone: .approved, canSend: true),
+    PracticeRow(id: "d2", name: "iPhone 17 Pro", symbol: "iphone", detail: FirstRunCopy.practiceDeniedAt("14:03", reply: "Use the work account instead."), tone: .denied, canSend: true),
+    PracticeRow(id: "d3", name: "Apple Watch Ultra 3", symbol: "applewatch", detail: FirstRunCopy.practiceSentWrist, tone: .plain, canSend: false),
+]
 var computerDenied = addComputer; computerDenied.state = .denied(by: .mac, reply: nil, askAgainAfter: nil)
 let invited = AccessRequest(id: "i", login: RequestedLogin(site: "Mac mini", account: ""),
     agent: RequestingAgent(name: "An agent", machine: "Mac mini", address: ""),
@@ -87,37 +92,45 @@ let cases: [(String, AnyView)] = [
     ("first-run-3-copy-from-main-window", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: false, offerSample: false, earlierVersion: true)))),
     ("first-run-3-allow-export", AnyView(MacFirstRunView(screen: .allowExport(asking: false)))),
     ("first-run-3-copying", AnyView(MacFirstRunView(screen: .copying))),
-    ("first-run-4-set-up", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
-        copiedDetail: FirstRunCopy.mustAskAny, sampleOnly: false, agents: .notYet)))),
-    ("first-run-4-set-up-done", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
-        copiedDetail: FirstRunCopy.mustAskAny, sampleOnly: false, agents: .done)))),
-    ("first-run-4-set-up-sample", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.sampleAdded,
-        copiedDetail: FirstRunCopy.sampleDetail, sampleOnly: true, agents: .notYet)))),
-    ("first-run-4-set-up-failed", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
-        copiedDetail: FirstRunCopy.mustAskAny, sampleOnly: false,
-        agents: .failed("The agents on this Mac weren’t set up: agent-keyring: permission denied. Try again. If it keeps failing, copy the message below and send it to an agent: it can do this for you."))))),
-    ("first-run-6-ready", AnyView(MacFirstRunView(screen: .ready(phoneLater: false, sampleOnly: false)))),
-    ("first-run-6-ready-sample-phone-later", AnyView(MacFirstRunView(screen: .ready(phoneLater: true, sampleOnly: true)))),
+    ("first-run-4-tell-agents", AnyView(MacFirstRunView(screen: .tellAgents(header: CopiedHeader(title: FirstRunCopy.copied(542),
+        detail: FirstRunCopy.mustAskAny, sample: false), approved: nil)))),
+    ("first-run-4-tell-agents-sample-tried", AnyView(MacFirstRunView(screen: .tellAgents(header: CopiedHeader(title: FirstRunCopy.sampleAdded,
+        detail: FirstRunCopy.sampleDetail, sample: true), approved: FirstRunCopy.approvedRequest(agent: "Claude Code", site: "example.com"))))),
+    ("first-run-4-tell-agents-from-devices", AnyView(MacFirstRunView(screen: .tellAgents(header: nil, approved: nil)))),
+    ("first-run-5-staying-on", AnyView(MacFirstRunView(screen: .stayingOn(failure: nil)))),
+    ("first-run-5-staying-on-failed", AnyView(MacFirstRunView(screen: .stayingOn(failure: "Nothing answered at mac-mini:17445. Check that the computer is on and its relay is running.")))),
+    ("first-run-5-connecting", AnyView(MacFirstRunView(screen: .connecting(name: "mac-mini")))),
+    ("first-run-6-add-phone", AnyView(MacFirstRunView(screen: .addPhone(added: nil)))),
+    ("first-run-6-add-phone-added", AnyView(MacFirstRunView(screen: .addPhone(added: "iPhone")))),
+    ("first-run-7-add-watch", AnyView(MacFirstRunView(screen: .addWatch(added: nil)))),
+    ("first-run-8-add-computers", AnyView(MacFirstRunView(screen: .addComputers(command: FirstRunCopy.enrolCommand("agentkeyring://join?invite=7Q2xNw…"), joined: ["Linux server"])))),
+    ("first-run-9-try-devices", AnyView(MacFirstRunView(screen: .tryDevices(practiceRows)))),
+    ("first-run-10-ready", AnyView(MacFirstRunView(screen: .ready(alone: false, sampleOnly: false)))),
+    ("first-run-10-ready-sample-alone", AnyView(MacFirstRunView(screen: .ready(alone: true, sampleOnly: true)))),
     ("menu-bar-tip", AnyView(MenuBarTipView())),
 ]
 final class StubBackend: MainWindowBackend {
     func updates() -> AsyncStream<MainSnapshot> { AsyncStream { $0.finish() } }
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws {}
-    func setAutomatic(machineID: String, on: Bool, context: LAContext) async throws {}
     func remove(id: String, context: LAContext) async throws {}
     func importAgain() {}
+    func sendPractice(deviceID: String) {}
 }
-let thisMac = DeviceRow(id: "d1", name: "MacBook Pro", kind: .mac, lastTested: .now, isThisMac: true)
+let thisMac = DeviceRow(practice: practiceRows[0], isThisMac: true)
+let plainRows = [
+    PracticeRow(id: "d1", name: "MacBook Pro", symbol: "laptopcomputer", detail: "This Mac · You answer with Touch ID", tone: .plain, canSend: true),
+    PracticeRow(id: "d2", name: "iPhone", symbol: "iphone", detail: MainWindowCopy.phoneAnswers, tone: .plain, canSend: true),
+    PracticeRow(id: "d3", name: "Apple Watch", symbol: "applewatch", detail: MainWindowCopy.watchAnswers, tone: .plain, canSend: true),
+]
 let logins = [("example.com", LoginRule.ask), ("news.example", .ask), ("forum.example", .automatic), ("old.example", .blocked)]
     .map { LoginRow(id: UUID(), site: $0.0, account: "josh@example.com", rule: $0.1) }
-let alone = MainSnapshot(logins: logins, importedAt: .now, devices: [thisMac],
-    machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true, isAlwaysOn: false, automatic: false, lastTested: nil)])
+let alone = MainSnapshot(logins: logins, importedAt: .now, devices: [DeviceRow(practice: plainRows[0], isThisMac: true)],
+    machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true, isAlwaysOn: false)])
 let everything = MainSnapshot(logins: logins, importedAt: .now,
-    devices: [DeviceRow(id: "d2", name: "iPhone 17 Pro", kind: .iPhone, lastTested: .now, isThisMac: false),
-        DeviceRow(id: "d3", name: "Apple Watch Ultra 3", kind: .watch, lastTested: .now, isThisMac: false), thisMac],
-    machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true, isAlwaysOn: false, automatic: true, lastTested: nil),
-        MachineRow(id: "m2", name: "Mac mini", isThisMac: false, isAlwaysOn: true, automatic: true, lastTested: nil),
-        MachineRow(id: "m3", name: "Linux server", isThisMac: false, isAlwaysOn: false, automatic: false, lastTested: nil)])
+    devices: plainRows.enumerated().map { DeviceRow(practice: $1, isThisMac: $0 == 0) },
+    machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true, isAlwaysOn: false),
+        MachineRow(id: "m2", name: "Mac mini", isThisMac: false, isAlwaysOn: true),
+        MachineRow(id: "m3", name: "Linux server", isThisMac: false, isAlwaysOn: false)])
 @MainActor func mainWindow(_ snapshot: MainSnapshot, tab: MacMainModel.Tab, makeAutomatic: Bool = false) -> AnyView {
     let model = MacMainModel(backend: StubBackend(), initial: snapshot)
     model.tab = tab

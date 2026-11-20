@@ -37,6 +37,7 @@ const (
 	CatalogueDomain = "agentkeyring.catalogue.v2"
 	RequestDomain   = "agentkeyring.request.v2"
 	SelfTestDomain  = "agentkeyring.selftest.v2"
+	LogDomain       = "agentkeyring.log.v2"
 	AnswerDomain    = "agentkeyring.answer.v2"
 	SealedDomain    = "agentkeyring.sealed.v2"
 	ApprovalSeconds = 1800

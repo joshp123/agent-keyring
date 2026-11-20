@@ -34,6 +34,17 @@ func newID() string {
 
 func heldOffKey(machineID, loginID string) string { return machineID + "/" + loginID }
 
+// heldOffMessage tells the agent when it may ask again, and his words.
+func heldOffMessage(h *hold, now time.Time) string {
+	wait := time.Duration(h.Until-now.Unix()) * time.Second
+	message := "Josh denied this password for this computer. Ask again after " + time.Unix(h.Until, 0).Format("15:04:05") +
+		" (in " + wait.Round(time.Second).String() + ")."
+	if h.Reply != "" {
+		message += " His reply, word for word: \"" + h.Reply + "\""
+	}
+	return message
+}
+
 func (r *request) lease(id string) *pb.Lease {
 	parsed := &pb.Request{}
 	unmarshal(r.Request, parsed)
@@ -75,6 +86,11 @@ func (s *Server) ask(ctx context.Context, who caller, document *pb.Signed) (*pb.
 	var result *pb.Lease
 	var fresh *request
 	err = s.Store.update(func(data *saved) error {
+		if current, _ := s.Store.documentsLocked(); !slices.ContainsFunc(current.GetMachines(), func(m *pb.Machine) bool {
+			return m.MachineId == machine.MachineId
+		}) {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "This computer has been removed from Agent Keyring.")
+		}
 		if existing := data.Requests[id]; existing != nil {
 			if existing.MachineID != machine.MachineId || !bytes.Equal(existing.Request, document.Payload) {
 				return fail(pb.ErrorCode_ERROR_CODE_CONFLICT, "Another request has this ID.")
@@ -82,8 +98,8 @@ func (s *Server) ask(ctx context.Context, who caller, document *pb.Signed) (*pb.
 			result = existing.lease(id) // The same request again: a retry.
 			return nil
 		}
-		if until := data.HeldOff[heldOffKey(machine.MachineId, parsed.LoginId)]; until > now.Unix() && !parsed.Automatic {
-			return fail(pb.ErrorCode_ERROR_CODE_HELD_OFF, "Josh denied this login for this machine. Ask again after "+time.Unix(until, 0).Format("15:04")+".")
+		if h := data.Holds[heldOffKey(machine.MachineId, parsed.LoginId)]; h != nil && h.Until > now.Unix() && !parsed.Automatic {
+			return fail(pb.ErrorCode_ERROR_CODE_HELD_OFF, heldOffMessage(h, now))
 		}
 		fresh = &request{Request: document.Payload, Signature: document.Signature, MachineID: machine.MachineId,
 			State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: min(parsed.AnswerByUnixSeconds, now.Add(s.answerWithin()).Unix())}
@@ -201,10 +217,9 @@ func (s *Server) end(ctx context.Context, who caller, id, answeredHere string) (
 			return nil
 		case r.State == pb.LeaseState_LEASE_STATE_WAITING && mac && answeredHere == "denied":
 			r.State, r.AnsweredBy = pb.LeaseState_LEASE_STATE_DENIED, who.machine.Label
-			r.RetryNotBefore = s.now().Add(heldOffFor).Unix()
 			parsed := &pb.Request{}
 			unmarshal(r.Request, parsed)
-			data.HeldOff[heldOffKey(r.MachineID, parsed.LoginId)] = r.RetryNotBefore
+			r.RetryNotBefore = data.holdOff(heldOffKey(r.MachineID, parsed.LoginId), "", s.now())
 		case r.State == pb.LeaseState_LEASE_STATE_WAITING:
 			r.State, wasWaiting = pb.LeaseState_LEASE_STATE_CANCELLED, true
 		case r.State == pb.LeaseState_LEASE_STATE_APPROVED:
@@ -218,6 +233,7 @@ func (s *Server) end(ctx context.Context, who caller, id, answeredHere string) (
 		return nil
 	})
 	if err == nil && lease != nil {
+		slog.Info("end", "id", id, "state", lease.State.String(), "by", lease.EndedBy, "answered_here", answeredHere)
 		go s.pushAll(context.WithoutCancel(ctx), id)
 	}
 	_ = wasWaiting
@@ -229,15 +245,17 @@ func (s *Server) end(ctx context.Context, who caller, id, answeredHere string) (
 var practiceLogin = &pb.Login{Title: "example.com", Sites: []string{"example.com"}, Account: "you@example.com"}
 
 // testRequest makes the practice request: no login, for the calling device
-// or, from its iPhone, its Apple Watch, pushed like any other and streamed
-// until it is answered. Only that device can answer it.
+// or, from the Mac or the iPhone, for any device that approves, so Josh can
+// rehearse Approve, Deny and a reply on each. It is pushed like any other and
+// streamed until it is answered. Only that device can answer it.
 func (s *Server) testRequest(ctx context.Context, who caller, forDevice string, send func(*pb.RelayResponse) error) error {
 	target := who.device
 	if forDevice != "" && forDevice != who.device.KeyId {
 		members, _ := s.Store.documents()
 		target = device(members, forDevice)
-		if target == nil || target.Kind != pb.DeviceKind_DEVICE_KIND_WATCH || who.device.Kind != pb.DeviceKind_DEVICE_KIND_IPHONE {
-			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "An iPhone may ask for a practice request for its Apple Watch only.")
+		asker := who.device.Kind
+		if target == nil || (asker != pb.DeviceKind_DEVICE_KIND_MAC && asker != pb.DeviceKind_DEVICE_KIND_IPHONE) {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The Mac or the iPhone may ask for a practice request for a device of Josh's.")
 		}
 	}
 	now := s.now()
@@ -322,11 +340,16 @@ func (s *Server) selfTests() *pb.SelfTests {
 
 // answer records the first answer to a request and refuses the rest.
 func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload) (*pb.Lease, error) {
-	members, catalogue := s.Store.documents()
 	now := s.now()
 	var lease *pb.Lease
 	var id string
 	err := s.Store.update(func(data *saved) error {
+		// The members list as it is now, under the lock: a device removed a
+		// moment ago cannot still answer.
+		members, catalogue := s.Store.documentsLocked()
+		if upload.DenyRequestId != "" && device(members, who.device.GetKeyId()) == nil {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "This device has been removed.")
+		}
 		var r *request
 		var answeredBy, reply string
 		var choice pb.Choice
@@ -394,14 +417,16 @@ func (s *Server) answer(ctx context.Context, who caller, upload *pb.AnswerUpload
 			r.State, r.Ended = pb.LeaseState_LEASE_STATE_APPROVED, now.Unix()
 		} else if choice == pb.Choice_CHOICE_APPROVE {
 			r.State, r.NotAfter = pb.LeaseState_LEASE_STATE_APPROVED, notAfter
+			parsed := &pb.Request{}
+			unmarshal(r.Request, parsed)
+			delete(data.Holds, heldOffKey(r.MachineID, parsed.LoginId))
 		} else if r.ForDevice != "" {
 			r.State, r.Ended = pb.LeaseState_LEASE_STATE_DENIED, now.Unix()
 		} else {
 			parsed := &pb.Request{}
 			unmarshal(r.Request, parsed)
 			r.State, r.Ended = pb.LeaseState_LEASE_STATE_DENIED, now.Unix()
-			r.RetryNotBefore = now.Add(heldOffFor).Unix()
-			data.HeldOff[heldOffKey(r.MachineID, parsed.LoginId)] = r.RetryNotBefore
+			r.RetryNotBefore = data.holdOff(heldOffKey(r.MachineID, parsed.LoginId), reply, now)
 		}
 		lease = r.lease(id)
 		return nil
@@ -433,8 +458,8 @@ func (s *Server) keepDeadlines(ctx context.Context) {
 					due = append(due, id)
 				}
 			}
-			for key, until := range data.HeldOff {
-				if until <= now {
+			for key, h := range data.Holds {
+				if now-h.Until > 3600 { // Forgotten an hour after it ends: the next denial starts at a minute.
 					due = append(due, "held:"+key)
 				}
 			}
@@ -450,7 +475,7 @@ func (s *Server) keepDeadlines(ctx context.Context) {
 		s.Store.update(func(data *saved) error {
 			for _, id := range due {
 				if key, held := strings.CutPrefix(id, "held:"); held {
-					delete(data.HeldOff, key)
+					delete(data.Holds, key)
 					continue
 				}
 				r := data.Requests[id]
@@ -479,6 +504,7 @@ func (s *Server) keepDeadlines(ctx context.Context) {
 			return nil
 		})
 		for _, id := range unanswered {
+			slog.Info("unanswered", "id", id)
 			go s.pushAll(ctx, id)
 		}
 	}
@@ -547,12 +573,25 @@ func (s *Server) work(device *pb.Device, id string, data *saved) (*pb.Work, erro
 	return work, err
 }
 
-// watchWork streams each waiting request, then each new one and each outcome.
+// watchWork streams each waiting request, then each new one and each outcome,
+// with Changes when the members, catalogue or waiting joins change and every
+// 30 seconds.
 func (s *Server) watchWork(ctx context.Context, who caller, send func(*pb.RelayResponse) error) error {
 	sent := map[string]pb.LeaseState{}
+	var told *pb.Changes
+	slog.Info("work stream opened", "device", who.device.GetLabel())
+	defer slog.Info("work stream closed", "device", who.device.GetLabel())
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
 	for {
 		var batch []*pb.Work
+		changes := &pb.Changes{}
 		changed := s.Store.read(func(data *saved) {
+			members, catalogue := s.Store.documentsLocked()
+			changes.MembersRevision, changes.CatalogueRevision = members.GetRevision(), catalogue.GetRevision()
+			if who.device.GetKind() == pb.DeviceKind_DEVICE_KIND_MAC {
+				changes.PendingJoins = pendingJoinsLocked(data)
+			}
 			for id, r := range data.Requests {
 				if r.ForDevice != "" && r.ForDevice != who.device.KeyId {
 					continue
@@ -573,9 +612,17 @@ func (s *Server) watchWork(ctx context.Context, who caller, send func(*pb.RelayR
 				return nil
 			}
 		}
+		if !proto.Equal(told, changes) {
+			if err := send(&pb.RelayResponse{Result: &pb.RelayResponse_Changes{Changes: changes}}); err != nil {
+				return nil
+			}
+			told = changes
+		}
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-heartbeat.C:
+			told = nil
 		case <-changed:
 		}
 	}

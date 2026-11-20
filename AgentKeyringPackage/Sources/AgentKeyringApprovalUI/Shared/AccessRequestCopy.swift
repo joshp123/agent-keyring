@@ -8,10 +8,14 @@ public enum AccessRequestCopy {
     public static let letAskAgain = "Let it ask again"
 
     // The request panel
+    /// "Codex on Mac mini wants"; with no name for who is asking, "An agent on Mac mini wants".
     public static func wants(_ agent: RequestingAgent) -> String {
-        agent.isLocal ? "\(agent.name) on this Mac wants" : "\(agent.name) on \(agent.machine) wants"
+        let name = agent.name.prefix(1).uppercased() + agent.name.dropFirst()
+        return agent.isLocal ? "\(name) on this Mac wants" : "\(name) on \(agent.machine) wants"
     }
-    public static func replyPlaceholder(_ agent: String) -> String { "What should \(agent) do instead?" }
+    public static func replyPlaceholder(_ agent: String) -> String {
+        agent == "an agent" ? replyPlaceholderShort : "What should \(agent) do instead?"
+    }
     public static let replyPlaceholderShort = "What should it do instead?"
     /// In place of the green button while the lid is shut.
     public static let openTheLid = "Open the lid to approve"
@@ -33,6 +37,8 @@ public enum AccessRequestCopy {
     public static let noAnswer = "No answer"
     public static let cancelled = "Cancelled"
     public static func stopped(_ agent: String) -> String { "\(agent) stopped asking before you answered." }
+    /// After a computer or device is approved: "Mac mini added."
+    public static func added(_ name: String) -> String { "\(name) added." }
     public static func canUseUntil(_ agent: String, _ time: String) -> String { "\(agent) can use this password until \(time) at the latest." }
     public static func youTold(_ agent: String, _ reply: String) -> String { "You told \(agent): “\(reply)”" }
     public static func wasTold(_ agent: String) -> String { "\(agent) was told." }

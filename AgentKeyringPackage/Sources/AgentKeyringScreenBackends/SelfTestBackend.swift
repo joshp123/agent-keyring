@@ -22,9 +22,10 @@ public final class SelfTestBackend: MacApprovalBackend {
     }
 
     public var request: AccessRequest {
-        let state: AccessRequestState = switch model.firstRun {
-        case .practice: .waitingForYou(until: .distantFuture)
-        case let .practiceDenied(reply): .denied(by: .mac, reply: reply.isEmpty ? nil : reply, askAgainAfter: nil)
+        // First run's own practice, or one sent from Devices or "Try a request on each device".
+        let state: AccessRequestState = switch (model.firstRun, model.practiceResults[model.thisMacDeviceKey]) {
+        case (.practice, _), (_, .sent?): .waitingForYou(until: .distantFuture)
+        case let (.practiceDenied(reply), _), let (_, .denied(_, reply)?): .denied(by: .mac, reply: reply.isEmpty ? nil : reply, askAgainAfter: nil)
         default: .approved(by: .mac, until: model.testedAt ?? .now)
         }
         return .practice(id: Self.requestID, state: state)
@@ -40,6 +41,7 @@ public final class SelfTestBackend: MacApprovalBackend {
         defer { if self.context === context { self.context = nil } }
         do {
             try await model.runSelfTest(reason: FirstRunCopy.practiceReasonInDialog, context: context, onAuthenticated: onAuthenticated)
+            model.notePracticeHere(.approved(at: .now))
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw CancellationError()
         }
@@ -54,6 +56,7 @@ public final class SelfTestBackend: MacApprovalBackend {
     public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         cancelAuthentication(requestID: requestID)
         model.send(.practiceDenied(reply: reply ?? ""))
+        model.notePracticeHere(.denied(at: .now, reply: reply ?? ""))
         return request.state
     }
 

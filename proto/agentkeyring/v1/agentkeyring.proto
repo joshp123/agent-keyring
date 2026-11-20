@@ -283,7 +283,8 @@ message SetupRequest {
     VERIFY_MACHINE = 3;
     RELAY_STATUS = 4;
     INVITE = 5;                    // A one-time link for one machine to join (v2 JoinInvite).
-    reserved 6;                    // AGENTS_SET_UP: the app now reads the links themselves.
+    reserved 6;                    // AGENTS_SET_UP: the app no longer changes links.
+    LOGS = 7;                      // The Mac's recent log, with the relay's and the devices' if joined.
   }
   Action action = 1;
   string host = 2;
@@ -291,11 +292,14 @@ message SetupRequest {
   string code = 4;
   string machine_name = 5;
   string reason = 6;               // START_RELAY: the agent's words, shown with the request.
+  int64 since_unix_seconds = 7;    // LOGS: from this time; 0 for all.
+  string request_id = 8;           // LOGS: only lines naming this request.
 }
 message SetupResponse {
   string machine_name = 1;
   string relay_status = 2;
   string invite = 3;
+  repeated string log_lines = 4;   // LOGS, in time order.
 }
 
 message RpcError {

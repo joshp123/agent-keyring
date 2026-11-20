@@ -13,8 +13,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"syscall"
-	"time"
 
 )
 
@@ -83,30 +81,22 @@ func integration(command string) error {
 		_, e = os.Stdout.Write(data)
 		return e
 	}
+	// Agent Keyring no longer changes anyone's links or settings: an agent is
+	// told where the command is and runs it from there.
 	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	executable, err = filepath.EvalSymlinks(executable)
-	if err != nil {
+	if executable, err = filepath.EvalSymlinks(executable); err != nil {
 		return err
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	if err = install(home, executable, filepath.Dir(source)); err != nil {
-		return err
-	}
-	fmt.Fprintln(os.Stderr, "For sign-ins, use Agent Keyring. Run `agent-keyring skill` for the workflow.")
-	if os.Getenv("APP_SANDBOX_CONTAINER_ID") != "" {
-		return nil // Run by the app's own button: its sandbox reaches only the agents' folders.
-	}
-	return installBrowserHosts()
+	fmt.Fprintf(os.Stderr, "Agent Keyring no longer links itself into your folders. Run it from where it is:\n  %q\n"+
+		"and read the instructions with: %q skill\n", executable, executable)
+	return nil
 }
 
-// replaced is one link install changed, as it was before, so that
-// 'install --undo' can put it back exactly.
+// replaced is one link an earlier `install` changed, as it was before, so
+// that 'install --undo' can still put it back exactly.
 type replaced struct {
 	Previous  string `json:"previous,omitempty"` // The link's own text; empty if nothing was there.
 	Moved     string `json:"moved,omitempty"`    // A real folder that was there, moved aside to here.
@@ -152,94 +142,8 @@ func saveRecord(home string, record map[string]replaced) error {
 	return os.Rename(temporary, recordPath(home))
 }
 
-func readOnly(err error) bool {
-	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS)
-}
-
-// install links the command and the skill for this user's agents. Each link
-// it changes is written down first; a link in a folder it cannot write, or
-// one Nix made, is left as it is and named.
-func install(home, executable, skill string) error {
-	links := []struct{ source, destination string }{
-		{executable, filepath.Join(home, ".local/bin/agent-keyring")},
-		{skill, filepath.Join(home, ".codex/skills/agent-keyring")},
-		{skill, filepath.Join(home, ".claude/skills/agent-keyring")},
-	}
-	if info, e := os.Lstat(links[0].destination); e == nil && info.Mode()&os.ModeSymlink == 0 {
-		return fmt.Errorf("%s already exists and is not a link. Move it aside, then run install again.", links[0].destination)
-	}
-	record, err := loadRecord(home)
-	if err != nil {
-		return fmt.Errorf("Cannot read %s: %w", recordPath(home), err)
-	}
-	var left []string
-	leave := func(destination, why, target, source string) {
-		left = append(left, fmt.Sprintf("Not changed: %s. %s It still links to %s; agents that read it there keep those instructions until it links to %s.",
-			destination, why, target, source))
-	}
-	for _, link := range links {
-		if linksTo(link.destination, link.source) {
-			fmt.Fprintln(os.Stderr, "Already linked:", link.destination)
-			continue
-		}
-		previous, readErr := os.Readlink(link.destination)
-		_, statErr := os.Lstat(link.destination)
-		folder := statErr == nil && readErr != nil
-		if readErr == nil && strings.HasPrefix(previous, "/nix/store/") {
-			leave(link.destination, "Nix made it, so Nix or Home Manager manages it.", previous, link.source)
-			continue
-		}
-		if err = os.MkdirAll(filepath.Dir(link.destination), 0o755); err != nil && !readOnly(err) {
-			return err
-		}
-		temporary := link.destination + ".link-" + fmt.Sprint(os.Getpid())
-		if err = os.Symlink(link.source, temporary); err != nil {
-			if !readOnly(err) {
-				return err
-			}
-			target := previous
-			if readErr != nil {
-				target = "nothing"
-			}
-			leave(link.destination, "Its folder is read-only, so something else, such as Nix or Home Manager, manages it.", target, link.source)
-			continue
-		}
-		entry, known := record[link.destination]
-		if !known {
-			entry = replaced{Previous: previous}
-			if folder { // Kept beside it.
-				entry.Moved = link.destination + ".previous-" + time.Now().Format("20060102-150405.000000000")
-			}
-		}
-		entry.Installed = link.source
-		record[link.destination] = entry
-		if err = saveRecord(home, record); err != nil {
-			os.Remove(temporary)
-			return err
-		}
-		if folder {
-			if err = os.Rename(link.destination, entry.Moved); err != nil {
-				os.Remove(temporary)
-				return err
-			}
-			fmt.Fprintln(os.Stderr, "Moved the folder that was there to", entry.Moved)
-		}
-		if err = os.Rename(temporary, link.destination); err != nil {
-			return err
-		}
-		fmt.Fprintln(os.Stderr, "Linked:", link.destination)
-	}
-	for _, line := range left {
-		fmt.Fprintln(os.Stderr, line)
-	}
-	if len(record) > 0 {
-		fmt.Fprintf(os.Stderr, "To put back the links this replaced, run: %q install --undo\n", executable)
-	}
-	return nil
-}
-
-// undoInstall puts back every link install replaced, as it was, if it still
-// points where install put it.
+// undoInstall puts back every link an earlier install replaced, as it was,
+// if it still points where install put it.
 func undoInstall() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -287,18 +191,6 @@ func undoInstall() error {
 	}
 	return saveRecord(home, nil)
 }
-
-// A configuration such as Home Manager may already provide the link, in a
-// folder this command cannot write.
-func linksTo(link, target string) bool {
-	resolved, err := filepath.EvalSymlinks(link)
-	if err != nil {
-		return false
-	}
-	wanted, err := filepath.EvalSymlinks(target)
-	return err == nil && resolved == wanted
-}
-
 func startApp(ctx context.Context, contents string) error {
 	if runtime.GOOS != "darwin" {
 		return errors.New("This saved authority is a Mac app. Enrol this machine with your relay instead.")
@@ -312,3 +204,4 @@ func startApp(ctx context.Context, contents string) error {
 	}
 	return nil
 }
+

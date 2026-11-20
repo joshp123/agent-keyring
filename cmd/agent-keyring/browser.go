@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"text/tabwriter"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
@@ -150,54 +149,3 @@ func installNativeHost(userData string) error {
 	return nil
 }
 
-func installBrowserHosts() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	var directories []string
-	if runtime.GOOS == "darwin" {
-		for _, name := range []string{"Google/Chrome", "Google/Chrome for Testing", "Chromium", "BraveSoftware/Brave-Browser", "Microsoft Edge", "Arc/User Data"} {
-			directories = append(directories, filepath.Join(home, "Library/Application Support", name))
-		}
-	} else {
-		base := os.Getenv("XDG_CONFIG_HOME")
-		if base == "" {
-			base = filepath.Join(home, ".config")
-		}
-		for _, name := range []string{"google-chrome", "google-chrome-for-testing", "chromium", "BraveSoftware/Brave-Browser", "microsoft-edge"} {
-			directories = append(directories, filepath.Join(base, name))
-		}
-	}
-	for _, directory := range directories {
-		if err = installNativeHost(directory); err != nil {
-			return err
-		}
-	}
-	extension, err := extensionPath()
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(os.Stderr, "Load the Agent Keyring extension from:", extension)
-	return nil
-}
-
-func extensionPath() (string, error) {
-	if contents := contentsPath(); contents != "" {
-		path := filepath.Join(contents, "Resources/AgentTools/BrowserExtension")
-		if _, err := os.Stat(filepath.Join(path, "manifest.json")); err == nil {
-			return path, nil
-		}
-	}
-	skill, err := skillPath()
-	if err != nil {
-		return "", err
-	}
-	for directory := filepath.Dir(skill); directory != "/" && directory != "."; directory = filepath.Dir(directory) {
-		path := filepath.Join(directory, "BrowserExtension")
-		if _, err := os.Stat(filepath.Join(path, "manifest.json")); err == nil {
-			return path, nil
-		}
-	}
-	return "", errors.New("The browser extension is missing. Reinstall the Agent Keyring CLI package or Mac app.")
-}
