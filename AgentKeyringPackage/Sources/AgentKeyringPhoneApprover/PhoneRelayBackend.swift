@@ -153,6 +153,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         guard let members, state.deviceKeyID != nil else {
             var snapshot = PhoneSnapshot(firstRun: firstRun, practiceRequest: practiceOpen)
             snapshot.settings = phoneSettings
+            snapshot.notificationFacts = facts
             return snapshot
         }
         let catalogue = self.catalogue
@@ -177,10 +178,10 @@ public final class PhoneRelayBackend: PhoneBackend {
         snapshot.joined = true
         snapshot.practiceRequest = practiceOpen
         snapshot.relayName = members.machines.first { $0.machineID == members.relayMachineID }?.label
-        snapshot.watchPaired = watchPaired
-        snapshot.watchToAdd = watchPaired && !members.devices.contains { $0.kind == .watch }
+        snapshot.watch = watchFacts(members)
         snapshot.notices = notices(members: members, pendingWatch: pendingWatch)
         snapshot.settings = phoneSettings
+        snapshot.notificationFacts = facts
         snapshot.deviceRequest = pendingWatch.map { PhoneDeviceRequest(id: $0.keyID, name: $0.label, detail: PhoneCopy.pairedWithThisIPhone) }
         return snapshot
     }
@@ -207,7 +208,6 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// A tap on a first-run screen, or what iOS answered about notifications.
     public func firstRun(_ event: PhoneFirstRun.Event) async {
-        if case let .notificationsAnswered(allowed) = event { notificationsAllowed = allowed }
         if event == .askAgain { failedJoin = nil }
         apply(event)
     }
@@ -280,8 +280,29 @@ public final class PhoneRelayBackend: PhoneBackend {
         return (try? Sealing.parseRequest(work.request))?.forDeviceKeyID == mine
     }
 
-    /// A Watch is paired with this iPhone and has the app; set by the app from WatchConnectivity.
-    public var watchPaired = false { didSet { publish() } }
+    /// What WatchConnectivity says: an Apple Watch is paired, and Agent Keyring's Watch app is on it.
+    public func watchPairing(paired: Bool, installed: Bool) {
+        guard (paired, installed) != (watchPaired, watchInstalled) else { return }
+        watchPaired = paired; watchInstalled = installed
+        PhoneDiagnostics.log.note("watch", "pairing", ["paired": "\(paired)", "installed": "\(installed)"])
+        publish()
+    }
+    private var watchPaired = false
+    private var watchInstalled = false
+
+    /// The Apple Watch's facts, from WatchConnectivity, its hand-over and self-test, and the list of devices.
+    private func watchFacts(_ members: Members) -> PhoneWatchFacts {
+        let test = state.watchSelfTest.flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] } ?? [:]
+        var facts = PhoneWatchFacts()
+        facts.paired = watchPaired
+        facts.installed = watchInstalled
+        facts.added = members.devices.contains { $0.kind == .watch }
+        facts.opened = facts.added || state.watchDevice != nil || state.watchSelfTest != nil
+        facts.notificationsAllowed = test["notificationsAllowed"] as? Bool == true
+        facts.pushAddress = test["pushAddress"] as? Bool == true
+        facts.practiceAnswered = test["practiceAnswered"] as? Bool == true
+        return facts
+    }
     /// Set while the work stream cannot reach the relay.
     private var connectionFailed: Error? { didSet { publish() } }
 
@@ -853,8 +874,16 @@ public final class PhoneRelayBackend: PhoneBackend {
         }
     }
 
-    /// What iOS allows, as the app last read it: for the self-test and whether a practice push will come.
-    private var notificationsAllowed = false
+    /// What iOS allows, as the app last read it: for the checklist, the self-test, and whether a practice push will come.
+    private var facts = PhoneNotificationFacts() { didSet { publish() } }
+    private var notificationsAllowed: Bool { facts.allowed }
+
+    public func notificationFacts(_ next: PhoneNotificationFacts) async {
+        guard next != facts else { return }
+        facts = next
+        PhoneDiagnostics.log.note("notifications", "read", ["allowed": "\(next.allowed)", "banners": "\(next.banners)",
+            "lockScreen": "\(next.lockScreen)", "timeSensitive": "\(next.timeSensitive)", "scheduledSummary": "\(next.inScheduledSummary)"])
+    }
 
     /// The relay has this launch's push address. The practice request waits for
     /// it, so that its push can show that requests reach this iPhone.

@@ -38,7 +38,6 @@ struct AgentKeyringPhoneApp: App {
                 // Apple Watch follows the iPhone's notification settings.
                 .onChange(of: delegate.model.snapshot.settings) { delegate.watch?.sendMembers() }
                 .onChange(of: delegate.model.snapshot.logins) { delegate.watch?.sendMembers() }
-                .task { await delegate.noteNotificationSettings() }
         }
     }
 }
@@ -188,15 +187,6 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             relay?.notificationOpened(id)
             model.shownRequestID = id
         }
-    }
-
-    /// What iOS allows this app, read from the phone so nobody has to look in Settings.
-    func noteNotificationSettings() async {
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        func word(_ setting: UNNotificationSetting) -> String {
-            switch setting { case .enabled: "on"; case .disabled: "off"; default: "not supported" }
-        }
-        PhoneDiagnostics.note("Notifications: allowed \(settings.authorizationStatus == .authorized ? "yes" : "no (\(settings.authorizationStatus.rawValue))"), Lock Screen \(word(settings.lockScreenSetting)), banners \(word(settings.alertSetting)), sound \(word(settings.soundSetting)), Time Sensitive \(word(settings.timeSensitiveSetting)), previews \(settings.showPreviewsSetting == .always ? "always" : settings.showPreviewsSetting == .whenAuthenticated ? "when unlocked" : "never")")
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,

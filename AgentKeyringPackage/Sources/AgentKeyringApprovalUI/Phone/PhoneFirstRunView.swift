@@ -52,7 +52,7 @@ struct PhoneFirstRunView: View {
             PhoneStep(title: PhoneCopy.practiceResultTitle(outcome), lines: [PhoneCopy.practiceResultDetail(outcome)],
                       mark: outcome == .approved ? .approved : outcome == .denied ? .denied : nil) {
                 PhoneButton(PhoneCopy.sendAnother, secondary: true) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
-                PhoneButton(PhoneCopy.continueButton) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watchToAdd)) }
+                PhoneButton(PhoneCopy.continueButton) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
             }
         case .addWatch:
             PhoneStep(title: PhoneCopy.addWatchTitle, lines: [PhoneCopy.addWatchDetail, PhoneCopy.addWatchInstall], icon: "applewatch") {

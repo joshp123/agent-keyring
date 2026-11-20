@@ -61,6 +61,7 @@ public final class PhoneSampleBackend: PhoneBackend {
         snapshot = next
     }
     public func sendPractice(to deviceID: String?) async -> String? { nil }
+    public func notificationFacts(_ facts: PhoneNotificationFacts) async { snapshot.notificationFacts = facts }
     public func dismiss(_ notice: PhoneNotice) async { snapshot.notices.removeAll { $0 == notice } }
     public func setSettings(_ settings: PhoneSettings) async { snapshot.settings = settings }
     public func approveDevice(_ id: String) async throws { snapshot.deviceRequest = nil }
@@ -74,7 +75,7 @@ public final class PhoneSampleBackend: PhoneBackend {
     /// Paper's first-run iPhone screens.
     static func firstRun(_ step: String, into snapshot: inout PhoneSnapshot) {
         snapshot.requests = []; snapshot.deviceRequest = nil; snapshot.notices = []
-        snapshot.relayName = "Mac mini"; snapshot.watchPaired = true
+        snapshot.relayName = "Mac mini"; snapshot.watch.paired = true; snapshot.watch.installed = true
         let stages: [String: PhoneFirstRun] = [
             "start": .start, "looking": .linking(.startOnMac(longWait: false)), "long-wait": .linking(.startOnMac(longWait: true)),
             "add-computer": .linking(.addComputer(mac: "MacBook Pro")),

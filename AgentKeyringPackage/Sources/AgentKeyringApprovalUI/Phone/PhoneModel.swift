@@ -74,6 +74,50 @@ public enum PhoneNotice: Hashable, Sendable, Identifiable {
     public var dismissable: Bool { self == .addAppleWatch }
 }
 
+/// What the iPhone can see of its Apple Watch, each a fact the Apple Watch step ticks. The iPhone cannot
+/// open or install the Watch app; it can only see these.
+public struct PhoneWatchFacts: Hashable, Sendable {
+    /// An Apple Watch is paired with this iPhone (WatchConnectivity).
+    public var paired = false
+    /// Agent Keyring's Watch app is installed on it.
+    public var installed = false
+    /// The Watch app has run and sent this iPhone its keys.
+    public var opened = false
+    /// It is in the list of devices.
+    public var added = false
+    public var notificationsAllowed = false
+    /// Apple has given it a push address.
+    public var pushAddress = false
+    /// It has answered a practice request.
+    public var practiceAnswered = false
+
+    public init() {}
+
+    /// Paired, with the app, and not yet added: first run offers the Apple Watch step.
+    public var toAdd: Bool { paired && installed && !added }
+}
+
+/// What iOS lets the app see of its notification settings: the facts the notifications checklist ticks.
+/// Whether a Focus such as Sleep lets requests through is not among them: no app can read it.
+public struct PhoneNotificationFacts: Hashable, Sendable {
+    public var allowed = false
+    public var banners = false
+    public var lockScreen = false
+    public var timeSensitive = false
+    /// Delivered in a Scheduled Summary, which would hold requests back.
+    public var inScheduledSummary = false
+
+    public init() {}
+
+    public init(_ settings: UNNotificationSettings) {
+        allowed = settings.authorizationStatus == .authorized
+        banners = settings.alertSetting == .enabled
+        lockScreen = settings.lockScreenSetting == .enabled
+        timeSensitive = settings.timeSensitiveSetting == .enabled
+        inScheduledSummary = settings.scheduledDeliverySetting == .enabled
+    }
+}
+
 /// The two notification settings (Paper, "On iPhone and Apple Watch", Settings).
 public struct PhoneSettings: Hashable, Sendable {
     public var timeSensitive: Bool
@@ -108,12 +152,11 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var practiceRequest: AccessRequest?
     /// The computer that stays on and passes requests to this iPhone, by name.
     public var relayName: String?
-    /// An Apple Watch with the app is paired with this iPhone.
-    public var watchPaired = false
-    /// That Apple Watch is not yet in the list of devices.
-    public var watchToAdd = false
+    /// What this iPhone can see of its Apple Watch, for the Apple Watch step.
+    public var watch = PhoneWatchFacts()
     public var notices: [PhoneNotice] = []
     public var settings = PhoneSettings()
+    public var notificationFacts = PhoneNotificationFacts()
     public var deviceRequest: PhoneDeviceRequest?
     /// In the signed list of devices.
     public var joined = false
@@ -143,6 +186,8 @@ public protocol PhoneBackend: AnyObject {
     func join(invitation: String) async throws
     /// A step of first run: a tap, or what iOS answered.
     func firstRun(_ event: PhoneFirstRun.Event) async
+    /// What iOS now allows, read each time the app comes to the front and after its question.
+    func notificationFacts(_ facts: PhoneNotificationFacts) async
     /// A practice request to this iPhone (nil) or to another device he answers on. For this iPhone, returns
     /// the one already waiting, to be shown again, instead of making a second.
     func sendPractice(to deviceID: String?) async -> String?
@@ -231,6 +276,7 @@ public final class PhoneModel {
     /// have turned notifications on in Settings, and first run then carries on by itself.
     public func recheckNotifications() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
+        await backend.notificationFacts(PhoneNotificationFacts(settings))
         guard settings.authorizationStatus != .notDetermined else { return }
         await backend.firstRun(.notificationsAnswered(allowed: settings.authorizationStatus == .authorized))
     }
@@ -240,6 +286,7 @@ public final class PhoneModel {
         guard snapshot.firstRun == .notifications else { return }
         await backend.firstRun(.continueTapped)
         let allowed = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        await backend.notificationFacts(PhoneNotificationFacts(await UNUserNotificationCenter.current().notificationSettings()))
         await backend.firstRun(.notificationsAnswered(allowed: allowed))
     }
 

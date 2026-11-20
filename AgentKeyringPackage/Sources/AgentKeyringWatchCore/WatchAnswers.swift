@@ -60,19 +60,41 @@ public struct WatchAnswers: Sendable {
         return try await post(upload, saved: saved)
     }
 
+    /// Tells the relay this request has reached this Apple Watch, so the Mac can say where it is.
+    /// Signed with the reply key, which works while the Watch is unlocked.
+    public func arrived(_ request: WatchRequest) async throws {
+        let saved = store.read()
+        var arrival = Agentkeyring_V2_Arrival()
+        arrival.domain = "agentkeyring.arrival.v2"
+        arrival.requestID = request.id
+        arrival.deviceKeyID = try keys.keyID()
+        arrival.arrivedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        let signed = try Sealing.signed(arrival.serializedData(), by: Sealing.keyID(keys.replyPublicKey()), sign: keys.signReply)
+        _ = try await send(signed.serializedData(), to: "/v2/arrived", saved: saved)
+    }
+
     func post(_ upload: AnswerUpload, saved: WatchSaved) async throws -> Agentkeyring_V2_Lease {
-        guard let text = saved.answerURL, let url = URL(string: text) else { throw WatchFailure.noAnswerAddress }
+        try await Agentkeyring_V2_Lease(serializedBytes: send(upload.serializedData(), to: nil, saved: saved))
+    }
+
+    /// POSTs to the relay's HTTPS address, pinned to its key in Members: the answer address, or another path on it.
+    private func send(_ body: Data, to path: String?, saved: WatchSaved) async throws -> Data {
+        guard let text = saved.answerURL, var url = URL(string: text) else { throw WatchFailure.noAnswerAddress }
+        if let path, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            parts.path = path
+            url = parts.url ?? url
+        }
         guard let pinned = saved.signedMembers?.relayTlsPublicKey, !pinned.isEmpty else { throw WatchFailure.notSetUp }
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("application/x-protobuf", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try upload.serializedData()
+        request.httpBody = body
         let session = URLSession(configuration: .ephemeral, delegate: RelayPin(spki: pinned), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw WatchFailure.relay(status, String(decoding: data.prefix(300), as: UTF8.self)) }
-        return try Agentkeyring_V2_Lease(serializedBytes: data)
+        return data
     }
 }
 
