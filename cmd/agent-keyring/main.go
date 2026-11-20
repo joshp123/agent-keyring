@@ -101,7 +101,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "agent", "request", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
+		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -220,6 +220,9 @@ func run(ctx context.Context, args []string) (int, error) {
 		lines, e := gatherLogs(ctx, since, a.options["request"])
 		for _, line := range lines {
 			fmt.Println(safe(line))
+		}
+		if e == nil && len(lines) == 0 {
+			fmt.Fprintln(os.Stderr, "No log lines match.")
 		}
 		if e != nil {
 			return 1, e
@@ -346,7 +349,7 @@ func run(ctx context.Context, args []string) (int, error) {
 	}
 	switch command {
 	case "lease":
-		if err = a.check("task reason request", "no-wait"); err != nil {
+		if err = a.check("task reason request agent", "no-wait"); err != nil {
 			return 2, err
 		}
 		if strings.TrimSpace(a.options["task"]) == "" || strings.TrimSpace(a.options["reason"]) == "" {

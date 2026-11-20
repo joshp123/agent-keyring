@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
+	"sync"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/keyring"
@@ -19,6 +20,12 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 	if s.Push == nil {
 		return
 	}
+	// One request's pushes go one at a time, each with the state as it is
+	// then: a request cancelled at once must not leave its "waiting" alert
+	// arriving after the push that clears it.
+	lock, _ := s.pushLocks.LoadOrStore(id, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
 	members, _ := s.Store.documents()
 	type target struct {
 		registration *pb.PushRegistration

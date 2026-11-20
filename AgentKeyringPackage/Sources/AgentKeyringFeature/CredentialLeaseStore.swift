@@ -347,9 +347,13 @@ public final class CredentialLeaseStore {
             if login == nil || rule == .block || (saved.automatic && rule != .allowAutomatically) {
                 lease.state = .revoked
                 lease.statusLines = ["Access to this login changed. The lease was ended."]
-            } else if let login {
+            } else if let login, !lease.sites.isEmpty {
+                // A password with no website (a server's, an app's) has no sites to narrow.
                 lease.sites = lease.sites.filter { login.origins.contains($0) }
-                if lease.sites.isEmpty { lease.state = .revoked }
+                if lease.sites.isEmpty {
+                    lease.state = .revoked
+                    lease.statusLines = ["The password's websites changed. The lease was ended."]
+                }
             }
             if lease.state.isTerminal { lease.endedAtUnixSeconds = Self.now }
             next.leases[id]!.lease = try lease.serializedData()

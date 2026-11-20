@@ -494,6 +494,7 @@ func (s *Server) keepDeadlines(ctx context.Context) {
 			for id, r := range data.Requests {
 				if r.Ended > 0 && now-r.Ended > 86400 {
 					delete(data.Requests, id)
+					s.pushLocks.Delete(id)
 				}
 			}
 			for id, j := range data.Joins {
