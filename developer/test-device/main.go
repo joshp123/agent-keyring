@@ -225,6 +225,11 @@ func initialise(ctx context.Context, directory, relay string, keysOnly bool) err
 func (d *device) setUpRelay(ctx context.Context) error {
 	observed := d.RelaySPKI
 	members := &pb.Members{Domain: keyring.MembersDomain, Revision: 1, Devices: []*pb.Device{d.self}, RelayTlsPublicKey: observed}
+	// As the Mac does with the offer our app on the relay's computer leaves in
+	// iCloud Keychain: here the stand-in runs on that computer and asks itself.
+	if response, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_SetupOffer{SetupOffer: &pb.Empty{}}}, nil); err == nil {
+		members.SetupProof = keyring.SetupProof(response.GetSetupOffer().GetSecret(), observed, d.self.KeyId)
+	}
 	if err := d.publishMembers(ctx, members); err != nil {
 		return err
 	}

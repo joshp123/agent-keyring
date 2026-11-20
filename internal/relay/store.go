@@ -33,6 +33,10 @@ type saved struct {
 	Pushes         map[string][]byte            `json:"pushes"`   // Device key id: PushRegistration.
 	Joins          map[string]*join             `json:"joins"`    // Joiner id.
 	SelfTests      map[string][]byte            `json:"self_tests,omitempty"` // Device key id: Signed SelfTestReport.
+	ReportsRevision uint64                      `json:"reports_revision,omitempty"` // Rises with every status report.
+	// The one-time secret this relay announces from its own computer while it
+	// has no members (SetupOffer); gone once the first members list is taken.
+	SetupSecret []byte `json:"setup_secret,omitempty"`
 }
 
 type request struct {
@@ -50,6 +54,9 @@ type request struct {
 	RetryNotBefore  int64         `json:"retry_not_before,omitempty"`
 	Ended           int64         `json:"ended,omitempty"`
 	EndedBy         string        `json:"ended_by,omitempty"` // The device that stopped an approval early.
+	Pushed          int64         `json:"pushed,omitempty"`   // Apple accepted the push for it.
+	Arrived         int64         `json:"arrived,omitempty"`  // A device said it arrived.
+	ArrivedOn       string        `json:"arrived_on,omitempty"`
 }
 
 // hold keeps one computer from asking for one password again straight after
@@ -91,6 +98,7 @@ type join struct {
 	Asked   int64        `json:"asked"`
 	State   pb.JoinState `json:"state"`
 	Refusal []byte       `json:"refusal,omitempty"` // JoinRefusal, once refused.
+	Local   bool         `json:"local,omitempty"`   // Asked from the relay's own computer.
 }
 
 // Store keeps the saved state, its parsed documents, and a signal for

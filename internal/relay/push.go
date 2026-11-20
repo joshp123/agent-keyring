@@ -59,6 +59,14 @@ func (s *Server) pushAll(ctx context.Context, id string) {
 		}
 		payload := pushPayload(id, notice, waiting)
 		result, err := s.Push.Send(ctx, t.registration.ApnsToken, t.registration.ApnsTopic, t.registration.ApnsProduction, id, expires, payload, waiting)
+		if err == nil && waiting {
+			s.Store.update(func(data *saved) error {
+				if r := data.Requests[id]; r != nil && r.Pushed == 0 {
+					r.Pushed = s.now().Unix()
+				}
+				return nil
+			})
+		}
 		if err == nil {
 			slog.Info("push accepted by Apple", "id", id, "device", t.registration.DeviceKeyId, "visible", waiting, "topic", t.registration.ApnsTopic, "production", t.registration.ApnsProduction)
 		} else {

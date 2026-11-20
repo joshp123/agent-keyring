@@ -4,6 +4,8 @@ package relay
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/subtle"
 	"log/slog"
 	"slices"
@@ -35,11 +37,17 @@ func (s *Server) publishMembers(who caller, document *pb.Signed) error {
 			if !listed {
 				return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The first members must come from a device they list.")
 			}
+			if !s.provesSetup(data, next) {
+				return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED,
+					"This relay waits for its own computer to announce it. Open Agent Keyring on that computer, then connect from this Mac.")
+			}
+			data.SetupSecret = nil
 		} else if who.device == nil {
 			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only a device may change the members.")
 		}
 		data.Members = marshal(document)
 		data.MembersHistory = append(data.MembersHistory, data.Members)
+		slog.Info("members published", "revision", next.Revision, "devices", len(next.Devices), "computers", len(next.Machines))
 		s.Store.members = next
 		known := map[string]bool{}
 		for _, d := range next.Devices {
@@ -180,7 +188,7 @@ func (s *Server) join(ctx context.Context, who caller, request *pb.JoinRequest, 
 		if existing := data.Joins[id]; existing != nil && existing.State == pb.JoinState_JOIN_STATE_WAITING && !bytes.Equal(existing.SPKI, who.spki) {
 			return fail(pb.ErrorCode_ERROR_CODE_CONFLICT, "Another join with these keys is waiting.")
 		}
-		data.Joins[id] = &join{Request: marshal(request), SPKI: who.spki, Node: who.node, Asked: now.Unix(), State: state}
+		data.Joins[id] = &join{Request: marshal(request), SPKI: who.spki, Node: who.node, Asked: now.Unix(), State: state, Local: who.local}
 		return nil
 	})
 	if err != nil {
@@ -189,6 +197,8 @@ func (s *Server) join(ctx context.Context, who caller, request *pb.JoinRequest, 
 	slog.Info("join asked", "joiner", id, "node", who.node)
 	deadline := time.NewTimer(joinWithin)
 	defer deadline.Stop()
+	heartbeat := time.NewTicker(30 * time.Second) // The waiting device hears it is still waiting, so it never times out.
+	defer heartbeat.Stop()
 	for {
 		var state pb.JoinState
 		var members, refusal []byte
@@ -213,6 +223,7 @@ func (s *Server) join(ctx context.Context, who caller, request *pb.JoinRequest, 
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-heartbeat.C:
 		case <-deadline.C:
 			s.Store.update(func(data *saved) error {
 				if data.Joins[id].State == pb.JoinState_JOIN_STATE_WAITING {
@@ -266,4 +277,44 @@ func pendingJoinsLocked(data *saved) []*pb.PendingJoin {
 	}
 	slices.SortFunc(joins, func(a, b *pb.PendingJoin) int { return int(a.AskedUnixSeconds - b.AskedUnixSeconds) })
 	return joins
+}
+
+// provesSetup: an empty relay takes its first members list only from someone
+// who reached its own computer, so nobody else on the network can take it
+// first. Either the list carries proof of the secret the relay gave our app
+// there (setup_proof), or the computer that stays on, which it names, asked
+// to join from the relay's own address (an agent's setup-relay and enrol).
+func (s *Server) provesSetup(data *saved, next *pb.Members) bool {
+	if len(data.SetupSecret) > 0 && len(next.Devices) > 0 &&
+		hmac.Equal(next.SetupProof, keyring.SetupProof(data.SetupSecret, s.ownSPKI(), next.Devices[0].KeyId)) {
+		return true
+	}
+	j := data.Joins[next.RelayMachineId]
+	return next.RelayMachineId != "" && j != nil && j.Local
+}
+
+// setupOffer gives the one-time secret to a caller on the relay's own
+// computer while the relay has no members: our app there leaves it in
+// iCloud Keychain for the Mac to find.
+func (s *Server) setupOffer(who caller) (*pb.SetupOffer, error) {
+	if !who.local {
+		return nil, fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only the relay's own computer may ask for its setup offer.")
+	}
+	offer := &pb.SetupOffer{RelayTlsPublicKey: s.ownSPKI()}
+	err := s.Store.update(func(data *saved) error {
+		if current, _ := s.Store.documentsLocked(); current != nil {
+			return fail(pb.ErrorCode_ERROR_CODE_CONFLICT, "This relay is already set up.")
+		}
+		if len(data.SetupSecret) == 0 {
+			data.SetupSecret = make([]byte, 32)
+			rand.Read(data.SetupSecret)
+		}
+		offer.Secret = data.SetupSecret
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("setup offer given")
+	return offer, nil
 }
