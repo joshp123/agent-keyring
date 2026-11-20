@@ -11,7 +11,6 @@ import AgentKeyringProtocol
 import AgentKeyringSealing
 import CryptoKit
 import Foundation
-import Security
 
 public struct WatchAnswers: Sendable {
     let keys: WatchKeys
@@ -61,7 +60,8 @@ public struct WatchAnswers: Sendable {
     }
 
     /// Tells the relay this request has reached this Apple Watch, so the Mac can say where it is.
-    /// Signed with the reply key, which works while the Watch is unlocked.
+    /// Signed with the reply key, which works while the Watch is unlocked. It gives up after two seconds:
+    /// the notification waits for it.
     public func arrived(_ request: WatchRequest) async throws {
         let saved = store.read()
         var arrival = Agentkeyring_V2_Arrival()
@@ -70,7 +70,7 @@ public struct WatchAnswers: Sendable {
         arrival.deviceKeyID = try keys.keyID()
         arrival.arrivedUnixSeconds = Int64(Date().timeIntervalSince1970)
         let signed = try Sealing.signed(arrival.serializedData(), by: Sealing.keyID(keys.replyPublicKey()), sign: keys.signReply)
-        _ = try await send(signed.serializedData(), to: "/v2/arrived", saved: saved)
+        _ = try await send(signed.serializedData(), to: "/v2/arrived", saved: saved, timeout: 2)
     }
 
     func post(_ upload: AnswerUpload, saved: WatchSaved) async throws -> Agentkeyring_V2_Lease {
@@ -78,55 +78,15 @@ public struct WatchAnswers: Sendable {
     }
 
     /// POSTs to the relay's HTTPS address, pinned to its key in Members: the answer address, or another path on it.
-    private func send(_ body: Data, to path: String?, saved: WatchSaved) async throws -> Data {
-        guard let text = saved.answerURL, var url = URL(string: text) else { throw WatchFailure.noAnswerAddress }
-        if let path, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            parts.path = path
-            url = parts.url ?? url
-        }
+    private func send(_ body: Data, to path: String?, saved: WatchSaved, timeout: TimeInterval = 15) async throws -> Data {
+        guard let text = saved.answerURL, let url = URLComponents(string: text), let host = url.host, let port = url.port
+        else { throw WatchFailure.noAnswerAddress }
         guard let pinned = saved.signedMembers?.relayTlsPublicKey, !pinned.isEmpty else { throw WatchFailure.notSetUp }
-        var request = URLRequest(url: url, timeoutInterval: 15)
-        request.httpMethod = "POST"
-        request.setValue("application/x-protobuf", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
-        let session = URLSession(configuration: .ephemeral, delegate: RelayPin(spki: pinned), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else { throw WatchFailure.relay(status, String(decoding: data.prefix(300), as: UTF8.self)) }
-        return data
-    }
-}
-
-/// Accepts the relay's self-signed certificate only if its key is the one
-/// Members names. The relay is reached by its Tailscale address and has no
-/// certificate from a public authority, which App Transport Security would
-/// refuse before this check runs; the Watch app's Info.plist therefore turns
-/// that default off, and this pin is the check instead.
-final class RelayPin: NSObject, URLSessionDelegate, Sendable {
-    let spki: Data
-    init(spki: Data) { self.spki = spki }
-
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
-        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
-        // The relay asks for a client certificate but does not need one here:
-        // the answer's signature is what it trusts. Send none.
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust else {
-            return (.performDefaultHandling, nil)
+        do {
+            return try await RelayHTTPS.post(body, host: host, port: UInt16(port), path: path ?? url.path, pinned: pinned, timeout: timeout)
+        } catch let failure as RelayHTTPS.Failure {
+            throw WatchFailure.relay(failure.status, failure.words)
         }
-        guard let trust = challenge.protectionSpace.serverTrust,
-              let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first,
-              Self.spki(of: leaf) == spki else { return (.cancelAuthenticationChallenge, nil) }
-        return (.useCredential, URLCredential(trust: trust))
-    }
-
-    /// SubjectPublicKeyInfo DER of a P-256 certificate key.
-    static func spki(of certificate: SecCertificate) -> Data? {
-        guard let key = SecCertificateCopyKey(certificate),
-              let raw = SecKeyCopyExternalRepresentation(key, nil) as Data?, raw.count == 65 else { return nil }
-        let prefix: [UInt8] = [0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
-                               0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00]
-        return Data(prefix) + raw
     }
 }
 #endif

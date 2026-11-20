@@ -49,6 +49,8 @@ struct PhoneSavedState: Codable {
     var watchCardDismissed: Bool?
     /// Apple Watch's practice request has been sent: it is not sent again.
     var watchPracticed: Bool?
+    /// SHA-256 of the push address registered with the relay: a locked iPhone's arrival note names it.
+    var pushTokenSHA256: Data?
 }
 
 /// A saved value that reads as nil when its form has changed, so the rest of the saved state still reads.
@@ -73,7 +75,8 @@ extension KeyedEncodingContainer {
 }
 
 /// What the notification service extension needs to name a request: this
-/// iPhone's key id, the Members and the Catalogue. Kept in the keychain group
+/// iPhone's key id, the Members and the Catalogue; and to tell the relay it
+/// arrived: the relay's address and the push address's hash. Kept in the keychain group
 /// the app shares with the extension, readable once the phone has been unlocked
 /// after starting up.
 public struct PhoneSharedContext {
@@ -93,6 +96,7 @@ public struct PhoneSharedContext {
         var shared = PhoneSavedState()
         shared.deviceKeyID = state.deviceKeyID; shared.members = state.members; shared.catalogue = state.catalogue
         shared.settings = state.settings
+        shared.endpoint = state.endpoint; shared.pushTokenSHA256 = state.pushTokenSHA256
         guard let data = try? PropertyListEncoder().encode(shared) else { return }
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
@@ -1310,12 +1314,34 @@ public final class PhoneRelayBackend: PhoneBackend {
         registration.noticePublicKey = try keys.noticePublicKey()
         _ = try await relay().call(Self.method { $0.registerPush = registration })
         pushRegistered = true
+        let hash = Sealing.sha256(token)
+        if state.pushTokenSHA256 != hash { var next = state; next.pushTokenSHA256 = hash; save(next) }
         if case let .practiceWaiting(id, false) = firstRun, practiceTask == nil { askForPractice(id) }
     }
 
     // MARK: For the notification service extension
 
     /// Whether a request arriving now may break through a Focus, from the iPhone's Settings.
+    /// Tells the relay a request has reached this iPhone, from the notification extension. The phone
+    /// may be locked, so it signs nothing: the note names the push address instead, and grants nothing.
+    /// It gives up after two seconds: the notification waits for it.
+    nonisolated public static func noteArrival(_ requestID: String, shared: PhoneSharedContext) async throws {
+        guard let saved = shared.read(), let keyID = saved.deviceKeyID, let endpoint = saved.endpoint,
+              let hash = saved.pushTokenSHA256,
+              let pinned = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) })
+                  .flatMap({ try? Members(serializedBytes: $0.payload) })?.relayTlsPublicKey
+        else { throw KeyringRelayError(code: .unavailable, message: "This iPhone has not joined yet.") }
+        var arrival = Agentkeyring_V2_Arrival()
+        arrival.domain = "agentkeyring.arrival.v2"
+        arrival.requestID = requestID
+        arrival.deviceKeyID = keyID
+        arrival.arrivedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        arrival.pushTokenSha256 = hash
+        var note = SignedDocument()
+        note.payload = try arrival.serializedData()
+        _ = try await RelayHTTPS.post(note.serializedData(), host: endpoint.host, port: endpoint.port, path: "/v2/arrived", pinned: pinned, timeout: 2)
+    }
+
     nonisolated public static func breaksThroughFocus(_ shared: PhoneSharedContext) -> Bool {
         (shared.read()?.settings ?? NotificationSettings()).breaksThroughFocus()
     }
