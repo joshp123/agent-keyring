@@ -30,7 +30,8 @@ public enum FirstRunScreen: Equatable, Sendable {
     /// Devices); `approved` is the first request he approved, once there is one.
     case tellAgents(header: CopiedHeader?, approved: String?)
     /// "Approve from your iPhone and Apple Watch": the address of a computer that stays on.
-    case stayingOn(failure: String?)
+    /// `offered`: the computer that stays on which announced itself, by name.
+    case stayingOn(failure: String?, offered: String? = nil)
     /// After Connect, while macOS asks for Touch ID.
     case connecting(name: String)
     /// `added`: the iPhone's name once it has joined.
@@ -86,6 +87,8 @@ public struct FirstRunActions {
     /// Connect, with the address he typed.
     public var connect: (String) -> Void = { _ in }
     public var useThisMacAlone: () -> Void = {}
+    /// "Connect to Mac mini?": the computer that announced itself, after Touch ID.
+    public var connectOffered: () -> Void = {}
     /// Send Practice Request, with the device's key.
     public var sendPractice: (String) -> Void = { _ in }
     public var done: () -> Void = {}
@@ -272,8 +275,11 @@ public struct MacFirstRunView: View {
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 18).overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
             }
             WideButton(FirstRunCopy.continueButton, action: actions.continueOn)
-        case let .stayingOn(failure):
+        case let .stayingOn(failure, offered):
             Heading(FirstRunCopy.stayingOnTitle, FirstRunCopy.stayingOnBody)
+            if let offered {
+                WideButton(FirstRunCopy.connectTo(offered), action: actions.connectOffered)
+            }
             AddressEntry(failure: failure, connect: actions.connect)
             VStack(alignment: .leading, spacing: 14) {
                 Point(title: FirstRunCopy.isThisMacTitle, detail: FirstRunCopy.isThisMacBody)

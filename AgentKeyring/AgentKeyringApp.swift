@@ -200,6 +200,11 @@ private struct FirstRunHome: View {
             connect = flow
             flow.connect(address) { model.send(.connected) }
         }
+        actions.connectOffered = {
+            let flow = connect ?? ConnectFlow(model: model)
+            connect = flow
+            flow.connectOffered { model.send(.connected) }
+        }
         actions.sendPractice = { key in Task { await model.sendPractice(to: key) } }
         // He lands on the main window, in the same window: Passwords and Devices.
         actions.done = {

@@ -474,4 +474,17 @@ func TestAPracticeRequestIsRejoinedNotMadeAgain(t *testing.T) {
 	if waiting != 1 {
 		t.Fatalf("%d practice requests were made", waiting)
 	}
+	// The device says it arrived: the asker hears it while it still waits.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	heard := make(chan *pb.Lease, 4)
+	go s.testRequest(ctx, caller{device: iphone}, &pb.TestRequest{RequestId: first}, func(r *pb.RelayResponse) error {
+		heard <- r.GetLease()
+		return nil
+	})
+	<-heard
+	store.update(func(data *saved) error { data.Requests[first].Arrived = 1; return nil })
+	if lease := <-heard; lease.ArrivedUnixSeconds != 1 || lease.State != pb.LeaseState_LEASE_STATE_WAITING {
+		t.Fatalf("the asker did not hear the arrival: %v", lease)
+	}
 }

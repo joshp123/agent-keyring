@@ -97,13 +97,25 @@ public final class ConnectFlow {
 
     public init(model: MirrorAppModel) { backend = AppMainWindowBackend(model: model) }
 
+    /// The computer that stays on which announced itself, by name; nil if none did.
+    public var offered: String? { backend.offeredRelay }
+
+    public func connectOffered(then joined: @escaping @MainActor () -> Void) {
+        guard let name = offered else { return }
+        run(name, then: joined) { try await self.backend.connectOffered() }
+    }
+
     public func connect(_ address: String, then joined: @escaping @MainActor () -> Void) {
-        if case .waiting = state { return }
         let name = address.split(separator: ":").first.map(String.init) ?? address
+        run(name, then: joined) { try await self.backend.connectRelay(address) }
+    }
+
+    private func run(_ name: String, then joined: @escaping @MainActor () -> Void, connecting: @escaping @MainActor () async throws -> Void) {
+        if case .waiting = state { return }
         state = .waiting(name: name)
         Task {
             do {
-                try await backend.connectRelay(address)
+                try await connecting()
                 state = .idle
                 joined()
             } catch is CancellationError {
@@ -117,9 +129,9 @@ public final class ConnectFlow {
     /// The window for a computer that stays on, as Connect has left it.
     public var screen: FirstRunScreen {
         switch state {
-        case .idle: .stayingOn(failure: nil)
+        case .idle: .stayingOn(failure: nil, offered: offered)
         case let .waiting(name): .connecting(name: name)
-        case let .failed(message): .stayingOn(failure: message)
+        case let .failed(message): .stayingOn(failure: message, offered: offered)
         }
     }
 }
@@ -169,11 +181,11 @@ public struct SetupSheet: View {
     private var actions: FirstRunActions {
         var actions = FirstRunActions()
         actions.useThisMacAlone = close
-        actions.connect = { address in
-            connect.connect(address) {
-                if sheet == .addComputer { command = SetupScreens.enrolCommand(model); step = .computers } else { step = .phone }
-            }
+        let connected: @MainActor () -> Void = {
+            if sheet == .addComputer { command = SetupScreens.enrolCommand(model); step = .computers } else { step = .phone }
         }
+        actions.connect = { address in connect.connect(address, then: connected) }
+        actions.connectOffered = { connect.connectOffered(then: connected) }
         actions.skip = close
         actions.continueOn = {
             if step == .phone { step = .watch } else { close() }

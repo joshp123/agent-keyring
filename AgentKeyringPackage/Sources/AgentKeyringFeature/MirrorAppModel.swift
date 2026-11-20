@@ -142,6 +142,7 @@ public final class MirrorAppModel {
             NSApplication.shared.requestUserAttention(.informationalRequest)
         }
         Task { await reportStatus() }
+        if firstRun.devices?.iPhone == true { device?.leaveNameForIPhone() }
     }
 
     /// What the world says is already done, for the journey to pass over.
@@ -250,8 +251,11 @@ public final class MirrorAppModel {
             notice = MirrorNotice(kind: .error, text: "Agent Keyring's copy of your passwords could not be opened. Passwords was not changed.")
             return
         }
-        try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
-        if (try? macKeys()) != nil { device?.start() }
+        try? leaseStore.reconcile(logins: leaseLogins + [PracticePassword.candidate], policies: currentPolicies)
+        if (try? macKeys()) != nil {
+            device?.start()
+            if firstRun.devices?.iPhone == true { device?.leaveNameForIPhone() }
+        }
     }
 
 }

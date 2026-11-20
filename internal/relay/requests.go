@@ -334,7 +334,7 @@ func (s *Server) arrived(document *pb.Signed) error {
 
 // followRequest streams one request's lease until it is no longer waiting.
 func (s *Server) followRequest(ctx context.Context, id string, send func(*pb.RelayResponse) error) error {
-	var last pb.LeaseState
+	var last *pb.Lease
 	for {
 		var lease *pb.Lease
 		changed := s.Store.read(func(data *saved) {
@@ -346,11 +346,12 @@ func (s *Server) followRequest(ctx context.Context, id string, send func(*pb.Rel
 			return fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "The request is gone.")
 		}
 		final := lease.State != pb.LeaseState_LEASE_STATE_WAITING
-		if lease.State != last {
+		// Every change, not only the state's: the push and the arrival are how far it has got.
+		if last == nil || !proto.Equal(last, lease) {
 			if err := send(&pb.RelayResponse{Result: &pb.RelayResponse_Lease{Lease: lease}, EndOfStream: final}); err != nil || final {
 				return nil
 			}
-			last = lease.State
+			last = lease
 		}
 		select {
 		case <-ctx.Done():

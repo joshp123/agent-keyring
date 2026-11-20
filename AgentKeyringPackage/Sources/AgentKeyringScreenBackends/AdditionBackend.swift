@@ -33,7 +33,8 @@ public final class AdditionBackend: MacApprovalBackend {
             if let filling = model.device?.filling, filling.deviceKeyID == id,
                case let .setUp(lead, detail, footer, denied, replies, _) = last.access {
                 request.access = .setUp(lead: lead, detail: detail, footer: footer, denied: denied, replies: replies,
-                    approved: SetupCopy.filling(filling.label, done: filling.done, total: filling.total))
+                    approved: filling.failure.map { SetupCopy.fillingStopped(filling.label, reason: $0) }
+                        ?? SetupCopy.filling(filling.label, done: filling.done, total: filling.total))
             }
             return request
         }

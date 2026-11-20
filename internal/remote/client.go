@@ -247,12 +247,14 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 	join.Proof = keyring.JoinProof(invite.Secret, join)
 	var observed []byte
 	var status *pb.JoinStatus
+	told := false
 	err = stream(ctx, address, tlsid.PinnedByHash(client.Certificate, invite.RelayTlsSha256, &observed),
 		&pb.RelayRequest{Method: &pb.RelayRequest_Join{Join: join}},
 		func(response *pb.RelayResponse) bool {
 			status = response.GetJoin()
-			if status.GetState() == pb.JoinState_JOIN_STATE_WAITING {
+			if status.GetState() == pb.JoinState_JOIN_STATE_WAITING && !told { // The relay repeats it every 30 seconds.
 				fmt.Fprintf(output, "Waiting for Josh to approve %q on his Mac.\n", name)
+				told = true
 			}
 			return status.GetState() == pb.JoinState_JOIN_STATE_WAITING
 		})

@@ -334,11 +334,10 @@ public final class MacDevice {
 
     public func start() {
         guard saved != nil else {
-            // The computer that stays on announces its relay instead of naming itself for a new iPhone.
-            Task {
-                hostsRelay = await announceIfRelayHere()
-                if !hostsRelay { leaveDeviceInvitation() }
-            }
+            // The computer that stays on announces its relay. This Mac's name for a
+            // new iPhone is left only when he chooses an iPhone in first run
+            // (`leaveNameForIPhone`), so the Mac mini never takes the MacBook's place.
+            Task { hostsRelay = await announceIfRelayHere() }
             return
         }
         guard running == nil else { return leaveDeviceInvitation() }
@@ -614,6 +613,12 @@ public final class MacDevice {
     }
 
     /// An invitation with no relay: this Mac's name and key only. A real one is never replaced by it.
+    /// He chose an iPhone in first run: it finds this Mac by name through iCloud Keychain.
+    public func leaveNameForIPhone() {
+        guard saved == nil, !hostsRelay else { return }
+        leaveName()
+    }
+
     private func leaveName() {
         var query = invitationItem
         query[kSecReturnData as String] = true
@@ -905,10 +910,17 @@ public final class MacDevice {
             invitations.removeValue(forKey: secret)
         }
         guard let newDevice else { return }
+        // Its copies: every password not Blocked (the relay keeps no copy of a Blocked one).
+        let blocked = Set(try await catalogueLogins().filter { $0.rule == .blocked }.map(\.loginID))
+        let mine = try await store.sealed().filter { $0.openerID == keys.deviceKeyID && !blocked.contains($0.loginID) }
+        filling = Filling(deviceKeyID: newDevice.keyID, label: newDevice.label, done: 0, total: mine.count)
         Task {
-            do { try await fill(newDevice, context: context) } catch {
+            do { try await fill(newDevice, copies: mine, context: context) } catch {
                 DiagnosticLog.record("devices", "fill-failed", ["device": newDevice.label, "reason": "\(error)"])
+                filling?.failure = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                try? await Task.sleep(for: .seconds(30)) // Long enough to read in the panel.
             }
+            filling = nil
         }
     }
 
@@ -918,17 +930,16 @@ public final class MacDevice {
         public let label: String
         public var done: Int
         public let total: Int
+        /// Why copying stopped, if it did.
+        public var failure: String?
     }
 
     public private(set) var filling: Filling?
 
-    private func fill(_ device: Agentkeyring_V2_Device, context: LAContext) async throws {
+    private func fill(_ device: Agentkeyring_V2_Device, copies mine: [Agentkeyring_V2_SealedLogin], context: LAContext) async throws {
         guard let members else { return }
         let key = try P256.KeyAgreement.PublicKey(x963Representation: device.openingPublicKey)
-        let mine = try await store.sealed().filter { $0.openerID == keys.deviceKeyID }
         let resealer = try keys.resealer(context: context, members: members)
-        filling = Filling(deviceKeyID: device.keyID, label: device.label, done: 0, total: mine.count)
-        defer { filling = nil }
         DiagnosticLog.record("devices", "filling", ["device": device.label, "passwords": "\(mine.count)"])
         let started = ContinuousClock.now
         for start in stride(from: 0, to: mine.count, by: 50) {

@@ -40,6 +40,9 @@ public enum SetupCopy {
     public static func filling(_ name: String, done: Int, total: Int) -> String {
         "\(name) added. Copying your passwords to it: \(done) of \(total)."
     }
+    public static func fillingStopped(_ name: String, reason: String) -> String {
+        "\(name) added, but copying your passwords to it stopped: \(reason) Remove it in Devices and add it again."
+    }
     public static func addingDeviceDetail(watch: Bool) -> String { watch ? "Paired with your iPhone" : "Same Apple Account" }
     public static func addingDeviceFooter(watch: Bool) -> String {
         watch ? "It approves requests with one tap while unlocked on your wrist. Remove it in Devices."
@@ -124,6 +127,8 @@ public enum FirstRunCopy {
     public static func approvedRequest(agent: String, site: String) -> String { "\(agent) asked for \(site), and you approved it." }
     public static let copied = "Copied"
     public static let continueButton = "Continue"
+    /// Interim until the board is drawn: the computer that announced itself through iCloud Keychain.
+    public static func connectTo(_ name: String) -> String { "Connect to \(name)" }
     // Which devices (interim until the board is drawn)
     public static let chooseTitle = "Which devices will you use?"
     public static let chooseBody = "Agent Keyring sets up only what you choose. You can add the others later, from Devices."

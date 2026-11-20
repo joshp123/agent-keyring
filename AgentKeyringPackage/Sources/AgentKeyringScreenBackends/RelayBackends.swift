@@ -111,7 +111,7 @@ public final class RelayApprovalBackend: MacApprovalBackend {
     public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         guard let device = model.device else { throw ScreenFailure(message: "This Mac is not connected to a relay.") }
         try await screenErrors { try await device.deny(requestID, reply: reply ?? "") }
-        return .denied(by: .mac, reply: reply, askAgainAfter: .now.addingTimeInterval(1800))
+        return .denied(by: .mac, reply: reply, askAgainAfter: nil) // The relay's update carries when it may ask again.
     }
 
     public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
