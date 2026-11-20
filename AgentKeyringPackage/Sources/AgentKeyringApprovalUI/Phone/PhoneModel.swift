@@ -74,6 +74,29 @@ public enum PhoneNotice: Hashable, Sendable, Identifiable {
     public var dismissable: Bool { self == .addAppleWatch }
 }
 
+/// The one journey, as the Mac publishes it: the steps for the devices he chose, in order, the same on
+/// every device, and where each device is on it. Read from the devices' signed status reports.
+public struct PhoneJourney: Hashable, Sendable {
+    public enum Step: String, Hashable, Sendable {
+        case welcome, chooseDevices, practice, passwords, agents, alwaysOn, iPhone, watch, computers, tryDevices, ready
+    }
+
+    /// Where one device is.
+    public struct Place: Hashable, Sendable {
+        public var device: String
+        public var step: Step?
+        public var finished: Bool
+        public init(device: String, step: Step?, finished: Bool) { self.device = device; self.step = step; self.finished = finished }
+    }
+
+    /// Empty until the Mac has published its list.
+    public var steps: [Step] = []
+    /// The Mac's place, and every other device's but this iPhone's.
+    public var mac: Place?
+    public var others: [Place] = []
+    public init() {}
+}
+
 /// What the iPhone can see of its Apple Watch, each a fact the Apple Watch step ticks. The iPhone cannot
 /// open or install the Watch app; it can only see these.
 public struct PhoneWatchFacts: Hashable, Sendable {
@@ -158,6 +181,7 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var settings = PhoneSettings()
     public var notificationFacts = PhoneNotificationFacts()
     public var deviceRequest: PhoneDeviceRequest?
+    public var journey = PhoneJourney()
     /// In the signed list of devices.
     public var joined = false
 

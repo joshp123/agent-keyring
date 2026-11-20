@@ -182,6 +182,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         snapshot.notices = notices(members: members, pendingWatch: pendingWatch)
         snapshot.settings = phoneSettings
         snapshot.notificationFacts = facts
+        snapshot.journey = journey
         snapshot.deviceRequest = pendingWatch.map { PhoneDeviceRequest(id: $0.keyID, name: $0.label, detail: PhoneCopy.pairedWithThisIPhone) }
         return snapshot
     }
@@ -201,6 +202,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         saved.firstRun = next
         save(saved)
         if next == .lookingForMac { lookForMac() }
+        // The other devices follow this iPhone's step from its status report.
+        if next.journeyStep != previous.journeyStep { Task { await reportSelfTest() } }
         // A new practice request: the 30-second timer starts, and it is asked for once Apple has given a push address.
         if case let .practiceWaiting(id, false) = next, previous.practiceID != id { beginPractice(id) }
         if case let .settingUpNotifications(id) = next, practiceTask == nil { askForPractice(id) }
@@ -286,6 +289,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         watchPaired = paired; watchInstalled = installed
         PhoneDiagnostics.log.note("watch", "pairing", ["paired": "\(paired)", "installed": "\(installed)"])
         publish()
+        Task { await reportSelfTest() }
     }
     private var watchPaired = false
     private var watchInstalled = false
@@ -410,7 +414,11 @@ public final class PhoneRelayBackend: PhoneBackend {
                     try await self.refreshMembersAndCatalogue()
                     await self.recheckWaiting()
                     for try await response in try self.relay().stream(Self.method { $0.watchWork = .init() }) {
-                        if case let .work(work) = response.result { self.receive(work) }
+                        switch response.result {
+                        case let .work(work)?: self.receive(work)
+                        case let .changes(changes)?: await self.follow(changes)
+                        default: break
+                        }
                         if self.connectionFailed != nil { self.connectionFailed = nil }
                         delay = 1
                     }
@@ -447,7 +455,9 @@ public final class PhoneRelayBackend: PhoneBackend {
             return
         }
         // The relay writes a request once; a later Work for it may only add the outcome.
-        if let saved = state.work[request.requestID].flatMap({ try? Work(serializedBytes: $0) }), saved.request != work.request { return }
+        let saved = state.work[request.requestID].flatMap { try? Work(serializedBytes: $0) }
+        if let saved, saved.request != work.request { return }
+        if saved == nil, !work.hasOutcome { Task { await reportArrival(request.requestID) } }
         var next = state
         next.work[request.requestID] = try? work.serializedData()
         if work.hasOutcome { next.answered[request.requestID] = nil; PhoneNotifications.remove(request.requestID) }
@@ -472,6 +482,85 @@ public final class PhoneRelayBackend: PhoneBackend {
         let open = state.work.compactMap { id, bytes in (try? Work(serializedBytes: bytes)).flatMap { $0.hasOutcome ? nil : id } }
         for id in open {
             if case let .work(work)? = try? await relay().call(Self.method { $0.getWork.requestID = id }).result { receive(work) }
+        }
+    }
+
+    /// Tells the relay a request has reached this iPhone, so the Mac can say where it is. Sent the first
+    /// time the app holds the request; the reply key needs the iPhone unlocked.
+    private func reportArrival(_ requestID: String) async {
+        guard let keyID = state.deviceKeyID else { return }
+        var arrival = Agentkeyring_V2_Arrival()
+        arrival.domain = "agentkeyring.arrival.v2"
+        arrival.requestID = requestID
+        arrival.deviceKeyID = keyID
+        arrival.arrivedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        do {
+            let signed = try Sealing.signed(arrival.serializedData(), by: Sealing.keyID(keys.replyPublicKey())) { try keys.signReply($0) }
+            _ = try await relay().call(Self.method { $0.arrived = signed })
+            PhoneDiagnostics.log.note("request", "arrival sent", ["request": requestID])
+        } catch {
+            PhoneDiagnostics.log.note("request", "arrival not sent", ["request": requestID, "error": "\(error)"])
+        }
+    }
+
+    /// What changed at the relay. A new status report: read where the other devices are.
+    private func follow(_ changes: Agentkeyring_V2_Changes) async {
+        guard changes.reportsRevision != reportsRevision else { return }
+        reportsRevision = changes.reportsRevision
+        guard let members, case let .selfTests(tests)? = try? await relay().call(Self.method { $0.selfTests = .init() }).result else { return }
+        var next = PhoneJourney()
+        for document in tests.reports {
+            guard let signer = try? Sealing.verify(document, members: members, allowReplyKey: true),
+                  let report = try? Agentkeyring_V2_SelfTestReport(serializedBytes: document.payload),
+                  report.deviceKeyID == signer.keyID, signer.keyID != state.deviceKeyID else { continue }
+            let place = PhoneJourney.Place(device: signer.label, step: Self.step(report.step), finished: report.finished)
+            if signer.kind == .mac, next.mac == nil {
+                next.mac = place
+                next.steps = report.journey.compactMap(Self.step)
+            } else {
+                next.others.append(place)
+            }
+        }
+        if next != journey {
+            PhoneDiagnostics.log.note("journey", "read", ["steps": next.steps.map(\.rawValue).joined(separator: ","),
+                "mac": next.mac.map { "\($0.step?.rawValue ?? "none") finished=\($0.finished)" } ?? "none"])
+            journey = next
+            publish()
+        }
+    }
+    private var reportsRevision: UInt64?
+    private var journey = PhoneJourney()
+
+    nonisolated static func step(_ step: Agentkeyring_V2_JourneyStep) -> PhoneJourney.Step? {
+        switch step {
+        case .welcome: .welcome
+        case .chooseDevices: .chooseDevices
+        case .practice: .practice
+        case .passwords: .passwords
+        case .agents: .agents
+        case .alwaysOn: .alwaysOn
+        case .iphone: .iPhone
+        case .watch: .watch
+        case .computers: .computers
+        case .tryDevices: .tryDevices
+        case .ready: .ready
+        default: nil
+        }
+    }
+
+    nonisolated static func step(_ step: PhoneJourney.Step) -> Agentkeyring_V2_JourneyStep {
+        switch step {
+        case .welcome: .welcome
+        case .chooseDevices: .chooseDevices
+        case .practice: .practice
+        case .passwords: .passwords
+        case .agents: .agents
+        case .alwaysOn: .alwaysOn
+        case .iPhone: .iphone
+        case .watch: .watch
+        case .computers: .computers
+        case .tryDevices: .tryDevices
+        case .ready: .ready
         }
     }
 
@@ -881,6 +970,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     public func notificationFacts(_ next: PhoneNotificationFacts) async {
         guard next != facts else { return }
         facts = next
+        Task { await reportSelfTest() }
         PhoneDiagnostics.log.note("notifications", "read", ["allowed": "\(next.allowed)", "banners": "\(next.banners)",
             "lockScreen": "\(next.lockScreen)", "timeSensitive": "\(next.timeSensitive)", "scheduledSummary": "\(next.inScheduledSummary)"])
     }
@@ -1037,20 +1127,31 @@ public final class PhoneRelayBackend: PhoneBackend {
         report.domain = "agentkeyring.selftest.v2"
         report.deviceKeyID = keyID
         report.testedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        report.step = Self.step(firstRun.journeyStep)
+        report.finished = firstRun == .finished
+        // The checklist first, by the names every device uses, then what only the logs need.
         report.checks = [
-            check("joined", true),
-            check("notifications", notificationsAllowed, "notifications are off"),
+            check("linked", true),
+            check("notifications", facts.allowed, "notifications are off"),
+            check("time_sensitive", facts.timeSensitive, "Time Sensitive is off"),
+            check("practice", practiceOutcome == .approved, practiceOutcome.map { "ended \($0)" } ?? "not answered"),
             check("push address", pushRegistered, "not registered with the relay"),
             check("push reached this iPhone", state.pushSeen, "no push has arrived"),
-            check("test request", practiceOutcome == .approved, practiceOutcome.map { "ended \($0)" } ?? "not answered"),
             check("opening key", openingWorks ?? false, openingWorks == nil ? "no sealed login to open" : "did not open"),
         ]
-        if let data = state.watchSelfTest,
-           let watch = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
-            for (name, value) in watch.sorted(by: { $0.key < $1.key }) {
-                if let passed = value as? Bool { report.checks.append(check("watch " + name, passed, "false")) }
-                if name == "problem", let problem = value as? String, !problem.isEmpty { report.checks.append(check("watch problem", false, problem)) }
-            }
+        // Apple Watch reports through this iPhone: its step is the iPhone's Watch step.
+        if let members, watchPaired || members.devices.contains(where: { $0.kind == .watch }) {
+            let watch = watchFacts(members)
+            report.checks += [
+                check("watch installed", watch.installed, "the Watch app is not on Apple Watch"),
+                check("watch opened", watch.opened, "the Watch app has not been opened"),
+                check("watch added", watch.added, "not in the list of devices"),
+                check("watch notifications", watch.notificationsAllowed, "notifications are off on Apple Watch"),
+                check("watch push_address", watch.pushAddress, "Apple has not given Apple Watch a push address"),
+                check("watch practice", watch.practiceAnswered, "not answered"),
+            ]
+            let test = state.watchSelfTest.flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
+            if let problem = test?["problem"] as? String, !problem.isEmpty { report.checks.append(check("watch problem", false, problem)) }
         }
         do {
             let signed = try Sealing.signed(report.serializedData(), by: Sealing.keyID(keys.replyPublicKey())) { try keys.signReply($0) }
