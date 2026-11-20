@@ -35,11 +35,7 @@ extension MirrorAppModel {
 
         guard let token = importToken(from: activity) else {
             credentialExchangeLogger.error("Credential exchange activity had no import token")
-            notice = MirrorNotice(
-                kind: .error,
-                text:
-                    "Passwords opened Agent Keyring without sending your passwords. Try the export again."
-            )
+            problem = MessageCopy.exportSentNothing
             return
         }
 
@@ -100,11 +96,14 @@ extension MirrorAppModel {
         }
     }
 
-    /// "Use a Sample Password": one ordinary Ask password, which his first copy from Passwords replaces.
-    public func useSamplePassword() async {
-        guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.sampleExporter,
-            exporterDisplayName: "Sample", items: [MirrorItem.sample], skippedCredentialCount: 0), hadExistingMirror: status != nil)
-        else { return }
+    /// The test password only, for now: a copy of nothing, which brings the
+    /// test password if no copy has yet. Nothing to send if one has.
+    public func useTestPassword() async {
+        if (try? await store.loadCurrent())?.items.contains(where: \.isTestPassword) != true {
+            guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.testPasswordSource,
+                exporterDisplayName: "Test password", items: [], skippedCredentialCount: 0), hadExistingMirror: status != nil)
+            else { return }
+        }
         closePasswordsCopy()
         send(.useSample)
     }
@@ -114,7 +113,7 @@ extension MirrorAppModel {
             let url = NSWorkspace.shared.urlForApplication(
                 withBundleIdentifier: "com.apple.Passwords")
         else {
-            notice = MirrorNotice(kind: .error, text: "Passwords could not be opened.")
+            problem = MessageCopy.passwordsWontOpen
             return
         }
         NSWorkspace.shared.openApplication(
@@ -123,10 +122,7 @@ extension MirrorAppModel {
         ) { [weak self] _, error in
             guard error != nil else { return }
             Task { @MainActor in
-                self?.notice = MirrorNotice(
-                    kind: .error,
-                    text: "Passwords could not be opened."
-                )
+                self?.problem = MessageCopy.passwordsWontOpen
             }
         }
     }
@@ -146,7 +142,7 @@ extension MirrorAppModel {
         passwordsCopy = .copying
         // A failed copy goes back to the steps, with the error under them.
         defer { if passwordsCopy == .copying { passwordsCopy = .steps } }
-        notice = nil
+        problem = nil
 
         credentialExchangeLogger.info("Credential import started")
 
@@ -163,26 +159,33 @@ extension MirrorAppModel {
             credentialExchangeLogger.error(
                 "Credential transfer failed [\(failure.diagnostic, privacy: .public)]"
             )
-            notice = MirrorNotice(kind: .error, text: failure.message)
+            problem = failure.message
             DiagnosticLog.record("copy", "failed", ["reason": failure.diagnostic])
             return
         }
 
-        if await importBatch(mapper.map(exportedData, scope: .unknown), hadExistingMirror: hadExistingMirror), let status {
+        let copied = mapper.map(exportedData, scope: .unknown)
+        if await importBatch(copied, hadExistingMirror: hadExistingMirror) {
             closePasswordsCopy()
-            send(.imported(count: status.credentialItemCount))
+            send(.imported(count: copied.items.count))
         }
     }
 
     /// True once the import is sealed and saved.
     @discardableResult
-    func importBatch(_ importBatch: MirrorImportBatch, hadExistingMirror: Bool) async -> Bool {
+    func importBatch(_ copied: MirrorImportBatch, hadExistingMirror: Bool) async -> Bool {
         let generation: MirrorGeneration
         do {
+            // Every copy keeps one test password; the first one brings it.
+            let previous = try await store.loadCurrent()
+            let importBatch = previous?.items.contains(where: \.isTestPassword) == true ? copied
+                : MirrorImportBatch(scope: copied.scope, exportedAt: copied.exportedAt, exporterIdentifier: copied.exporterIdentifier,
+                    exporterDisplayName: copied.exporterDisplayName, items: copied.items + [MirrorItem.testPassword],
+                    skippedCredentialCount: copied.skippedCredentialCount, skippedCredentialSummary: copied.skippedCredentialSummary)
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
-            generation = try merger.merge(previous: try await store.loadCurrent(), importBatch: importBatch)
+            generation = try merger.merge(previous: previous, importBatch: importBatch)
             // Seal only what arrived: a login missing from this export keeps
             // its earlier copies, and the saved list holds no secrets to seal.
             let arrived = Set(importBatch.items.map(\.sourceIdentity))
@@ -197,12 +200,7 @@ extension MirrorAppModel {
             try await store.save(generation, sealed: sealed)
         } catch {
             credentialExchangeLogger.error("Sealing the import failed: \(String(describing: error), privacy: .public)")
-            notice = MirrorNotice(
-                kind: .error,
-                text: hadExistingMirror
-                    ? "Passwords sent your passwords, but Agent Keyring could not lock them away. Your earlier copy was not changed."
-                    : "Passwords sent your passwords, but Agent Keyring could not lock them away."
-            )
+            problem = MessageCopy.notLockedAway(hadEarlierCopy: hadExistingMirror)
             return false
         }
 
@@ -214,11 +212,8 @@ extension MirrorAppModel {
         if device?.isJoined == true {
             // Josh approves sending the list in a panel beside his window.
             importedLoginsAwaitApproval = true
-            notice = MirrorNotice(kind: .information,
-                text: "Your passwords are copied. Your iPhone and other computers get them once you allow it.")
-        } else {
-            notice = MirrorNotice(kind: .information, text: "Your passwords are copied.")
         }
+        problem = nil
         return true
     }
 }

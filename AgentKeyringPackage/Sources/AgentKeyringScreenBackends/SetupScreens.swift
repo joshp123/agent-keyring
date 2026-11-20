@@ -121,7 +121,7 @@ public final class ConnectFlow {
             } catch is CancellationError {
                 state = .idle
             } catch {
-                state = .failed((error as? LocalizedError)?.errorDescription ?? "\(error)")
+                state = .failed((error as? LocalizedError)?.errorDescription ?? MessageCopy.somethingWentWrong)
             }
         }
     }

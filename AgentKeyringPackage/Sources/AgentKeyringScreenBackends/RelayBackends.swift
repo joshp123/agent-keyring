@@ -91,7 +91,7 @@ public final class RelayApprovalBackend: MacApprovalBackend {
     }
 
     public func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
-        guard let device = model.device else { throw ScreenFailure(message: "This Mac is not connected to a relay.") }
+        guard let device = model.device else { throw ScreenFailure(message: MessageCopy.notConnected) }
         let context = LAContext()
         contexts[requestID] = context
         defer { if contexts[requestID] === context { contexts[requestID] = nil } }
@@ -109,13 +109,13 @@ public final class RelayApprovalBackend: MacApprovalBackend {
 
     /// A reply is signed with the Mac's reply key, which needs no Touch ID.
     public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
-        guard let device = model.device else { throw ScreenFailure(message: "This Mac is not connected to a relay.") }
+        guard let device = model.device else { throw ScreenFailure(message: MessageCopy.notConnected) }
         try await screenErrors { try await device.deny(requestID, reply: reply ?? "") }
         return .denied(by: .mac, reply: reply, askAgainAfter: nil) // The relay's update carries when it may ask again.
     }
 
     public func allowAskingAgain(requestID: String) async throws -> AccessRequestState {
-        throw ScreenFailure(message: "A denial on another computer holds the password off for a few minutes. It cannot be lifted from this Mac.")
+        throw ScreenFailure(message: MessageCopy.holdIsElsewhere)
     }
 }
 

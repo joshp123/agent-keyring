@@ -593,7 +593,7 @@ enum JourneyStep {
 }
 
 message SelfTestCheck {
-  string name = 1;                 // For example "notifications" or "test request".
+  string name = 1;                 // For example "notifications" or "practice".
   bool passed = 2;
   string error = 3;                // When it failed: the error, in words.
 }

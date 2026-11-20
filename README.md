@@ -128,56 +128,52 @@ Mac already holds every password, with or without Agent Keyring.
 
 ## Install
 
-There is no published build of this version yet. Build it from source (you need
-Xcode 27, an Apple Developer team and [devenv](https://devenv.sh)):
+There is no published build of the Mac, iPhone or Apple Watch app for this
+version yet.
+
+### The command on your other computers
+
+Agents on a computer other than your Mac, such as a Linux server or a Mac
+without the app, need only the `agent-keyring` command. It is one program, and
+the instructions agents follow are built in: `agent-keyring skill` prints them.
+Install it in one of two ways. Both work on Linux and on macOS.
+
+With [Nix](https://nixos.org), flakes enabled:
+
+```sh
+nix profile add github:joshp123/agent-keyring#agent-keyring
+```
+
+Older versions of Nix call this `nix profile install`. To run it once without
+installing, use `nix run github:joshp123/agent-keyring#agent-keyring -- --help`.
+
+With Go 1.26 or later:
 
 ```sh
 git clone https://github.com/joshp123/agent-keyring.git
 cd agent-keyring
-cp Config/Local.xcconfig.example Config/Local.xcconfig   # add your team ID
-devenv shell -- ./script/build_cli.sh
-./script/build_and_run.sh --verify
+mkdir -p ~/.local/bin
+CGO_ENABLED=0 go build -o ~/.local/bin/agent-keyring ./cmd/agent-keyring
 ```
 
-Then:
+Make sure `~/.local/bin` is on your `PATH`, or build into another folder that
+is.
 
-1. Open Agent Keyring. It lives in the menu bar.
-2. In Apple Passwords, choose File → Export All Items to App → Agent Keyring.
-3. Open Rules and confirm them with Touch ID. Every login starts as Ask.
-4. Run `/Applications/AgentKeyring.app/Contents/Helpers/agent-keyring install`.
-   It links the `agent-keyring` command and gives Codex and Claude Code the
-   bundled instructions.
+Then join the computer to Agent Keyring. Your Mac must already be connected to
+a computer of yours that stays on, because requests from other computers go
+through it. On the Mac, get a link that works once, for 10 minutes:
 
-`install` also registers the browser helper and prints the bundled extension's
-folder. Loading that extension once in each Chrome-family profile is a separate
-step: open `chrome://extensions`, enable Developer mode, and choose Load
-unpacked. The isolated proof and its exact installation are recorded in
-[the extension proof](docs/proofs/browser-extension.md).
+```sh
+"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" invite
+```
 
-**Other machines.** Run `agent-keyring-relay` on an always-on machine, listening
-on its tailnet address, and pair your MacBook with it in the Machines window. On
-each agent machine run `agent-keyring enrol --name NAME --relay HOST:PORT`,
-compare the code it prints with the one on your Mac, and approve. Details are
-in [docs/implementation/relay.md](docs/implementation/relay.md).
+On the other computer, run:
 
-The standalone CLI and its skill are available on macOS and Linux as the Nix
-package `agent-keyring` (`nix build .#agent-keyring`). It needs no Mac app. The
-skill is in `share/agent-keyring/skills/agent-keyring` inside the package;
-`agent-keyring install` links the command and skill for Codex and Claude Code.
-Machines managed by Nix should declare those links in their configuration.
+```sh
+agent-keyring enrol --name "Linux server" --invite 'LINK'
+```
 
-Enrolment selects the relay persistently, including on a Mac with the app
-installed. An unavailable relay never causes a switch to a local vault. A Mac
-using its own imported logins records the selected app and bundle identity;
-the presence of a socket alone selects nothing. Explicit connection environment
-overrides apply only to that command and do not change the saved selection.
-
-**iPhone.** Build the iPhone app from this repository (it is not in the App
-Store) and pair it with the relay from the phone. Compare the code it shows
-with the one on your Mac and approve with Touch ID. Your MacBook then sends the
-phone its sealed copy of your Ask logins. Notifications need an
-Apple push key from your developer account, given to the relay. Without one,
-requests appear when you open the app.
+Approve the computer on your Mac. You can remove it later in Devices.
 
 ## For agents
 

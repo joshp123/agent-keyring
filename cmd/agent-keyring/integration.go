@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	agentskill "github.com/joshp123/agent-keyring/AgentSkill"
 )
 
 func contentsPath() string {
@@ -41,45 +42,10 @@ func bundleID(contents string) string {
 	}
 	return strings.TrimSpace(string(data))
 }
-func skillPath() (string, error) {
-	if contents := contentsPath(); contents != "" {
-		path := filepath.Join(contents, "Resources/AgentTools/AgentSkill/agent-keyring/SKILL.md")
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
-		return "", errors.New("This app is missing its agent skill. Rebuild or update Agent Keyring with its AgentSkill resource.")
-	}
-	// Development binaries use the canonical source file; release bundles always
-	// read their own resource, so replacing the prose never changes Go source.
-	executable, _ := os.Executable()
-	executable, err := filepath.EvalSymlinks(executable)
-	if err != nil {
-		return "", err
-	}
-	packaged := filepath.Join(filepath.Dir(filepath.Dir(executable)), "share/agent-keyring/skills/agent-keyring/SKILL.md")
-	if _, err := os.Stat(packaged); err == nil {
-		return packaged, nil
-	}
-	for directory := filepath.Dir(executable); directory != "/" && directory != "."; directory = filepath.Dir(directory) {
-		path := filepath.Join(directory, "AgentSkill/agent-keyring/SKILL.md")
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
-	}
-	return "", errors.New("The bundled skill is missing. Reinstall the Agent Keyring CLI package or Mac app.")
-}
 func integration(command string) error {
-	source, err := skillPath()
-	if err != nil {
-		return err
-	}
 	if command == "skill" {
-		data, e := os.ReadFile(source)
-		if e != nil {
-			return e
-		}
-		_, e = os.Stdout.Write(data)
-		return e
+		_, err := os.Stdout.WriteString(agentskill.Text)
+		return err
 	}
 	// Agent Keyring no longer changes anyone's links or settings: an agent is
 	// told where the command is and runs it from there.
@@ -204,4 +170,3 @@ func startApp(ctx context.Context, contents string) error {
 	}
 	return nil
 }
-

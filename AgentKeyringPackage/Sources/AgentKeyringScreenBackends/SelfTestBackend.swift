@@ -40,7 +40,7 @@ public final class SelfTestBackend: MacApprovalBackend {
         self.context = context
         defer { if self.context === context { self.context = nil } }
         do {
-            try await model.runSelfTest(reason: FirstRunCopy.practiceReasonInDialog, context: context, onAuthenticated: onAuthenticated)
+            try await model.runSelfTest(reason: MessageCopy.practiceInDialog, context: context, onAuthenticated: onAuthenticated)
             model.notePracticeHere(.approved(at: .now))
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw CancellationError()

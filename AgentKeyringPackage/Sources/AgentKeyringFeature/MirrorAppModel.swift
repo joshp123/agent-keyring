@@ -6,29 +6,14 @@ import Observation
 import OSLog
 import Security
 
-public enum MirrorNoticeKind: Equatable, Sendable {
-    case information
-    case warning
-    case error
-}
-
-public struct MirrorNotice: Equatable, Sendable {
-    public let kind: MirrorNoticeKind
-    public let text: String
-
-    public init(kind: MirrorNoticeKind, text: String) {
-        self.kind = kind
-        self.text = text
-    }
-}
-
 @available(macOS 26.0, *)
 @MainActor
 @Observable
 public final class MirrorAppModel {
     public internal(set) var status: SafeMirrorStatus?
     public private(set) var isLoading = true
-    public internal(set) var notice: MirrorNotice?
+    /// What went wrong, for the window to show; nil once it is put right.
+    public internal(set) var problem: String?
     public let accessControl: CredentialAccessController
     public var syncReminders: MirrorSyncReminders?
 
@@ -148,10 +133,11 @@ public final class MirrorAppModel {
     /// What the world says is already done, for the journey to pass over.
     var firstRunFacts: FirstRun.Facts {
         let devices = device?.members?.devices ?? []
-        let iPhone = devices.first { $0.kind == .iphone }
+        let report = devices.first { $0.kind == .iphone }.flatMap { device?.reports[$0.keyID] }
         return FirstRun.Facts(alwaysOn: device?.isJoined == true,
-            iPhoneDone: iPhone.map { device?.reports[$0.keyID]?.finished == true } ?? false,
-            watchJoined: devices.contains { $0.kind == .watch })
+            iPhoneDone: report?.finished == true,
+            // Apple Watch reports through the iPhone: adding it is the iPhone's WATCH step.
+            watchDone: devices.contains { $0.kind == .watch } || report?.step == .ready)
     }
 
     /// The iPhone finished its first run, or the Apple Watch joined: the Mac's window for it moves on.
@@ -184,7 +170,7 @@ public final class MirrorAppModel {
             default: .unanswered
             }
         } catch {
-            practiceResults[deviceKey] = .failed((error as? LocalizedError)?.errorDescription ?? "\(error)")
+            practiceResults[deviceKey] = .failed((error as? LocalizedError)?.errorDescription ?? MessageCopy.somethingWentWrong)
         }
     }
 
@@ -248,10 +234,10 @@ public final class MirrorAppModel {
             await accessControl.refresh(fromMetadata: importedMetadata)
         } catch {
             Logger(subsystem: "com.agentkeyring.app", category: "Import").error("Loading failed: \(String(describing: error), privacy: .public)")
-            notice = MirrorNotice(kind: .error, text: "Agent Keyring's copy of your passwords could not be opened. Passwords was not changed.")
+            problem = MessageCopy.copyUnreadable
             return
         }
-        try? leaseStore.reconcile(logins: leaseLogins + [PracticePassword.candidate], policies: currentPolicies)
+        try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
         if (try? macKeys()) != nil {
             device?.start()
             if firstRun.devices?.iPhone == true { device?.leaveNameForIPhone() }

@@ -23,9 +23,9 @@ struct FirstRunTests {
     func otherDevicesMoveTheMac() {
         let addPhone = FirstRun.journey(phoneAndWatch, .addPhone)
         #expect(addPhone.after(.deviceDone, facts: .init(alwaysOn: true)) == addPhone)
-        #expect(addPhone.after(.deviceDone, facts: .init(alwaysOn: true, iPhoneDone: true, watchJoined: true))
+        #expect(addPhone.after(.deviceDone, facts: .init(alwaysOn: true, iPhoneDone: true, watchDone: true))
             == .journey(phoneAndWatch, .tryDevices))
-        #expect(addPhone.after(.continueOn, facts: .init(alwaysOn: true, watchJoined: true)) == .journey(phoneAndWatch, .tryDevices))
+        #expect(addPhone.after(.continueOn, facts: .init(alwaysOn: true, watchDone: true)) == .journey(phoneAndWatch, .tryDevices))
     }
 
     @MainActor @Test("A restart resumes where he was; a Mac that finished stays finished")

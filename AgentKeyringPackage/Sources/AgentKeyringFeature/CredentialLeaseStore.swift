@@ -73,7 +73,6 @@ public final class CredentialLeaseStore {
     /// One-time codes the iPhone or Watch sent with an approval, which carries no seed.
     private var openedCodes: [String: [Agentkeyring_V2_TimedCode]] = [:]
     public private(set) var leases: [Agentkeyring_V1_Lease] = []
-    public private(set) var errorMessage: String?
     @ObservationIgnored private var deadlineTask: Task<Void, Never>?
     @ObservationIgnored private var observers: [UUID: AsyncStream<[Agentkeyring_V1_Lease]>.Continuation] = [:]
 
@@ -447,7 +446,6 @@ public final class CredentialLeaseStore {
             catch {
                 let native = error as NSError
                 historyLogger.error("Task deadline save failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
-                self?.errorMessage = "Task deadlines could not be saved. New deliveries will still check expiry."
             }
         }
     }

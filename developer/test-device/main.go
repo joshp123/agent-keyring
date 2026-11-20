@@ -551,7 +551,7 @@ func (d *device) selfTest(ctx context.Context) error {
 	}
 	lease := <-outcome
 	report, _ := proto.Marshal(&pb.SelfTestReport{Domain: keyring.SelfTestDomain, DeviceKeyId: d.self.KeyId, TestedUnixSeconds: now.Unix(),
-		Checks: []*pb.SelfTestCheck{{Name: "test request", Passed: lease.State == pb.LeaseState_LEASE_STATE_APPROVED}}})
+		Checks: []*pb.SelfTestCheck{{Name: "practice", Passed: lease.State == pb.LeaseState_LEASE_STATE_APPROVED}}})
 	signed, err := keyring.Sign(report, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply))
 	if err != nil {
 		return err

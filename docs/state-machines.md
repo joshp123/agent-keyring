@@ -15,10 +15,10 @@ Code: `AgentKeyringFeature/FirstRun.swift` (states and transitions, pure), `Mirr
 One value, `FirstRun`, is saved in the app's settings: welcome, chooseDevices, `journey(devices, page)`, or finished. `devices` is what he chose (iPhone, Apple Watch, other computers), and the journey's pages are built from it (`FirstRun.pages(for:)`): practice, passwords, agents, then a computer that stays on if he chose any device, his iPhone, his Apple Watch, other computers, as chosen, then trying a request on each device, then Ready. Facts the world owns are read beside it and never copied into it:
 
 - Touch ID can be used: `MacApprover.shared.state`.
-- The passwords, and whether the only one is the sample.
+- The passwords, and whether the only one is the test password.
 - The first request from an agent on this Mac that he approved ("Try it now"): read from the leases.
 - Whether this Mac reaches a computer that stays on, and which devices and computers have joined: the members list.
-- Where each other device is in its own first run: its status report (`MacDevice.reports`: step, finished, checklist), which the relay tells the Mac about when it changes.
+- Where each other device is in its own first run: its status report (`MacDevice.reports`: step, finished, checklist), which the relay tells the Mac about when it changes. Apple Watch sends none: its checklist is in the iPhone's report as lines named `watch …`, and adding it is the iPhone's `WATCH` step. This Mac's own report has one check, `practice`.
 - The last practice request on each device (`MirrorAppModel.practiceResults`): sent, with Apple, arrived, approved, denied with his words, no answer, or failed. Not saved.
 
 | State | Event | Next |
@@ -27,13 +27,13 @@ One value, `FirstRun`, is saved in the app's settings: welcome, chooseDevices, `
 | chooseDevices | Continue with his choice | journey(choice, practice) |
 | journey(practice) | approved with Touch ID | passwords (copyPasswords) |
 | journey(practice) | Deny, with or without words | practiceDenied(reply); Try Again goes back |
-| journey(copyPasswords) | his passwords arrive / Use a Sample Password | tellAgents(passwords(n) / sample) |
+| journey(copyPasswords) | his passwords arrive / Use the Test Password Only | tellAgents(passwords(n) / sample) |
 | journey(tellAgents(sample)), journey(ready) | Copy Your Own Passwords | copyPasswords |
-| journey(any page with Continue or Skip) | Continue / Skip | the next page of his journey, passing over what is done: the computer that stays on if this Mac reaches one, the iPhone if it has finished its first run, the Apple Watch if it has joined |
+| journey(any page with Continue or Skip) | Continue / Skip | the next page of his journey, passing over what is done: the computer that stays on if this Mac reaches one, the iPhone if it has finished its first run, the Apple Watch if it is done (below) |
 | journey(stayingOn) | Touch ID connects to the announced computer | the next page |
 | journey(stayingOn) | Use This Mac Alone | journey(this Mac alone, tryDevices) |
 | journey(addPhone) | the iPhone reports its first run finished | the next page |
-| journey(addWatch) | the Apple Watch joins | the next page |
+| journey(addWatch) | the Apple Watch joins, or the iPhone reports `READY` (he skipped the Watch there, or none is paired) | the next page |
 | journey(ready) | Done | finished: the same window becomes Passwords and Devices |
 
 An event with no row leaves the state as it is. A step that finishes while he is in another app (his passwords arriving, a device done, a computer connected) bounces the Dock icon once; no window is ever pushed in front. Every move sends this Mac's status report (its step, the journey's steps, finished), so the iPhone and Apple Watch show the same list and where the Mac is.
@@ -48,9 +48,9 @@ Devices opens the same windows in a sheet.
 
 Send Practice Request on another device chooses a request id and asks the relay for a practice request for that device (`MacDevice.practice(on:)`). The row shows each step as the relay reports it: sending, with Apple (the push was accepted), on the device (it said the request arrived), then the answer. A dropped connection is still waiting: the Mac asks again with the same id and rejoins it; the relay never makes a second one for a device while one waits. On this Mac the request panel shows the same practice request first run uses.
 
-### The practice password
+### The test password
 
-`PracticePassword`: practice.example.com, always there on this Mac for an agent's first try, even once his passwords are copied. It is not in his list or the catalogue and never goes to the relay; approving it takes Touch ID and opens nothing of his.
+`MirrorItem.testPassword`: example.com, you@example.com, password "hello". The first copy brings it (`MirrorAppModel.importBatch`) and every later copy keeps it, as it keeps any password missing from an export; "Use the Test Password Only" is a copy of nothing. It is an ordinary Ask password: in his list, the catalogue and the relay like any other, so an agent on any of his computers can try the whole route with a secret that does not matter.
 
 ### Copying from the Passwords app
 
@@ -67,7 +67,7 @@ Code: `PasswordsCopy` in `FirstRun.swift`, `MirrorCredentialImport.swift`. First
 | any | the export starts arriving | copying |
 | copying | sealed and saved | nil |
 | copying | failed | steps, with the error |
-| any | Use a Sample Password, or Cancel in the main window | nil |
+| any | Use the Test Password Only, or Cancel in the main window | nil |
 
 What must always be true:
 
@@ -76,9 +76,9 @@ What must always be true:
 - **The request panel never covers the window that explains it.** It goes to the right of Agent Keyring's window, else to its left, else the window moves to the screen's left edge (`RequestPanel.frame`, tested on 1728- and 1280-point screens).
 - **A restart never strands him.** Every state resumes as saved, and a copy starts again from the steps. If a later build cannot read the saved state, first run starts at welcome. A Mac that finished first run before this state was saved opens as finished.
 - **A fresh container is a new install.** On its first launch the app deletes what an earlier install left in the keychain (its relay and members, its rules, the name it left for the iPhone in iCloud Keychain) and keeps this Mac's keys (`MirrorAppModel.forgetPreviousInstall`).
-- **The sample is an ordinary Ask password.** His first copy from Passwords removes it from the list, the sealed store and the relay.
+- **There is always exactly one test password.** A copy from Passwords keeps it; nothing removes it.
 
-Found and fixed (tests in `FirstRunTests`, `SamplePasswordTests`, and `TestABlockedLoginHasNoCopyOnTheRelay` in `internal/relay`):
+Found and fixed (tests in `FirstRunTests`, and `TestABlockedLoginHasNoCopyOnTheRelay` in `internal/relay`):
 
 - **A late timer.** The five-minute timer moves the copy on only from `waiting`, so it cannot fire after the passwords arrived.
 - **Adding his iPhone froze the Mac for about two minutes** (20 Nov): about four Secure Enclave operations for each of 547 passwords ran on the main thread before the iPhone was even added, and the iPhone gave up and asked again. The iPhone is now added first and its copies follow off the main thread, with progress.
@@ -86,7 +86,7 @@ Found and fixed (tests in `FirstRunTests`, `SamplePasswordTests`, and `TestABloc
 - **Done left him on nothing.** It closed the window; now the same window becomes Passwords and Devices.
 - **A practice request was made again each time iOS cut the connection** (four for one iPhone on 20 Nov). It now has one id, is rejoined, and there is at most one waiting per device (`TestAPracticeRequestIsRejoinedNotMadeAgain`). The join connection has a heartbeat, so a waiting iPhone never times out.
 - **"Set Up Agents on This Mac" changed his folders.** The button and `install`'s link switching are gone; the app gives him a note for his agents and changes nothing.
-- **The ten flags first run replaced** (`isImporting`, `awaitingExport`, `exportTimedOut`, `showsAutoFillHelp`, `providerState`, `canAskAgain`, `selfTest`, `firstRunFinished`, the window's own `lidClosed` and `needsFingerprint`). Choosing the sample also closes an open copy, so the main window never opens later on a copy he abandoned.
+- **The ten flags first run replaced** (`isImporting`, `awaitingExport`, `exportTimedOut`, `showsAutoFillHelp`, `providerState`, `canAskAgain`, `selfTest`, `firstRunFinished`, the window's own `lidClosed` and `needsFingerprint`). Choosing the test password only also closes an open copy, so the main window never opens later on a copy he abandoned.
 
 ## The lease, across the Mac, the relay and the command
 

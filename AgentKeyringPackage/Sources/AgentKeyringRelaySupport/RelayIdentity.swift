@@ -1,3 +1,4 @@
+import AgentKeyringApprovalCore
 import CryptoKit
 import Foundation
 import LocalAuthentication
@@ -90,7 +91,7 @@ public struct RelayTLSIdentity: @unchecked Sendable {
         guard let key = SecCertificateCopyKey(certificate),
             let bytes = SecKeyCopyExternalRepresentation(key, nil) as? Data,
             (try? P256.Signing.PublicKey(x963Representation: bytes)) != nil else {
-            throw RelayFailure(.unauthenticated, "The relay must use a P-256 TLS identity.")
+            throw RelayFailure(.unauthenticated, MessageCopy.relayBadIdentity)
         }
         return spkiPrefix + bytes
     }

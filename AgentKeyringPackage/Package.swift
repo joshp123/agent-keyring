@@ -22,9 +22,9 @@ let package = Package(
     ],
     targets: [
         .executableTarget(name: "PanelRender", dependencies: ["AgentKeyringApprovalUI"], path: "Tools/PanelRender"),
-        .target(name: "AgentKeyringRelaySupport", dependencies: ["AgentKeyringProtocol", "AgentKeyringCredentialImport"]),
+        .target(name: "AgentKeyringRelaySupport", dependencies: ["AgentKeyringProtocol", "AgentKeyringCredentialImport", "AgentKeyringApprovalCore"]),
         .target(name: "AgentKeyringPhoneApprover", dependencies: ["AgentKeyringSealing", "AgentKeyringRelaySupport", "AgentKeyringApprovalUI"]),
-        .target(name: "AgentKeyringCredentialImport"),
+        .target(name: "AgentKeyringCredentialImport", dependencies: ["AgentKeyringApprovalCore"]),
         .target(name: "AgentKeyringProtocol", dependencies: [.product(name: "SwiftProtobuf", package: "swift-protobuf")]),
         // Sealed logins and signed answers, shared by the Mac, iPhone and Watch apps.
         .target(name: "AgentKeyringSealing", dependencies: ["AgentKeyringProtocol"]),

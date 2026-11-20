@@ -32,7 +32,7 @@ extension MirrorAppModel {
             guard opened.password == probe.password,
                 keys.signingPublicKey.isValidSignature(try P256.Signing.ECDSASignature(derRepresentation: signature),
                     for: Data("agentkeyring.selftest.v2".utf8))
-            else { throw LeaseFailure(.unavailable, "This Mac's chip keys did not open or sign correctly.") }
+            else { throw LeaseFailure(.unavailable, MessageCopy.practiceKeysFailed) }
             onAuthenticated()
             let now = Date()
             settings.set(now, forKey: Self.testedAtKey)

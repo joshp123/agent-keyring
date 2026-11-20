@@ -102,8 +102,8 @@ public enum FirstRunCopy {
     public static let waitingForPasswords = "Waiting for your passwords…"
     public static let noneArrived = "No passwords have arrived yet. In step 3, check that you chose Agent Keyring and clicked Continue in “Agent Keyring”."
     public static let openPasswords = "Open Passwords"
-    public static let useSample = "Use a Sample Password"
-    public static let sampleNote = "No passwords yet, or want to look round first? Try everything with a sample password for example.com. When you copy your own, the sample goes."
+    public static let useSample = "Use the Test Password Only"
+    public static let sampleNote = "Agent Keyring always keeps one test password: example.com, you@example.com, password “hello”. You can copy your own passwords later from Passwords."
     public static let copying = "Copying your passwords…"
     public static let cancel = "Cancel"
     public static let copyOwn = "Copy Your Own Passwords"
@@ -111,8 +111,8 @@ public enum FirstRunCopy {
     // Tell your agents
     public static func copied(_ count: Int) -> String { count == 1 ? "1 password copied." : "\(count) passwords copied." }
     public static let mustAskAny = "An agent must ask you before using any of them."
-    public static let sampleAdded = "1 sample password:"
-    public static let sampleDetail = "example.com, password “hello”."
+    public static let sampleAdded = "Test password added."
+    public static let sampleDetail = "Agent Keyring always keeps one test password: example.com, you@example.com, password “hello”. You can copy your own passwords later from Passwords."
     public static let tellTitle = "Tell your agents about Agent Keyring"
     public static let tellBody = "Your agents need nothing installed. Give them this note, and when a task needs a website password or a two-factor code, they ask you through Agent Keyring."
     public static func agentNote(appPath: String) -> String {
@@ -122,7 +122,7 @@ public enum FirstRunCopy {
     public static let pasteIt = "Paste it into a chat with an agent, or add it to the instructions your agents read every time, such as CLAUDE.md or AGENTS.md. Agent Keyring never changes your agents’ settings."
     public static let tryItNow = "Try it now"
     public static let tryItBody = "Ask an agent to sign in to one of your websites. Its request appears beside your pointer."
-    public static let tryItSample = "Ask an agent: “Use Agent Keyring to get the example.com password.” Its request appears beside your pointer."
+    public static let tryItSample = "Send this to an agent: “Use Agent Keyring to get the test password for example.com, to check that Agent Keyring works.” Its request appears beside your pointer."
     public static let noRequestYet = "No request from an agent yet"
     public static func approvedRequest(agent: String, site: String) -> String { "\(agent) asked for \(site), and you approved it." }
     public static let copied = "Copied"
@@ -198,7 +198,7 @@ public enum FirstRunCopy {
 
     // Ready
     public static let ready = "Agent Keyring is ready"
-    public static let sampleTitle = "You are using a sample password"
+    public static let sampleTitle = "You are using the test password only"
     public static let sampleBody = "example.com is only for trying Agent Keyring. Copy your own passwords when you want your agents to use them."
     /// With an iPhone or Apple Watch added.
     public static let readyPoints: [(symbol: String, title: String, body: String)] = [
@@ -237,7 +237,6 @@ public enum FirstRunCopy {
     public static let practiceFooter = "Practice only. No password is shared."
     public static let practiceApproved = "No real password was used."
     /// After "Agent Keyring is trying to" in macOS's dialog.
-    public static let practiceReasonInDialog = "use a practice password for \(practiceSite), \(practiceAccount)"
 }
 
 /// The words of the main window: the Passwords and Devices tabs.
@@ -248,7 +247,7 @@ public enum MainWindowCopy {
     public static let all = "All"
     public static let copyAgain = "Copy Again"
     public static let noneCopied = "No passwords copied yet."
-    public static let sampleOnly = "example.com is a sample password. When you copy your own from the Passwords app, it goes."
+    public static let sampleOnly = "example.com is the test password. Agent Keyring always keeps it."
     public static let copyFromPasswords = "Copy from Passwords"
     public static func copiedOn(_ date: String) -> String { "Copied from Passwords on \(date). To add newer passwords, copy them again." }
 

@@ -13,6 +13,7 @@ buildGoModule {
       ../cmd/agent-keyring
       ../internal
       ../gen/go
+      ../AgentSkill/skill.go
       ../AgentSkill/agent-keyring
       ../BrowserExtension
     ];
