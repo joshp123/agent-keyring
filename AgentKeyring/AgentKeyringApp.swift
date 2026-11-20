@@ -103,7 +103,7 @@ private struct HomeWindow: View {
             if model.firstRunFinished, let copy = model.passwordsCopy {
                 // Copy from Passwords: the same "Copy your passwords" as first run.
                 MacFirstRunView(screen: copyScreen(copy, model: model, offerSample: false),
-                    problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text },
+                    problem: model.problem,
                     actions: copyActions(model))
             } else if model.firstRunFinished {
                 if let main {
@@ -219,7 +219,7 @@ private struct FirstRunHome: View {
             if model.isLoading {
                 ProgressView().padding(40)
             } else if let screen {
-                MacFirstRunView(screen: screen, problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text }, actions: actions)
+                MacFirstRunView(screen: screen, problem: model.problem, actions: actions)
             }
         }
         .task { await model.loadStatus() }

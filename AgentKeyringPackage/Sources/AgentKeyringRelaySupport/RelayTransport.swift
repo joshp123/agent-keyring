@@ -1,3 +1,4 @@
+import AgentKeyringApprovalCore
 import AgentKeyringProtocol
 import Foundation
 import Network
@@ -12,7 +13,7 @@ public struct RelayEndpoint: Codable, Equatable, Sendable {
     public init(host: String, port: UInt16) throws {
         guard port > 0, !host.isEmpty, !host.contains("/"), !host.contains("@"), !host.utf8.contains(0),
               host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            throw RelayFailure(.invalidArgument, "Enter the relay's host name and port.")
+            throw RelayFailure(.invalidArgument, MessageCopy.enterHostAndPort)
         }
         self.host = host
         self.port = port
@@ -97,7 +98,7 @@ public final class RelayConnection: @unchecked Sendable {
                 connection.start(queue: queue)
                 queue.asyncAfter(deadline: .now() + 10) {
                     let stillOpening = self.lock.withLock { !self.opened }
-                    if stillOpening, finish(RelayFailure(.unavailable, "The relay could not be reached.")) {
+                    if stillOpening, finish(RelayFailure(.unavailable, MessageCopy.relayUnreachable)) {
                         self.cancel()
                     }
                 }
@@ -110,7 +111,7 @@ public final class RelayConnection: @unchecked Sendable {
     public func sendFrame(_ request: some SwiftProtobuf.Message) async throws {
         try requireTailnetPeer()
         let data = try request.serializedData()
-        guard !data.isEmpty, data.count <= 4_194_304 else { throw RelayFailure(.invalidArgument, "The relay request is too large.") }
+        guard !data.isEmpty, data.count <= 4_194_304 else { throw RelayFailure(.invalidArgument, MessageCopy.relayRequestTooLarge) }
         var size = UInt32(data.count).bigEndian
         let frame = withUnsafeBytes(of: &size) { Data($0) } + data
         try await withTaskCancellationHandler {
@@ -125,7 +126,7 @@ public final class RelayConnection: @unchecked Sendable {
     private func requireTailnetPeer() throws {
         guard endpoint.permitsResolvedEndpoint(connection.currentPath?.remoteEndpoint) else {
             connection.cancel()
-            throw RelayFailure(.permissionDenied, "The relay must connect over Tailscale.")
+            throw RelayFailure(.permissionDenied, MessageCopy.relayOverTailscale)
         }
     }
 
@@ -133,7 +134,7 @@ public final class RelayConnection: @unchecked Sendable {
     public func nextFrame<Response: SwiftProtobuf.Message>() async throws -> Response {
         let header = try await read(4)
         let size = header.withUnsafeBytes { UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self)) }
-        guard size > 0, size <= 4_194_304 else { throw RelayFailure(.invalidArgument, "The relay sent an invalid frame.") }
+        guard size > 0, size <= 4_194_304 else { throw RelayFailure(.invalidArgument, MessageCopy.relayBadFrame) }
         return try await Response(serializedBytes: read(Int(size)))
     }
 
@@ -146,7 +147,7 @@ public final class RelayConnection: @unchecked Sendable {
                     connection.receive(minimumIncompleteLength: remaining, maximumLength: remaining) { data, _, _, error in
                         if let error { continuation.resume(throwing: error) }
                         else if let data, !data.isEmpty { continuation.resume(returning: data) }
-                        else { continuation.resume(throwing: RelayFailure(.unavailable, "The relay connection ended.")) }
+                        else { continuation.resume(throwing: RelayFailure(.unavailable, MessageCopy.relayConnectionEnded)) }
                     }
                 }
             } onCancel: { self.cancel() }

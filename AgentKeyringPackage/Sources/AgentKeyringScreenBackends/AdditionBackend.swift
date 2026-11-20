@@ -81,7 +81,7 @@ public final class AdditionBackend: MacApprovalBackend {
     }
 
     public func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
-        guard let device = model.device else { throw ScreenFailure(message: "This Mac has no keys yet.") }
+        guard let device = model.device else { throw ScreenFailure(message: MessageCopy.noKeysYet) }
         let context = LAContext()
         contexts[requestID] = context
         defer { if contexts[requestID] === context { contexts[requestID] = nil } }

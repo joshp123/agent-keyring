@@ -1907,7 +1907,7 @@ public nonisolated struct Agentkeyring_V2_SelfTestCheck: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// For example "notifications" or "test request".
+  /// For example "notifications" or "practice".
   public var name: String = String()
 
   public var passed: Bool = false

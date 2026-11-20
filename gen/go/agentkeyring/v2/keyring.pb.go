@@ -4000,7 +4000,7 @@ func (x *SelfTestReport) GetFinished() bool {
 
 type SelfTestCheck struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // For example "notifications" or "test request".
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // For example "notifications" or "practice".
 	Passed        bool                   `protobuf:"varint,2,opt,name=passed,proto3" json:"passed,omitempty"`
 	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"` // When it failed: the error, in words.
 	unknownFields protoimpl.UnknownFields

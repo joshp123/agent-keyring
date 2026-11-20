@@ -4,6 +4,7 @@
 // The relay's version 2 methods: one method per pinned TLS connection, framed
 // protobuf (proto/agentkeyring/v2/keyring.proto).
 
+import AgentKeyringApprovalCore
 import AgentKeyringProtocol
 import Foundation
 
@@ -40,7 +41,7 @@ public struct KeyringRelay: Sendable {
             tasks.addTask { try await Self.next(connection) }
             tasks.addTask {
                 try await Task.sleep(for: .seconds(15))
-                throw RelayFailure(.unavailable, "The relay did not answer.")
+                throw RelayFailure(.unavailable, MessageCopy.relayDidNotAnswer)
             }
             defer { tasks.cancelAll() }
             return try await tasks.next()!

@@ -9,16 +9,6 @@ private let credentialAuthorizationLogger = Logger(
     category: "CredentialAuthorization"
 )
 
-/// Our words in macOS's Touch ID dialog, after "Agent Keyring is trying to".
-public enum ApprovalSentence {
-    /// The computer is named only when it is not this Mac.
-    public static func lease(site: String, account: String, agent: String, machine: String? = nil) -> String {
-        let site = URL(string: site)?.host() ?? site
-        let who = (agent.isEmpty ? "an agent" : agent) + (machine.map { " on \($0)" } ?? "")
-        return "let \(who) use your \(site) password, \(account)"
-    }
-}
-
 public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable, Equatable {
     case unavailable
     case denied
@@ -29,18 +19,13 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
 
     public var errorDescription: String? {
         switch self {
-        case .unavailable:
-            "Approval isn't available. Check Touch ID or Apple Watch, then try again."
-        case .denied:
-            "\(MacOwner.firstName) declined the request."
-        case .interrupted:
-            "Approval was interrupted. Try again."
-        case .notVerified:
-            "Approval didn't confirm. Try again."
-        case .expired:
-            "The request expired with no answer."
+        case .unavailable: MessageCopy.approvalUnavailable
+        case .denied: MessageCopy.declined(MacOwner.firstName)
+        case .interrupted: MessageCopy.approvalInterrupted
+        case .notVerified: MessageCopy.approvalNotConfirmed
+        case .expired: MessageCopy.expired
         case let .systemFailure(domain, code):
-            "Credential approval failed (\(domain == LAError.errorDomain ? "LocalAuthentication" : domain) \(code)). Nothing was released."
+            MessageCopy.approvalFailed(domain: domain == LAError.errorDomain ? "LocalAuthentication" : domain, code: code)
         }
     }
 

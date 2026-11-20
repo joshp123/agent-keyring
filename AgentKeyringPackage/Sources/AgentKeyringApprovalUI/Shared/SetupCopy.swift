@@ -237,7 +237,6 @@ public enum FirstRunCopy {
     public static let practiceFooter = "Practice only. No password is shared."
     public static let practiceApproved = "No real password was used."
     /// After "Agent Keyring is trying to" in macOS's dialog.
-    public static let practiceReasonInDialog = "use a practice password for \(practiceSite), \(practiceAccount)"
 }
 
 /// The words of the main window: the Passwords and Devices tabs.

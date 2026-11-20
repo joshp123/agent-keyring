@@ -35,11 +35,7 @@ extension MirrorAppModel {
 
         guard let token = importToken(from: activity) else {
             credentialExchangeLogger.error("Credential exchange activity had no import token")
-            notice = MirrorNotice(
-                kind: .error,
-                text:
-                    "Passwords opened Agent Keyring without sending your passwords. Try the export again."
-            )
+            problem = MessageCopy.exportSentNothing
             return
         }
 
@@ -114,7 +110,7 @@ extension MirrorAppModel {
             let url = NSWorkspace.shared.urlForApplication(
                 withBundleIdentifier: "com.apple.Passwords")
         else {
-            notice = MirrorNotice(kind: .error, text: "Passwords could not be opened.")
+            problem = MessageCopy.passwordsWontOpen
             return
         }
         NSWorkspace.shared.openApplication(
@@ -123,10 +119,7 @@ extension MirrorAppModel {
         ) { [weak self] _, error in
             guard error != nil else { return }
             Task { @MainActor in
-                self?.notice = MirrorNotice(
-                    kind: .error,
-                    text: "Passwords could not be opened."
-                )
+                self?.problem = MessageCopy.passwordsWontOpen
             }
         }
     }
@@ -146,7 +139,7 @@ extension MirrorAppModel {
         passwordsCopy = .copying
         // A failed copy goes back to the steps, with the error under them.
         defer { if passwordsCopy == .copying { passwordsCopy = .steps } }
-        notice = nil
+        problem = nil
 
         credentialExchangeLogger.info("Credential import started")
 
@@ -163,7 +156,7 @@ extension MirrorAppModel {
             credentialExchangeLogger.error(
                 "Credential transfer failed [\(failure.diagnostic, privacy: .public)]"
             )
-            notice = MirrorNotice(kind: .error, text: failure.message)
+            problem = failure.message
             DiagnosticLog.record("copy", "failed", ["reason": failure.diagnostic])
             return
         }
@@ -197,12 +190,7 @@ extension MirrorAppModel {
             try await store.save(generation, sealed: sealed)
         } catch {
             credentialExchangeLogger.error("Sealing the import failed: \(String(describing: error), privacy: .public)")
-            notice = MirrorNotice(
-                kind: .error,
-                text: hadExistingMirror
-                    ? "Passwords sent your passwords, but Agent Keyring could not lock them away. Your earlier copy was not changed."
-                    : "Passwords sent your passwords, but Agent Keyring could not lock them away."
-            )
+            problem = MessageCopy.notLockedAway(hadEarlierCopy: hadExistingMirror)
             return false
         }
 
@@ -214,11 +202,8 @@ extension MirrorAppModel {
         if device?.isJoined == true {
             // Josh approves sending the list in a panel beside his window.
             importedLoginsAwaitApproval = true
-            notice = MirrorNotice(kind: .information,
-                text: "Your passwords are copied. Your iPhone and other computers get them once you allow it.")
-        } else {
-            notice = MirrorNotice(kind: .information, text: "Your passwords are copied.")
         }
+        problem = nil
         return true
     }
 }

@@ -1,3 +1,4 @@
+import AgentKeyringApprovalCore
 import Foundation
 import UserNotifications
 import OSLog
@@ -9,7 +10,6 @@ public protocol MirrorSyncNotifying {
 
 @MainActor
 public final class MirrorSyncReminders {
-    public static let exportInstruction = "File → Export All Items to App → Agent Keyring"
     private let settings: UserDefaults
     private let notifier: any MirrorSyncNotifying
     private let now: () -> Date
@@ -53,7 +53,7 @@ public final class SystemMirrorSyncNotifier: NSObject, MirrorSyncNotifying, UNUs
         self.openExport = openExport
         super.init()
         center.delegate = self
-        let action = UNNotificationAction(identifier: "export", title: "Update from Passwords", options: .foreground)
+        let action = UNNotificationAction(identifier: "export", title: MessageCopy.updateFromPasswords, options: .foreground)
         center.setNotificationCategories([UNNotificationCategory(identifier: "mirror-sync", actions: [action], intentIdentifiers: [])])
     }
 
@@ -62,8 +62,8 @@ public final class SystemMirrorSyncNotifier: NSObject, MirrorSyncNotifying, UNUs
             throw AgentBridgeFailure(.internalError, "Enable Agent Keyring notifications to ask \(MacOwner.firstName) to update the copy.")
         }
         let content = UNMutableNotificationContent()
-        content.title = "Agent Keyring's copy of your passwords is \(ageDays) days old."
-        content.body = MirrorSyncReminders.exportInstruction
+        content.title = MessageCopy.copyIsOld(days: ageDays)
+        content.body = MessageCopy.exportInstruction
         content.categoryIdentifier = "mirror-sync"
         try await center.add(UNNotificationRequest(identifier: "mirror-sync", content: content, trigger: nil))
     }

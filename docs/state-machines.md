@@ -18,7 +18,7 @@ One value, `FirstRun`, is saved in the app's settings: welcome, chooseDevices, `
 - The passwords, and whether the only one is the sample.
 - The first request from an agent on this Mac that he approved ("Try it now"): read from the leases.
 - Whether this Mac reaches a computer that stays on, and which devices and computers have joined: the members list.
-- Where each other device is in its own first run: its status report (`MacDevice.reports`: step, finished, checklist), which the relay tells the Mac about when it changes.
+- Where each other device is in its own first run: its status report (`MacDevice.reports`: step, finished, checklist), which the relay tells the Mac about when it changes. Apple Watch sends none: its checklist is in the iPhone's report as lines named `watch …`, and adding it is the iPhone's `WATCH` step. This Mac's own report has one check, `practice`.
 - The last practice request on each device (`MirrorAppModel.practiceResults`): sent, with Apple, arrived, approved, denied with his words, no answer, or failed. Not saved.
 
 | State | Event | Next |
@@ -29,11 +29,11 @@ One value, `FirstRun`, is saved in the app's settings: welcome, chooseDevices, `
 | journey(practice) | Deny, with or without words | practiceDenied(reply); Try Again goes back |
 | journey(copyPasswords) | his passwords arrive / Use a Sample Password | tellAgents(passwords(n) / sample) |
 | journey(tellAgents(sample)), journey(ready) | Copy Your Own Passwords | copyPasswords |
-| journey(any page with Continue or Skip) | Continue / Skip | the next page of his journey, passing over what is done: the computer that stays on if this Mac reaches one, the iPhone if it has finished its first run, the Apple Watch if it has joined |
+| journey(any page with Continue or Skip) | Continue / Skip | the next page of his journey, passing over what is done: the computer that stays on if this Mac reaches one, the iPhone if it has finished its first run, the Apple Watch if it is done (below) |
 | journey(stayingOn) | Touch ID connects to the announced computer | the next page |
 | journey(stayingOn) | Use This Mac Alone | journey(this Mac alone, tryDevices) |
 | journey(addPhone) | the iPhone reports its first run finished | the next page |
-| journey(addWatch) | the Apple Watch joins | the next page |
+| journey(addWatch) | the Apple Watch joins, or the iPhone reports `READY` (he skipped the Watch there, or none is paired) | the next page |
 | journey(ready) | Done | finished: the same window becomes Passwords and Devices |
 
 An event with no row leaves the state as it is. A step that finishes while he is in another app (his passwords arriving, a device done, a computer connected) bounces the Dock icon once; no window is ever pushed in front. Every move sends this Mac's status report (its step, the journey's steps, finished), so the iPhone and Apple Watch show the same list and where the Mac is.

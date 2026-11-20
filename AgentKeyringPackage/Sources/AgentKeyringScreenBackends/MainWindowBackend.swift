@@ -79,7 +79,7 @@ public final class AppMainWindowBackend: MainWindowBackend {
     /// "Connect to Mac mini?": the announced relay, after Touch ID. Nothing typed.
     public func connectOffered(onAuthenticated: @MainActor () -> Void = {}) async throws {
         guard let device = model.device, let offer = device.relayOffer() else {
-            throw ScreenFailure(message: "No computer that stays on has announced itself. Open Agent Keyring on it, signed in to the same Apple Account.")
+            throw ScreenFailure(message: MessageCopy.noneAnnounced)
         }
         try await screenErrors { try await device.connect(to: offer, context: LAContext(), onAuthenticated: onAuthenticated) }
     }
@@ -88,10 +88,10 @@ public final class AppMainWindowBackend: MainWindowBackend {
     /// already running there ("100.64.0.5:17445" or "mac-mini:17445"), then
     /// Touch ID. Onboarding and Add Computer in Devices use the same.
     public func connectRelay(_ address: String, onAuthenticated: @MainActor () -> Void = {}) async throws {
-        guard let device = model.device else { throw ScreenFailure(message: "This Mac has no keys yet.") }
+        guard let device = model.device else { throw ScreenFailure(message: MessageCopy.noKeysYet) }
         let parts = address.trimmingCharacters(in: .whitespaces).split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 2, let port = UInt16(parts[1]) else {
-            throw ScreenFailure(message: "Enter the computer's address and the relay's port, such as mac-mini:17445.")
+            throw ScreenFailure(message: MessageCopy.enterAddress)
         }
         try await screenErrors {
             try await device.connect(to: try RelayEndpoint(host: String(parts[0]), port: port), context: LAContext(), onAuthenticated: onAuthenticated)

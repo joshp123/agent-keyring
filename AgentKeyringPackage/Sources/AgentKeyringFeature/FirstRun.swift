@@ -85,11 +85,12 @@ public enum FirstRun: Codable, Equatable, Sendable {
     public struct Facts: Equatable, Sendable {
         public var alwaysOn = false
         public var iPhoneDone = false
-        public var watchJoined = false
-        public init(alwaysOn: Bool = false, iPhoneDone: Bool = false, watchJoined: Bool = false) {
+        /// Apple Watch is added, or the iPhone has moved past adding it (he skipped it there, or none is paired).
+        public var watchDone = false
+        public init(alwaysOn: Bool = false, iPhoneDone: Bool = false, watchDone: Bool = false) {
             self.alwaysOn = alwaysOn
             self.iPhoneDone = iPhoneDone
-            self.watchJoined = watchJoined
+            self.watchDone = watchDone
         }
     }
 
@@ -129,7 +130,7 @@ public enum FirstRun: Codable, Equatable, Sendable {
         case (.stayingOn, .useThisMacAlone): return (.thisMacAlone, .tryDevices)
         case (.stayingOn, .connected): return (devices, following(.stayingOn, devices, facts))
         case (.addPhone, .deviceDone) where facts.iPhoneDone: return (devices, following(page, devices, facts))
-        case (.addWatch, .deviceDone) where facts.watchJoined: return (devices, following(page, devices, facts))
+        case (.addWatch, .deviceDone) where facts.watchDone: return (devices, following(page, devices, facts))
         case (.addPhone, .skip), (.addWatch, .skip), (.addComputers, .skip),
              (.tellAgents, .continueOn), (.addPhone, .continueOn), (.addWatch, .continueOn),
              (.addComputers, .continueOn), (.tryDevices, .continueOn):
@@ -144,7 +145,7 @@ public enum FirstRun: Codable, Equatable, Sendable {
         let here = pages.firstIndex { $0.kind == page.kind } ?? 0
         for next in pages.dropFirst(here + 1) {
             switch next {
-            case .stayingOn where facts.alwaysOn, .addPhone where facts.iPhoneDone, .addWatch where facts.watchJoined: continue
+            case .stayingOn where facts.alwaysOn, .addPhone where facts.iPhoneDone, .addWatch where facts.watchDone: continue
             default: return next
             }
         }

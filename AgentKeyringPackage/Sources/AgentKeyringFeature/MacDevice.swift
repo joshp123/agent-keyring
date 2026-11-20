@@ -40,7 +40,6 @@ public final class MacDevice {
     public private(set) var finished: [String: Agentkeyring_V2_Work] = [:]
     public private(set) var joins: [Agentkeyring_V2_PendingJoin] = []
     public private(set) var members: Agentkeyring_V2_Members?
-    /// Each device's last self-test that passed, by key id, as the relay keeps them.
 
     let keys: MacKeys
     let store: LoginStore
@@ -127,7 +126,7 @@ public final class MacDevice {
     }
 
     private func call(_ method: Agentkeyring_V2_RelayRequest.OneOf_Method) async throws -> Agentkeyring_V2_RelayResponse {
-        guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to a relay.") }
+        guard let relay else { throw RelayFailure(.unavailable, MessageCopy.notConnected) }
         var request = Agentkeyring_V2_RelayRequest()
         request.method = method
         return try await relay.call(request)
@@ -238,7 +237,7 @@ public final class MacDevice {
     public func confirmSetup(thisMacAutomatic: Bool, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard let setup, let always = setup.machine else { return }
         let pin = setup.pin
-        try await confirm(context, reason: "add \(always.label)")
+        try await confirm(context, reason: MessageCopy.add(always.label))
         onAuthenticated()
         var thisMac = keys.machine
         thisMac.automaticAllowed = thisMacAutomatic
@@ -274,23 +273,23 @@ public final class MacDevice {
         onAuthenticated: @MainActor () -> Void) async throws {
         if let saved {
             if saved.endpoint == endpoint { return } // Walking first run again on a Mac already connected there.
-            throw RelayFailure(.conflict, "This Mac is already connected to the computer at \(saved.endpoint.host).")
+            throw RelayFailure(.conflict, MessageCopy.alreadyConnected(to: saved.endpoint.host))
         }
         var pin = Data()
         var request = Agentkeyring_V2_RelayRequest()
         request.method = .members(Agentkeyring_V2_Empty())
         let response = try? await KeyringRelay(endpoint: endpoint, identity: keys.tls, pin: nil).call(request) { pin = $0 }
-        guard !pin.isEmpty else { throw RelayFailure(.unavailable, "Nothing answered at \(endpoint.host):\(endpoint.port). Check that the computer is on and its relay is running.") }
-        if let expecting, expecting != pin { throw RelayFailure(.permissionDenied, "The computer at \(endpoint.host) is not the one that announced itself.") }
+        guard !pin.isEmpty else { throw RelayFailure(.unavailable, MessageCopy.nothingAnswered(endpoint.host, endpoint.port)) }
+        if let expecting, expecting != pin { throw RelayFailure(.permissionDenied, MessageCopy.notTheAnnouncedOne(endpoint.host)) }
         var existing: (document: Agentkeyring_V2_Signed, members: Agentkeyring_V2_Members)?
         if case let .signed(document)? = response?.result, !document.payload.isEmpty {
             guard let members = try? Sealing.verifiedMembers(document, current: nil),
                 members.devices.contains(where: { $0.keyID == keys.deviceKeyID && $0.signingPublicKey == keys.device.signingPublicKey }) else {
-                throw RelayFailure(.conflict, "That relay is already set up with other devices.")
+                throw RelayFailure(.conflict, MessageCopy.relayHasOtherDevices)
             }
             existing = (document, members)
         }
-        try await confirm(context, reason: "connect to the computer that stays on at \(endpoint.host)")
+        try await confirm(context, reason: MessageCopy.connectTo(endpoint.host))
         onAuthenticated()
         DiagnosticLog.record("relay", "connect", ["host": endpoint.host, "port": "\(endpoint.port)", "rejoined": existing == nil ? "no" : "yes"])
         if let existing {
@@ -653,20 +652,20 @@ public final class MacDevice {
     /// Approves after Josh's Touch ID: opens the one login with this Mac's chip
     /// key and seals it again for the machine that asked.
     public func approve(_ requestID: String, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
-        guard let work = waiting[requestID], let members else { throw RelayFailure(.notFound, "This request is no longer waiting.") }
+        guard let work = waiting[requestID], let members else { throw RelayFailure(.notFound, MessageCopy.noLongerWaiting) }
         let request = try Sealing.parseRequest(work.request)
         if isPractice(work) { return try await approvePractice(work, context: context, onAuthenticated: onAuthenticated) }
         guard let asking = try? Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceKeyID) else {
-            throw RelayFailure(.permissionDenied, "The computer that asked is not one of yours.")
+            throw RelayFailure(.permissionDenied, MessageCopy.askerNotYours)
         }
         guard let login = try await catalogueLogins().first(where: { $0.loginID == request.loginID }), login.rule != .blocked else {
-            throw RelayFailure(.permissionDenied, "This password is blocked for agents.")
+            throw RelayFailure(.permissionDenied, MessageCopy.blockedForAgents)
         }
         guard let copy = try await store.sealed().first(where: { $0.loginID == request.loginID && $0.openerID == keys.deviceKeyID }) else {
-            throw RelayFailure(.permissionDenied, "This Mac has no copy of this password. Copy your passwords again from Passwords.")
+            throw RelayFailure(.permissionDenied, MessageCopy.noCopyHere)
         }
-        let reason = ApprovalSentence.lease(site: login.sites.first ?? login.title,
-            account: login.account.isEmpty ? login.title : login.account, agent: request.agent, machine: asking.label)
+        let reason = MessageCopy.useYourPassword(site: login.sites.first ?? login.title,
+            account: login.account.isEmpty ? login.title : login.account, agent: request.agent, computer: asking.label)
         try await confirm(context, reason: reason, until: Date(timeIntervalSince1970: TimeInterval(request.answerByUnixSeconds)))
         try keys.check(copy, members: members)
         let secret = try keys.open(copy, context: context)
@@ -688,7 +687,7 @@ public final class MacDevice {
 
     /// Approved with Touch ID, as a real one: a signed answer with nothing delivered.
     private func approvePractice(_ work: Agentkeyring_V2_Work, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
-        try await confirm(context, reason: "use a practice password for example.com, you@example.com")
+        try await confirm(context, reason: MessageCopy.practiceInDialog)
         var answer = Agentkeyring_V2_Answer()
         answer.domain = "agentkeyring.answer.v2"
         answer.requestSha256 = Sealing.sha256(work.request)
@@ -706,7 +705,7 @@ public final class MacDevice {
 
     /// Denies; words are signed with the reply key, which needs no Touch ID.
     public func deny(_ requestID: String, reply: String) async throws {
-        guard let work = waiting[requestID] else { throw RelayFailure(.notFound, "This request is no longer waiting.") }
+        guard let work = waiting[requestID] else { throw RelayFailure(.notFound, MessageCopy.noLongerWaiting) }
         let upload = reply.isEmpty ? Sealing.plainDeny(requestID: requestID)
             : try Sealing.deny(request: work.request, reply: reply, signerKeyID: keys.replyKeyID) { try keys.signReply($0) }
         _ = try await call(.answer(upload))
@@ -722,9 +721,9 @@ public final class MacDevice {
     /// The sentence for approving a join, after "Agent Keyring is trying to".
     public func joinReason(_ id: String) -> String {
         switch joins.first(where: { Self.joinID($0) == id })?.request.joining {
-        case let .machine(machine)?: "add \(machine.label)"
-        case let .device(device)?: "add \(device.label)"
-        case nil: "add a device"
+        case let .machine(machine)?: MessageCopy.add(machine.label)
+        case let .device(device)?: MessageCopy.add(device.label)
+        case nil: MessageCopy.addADevice
         }
     }
 
@@ -740,7 +739,7 @@ public final class MacDevice {
         report.testedUnixSeconds = Int64(Date().timeIntervalSince1970)
         if let practice {
             var check = Agentkeyring_V2_SelfTestCheck()
-            check.name = "test request"
+            check.name = "practice"
             check.passed = practice.passed
             check.error = practice.error
             report.checks = [check]
@@ -771,7 +770,7 @@ public final class MacDevice {
     /// waits for the answer, and opens the delivery with its receiving key.
     public func askDevices(leaseID: String, loginID: String, reason: String, agent: String, project: String, task: String) async throws -> DeviceAnswer {
         guard let relay, let members else {
-            throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.")
+            throw RelayFailure(.unavailable, MessageCopy.noIPhoneOrWatch)
         }
         var ask = Agentkeyring_V2_Request()
         ask.domain = "agentkeyring.request.v2"
@@ -835,7 +834,7 @@ public final class MacDevice {
     /// its id, never made again.
     public func practice(on deviceKeyID: String, progress: @MainActor (Agentkeyring_V2_Lease) -> Void) async throws -> Agentkeyring_V2_Lease {
         guard deviceKeyID != keys.deviceKeyID else {
-            throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.")
+            throw RelayFailure(.unavailable, MessageCopy.noIPhoneOrWatch)
         }
         var test = Agentkeyring_V2_TestRequest()
         test.forDeviceKeyID = deviceKeyID
@@ -846,7 +845,7 @@ public final class MacDevice {
         DiagnosticLog.record("practice", "sent", ["request": test.requestID, "device": deviceKeyID.prefix(16).description])
         var last = Agentkeyring_V2_Lease()
         while true {
-            guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.") }
+            guard let relay else { throw RelayFailure(.unavailable, MessageCopy.noIPhoneOrWatch) }
             do {
                 try await relay.stream(request) { response in
                     guard case let .lease(lease) = response.result else { return }
@@ -887,7 +886,7 @@ public final class MacDevice {
     /// A computer gets no Automatic passwords yet.
     public func approveJoin(_ id: String, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard var next = members, let join = joins.first(where: { Self.joinID($0) == id }) else {
-            throw RelayFailure(.notFound, "Nothing is waiting to join with that name.")
+            throw RelayFailure(.notFound, MessageCopy.nothingJoining)
         }
         try await confirm(context, reason: joinReason(id))
         onAuthenticated()
@@ -917,7 +916,7 @@ public final class MacDevice {
         Task {
             do { try await fill(newDevice, copies: mine, context: context) } catch {
                 DiagnosticLog.record("devices", "fill-failed", ["device": newDevice.label, "reason": "\(error)"])
-                filling?.failure = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                filling?.failure = (error as? LocalizedError)?.errorDescription ?? MessageCopy.somethingWentWrong
                 try? await Task.sleep(for: .seconds(30)) // Long enough to read in the panel.
             }
             filling = nil
@@ -1015,7 +1014,7 @@ public final class MacDevice {
     /// Removes a machine or device; the system dialog is the confirmation.
     public func removeConfirmed(_ id: String, context: LAContext) async throws {
         let label = members?.machines.first { $0.machineID == id }?.label ?? members?.devices.first { $0.keyID == id }?.label ?? "it"
-        try await confirm(context, reason: "remove \(label)")
+        try await confirm(context, reason: MessageCopy.remove(label))
         try await remove(id, context: context)
     }
 

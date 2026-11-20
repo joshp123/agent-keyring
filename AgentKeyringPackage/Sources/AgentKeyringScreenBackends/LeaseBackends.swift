@@ -114,7 +114,7 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
 
     public func endAccess(requestID: String) async throws -> AccessRequestState {
         guard model.leaseStore.leases.contains(where: { $0.leaseID == requestID }) else {
-            throw ScreenFailure(message: "Access on another computer ends by itself 30 minutes after approval.")
+            throw ScreenFailure(message: MessageCopy.endsByItself)
         }
         return model.accessRequest(for: try model.leaseStore.revoke(requestID)).state
     }

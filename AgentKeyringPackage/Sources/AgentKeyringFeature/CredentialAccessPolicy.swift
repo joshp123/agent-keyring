@@ -11,14 +11,14 @@ private func rulesFailureMessage(_ error: Error) -> String {
     if native.domain == LAError.errorDomain {
         switch LAError.Code(rawValue: native.code) {
         case .userCancel, .appCancel, .systemCancel:
-            return "Confirmation was interrupted. Try again."
+            return MessageCopy.confirmationInterrupted
         case .biometryNotAvailable, .companionNotAvailable, .biometryNotEnrolled:
-            return "Touch ID or Apple Watch isn't available. Check that one is ready and try again."
+            return MessageCopy.touchIDUnavailable
         default:
-            return "macOS couldn't confirm you. Try again."
+            return MessageCopy.macOSCouldNotConfirm
         }
     }
-    return "Agent Keyring couldn't save the rules. Try again. If it keeps happening, restart Agent Keyring."
+    return MessageCopy.rulesNotSaved
 }
 
 public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Sendable {
@@ -29,7 +29,7 @@ public enum CredentialAccessPolicy: String, Codable, CaseIterable, Equatable, Se
 
 public struct AccessRulesSaveInProgress: Error, LocalizedError, Sendable {
     public init() {}
-    public var errorDescription: String? { "Access rules are already being saved. Wait for that save to finish." }
+    public var errorDescription: String? { MessageCopy.rulesBeingSaved }
 }
 
 public struct AccessCredentialRow: Identifiable, Equatable, Sendable {
@@ -78,7 +78,7 @@ public final class CredentialAccessController {
     public init(store: CredentialAccessPolicyStore = CredentialAccessPolicyStore()) {
         self.store = store
         do { policies = try store.load() }
-        catch { errorMessage = "The saved rules could not be read. Every password asks first until you set them again." }
+        catch { errorMessage = MessageCopy.rulesUnreadable }
     }
 
     public func refresh(from generation: MirrorGeneration?) async {
@@ -123,7 +123,7 @@ public final class CredentialAccessController {
         guard !assignments.isEmpty, !isSavingRules else { return }
         let knownIDs = Set(rows.map(\.id))
         guard assignments.keys.allSatisfy(knownIDs.contains) else {
-            errorMessage = "The access change included an unknown credential. No rule was changed."
+            errorMessage = MessageCopy.unknownPassword
             return
         }
         var proposed = policies

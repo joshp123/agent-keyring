@@ -1,3 +1,4 @@
+import AgentKeyringApprovalCore
 import AuthenticationServices
 import Foundation
 
@@ -21,18 +22,16 @@ public struct CredentialImportFailure: Equatable, Sendable {
         let nsError = error as NSError
         diagnostic = Self.diagnosticChain(startingAt: nsError)
 
-        let safetySuffix = hadExistingMirror ? " Your earlier copy was not changed." : ""
-
         if nsError.domain == ASAuthorizationErrorDomain,
             nsError.code == ASAuthorizationError.failed.rawValue
         {
-            message = "Passwords did not send your passwords. Start the export again in Passwords." + safetySuffix
+            message = MessageCopy.exportFailed(.notSent, hadEarlierCopy: hadExistingMirror)
         } else if nsError.domain == ASAuthorizationErrorDomain,
             nsError.code == ASAuthorizationError.credentialImport.rawValue
         {
-            message = "Passwords could not finish sending your passwords. Start the export again in Passwords." + safetySuffix
+            message = MessageCopy.exportFailed(.unfinished, hadEarlierCopy: hadExistingMirror)
         } else {
-            message = "Passwords could not send your passwords. Try the export again." + safetySuffix
+            message = MessageCopy.exportFailed(.other, hadEarlierCopy: hadExistingMirror)
         }
     }
 
