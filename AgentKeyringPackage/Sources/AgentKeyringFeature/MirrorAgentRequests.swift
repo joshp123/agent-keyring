@@ -66,7 +66,7 @@ extension MirrorAppModel {
                 let matching = candidates.filter { login in
                     let text = ([login.title, login.username ?? "", login.id.uuidString] + login.origins).joined(separator: " ").lowercased()
                     return terms.allSatisfy { text.contains($0) }
-                }
+                } + (PracticePassword.matches(terms) ? [PracticePassword.candidate] : [])
                 result.mirrorRefreshedUnixSeconds = Int64(metadata?.createdAt.timeIntervalSince1970 ?? 0)
                 result.logins = matching.map { login in
                     var item = Agentkeyring_V1_Login()
@@ -85,14 +85,15 @@ extension MirrorAppModel {
                 response.logins = result
             case let .requestLease(incoming):
                 try await refreshLeasePolicy()
-                let login = leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
+                let practice = UUID(uuidString: incoming.loginID) == PracticePassword.id
+                let login = practice ? PracticePassword.candidate : leaseLogins.first { $0.id == UUID(uuidString: incoming.loginID) }
                 let requester = AgentRequester.from(peer: peer).named(incoming.agentLabel)
                 response.lease = try leaseStore.request(incoming, login: login,
                     policy: login.map { localPolicy(for: $0.id) } ?? .block,
                     requester: CredentialLeaseRequester(requester, project: incoming.project))
                 DiagnosticLog.record("lease", "requested", ["lease": response.lease.leaseID, "login": incoming.loginID,
                     "state": "\(response.lease.state)", "agent": requester.name])
-                if login != nil, response.lease.state == .pending, device?.isJoined == true {
+                if login != nil, !practice, response.lease.state == .pending, device?.isJoined == true {
                     askDevices(for: response.lease, request: incoming, agent: requester.name)
                 }
             case let .getLease(reference):
@@ -204,7 +205,7 @@ extension MirrorAppModel {
         let metadata = try await store.loadCurrentMetadata()
         leaseLogins = metadata?.candidates ?? []
         await accessControl.refresh(fromMetadata: metadata)
-        try leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
+        try leaseStore.reconcile(logins: leaseLogins + [PracticePassword.candidate], policies: currentPolicies)
         return metadata
     }
 }

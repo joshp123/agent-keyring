@@ -19,6 +19,14 @@ extension MirrorAppModel {
         defer { isApprovingLease = false }
         let lease = try leaseStore.get(leaseID)
         guard lease.state == .pending else { return lease }
+        if lease.loginID == PracticePassword.id.uuidString {
+            // The practice password: the same Touch ID, and nothing of his is opened.
+            try await OwnerConfirmation.confirm(context, reason: ApprovalSentence.lease(site: PracticePassword.site,
+                account: PracticePassword.username, agent: leaseStore.requester(for: leaseID)?.name ?? lease.recipient.clientLabel),
+                until: Date(timeIntervalSince1970: TimeInterval(lease.pendingUntilUnixSeconds)))
+            onAuthenticated()
+            return try leaseStore.approve(leaseID, secret: PracticePassword.secret)
+        }
         guard let login = leaseLogins.first(where: { $0.id.uuidString == lease.loginID }) else {
             throw LeaseFailure(.notFound, "The login is no longer available.")
         }

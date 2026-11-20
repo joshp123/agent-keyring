@@ -29,6 +29,8 @@ agent-keyring release "$lease"
 - **The reason** is shown to the user when they are asked. Say what they asked you to do, plainly. It is labelled as your claim, so don't oversell it.
 - **`lease` waits** while the user is asked, for up to ten minutes, and prints only the lease ID. Keep it running and keep working on the task: the user's answer comes back to this command, not to your conversation, so if you stop or end your turn while it waits, the answer reaches nobody. Agent Keyring already shows the user what you asked for; you don't need to tell them. If your tool stops the command early, rejoin the same request with `agent-keyring status LEASE --wait`. Never start a new lease for the same task to retry; that one joins the waiting request anyway.
 
+**Trying it out.** When the user asks you to try Agent Keyring, or to show that it works, ask for the practice password, never one of theirs: `agent-keyring find practice` gives its login ID (practice.example.com, on a Mac). Give a reason that says what is happening, such as "You asked me to try Agent Keyring with its practice password."
+
 ## Using the lease
 
 **A browser with the Agent Keyring extension.** Use the browser and profile already provided for the task; Agent Keyring does not launch or restart them. `agent-keyring tabs` lists connected tabs with their URLs and titles. Choose your own task's tab, keep its complete opaque target, and use `agent-keyring fields --tab "$tab"` for its visible inputs and buttons, selectors and frame targets, never values. Copy selectors exactly, including ` >>> ` boundaries for controls inside open shadow roots. Then pass the exact fields and sign-in button:
