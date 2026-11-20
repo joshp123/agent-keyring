@@ -128,6 +128,8 @@ Found and fixed on 20 November, from Josh's run on his own devices (tests in `in
 - **An answer from an Apple Watch added after the request was made never reached the Mac.** The Mac checked the answer against the members list it had when it connected, which did not list the Watch (`unknownSigner`). It now refreshes the list before it checks any answer, and hears of every new list on its connection (below).
 - **Outcomes buzzed again.** The relay sent the same sounding alert for the answer and the release as for the request, so his Apple Watch showed old requests after he had answered them.
 - **Thirty minutes after any denial** was too long for "not yet, fix this first".
+- **A password with no website** (a server's, an app's) was ended the moment an agent asked, and the agent was told Josh had stopped it: the Mac narrowed the lease to the password's websites and found none (`DenialHoldTests.aPasswordWithNoWebsiteWaitsForJosh`).
+- **A request cancelled at once could leave its alert behind**, when the push for "waiting" reached Apple after the silent one for "cancelled". One request's pushes now go one at a time, each with the state as it is when sent.
 
 ## The Mac's approval panel
 

@@ -23,6 +23,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -185,7 +187,9 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 
 	t.Run("approved, a program gets the password through a pipe", func(t *testing.T) {
 		output := filepath.Join(t.TempDir(), "received")
-		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "You asked me to download October's invoice."))
+		// As the skill tells an agent to ask, its own name included.
+		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "You asked me to download October's invoice.",
+			"--agent", "Codex"))
 		r.device("answer", "--approve")
 		got := wait(t, asking, "lease")
 		if got.err != nil {
@@ -354,6 +358,22 @@ func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
 		got := wait(t, asking, "lease")
 		if got.err == nil || !strings.Contains(got.stderr, "This lease is denied.") || strings.Contains(got.stderr, "Reply:") {
 			t.Fatalf("want a plain denial, got %v\n%s", got.err, got.stderr)
+		}
+	})
+
+	t.Run("an agent reads what happened, as the help says", func(t *testing.T) {
+		got := wait(t, start(linux.command("logs", "--since", "15m")), "logs --since")
+		if got.err != nil || !strings.Contains(got.stdout, " relay request id=") {
+			t.Fatalf("logs --since 15m: %v\n%s%s", got.err, got.stdout, got.stderr)
+		}
+		id := regexp.MustCompile(`relay request id=([0-9a-f]{32})`).FindStringSubmatch(got.stdout)[1]
+		one := wait(t, start(linux.command("logs", "--request", id)), "logs --request")
+		lines := strings.Split(strings.TrimSpace(one.stdout), "\n")
+		if one.err != nil || len(lines) == 0 || slices.ContainsFunc(lines, func(line string) bool { return !strings.Contains(line, id) }) {
+			t.Fatalf("logs --request %s: %v\n%s%s", id, one.err, one.stdout, one.stderr)
+		}
+		if both := wait(t, start(linux.command("logs", "--since", "1h", "--request", id)), "logs --since --request"); both.err != nil || both.stdout != one.stdout {
+			t.Fatalf("logs --since 1h --request: %v\n%s%s", both.err, both.stdout, both.stderr)
 		}
 	})
 

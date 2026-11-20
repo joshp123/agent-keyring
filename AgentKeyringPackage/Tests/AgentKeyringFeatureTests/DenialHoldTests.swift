@@ -4,6 +4,7 @@
 // no denial starts again at a minute. It reads when, and his words.
 
 @testable import AgentKeyringFeature
+import AgentKeyringProtocol
 import Foundation
 import Testing
 
@@ -27,4 +28,22 @@ struct DenialHoldTests {
         #expect(line.contains("Ask again after"))
         #expect(line.hasSuffix("His reply, word for word: \"Use the work account.\""))
     }
+}
+
+/// An agent asks for a password that has no website, such as a server's: the
+/// request waits for Josh. It used to end at once, and the agent was told
+/// Josh had stopped it.
+@MainActor @Test func aPasswordWithNoWebsiteWaitsForJosh() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "LeaseTests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = CredentialLeaseStore(persistence: LeasePersistence(directory: directory))
+    let server = CredentialCandidate(id: UUID(), title: "Home server", username: "admin", origins: [], availableFields: [.username, .password])
+    var asking = Agentkeyring_V1_RequestLeaseRequest()
+    asking.loginID = server.id.uuidString
+    asking.requestID = UUID().uuidString
+    asking.taskRef = "backup"
+    asking.reason = "You asked me to check the backups."
+    let lease = try store.request(asking, login: server, policy: .ask)
+    try store.reconcile(logins: [server], policies: [:])
+    #expect(try store.get(lease.leaseID).state == .pending)
 }
