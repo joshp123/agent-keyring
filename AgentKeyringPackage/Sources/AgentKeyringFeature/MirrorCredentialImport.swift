@@ -96,11 +96,14 @@ extension MirrorAppModel {
         }
     }
 
-    /// The test password only, for now: every copy keeps it, so this is a copy of nothing.
+    /// The test password only, for now: a copy of nothing, which brings the
+    /// test password if no copy has yet. Nothing to send if one has.
     public func useTestPassword() async {
-        guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.testPasswordSource,
-            exporterDisplayName: "Test password", items: [], skippedCredentialCount: 0), hadExistingMirror: status != nil)
-        else { return }
+        if (try? await store.loadCurrent())?.items.contains(where: \.isTestPassword) != true {
+            guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.testPasswordSource,
+                exporterDisplayName: "Test password", items: [], skippedCredentialCount: 0), hadExistingMirror: status != nil)
+            else { return }
+        }
         closePasswordsCopy()
         send(.useSample)
     }
