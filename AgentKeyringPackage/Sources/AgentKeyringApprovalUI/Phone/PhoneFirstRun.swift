@@ -9,22 +9,33 @@
 import Foundation
 
 public enum PhoneFirstRun: Hashable, Sendable, Codable {
-    /// What the app is and how it keeps passwords safe, with Add This iPhone. Nothing is asked of the
-    /// Mac until he taps it. `practising`: the practice request is open over it.
-    case welcome(practising: Bool)
-    /// He tapped Add This iPhone: the iPhone looks for his Mac's invitation and asks to join. Saved, so
-    /// leaving the app or relaunching it picks up the same request instead of starting again.
-    case linking(PhoneWelcomeCard)
+    /// Looking for the Mac's join card in iCloud Keychain. The read is local and instant; iCloud's sync
+    /// between devices can take minutes. `longWait`: two minutes with nothing found.
+    case searching(longWait: Bool)
+    /// "Check these three things", after two minutes or Having Trouble, with Try Again.
+    case trouble
+    /// "Continue setup from <Mac>", with Connect. Nothing is asked of the Mac until he taps it.
+    case foundMac(name: String?)
+    /// He tapped Connect: the request to join waits on the Mac. Saved, so leaving the app or relaunching
+    /// it picks up the same request instead of starting again; a dropped connection is still waiting.
+    case waitingForMac(name: String?)
+    /// The Mac refused, with Ask Again and Cancel. Nothing asks again by itself.
+    case deniedByMac(name: String?)
+    /// The Mac could not be reached at all, with Try Again and Cancel.
+    case cantReachMac(name: String?)
+    /// Ten minutes passed with no answer from the Mac, with Ask Again and Cancel.
+    case expired(name: String?)
+    /// Added: this iPhone's copies of the passwords are arriving.
+    case receivingPasswords
     /// "Turn on notifications", with Continue.
     case notifications
     /// iOS's own question is up.
     case askingNotifications
     case notificationsOff
-    /// "Try a request on this iPhone", with Send Practice Request.
+    /// "Try a practice notification", with Send Practice Request and Skip for Now.
     case practiceOffer
     /// A practice request has been asked for. `id`: chosen by this iPhone and saved, so asking again with it
-    /// rejoins the same request on a return to the app; the relay may answer with the one already waiting.
-    /// `arrived`: it is here, and its notification waits for a tap.
+    /// rejoins the same request on a return to the app. `arrived`: it is here, and its notification waits for a tap.
     case practiceWaiting(id: String, arrived: Bool)
     /// 30 seconds passed and Apple has given no push address: the practice request opens by itself when it arrives.
     case settingUpNotifications(id: String)
@@ -34,24 +45,29 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
     case practice(id: String)
     /// The practice's result stays on screen, with Send Another and Continue.
     case practiceResult(PhonePracticeOutcome)
-    /// "Add your Apple Watch", only when one is paired and not yet added.
+    /// "Add your Apple Watch?" with Add Apple Watch, only when one is paired and not added; otherwise Done alone.
+    case readyOfferWatch(watchToAdd: Bool)
+    /// Adding Apple Watch, in its own flow (`PhoneAddWatch`).
     case addWatch
     /// First run is over: the app's tabs, Home first.
     case finished
 
     public enum Event: Hashable, Sendable {
-        /// Add This iPhone.
-        case addThisPhone
-        /// The look for the Mac found nothing. `longWait`: for two minutes.
-        case noMac(longWait: Bool)
-        /// The Mac is set up but has no computer that stays on.
-        case macWithoutComputer(mac: String?)
-        case joinWaiting(mac: String?)
-        case joinRefused(mac: String?)
+        /// The look found the Mac's join card, or found none.
+        case macFound(name: String?)
+        case macGone
+        /// Two minutes of looking with nothing found.
+        case lookedLong
+        case havingTrouble
+        case tryAgain
+        case connect
+        case cancel
+        case joinRefused
+        case macUnreachable
+        case joinExpired
         case askAgain
         case joined
-        case tryPractice
-        case closePractice
+        case passwordsReceived
         case continueTapped
         case notificationsAnswered(allowed: Bool)
         case continueWithoutNotifications
@@ -62,44 +78,44 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case practiceTapped
         /// 30 seconds after asking. `pushAddress`: Apple has given one.
         case practiceTimedOut(pushAddress: Bool)
-        /// Try Again, with a new id.
-        case tryAgain(id: String)
-        /// Send Practice Request, or Send Another, with a new id (`newPracticeID()`).
+        /// Send Practice Request, Send Another or Try Again, with a new id (`newPracticeID()`).
         case sendPractice(id: String)
         case practiceEnded(PhonePracticeOutcome)
-        /// Continue after the practice's result. `watchToAdd`: an Apple Watch is paired and not yet added.
+        /// Continue or Skip for Now after the practice. `watchToAdd`: an Apple Watch is paired and not yet added.
         case continueAfterPractice(watchToAdd: Bool)
-        /// Skip, or Apple Watch was added.
-        case watchDone
+        case addAppleWatch
+        /// Done, or the Apple Watch flow closed.
+        case done
         /// This iPhone was taken out of the list of devices.
         case removed
     }
 
-    public static let start = PhoneFirstRun.welcome(practising: false)
-    public static let lookingForMac = PhoneFirstRun.linking(.startOnMac(longWait: false))
+    public static let start = PhoneFirstRun.searching(longWait: false)
 
     /// The next state. A pair the table does not list leaves the state as it is,
     /// so a repeated tap or a late answer cannot move first run anywhere wrong.
     public func on(_ event: Event) -> PhoneFirstRun {
         switch (self, event) {
         case (_, .removed): .start
-        case (.welcome(false), .addThisPhone): .lookingForMac
-        case (.welcome(false), .tryPractice): .welcome(practising: true)
-        case (.welcome(true), .closePractice): .welcome(practising: false)
-        // The Mac refused: it stays refused until Ask Again, whatever the look finds.
-        case (.linking(.denied), .noMac), (.linking(.denied), .macWithoutComputer), (.linking(.denied), .joinWaiting): self
-        case (.linking(.denied), .askAgain): .lookingForMac
-        case let (.linking, .noMac(longWait)): .linking(.startOnMac(longWait: longWait))
-        case let (.linking, .macWithoutComputer(mac)): .linking(.addComputer(mac: mac))
-        case let (.linking, .joinWaiting(mac)): .linking(.approveOnMac(mac: mac))
-        case let (.linking, .joinRefused(mac)): .linking(.denied(mac: mac))
-        case (.linking, .joined): .notifications
+        case let (.searching, .macFound(name)), let (.trouble, .macFound(name)): .foundMac(name: name)
+        case (.searching(false), .lookedLong), (.searching, .havingTrouble), (.foundMac, .havingTrouble): .trouble
+        case (.trouble, .tryAgain), (.trouble, .cancel), (.foundMac, .macGone): .start
+        case let (.foundMac(name), .connect): .waitingForMac(name: name)
+        case let (.waitingForMac(name), .cancel), let (.deniedByMac(name), .cancel), let (.cantReachMac(name), .cancel),
+             let (.expired(name), .cancel): .foundMac(name: name)
+        case let (.waitingForMac(name), .joinRefused): .deniedByMac(name: name)
+        case let (.waitingForMac(name), .macUnreachable): .cantReachMac(name: name)
+        case let (.waitingForMac(name), .joinExpired): .expired(name: name)
+        case let (.deniedByMac(name), .askAgain), let (.expired(name), .askAgain), let (.cantReachMac(name), .tryAgain):
+            .waitingForMac(name: name)
+        case (.waitingForMac, .joined): .receivingPasswords
+        case (.receivingPasswords, .passwordsReceived): .notifications
         case (.notifications, .continueTapped): .askingNotifications
         case (.notifications, .notificationsAnswered(true)), (.askingNotifications, .notificationsAnswered(true)),
              (.notificationsOff, .notificationsAnswered(true)): .practiceOffer
         case (.notifications, .notificationsAnswered(false)), (.askingNotifications, .notificationsAnswered(false)): .notificationsOff
         case (.notificationsOff, .continueWithoutNotifications): .practiceOffer
-        case let (.practiceOffer, .sendPractice(id)), let (.practiceResult, .sendPractice(id)), let (.practiceNotArrived, .tryAgain(id)):
+        case let (.practiceOffer, .sendPractice(id)), let (.practiceResult, .sendPractice(id)), let (.practiceNotArrived, .sendPractice(id)):
             .practiceWaiting(id: id, arrived: false)
         case let (.practiceWaiting(_, arrived), .practiceSent(id)): .practiceWaiting(id: id, arrived: arrived)
         case let (.settingUpNotifications, .practiceSent(id)): .settingUpNotifications(id: id)
@@ -114,19 +130,21 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
             pushAddress ? .practiceNotArrived(id: id) : .settingUpNotifications(id: id)
         case let (.practiceWaiting, .practiceEnded(outcome)), let (.settingUpNotifications, .practiceEnded(outcome)),
              let (.practiceNotArrived, .practiceEnded(outcome)), let (.practice, .practiceEnded(outcome)): .practiceResult(outcome)
-        case let (.practiceResult, .continueAfterPractice(watchToAdd)): watchToAdd ? .addWatch : .finished
-        case (.addWatch, .watchDone): .finished
+        case let (.practiceOffer, .continueAfterPractice(watchToAdd)), let (.practiceResult, .continueAfterPractice(watchToAdd)),
+             let (.practiceNotArrived, .continueAfterPractice(watchToAdd)), let (.settingUpNotifications, .continueAfterPractice(watchToAdd)):
+            .readyOfferWatch(watchToAdd: watchToAdd)
+        case (.readyOfferWatch(true), .addAppleWatch): .addWatch
+        case (.readyOfferWatch, .done), (.addWatch, .done): .finished
         default: self
         }
     }
 
-    /// Where first run picks up after the app was closed. A question iOS was asking did not outlive the
-    /// app. A request to join, or a practice request, is picked up by the same request.
+    /// Where first run picks up after the app was closed. What the look found is found again. A question
+    /// iOS was asking did not outlive the app. A request to join, or a practice request, is picked up by
+    /// the same request.
     public var restored: PhoneFirstRun {
         switch self {
-        case .welcome: .start
-        case .linking(.denied): self
-        case .linking: .lookingForMac
+        case .searching, .trouble, .foundMac: .start
         case .askingNotifications: .notifications
         case let .practiceWaiting(id, _), let .settingUpNotifications(id), let .practiceNotArrived(id), let .practice(id):
             .practiceWaiting(id: id, arrived: false)
@@ -134,19 +152,16 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         }
     }
 
-    /// The look for the Mac may ask to join: only after Add This iPhone, and not once the Mac refused, until Ask Again.
+    /// The iPhone asks the Mac to join only here, after Connect.
     public var mayJoin: Bool {
-        guard case let .linking(card) = self else { return false }
-        if case .denied = card { return false }
-        return true
+        if case .waitingForMac = self { true } else { false }
     }
 
-    /// This iPhone's step on the one journey: adding Apple Watch is the Watch's step, everything before it the iPhone's.
-    public var journeyStep: PhoneJourney.Step {
+    /// The look for the Mac's join card runs before Connect, and while a refusal or expiry is on screen.
+    public var looksForMac: Bool {
         switch self {
-        case .addWatch: .watch
-        case .finished: .ready
-        default: .iPhone
+        case .searching, .trouble, .foundMac, .waitingForMac: true
+        default: false
         }
     }
 
@@ -167,14 +182,6 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
 /// How a practice request ended, for the screen that stays up after it.
 public enum PhonePracticeOutcome: Hashable, Sendable, Codable {
     case approved, denied, noAnswer
-}
-
-/// Where linking stands, under the welcome text. `mac`: the Mac's name, when known.
-public enum PhoneWelcomeCard: Hashable, Sendable, Codable {
-    case startOnMac(longWait: Bool)
-    case addComputer(mac: String?)
-    case approveOnMac(mac: String?)
-    case denied(mac: String?)
 }
 
 extension AccessRequest {
