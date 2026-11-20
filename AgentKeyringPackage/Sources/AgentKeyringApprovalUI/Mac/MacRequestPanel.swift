@@ -117,7 +117,7 @@ struct MacApprovalPanelView: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 AppMark().frame(width: 18, height: 18)
-                Text("Agent Keyring").font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink2)
+                Text(SetupCopy.appName).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink2)
             }
             Spacer(minLength: 0)
             if !isPractice, let place {

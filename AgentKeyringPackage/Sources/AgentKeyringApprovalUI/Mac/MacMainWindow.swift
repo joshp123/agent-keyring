@@ -237,8 +237,8 @@ public struct MacMainWindowView: View {
         .toolbar(removing: .title)
         .sheet(item: $sheet) { which in sheetContent(which) { sheet = nil } }
         .task { await model.followUpdates() }
-        .alert("Agent Keyring", isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.dismissFailure() } })) {
-            Button("OK") { model.dismissFailure() }
+        .alert(SetupCopy.appName, isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.dismissFailure() } })) {
+            Button(SetupCopy.ok) { model.dismissFailure() }
         } message: { Text(model.failure ?? "") }
     }
 }

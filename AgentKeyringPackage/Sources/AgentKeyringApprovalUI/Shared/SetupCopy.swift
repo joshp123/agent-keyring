@@ -9,6 +9,11 @@
 import Foundation
 
 public enum SetupCopy {
+    public static let appName = "Agent Keyring"
+    public static let ok = "OK"
+    public static let tryAgain = "Try again"
+    /// The approve button outside the request panel.
+    public static func touchIDTo(_ action: String) -> String { "Touch ID or Apple Watch to \(action)" }
     /// Under a joining device's name in the menu bar.
     public static func joiningDetail(_ enrolment: DeviceEnrolment) -> String {
         enrolment.kind == .machine ? "Wants its agents to ask for your passwords" : "Wants to approve requests"

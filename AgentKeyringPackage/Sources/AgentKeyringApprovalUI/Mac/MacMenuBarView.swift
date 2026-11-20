@@ -111,7 +111,7 @@ public struct MacMenuBarLabel: View {
     public init() {}
 
     public var body: some View {
-        Image(nsImage: Self.keyhole).accessibilityLabel("Agent Keyring")
+        Image(nsImage: Self.keyhole).accessibilityLabel(SetupCopy.appName)
     }
 
     static let keyhole: NSImage = {

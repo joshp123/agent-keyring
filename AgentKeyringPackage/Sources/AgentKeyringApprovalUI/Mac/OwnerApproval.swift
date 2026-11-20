@@ -175,14 +175,14 @@ public struct OwnerApprovalBar: View {
             }
         } else {
             // Without the control, say what Try again would approve.
-            Text("Touch ID or Apple Watch to \(approval.action)").font(.callout.weight(.semibold))
+            Text(SetupCopy.touchIDTo(approval.action)).font(.callout.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
             Text(approval.failure ?? "")
                 .font(.callout)
                 .foregroundStyle(KeyringColour.denyText)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Button { approval.retry() } label: { Label("Try again", systemImage: ownerApprovalSymbol()) }
+                Button { approval.retry() } label: { Label(SetupCopy.tryAgain, systemImage: ownerApprovalSymbol()) }
                     .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 32))
                 cancelButton
             }
@@ -213,7 +213,7 @@ public struct MacQuestionPanelView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Image(systemName: "key.horizontal.fill").foregroundStyle(KeyringColour.signal)
-                Text("Agent Keyring").font(.subheadline.weight(.semibold))
+                Text(SetupCopy.appName).font(.subheadline.weight(.semibold))
             }
             Text(title).font(.title3.weight(.bold)).fixedSize(horizontal: false, vertical: true)
             Text(message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
