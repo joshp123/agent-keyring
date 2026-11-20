@@ -374,8 +374,10 @@ message RelayRequest {
     // Devices and machines: the relay's own recent lines and each device's
     // latest log, merged in time order. Returns Logs.
     LogsRequest logs = 28;
-    // Devices: a request reached this device (Arrival, signed by its reply
-    // key). The Watch posts the same to "POST /v2/arrived". Returns Done.
+    // A request reached this device (Arrival): signed by the device's reply
+    // key, or unsigned with push_token_sha256, which a locked iPhone's
+    // notification extension can give. A timing note that grants nothing.
+    // Devices may also post the same bytes to "POST /v2/arrived". Returns Done.
     Signed arrived = 29;
     // From the relay's own computer only, while it has no members: the
     // one-time secret our app there leaves in iCloud Keychain (RelayOffer).
@@ -397,6 +399,9 @@ message Arrival {
   string request_id = 2;
   string device_key_id = 3;
   int64 arrived_unix_seconds = 4;
+  // For an unsigned Arrival: SHA-256 of the push address the relay sent the
+  // request to, which only that device and the relay know.
+  bytes push_token_sha256 = 5;
 }
 
 message SetupOffer {

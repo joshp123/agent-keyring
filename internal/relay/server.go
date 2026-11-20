@@ -47,6 +47,7 @@ type caller struct {
 	device  *pb.Device  // A device in Members.
 	machine *pb.Machine // A machine in Members.
 	node    string      // Tailscale node name.
+	local   bool        // Connected from the relay's own computer (its own address).
 }
 
 type failure struct {
@@ -100,6 +101,11 @@ func (s *Server) handle(ctx context.Context, conn *tls.Conn) {
 		return
 	}
 	who := caller{}
+	if remote, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		if own, ok := conn.LocalAddr().(*net.TCPAddr); ok {
+			who.local = remote.IP.Equal(own.IP)
+		}
+	}
 	if s.Lookup != nil {
 		lookupContext, cancel := context.WithTimeout(ctx, 5*time.Second)
 		node, err := s.Lookup(lookupContext, conn.RemoteAddr().String())
@@ -256,7 +262,21 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 		if err := isDevice(); err != nil {
 			return err
 		}
-		return s.testRequest(ctx, who, method.TestRequest.GetForDeviceKeyId(), send)
+		return s.testRequest(ctx, who, method.TestRequest, send)
+	case *pb.RelayRequest_Arrived:
+		if err := isDevice(); err != nil {
+			return err
+		}
+		if err := s.arrived(method.Arrived); err != nil {
+			return err
+		}
+		return send(done())
+	case *pb.RelayRequest_SetupOffer:
+		offer, err := s.setupOffer(who)
+		if err != nil {
+			return err
+		}
+		return send(&pb.RelayResponse{Result: &pb.RelayResponse_SetupOffer{SetupOffer: offer}, EndOfStream: true})
 	case *pb.RelayRequest_ReportLog:
 		if err := isDevice(); err != nil {
 			return err
@@ -327,8 +347,11 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 			return err
 		}
 		if err := s.publishSealedLogins(method.PublishSealedLogins); err != nil {
+			slog.Warn("sealed copies refused", "from", who.device.Label, "count", len(method.PublishSealedLogins.Logins), "error", err)
 			return err
 		}
+		slog.Info("sealed copies taken", "from", who.device.Label, "count", len(method.PublishSealedLogins.Logins),
+			"withdrawn", len(method.PublishSealedLogins.WithdrawnLoginIds))
 		return send(done())
 	case *pb.RelayRequest_SealedLogins:
 		if err := isDevice(); err != nil {

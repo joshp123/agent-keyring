@@ -14,9 +14,9 @@ import (
 	"github.com/joshp123/agent-keyring/internal/keyring"
 )
 
-// serveWatchAnswer takes one "POST /v2/answer" over HTTPS: the Watch cannot
-// open the framed connection. The answer is trusted by its signature alone,
-// which must be a WATCH device's, so this route adds no trust of its own.
+// serveWatchAnswer takes one "POST /v2/answer" or "POST /v2/arrived" over
+// HTTPS: the Watch cannot open the framed connection. Each is trusted by its
+// signature alone, so this route adds no trust of its own.
 func (s *Server) serveWatchAnswer(ctx context.Context, conn net.Conn) {
 	reply := func(status int, body []byte) {
 		response := &http.Response{StatusCode: status, ProtoMajor: 1, ProtoMinor: 1, ContentLength: int64(len(body)),
@@ -30,8 +30,22 @@ func (s *Server) serveWatchAnswer(ctx context.Context, conn net.Conn) {
 	if err != nil {
 		return
 	}
+	if request.Method == http.MethodPost && request.URL.Path == "/v2/arrived" {
+		raw, err := io.ReadAll(io.LimitReader(request.Body, 1<<16))
+		arrival := &pb.Signed{}
+		if err != nil || unmarshal(raw, arrival) != nil {
+			reply(http.StatusBadRequest, []byte("The body must be a signed Arrival."))
+			return
+		}
+		if err := s.arrived(arrival); err != nil {
+			reply(http.StatusForbidden, []byte(err.Error()))
+			return
+		}
+		reply(http.StatusOK, nil)
+		return
+	}
 	if request.Method != http.MethodPost || request.URL.Path != "/v2/answer" {
-		reply(http.StatusNotFound, []byte("Only POST /v2/answer is served here."))
+		reply(http.StatusNotFound, []byte("Only POST /v2/answer and /v2/arrived are served here."))
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(request.Body, 1<<20))

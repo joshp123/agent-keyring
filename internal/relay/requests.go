@@ -50,7 +50,7 @@ func (r *request) lease(id string) *pb.Lease {
 	unmarshal(r.Request, parsed)
 	return &pb.Lease{RequestId: id, LoginId: parsed.LoginId, State: r.State, AnswerByUnixSeconds: r.AnswerBy,
 		NotAfterUnixSeconds: r.NotAfter, AnsweredBy: r.AnsweredBy, Reply: r.Reply, RetryNotBeforeUnixSeconds: r.RetryNotBefore,
-		EndedBy: r.EndedBy, Automatic: r.Automatic}
+		EndedBy: r.EndedBy, Automatic: r.Automatic, PushedUnixSeconds: r.Pushed, ArrivedUnixSeconds: r.Arrived, ArrivedOn: r.ArrivedOn}
 }
 
 // ask records a request the asking machine wrote and signed. One the
@@ -247,10 +247,12 @@ var practiceLogin = &pb.Login{Title: "example.com", Sites: []string{"example.com
 // testRequest makes the practice request: no login, for the calling device
 // or, from the Mac or the iPhone, for any device that approves, so Josh can
 // rehearse Approve, Deny and a reply on each. It is pushed like any other and
-// streamed until it is answered. Only that device can answer it.
-func (s *Server) testRequest(ctx context.Context, who caller, forDevice string, send func(*pb.RelayResponse) error) error {
+// streamed until it is answered. Only that device can answer it. The asker's
+// saved id rejoins it after a dropped connection; while one waits for a
+// device, asking again gets that one, so there is never a second.
+func (s *Server) testRequest(ctx context.Context, who caller, asked *pb.TestRequest, send func(*pb.RelayResponse) error) error {
 	target := who.device
-	if forDevice != "" && forDevice != who.device.KeyId {
+	if forDevice := asked.GetForDeviceKeyId(); forDevice != "" && forDevice != who.device.KeyId {
 		members, _ := s.Store.documents()
 		target = device(members, forDevice)
 		asker := who.device.Kind
@@ -258,19 +260,76 @@ func (s *Server) testRequest(ctx context.Context, who caller, forDevice string, 
 			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The Mac or the iPhone may ask for a practice request for a device of Josh's.")
 		}
 	}
+	id := asked.GetRequestId()
+	if id != "" && (len(id) != 32 || strings.Trim(id, "0123456789abcdef") != "") {
+		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "A practice request's id is 32 hex digits.")
+	}
+	if id == "" {
+		id = newID()
+	}
 	now := s.now()
-	id := newID()
 	answerBy := now.Add(s.answerWithin()).Unix()
+	var made bool
 	s.Store.update(func(data *saved) error {
+		if r := data.Requests[id]; r != nil && r.ForDevice == target.KeyId {
+			return nil // Rejoined.
+		}
+		for existing, r := range data.Requests {
+			if r.ForDevice == target.KeyId && r.State == pb.LeaseState_LEASE_STATE_WAITING {
+				id = existing // One waits already: that one.
+				return nil
+			}
+		}
 		data.Requests[id] = &request{ForDevice: target.KeyId, State: pb.LeaseState_LEASE_STATE_WAITING, AnswerBy: answerBy,
 			Request: marshal(&pb.Request{Domain: keyring.RequestDomain, RequestId: id,
 				Reason: "You asked me to download October’s invoice.", Agent: "Agent Keyring", Project: "Practice", ForDeviceKeyId: target.KeyId,
 				AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: answerBy})}
+		made = true
 		return nil
 	})
-	slog.Info("test request", "id", id, "device", target.Label)
-	go s.pushAll(context.WithoutCancel(ctx), id)
+	if made {
+		slog.Info("test request", "id", id, "device", target.Label)
+		go s.pushAll(context.WithoutCancel(ctx), id)
+	} else {
+		slog.Info("test request rejoined", "id", id, "device", target.Label)
+	}
 	return s.followRequest(ctx, id, send)
+}
+
+// arrived records that a request reached a device, for the screens to say so.
+// A locked iPhone cannot sign, so an arrival may instead name the push
+// address it came to: a timing note either way, granting nothing.
+func (s *Server) arrived(document *pb.Signed) error {
+	members, _ := s.Store.documents()
+	arrival := &pb.Arrival{}
+	if unmarshal(document.GetPayload(), arrival) != nil || arrival.Domain != keyring.ArrivalDomain {
+		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "Not an arrival.")
+	}
+	signer, err := keyring.Verify(document, members, true)
+	if err != nil {
+		signer = device(members, arrival.DeviceKeyId)
+		registration := &pb.PushRegistration{}
+		var raw []byte
+		s.Store.read(func(data *saved) { raw = data.Pushes[arrival.DeviceKeyId] })
+		if signer == nil || raw == nil || unmarshal(raw, registration) != nil || len(arrival.PushTokenSha256) == 0 ||
+			!bytes.Equal(arrival.PushTokenSha256, keyring.SHA256(registration.ApnsToken)) {
+			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "An arrival is signed by the device it reached, or names its push address.")
+		}
+	}
+	if arrival.DeviceKeyId != signer.KeyId {
+		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "An arrival comes from the device it reached.")
+	}
+	return s.Store.update(func(data *saved) error {
+		r := data.Requests[arrival.RequestId]
+		if r == nil || (r.ForDevice != "" && r.ForDevice != signer.KeyId) {
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_FOUND, "No such request.")
+		}
+		if r.Arrived == 0 {
+			r.Arrived, r.ArrivedOn = s.now().Unix(), signer.Label
+			slog.Info("arrived", "id", arrival.RequestId, "device", signer.Label)
+		}
+		return nil
+	})
 }
 
 // followRequest streams one request's lease until it is no longer waiting.
@@ -321,6 +380,7 @@ func (s *Server) reportSelfTest(who caller, document *pb.Signed) error {
 			data.SelfTests = map[string][]byte{}
 		}
 		data.SelfTests[signer.KeyId] = marshal(document)
+		data.ReportsRevision++
 		return nil
 	})
 }
@@ -579,6 +639,7 @@ func (s *Server) work(device *pb.Device, id string, data *saved) (*pb.Work, erro
 // 30 seconds.
 func (s *Server) watchWork(ctx context.Context, who caller, send func(*pb.RelayResponse) error) error {
 	sent := map[string]pb.LeaseState{}
+	pushed, arrived := map[string]int64{}, map[string]int64{}
 	var told *pb.Changes
 	slog.Info("work stream opened", "device", who.device.GetLabel())
 	defer slog.Info("work stream closed", "device", who.device.GetLabel())
@@ -590,6 +651,8 @@ func (s *Server) watchWork(ctx context.Context, who caller, send func(*pb.RelayR
 		changed := s.Store.read(func(data *saved) {
 			members, catalogue := s.Store.documentsLocked()
 			changes.MembersRevision, changes.CatalogueRevision = members.GetRevision(), catalogue.GetRevision()
+			changes.ReportsRevision = data.ReportsRevision
+			changes.SealedForYou = uint32(len(data.Sealed[who.device.GetKeyId()]))
 			if who.device.GetKind() == pb.DeviceKind_DEVICE_KIND_MAC {
 				changes.PendingJoins = pendingJoinsLocked(data)
 			}
@@ -600,7 +663,9 @@ func (s *Server) watchWork(ctx context.Context, who caller, send func(*pb.RelayR
 				// New: waiting, or in use (an Automatic use starts approved).
 				previous, known := sent[id]
 				fresh := r.State == pb.LeaseState_LEASE_STATE_WAITING || r.State == pb.LeaseState_LEASE_STATE_APPROVED
-				if (!known && fresh) || (known && previous != r.State) {
+				moved := known && (pushed[id] != r.Pushed || arrived[id] != r.Arrived) // How far it has got, for the asker's screen.
+				pushed[id], arrived[id] = r.Pushed, r.Arrived
+				if (!known && fresh) || (known && previous != r.State) || moved {
 					if work, err := s.work(who.device, id, data); err == nil {
 						batch = append(batch, work)
 						sent[id] = r.State

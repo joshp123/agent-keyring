@@ -111,13 +111,14 @@ final class ApprovalPresenter {
 
     private var waiting: [Item] {
         let device = model.device
-        let joining = device?.joins.map { Item.joining(MacDevice.joinID($0)) } ?? []
+        // A device being given its copies stays up, showing how far, until it is done.
+        let joining = (device?.joins.map { Item.joining(MacDevice.joinID($0)) } ?? []) + (device?.filling.map { [Item.joining($0.deviceKeyID)] } ?? [])
         let relaySetup: [Item] = device?.setup?.machine == nil ? [] : [.relay]
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
         let remote = (device?.waitingRequests ?? []).map { (Item.remote($0.requestID), $0.askedUnixSeconds) }
         let sendImported: [Item] = model.importedLoginsAwaitApproval ? [.sendImported] : []
         // The window says "Open the lid" or "Add a fingerprint" in its place.
-        let selfTest: [Item] = (model.firstRun == .practice || model.practiceWaitingHere) && MacApprover.shared.state == .ready ? [.selfTest] : []
+        let selfTest: [Item] = (model.firstRun.isPractice || model.practiceWaitingHere) && MacApprover.shared.state == .ready ? [.selfTest] : []
         return selfTest + relaySetup + joining + sendImported + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
     }
 

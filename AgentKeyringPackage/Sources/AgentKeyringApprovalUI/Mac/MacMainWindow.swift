@@ -17,12 +17,21 @@ public struct LoginRow: Identifiable, Hashable, Sendable {
     public var site: String
     public var account: String
     public var rule: LoginRule
+    /// How often agents asked for it, and how he answered; for showing and sorting.
+    public var asked: Int
+    public var approved: Int
+    public var denied: Int
+    public var lastAsked: Date?
 
-    public init(id: UUID, site: String, account: String, rule: LoginRule) {
+    public init(id: UUID, site: String, account: String, rule: LoginRule, asked: Int = 0, approved: Int = 0, denied: Int = 0, lastAsked: Date? = nil) {
         self.id = id
         self.site = site
         self.account = account
         self.rule = rule
+        self.asked = asked
+        self.approved = approved
+        self.denied = denied
+        self.lastAsked = lastAsked
     }
 }
 

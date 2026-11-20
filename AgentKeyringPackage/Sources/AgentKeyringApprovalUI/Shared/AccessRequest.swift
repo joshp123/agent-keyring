@@ -103,9 +103,9 @@ public enum RequestedAccess: Hashable, Sendable {
     /// Not a password: a computer or device asking to be added. The panel
     /// shows `lead`, the request's site in large type (the name), `detail` if
     /// any, the agent's reason if any, and `footer`; `denied` is the line under
-    /// "Denied" once he has denied it. `replies`: an agent asked, so the reply
+    /// "Denied" once he has denied it, and `approved` the line under "Approved" (empty: "<name> added."). `replies`: an agent asked, so the reply
     /// box is there as on a password request; otherwise Deny takes its place.
-    case setUp(lead: String, detail: String, footer: String, denied: String, replies: Bool)
+    case setUp(lead: String, detail: String, footer: String, denied: String, replies: Bool, approved: String = "")
 
     public static let longestLease: TimeInterval = 30 * 60
 }

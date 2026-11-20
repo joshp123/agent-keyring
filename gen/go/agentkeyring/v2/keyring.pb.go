@@ -2440,8 +2440,10 @@ type RelayRequest_Logs struct {
 }
 
 type RelayRequest_Arrived struct {
-	// Devices: a request reached this device (Arrival, signed by its reply
-	// key). The Watch posts the same to "POST /v2/arrived". Returns Done.
+	// A request reached this device (Arrival): signed by the device's reply
+	// key, or unsigned with push_token_sha256, which a locked iPhone's
+	// notification extension can give. A timing note that grants nothing.
+	// Devices may also post the same bytes to "POST /v2/arrived". Returns Done.
 	Arrived *Signed `protobuf:"bytes,29,opt,name=arrived,proto3,oneof"`
 }
 
@@ -2574,8 +2576,11 @@ type Arrival struct {
 	RequestId          string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	DeviceKeyId        string                 `protobuf:"bytes,3,opt,name=device_key_id,json=deviceKeyId,proto3" json:"device_key_id,omitempty"`
 	ArrivedUnixSeconds int64                  `protobuf:"varint,4,opt,name=arrived_unix_seconds,json=arrivedUnixSeconds,proto3" json:"arrived_unix_seconds,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// For an unsigned Arrival: SHA-256 of the push address the relay sent the
+	// request to, which only that device and the relay know.
+	PushTokenSha256 []byte `protobuf:"bytes,5,opt,name=push_token_sha256,json=pushTokenSha256,proto3" json:"push_token_sha256,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Arrival) Reset() {
@@ -2634,6 +2639,13 @@ func (x *Arrival) GetArrivedUnixSeconds() int64 {
 		return x.ArrivedUnixSeconds
 	}
 	return 0
+}
+
+func (x *Arrival) GetPushTokenSha256() []byte {
+	if x != nil {
+		return x.PushTokenSha256
+	}
+	return nil
 }
 
 type SetupOffer struct {
@@ -4615,13 +4627,14 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\tDeviceLog\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\"\n" +
 	"\rdevice_key_id\x18\x02 \x01(\tR\vdeviceKeyId\x12\x14\n" +
-	"\x05lines\x18\x03 \x03(\tR\x05lines\"\x96\x01\n" +
+	"\x05lines\x18\x03 \x03(\tR\x05lines\"\xc2\x01\n" +
 	"\aArrival\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12\"\n" +
 	"\rdevice_key_id\x18\x03 \x01(\tR\vdeviceKeyId\x120\n" +
-	"\x14arrived_unix_seconds\x18\x04 \x01(\x03R\x12arrivedUnixSeconds\"U\n" +
+	"\x14arrived_unix_seconds\x18\x04 \x01(\x03R\x12arrivedUnixSeconds\x12*\n" +
+	"\x11push_token_sha256\x18\x05 \x01(\fR\x0fpushTokenSha256\"U\n" +
 	"\n" +
 	"SetupOffer\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\fR\x06secret\x12/\n" +

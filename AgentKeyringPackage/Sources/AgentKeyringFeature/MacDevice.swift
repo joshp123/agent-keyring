@@ -41,7 +41,6 @@ public final class MacDevice {
     public private(set) var joins: [Agentkeyring_V2_PendingJoin] = []
     public private(set) var members: Agentkeyring_V2_Members?
     /// Each device's last self-test that passed, by key id, as the relay keeps them.
-    public private(set) var lastTested: [String: Date] = [:]
 
     let keys: MacKeys
     let store: LoginStore
@@ -386,6 +385,14 @@ public final class MacDevice {
                let leaseID = askedForAgents.first(where: { $0.value == request.requestID })?.key { onStoppedOnDevice?(leaseID) }
             return
         }
+        if !request.loginID.isEmpty {
+            onOtherComputersRequest?(request.requestID, request.loginID, .asked)
+            switch work.hasOutcome ? work.outcome.state : .waiting {
+            case .approved, .ended: onOtherComputersRequest?(request.requestID, request.loginID, .approved)
+            case .denied: onOtherComputersRequest?(request.requestID, request.loginID, .denied)
+            default: break
+            }
+        }
         if work.hasOutcome {
             waiting.removeValue(forKey: request.requestID)
             finished[request.requestID] = work
@@ -434,6 +441,8 @@ public final class MacDevice {
         }
     }
 
+    @ObservationIgnored private var reportsRevision: UInt64 = 0
+
     /// When this connection last heard from the relay.
     @ObservationIgnored private var heard = ContinuousClock.now
 
@@ -446,6 +455,10 @@ public final class MacDevice {
             }
         }
         if changes.catalogueRevision > saved?.catalogueRevision ?? 0 { await followCatalogue() }
+        if changes.reportsRevision != reportsRevision {
+            reportsRevision = changes.reportsRevision
+            await refreshSelfTests()
+        }
     }
 
     /// Takes rule changes made on another device.
@@ -461,15 +474,24 @@ public final class MacDevice {
         await onCatalogue?(catalogue, mine)
     }
 
+    /// Each device's latest status report, checked against its key: its first-run step, its checklist.
     private func refreshSelfTests() async {
         guard let members, let response = try? await call(.selfTests(Agentkeyring_V2_Empty())) else { return }
         for document in response.selfTests.reports {
             guard let signer = try? Sealing.verify(document, members: members, allowReplyKey: true),
                 let report = try? Agentkeyring_V2_SelfTestReport(serializedBytes: document.payload),
-                report.deviceKeyID == signer.keyID, report.checks.allSatisfy(\.passed) else { continue }
-            lastTested[signer.keyID] = Date(timeIntervalSince1970: TimeInterval(report.testedUnixSeconds))
+                report.deviceKeyID == signer.keyID else { continue }
+            reports[signer.keyID] = report
         }
+        await onDevicesChanged?()
     }
+
+    /// Each device's latest status report, by device key.
+    public private(set) var reports: [String: Agentkeyring_V2_SelfTestReport] = [:]
+    /// A device joined, or one's status report changed: first run's windows may move on.
+    @ObservationIgnored var onDevicesChanged: (@MainActor () async -> Void)?
+    /// A request from an agent on another computer, and Josh's answer: for the counts per password.
+    @ObservationIgnored var onOtherComputersRequest: ((String, String, PasswordUsageLog.Event) -> Void)?
 
     /// Every revision since ours, each checked against the one before: a
     /// later one may be signed by a device this Mac has not seen sign yet.
@@ -486,6 +508,7 @@ public final class MacDevice {
         members = current
         saved?.members = latest
         try persist()
+        await onDevicesChanged?()
     }
 
     /// The joins that prove one of this Mac's invitations. If two different
@@ -688,22 +711,30 @@ public final class MacDevice {
     }
 
     /// Tells the relay what this Mac's own test found, signed by its reply key.
-    func reportSelfTest(passed: Bool, error: String) async {
+    /// This Mac's status report, signed by its reply key: where it is in the
+    /// journey, the journey's steps for the devices he chose, and its practice
+    /// result. Sent on every step change; the relay passes the change on.
+    func reportStatus(_ firstRun: FirstRun, practice: (passed: Bool, error: String)?) async {
         guard isJoined else { return }
-        var check = Agentkeyring_V2_SelfTestCheck()
-        check.name = "test request"
-        check.passed = passed
-        check.error = error
         var report = Agentkeyring_V2_SelfTestReport()
         report.domain = "agentkeyring.selftest.v2"
         report.deviceKeyID = keys.deviceKeyID
         report.testedUnixSeconds = Int64(Date().timeIntervalSince1970)
-        report.checks = [check]
+        if let practice {
+            var check = Agentkeyring_V2_SelfTestCheck()
+            check.name = "test request"
+            check.passed = practice.passed
+            check.error = practice.error
+            report.checks = [check]
+        }
+        report.journey = firstRun.journey.map(\.wire)
+        report.step = firstRun.step.wire
+        report.finished = firstRun == .finished
         do {
             let signed = try Sealing.signed(report.serializedData(), by: keys.replyKeyID) { try keys.signReply($0) }
             _ = try await call(.reportSelfTest(signed))
         } catch {
-            deviceLogger.error("Could not report the self-test to the relay: \(String(describing: error), privacy: .public)")
+            deviceLogger.error("Could not send this Mac's status report: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -781,19 +812,37 @@ public final class MacDevice {
 
     /// A practice request on another device of Josh's (Test in Devices): it
     /// arrives there like a real one, and this ends when that device answers.
-    public func practice(on deviceKeyID: String) async throws -> Agentkeyring_V2_Lease {
-        guard let relay, deviceKeyID != keys.deviceKeyID else {
+    /// `progress` hears each step on the way (sent, with Apple, arrived). A
+    /// dropped connection is still waiting: the same request is rejoined by
+    /// its id, never made again.
+    public func practice(on deviceKeyID: String, progress: @MainActor (Agentkeyring_V2_Lease) -> Void) async throws -> Agentkeyring_V2_Lease {
+        guard deviceKeyID != keys.deviceKeyID else {
             throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.")
         }
         var test = Agentkeyring_V2_TestRequest()
         test.forDeviceKeyID = deviceKeyID
+        test.requestID = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
         var request = Agentkeyring_V2_RelayRequest()
         request.method = .testRequest(test)
-        var final = Agentkeyring_V2_Lease()
-        try await relay.stream(request) { response in
-            if case let .lease(lease) = response.result { final = lease }
+        let giveUp = ContinuousClock.now + .seconds(660)
+        DiagnosticLog.record("practice", "sent", ["request": test.requestID, "device": deviceKeyID.prefix(16).description])
+        var last = Agentkeyring_V2_Lease()
+        while true {
+            guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.") }
+            do {
+                try await relay.stream(request) { response in
+                    guard case let .lease(lease) = response.result else { return }
+                    last = lease
+                    progress(lease)
+                }
+                if last.state != .waiting { break }
+            } catch where ContinuousClock.now < giveUp && !Task.isCancelled {
+                DiagnosticLog.record("practice", "rejoining", ["request": test.requestID, "reason": "\(error)"])
+                try await Task.sleep(for: .seconds(2))
+            }
         }
-        return final
+        DiagnosticLog.record("practice", "answered", ["request": test.requestID, "state": "\(last.state)"])
+        return last
     }
 
     /// The agent stopped asking, or its approval ended: the iPhone and Watch
@@ -813,16 +862,18 @@ public final class MacDevice {
 
     // MARK: Machines and devices joining
 
-    /// Lets a computer or device join, after Josh's Touch ID. A computer gets
-    /// no Automatic passwords yet; a new device gets a copy of every password,
-    /// opened here with the same approval.
+    /// Lets a computer or device join, after Josh's Touch ID. It is in the
+    /// members list at once, so the iPhone moves on in seconds. A new device
+    /// then gets a copy of every password, opened here with the same approval
+    /// and sealed again for it off the main thread, in batches it can count.
+    /// A computer gets no Automatic passwords yet.
     public func approveJoin(_ id: String, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard var next = members, let join = joins.first(where: { Self.joinID($0) == id }) else {
             throw RelayFailure(.notFound, "Nothing is waiting to join with that name.")
         }
         try await confirm(context, reason: joinReason(id))
         onAuthenticated()
-        var sealed = try await store.sealed()
+        var newDevice: Agentkeyring_V2_Device?
         switch join.request.joining {
         case var .machine(machine)?:
             machine.automaticAllowed = false
@@ -831,23 +882,53 @@ public final class MacDevice {
         case let .device(device)?:
             next.devices.removeAll { $0.keyID == device.keyID }
             next.devices.append(device)
-            let key = try P256.KeyAgreement.PublicKey(x963Representation: device.openingPublicKey)
-            for copy in sealed where copy.openerID == keys.deviceKeyID {
-                try keys.check(copy, members: members)
-                sealed.append(try Sealing.seal(try keys.open(copy, context: context), version: copy.version, to: key,
-                    openerID: device.keyID, signer: keys.signer))
-            }
+            newDevice = device
         case nil:
             return
         }
         try await publishMembers(next, context: context)
-        try await store.replaceSealed(sealed)
-        try await publishSealed(for: [id])
         joins.removeAll { Self.joinID($0) == id }
         if let secret = invitations.keys.first(where: { Sealing.joinProof(secret: $0, joining: join.request) == join.request.proof }) {
             invitations.removeValue(forKey: secret)
         }
-        if case .device? = join.request.joining { leaveDeviceInvitation(replacing: true) }
+        guard let newDevice else { return }
+        Task {
+            do { try await fill(newDevice, context: context) } catch {
+                DiagnosticLog.record("devices", "fill-failed", ["device": newDevice.label, "reason": "\(error)"])
+            }
+        }
+    }
+
+    /// A new device being given its copies: Josh sees how far it has got.
+    public struct Filling: Equatable, Sendable {
+        public let deviceKeyID: String
+        public let label: String
+        public var done: Int
+        public let total: Int
+    }
+
+    public private(set) var filling: Filling?
+
+    private func fill(_ device: Agentkeyring_V2_Device, context: LAContext) async throws {
+        guard let members else { return }
+        let key = try P256.KeyAgreement.PublicKey(x963Representation: device.openingPublicKey)
+        let mine = try await store.sealed().filter { $0.openerID == keys.deviceKeyID }
+        let resealer = try keys.resealer(context: context, members: members)
+        filling = Filling(deviceKeyID: device.keyID, label: device.label, done: 0, total: mine.count)
+        defer { filling = nil }
+        DiagnosticLog.record("devices", "filling", ["device": device.label, "passwords": "\(mine.count)"])
+        let started = ContinuousClock.now
+        for start in stride(from: 0, to: mine.count, by: 50) {
+            let batch = Array(mine[start..<min(start + 50, mine.count)])
+            let sealed = try await Task.detached { try batch.map { try resealer.reseal($0, to: key, openerID: device.keyID) } }.value
+            try await store.replaceSealed(try await store.sealed().filter { $0.openerID != device.keyID || !sealed.map(\.loginID).contains($0.loginID) } + sealed)
+            var upload = Agentkeyring_V2_SealedLogins()
+            upload.logins = sealed
+            _ = try await call(.publishSealedLogins(upload))
+            filling?.done = start + batch.count
+        }
+        DiagnosticLog.record("devices", "filled", ["device": device.label, "passwords": "\(mine.count)",
+            "seconds": "\((ContinuousClock.now - started).components.seconds)"])
     }
 
     /// Josh denied a computer: the agent waiting on its enrol hears at once,

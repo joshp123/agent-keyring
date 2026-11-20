@@ -21,7 +21,9 @@ public final class AppMainWindowBackend: MainWindowBackend {
 
     public func snapshot() -> MainSnapshot {
         let logins = model.accessControl.rows.map {
-            LoginRow(id: $0.id, site: $0.website.isEmpty ? $0.title : $0.website, account: $0.account, rule: LoginRule($0.policy))
+            let used = model.usage.usage[$0.id.uuidString] ?? PasswordUsage()
+            return LoginRow(id: $0.id, site: $0.website.isEmpty ? $0.title : $0.website, account: $0.account, rule: LoginRule($0.policy),
+                asked: used.asked, approved: used.approved, denied: used.denied, lastAsked: used.lastAsked)
         }
         let device = model.device
         let devices = SetupScreens.practiceRows(model).map { DeviceRow(practice: $0, isThisMac: $0.id == model.thisMacDeviceKey) }

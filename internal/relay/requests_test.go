@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -24,6 +25,7 @@ import (
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/apns"
 	"github.com/joshp123/agent-keyring/internal/keyring"
+	"github.com/joshp123/agent-keyring/internal/tlsid"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -154,13 +156,13 @@ func TestTheAppleWatchGetsItsOwnPracticeRequest(t *testing.T) {
 	watch := &pb.Device{KeyId: keyring.KeyID(watchPublic), Kind: pb.DeviceKind_DEVICE_KIND_WATCH, Label: "Apple Watch", SigningPublicKey: watchPublic}
 	store.members = &pb.Members{Devices: []*pb.Device{iphone, mac, watch}}
 	ignore := func(*pb.RelayResponse) error { return nil }
-	if err := s.testRequest(context.Background(), caller{device: watch}, iphone.KeyId, ignore); err == nil {
+	if err := s.testRequest(context.Background(), caller{device: watch}, &pb.TestRequest{ForDeviceKeyId: iphone.KeyId}, ignore); err == nil {
 		t.Fatal("the Apple Watch asked for a practice request for the iPhone")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	outcome := make(chan *pb.Lease, 1)
-	go s.testRequest(ctx, caller{device: iphone}, watch.KeyId, func(response *pb.RelayResponse) error {
+	go s.testRequest(ctx, caller{device: iphone}, &pb.TestRequest{ForDeviceKeyId: watch.KeyId}, func(response *pb.RelayResponse) error {
 		if lease := response.GetLease(); lease.GetState() != pb.LeaseState_LEASE_STATE_WAITING {
 			outcome <- lease
 		}
@@ -242,7 +244,7 @@ func TestOnlyANewRequestIsANotificationHeSees(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go s.testRequest(ctx, caller{device: iphone}, "", func(*pb.RelayResponse) error { return nil })
+	go s.testRequest(ctx, caller{device: iphone}, &pb.TestRequest{}, func(*pb.RelayResponse) error { return nil })
 	arrived := <-pushes
 	if arrived.kind != "alert" || arrived.aps["alert"] == nil || arrived.aps["sound"] != "default" {
 		t.Fatalf("the new request was not a notification he sees and hears: %v", arrived)
@@ -405,5 +407,71 @@ func TestOneCommandGathersWhatHappenedToARequest(t *testing.T) {
 	lines := s.logs(&pb.LogsRequest{RequestId: "abc123"}).Lines
 	if len(lines) != 2 || !strings.Contains(lines[0], "iphone answer sent") || !strings.Contains(lines[1], " relay request id=abc123 machine=\"Mac mini\"") {
 		t.Fatalf("gathered %q", lines)
+	}
+}
+
+// Someone else on Josh's network reaches his new, empty relay before his Mac
+// does: it refuses them. His Mac takes it with the secret the relay gave our
+// app on its own computer, which only a caller there can get.
+func TestOnlyTheRelaysOwnComputerCanHandOutAnEmptyRelay(t *testing.T) {
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, key, _ := tlsid.New("relay")
+	pair, _ := tls.X509KeyPair(certificate, key)
+	s := &Server{Store: store, Certificate: pair}
+	if _, err := s.setupOffer(caller{}); err == nil {
+		t.Fatal("a caller on another computer got the setup offer")
+	}
+	offer, err := s.setupOffer(caller{local: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signing, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	public := elliptic.Marshal(elliptic.P256(), signing.X, signing.Y)
+	first := func(spki []byte, proof []byte) error {
+		mac := &pb.Device{KeyId: keyring.KeyID(public), Kind: pb.DeviceKind_DEVICE_KIND_MAC, SigningPublicKey: public, TlsPublicKey: spki}
+		payload := marshal(&pb.Members{Domain: keyring.MembersDomain, Revision: 1, Devices: []*pb.Device{mac},
+			RelayTlsPublicKey: offer.RelayTlsPublicKey, SetupProof: proof})
+		signed, _ := keyring.Sign(payload, mac.KeyId, keyring.SoftwareSigner(signing))
+		return s.publishMembers(caller{spki: spki}, signed)
+	}
+	if err := first([]byte("stranger"), nil); err == nil {
+		t.Fatal("a stranger took the empty relay")
+	}
+	if err := first([]byte("mac"), keyring.SetupProof(offer.Secret, offer.RelayTlsPublicKey, keyring.KeyID(public))); err != nil {
+		t.Fatalf("the Mac with the offer's proof was refused: %v", err)
+	}
+}
+
+// He leaves the iPhone app while its practice request waits, so iOS cuts the
+// connection, and the app asks again: it gets the same request, never a second.
+func TestAPracticeRequestIsRejoinedNotMadeAgain(t *testing.T) {
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Store: store}
+	iphone := &pb.Device{KeyId: "iphone", Kind: pb.DeviceKind_DEVICE_KIND_IPHONE}
+	store.members = &pb.Members{Devices: []*pb.Device{iphone}}
+	ask := func(id string) string {
+		ctx, cancel := context.WithCancel(context.Background())
+		got := make(chan string, 1)
+		go s.testRequest(ctx, caller{device: iphone}, &pb.TestRequest{RequestId: id}, func(r *pb.RelayResponse) error {
+			got <- r.GetLease().GetRequestId()
+			return nil
+		})
+		defer cancel() // The connection drops.
+		return <-got
+	}
+	first := strings.Repeat("a", 32)
+	if again := ask(first); again != first || ask(first) != first || ask(strings.Repeat("b", 32)) != first {
+		t.Fatal("asking again made another practice request")
+	}
+	waiting := 0
+	store.read(func(data *saved) { waiting = len(data.Requests) })
+	if waiting != 1 {
+		t.Fatalf("%d practice requests were made", waiting)
 	}
 }

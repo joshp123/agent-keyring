@@ -35,7 +35,7 @@ let addPhone = AccessRequest(id: "p", login: RequestedLogin(site: "iPhone 17 Pro
 let practiceRows = [
     PracticeRow(id: "d1", name: "This Mac", symbol: "laptopcomputer", detail: FirstRunCopy.practiceApprovedAt("14:02", touchID: true), tone: .approved, canSend: true),
     PracticeRow(id: "d2", name: "iPhone 17 Pro", symbol: "iphone", detail: FirstRunCopy.practiceDeniedAt("14:03", reply: "Use the work account instead."), tone: .denied, canSend: true),
-    PracticeRow(id: "d3", name: "Apple Watch Ultra 3", symbol: "applewatch", detail: FirstRunCopy.practiceSentWrist, tone: .plain, canSend: false),
+    PracticeRow(id: "d3", name: "Apple Watch Ultra 3", symbol: "applewatch", detail: FirstRunCopy.practiceOnWrist("14:03"), tone: .plain, canSend: false),
 ]
 var computerDenied = addComputer; computerDenied.state = .denied(by: .mac, reply: nil, askAgainAfter: nil)
 let invited = AccessRequest(id: "i", login: RequestedLogin(site: "Mac mini", account: ""),

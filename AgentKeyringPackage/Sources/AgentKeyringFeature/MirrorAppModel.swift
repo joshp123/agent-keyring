@@ -37,6 +37,8 @@ public final class MirrorAppModel {
     let credentialImporter: any CredentialImporting
     let merger: SnapshotMerger
     public let leaseStore: CredentialLeaseStore
+    /// How often each password was asked for, approved and denied.
+    public let usage = PasswordUsageLog()
     /// This Mac on the relay, once its keys exist. Nil when the Mac has no Secure Enclave.
     public private(set) var device: MacDevice?
     @ObservationIgnored private var keys: MacKeys?
@@ -84,6 +86,7 @@ public final class MirrorAppModel {
         self.accessControl = accessControl
         self.settings = settings
         self.leaseStore = leaseStore
+        leaseStore.onDecision = { [usage] id, login, event in usage.note(event, request: id, login: login) }
         savedAutomaticOnThisMac = settings.bool(forKey: Self.automaticOnThisMacKey)
         testedAt = settings.object(forKey: Self.testedAtKey) as? Date
         firstRun = Self.savedFirstRun(settings)
@@ -128,11 +131,31 @@ public final class MirrorAppModel {
 
     /// Moves first run on, as the board draws it, and saves where it is.
     public func send(_ event: FirstRun.Event) {
-        let next = firstRun.after(event, joined: device?.isJoined == true)
+        let next = firstRun.after(event, facts: firstRunFacts)
         guard next != firstRun else { return }
         DiagnosticLog.record("firstrun", "moved", ["from": "\(firstRun)", "to": "\(next)", "by": "\(event)"])
         firstRun = next
         settings.set(try? JSONEncoder().encode(next), forKey: Self.firstRunKey)
+        // A step that finished while he is in another app: the Dock icon bounces
+        // once, and the window waits behind; it is never pushed in front.
+        if !NSApplication.shared.isActive, [.deviceDone, .connected].contains(event) || { if case .imported = event { true } else { false } }() {
+            NSApplication.shared.requestUserAttention(.informationalRequest)
+        }
+        Task { await reportStatus() }
+    }
+
+    /// What the world says is already done, for the journey to pass over.
+    var firstRunFacts: FirstRun.Facts {
+        let devices = device?.members?.devices ?? []
+        let iPhone = devices.first { $0.kind == .iphone }
+        return FirstRun.Facts(alwaysOn: device?.isJoined == true,
+            iPhoneDone: iPhone.map { device?.reports[$0.keyID]?.finished == true } ?? false,
+            watchJoined: devices.contains { $0.kind == .watch })
+    }
+
+    /// The iPhone finished its first run, or the Apple Watch joined: the Mac's window for it moves on.
+    func noteDevicesChanged() {
+        send(.deviceDone)
     }
 
     /// The last practice request on each device he answers on, by device key.
@@ -148,7 +171,12 @@ public final class MirrorAppModel {
         practiceResults[deviceKey] = .sent
         guard let device, deviceKey != thisMacDeviceKey else { return }
         do {
-            let lease = try await device.practice(on: deviceKey)
+            let lease = try await device.practice(on: deviceKey) { [weak self] lease in
+                guard lease.state == .waiting else { return }
+                self?.practiceResults[deviceKey] = lease.arrivedUnixSeconds > 0
+                    ? .arrived(at: Date(timeIntervalSince1970: TimeInterval(lease.arrivedUnixSeconds)), on: lease.arrivedOn)
+                    : lease.pushedUnixSeconds > 0 ? .withApple(at: Date(timeIntervalSince1970: TimeInterval(lease.pushedUnixSeconds))) : .sent
+            }
             practiceResults[deviceKey] = switch lease.state {
             case .approved, .ended: .approved(at: .now)
             case .denied: .denied(at: .now, reply: lease.reply)
@@ -205,6 +233,8 @@ public final class MirrorAppModel {
         device = MacDevice(keys: made, store: store) { [weak self] in try await self?.catalogueLogins() ?? [] }
         device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
         device?.onStoppedOnDevice = { [weak self] leaseID in _ = try? self?.leaseStore.revoke(leaseID) }
+        device?.onDevicesChanged = { [weak self] in self?.noteDevicesChanged() }
+        device?.onOtherComputersRequest = { [weak self] id, login, event in self?.usage.note(event, request: id, login: login) }
         return made
     }
 

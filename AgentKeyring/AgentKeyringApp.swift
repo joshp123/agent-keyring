@@ -148,7 +148,6 @@ private struct HomeWindow: View {
 private struct FirstRunHome: View {
     let model: MirrorAppModel
     let presentation: AgentKeyringPresentation
-    @Environment(\.dismissWindow) private var dismissWindow
     /// Connect on the window for a computer that stays on: waiting for Touch ID, or why it failed.
     @State private var connect: ConnectFlow?
     /// "Add other computers": the one-time command, made when that window opens.
@@ -160,28 +159,35 @@ private struct FirstRunHome: View {
     private var screen: FirstRunScreen? {
         switch model.firstRun {
         case .welcome: .welcome
-        case .practice:
-            switch MacApprover.shared.state {
-            case .ready: .practice
-            case .lidClosed: .lidClosed
-            case .needsFingerprint: .needsFingerprint
-            }
-        case let .practiceDenied(reply): .practiceDenied(reply: reply)
-        case .copyPasswords: copyScreen(model.passwordsCopy ?? .steps, model: model, offerSample: true)
-        case let .tellAgents(copied): SetupScreens.tellAgents(model, copied: copied)
-        case .stayingOn: (connect ?? ConnectFlow(model: model)).screen
-        case .addPhone: SetupScreens.addPhone(model)
-        case .addWatch: SetupScreens.addWatch(model)
-        case .addComputers: SetupScreens.addComputers(model, command: command)
-        case .tryDevices: .tryDevices(SetupScreens.practiceRows(model))
-        case .ready: SetupScreens.ready(model)
+        case .chooseDevices: .chooseDevices
         case .finished: nil
+        case let .journey(_, page):
+            switch page {
+            case .practice:
+                switch MacApprover.shared.state {
+                case .ready: .practice
+                case .lidClosed: .lidClosed
+                case .needsFingerprint: .needsFingerprint
+                }
+            case let .practiceDenied(reply): .practiceDenied(reply: reply)
+            case .copyPasswords: copyScreen(model.passwordsCopy ?? .steps, model: model, offerSample: true)
+            case let .tellAgents(copied): SetupScreens.tellAgents(model, copied: copied)
+            case .stayingOn: (connect ?? ConnectFlow(model: model)).screen
+            case .addPhone: SetupScreens.addPhone(model)
+            case .addWatch: SetupScreens.addWatch(model)
+            case .addComputers: SetupScreens.addComputers(model, command: command)
+            case .tryDevices: .tryDevices(SetupScreens.practiceRows(model))
+            case .ready: SetupScreens.ready(model)
+            }
         }
     }
 
     private var actions: FirstRunActions {
         var actions = copyActions(model)
         actions.getStarted = { model.send(.getStarted) }
+        actions.chooseDevices = { iPhone, watch, computers in
+            model.send(.chose(FirstRun.Devices(iPhone: iPhone, watch: watch, computers: computers)))
+        }
         actions.tryAgain = { model.send(.tryAgain) }
         actions.openTouchIDSettings = { NSWorkspace.shared.open(MacApprover.touchIDSettings) }
         actions.useSample = { Task { await model.useSamplePassword() } }
@@ -195,8 +201,8 @@ private struct FirstRunHome: View {
             flow.connect(address) { model.send(.connected) }
         }
         actions.sendPractice = { key in Task { await model.sendPractice(to: key) } }
+        // He lands on the main window, in the same window: Passwords and Devices.
         actions.done = {
-            dismissWindow(id: "main")
             model.finishFirstRun()
             presentation.showMenuBarTip()
         }
@@ -212,7 +218,7 @@ private struct FirstRunHome: View {
             }
         }
         .task { await model.loadStatus() }
-        .onChange(of: model.firstRun == .addComputers, initial: true) { _, now in
+        .onChange(of: model.firstRun.step == .computers, initial: true) { _, now in
             if now, command == nil { command = SetupScreens.enrolCommand(model) }
         }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }

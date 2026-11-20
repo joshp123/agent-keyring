@@ -38,6 +38,8 @@ const (
 	RequestDomain   = "agentkeyring.request.v2"
 	SelfTestDomain  = "agentkeyring.selftest.v2"
 	LogDomain       = "agentkeyring.log.v2"
+	ArrivalDomain   = "agentkeyring.arrival.v2"
+	SetupDomain     = "agentkeyring.setup.v2"
 	AnswerDomain    = "agentkeyring.answer.v2"
 	SealedDomain    = "agentkeyring.sealed.v2"
 	ApprovalSeconds = 1800
@@ -495,5 +497,15 @@ func RefusalKey(secret []byte, machineID string) []byte {
 func RefusalReplyProof(secret []byte, machineID, reply string) []byte {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write(lengthPrefixed("agentkeyring.refusal.v2", "reply", machineID, reply))
+	return mac.Sum(nil)
+}
+
+// SetupProof is what a first members list carries to show its device got the
+// relay's one-time secret from the relay's own computer.
+func SetupProof(secret, relaySPKI []byte, firstDeviceKeyID string) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(SetupDomain))
+	mac.Write(relaySPKI)
+	mac.Write([]byte(firstDeviceKeyID))
 	return mac.Sum(nil)
 }

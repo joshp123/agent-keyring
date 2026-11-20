@@ -158,6 +158,23 @@ public final class MacKeys {
         }
     }
 
+    /// Seals this Mac's copies again for a new device, away from the main
+    /// thread, with the chip's keys made once for the whole batch.
+    public func resealer(context: LAContext, members: Agentkeyring_V2_Members) throws -> Resealer {
+        #if DEBUG
+        if standIn {
+            let opening = try P256.KeyAgreement.PrivateKey(rawRepresentation: saved.opening)
+            let reply = try P256.Signing.PrivateKey(rawRepresentation: saved.reply)
+            return Resealer(open: { try Sealing.open($0, with: opening) }, sign: { try reply.signature(for: $0).derRepresentation },
+                replyKeyID: replyKeyID, replyPublicKey: replyPublicKey, members: members)
+        }
+        #endif
+        let opening = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: saved.opening, authenticationContext: context)
+        let reply = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: saved.reply)
+        return Resealer(open: { try Sealing.open($0, with: opening) }, sign: { try reply.signature(for: $0).derRepresentation },
+            replyKeyID: replyKeyID, replyPublicKey: replyPublicKey, members: members)
+    }
+
     /// Opens a login sealed to this Mac, using a context Josh has just approved.
     public func open(_ sealed: Agentkeyring_V2_SealedLogin, context: LAContext) throws -> Agentkeyring_V2_LoginSecret {
         #if DEBUG
@@ -165,5 +182,22 @@ public final class MacKeys {
         #endif
         return try Sealing.open(sealed, with: SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: saved.opening,
             authenticationContext: context))
+    }
+}
+
+/// One Touch ID's worth of re-sealing, safe to run off the main thread.
+public struct Resealer: @unchecked Sendable {
+    let open: (Agentkeyring_V2_SealedLogin) throws -> Agentkeyring_V2_LoginSecret
+    let sign: (Data) throws -> Data
+    let replyKeyID: String
+    let replyPublicKey: P256.Signing.PublicKey
+    let members: Agentkeyring_V2_Members
+
+    /// This Mac's copy, checked, opened and sealed again to `key` for `openerID`.
+    public func reseal(_ copy: Agentkeyring_V2_SealedLogin, to key: P256.KeyAgreement.PublicKey, openerID: String) throws -> Agentkeyring_V2_SealedLogin {
+        if copy.signerKeyID == replyKeyID { try Sealing.checkSealed(copy, by: replyKeyID, publicKey: replyPublicKey) }
+        else { try Sealing.checkSealed(copy, members: members, listed: nil) }
+        return try Sealing.seal(try open(copy), version: copy.version, to: key, openerID: openerID,
+            signer: Sealing.Signer(keyID: replyKeyID, sign: sign))
     }
 }
