@@ -13,6 +13,9 @@ struct PhoneRequestView: View {
     /// First run's practice request: the same layout, the practice words.
     var practice = false
     @FocusState private var replyFocused: Bool
+    @State private var dictation = PhoneDictation()
+    /// What was in the box before speaking; what is heard follows it.
+    @State private var spokenAfter = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,6 +36,8 @@ struct PhoneRequestView: View {
             Button(PhoneCopy.ok) { model.dismissFailure() }
         }
         .sensoryFeedback(.selection, trigger: model.answering)
+        .onChange(of: dictation.heard) { _, heard in if dictation.isListening { model.replyDraft = spokenAfter + heard } }
+        .onDisappear { Task { await dictation.stop() } }
     }
 
     private var answers: some View {
@@ -57,11 +62,20 @@ struct PhoneRequestView: View {
                                 .allowsHitTesting(false)
                             }
                         }
-                    // iOS's own dictation is on the keyboard; the microphone here opens it.
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 17))
-                        .foregroundStyle(Phone.ink)
-                        .accessibilityHidden(true)
+                    // One tap to speak, one to stop. If it can't listen, the keyboard opens, with its own dictation key.
+                    Button {
+                        if !dictation.isListening { spokenAfter = model.replyDraft.isEmpty ? "" : model.replyDraft + " " }
+                        replyFocused = false
+                        Task {
+                            await dictation.toggle()
+                            if dictation.state == .unavailable { replyFocused = true }
+                        }
+                    } label: {
+                        Image(systemName: dictation.isListening ? "stop.circle.fill" : "mic.fill")
+                            .font(.system(size: 17))
+                            .foregroundStyle(dictation.isListening ? Phone.deny : Phone.ink)
+                    }
+                    .accessibilityLabel(dictation.isListening ? PhoneCopy.stopSpeaking : PhoneCopy.speakReply)
                 }
                 // Paper has 16; 14 keeps "What should Codex do instead?" on one line beside Deny.
                 .padding(.horizontal, 14)
@@ -70,7 +84,7 @@ struct PhoneRequestView: View {
                 .contentShape(.capsule)
                 .onTapGesture { replyFocused = true }
 
-                Button(PhoneCopy.deny) { Task { await model.deny(request.id) } }
+                Button(PhoneCopy.deny) { Task { if dictation.isListening { await dictation.stop() }; await model.deny(request.id) } }
                     .buttonStyle(PillButtonStyle(fill: Phone.deny, height: 50, stretches: false))
                     .fixedSize()
             }

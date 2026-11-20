@@ -15,6 +15,8 @@ public enum PhoneCopy {
     /// Not in Paper: when the agent's name is too long for the box beside Deny.
     public static let replyPlaceholderShort = "What should it do instead?"
     public static let deny = "Deny"
+    public static let speakReply = "Speak your reply"
+    public static let stopSpeaking = "Stop"
     public static let approveWithFaceID = "Approve with Face ID"
     public static func lasts(_ agent: RequestingAgent) -> String {
         "\(agent.name) can use this password for this task, 30 minutes at most."

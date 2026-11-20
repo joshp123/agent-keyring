@@ -9,6 +9,8 @@ import UserNotifications
 
 public enum WatchWords {
     public static let requestCategory = "REQUEST"
+    public static let approve = "approve"
+    public static let deny = "deny"
     public static let denyAndExplain = "deny-and-explain"
     public static let fallbackTitle = "Agent Keyring"
     public static let fallbackBody = "An agent wants to use a password. Open Agent Keyring to see the request."

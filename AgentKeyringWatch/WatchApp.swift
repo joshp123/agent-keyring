@@ -62,9 +62,11 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         }
     }
 
-    /// Our own Deny and Approve sit in the layout; Apple's Deny and Explain
-    /// sits under it. It is marked destructive, so a Double Tap cannot choose it.
+    /// Approve, Deny and Deny and Explain, all Apple's own buttons under the request, so they are one kind.
+    /// Approve needs the Watch unlocked on the wrist; Deny and Deny and Explain are marked destructive.
     static let requestCategory = UNNotificationCategory(identifier: WatchWords.requestCategory, actions: [
+        UNNotificationAction(identifier: WatchWords.approve, title: "Approve", options: [.authenticationRequired]),
+        UNNotificationAction(identifier: WatchWords.deny, title: "Deny", options: [.destructive]),
         UNTextInputNotificationAction(identifier: WatchWords.denyAndExplain, title: "Deny and Explain", options: [.destructive],
                                       textInputButtonTitle: "Done", textInputPlaceholder: "What should it do instead?"),
     ], intentIdentifiers: [])
@@ -72,6 +74,21 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
     func didRegisterForRemoteNotifications(withDeviceToken deviceToken: Data) {
         WatchLink.shared.pushToken = deviceToken
         Task { await WatchLink.shared.refreshSetup(); await WatchLink.shared.sendHandOver() }
+    }
+
+    /// A silent push: a request was answered or ended. Its notification goes, and "In use" follows its outcome.
+    func didReceiveRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> WKBackgroundFetchResult {
+        guard (userInfo["aps"] as? [String: Any])?["alert"] == nil, let id = userInfo["id"] as? String else { return .noData }
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [id])
+        let same = await center.deliveredNotifications().filter { $0.request.content.threadIdentifier == id }.map(\.request.identifier)
+        center.removeDeliveredNotifications(withIdentifiers: same)
+        let store = WatchStore()
+        if let request = try? WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: store.read()) {
+            store.write(store.read().noting(request))
+            await WatchLink.shared.refreshSetup()
+        }
+        return .newData
     }
 
     func didFailToRegisterForRemoteNotificationsWithError(_ error: Error) {
@@ -95,15 +112,38 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        guard response.actionIdentifier == WatchWords.denyAndExplain,
+        let action = response.actionIdentifier
+        guard [WatchWords.approve, WatchWords.deny, WatchWords.denyAndExplain].contains(action),
               let request = try? WatchRequest.from(userInfo: response.notification.request.content.userInfo,
                                                    keys: WatchKeys(), saved: WatchStore().read()) else { completionHandler(); return }
         let words = (response as? UNTextInputNotificationResponse)?.userText ?? ""
         let done = UncheckedHandler(completionHandler)
         Task {
-            do { _ = try await WatchAnswers().deny(request, words: words) }
-            catch { WatchLink.shared.report(problem: "Deny and Explain did not reach the relay: \(error)") }
+            await WatchDelegate.answer(request, approve: action == WatchWords.approve, words: words)
             done.call()
+        }
+    }
+
+    /// Sends the answer; if it does not reach the relay, one notification says so.
+    static func answer(_ request: WatchRequest, approve: Bool, words: String) async {
+        do {
+            if approve {
+                let lease = try await WatchAnswers().approve(request)
+                // In use on this Apple Watch until the approval ends.
+                if lease.state == .approved, lease.notAfterUnixSeconds > 0, !request.isPractice {
+                    let store = WatchStore()
+                    store.write(store.read().addingInUse(WatchInUse(id: request.id, site: request.site, who: request.who,
+                                                                    until: Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds)))))
+                }
+            } else {
+                _ = try await WatchAnswers().deny(request, words: words)
+            }
+        } catch {
+            WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") did not reach the relay: \(error)")
+            let content = UNMutableNotificationContent()
+            content.title = request.site
+            content.body = approve ? "Not approved. Try on your iPhone." : "Not sent. Try on your iPhone."
+            try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "failed-" + request.id, content: content, trigger: nil))
         }
     }
 
@@ -115,7 +155,6 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
 
 /// Apple Watch's words on its own screen (Paper, "First run", Apple Watch row).
 enum WatchCopy {
-    static let appName = "Agent Keyring"
     static func line(_ setup: WatchSetup) -> (title: String, detail: String) {
         switch setup {
         case .noPasscode: ("Set a passcode", "To approve from your wrist, set one in the Apple Watch app on your iPhone.")
@@ -142,13 +181,11 @@ struct WatchHome: View {
     @State private var asking = false
 
     var body: some View {
-        NavigationStack {
-            // Only "In use" while something is in use; otherwise the one line for where setup stands.
-            TimelineView(.periodic(from: .now, by: 30)) { context in
-                let inUse = model.inUse.filter { $0.until > context.date }
-                if model.setup == .ready && !inUse.isEmpty { WatchInUseList(items: inUse) } else { status }
-            }
-            .navigationTitle(WatchCopy.appName)
+        // Only "In use" while something is in use; otherwise the one line for where setup stands.
+        // No title bar: on the board the screen is the line alone, clear of the clock.
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let inUse = model.inUse.filter { $0.until > context.date }
+            if model.setup == .ready && !inUse.isEmpty { WatchInUseList(items: inUse) } else { status }
         }
     }
 

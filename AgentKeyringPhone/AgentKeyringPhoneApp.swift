@@ -101,6 +101,14 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
     }
 
+    /// A silent push: a request was answered or ended. Its notification goes, wherever it was answered.
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard let id = PhoneNotification.ended(userInfo) else { return .noData }
+        PhoneNotifications.remove(id)
+        relay?.notificationOpened(id)  // fetches the request's outcome, if this iPhone has joined
+        return .newData
+    }
+
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         PhoneDiagnostics.note("Apple refused a push address: \(error)")
     }

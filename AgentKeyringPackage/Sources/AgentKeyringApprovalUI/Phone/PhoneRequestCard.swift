@@ -53,10 +53,13 @@ public struct PhoneRequestBody: View {
             VStack(spacing: 1) {
                 Text(PhoneCopy.wants(request.agent))
                     .font(.subheadline).foregroundStyle(Phone.ink2)
+                // One line each: a long site shrinks rather than breaking mid-name.
                 Text(request.login.site)
                     .font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
+                    .lineLimit(1).minimumScaleFactor(0.5)
                 Text(request.login.account)
                     .font(.subheadline).foregroundStyle(Phone.ink2)
+                    .lineLimit(1).truncationMode(.middle)
             }
             Text(PhoneCopy.quoted(request.agentReason))
                 .font(.title3).foregroundStyle(Phone.ink)

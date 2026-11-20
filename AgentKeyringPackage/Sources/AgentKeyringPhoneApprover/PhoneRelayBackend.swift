@@ -15,6 +15,7 @@ import Foundation
 import LocalAuthentication
 import OSLog
 import Security
+import UserNotifications
 
 typealias Work = Agentkeyring_V2_Work
 typealias Lease = Agentkeyring_V2_Lease
@@ -381,11 +382,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         if let saved = state.work[request.requestID].flatMap({ try? Work(serializedBytes: $0) }), saved.request != work.request { return }
         var next = state
         next.work[request.requestID] = try? work.serializedData()
-        if work.hasOutcome { next.answered[request.requestID] = nil }
+        if work.hasOutcome { next.answered[request.requestID] = nil; PhoneNotifications.remove(request.requestID) }
         save(next)
         // The practice request reaches first run here too, so its end is seen even if its own stream was lost.
         if isPracticeWork(work) {
-            if work.hasOutcome { practiceOutcome = work.outcome.state; apply(.practiceEnded) }
+            if work.hasOutcome { practiceOutcome = Self.latched(practiceOutcome, work.outcome.state); apply(.practiceEnded) }
             else { apply(.practiceArrived(pushExpected: notificationsAllowed && pushRegistered)) }
             return
         }
@@ -484,6 +485,8 @@ public final class PhoneRelayBackend: PhoneBackend {
             return apply(.closePractice)
         }
         if isPractice(requestID) { return try await approveTest() }
+        // The notification's Approve and the app's can both run for one request: the second is not an error.
+        if settled(requestID) { return PhoneNotifications.remove(requestID) }
         let work = try await currentWork(requestID)
         let request = try Sealing.parseRequest(work.request)
         guard let members, let login = try? Sealing.signedLogin(for: request, in: catalogue),
@@ -511,6 +514,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     public func deny(_ requestID: String, reply: String?) async throws {
         if case .welcome(_, practising: true) = firstRun, requestID == AccessRequest.localPracticeID { return apply(.closePractice) }
         if isPractice(requestID) { return await denyTest() }
+        if settled(requestID) { return PhoneNotifications.remove(requestID) }
         let work = try await currentWork(requestID)
         let upload: AnswerUpload
         if let reply, !reply.isEmpty {
@@ -521,6 +525,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         try await send(upload, for: requestID, approving: false)
     }
 
+    /// This iPhone has answered the request, or it has ended.
+    func settled(_ requestID: String) -> Bool {
+        state.answered[requestID] != nil || state.work[requestID].flatMap { try? Work(serializedBytes: $0) }?.hasOutcome == true
+    }
+
     private func send(_ upload: AnswerUpload, for requestID: String, approving: Bool) async throws {
         var next = state
         next.answered[requestID] = approving
@@ -528,7 +537,15 @@ public final class PhoneRelayBackend: PhoneBackend {
         do {
             _ = try await relay().call(Self.method { $0.answer = upload })
             PhoneDiagnostics.note("Answer sent to the relay: \(approving ? "approve" : upload.denyRequestID.isEmpty ? "deny with words" : "deny")")
+            PhoneNotifications.remove(requestID)
         } catch {
+            // The relay may have recorded it before the reply was lost, or taken the same answer from this iPhone already.
+            if case let .work(work)? = try? await relay().call(Self.method { $0.getWork.requestID = requestID }).result,
+               work.hasOutcome, work.outcome.state == (approving ? .approved : .denied) {
+                PhoneDiagnostics.note("Answer already recorded by the relay: \(work.outcome.state)")
+                receive(work)
+                return
+            }
             PhoneDiagnostics.note("Answer not sent: \(error)")
             var undo = state
             undo.answered[requestID] = nil
@@ -813,6 +830,11 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// How the last practice request ended, for the self-test report.
     private var practiceOutcome: Agentkeyring_V2_LeaseState?
 
+    /// An approved practice stays approved: a minute later its approval ends, which is not a failure.
+    nonisolated static func latched(_ old: Agentkeyring_V2_LeaseState?, _ new: Agentkeyring_V2_LeaseState) -> Agentkeyring_V2_LeaseState {
+        old == .approved ? .approved : new
+    }
+
     /// First run waits for the practice request: 30 seconds, then the screen says why it hasn't come.
     private func beginPractice() {
         practiceTimer?.cancel()
@@ -845,7 +867,7 @@ public final class PhoneRelayBackend: PhoneBackend {
             do {
                 for try await response in try self.relay().stream(Self.method { $0.testRequest = .init() }) {
                     guard case let .lease(lease) = response.result, lease.state != .waiting else { continue }
-                    self.practiceOutcome = lease.state
+                    self.practiceOutcome = Self.latched(self.practiceOutcome, lease.state)
                     self.apply(.practiceEnded)
                     await self.reportSelfTest()
                 }
@@ -860,7 +882,14 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// A tap on a notification: the practice request opens over first run.
     public func notificationOpened(_ requestID: String) {
-        if isPractice(requestID) { apply(.practiceTapped) }
+        if isPractice(requestID) { return apply(.practiceTapped) }
+        // Opened from the Lock Screen while the app was away: its stream has not sent the request yet, so ask for it.
+        guard state.work[requestID] == nil, state.endpoint != nil else { return }
+        Task {
+            guard case let .work(work)? = try? await relay().call(Self.method { $0.getWork.requestID = requestID }).result else { return }
+            receive(work)
+            if isPractice(requestID) { apply(.practiceTapped) }
+        }
     }
 
     func denyTest() async {
@@ -1091,19 +1120,30 @@ public final class PhoneRelayBackend: PhoneBackend {
         guard let members = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) }).flatMap({ try? Members(serializedBytes: $0.payload) })
         else { return fail("no Members saved") }
         let catalogue = saved.catalogue.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Catalogue(serializedBytes: $0.payload) }
-        guard let request = try? Sealing.parseRequest(work.request) else { return fail("the request did not parse") }
+        do { return try named(work, members: members, catalogue: catalogue, keyID: keyID) }
+        catch { return fail("\(error)") }
+    }
+
+    public struct Unnamed: Error, CustomStringConvertible {
+        public let description: String
+    }
+
+    /// An opened notice's request, named from the signed Members and Catalogue
+    /// only: this iPhone's own practice request, or one the computer it names signed.
+    nonisolated static func named(_ work: Work, members: Members, catalogue: Catalogue?, keyID: String) throws -> (request: AccessRequest, answeredBy: String?) {
+        guard let request = try? Sealing.parseRequest(work.request) else { throw Unnamed(description: "the request did not parse") }
         let outcome = work.hasOutcome ? state(work.outcome, now: Int64(Date().timeIntervalSince1970), members: members)
             : .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds)))
-        // Only a request the computer it names signed, or this iPhone's own practice request.
-        guard (try? Sealing.checkRequest(work, members: members, ownKeyID: keyID)) != nil else { return fail("the request is not signed by the computer it names") }
-        // This iPhone's practice request: no machine and no password, the board's words.
-        if request.forDeviceKeyID == keyID {
+        // checkRequest returns no computer for this device's own practice request, and throws for an unsigned one.
+        let signer: Agentkeyring_V2_Machine?
+        do { signer = try Sealing.checkRequest(work, members: members, ownKeyID: keyID) }
+        catch { throw Unnamed(description: "the request is not signed by the computer it names") }
+        guard let machine = signer else {
             var practice = practiceRequest(request)
             practice.state = outcome
             return (practice, nil)
         }
-        guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { return fail("unknown machine") }
-        guard let login = catalogue?.logins.first(where: { $0.loginID == request.loginID }) else { return fail("login not in the saved catalogue") }
+        guard let login = catalogue?.logins.first(where: { $0.loginID == request.loginID }) else { throw Unnamed(description: "login not in the saved catalogue") }
         return (AccessRequest(id: request.requestID, login: RequestedLogin(site: site(login), account: login.account),
                               agent: RequestingAgent(name: request.agent, machine: machine.label, address: "",
                                                      project: request.project.isEmpty ? nil : request.project),
@@ -1132,6 +1172,21 @@ public final class PhoneRelayBackend: PhoneBackend {
             #endif
         } catch { logger.error("Could not save the iPhone's state: \(String(describing: error), privacy: .public)") }
         publish()
+    }
+}
+
+/// The notifications this app has shown for a request.
+public enum PhoneNotifications {
+    /// Removes a request's notification once it is answered or has ended, so none is left behind.
+    public static func remove(_ requestID: String) {
+        #if os(iOS)
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [requestID])
+        center.getDeliveredNotifications { delivered in
+            let same = delivered.filter { $0.request.content.threadIdentifier == requestID }.map(\.request.identifier)
+            if !same.isEmpty { center.removeDeliveredNotifications(withIdentifiers: same) }
+        }
+        #endif
     }
 }
 

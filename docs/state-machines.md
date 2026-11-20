@@ -201,7 +201,7 @@ These are observations kept only for the self-test the relay stores. Nothing on 
 - `pushSeen`: a push has reached this iPhone. It is saved.
 - `notificationsAllowed`: what iOS allows, read each time the app comes to the front.
 - `openingWorks`: the opening key opened a sealed password.
-- `practiceOutcome`: how the last practice request ended.
+- `practiceOutcome`: how the last practice request ended. Once approved it stays approved: the approval's own end a minute later is not a failure (test: `practiceApprovalLatches`).
 - `watchPracticed`: Apple Watch's practice request has ended. It is saved, so the Watch gets one only.
 
 Where the welcome card comes from: the look for the Mac reads the item the Mac leaves in iCloud Keychain every three seconds. No item is `noMac`. An item that names the Mac but has no relay and no secret is `macWithoutComputer`. A full invitation is joined; waiting is `joinWaiting` and a refusal is `joinRefused`, both with the Mac's name from the invitation.
@@ -244,17 +244,23 @@ So the state cannot drift from those facts. The Watch works it out again when th
 
 ## Apple Watch: a request's card
 
-Code: `RequestModel.Card` in `AgentKeyringWatch/RequestView.swift`.
+Code: `RequestModel.Card` in `AgentKeyringWatch/RequestView.swift`; the answer in `WatchDelegate.answer` in `AgentKeyringWatch/WatchApp.swift`.
 
 | State | Card |
 |---|---|
 | `opening` | nothing yet |
 | `unreadable` | "Open Agent Keyring on your iPhone to see this request." The Watch has asked its iPhone for the list of devices. |
-| `showing(request)` | the request, with Deny and Approve. Its own practice request reads "Practice request: an agent wants" example.com, and Approve sends a signed answer with nothing delivered. |
-| `sending(request)` | the same request, with the buttons disabled |
-| `answered(request, line)` | the same request and "Approved" or "Denied". The card closes 1.2 seconds later. |
+| `showing(request)` | who asks, the site, the account and the reason, each kept short so Apple's buttons follow on the first screen. An ended request shows its outcome instead. Its own practice request reads "Practice request: an agent wants" example.com. |
+
+The answer is not part of the card. Approve, Deny and Deny and Explain are Apple's own notification buttons, one kind of button, and the system closes the notification when one is tapped. Approve needs the Watch unlocked on the wrist; Deny and Deny and Explain are marked destructive, so a Double Tap chooses Approve.
 
 What must always be true:
-- An answer goes only to the request on screen.
-- Only one answer is sent: `respond` works only from `showing`.
-- The retry that reads the request again while the list arrives is cancelled when another notification takes the card, and when the card closes. Before this build it ran on for ten seconds and could put an older request back on the card.
+- An answer goes only to the request whose notification it came from.
+- If an answer does not reach the relay, one notification says so ("Not approved. Try on your iPhone.").
+- The retry that reads the request again while the list arrives is cancelled when another notification takes the card, and when the card closes.
+
+## Notifications on the iPhone and Apple Watch
+
+- A request's notification goes when it is answered on this device, when this device learns it has ended (its work stream, or the relay's silent push for every outcome), and never comes back as a separate "Approved on your iPhone" notification. The silent push carries the request id at the top level (`"id"`) and no alert.
+- Answering is the same whichever way it comes: the notification's Approve and the app's button can both run for one request; once this iPhone has answered it, or it has ended, a second answer returns without error. If the relay's reply is lost, the iPhone asks for the request and counts an outcome that matches its answer as sent. Test: `answeringTwice`.
+- Tapping a notification opens its request even when the app was away and its stream has not yet sent it: the iPhone asks the relay for that request.

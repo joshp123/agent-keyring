@@ -21,6 +21,13 @@ public enum PhoneNotification {
         (userInfo[wordsKey] as? [String: Any])?["id"] as? String ?? userInfo["id"] as? String
     }
 
+    /// The request a silent push says has been answered or has ended: its top-level "id".
+    public static func ended(_ userInfo: [AnyHashable: Any]) -> String? {
+        let aps = userInfo["aps"] as? [String: Any]
+        guard aps?["alert"] == nil, let id = userInfo["id"] as? String, !id.isEmpty else { return nil }
+        return id
+    }
+
     public static func encode(_ request: AccessRequest, deadline: Date) -> [String: Any] {
         var words: [String: Any] = [
             "id": request.id, "site": request.login.site, "account": request.login.account,

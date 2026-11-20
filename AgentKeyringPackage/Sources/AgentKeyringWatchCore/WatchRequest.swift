@@ -49,7 +49,7 @@ public struct WatchRequest: Sendable, Equatable {
         let request = try Sealing.parseRequest(work.request)
         guard let members = saved.signedMembers else { throw Unreadable.notSetUp }
         // This Apple Watch's own practice request: no computer and no password, the board's words.
-        if (try? Sealing.checkRequest(work, members: members, ownKeyID: ownKeyID)) == .some(nil) {
+        if try isOwnPractice(work, members: members, ownKeyID: ownKeyID) {
             let state: State = work.hasOutcome ? .ended(outcome(work.outcome, members: members, agent: "The practice", minutes: 10)) : .waiting
             return WatchRequest(work: try work.serializedData(), id: request.requestID, site: "example.com", account: "you@example.com",
                                 sites: [], agent: "Agent Keyring", wants: "Practice request: an agent wants", project: nil,
@@ -57,11 +57,6 @@ public struct WatchRequest: Sendable, Equatable {
                                 isPractice: true)
         }
         guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { throw Unreadable.unknownMachine }
-        // Signed by the computer it names, so a relay can't hand one computer's request to another.
-        // A practice request names no computer and carries no password.
-        if request.forDeviceKeyID.isEmpty {
-            do { try Sealing.checkRequest(work, members: members, ownKeyID: "") } catch { throw Unreadable.notSigned }
-        }
         // Named from the signed Catalogue the iPhone handed over, never from what the relay sends beside the request.
         let login = try? Sealing.signedLogin(for: request, in: saved.signedCatalogue)
         let agent = request.agent.isEmpty ? "An agent" : request.agent
