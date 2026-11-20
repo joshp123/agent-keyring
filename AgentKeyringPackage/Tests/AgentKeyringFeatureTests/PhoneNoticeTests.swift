@@ -26,7 +26,12 @@ struct PhoneNoticeTests {
 
     @Test("A practice notice is named with the practice words")
     func practiceNotice() throws {
-        let named = try PhoneRelayBackend.named(work { $0.forDeviceKeyID = "phone" }, members: Members(), catalogue: nil, keyID: "phone")
+        let relay = P256.Signing.PrivateKey()
+        var members = Members()
+        members.relayTlsPublicKey = relay.publicKey.derRepresentation
+        var practice = try work { $0.forDeviceKeyID = "phone" }
+        practice.requestSignature = try relay.signature(for: practice.request).derRepresentation
+        let named = try PhoneRelayBackend.named(practice, members: members, catalogue: nil, keyID: "phone")
         #expect(named.request.login.site == PhoneCopy.practiceSite)
         #expect(named.request.agentReason == PhoneCopy.practiceReason)
     }

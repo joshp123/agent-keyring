@@ -187,6 +187,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         snapshot.settings = phoneSettings
         snapshot.notificationFacts = facts
         snapshot.journey = journey
+        snapshot.undelivered = undelivered
         // Blocked passwords have no copies anywhere, so they are not waited for.
         let copies = catalogue?.logins.filter { $0.rule != .blocked }.count ?? 0
         if let sealedForYou, sealedForYou < copies { snapshot.filling = PhoneFill(copied: sealedForYou, of: copies) }
@@ -464,7 +465,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         // The relay writes a request once; a later Work for it may only add the outcome.
         let saved = state.work[request.requestID].flatMap { try? Work(serializedBytes: $0) }
         if let saved, saved.request != work.request { return }
-        if saved == nil, !work.hasOutcome { Task { await reportArrival(request.requestID) } }
+        if saved == nil, !work.hasOutcome { Task { await reportArrival(request) } }
         var next = state
         next.work[request.requestID] = try? work.serializedData()
         if work.hasOutcome { next.answered[request.requestID] = nil; PhoneNotifications.remove(request.requestID) }
@@ -492,10 +493,11 @@ public final class PhoneRelayBackend: PhoneBackend {
         }
     }
 
-    /// Tells the relay a request has reached this iPhone, so the Mac can say where it is. Sent the first
-    /// time the app holds the request; the reply key needs the iPhone unlocked.
-    private func reportArrival(_ requestID: String) async {
+    /// Tells the asking computer a request has reached this iPhone, so it can say where it is. Sent the
+    /// first time the app holds the request; the reply key needs the iPhone unlocked.
+    private func reportArrival(_ request: KeyringRequest) async {
         guard let keyID = state.deviceKeyID else { return }
+        let requestID = request.requestID
         var arrival = Agentkeyring_V2_Arrival()
         arrival.domain = "agentkeyring.arrival.v2"
         arrival.requestID = requestID
@@ -503,7 +505,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         arrival.arrivedUnixSeconds = Int64(Date().timeIntervalSince1970)
         do {
             let signed = try Sealing.signed(arrival.serializedData(), by: Sealing.keyID(keys.replyPublicKey())) { try keys.signReply($0) }
-            _ = try await relay().call(Self.method { $0.arrived = signed })
+            if let door = Sealing.answerDoor(request) { try await AnswerDoor.arrived(signed, at: door) }
+            else { _ = try await relay().call(Self.method { $0.arrived = signed }) }
             PhoneDiagnostics.log.note("request", "arrival sent", ["request": requestID])
         } catch {
             PhoneDiagnostics.log.note("request", "arrival not sent", ["request": requestID, "error": "\(error)"])
@@ -537,6 +540,8 @@ public final class PhoneRelayBackend: PhoneBackend {
             publish()
         }
     }
+    /// Answers that could not reach the asking computer yet and are still being retried.
+    private var undelivered: Set<String> = []
     private var reportsRevision: UInt64?
     private var sealedForYou: Int?
     private var journey = PhoneJourney()
@@ -675,7 +680,7 @@ public final class PhoneRelayBackend: PhoneBackend {
             request: work.request, secret: secret, sites: login.sites,
             receivingKey: P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey),
             signerKeyID: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
-        try await send(upload, for: requestID, approving: true)
+        try await send(upload, for: work, approving: true)
     }
 
     public func deny(_ requestID: String, reply: String?) async throws {
@@ -689,7 +694,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         } else {
             upload = Sealing.plainDeny(requestID: requestID)
         }
-        try await send(upload, for: requestID, approving: false)
+        try await send(upload, for: work, approving: false)
     }
 
     /// This iPhone has answered the request, or it has ended.
@@ -697,14 +702,34 @@ public final class PhoneRelayBackend: PhoneBackend {
         state.answered[requestID] != nil || state.work[requestID].flatMap { try? Work(serializedBytes: $0) }?.hasOutcome == true
     }
 
-    private func send(_ upload: AnswerUpload, for requestID: String, approving: Bool) async throws {
+    /// Sends an answer to the asking computer's door, or to the relay for a request that names none.
+    /// The door's reply is the request's Lease: this answer's, or the one that already ended it.
+    private func send(_ upload: AnswerUpload, for work: Work, approving: Bool) async throws {
+        let request = try Sealing.parseRequest(work.request)
+        let requestID = request.requestID
         var next = state
         next.answered[requestID] = approving
         save(next)
+        defer { if undelivered.remove(requestID) != nil { publish() } }
         do {
-            _ = try await relay().call(Self.method { $0.answer = upload })
-            PhoneDiagnostics.note("Answer sent to the relay: \(approving ? "approve" : upload.denyRequestID.isEmpty ? "deny with words" : "deny")")
+            if let door = Sealing.answerDoor(request) {
+                let lease = try await AnswerDoor.answer(upload, at: door) { [weak self] in
+                    Task { @MainActor in self?.undelivered.insert(requestID); self?.publish() }
+                }
+                var ended = work
+                ended.outcome = lease
+                receive(ended)
+            } else {
+                _ = try await relay().call(Self.method { $0.answer = upload })
+            }
+            PhoneDiagnostics.note("Answer sent: \(approving ? "approve" : upload.denyRequestID.isEmpty ? "deny with words" : "deny")")
             PhoneNotifications.remove(requestID)
+        } catch let refused as AnswerDoor.Refused {
+            PhoneDiagnostics.note("Answer refused by the asking computer: \(refused.words)")
+            var undo = state
+            undo.answered[requestID] = nil
+            save(undo)
+            throw refused
         } catch {
             // The relay may have recorded it before the reply was lost, or taken the same answer from this iPhone already.
             if case let .work(work)? = try? await relay().call(Self.method { $0.getWork.requestID = requestID }).result,
@@ -1067,7 +1092,8 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 
     func denyTest(_ id: String) async {
-        _ = try? await relay().call(Self.method { $0.answer = Sealing.plainDeny(requestID: id) })
+        guard let work = practiceWork(id) else { return }
+        try? await send(Sealing.plainDeny(requestID: id), for: work, approving: false)
     }
 
     /// Any push reached this iPhone: requests can wake it.
@@ -1100,7 +1126,7 @@ public final class PhoneRelayBackend: PhoneBackend {
             do { _ = try keys.open(first, context: context); openingWorks = true }
             catch { openingWorks = false; PhoneDiagnostics.note("The opening key did not open a sealed login: \(error)") }
         }
-        _ = try await relay.call(Self.method { $0.answer = upload })
+        try await send(upload, for: work, approving: true)
     }
 
     private var openingWorks: Bool?
@@ -1332,11 +1358,8 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// Tells the relay a request has reached this iPhone, from the notification extension. The phone
     /// may be locked, so it signs nothing: the note names the push address instead, and grants nothing.
     /// It gives up after `ArrivalNote.deadline`.
-    nonisolated public static func noteArrival(_ requestID: String, shared: PhoneSharedContext) async throws {
-        guard let saved = shared.read(), let keyID = saved.deviceKeyID, let endpoint = saved.endpoint,
-              let hash = saved.pushTokenSHA256,
-              let pinned = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) })
-                  .flatMap({ try? Members(serializedBytes: $0.payload) })?.relayTlsPublicKey
+    nonisolated public static func noteArrival(_ requestID: String, door: AnswerDoor.Door?, shared: PhoneSharedContext) async throws {
+        guard let saved = shared.read(), let keyID = saved.deviceKeyID, let hash = saved.pushTokenSHA256
         else { throw KeyringRelayError(code: .unavailable, message: "This iPhone has not joined yet.") }
         var arrival = Agentkeyring_V2_Arrival()
         arrival.domain = "agentkeyring.arrival.v2"
@@ -1346,7 +1369,13 @@ public final class PhoneRelayBackend: PhoneBackend {
         arrival.pushTokenSha256 = hash
         var note = SignedDocument()
         note.payload = try arrival.serializedData()
-        _ = try await RelayHTTPS.post(note.serializedData(), host: endpoint.host, port: endpoint.port, path: "/v2/arrived", pinned: pinned, timeout: ArrivalNote.deadline)
+        // A request from before the doors: its arrival goes to the relay.
+        let relay = saved.endpoint.flatMap { endpoint in
+            saved.members.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Members(serializedBytes: $0.payload) }
+                .map { (host: endpoint.host, port: endpoint.port, key: $0.relayTlsPublicKey) }
+        }
+        guard let target = door ?? relay else { throw KeyringRelayError(code: .unavailable, message: "No door to tell.") }
+        try await AnswerDoor.arrived(note, at: target)
     }
 
     nonisolated public static func breaksThroughFocus(_ shared: PhoneSharedContext) -> Bool {
@@ -1356,9 +1385,9 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// The request a push is about, as the Lock Screen shows it: the notice
     /// opened, the login and machine named from the saved Catalogue and Members.
     nonisolated public static func notifiedRequest(_ userInfo: [AnyHashable: Any], shared: PhoneSharedContext,
-                                       open: (Agentkeyring_V2_Notice, String) throws -> Agentkeyring_V2_Work) -> (request: AccessRequest, answeredBy: String?)? {
+                                       open: (Agentkeyring_V2_Notice, String) throws -> Agentkeyring_V2_Work) -> PhoneNotified? {
         let log = Logger(subsystem: "com.joshpalmer.AgentKeyring.Phone", category: "Notice")
-        func fail(_ step: String) -> (request: AccessRequest, answeredBy: String?)? {
+        func fail(_ step: String) -> PhoneNotified? {
             log.error("Could not name the request: \(step, privacy: .public)")
             PhoneDiagnostics.note("Could not name the request: \(step)")
             return nil
@@ -1372,8 +1401,21 @@ public final class PhoneRelayBackend: PhoneBackend {
         guard let members = saved.members.flatMap({ try? SignedDocument(serializedBytes: $0) }).flatMap({ try? Members(serializedBytes: $0.payload) })
         else { return fail("no Members saved") }
         let catalogue = saved.catalogue.flatMap { try? SignedDocument(serializedBytes: $0) }.flatMap { try? Catalogue(serializedBytes: $0.payload) }
-        do { return try named(work, members: members, catalogue: catalogue, keyID: keyID) }
-        catch { return fail("\(error)") }
+        do {
+            let named = try named(work, members: members, catalogue: catalogue, keyID: keyID)
+            return PhoneNotified(request: named.request, answeredBy: named.answeredBy,
+                                 door: (try? Sealing.parseRequest(work.request)).flatMap(Sealing.answerDoor))
+        } catch { return fail("\(error)") }
+    }
+
+    /// A notified request as the Lock Screen shows it, and where to tell its computer it arrived.
+    public struct PhoneNotified {
+        public let request: AccessRequest
+        public let answeredBy: String?
+        public let door: AnswerDoor.Door?
+        public init(request: AccessRequest, answeredBy: String?, door: AnswerDoor.Door?) {
+            self.request = request; self.answeredBy = answeredBy; self.door = door
+        }
     }
 
     public struct Unnamed: Error, CustomStringConvertible {

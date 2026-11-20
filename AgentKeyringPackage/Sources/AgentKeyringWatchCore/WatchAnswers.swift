@@ -32,7 +32,7 @@ public struct WatchAnswers: Sendable {
             answer.notAfterUnixSeconds = answer.decidedUnixSeconds + 60
             var upload = AnswerUpload()
             upload.answer = try Sealing.signed(answer.serializedData(), by: keys.keyID(), sign: keys.sign)
-            return try await post(upload, saved: saved)
+            return try await post(upload, for: work, saved: saved)
         }
         guard work.hasSealedLogin else { throw WatchFailure.notInRequest }
         let parsed = try Sealing.parseRequest(work.request)
@@ -47,7 +47,7 @@ public struct WatchAnswers: Sendable {
         try Sealing.checkBound(secret, title: login.title, sites: login.sites, account: login.account)
         let upload = try Sealing.approve(request: work.request, secret: secret, sites: login.sites,
                                          receivingKey: receiving, signerKeyID: keys.keyID(), sign: keys.sign)
-        return try await post(upload, saved: saved)
+        return try await post(upload, for: work, saved: saved)
     }
 
     /// Every denial from the Watch is signed with its reply key, words or not.
@@ -56,10 +56,10 @@ public struct WatchAnswers: Sendable {
         let work = try Agentkeyring_V2_Work(serializedBytes: request.work)
         let upload = try Sealing.deny(request: work.request, reply: words, signerKeyID: Sealing.keyID(keys.replyPublicKey()),
                                       sign: keys.signReply)
-        return try await post(upload, saved: saved)
+        return try await post(upload, for: work, saved: saved)
     }
 
-    /// Tells the relay this request has reached this Apple Watch, so the Mac can say where it is.
+    /// Tells the asking computer this request has reached this Apple Watch, so it can say where it is.
     /// Signed with the reply key, which works while the Watch is unlocked. It gives up after `ArrivalNote.deadline`.
     public func arrived(_ request: WatchRequest) async throws {
         let saved = store.read()
@@ -69,11 +69,19 @@ public struct WatchAnswers: Sendable {
         arrival.deviceKeyID = try keys.keyID()
         arrival.arrivedUnixSeconds = Int64(Date().timeIntervalSince1970)
         let signed = try Sealing.signed(arrival.serializedData(), by: Sealing.keyID(keys.replyPublicKey()), sign: keys.signReply)
+        let work = try Agentkeyring_V2_Work(serializedBytes: request.work)
+        if let door = Sealing.answerDoor(try Sealing.parseRequest(work.request)) { return try await AnswerDoor.arrived(signed, at: door) }
         _ = try await send(signed.serializedData(), to: "/v2/arrived", saved: saved, timeout: ArrivalNote.deadline)
     }
 
-    func post(_ upload: AnswerUpload, saved: WatchSaved) async throws -> Agentkeyring_V2_Lease {
-        try await Agentkeyring_V2_Lease(serializedBytes: send(upload.serializedData(), to: nil, saved: saved))
+    /// To the asking computer's door; a request from before the doors goes to the relay. The reply is the
+    /// request's Lease: this answer's, or the one that already ended it.
+    func post(_ upload: AnswerUpload, for work: Agentkeyring_V2_Work, saved: WatchSaved) async throws -> Agentkeyring_V2_Lease {
+        if let door = Sealing.answerDoor(try Sealing.parseRequest(work.request)) {
+            do { return try await AnswerDoor.answer(upload, at: door) }
+            catch let refused as AnswerDoor.Refused { throw WatchFailure.relay(403, refused.words) }
+        }
+        return try await Agentkeyring_V2_Lease(serializedBytes: send(upload.serializedData(), to: nil, saved: saved))
     }
 
     /// POSTs to the relay's HTTPS address, pinned to its key in Members: the answer address, or another path on it.

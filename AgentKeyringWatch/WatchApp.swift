@@ -119,12 +119,18 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         }
     }
 
-    /// Sends the answer from the request's card. True once the relay has it.
-    static func answer(_ request: WatchRequest, approve: Bool, words: String) async -> Bool {
+    enum AnswerResult { case sent, alreadyAnswered, failed }
+
+    /// Sends the answer from the request's card. The reply is the request's Lease: if another device's
+    /// answer ended it first, that is the outcome.
+    static func answer(_ request: WatchRequest, approve: Bool, words: String) async -> AnswerResult {
         watchLog.note("answer", "started", ["request": request.id, "choice": approve ? "approve" : words.isEmpty ? "deny" : "deny-with-words"])
+        let saved = WatchStore().read()
+        let mine = (try? WatchKeys().keyID()).flatMap { id in saved.signedMembers?.devices.first { $0.keyID == id }?.label }
         do {
+            let lease: Agentkeyring_V2_Lease
             if approve {
-                let lease = try await WatchAnswers().approve(request)
+                lease = try await WatchAnswers().approve(request)
                 // In use on this Apple Watch until the approval ends.
                 if lease.state == .approved, lease.notAfterUnixSeconds > 0, !request.isPractice {
                     let store = WatchStore()
@@ -132,7 +138,11 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
                                                                     until: Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds)))))
                 }
             } else {
-                _ = try await WatchAnswers().deny(request, words: words)
+                lease = try await WatchAnswers().deny(request, words: words)
+            }
+            if let mine, !lease.answeredBy.isEmpty, lease.answeredBy != mine {
+                watchLog.note("answer", "already answered", ["request": request.id, "by": lease.answeredBy])
+                return .alreadyAnswered
             }
             watchLog.note("answer", "sent", ["request": request.id])
             if request.isPractice, WatchStore().read().practiceAnswered != true {
@@ -142,10 +152,13 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
                 store.write(saved)
                 await WatchLink.shared.sendHandOver()
             }
-            return true
+            return .sent
+        } catch WatchFailure.relay(409, let words) {
+            watchLog.note("answer", "already answered", ["request": request.id, "words": words])
+            return .alreadyAnswered
         } catch {
-            WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") did not reach the relay: \(error)")
-            return false
+            WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") was not delivered: \(error)")
+            return .failed
         }
     }
 
@@ -176,12 +189,13 @@ enum WatchCopy {
     static let whatInstead = "What should it do instead?"
     static let unreadable = "Open Agent Keyring on your iPhone to see this request."
     static func project(_ name: String) -> String { "Project \(name)" }
-    static func answered(approve: Bool, sent: Bool) -> String {
-        switch (approve, sent) {
-        case (true, true): "Approved"
-        case (false, true): "Denied"
-        case (true, false): "Not approved. Try on your iPhone."
-        case (false, false): "Not sent. Try on your iPhone."
+    static func answered(approve: Bool, _ result: WatchDelegate.AnswerResult) -> String {
+        switch (approve, result) {
+        case (_, .alreadyAnswered): "Already answered"
+        case (true, .sent): "Approved"
+        case (false, .sent): "Denied"
+        case (true, .failed): "Not approved. Try on your iPhone."
+        case (false, .failed): "Not sent. Try on your iPhone."
         }
     }
     static let inUse = "In use"

@@ -222,23 +222,36 @@ public enum Sealing {
         return upload
     }
 
-    /// A request a device may show and answer: signed by the machine it names,
-    /// with that machine's TLS key as `members` lists it, so the relay can
-    /// neither make one up nor send the answer to another machine. Returns the
-    /// machine, or nil for this device's own practice request.
+    /// A request a device may show and answer: signed by the machine it names, with that machine's TLS
+    /// key as `members` lists it, so the relay can neither make one up nor send the answer elsewhere. Its
+    /// answer door, if named, must serve with that same key. A practice request for this device may also
+    /// be signed by the relay's TLS key (one a device asked the relay for). Returns the machine, or nil for
+    /// this device's own practice request. Anything unsigned throws.
     @discardableResult
     public static func checkRequest(_ work: Agentkeyring_V2_Work, members: Members, ownKeyID: String) throws -> Agentkeyring_V2_Machine? {
         let request = try parseRequest(work.request)
-        if work.requestSignature.isEmpty, !request.forDeviceKeyID.isEmpty, request.forDeviceKeyID == ownKeyID,
-            request.machineID.isEmpty, request.loginID.isEmpty {
-            return nil
-        }
-        guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { throw Failure.unknownSigner }
-        guard let key = try? P256.Signing.PublicKey(derRepresentation: machine.tlsPublicKey),
+        let practice = !request.forDeviceKeyID.isEmpty && request.forDeviceKeyID == ownKeyID && request.loginID.isEmpty
+        let machine = members.machines.first { $0.machineID == request.machineID }
+        let signerKey: Data
+        if let machine { signerKey = machine.tlsPublicKey }
+        else if practice, request.machineID.isEmpty { signerKey = members.relayTlsPublicKey }
+        else { throw Failure.unknownSigner }
+        guard let key = try? P256.Signing.PublicKey(derRepresentation: signerKey),
             let signature = try? P256.Signing.ECDSASignature(derRepresentation: work.requestSignature),
             key.isValidSignature(signature, for: work.request)
         else { throw Failure.badSignature }
-        return machine
+        if !request.answerAddress.isEmpty, request.answerTlsPublicKey != signerKey { throw Failure.badSignature }
+        return practice ? nil : machine
+    }
+
+    /// Where a device posts its answer and arrival: the asking machine's door, pinned to its key in
+    /// Members. Nil when the request names none (one from before the doors).
+    public static func answerDoor(_ request: KeyringRequest) -> (host: String, port: UInt16, key: Data)? {
+        guard !request.answerAddress.isEmpty, let colon = request.answerAddress.lastIndex(of: ":"),
+              let port = UInt16(request.answerAddress[request.answerAddress.index(after: colon)...]) else { return nil }
+        var host = String(request.answerAddress[..<colon])
+        if host.hasPrefix("["), host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
+        return (host, port, request.answerTlsPublicKey)
     }
 
     /// The password a request is for, from the signed Catalogue only: never the

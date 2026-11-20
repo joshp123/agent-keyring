@@ -190,6 +190,8 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var journey = PhoneJourney()
     /// While this iPhone's copies of the passwords arrive after joining: how many are here, of how many.
     public var filling: PhoneFill?
+    /// Requests whose answer is not delivered yet: the asking computer's door cannot be reached, and it is retried.
+    public var undelivered: Set<String> = []
     /// In the signed list of devices.
     public var joined = false
 

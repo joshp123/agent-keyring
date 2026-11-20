@@ -176,23 +176,6 @@ struct SealingTests {
         #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkRequest(unsigned, members: members, ownKeyID: keys.deviceID) }
     }
 
-    @Test("A device's own practice request comes unsigned; one for another device, or naming a computer, does not")
-    func practiceRequest() throws {
-        let keys = try Keys()
-        let members = try keys.members()
-        var practice = KeyringRequest()
-        practice.domain = "agentkeyring.request.v2"
-        practice.requestID = "practice-1"
-        practice.forDeviceKeyID = keys.deviceID
-        var work = Agentkeyring_V2_Work()
-        work.request = try practice.serializedData()
-        #expect(try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceID) == nil)
-        #expect(throws: Sealing.Failure.unknownSigner) { try Sealing.checkRequest(work, members: members, ownKeyID: "another-device") }
-        practice.machineID = keys.machineID
-        work.request = try practice.serializedData()
-        #expect(throws: Sealing.Failure.badSignature) { try Sealing.checkRequest(work, members: members, ownKeyID: keys.deviceID) }
-    }
-
     @Test("A join proof made in Go checks in Swift")
     func joinProofFromGo() throws {
         let joining = try Agentkeyring_V2_JoinRequest(serializedBytes: Data(contentsOf: Self.folder.appending(path: "go-join.pb")))
