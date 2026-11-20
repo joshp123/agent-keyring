@@ -9,9 +9,12 @@
 import Foundation
 
 public enum PhoneFirstRun: Hashable, Sendable, Codable {
-    /// Not joined: what the app is, with a card for where setup stands.
-    /// `practising`: the practice request is open over it.
-    case welcome(PhoneWelcomeCard, practising: Bool)
+    /// What the app is and how it keeps passwords safe, with Add This iPhone. Nothing is asked of the
+    /// Mac until he taps it. `practising`: the practice request is open over it.
+    case welcome(practising: Bool)
+    /// He tapped Add This iPhone: the iPhone looks for his Mac's invitation and asks to join. Saved, so
+    /// leaving the app or relaunching it picks up the same request instead of starting again.
+    case linking(PhoneWelcomeCard)
     /// "Turn on notifications", with Continue.
     case notifications
     /// iOS's own question is up.
@@ -19,16 +22,16 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
     case notificationsOff
     /// "Try a request on this iPhone", with Send Practice Request.
     case practiceOffer
-    /// The relay has been asked for the practice request. `arrived`: it is
-    /// here, and its notification waits for a tap.
-    case practiceWaiting(arrived: Bool)
-    /// 30 seconds passed and Apple has given no push address: the practice
-    /// request opens by itself when it arrives.
-    case settingUpNotifications
+    /// A practice request has been asked for. `id`: the relay's request, once it has answered, so a return
+    /// to the app shows that one again; nil while the ask is in flight. `arrived`: it is here, and its
+    /// notification waits for a tap.
+    case practiceWaiting(id: String?, arrived: Bool)
+    /// 30 seconds passed and Apple has given no push address: the practice request opens by itself when it arrives.
+    case settingUpNotifications(id: String?)
     /// 30 seconds passed and nothing arrived, though Apple gave an address.
-    case practiceNotArrived
+    case practiceNotArrived(id: String?)
     /// The practice request is open.
-    case practice
+    case practice(id: String)
     /// The practice's result stays on screen, with Send Another and Continue.
     case practiceResult(PhonePracticeOutcome)
     /// "Add your Apple Watch", only when one is paired and not yet added.
@@ -37,6 +40,8 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
     case finished
 
     public enum Event: Hashable, Sendable {
+        /// Add This iPhone.
+        case addThisPhone
         /// The look for the Mac found nothing. `longWait`: for two minutes.
         case noMac(longWait: Bool)
         /// The Mac is set up but has no computer that stays on.
@@ -50,6 +55,8 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case continueTapped
         case notificationsAnswered(allowed: Bool)
         case continueWithoutNotifications
+        /// The relay has made the practice request asked for, with this id.
+        case practiceSent(id: String)
         /// `pushExpected`: its notification will come, so it waits for a tap.
         case practiceArrived(pushExpected: Bool)
         case practiceTapped
@@ -67,35 +74,43 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case removed
     }
 
-    public static let start = PhoneFirstRun.welcome(.startOnMac(longWait: false), practising: false)
+    public static let start = PhoneFirstRun.welcome(practising: false)
+    static let lookingForMac = PhoneFirstRun.linking(.startOnMac(longWait: false))
 
     /// The next state. A pair the table does not list leaves the state as it is,
     /// so a repeated tap or a late answer cannot move first run anywhere wrong.
     public func on(_ event: Event) -> PhoneFirstRun {
         switch (self, event) {
         case (_, .removed): .start
+        case (.welcome(false), .addThisPhone): .lookingForMac
+        case (.welcome(false), .tryPractice): .welcome(practising: true)
+        case (.welcome(true), .closePractice): .welcome(practising: false)
         // The Mac refused: it stays refused until Ask Again, whatever the look finds.
-        case (.welcome(.denied, _), .noMac), (.welcome(.denied, _), .macWithoutComputer), (.welcome(.denied, _), .joinWaiting): self
-        case let (.welcome(.denied, practising), .askAgain): .welcome(.startOnMac(longWait: false), practising: practising)
-        case let (.welcome(_, practising), .noMac(longWait)): .welcome(.startOnMac(longWait: longWait), practising: practising)
-        case let (.welcome(_, practising), .macWithoutComputer(mac)): .welcome(.addComputer(mac: mac), practising: practising)
-        case let (.welcome(_, practising), .joinWaiting(mac)): .welcome(.approveOnMac(mac: mac), practising: practising)
-        case let (.welcome(_, practising), .joinRefused(mac)): .welcome(.denied(mac: mac), practising: practising)
-        case (.welcome, .joined): .notifications
-        case let (.welcome(card, false), .tryPractice): .welcome(card, practising: true)
-        case let (.welcome(card, true), .closePractice): .welcome(card, practising: false)
+        case (.linking(.denied), .noMac), (.linking(.denied), .macWithoutComputer), (.linking(.denied), .joinWaiting): self
+        case (.linking(.denied), .askAgain): .lookingForMac
+        case let (.linking, .noMac(longWait)): .linking(.startOnMac(longWait: longWait))
+        case let (.linking, .macWithoutComputer(mac)): .linking(.addComputer(mac: mac))
+        case let (.linking, .joinWaiting(mac)): .linking(.approveOnMac(mac: mac))
+        case let (.linking, .joinRefused(mac)): .linking(.denied(mac: mac))
+        case (.linking, .joined): .notifications
         case (.notifications, .continueTapped): .askingNotifications
         case (.notifications, .notificationsAnswered(true)), (.askingNotifications, .notificationsAnswered(true)),
              (.notificationsOff, .notificationsAnswered(true)): .practiceOffer
         case (.notifications, .notificationsAnswered(false)), (.askingNotifications, .notificationsAnswered(false)): .notificationsOff
         case (.notificationsOff, .continueWithoutNotifications): .practiceOffer
-        case (.practiceOffer, .sendPractice), (.practiceResult, .sendPractice): .practiceWaiting(arrived: false)
-        case let (.practiceWaiting(false), .practiceArrived(pushExpected)): pushExpected ? .practiceWaiting(arrived: true) : .practice
-        case (.settingUpNotifications, .practiceArrived), (.practiceNotArrived, .practiceArrived): .practice
-        case (.practiceWaiting, .practiceTapped), (.settingUpNotifications, .practiceTapped), (.practiceNotArrived, .practiceTapped): .practice
-        case (.practiceWaiting(true), .practiceTimedOut): .practice
-        case let (.practiceWaiting(false), .practiceTimedOut(pushAddress)): pushAddress ? .practiceNotArrived : .settingUpNotifications
-        case (.practiceNotArrived, .tryAgain): .practiceWaiting(arrived: false)
+        case (.practiceOffer, .sendPractice), (.practiceResult, .sendPractice), (.practiceNotArrived, .tryAgain):
+            .practiceWaiting(id: nil, arrived: false)
+        case let (.practiceWaiting(nil, arrived), .practiceSent(id)): .practiceWaiting(id: id, arrived: arrived)
+        case let (.settingUpNotifications(nil), .practiceSent(id)): .settingUpNotifications(id: id)
+        case let (.practiceNotArrived(nil), .practiceSent(id)): .practiceNotArrived(id: id)
+        case let (.practiceWaiting(id?, false), .practiceArrived(pushExpected)):
+            pushExpected ? .practiceWaiting(id: id, arrived: true) : .practice(id: id)
+        case let (.settingUpNotifications(id?), .practiceArrived), let (.practiceNotArrived(id?), .practiceArrived),
+             let (.practiceWaiting(id?, _), .practiceTapped), let (.settingUpNotifications(id?), .practiceTapped),
+             let (.practiceNotArrived(id?), .practiceTapped), let (.practiceWaiting(id?, true), .practiceTimedOut):
+            .practice(id: id)
+        case let (.practiceWaiting(id, false), .practiceTimedOut(pushAddress)):
+            pushAddress ? .practiceNotArrived(id: id) : .settingUpNotifications(id: id)
         case let (.practiceWaiting, .practiceEnded(outcome)), let (.settingUpNotifications, .practiceEnded(outcome)),
              let (.practiceNotArrived, .practiceEnded(outcome)), let (.practice, .practiceEnded(outcome)): .practiceResult(outcome)
         case let (.practiceResult, .continueAfterPractice(watchToAdd)): watchToAdd ? .addWatch : .finished
@@ -104,28 +119,42 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         }
     }
 
-    /// Where first run picks up after the app was closed: a question iOS was
-    /// asking, or a practice request in flight, did not outlive the app.
+    /// Where first run picks up after the app was closed. A question iOS was asking did not outlive the
+    /// app. A request to join, or a practice request the relay has made, is picked up by the same request;
+    /// a practice ask the relay never answered is offered again.
     public var restored: PhoneFirstRun {
         switch self {
         case .welcome: .start
+        case .linking(.denied): self
+        case .linking: .lookingForMac
         case .askingNotifications: .notifications
-        case .practiceWaiting, .settingUpNotifications, .practiceNotArrived, .practice, .practiceResult: .practiceOffer
+        case let .practiceWaiting(id?, _), let .settingUpNotifications(id?), let .practiceNotArrived(id?), let .practice(id):
+            .practiceWaiting(id: id, arrived: false)
+        case .practiceWaiting, .settingUpNotifications, .practiceNotArrived: .practiceOffer
         default: self
         }
     }
 
-    /// The look for the Mac may ask to join: not once the Mac refused, until Ask Again.
+    /// The look for the Mac may ask to join: only after Add This iPhone, and not once the Mac refused, until Ask Again.
     public var mayJoin: Bool {
-        guard case let .welcome(card, _) = self else { return false }
+        guard case let .linking(card) = self else { return false }
         if case .denied = card { return false }
         return true
     }
 
-    /// The relay should be sending this iPhone a practice request.
-    public var wantsPractice: Bool {
+    /// The practice request first run is waiting on or showing, once the relay has made it.
+    public var practiceID: String? {
         switch self {
-        case .practiceWaiting, .settingUpNotifications, .practice: true
+        case let .practiceWaiting(id, _), let .settingUpNotifications(id), let .practiceNotArrived(id): id
+        case let .practice(id): id
+        default: nil
+        }
+    }
+
+    /// A practice request has been asked for and the relay has not yet said which.
+    public var practiceAskInFlight: Bool {
+        switch self {
+        case .practiceWaiting(nil, _), .settingUpNotifications(nil), .practiceNotArrived(nil): true
         default: false
         }
     }
@@ -136,7 +165,7 @@ public enum PhonePracticeOutcome: Hashable, Sendable, Codable {
     case approved, denied, noAnswer
 }
 
-/// The card under "Agent Keyring" on the first screen. `mac`: the Mac's name, when known.
+/// Where linking stands, under the welcome text. `mac`: the Mac's name, when known.
 public enum PhoneWelcomeCard: Hashable, Sendable, Codable {
     case startOnMac(longWait: Bool)
     case addComputer(mac: String?)

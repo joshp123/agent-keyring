@@ -135,7 +135,7 @@ public final class PhoneRelayBackend: PhoneBackend {
         if let data = try? Data(contentsOf: stateURL), let saved = try? PropertyListDecoder().decode(PhoneSavedState.self, from: data) {
             state = saved
         }
-        firstRun = state.deviceKeyID == nil ? .start : (state.firstRun ?? .notifications).restored
+        firstRun = (state.firstRun ?? (state.deviceKeyID == nil ? .start : .notifications)).restored
     }
 
     // MARK: What the screens see
@@ -195,13 +195,12 @@ public final class PhoneRelayBackend: PhoneBackend {
         guard next != firstRun else { return }
         PhoneDiagnostics.log.note("firstrun", "moved", ["from": "\(firstRun)", "to": "\(next)", "by": "\(event)"])
         firstRun = next
-        if state.deviceKeyID != nil {
-            var saved = state
-            saved.firstRun = next
-            save(saved)
-        } else { publish() }
-        if next == .practiceWaiting(arrived: false) { beginPractice() }
-        if next == .settingUpNotifications { askForPractice() }
+        var saved = state
+        saved.firstRun = next
+        save(saved)
+        if next == .lookingForMac { lookForMac() }
+        if next == .practiceWaiting(id: nil, arrived: false) { beginPractice() }
+        if next == .settingUpNotifications(id: nil), practiceTask == nil { askForPractice() }
     }
 
     /// A tap on a first-run screen, or what iOS answered about notifications.
@@ -214,8 +213,8 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// The practice request while it is open: on its own before joining, the relay's after.
     private var practiceOpen: AccessRequest? {
         switch firstRun {
-        case .welcome(_, practising: true): .practice()
-        case .practice: testWork.flatMap { work in (try? Sealing.parseRequest(work.request)).map(Self.practiceRequest) }
+        case .welcome(practising: true): .practice()
+        case let .practice(id): practiceWork(id).flatMap { work in (try? Sealing.parseRequest(work.request)).map(Self.practiceRequest) }
         default: nil
         }
     }
@@ -261,11 +260,17 @@ public final class PhoneRelayBackend: PhoneBackend {
     public var onSettingsChanged: (() -> Void)?
     public var notificationSettings: NotificationSettings { state.settings ?? NotificationSettings() }
 
-    /// The relay's latest practice request for this iPhone, once it has arrived and while it waits.
-    private var testWork: Work? {
-        state.work.values.compactMap { try? Work(serializedBytes: $0) }
-            .filter { !$0.hasOutcome && isPracticeWork($0) }
-            .max { (try? Sealing.parseRequest($0.request).askedUnixSeconds) ?? 0 < (try? Sealing.parseRequest($1.request).askedUnixSeconds) ?? 0 }
+    /// This iPhone's practice request with this id, as this iPhone last heard of it.
+    private func practiceWork(_ id: String) -> Work? {
+        state.work[id].flatMap { try? Work(serializedBytes: $0) }.flatMap { isPracticeWork($0) ? $0 : nil }
+    }
+
+    /// The practice request for this iPhone still waiting for an answer, if any: one at most.
+    private var waitingPractice: Work? {
+        let now = Int64(Date().timeIntervalSince1970)
+        return state.work.values.compactMap { try? Work(serializedBytes: $0) }.first { work in
+            !work.hasOutcome && isPracticeWork(work) && ((try? Sealing.parseRequest(work.request))?.answerByUnixSeconds ?? 0) > now
+        }
     }
 
     private func isPracticeWork(_ work: Work) -> Bool {
@@ -283,7 +288,9 @@ public final class PhoneRelayBackend: PhoneBackend {
         // A practice request sent from Home or Devices: answered like any other, with the practice words.
         if isPracticeWork(work) {
             var practice = Self.practiceRequest(request)
-            practice.state = work.hasOutcome ? Self.state(work.outcome, now: Int64(Date().timeIntervalSince1970), members: members) : practice.state
+            let now = Int64(Date().timeIntervalSince1970)
+            if work.hasOutcome { practice.state = Self.state(work.outcome, now: now, members: members) }
+            else if request.answerByUnixSeconds <= now { practice.state = .unanswered }
             return practice
         }
         guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { return nil }
@@ -360,10 +367,9 @@ public final class PhoneRelayBackend: PhoneBackend {
 
     /// Follows the relay's work stream while the app is open, reconnecting with backoff.
     public func start() {
-        guard state.deviceKeyID != nil else { lookForMac(); return }
-        // After a relaunch, or a practice request lost while the app was away: ask for it again.
-        if firstRun == .practiceWaiting(arrived: false), practiceTimer == nil { beginPractice() }
-        else if firstRun.wantsPractice, practiceTask == nil, pushRegistered || firstRun == .settingUpNotifications { askForPractice() }
+        guard state.deviceKeyID != nil else { if firstRun.mayJoin { lookForMac() }; return }
+        // Back in the app: the practice request first run is on is fetched by its id, never asked for again.
+        if let id = firstRun.practiceID { Task { await refreshPractice(id) } }
         guard following == nil, state.endpoint != nil else { return }
         uploading = Task { [weak self] in
             while !Task.isCancelled {
@@ -423,6 +429,8 @@ public final class PhoneRelayBackend: PhoneBackend {
         save(next)
         // The practice request reaches first run here too, so its end is seen even if its own stream was lost.
         if isPracticeWork(work) {
+            // Only first run's own practice request moves first run; one sent from Home is answered like any request.
+            guard request.requestID == firstRun.practiceID else { return }
             if work.hasOutcome { practiceOutcome = Self.latched(practiceOutcome, work.outcome.state); apply(.practiceEnded(Self.outcome(work.outcome.state))) }
             else { apply(.practiceArrived(pushExpected: notificationsAllowed && pushRegistered)) }
             return
@@ -467,7 +475,6 @@ public final class PhoneRelayBackend: PhoneBackend {
             practiceTimer?.cancel(); practiceTimer = nil
             lookingSince = nil
             apply(.removed)
-            lookForMac()
             return
         }
         var next = state
@@ -514,13 +521,13 @@ public final class PhoneRelayBackend: PhoneBackend {
     // MARK: Answers
 
     public func approve(_ requestID: String, reusingUnlock: Bool) async throws {
-        if case .welcome(_, practising: true) = firstRun, requestID == AccessRequest.localPracticeID {
+        if firstRun == .welcome(practising: true), requestID == AccessRequest.localPracticeID {
             let context = LAContext()
             defer { context.invalidate() }
             try await keys.authorize(context, reason: "Approve the practice request.")
             return apply(.closePractice)
         }
-        if isPractice(requestID) { return try await approveTest() }
+        if let work = practiceWork(requestID) { return try await approveTest(work) }
         // The notification's Approve and the app's can both run for one request: the second is not an error.
         if settled(requestID) { return PhoneNotifications.remove(requestID) }
         let work = try await currentWork(requestID)
@@ -548,8 +555,8 @@ public final class PhoneRelayBackend: PhoneBackend {
     }
 
     public func deny(_ requestID: String, reply: String?) async throws {
-        if case .welcome(_, practising: true) = firstRun, requestID == AccessRequest.localPracticeID { return apply(.closePractice) }
-        if isPractice(requestID) { return await denyTest() }
+        if firstRun == .welcome(practising: true), requestID == AccessRequest.localPracticeID { return apply(.closePractice) }
+        if practiceWork(requestID) != nil { return await denyTest(requestID) }
         if settled(requestID) { return PhoneNotifications.remove(requestID) }
         let work = try await currentWork(requestID)
         let upload: AnswerUpload
@@ -737,7 +744,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// tried again after a short wait, so a Mac set up later is found by itself.
     /// First run decides whether it may ask: not after the Mac refused, until Ask Again.
     private func lookForMac() {
-        guard looking == nil, state.deviceKeyID == nil else { return }
+        guard looking == nil, state.deviceKeyID == nil, firstRun.mayJoin else { return }
         if lookingSince == nil { lookingSince = Date() }
         looking = Task { [weak self] in
             while !Task.isCancelled {
@@ -752,11 +759,14 @@ public final class PhoneRelayBackend: PhoneBackend {
                 if self.firstRun.mayJoin, let link,
                    self.failedJoin.map({ $0.link != link || Date().timeIntervalSince($0.at) > 30 }) ?? true {
                     do { try await self.joinNow(link) } catch {
+                        // Leaving the app cuts the connection: the request stays waiting at the relay and
+                        // is picked up, by asking again with the same keys, when he comes back.
+                        if Task.isCancelled { break }
                         self.failedJoin = (link, Date())
-                        PhoneDiagnostics.note("No Mac yet: \(error)")
+                        PhoneDiagnostics.log.note("join", "not joined", ["error": "\(error)"])
                     }
                 }
-                if self.state.deviceKeyID != nil { break }
+                if self.state.deviceKeyID != nil || Task.isCancelled { break }
                 self.apply(.noMac(longWait: Date().timeIntervalSince(self.lookingSince ?? Date()) >= 120))
                 try? await Task.sleep(for: .seconds(3))
             }
@@ -879,49 +889,60 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// Which ask is the current one, so that a replaced ask cannot clear its successor.
     private var practiceAsk = 0
 
-    /// Asks the relay for this iPhone's practice request: it arrives pushed, like
-    /// any request, which shows that requests reach the phone. A new ask replaces
-    /// the last, and any of its requests still waiting here.
+    /// Asks the relay for one practice request for this iPhone: it arrives pushed, like any request, which
+    /// shows that requests reach the phone. The relay's first reply names the request, and first run keeps
+    /// that id, so a return to the app shows the same request. A dropped connection is not a failure: the
+    /// request stays at the relay, and its end also comes on the work stream.
     private func askForPractice() {
         practiceTask?.cancel()
         practiceAsk += 1
         let ask = practiceAsk
-        var next = state
-        next.work = next.work.filter { _, bytes in (try? Work(serializedBytes: bytes)).map { $0.hasOutcome || !isPracticeWork($0) } ?? true }
-        save(next)
         practiceTask = Task { [weak self] in
             guard let self else { return }
             do {
                 for try await response in try self.relay().stream(Self.method { $0.testRequest = .init() }) {
-                    guard case let .lease(lease) = response.result, lease.state != .waiting else { continue }
+                    guard case let .lease(lease) = response.result else { continue }
+                    if lease.state == .waiting {
+                        PhoneDiagnostics.log.note("practice", "made", ["request": lease.requestID])
+                        self.apply(.practiceSent(id: lease.requestID))
+                        // The request may have come on the work stream before the relay's reply.
+                        if self.practiceWork(lease.requestID) != nil {
+                            self.apply(.practiceArrived(pushExpected: self.notificationsAllowed && self.pushRegistered))
+                        }
+                        continue
+                    }
                     self.practiceOutcome = Self.latched(self.practiceOutcome, lease.state)
                     self.apply(.practiceEnded(Self.outcome(lease.state)))
                     await self.reportSelfTest()
                 }
-            } catch { PhoneDiagnostics.note("Practice request failed: \(error)") }
+            } catch { PhoneDiagnostics.log.note("practice", "stream ended", ["error": "\(error)"]) }
             if self.practiceAsk == ask { self.practiceTask = nil }
         }
     }
 
-    private func isPractice(_ id: String) -> Bool {
-        testWork.flatMap { try? Sealing.parseRequest($0.request).requestID } == id
+    /// Back in the app with a practice request first run knows by id: ask the relay where it stands.
+    private func refreshPractice(_ id: String) async {
+        guard case let .work(work)? = try? await relay().call(Self.method { $0.getWork.requestID = id }).result else { return }
+        receive(work)
+        if firstRun == .practiceWaiting(id: id, arrived: false), practiceTimer == nil, !work.hasOutcome {
+            apply(.practiceArrived(pushExpected: notificationsAllowed && pushRegistered))
+        }
     }
 
     /// A tap on a notification: the practice request opens over first run.
     public func notificationOpened(_ requestID: String) {
         PhoneDiagnostics.log.note("notification", "opened", ["request": requestID])
-        if isPractice(requestID) { return apply(.practiceTapped) }
+        if requestID == firstRun.practiceID { return apply(.practiceTapped) }
         // Opened from the Lock Screen while the app was away: its stream has not sent the request yet, so ask for it.
         guard state.work[requestID] == nil, state.endpoint != nil else { return }
         Task {
             guard case let .work(work)? = try? await relay().call(Self.method { $0.getWork.requestID = requestID }).result else { return }
             receive(work)
-            if isPractice(requestID) { apply(.practiceTapped) }
+            if requestID == firstRun.practiceID { apply(.practiceTapped) }
         }
     }
 
-    func denyTest() async {
-        guard let work = testWork, let id = try? Sealing.parseRequest(work.request).requestID else { return }
+    func denyTest(_ id: String) async {
         _ = try? await relay().call(Self.method { $0.answer = Sealing.plainDeny(requestID: id) })
     }
 
@@ -938,8 +959,7 @@ public final class PhoneRelayBackend: PhoneBackend {
     /// First run's test request, approved with one Face ID: a signed answer with
     /// no delivery. The same Face ID also opens one of this iPhone's sealed logins,
     /// so both chip keys are tested.
-    func approveTest() async throws {
-        guard let work = testWork else { return }
+    func approveTest(_ work: Work) async throws {
         let context = LAContext()
         defer { context.invalidate() }
         try await keys.authorize(context, reason: "Approve the practice request.")
