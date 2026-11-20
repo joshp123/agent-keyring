@@ -6,7 +6,7 @@ written_by: ai (Claude Opus 5.5, 2026-11-19). The Mac, relay and command section
 
 These are the places where Agent Keyring remembers where something is up to: their states, what must always be true, and what moves them. Each section names the code it describes. When the code changes, change the section with it.
 
-What this file does not claim: that no other state exists. The sections below are the ones checked line by line against the code on 19 November 2026. Each ends with what was found that can actually go wrong, and what was done about it.
+What this file does not claim: that no other state exists. The sections below are the ones checked line by line against the code on 19 and 20 November 2026. Each ends with what was found that can actually go wrong, and what was done about it.
 
 ## Mac first run
 
@@ -14,47 +14,60 @@ Code: `AgentKeyringFeature/FirstRun.swift` (states and transitions, pure), `Mirr
 
 One value, `FirstRun`, is saved in the app's settings. It holds only which screen he is on and what he did there. Facts the world owns are read beside it and never copied into it:
 
-- Touch ID can be used: the lid, and whether a fingerprint is enrolled.
+- Touch ID can be used: `MacApprover.shared.state` (ready, lid closed, or no fingerprint), read again when the screens change, the Mac wakes or the app becomes active. The first-run window, the request panel and the presenter all read this one value.
 - The passwords: the store, and whether the only one is the sample.
-- The computers that have joined or are waiting: the members list and its joins.
-- Whether the practice request ever passed: its tested date.
-- Whether `agent-keyring install` has run on this Mac: a saved flag.
+- Whether the agents on this Mac are set up: `~/.local/bin/agent-keyring` resolves to this app's own command (`AgentsOnThisMac`). It is read from the link each time the window is drawn and when Continue is pressed, so the app's button, an agent's own `install`, `install --undo` and a Nix switch all show up. Nothing remembers it.
+- Whether a computer that stays on exists: the members list.
 
 | State | Screen | Event | Next |
 |---|---|---|---|
 | welcome | Welcome | Get Started | practice |
-| practice | Try a practice request (the panel beside the pointer) | approved with Touch ID | copyPasswords(notOpened) |
+| practice | Try a practice request (the panel beside the window) | approved with Touch ID | copyPasswords |
 | practice | | Deny, with or without words | practiceDenied(reply) |
 | practiceDenied(reply) | You denied it | Try Again | practice |
-| copyPasswords(notOpened, waiting, noneArrived) | Copy your passwords | Open Passwords | copyPasswords(waiting) |
-| copyPasswords(waiting) | Waiting for your passwords… | five minutes pass | copyPasswords(noneArrived) |
-| copyPasswords(any) | | the export starts arriving | copying |
-| copyPasswords(any) | | Use a Sample Password | setUpAgents(sample) |
-| copying | Copying your passwords… | sealed and saved | setUpAgents(passwords(n)) |
-| copying | | failed | copyPasswords(notOpened), with the error |
-| setUpAgents(copied, messageCopied) | N passwords copied / 1 sample password added; Set up your agents | Copy Message | setUpAgents(copied, true) |
-| setUpAgents | | `install` ran (now, or before he got here) | computers |
-| setUpAgents | | his own copy arrives | setUpAgents(passwords(n)) |
-| setUpAgents | | Do This Later | almostReady |
-| computers | Set up your agents: each computer, added or waiting | Continue | ready |
-| ready / almostReady | Agent Keyring is ready / almost ready | Done | finished |
+| copyPasswords | Copy your passwords (see the copy below) | his passwords arrive and are sealed | setUpAgents(passwords(n)) |
+| copyPasswords | | Use a Sample Password | setUpAgents(sample) |
+| setUpAgents(copied) | N passwords copied, or 1 sample password added; Set up your agents | his own passwords arrive | setUpAgents(passwords(n)) |
+| setUpAgents(sample) | | Copy Your Own Passwords | copyPasswords |
+| setUpAgents | | Continue, only while the agents on this Mac are set up | ready |
+| ready | Agent Keyring is ready (the sample box while the sample is the only password; the iPhone line depends on a computer that stays on) | Copy Your Own Passwords | copyPasswords |
+| ready | | Done | finished |
 
 An event the table has no row for leaves the state as it is.
 
+"Set Up Agents on This Mac" runs the app's own `agent-keyring install` inside the sandbox, which may write only the command's and the agents' folders (`Config/AgentKeyring.entitlements`). While it runs, or after it fails, the click has its own short-lived value, `AgentsSetUpClick` (working, or failed with the command's words); it is never saved, and a failure never hides the links: if they show the agents set up, the tick shows.
+
+### Copying from the Passwords app
+
+Code: `PasswordsCopy` in `FirstRun.swift`, `MirrorCredentialImport.swift`. First run's "Copy your passwords" and the main window's Copy from Passwords are the same screens and the same value, `MirrorAppModel.passwordsCopy`. It is nil when no copy is open; first run draws nil as the three steps, and the main window shows its list. It is not saved.
+
+| State | Event | Next |
+|---|---|---|
+| nil or steps | Open Passwords (Copy Again in the main window) | waiting |
+| waiting | five minutes with nothing | noneArrived |
+| steps, waiting or noneArrived | "Agent Keyring isn't in the list?" | allowExport(asking: false) |
+| allowExport(false) | Continue: macOS asks to turn on AutoFill | allowExport(true) |
+| allowExport(true) | Turn On | steps |
+| allowExport(true) | Not Now, then macOS's 10 seconds | allowExport(false) |
+| any | the export starts arriving | copying |
+| copying | sealed and saved | nil |
+| copying | failed | steps, with the error |
+| any | Use a Sample Password, or Cancel in the main window | nil |
+
 What must always be true:
 
-- **Exactly one screen.** The window is `FirstRun` plus the facts above; nothing else chooses it.
-- **The practice request beside the pointer exists only in `practice`.** It also needs Touch ID to be usable. When it is not (the lid is closed, or no fingerprint is enrolled), the window says "Open the lid" or "Add a fingerprint" in its place. The window and the panel's presenter read the same two facts.
-- **A restart never strands him.** `copying` and every `copyPasswords` resume as `copyPasswords(notOpened)`, because the app no longer runs that copy or that timer. Every other state resumes as saved.
-  - If a later build cannot read the saved state, first run starts at welcome.
-  - A Mac that finished first run before this state was saved opens as finished.
-- **The sample is an ordinary Ask password.** His first copy from Passwords removes it from the list, the sealed store and the relay. The relay keeps no copy of a login that is no longer listed.
+- **Exactly one screen.** The window is `FirstRun`, `passwordsCopy` and the facts above; nothing else chooses it.
+- **The practice request exists only in `practice`, and only while Touch ID is ready.** When the lid is closed or no fingerprint is enrolled, the window says "Open the lid" or "Add a fingerprint" in its place.
+- **The request panel never covers the window that explains it.** It goes to the right of Agent Keyring's window, else to its left, else the window moves to the screen's left edge (`RequestPanel.frame`, tested on 1728- and 1280-point screens).
+- **A restart never strands him.** Every state resumes as saved, and a copy starts again from the steps. If a later build cannot read the saved state, first run starts at welcome. A Mac that finished first run before this state was saved opens as finished.
+- **A fresh container is a new install.** On its first launch the app deletes what an earlier install left in the keychain (its relay and members, its rules, the name it left for the iPhone in iCloud Keychain) and keeps this Mac's keys (`MirrorAppModel.forgetPreviousInstall`).
+- **The sample is an ordinary Ask password.** His first copy from Passwords removes it from the list, the sealed store and the relay.
 
 Found and fixed (tests in `FirstRunTests`, `SamplePasswordTests`, and `TestABlockedLoginHasNoCopyOnTheRelay` in `internal/relay`):
 
-- **A late timer.** The five-minute timer used to set a flag of its own, so it could fire after the passwords had arrived. Now it is an event that only `copyPasswords(waiting)` takes.
-- **The ten flags it replaces.** They were `isImporting`, `awaitingExport`, `exportTimedOut`, `showsAutoFillHelp`, `providerState`, `canAskAgain`, `selfTest`, `firstRunFinished`, and the window's own `lidClosed` and `needsFingerprint`. Together they could say "copying" and "timed out" at once, and a Mac that copied its passwords before the practice request would skip it.
-- **An agent quicker than Josh.** `install` reporting before he reached "Set up your agents" would have left that screen waiting forever. Entering the screen now checks the saved flag.
+- **A late timer.** The five-minute timer moves the copy on only from `waiting`, so it cannot fire after the passwords arrived.
+- **A remembered "set up" that went stale.** The first build saved a flag when `install` ran; `install --undo` or a Nix switch left it saying yes. The links are now the only record.
+- **The ten flags first run replaced** (`isImporting`, `awaitingExport`, `exportTimedOut`, `showsAutoFillHelp`, `providerState`, `canAskAgain`, `selfTest`, `firstRunFinished`, the window's own `lidClosed` and `needsFingerprint`). Choosing the sample also closes an open copy, so the main window never opens later on a copy he abandoned.
 
 ## The lease, across the Mac, the relay and the command
 
@@ -97,33 +110,45 @@ Known and left alone:
 
 ## The Mac's approval panel
 
-Code: `AgentKeyringApprovalUI/Mac/MacApprovalPanel.swift` `MacApprovalModel`.
+Code: `AgentKeyringApprovalUI/Mac/MacApprovalPanel.swift` `MacApprovalModel`, and `AgentKeyring/ApprovalPresenter.swift`.
 
-The panel holds `request.state`, which the backend's updates own, beside four values of its own:
+The request's state belongs to the backend: only its updates and its answers to Approve, Deny and "Let it ask again" change it. Beside it the panel holds one value, `Local`, for what Josh has started there:
 
-- `isWaitingForTouch`: from the click on Approve until macOS's dialog returns.
-- `approval`: the task running that dialog.
-- `deniedHere` and `liftedHere`: Josh's own Deny and "Let it ask again", until the backend reports them.
+| Local | Reached by | Next |
+|---|---|---|
+| idle | the panel appears | authenticating (Approve), sending(deny) (Deny) |
+| authenticating | the click on the green button: macOS's dialog is up | sending(approve) when he confirms; idle on Cancel; failed |
+| sending(choice) | his answer is on its way; the panel shows it as sending even if an update says the request still waits | idle (approved), denied, failed |
+| denied | the backend took his denial | lifted ("Let it ask again") |
+| lifted | the backend lifted the hold-off | |
+| failed(message) | what he started didn't go through | authenticating, sending(deny) |
 
 What must always be true:
 
-- **An answer from elsewhere closes the dialog.** If the request stops waiting while macOS's Touch ID dialog is up, `followUpdates` cancels the dialog, and the task ends as a cancel, not an error.
+- **An answer from elsewhere closes the dialog.** If the request stops waiting while macOS's dialog is up, `followUpdates` cancels the dialog, and its end is a cancel, not an error.
+- **A Deny clicked while the dialog is up wins.** The dialog's own end changes `Local` only while it is still `authenticating` or `sending(approve)`.
 - **A touch that lands after another device answered releases nothing.** For an agent on the Mac, the lease store approves only a pending lease. For another computer, the relay refuses a second answer.
 
-Checked, no change: no path was found where the four values disagree with `request.state` in a way he can see. They are reset by the task's `defer`, and by the state updates, which always win.
+The presenter puts up one panel at a time, as one value: idle, showing an item, or closing an item (the outcome stays 2.5 seconds, a denial 10). It always shows the first waiting item it can build; one whose request has gone is skipped, never left half-shown.
+
+Found and fixed: the panel used to write "sending" into the request's own state, so an update arriving mid-send had to be skipped by hand, and the presenter kept six fields (`shownItem`, `shownRequest`, `question`, `showing`, `closingAfterAnswer`, `needsFingerprint`); a request that vanished between being chosen and being shown left the presenter pointing at the previous one. Test: `anUpdateWhileHisDenialIsSentDoesNotUndoIt`.
 
 ## Mac relay setup
 
 Code: `AgentKeyringFeature/MacDevice.swift`.
 
-The setup is held in parallel values:
+One value, `Lifecycle`: notSetUp, settingUp(Setup), or joined(Saved). `Setup` carries the relay's address, its TLS key as first seen, the invitation's secret, the agent and its reason, and the computer that stays on once its join proves the invitation. `Saved` lives in the keychain.
 
-- `setup`, `setupPin`, `setupSecret` and `setupWatch` live in memory, from `setup-relay` until he approves the computer that stays on;
-- `saved` lives in the keychain, from then on.
+| Lifecycle | Event | Next |
+|---|---|---|
+| notSetUp | an agent runs `setup-relay` | settingUp |
+| settingUp | Josh denies the computer, or two computers prove one invitation | notSetUp |
+| settingUp | Touch ID on "add Mac mini", and the relay takes the members list | joined |
+| settingUp | Touch ID, but the relay refuses the list | settingUp (he can approve again) |
 
-What must always be true: `saved` exists only once he has approved the computer that stays on with Touch ID.
+What must always be true: joined is reached only by his Touch ID on the computer that stays on.
 
-Known and left alone: a restart of the Mac app in the middle of setup forgets the setup. The agent's `enrol` on the computer that stays on then waits its ten minutes and stops with "no answer", and the agent runs `setup-relay` again. Folding the four values into one would make the code no smaller, so they stay.
+Known and left alone: a restart of the Mac app in the middle of setup forgets it (settingUp is not saved). The agent's `enrol` then waits its ten minutes and stops with "no answer", and the agent runs `setup-relay` again. The connection, the members list and the running task are not part of this value: they follow the relay while joined.
 
 ## iPhone: first run
 

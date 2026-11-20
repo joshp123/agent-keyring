@@ -283,7 +283,7 @@ message SetupRequest {
     VERIFY_MACHINE = 3;
     RELAY_STATUS = 4;
     INVITE = 5;                    // A one-time link for one machine to join (v2 JoinInvite).
-    AGENTS_SET_UP = 6;             // `agent-keyring install` ran on this Mac: first run moves on.
+    reserved 6;                    // AGENTS_SET_UP: the app now reads the links themselves.
   }
   Action action = 1;
   string host = 2;

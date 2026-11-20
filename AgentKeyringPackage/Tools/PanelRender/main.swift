@@ -81,23 +81,23 @@ let cases: [(String, AnyView)] = [
     ("first-run-2-practice-denied", AnyView(MacFirstRunView(screen: .practiceDenied(reply: "Use the invoice in my Downloads folder instead.")))),
     ("first-run-2-needs-fingerprint", AnyView(MacFirstRunView(screen: .needsFingerprint))),
     ("first-run-2-lid-closed", AnyView(MacFirstRunView(screen: .lidClosed))),
-    ("first-run-3-copy", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: false, noneArrived: false)))),
-    ("first-run-3-copy-waiting", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: false)))),
-    ("first-run-3-copy-none-arrived", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: true)))),
+    ("first-run-3-copy", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: false, noneArrived: false, offerSample: true, earlierVersion: true)))),
+    ("first-run-3-copy-waiting", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: false, offerSample: true, earlierVersion: false)))),
+    ("first-run-3-copy-none-arrived", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: true, offerSample: true, earlierVersion: false)))),
+    ("first-run-3-copy-from-main-window", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: false, offerSample: false, earlierVersion: true)))),
+    ("first-run-3-allow-export", AnyView(MacFirstRunView(screen: .allowExport(asking: false)))),
     ("first-run-3-copying", AnyView(MacFirstRunView(screen: .copying))),
     ("first-run-4-set-up", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
-        copiedDetail: FirstRunCopy.mustAskAny, messageCopied: false)))),
+        copiedDetail: FirstRunCopy.mustAskAny, sampleOnly: false, agents: .notYet)))),
+    ("first-run-4-set-up-done", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
+        copiedDetail: FirstRunCopy.mustAskAny, sampleOnly: false, agents: .done)))),
     ("first-run-4-set-up-sample", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.sampleAdded,
-        copiedDetail: FirstRunCopy.sampleDetail, messageCopied: false)))),
-    ("first-run-4-set-up-copied", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
-        copiedDetail: FirstRunCopy.mustAskAny, messageCopied: true)))),
-    ("first-run-5-computers", AnyView(MacFirstRunView(screen: .computers([
-        ComputerLine(id: "1", name: FirstRunCopy.thisMac, detail: FirstRunCopy.thisMacDetail, added: true),
-        ComputerLine(id: "2", name: "Mac mini", detail: FirstRunCopy.stayingOnAdded, added: true),
-        ComputerLine(id: "3", name: "Linux server", detail: FirstRunCopy.approveToAdd, added: false)])))),
-    ("first-run-6-ready", AnyView(MacFirstRunView(screen: .ready(phoneLater: false)))),
-    ("first-run-6-ready-phone-later", AnyView(MacFirstRunView(screen: .ready(phoneLater: true)))),
-    ("first-run-6-almost-ready", AnyView(MacFirstRunView(screen: .almostReady))),
+        copiedDetail: FirstRunCopy.sampleDetail, sampleOnly: true, agents: .notYet)))),
+    ("first-run-4-set-up-failed", AnyView(MacFirstRunView(screen: .setUpAgents(copiedTitle: FirstRunCopy.copied(542),
+        copiedDetail: FirstRunCopy.mustAskAny, sampleOnly: false,
+        agents: .failed("The agents on this Mac weren’t set up: agent-keyring: permission denied. Try again. If it keeps failing, copy the message below and send it to an agent: it can do this for you."))))),
+    ("first-run-6-ready", AnyView(MacFirstRunView(screen: .ready(phoneLater: false, sampleOnly: false)))),
+    ("first-run-6-ready-sample-phone-later", AnyView(MacFirstRunView(screen: .ready(phoneLater: true, sampleOnly: true)))),
     ("menu-bar-tip", AnyView(MenuBarTipView())),
 ]
 final class StubBackend: MainWindowBackend {
@@ -135,6 +135,25 @@ MainActor.assumeIsolated {
         ("devices-everything", mainWindow(everything, tab: .devices)),
         ("passwords-rule-bar-automatic", mainWindow(everything, tab: .logins, makeAutomatic: true)),
     ]
+    // The main window in a real window, off screen, so its toolbar and native controls draw as macOS draws them.
+    _ = NSApplication.shared
+    for (name, snapshot, tab) in [("window-passwords", everything, MacMainModel.Tab.logins), ("window-devices", everything, .devices),
+        ("window-sample-only", MainSnapshot(logins: [logins[0]], importedAt: .now, devices: [thisMac], machines: alone.machines), .logins)] {
+        for (appearance, label) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
+            let host = NSHostingController(rootView: mainWindow(snapshot, tab: tab))
+            host.sceneBridgingOptions = [.toolbars, .title]
+            let window = NSWindow(contentViewController: host)
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            window.toolbarStyle = .unified
+            window.appearance = NSAppearance(named: appearance)
+            window.layoutIfNeeded()
+            RunLoop.main.run(until: .now.addingTimeInterval(0.3))
+            guard let frame = window.contentView?.superview, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { continue }
+            frame.cacheDisplay(in: frame.bounds, to: bitmap)
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("\(name)-\(label).png"))
+            print(name, label, Int(frame.bounds.width), "x", Int(frame.bounds.height))
+        }
+    }
     for (name, view) in cases + windows {
         for (scheme, label) in [(ColorScheme.light, "light"), (.dark, "dark")] {
             let renderer = ImageRenderer(content: view.environment(\.colorScheme, scheme).padding(30).background(scheme == .dark ? Color(white: 0.1) : Color(white: 0.93)))

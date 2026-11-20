@@ -51,16 +51,33 @@ public protocol MacApprovalBackend: AnyObject {
 @MainActor
 @Observable
 public final class MacApprovalModel {
-    public private(set) var request: AccessRequest
+    /// What Josh is doing in this panel. The request's own state is the
+    /// backend's alone; this only says what he has started here and how it went.
+    public enum Local: Equatable, Sendable {
+        case idle
+        /// macOS's dialog is waiting for Touch ID or the Watch.
+        case authenticating
+        /// His answer is on its way.
+        case sending(AnswerChoice)
+        /// He denied it here, so the password is held off for 30 minutes.
+        case denied
+        /// He lifted the hold-off here ("Let it ask again").
+        case lifted
+        /// What he started didn't go through; he can try again.
+        case failed(String)
+    }
+
+    /// The request as the backend last reported it.
+    private var reported: AccessRequest
+    public private(set) var local = Local.idle
     /// Other requests queued behind this one.
     public var moreWaiting: Int
     /// What Josh has typed for the agent. Deny sends it; empty means a plain denial.
     public var replyDraft = ""
-    public private(set) var failure: String?
-    /// True from the click on Approve until Josh confirms in macOS's dialog.
-    public private(set) var isWaitingForTouch = false
-    /// The lid is shut, so Touch ID is off. Set by whoever shows the panel.
-    public var lidClosed = false
+    /// The lid is shut, so Touch ID is off.
+    public var lidClosed: Bool { lidClosedInRender ?? (MacApprover.shared.state == .lidClosed) }
+    /// Renders draw either lid state on any Mac.
+    var lidClosedInRender: Bool?
     /// The iPhone or Apple Watch also has this request, so it can be answered there.
     public var approvesElsewhere = false
     /// Called when Josh is done with the panel.
@@ -69,38 +86,64 @@ public final class MacApprovalModel {
     public var answered: () -> Void = {}
 
     private let backend: any MacApprovalBackend
-    private var approval: Task<Void, Never>?
 
     public init(request: AccessRequest, moreWaiting: Int = 0, backend: any MacApprovalBackend) {
-        self.request = request
+        self.reported = request
         self.moreWaiting = moreWaiting
         self.backend = backend
     }
 
+    /// The request as the panel shows it: the backend's, with his answer shown as sending until the backend reports it.
+    public var request: AccessRequest {
+        guard case let .sending(choice) = local, reported.state.isWaitingForYou else { return reported }
+        var shown = reported
+        shown.state = .sendingAnswer(choice)
+        return shown
+    }
+
+    /// From the click on Approve until Josh confirms in macOS's dialog.
+    public var isWaitingForTouch: Bool { local == .authenticating }
+
+    public var failure: String? {
+        if case let .failed(message) = local { message } else { nil }
+    }
+
+    private var canStart: Bool {
+        switch local {
+        case .idle, .failed: true
+        case .authenticating, .sending, .denied, .lifted: false
+        }
+    }
+
     /// Josh clicked Approve: macOS asks for Touch ID or the Watch.
     public func approve() {
-        guard approval == nil, request.state.isWaitingForYou else { return }
-        failure = nil
-        isWaitingForTouch = true
-        approval = Task {
-            defer { isWaitingForTouch = false; approval = nil }
+        guard canStart, reported.state.isWaitingForYou else { return }
+        local = .authenticating
+        Task {
             do {
-                let state = try await backend.approve(requestID: request.id) { self.isWaitingForTouch = false }
-                request.state = state
+                let state = try await backend.approve(requestID: reported.id) { self.local = .sending(.approve) }
+                reported.state = state
+                endApproval(.idle)
                 if !state.isWaitingForYou { answered() }
             } catch where Self.isCancel(error) {
+                endApproval(.idle)
             } catch {
                 let native = error as NSError
                 approvalLogger.error("Approval failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
-                failure = ownerAuthenticationFailure(error, fallback: "Approval didn't finish. Nothing was shared.")
+                endApproval(.failed(ownerAuthenticationFailure(error, fallback: "Approval didn't finish. Nothing was shared.")))
             }
         }
     }
 
+    /// A Deny clicked while macOS's dialog was up has taken over; the dialog's end leaves it alone.
+    private func endApproval(_ next: Local) {
+        if local == .authenticating || local == .sending(.approve) { local = next }
+    }
+
     /// Closes macOS's dialog if it is still waiting, leaving the request unanswered.
     public func cancelApproval() {
-        guard isWaitingForTouch else { return }
-        backend.cancelAuthentication(requestID: request.id)
+        guard local == .authenticating else { return }
+        backend.cancelAuthentication(requestID: reported.id)
     }
 
     /// Cancel, Escape, clicking away or closing the panel: not an answer.
@@ -112,15 +155,13 @@ public final class MacApprovalModel {
         return [.userCancel, .systemCancel, .appCancel].contains(code)
     }
 
-    /// Test only: replaces the request as an update from the backend would.
-    func replace(_ latest: AccessRequest) async { request = latest }
+    /// Test only: an update from the backend.
+    func replace(_ latest: AccessRequest) async { reported = latest }
 
     /// Follows the request until the panel closes. Call from `.task`.
     public func followUpdates() async {
-        for await latest in backend.updates(requestID: request.id) {
-            // An answer on its way stays on screen until the backend reports the outcome.
-            if case .sendingAnswer = request.state, latest.state.isWaitingForYou { continue }
-            request = latest
+        for await latest in backend.updates(requestID: reported.id) {
+            reported = latest
             if !latest.state.isWaitingForYou { cancelApproval(); answered() }
         }
     }
@@ -128,43 +169,31 @@ public final class MacApprovalModel {
     public func deny() async {
         cancelApproval()
         let reply = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        await answer(.deny) { try await backend.deny(requestID: request.id, reply: reply.isEmpty ? nil : reply) }
+        guard local == .idle || local == .authenticating || failure != nil else { return }
+        local = .sending(.deny)
+        do {
+            reported.state = try await backend.deny(requestID: reported.id, reply: reply.isEmpty ? nil : reply)
+            local = .denied
+            if !reported.state.isWaitingForYou { answered() }
+        } catch {
+            let native = error as NSError
+            approvalLogger.error("Denial failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
+            local = .failed((error as? LocalizedError)?.errorDescription ?? "The denial wasn't saved. Try again.")
+        }
     }
 
-    public private(set) var askAgainFailure: String?
-    private var deniedHere = false
-    private var liftedHere = false
     /// A denial holds the login off for 30 minutes unless Josh lifts it.
     public var isHoldingOff: Bool {
-        guard case .denied = request.state, !liftedHere else { return false }
-        return deniedHere || request.state.isHoldingOffNewRequests(now: .now)
+        guard case .denied = reported.state, local != .lifted else { return false }
+        return local == .denied || reported.state.isHoldingOffNewRequests(now: .now)
     }
 
     public func allowAskingAgain() async {
         do {
-            request.state = try await backend.allowAskingAgain(requestID: request.id)
-            liftedHere = true
+            reported.state = try await backend.allowAskingAgain(requestID: reported.id)
+            local = .lifted
         } catch {
-            askAgainFailure = "That didn't go through. Try again."
-        }
-    }
-
-    private func answer(_ choice: AnswerChoice, send: () async throws -> AccessRequestState) async {
-        let previous = request.state
-        request.state = .sendingAnswer(choice)
-        failure = nil
-        do {
-            request.state = try await send()
-            if !request.state.isWaitingForYou { answered() }
-            failure = nil
-            if choice == .deny { deniedHere = true }
-        }
-        catch {
-            let native = error as NSError
-            approvalLogger.error("Answer failed: domain=\(native.domain, privacy: .public) code=\(native.code, privacy: .public)")
-            request.state = previous
-            failure = (error as? LocalizedError)?.errorDescription
-                ?? (choice == .approve ? "Approval didn't finish. Nothing was shared." : "The denial wasn't saved. Try again.")
+            local = .failed("That didn't go through. Try again.")
         }
     }
 }

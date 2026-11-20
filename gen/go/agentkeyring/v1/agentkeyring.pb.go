@@ -445,7 +445,6 @@ const (
 	SetupRequest_VERIFY_MACHINE     SetupRequest_Action = 3
 	SetupRequest_RELAY_STATUS       SetupRequest_Action = 4
 	SetupRequest_INVITE             SetupRequest_Action = 5 // A one-time link for one machine to join (v2 JoinInvite).
-	SetupRequest_AGENTS_SET_UP      SetupRequest_Action = 6 // `agent-keyring install` ran on this Mac: first run moves on.
 )
 
 // Enum value maps for SetupRequest_Action.
@@ -457,7 +456,6 @@ var (
 		3: "VERIFY_MACHINE",
 		4: "RELAY_STATUS",
 		5: "INVITE",
-		6: "AGENTS_SET_UP",
 	}
 	SetupRequest_Action_value = map[string]int32{
 		"ACTION_UNSPECIFIED": 0,
@@ -466,7 +464,6 @@ var (
 		"VERIFY_MACHINE":     3,
 		"RELAY_STATUS":       4,
 		"INVITE":             5,
-		"AGENTS_SET_UP":      6,
 	}
 )
 
@@ -2216,14 +2213,14 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\rend_of_stream\x18\x06 \x01(\bR\vendOfStreamB\n" +
 	"\n" +
 	"\bresponseJ\x04\b\x04\x10\x05J\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"\"\xce\x02\n" +
+	"\"\xc0\x02\n" +
 	"\fSetupRequest\x12<\n" +
 	"\x06action\x18\x01 \x01(\x0e2$.agentkeyring.v1.SetupRequest.ActionR\x06action\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\rR\x04port\x12\x12\n" +
 	"\x04code\x18\x04 \x01(\tR\x04code\x12!\n" +
 	"\fmachine_name\x18\x05 \x01(\tR\vmachineName\x12\x16\n" +
-	"\x06reason\x18\x06 \x01(\tR\x06reason\"\x88\x01\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"{\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vSTART_RELAY\x10\x01\x12\x10\n" +
@@ -2231,8 +2228,7 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\x0eVERIFY_MACHINE\x10\x03\x12\x10\n" +
 	"\fRELAY_STATUS\x10\x04\x12\n" +
 	"\n" +
-	"\x06INVITE\x10\x05\x12\x11\n" +
-	"\rAGENTS_SET_UP\x10\x06\"m\n" +
+	"\x06INVITE\x10\x05\"\x04\b\x06\x10\x06\"m\n" +
 	"\rSetupResponse\x12!\n" +
 	"\fmachine_name\x18\x01 \x01(\tR\vmachineName\x12!\n" +
 	"\frelay_status\x18\x02 \x01(\tR\vrelayStatus\x12\x16\n" +

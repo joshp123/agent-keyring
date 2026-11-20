@@ -18,23 +18,23 @@ public enum FirstRunScreen: Equatable, Sendable {
     case needsFingerprint
     /// In place of the practice request: the lid is closed.
     case lidClosed
-    case copyPasswords(waiting: Bool, noneArrived: Bool)
+    /// From first run, with the sample password offered; from the main window, with Cancel.
+    /// `earlierVersion`: 0.2.5 is on this Mac, so Passwords' list has two names alike.
+    case copyPasswords(waiting: Bool, noneArrived: Bool, offerSample: Bool, earlierVersion: Bool)
+    /// "Agent Keyring isn't in the list?"; `asking` while macOS's AutoFill question is up.
+    case allowExport(asking: Bool)
     case copying
-    case setUpAgents(copiedTitle: String, copiedDetail: String, messageCopied: Bool)
-    case computers([ComputerLine])
-    case ready(phoneLater: Bool)
-    case almostReady
+    /// `sampleOnly`: the only password is the sample, so a way back to "Copy your passwords" is shown.
+    case setUpAgents(copiedTitle: String, copiedDetail: String, sampleOnly: Bool, agents: AgentsButton)
+    case ready(phoneLater: Bool, sampleOnly: Bool)
 }
 
-/// One computer as the agent adds it.
-public struct ComputerLine: Equatable, Sendable, Identifiable {
-    public let id: String
-    public let name: String
-    public let detail: String
-    public let added: Bool
-    public init(id: String, name: String, detail: String, added: Bool) {
-        self.id = id; self.name = name; self.detail = detail; self.added = added
-    }
+/// "Set Up Agents on This Mac", as the window shows it.
+public enum AgentsButton: Equatable, Sendable {
+    case notYet
+    case working
+    case done
+    case failed(String)
 }
 
 public struct FirstRunActions {
@@ -43,8 +43,13 @@ public struct FirstRunActions {
     public var openTouchIDSettings: () -> Void = {}
     public var openPasswords: () -> Void = {}
     public var useSample: () -> Void = {}
-    public var copyMessage: () -> Void = {}
-    public var doThisLater: () -> Void = {}
+    /// From the sample, back to "Copy your passwords".
+    public var copyOwn: () -> Void = {}
+    /// Leaves "Copy your passwords" opened from the main window.
+    public var cancelCopy: () -> Void = {}
+    public var notInList: () -> Void = {}
+    public var allowExport: () -> Void = {}
+    public var setUpAgents: () -> Void = {}
     public var continueOn: () -> Void = {}
     public var done: () -> Void = {}
     public init() {}
@@ -80,15 +85,15 @@ public struct MacFirstRunView: View {
         switch screen {
         case .welcome: 520
         case .practice, .practiceDenied, .needsFingerprint, .lidClosed, .copying: 400
+        case .allowExport: 420
         case .copyPasswords: 460
-        case .computers: 420
-        case .setUpAgents, .ready, .almostReady: 500
+        case .setUpAgents, .ready: 500
         }
     }
 
     private var horizontalPadding: CGFloat {
         switch screen {
-        case .welcome, .ready, .almostReady: 40
+        case .welcome, .ready: 40
         default: 36
         }
     }
@@ -129,17 +134,34 @@ public struct MacFirstRunView: View {
             WideButton(FirstRunCopy.openTouchIDSettings, action: actions.openTouchIDSettings)
         case .lidClosed:
             Heading(FirstRunCopy.openTheLid, FirstRunCopy.openTheLidBody)
-        case let .copyPasswords(waiting, noneArrived):
+        case let .copyPasswords(waiting, noneArrived, offerSample, earlierVersion):
             Heading(FirstRunCopy.copyTitle, FirstRunCopy.copyBody)
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(FirstRunCopy.steps.enumerated()), id: \.offset) { index, step in
                     HStack(alignment: .top, spacing: 10) {
                         Text("\(index + 1)").font(.system(size: 12, weight: .semibold)).foregroundStyle(RequestToken.ink)
                             .frame(width: 20, height: 20).background(RequestToken.surface, in: Circle())
-                        Text(LocalizedStringKey(step)).font(.system(size: 14)).lineSpacing(2).foregroundStyle(RequestToken.ink)
-                            .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(LocalizedStringKey(step)).font(.system(size: 14)).lineSpacing(2).foregroundStyle(RequestToken.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if index == FirstRunCopy.steps.count - 1 {
+                                // This app as Passwords' list shows it, so he picks it by its icon.
+                                HStack(spacing: 8) {
+                                    AppMark().frame(width: 20, height: 20)
+                                    Text(FirstRunCopy.appName).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(RequestToken.surface, in: .rect(cornerRadius: 8))
+                                if earlierVersion { Small(FirstRunCopy.earlierVersion) }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                Button(action: actions.notInList) {
+                    Text(FirstRunCopy.notInList).font(.system(size: 13)).foregroundStyle(RequestToken.brand)
+                }
+                .buttonStyle(.plain).padding(.leading, 30).padding(.top, 2)
             }
             .padding(.horizontal, 18).padding(.vertical, 16)
             .background(RequestToken.fill, in: .rect(cornerRadius: 14))
@@ -152,76 +174,110 @@ public struct MacFirstRunView: View {
                 if waiting { Waiting(FirstRunCopy.waitingForPasswords).frame(maxWidth: .infinity) }
                 WideButton(FirstRunCopy.openPasswords, action: actions.openPasswords)
             }
-            VStack(spacing: 8) {
-                WideButton(FirstRunCopy.useSample, quiet: true, action: actions.useSample)
-                Small(FirstRunCopy.sampleNote).multilineTextAlignment(.center)
+            if offerSample {
+                VStack(spacing: 8) {
+                    WideButton(FirstRunCopy.useSample, quiet: true, action: actions.useSample)
+                    Small(FirstRunCopy.sampleNote).multilineTextAlignment(.center)
+                }
+            } else {
+                WideButton(FirstRunCopy.cancel, quiet: true, action: actions.cancelCopy)
             }
+        case let .allowExport(asking):
+            VStack(spacing: 14) {
+                AppMark().frame(width: 44, height: 44)
+                VStack(spacing: 6) {
+                    Text(FirstRunCopy.allowExportTitle).font(.system(size: 20, weight: .bold)).tracking(-0.3).foregroundStyle(RequestToken.ink)
+                    Para(FirstRunCopy.allowExportBody, size: 15).multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            WideButton(FirstRunCopy.continueButton, action: actions.allowExport).disabled(asking)
         case .copying:
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
                 Text(FirstRunCopy.copying).font(.system(size: 15)).foregroundStyle(RequestToken.ink)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 40)
-        case let .setUpAgents(copiedTitle, copiedDetail, messageCopied):
-            HStack(spacing: 14) {
+        case let .setUpAgents(copiedTitle, copiedDetail, sampleOnly, agents):
+            HStack(alignment: .top, spacing: 14) {
                 Tick(size: 36)
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(copiedTitle).font(.system(size: 17, weight: .semibold)).foregroundStyle(RequestToken.ink)
                     Para(copiedDetail, size: 14)
+                    if sampleOnly { SmallButton(FirstRunCopy.copyOwn, action: actions.copyOwn) }
                 }
             }
             .padding(.bottom, 20).frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .bottom) { RequestToken.line.frame(height: 1) }
-            Heading(FirstRunCopy.setUpTitle, FirstRunCopy.setUpBody)
-            AgentLineBox(caption: nil, line: FirstRunCopy.agentLine, copyTitle: FirstRunCopy.copyMessage,
-                copied: messageCopied, onCopy: actions.copyMessage)
-            Para(FirstRunCopy.connectsEvery, size: 14)
-            if messageCopied { Waiting(FirstRunCopy.waitingForAgent) }
-            WideButton(FirstRunCopy.doThisLater, quiet: true, action: actions.doThisLater)
-        case let .computers(lines):
-            Text(FirstRunCopy.setUpTitle).font(.system(size: 22, weight: .bold)).tracking(-0.33).foregroundStyle(RequestToken.ink)
-            VStack(spacing: 0) {
-                ForEach(lines) { line in
-                    HStack(alignment: .top, spacing: 12) {
-                        if line.added { Tick(size: 20) } else { ProgressView().controlSize(.small).frame(width: 20, height: 20) }
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(line.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                            Text(line.detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2).fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 14) {
+                Heading(FirstRunCopy.setUpTitle, FirstRunCopy.setUpBody)
+                switch agents {
+                case .notYet, .failed: WideButton(FirstRunCopy.setUpAgentsButton, action: actions.setUpAgents)
+                case .working: WideButton(FirstRunCopy.setUpAgentsButton, action: {}).disabled(true)
+                case .done:
+                    HStack(spacing: 10) {
+                        Tick(size: 20)
+                        Text(FirstRunCopy.agentsSetUp).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink)
                     }
-                    .padding(.vertical, 12)
-                    .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
                 }
+                if case let .failed(message) = agents {
+                    Text(message).font(.system(size: 13)).lineSpacing(3).foregroundStyle(RequestToken.deny).fixedSize(horizontal: false, vertical: true)
+                }
+                Small(FirstRunCopy.setUpAgentsNote)
             }
-            .overlay(alignment: .bottom) { RequestToken.line.frame(height: 1) }
-            Small(FirstRunCopy.continueNote)
-            WideButton(FirstRunCopy.continueButton, action: actions.continueOn)
-        case let .ready(phoneLater):
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(FirstRunCopy.otherDevicesTitle).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                    Para(FirstRunCopy.otherDevicesBody, size: 14)
+                }
+                AgentLineBox(caption: nil, line: FirstRunCopy.agentLine, copyTitle: FirstRunCopy.copyMessage, quiet: true)
+            }
+            .padding(.top, 20).overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
+            if case .done = agents {
+                WideButton(FirstRunCopy.continueButton, action: actions.continueOn)
+            } else {
+                WideButton(FirstRunCopy.continueButton, quiet: true, action: {}).disabled(true)
+            }
+        case let .ready(phoneLater, sampleOnly):
             VStack(spacing: 14) {
                 Tick(size: 44)
                 Text(FirstRunCopy.ready).font(.system(size: 22, weight: .bold)).tracking(-0.33).foregroundStyle(RequestToken.ink)
             }
             .frame(maxWidth: .infinity)
-            Points(FirstRunCopy.readyPoints.map { ($0.symbol, $0.title, $0.body) }
-                + [phoneLater ? ("iphone", FirstRunCopy.phoneLaterTitle, FirstRunCopy.phoneLaterBody)
-                              : ("iphone", FirstRunCopy.phoneTitle, FirstRunCopy.phoneBody)])
-            WideButton(FirstRunCopy.done, action: actions.done)
-        case .almostReady:
-            Text(FirstRunCopy.almostReady).font(.system(size: 22, weight: .bold)).tracking(-0.33).foregroundStyle(RequestToken.ink)
-                .frame(maxWidth: .infinity)
             VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: "exclamationmark.circle").font(.system(size: 20)).foregroundStyle(RequestToken.ink2).frame(width: 46)
-                    Point(title: FirstRunCopy.notSetUpTitle, detail: FirstRunCopy.notSetUpBody)
+                if sampleOnly {
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: "exclamationmark.circle").font(.system(size: 20)).foregroundStyle(RequestToken.ink2).frame(width: 46)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Point(title: FirstRunCopy.sampleTitle, detail: FirstRunCopy.sampleBody)
+                            SmallButton(FirstRunCopy.copyOwn, onFill: false, action: actions.copyOwn)
+                        }
+                    }
+                    .padding(.vertical, 14).padding(.trailing, 16)
+                    .background(RequestToken.fill, in: .rect(cornerRadius: 12))
                 }
-                .padding(.vertical, 14).padding(.trailing, 16)
-                .background(RequestToken.fill, in: .rect(cornerRadius: 12))
                 Points(FirstRunCopy.readyPoints.map { ($0.symbol, $0.title, $0.body) }
-                    + [("iphone", FirstRunCopy.phoneLaterTitle, FirstRunCopy.phoneLaterBody)])
+                    + [phoneLater ? ("iphone", FirstRunCopy.phoneLaterTitle, FirstRunCopy.phoneLaterBody)
+                                  : ("iphone", FirstRunCopy.phoneTitle, FirstRunCopy.phoneBody)])
             }
             WideButton(FirstRunCopy.done, action: actions.done)
         }
+    }
+}
+
+/// A small grey pill (white on a grey box), as Paper draws "Copy Your Own Passwords" and "Copy Message".
+private struct SmallButton: View {
+    let title: String
+    var onFill = true
+    let action: () -> Void
+    init(_ title: String, onFill: Bool = true, action: @escaping () -> Void) { self.title = title; self.onFill = onFill; self.action = action }
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
+                .padding(.horizontal, 14).frame(height: 30)
+                .background(onFill ? RequestToken.fill : RequestToken.surface, in: Capsule()).contentShape(Capsule())
+        }
+        .buttonStyle(.plain).fixedSize()
     }
 }
 
@@ -325,9 +381,8 @@ struct AgentLineBox: View {
     let caption: String?
     let line: String
     var copyTitle = FirstRunCopy.copy
-    /// Kept by first run, so "Copied" survives the window closing.
-    var copied = false
-    var onCopy: () -> Void = {}
+    /// A white button on the grey box, as on "Set up your agents"; else black.
+    var quiet = false
     @State private var didCopy = false
 
     var body: some View {
@@ -345,12 +400,11 @@ struct AgentLineBox: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(line, forType: .string)
                     didCopy = true
-                    onCopy()
                 } label: {
-                    Text(didCopy || copied ? FirstRunCopy.copied : copyTitle).font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(RequestToken.surface)
+                    Text(didCopy ? FirstRunCopy.copied : copyTitle).font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(quiet ? RequestToken.ink : RequestToken.surface)
                         .padding(.horizontal, 16).frame(height: 30)
-                        .background(RequestToken.ink, in: Capsule())
+                        .background(quiet ? RequestToken.surface : RequestToken.ink, in: Capsule())
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)

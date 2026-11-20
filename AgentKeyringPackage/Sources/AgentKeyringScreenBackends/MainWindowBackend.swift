@@ -83,6 +83,7 @@ public final class AppMainWindowBackend: MainWindowBackend {
         try await confirmed { try await device.removeConfirmed(id, context: context) }
     }
 
+    /// Copy from Passwords: Passwords opens, and the window shows the steps until the passwords arrive.
     public func importAgain() { model.openPasswordsExport() }
 
     private func confirmed(_ action: () async throws -> Void) async throws {

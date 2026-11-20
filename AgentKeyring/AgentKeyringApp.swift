@@ -22,6 +22,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         let presentation = AgentKeyringPresentation()
         self.presentation = presentation
+        MirrorAppModel.forgetPreviousInstall()
         self.model = MirrorAppModel()
         super.init()
     }
@@ -99,7 +100,12 @@ private struct HomeWindow: View {
 
     var body: some View {
         Group {
-            if model.firstRunFinished {
+            if model.firstRunFinished, let copy = model.passwordsCopy {
+                // Copy from Passwords: the same "Copy your passwords" as first run.
+                MacFirstRunView(screen: copyScreen(copy, model: model, offerSample: false),
+                    problem: model.notice.flatMap { $0.kind == .information ? nil : $0.text },
+                    actions: copyActions(model))
+            } else if model.firstRunFinished {
                 if let main { MacMainWindowView(model: main) } else { ProgressView().padding(40) }
             } else {
                 FirstRunHome(model: model, presentation: presentation)
@@ -113,62 +119,79 @@ private struct HomeWindow: View {
             main?.tab = presentation.tab
         }
         .onChange(of: presentation.mainWindowRequest) { main?.tab = presentation.tab }
-        .background(FloatingWhile(isOn: model.firstRun == .copyPasswords(.waiting)))
+        .background(FloatingWhile(isOn: model.passwordsCopy == .waiting))
     }
+}
+
+/// "Copy your passwords" as either window shows it.
+@MainActor private func copyScreen(_ copy: PasswordsCopy, model: MirrorAppModel, offerSample: Bool) -> FirstRunScreen {
+    switch copy {
+    case .copying: .copying
+    case let .allowExport(asking): .allowExport(asking: asking)
+    case .steps, .waiting, .noneArrived:
+        .copyPasswords(waiting: copy != .steps, noneArrived: copy == .noneArrived, offerSample: offerSample,
+            earlierVersion: MirrorAppModel.earlierVersionInstalled)
+    }
+}
+
+@MainActor private func copyActions(_ model: MirrorAppModel) -> FirstRunActions {
+    var actions = FirstRunActions()
+    actions.openPasswords = model.openPasswordsExport
+    actions.cancelCopy = model.closePasswordsCopy
+    actions.notInList = model.explainAllowExport
+    actions.allowExport = model.askToAllowExport
+    return actions
 }
 
 private struct FirstRunHome: View {
     let model: MirrorAppModel
     let presentation: AgentKeyringPresentation
     @Environment(\.dismissWindow) private var dismissWindow
-    /// Read again when the screens change (the lid) and when he comes back (a fingerprint added).
-    @State private var lidClosed = MacApprover.lidIsClosed
-    @State private var needsFingerprint = MacApprover.needsFingerprint
+    /// When he last came back to the app: the agents' links are read again then.
+    @State private var cameBack = Date.now
 
-    /// The screen is first run's state, with the facts beside it: Touch ID, and the computers.
+    /// The screen is first run's state, with the facts beside it: Touch ID, the passwords and the agents' links.
     private var screen: FirstRunScreen? {
         switch model.firstRun {
         case .welcome: .welcome
-        case .practice: lidClosed ? .lidClosed : needsFingerprint ? .needsFingerprint : .practice
+        case .practice:
+            switch MacApprover.shared.state {
+            case .ready: .practice
+            case .lidClosed: .lidClosed
+            case .needsFingerprint: .needsFingerprint
+            }
         case let .practiceDenied(reply): .practiceDenied(reply: reply)
-        case let .copyPasswords(export): .copyPasswords(waiting: export == .waiting, noneArrived: export == .noneArrived)
-        case .copying: .copying
-        case let .setUpAgents(.passwords(count), messageCopied):
-            .setUpAgents(copiedTitle: FirstRunCopy.copied(count), copiedDetail: FirstRunCopy.mustAskAny, messageCopied: messageCopied)
-        case let .setUpAgents(.sample, messageCopied):
-            .setUpAgents(copiedTitle: FirstRunCopy.sampleAdded, copiedDetail: FirstRunCopy.sampleDetail, messageCopied: messageCopied)
-        case .computers: .computers(computers)
-        case .ready: .ready(phoneLater: model.device?.alwaysOnMachineID == nil)
-        case .almostReady: .almostReady
+        case .copyPasswords: copyScreen(model.passwordsCopy ?? .steps, model: model, offerSample: true)
+        case let .setUpAgents(.passwords(count)):
+            .setUpAgents(copiedTitle: FirstRunCopy.copied(count), copiedDetail: FirstRunCopy.mustAskAny, sampleOnly: sampleOnly, agents: agents)
+        case .setUpAgents(.sample):
+            .setUpAgents(copiedTitle: FirstRunCopy.sampleAdded, copiedDetail: FirstRunCopy.sampleDetail, sampleOnly: sampleOnly, agents: agents)
+        case .ready: .ready(phoneLater: model.device?.alwaysOnMachineID == nil, sampleOnly: sampleOnly)
         case .finished: nil
         }
     }
 
-    /// This Mac, each computer added, and each one waiting for his approval.
-    private var computers: [ComputerLine] {
-        let device = model.device
-        var lines = [ComputerLine(id: "this-mac", name: FirstRunCopy.thisMac, detail: FirstRunCopy.thisMacDetail, added: true)]
-        for machine in device?.members?.machines ?? [] where machine.machineID != device?.ownMachineID {
-            lines.append(ComputerLine(id: machine.machineID, name: machine.label,
-                detail: machine.machineID == device?.alwaysOnMachineID ? FirstRunCopy.stayingOnAdded : FirstRunCopy.computerAdded, added: true))
+    /// The only password is the sample, so first run offers the way back to copying his own.
+    private var sampleOnly: Bool { model.status?.sampleOnly == true }
+
+    /// "Set Up Agents on This Mac": running, failed, or else whatever the links say now.
+    private var agents: AgentsButton {
+        _ = cameBack
+        switch model.agentsSetUpClick {
+        case .working: return .working
+        case let .failed(message): return model.agentsSetUp ? .done : .failed(message)
+        case .idle: return model.agentsSetUp ? .done : .notYet
         }
-        var waiting = (device?.joins ?? []).compactMap { $0.request.machine }
-        if let machine = device?.setup?.machine { waiting.append(machine) }
-        for machine in waiting where !lines.contains(where: { $0.id == machine.machineID }) {
-            lines.append(ComputerLine(id: machine.machineID, name: machine.label, detail: FirstRunCopy.approveToAdd, added: false))
-        }
-        return lines
     }
 
     private var actions: FirstRunActions {
-        var actions = FirstRunActions()
+        var actions = copyActions(model)
         actions.getStarted = { model.send(.getStarted) }
         actions.tryAgain = { model.send(.tryAgain) }
         actions.openTouchIDSettings = { NSWorkspace.shared.open(MacApprover.touchIDSettings) }
-        actions.openPasswords = model.openPasswordsExport
         actions.useSample = { Task { await model.useSamplePassword() } }
-        actions.copyMessage = { model.send(.copyMessage) }
-        actions.doThisLater = { model.send(.doThisLater) }
+        actions.copyOwn = { model.send(.copyOwn) }
+        actions.setUpAgents = { Task { await model.setUpAgentsOnThisMac() } }
         actions.continueOn = { model.send(.continueOn) }
         actions.done = {
             dismissWindow(id: "main")
@@ -187,13 +210,7 @@ private struct FirstRunHome: View {
             }
         }
         .task { await model.loadStatus() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
-            lidClosed = MacApprover.lidIsClosed
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            lidClosed = MacApprover.lidIsClosed
-            needsFingerprint = MacApprover.needsFingerprint
-        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in cameBack = .now }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
     }
 }

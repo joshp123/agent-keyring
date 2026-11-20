@@ -4,6 +4,7 @@ import AuthenticationServices
 import Foundation
 import Observation
 import OSLog
+import Security
 
 public enum MirrorNoticeKind: Equatable, Sendable {
     case information
@@ -46,8 +47,14 @@ public final class MirrorAppModel {
     let bridge: AgentBridgeDirectory
     /// When this Mac last passed its practice request: Touch ID, its chip keys and sealing work.
     public internal(set) var testedAt: Date?
+    /// "Set Up Agents on This Mac" while it runs, or why it failed. Whether the
+    /// agents are set up is read from the links (`agentsSetUp`), never remembered.
+    public internal(set) var agentsSetUpClick = AgentsSetUpClick.idle
     /// Where first run is (FirstRun.swift); saved, so a restart resumes it.
     public private(set) var firstRun: FirstRun
+    /// "Copy your passwords", from first run or the main window; nil when no
+    /// copy is open. The main window shows it in place of the list while it is set.
+    public internal(set) var passwordsCopy: PasswordsCopy?
     @ObservationIgnored var exportTimeout: Task<Void, Never>?
     /// This Mac's Automatic switch while it is not joined to a relay; once
     /// joined, its entry in the members list decides.
@@ -90,32 +97,46 @@ public final class MirrorAppModel {
         }
     }
 
+    static let installedKey = "installed"
+
+    /// A fresh container is a new install: what a previous one left in the
+    /// keychain (its relay and members, its rules, the name it left for the
+    /// iPhone) goes, so first run starts from Welcome with nothing behind it.
+    /// This Mac's own keys stay. Call before the model is made.
+    public static func forgetPreviousInstall(settings: UserDefaults = .standard) {
+        guard !settings.bool(forKey: installedKey) else { return }
+        let app = Bundle.main.bundleIdentifier ?? "com.agentkeyring"
+        for service in [app + ".relay.v2", app + ".rules.v2"] {
+            SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                kSecUseDataProtectionKeychain as String: true] as CFDictionary)
+        }
+        SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.joshpalmer.AgentKeyring.invitation",
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny, kSecUseDataProtectionKeychain as String: true] as CFDictionary)
+        settings.set(true, forKey: installedKey)
+    }
+
     static let firstRunKey = "firstRun"
     static let firstRunFinishedKey = "firstRunFinished"
-    static let agentsSetUpKey = "agentsSetUp"
 
     /// The saved state, resumed. A Mac that finished first run before it was
     /// saved this way, or whose saved state a later build cannot read, is never stuck.
     static func savedFirstRun(_ settings: UserDefaults) -> FirstRun {
         if let data = settings.data(forKey: firstRunKey), let saved = try? JSONDecoder().decode(FirstRun.self, from: data) {
-            return saved.resumed
+            return saved
         }
         return settings.bool(forKey: firstRunFinishedKey) || settings.object(forKey: testedAtKey) != nil ? .finished : .welcome
     }
 
     /// Moves first run on, as the board draws it, and saves where it is.
     public func send(_ event: FirstRun.Event) {
-        let next = firstRun.after(event).settled(agentsSetUp: settings.bool(forKey: Self.agentsSetUpKey))
+        let next = firstRun.after(event, agentsSetUp: agentsSetUp)
         guard next != firstRun else { return }
         firstRun = next
         settings.set(try? JSONEncoder().encode(next), forKey: Self.firstRunKey)
     }
 
-    /// `agent-keyring install` ran on this Mac.
-    func noteAgentsSetUp() {
-        settings.set(true, forKey: Self.agentsSetUpKey)
-        send(.agentsSetUp)
-    }
+    /// Agents on this Mac ask this app: read from the command's link each time.
+    public var agentsSetUp: Bool { AgentsOnThisMac.areSetUp() }
 
     /// "Done": the first-run window closes and the main window takes its place.
     public func finishFirstRun() {

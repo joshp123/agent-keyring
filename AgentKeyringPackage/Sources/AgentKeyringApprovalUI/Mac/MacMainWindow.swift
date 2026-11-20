@@ -194,18 +194,6 @@ public struct MacMainWindowView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Color.clear.frame(width: 200, height: 1)
-                Spacer(minLength: 0)
-                Segmented(selection: $model.tab)
-                Spacer(minLength: 0)
-                if model.tab == .logins {
-                    SearchField(text: $model.search).frame(width: 200)
-                } else {
-                    Color.clear.frame(width: 200, height: 1)
-                }
-            }
-            .padding(.horizontal, 20).padding(.top, 2).padding(.bottom, 14)
             switch model.tab {
             case .logins: LoginsTab(model: model)
             case .devices: DevicesTab(model: model)
@@ -214,38 +202,24 @@ public struct MacMainWindowView: View {
         .frame(width: 820)
         .fixedSize(horizontal: false, vertical: true)
         .background(RequestToken.surface)
+        // One toolbar row: the window's buttons, Passwords | Devices in the centre, Search on Passwords.
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker(MainWindowCopy.passwordsTab, selection: $model.tab) {
+                    Text(MainWindowCopy.passwordsTab).tag(MacMainModel.Tab.logins)
+                    Text(MainWindowCopy.devicesTab).tag(MacMainModel.Tab.devices)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            if model.tab == .logins {
+                ToolbarItem(placement: .primaryAction) { SearchField(text: $model.search).frame(width: 200) }
+            }
+        }
+        .toolbar(removing: .title)
         .task { await model.followUpdates() }
         .alert("Agent Keyring", isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.dismissFailure() } })) {
             Button("OK") { model.dismissFailure() }
         } message: { Text(model.failure ?? "") }
-    }
-}
-
-private struct Segmented: View {
-    @Binding var selection: MacMainModel.Tab
-
-    var body: some View {
-        HStack(spacing: 2) {
-            item(MainWindowCopy.passwordsTab, .logins)
-            item(MainWindowCopy.devicesTab, .devices)
-        }
-        .padding(3)
-        .background(RequestToken.fill, in: Capsule())
-    }
-
-    private func item(_ title: String, _ tab: MacMainModel.Tab) -> some View {
-        Button { selection = tab } label: {
-            Text(title).font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(selection == tab ? RequestToken.ink : RequestToken.ink2)
-                .padding(.horizontal, 16).frame(height: 26)
-                .background {
-                    if selection == tab {
-                        Capsule().fill(RequestToken.surface).shadow(color: .black.opacity(0.16), radius: 1.5, y: 1)
-                    }
-                }
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -267,12 +241,16 @@ private struct LoginsTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                chip(MainWindowCopy.all, nil)
-                ForEach(LoginRule.allCases, id: \.self) { chip($0.name, $0) }
+            HStack {
+                Picker(MainWindowCopy.all, selection: $model.filter) {
+                    Text(label(MainWindowCopy.all, nil)).tag(LoginRule?.none)
+                    ForEach(LoginRule.allCases, id: \.self) { Text(label($0.name, $0)).tag(LoginRule?.some($0)) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 20).padding(.bottom, 12)
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(model.visibleLogins) { row in
@@ -293,20 +271,13 @@ private struct LoginsTab: View {
         }
     }
 
-    private func chip(_ title: String, _ rule: LoginRule?) -> some View {
-        let selected = model.filter == rule
-        return Button { model.filter = rule } label: {
-            HStack(spacing: 6) {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(selected ? RequestToken.surface : RequestToken.ink)
-                Text("\(model.count(rule))").font(.system(size: 13))
-                    .foregroundStyle(selected ? RequestToken.surface.opacity(0.7) : RequestToken.ink2)
-            }
-            .padding(.horizontal, 12).frame(height: 28)
-            .background(selected ? RequestToken.ink : RequestToken.fill, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
+    /// "Ask 528": the rule and how many passwords have it, the count in grey.
+    private func label(_ title: String, _ rule: LoginRule?) -> AttributedString {
+        var name = AttributedString(title + " ")
+        name.foregroundColor = .primary
+        var count = AttributedString("\(model.count(rule))")
+        count.foregroundColor = .secondary
+        return name + count
     }
 
     @ViewBuilder private var footer: some View {

@@ -55,14 +55,49 @@ extension MirrorAppModel {
     /// "Open Passwords". After five minutes with nothing arrived, first run says so;
     /// passwords that arrived first have already moved it on, so the late timer changes nothing.
     public func openPasswordsExport() {
-        send(.openPasswords)
+        passwordsCopy = .waiting
         exportTimeout?.cancel()
         exportTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(300))
-            guard !Task.isCancelled else { return }
-            self?.send(.exportTimedOut)
+            guard !Task.isCancelled, let self, self.passwordsCopy == .waiting else { return }
+            self.passwordsCopy = .noneArrived
         }
         openPasswords()
+    }
+
+    /// Cancel on the main window's copy, or the copy ending: the list comes back.
+    public func closePasswordsCopy() {
+        exportTimeout?.cancel()
+        passwordsCopy = nil
+    }
+
+    /// The earlier Agent Keyring (0.2.5, identifier without ".Mac") is on this
+    /// Mac, so Passwords lists "AgentKeyring" beside "Agent Keyring".
+    public static var earlierVersionInstalled: Bool {
+        guard let identifier = Bundle.main.bundleIdentifier, identifier.hasSuffix(".Mac") else { return false }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: String(identifier.dropLast(4))) != nil
+    }
+
+    /// "Agent Keyring isn't in the list?"
+    public func explainAllowExport() {
+        passwordsCopy = .allowExport(asking: false)
+    }
+
+    /// Continue on "Allow export from Passwords": macOS asks "Turn on AutoFill
+    /// from “Agent Keyring”?". Turn On goes back to the steps. After Not Now the
+    /// screen stays, and Continue comes back after macOS's 10 seconds.
+    public func askToAllowExport() {
+        guard passwordsCopy == .allowExport(asking: false) else { return }
+        passwordsCopy = .allowExport(asking: true)
+        let asked = ContinuousClock.now
+        ASSettingsHelper.requestToTurnOnCredentialProviderExtension { [weak self] enabled in
+            Task { @MainActor in
+                guard let self, self.passwordsCopy == .allowExport(asking: true) else { return }
+                if enabled { self.passwordsCopy = .steps; return }
+                try? await Task.sleep(until: asked + .seconds(10))
+                if self.passwordsCopy == .allowExport(asking: true) { self.passwordsCopy = .allowExport(asking: false) }
+            }
+        }
     }
 
     /// "Use a Sample Password": one ordinary Ask password, which his first copy from Passwords replaces.
@@ -70,6 +105,7 @@ extension MirrorAppModel {
         guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.sampleExporter,
             exporterDisplayName: "Sample", items: [MirrorItem.sample], skippedCredentialCount: 0), hadExistingMirror: status != nil)
         else { return }
+        closePasswordsCopy()
         send(.useSample)
     }
 
@@ -106,8 +142,10 @@ extension MirrorAppModel {
     }
 
     func importCredentials(token: UUID) async {
-        send(.importStarted)
         exportTimeout?.cancel()
+        passwordsCopy = .copying
+        // A failed copy goes back to the steps, with the error under them.
+        defer { if passwordsCopy == .copying { passwordsCopy = .steps } }
         notice = nil
 
         credentialExchangeLogger.info("Credential import started")
@@ -126,14 +164,12 @@ extension MirrorAppModel {
                 "Credential transfer failed [\(failure.diagnostic, privacy: .public)]"
             )
             notice = MirrorNotice(kind: .error, text: failure.message)
-            send(.importFailed)
             return
         }
 
         if await importBatch(mapper.map(exportedData, scope: .unknown), hadExistingMirror: hadExistingMirror), let status {
+            closePasswordsCopy()
             send(.imported(count: status.credentialItemCount))
-        } else {
-            send(.importFailed)
         }
     }
 
