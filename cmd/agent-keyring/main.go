@@ -492,6 +492,9 @@ func leaseError(lease *pb.Lease) error {
 func waitLease(ctx context.Context, client authority.Client, lease *pb.Lease) error {
 	for lease.State == pb.LeaseState_LEASE_STATE_PENDING {
 		fmt.Fprintln(os.Stderr, "Waiting for approval. Rejoin with: agent-keyring status", lease.LeaseId, "--wait")
+		if hint := focusHint(); hint != "" {
+			fmt.Fprintln(os.Stderr, hint)
+		}
 		var next *pb.Lease
 		err := client.Stream(ctx, &pb.WireRequest{Request: &pb.WireRequest_WatchLease{WatchLease: &pb.LeaseReference{LeaseId: lease.LeaseId}}}, func(r *pb.WireResponse) bool {
 			next = r.GetLease()

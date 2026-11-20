@@ -2,7 +2,7 @@
 name: agent-keyring
 description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation, and set Agent Keyring up on the user's Mac and their other computers. Use whenever a task needs a login, a password or a two-factor code, and when the user asks you to set up Agent Keyring. Never ask the user to type or paste a password."
 metadata:
-  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5; setting up from one line on 2026-11-19 by model claude opus 5.5; denials, undoing install and this Mac's own agents on 2026-11-19 by model claude opus 5.5; no more linking, --agent and short holds after a denial on 2026-11-20 by model claude opus 5.5"
+  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5; setting up from one line on 2026-11-19 by model claude opus 5.5; denials, undoing install and this Mac's own agents on 2026-11-19 by model claude opus 5.5; no more linking, --agent and short holds after a denial on 2026-11-20 by model claude opus 5.5; Focus and two-factor codes on 2026-11-20 by model claude opus 5.5"
 ---
 
 # Agent Keyring
@@ -50,7 +50,7 @@ Repeating the same fill returns its recorded result without submitting again. If
 agent-keyring read "$lease" --field password | gh auth login --with-token
 ```
 
-**Two-factor codes.** Authenticator codes saved with the login come from Agent Keyring (`--code` when filling, `--field one-time-code` otherwise). Codes sent by SMS or email come from your own tools for the user's messages or mail, if you have them. Get them yourself rather than asking the user.
+**Two-factor codes.** The secret that makes a login's codes stays on the user's devices. An approval gives you the codes for that approval's 30 minutes, never the secret, so you cannot make codes after it ends. (A login set to Automatic is the exception: the computer it is Automatic for holds its own sealed copy, secret included.) Authenticator codes saved with the login come from Agent Keyring (`--code` when filling, `--field one-time-code` otherwise). Codes sent by SMS or email come from your own tools for the user's messages or mail, if you have them. Get them yourself rather than asking the user.
 
 ## Setting up
 
@@ -120,7 +120,7 @@ You can run several at once; the Mac shows the requests one after another. Agent
 ## When it doesn't work
 
 - **Denied.** The user said no, and any reply they wrote is printed word for word. Do what it says, or stop and ask them. The same password can be asked for again after a minute; after a second denial in a row, five minutes; after more, fifteen. The message says until when. Don't wait it out to ask again for the same thing: change what you do first.
-- **Unanswered.** Nobody answered in time. Tell the user, and try again when they are back, not in a loop.
+- **Unanswered.** Nobody answered in time. Tell the user, and try again when they are back, not in a loop. If they may be asleep or driving, say it in their words: "Vibe coding late at night? If Sleep or Driving Focus is on, Apple holds back notifications unless Agent Keyring is allowed in that Focus." On a Mac, `lease` prints this itself while it waits if a Focus is on.
 - **Expired or released.** Lease again for the same task. Automatic logins don't ask; others ask once.
 - **The page isn't the saved site.** You are not where the login belongs. Don't work around it.
 - **Fields not found or ambiguous.** Inspect the page again and pass better selectors. This never asks the user again.
