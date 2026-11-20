@@ -77,6 +77,9 @@ public final class CredentialLeaseStore {
     @ObservationIgnored private var deadlineTask: Task<Void, Never>?
     @ObservationIgnored private var observers: [UUID: AsyncStream<[Agentkeyring_V1_Lease]>.Continuation] = [:]
 
+    /// An agent on this Mac asked, or Josh answered: for the counts per password.
+    public var onDecision: ((String, String, PasswordUsageLog.Event) -> Void)?
+
     public init(persistence: LeasePersistence = LeasePersistence()) {
         self.persistence = persistence
     }
@@ -195,6 +198,8 @@ public final class CredentialLeaseStore {
             lease.state = .pending
             lease.statusLines = ["Waiting for approval in Agent Keyring."]
         }
+        onDecision?(lease.leaseID, lease.loginID, .asked)
+        if lease.state == .active { onDecision?(lease.leaseID, lease.loginID, .approved) }
         let saved = SavedLease(lease: try lease.serializedData(), automatic: policy == .allowAutomatically, requester: requester)
         next.leases[lease.leaseID] = saved
         next.requests[request.requestID] = RequestRecord(request: try request.serializedData(), leaseID: lease.leaseID)
@@ -224,6 +229,7 @@ public final class CredentialLeaseStore {
         opened[leaseID] = secret
         try saveLease(lease)
         try forgetDenials(of: lease.loginID)
+        onDecision?(leaseID, lease.loginID, .approved)
         DiagnosticLog.record("lease", "approved", ["lease": leaseID, "by": "mac"])
         return lease
     }
@@ -253,6 +259,7 @@ public final class CredentialLeaseStore {
         openedCodes[leaseID] = contents.oneTimeCodes
         try saveLease(lease)
         try forgetDenials(of: lease.loginID)
+        onDecision?(leaseID, lease.loginID, .approved)
         DiagnosticLog.record("lease", "approved", ["lease": leaseID, "by": "device"])
     }
 
@@ -274,6 +281,7 @@ public final class CredentialLeaseStore {
         lease.retryNotBeforeUnixSeconds = hold.until
         lease.statusLines = ["The request was denied."]
         next.suppressions[lease.loginID] = hold
+        onDecision?(leaseID, lease.loginID, .denied)
         DiagnosticLog.record("lease", "denied", ["lease": leaseID, "by": "\(approvedBy)", "held_until": "\(hold.until)", "in_a_row": "\(hold.inARow ?? 1)"])
         next.leases[leaseID]!.lease = try lease.serializedData()
         // One denial covers this recipient/login, including already waiting tasks.

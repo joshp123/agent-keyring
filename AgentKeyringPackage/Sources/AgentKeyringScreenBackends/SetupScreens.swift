@@ -65,7 +65,10 @@ public enum SetupScreens {
             let time = { (date: Date) in date.formatted(date: .omitted, time: .shortened) }
             let (detail, tone, canSend): (String, PracticeRow.Tone, Bool) = switch model.practiceResults[key] {
             case nil: (plain, .plain, true)
-            case .sent?: (isThisMac ? FirstRunCopy.practiceSentHere : kind == .watch ? FirstRunCopy.practiceSentWrist : FirstRunCopy.practiceSentPhone, .plain, false)
+            case .sent?: (isThisMac ? FirstRunCopy.practiceSentHere : FirstRunCopy.practiceSending, .plain, false)
+            case let .withApple(at)?: (FirstRunCopy.practiceWithApple(time(at)), .plain, false)
+            case let .arrived(at, _)?:
+                (kind == .watch ? FirstRunCopy.practiceOnWrist(time(at)) : FirstRunCopy.practiceOnPhone(time(at)), .plain, false)
             case let .approved(at)?: (FirstRunCopy.practiceApprovedAt(time(at), touchID: isThisMac), .approved, true)
             case let .denied(at, reply)?: (FirstRunCopy.practiceDeniedAt(time(at), reply: reply), .denied, true)
             case .unanswered?: (FirstRunCopy.practiceUnanswered, .plain, true)

@@ -37,6 +37,8 @@ public final class MirrorAppModel {
     let credentialImporter: any CredentialImporting
     let merger: SnapshotMerger
     public let leaseStore: CredentialLeaseStore
+    /// How often each password was asked for, approved and denied.
+    public let usage = PasswordUsageLog()
     /// This Mac on the relay, once its keys exist. Nil when the Mac has no Secure Enclave.
     public private(set) var device: MacDevice?
     @ObservationIgnored private var keys: MacKeys?
@@ -84,6 +86,7 @@ public final class MirrorAppModel {
         self.accessControl = accessControl
         self.settings = settings
         self.leaseStore = leaseStore
+        leaseStore.onDecision = { [usage] id, login, event in usage.note(event, request: id, login: login) }
         savedAutomaticOnThisMac = settings.bool(forKey: Self.automaticOnThisMacKey)
         testedAt = settings.object(forKey: Self.testedAtKey) as? Date
         firstRun = Self.savedFirstRun(settings)
@@ -168,7 +171,12 @@ public final class MirrorAppModel {
         practiceResults[deviceKey] = .sent
         guard let device, deviceKey != thisMacDeviceKey else { return }
         do {
-            let lease = try await device.practice(on: deviceKey)
+            let lease = try await device.practice(on: deviceKey) { [weak self] lease in
+                guard lease.state == .waiting else { return }
+                self?.practiceResults[deviceKey] = lease.arrivedUnixSeconds > 0
+                    ? .arrived(at: Date(timeIntervalSince1970: TimeInterval(lease.arrivedUnixSeconds)), on: lease.arrivedOn)
+                    : lease.pushedUnixSeconds > 0 ? .withApple(at: Date(timeIntervalSince1970: TimeInterval(lease.pushedUnixSeconds))) : .sent
+            }
             practiceResults[deviceKey] = switch lease.state {
             case .approved, .ended: .approved(at: .now)
             case .denied: .denied(at: .now, reply: lease.reply)
@@ -226,6 +234,7 @@ public final class MirrorAppModel {
         device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
         device?.onStoppedOnDevice = { [weak self] leaseID in _ = try? self?.leaseStore.revoke(leaseID) }
         device?.onDevicesChanged = { [weak self] in self?.noteDevicesChanged() }
+        device?.onOtherComputersRequest = { [weak self] id, login, event in self?.usage.note(event, request: id, login: login) }
         return made
     }
 

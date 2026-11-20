@@ -1238,8 +1238,10 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     set {method = .logs(newValue)}
   }
 
-  /// Devices: a request reached this device (Arrival, signed by its reply
-  /// key). The Watch posts the same to "POST /v2/arrived". Returns Done.
+  /// A request reached this device (Arrival): signed by the device's reply
+  /// key, or unsigned with push_token_sha256, which a locked iPhone's
+  /// notification extension can give. A timing note that grants nothing.
+  /// Devices may also post the same bytes to "POST /v2/arrived". Returns Done.
   public var arrived: Agentkeyring_V2_Signed {
     get {
       if case .arrived(let v)? = method {return v}
@@ -1314,8 +1316,10 @@ public nonisolated struct Agentkeyring_V2_RelayRequest: Sendable {
     /// Devices and machines: the relay's own recent lines and each device's
     /// latest log, merged in time order. Returns Logs.
     case logs(Agentkeyring_V2_LogsRequest)
-    /// Devices: a request reached this device (Arrival, signed by its reply
-    /// key). The Watch posts the same to "POST /v2/arrived". Returns Done.
+    /// A request reached this device (Arrival): signed by the device's reply
+    /// key, or unsigned with push_token_sha256, which a locked iPhone's
+    /// notification extension can give. A timing note that grants nothing.
+    /// Devices may also post the same bytes to "POST /v2/arrived". Returns Done.
     case arrived(Agentkeyring_V2_Signed)
     /// From the relay's own computer only, while it has no members: the
     /// one-time secret our app there leaves in iCloud Keychain (RelayOffer).
@@ -1360,6 +1364,10 @@ public nonisolated struct Agentkeyring_V2_Arrival: Sendable {
   public var deviceKeyID: String = String()
 
   public var arrivedUnixSeconds: Int64 = 0
+
+  /// For an unsigned Arrival: SHA-256 of the push address the relay sent the
+  /// request to, which only that device and the relay know.
+  public var pushTokenSha256: Data = Data()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3611,7 +3619,7 @@ nonisolated extension Agentkeyring_V2_DeviceLog: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V2_Arrival: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Arrival"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_id\0\u{3}device_key_id\0\u{3}arrived_unix_seconds\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}request_id\0\u{3}device_key_id\0\u{3}arrived_unix_seconds\0\u{3}push_token_sha256\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3623,6 +3631,7 @@ nonisolated extension Agentkeyring_V2_Arrival: SwiftProtobuf.Message, SwiftProto
       case 2: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.deviceKeyID) }()
       case 4: try { try decoder.decodeSingularInt64Field(value: &self.arrivedUnixSeconds) }()
+      case 5: try { try decoder.decodeSingularBytesField(value: &self.pushTokenSha256) }()
       default: break
       }
     }
@@ -3641,6 +3650,9 @@ nonisolated extension Agentkeyring_V2_Arrival: SwiftProtobuf.Message, SwiftProto
     if self.arrivedUnixSeconds != 0 {
       try visitor.visitSingularInt64Field(value: self.arrivedUnixSeconds, fieldNumber: 4)
     }
+    if !self.pushTokenSha256.isEmpty {
+      try visitor.visitSingularBytesField(value: self.pushTokenSha256, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3649,6 +3661,7 @@ nonisolated extension Agentkeyring_V2_Arrival: SwiftProtobuf.Message, SwiftProto
     if lhs.requestID != rhs.requestID {return false}
     if lhs.deviceKeyID != rhs.deviceKeyID {return false}
     if lhs.arrivedUnixSeconds != rhs.arrivedUnixSeconds {return false}
+    if lhs.pushTokenSha256 != rhs.pushTokenSha256 {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

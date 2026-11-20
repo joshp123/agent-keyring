@@ -178,8 +178,11 @@ public enum FirstRunCopy {
     public static let thisMac = "This Mac"
     public static func practiceApprovedAt(_ time: String, touchID: Bool) -> String { touchID ? "Approved with Touch ID at \(time)" : "Approved at \(time)" }
     public static func practiceDeniedAt(_ time: String, reply: String) -> String { reply.isEmpty ? "Denied at \(time)" : "Denied at \(time): “\(reply)”" }
-    public static let practiceSentWrist = "Sent. Answer it on your wrist."
-    public static let practiceSentPhone = "Sent. Answer it on your iPhone."
+    // A practice request on its way, step by step, only what is known.
+    public static let practiceSending = "Sending…"
+    public static func practiceWithApple(_ time: String) -> String { "With Apple since \(time). On its way to the device." }
+    public static func practiceOnWrist(_ time: String) -> String { "On your Apple Watch since \(time). Raise your wrist to answer." }
+    public static func practiceOnPhone(_ time: String) -> String { "On your iPhone since \(time). Answer it there." }
     public static let practiceSentHere = "Sent. Answer it beside your pointer."
     public static let practiceUnanswered = "No answer within 10 minutes."
 

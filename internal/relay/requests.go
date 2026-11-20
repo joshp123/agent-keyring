@@ -297,12 +297,27 @@ func (s *Server) testRequest(ctx context.Context, who caller, asked *pb.TestRequ
 }
 
 // arrived records that a request reached a device, for the screens to say so.
+// A locked iPhone cannot sign, so an arrival may instead name the push
+// address it came to: a timing note either way, granting nothing.
 func (s *Server) arrived(document *pb.Signed) error {
 	members, _ := s.Store.documents()
-	signer, err := keyring.Verify(document, members, true)
 	arrival := &pb.Arrival{}
-	if err != nil || unmarshal(document.Payload, arrival) != nil || arrival.Domain != keyring.ArrivalDomain || arrival.DeviceKeyId != signer.KeyId {
-		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "An arrival is signed by the device it reached.")
+	if unmarshal(document.GetPayload(), arrival) != nil || arrival.Domain != keyring.ArrivalDomain {
+		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "Not an arrival.")
+	}
+	signer, err := keyring.Verify(document, members, true)
+	if err != nil {
+		signer = device(members, arrival.DeviceKeyId)
+		registration := &pb.PushRegistration{}
+		var raw []byte
+		s.Store.read(func(data *saved) { raw = data.Pushes[arrival.DeviceKeyId] })
+		if signer == nil || raw == nil || unmarshal(raw, registration) != nil || len(arrival.PushTokenSha256) == 0 ||
+			!bytes.Equal(arrival.PushTokenSha256, keyring.SHA256(registration.ApnsToken)) {
+			return fail(pb.ErrorCode_ERROR_CODE_INVALID, "An arrival is signed by the device it reached, or names its push address.")
+		}
+	}
+	if arrival.DeviceKeyId != signer.KeyId {
+		return fail(pb.ErrorCode_ERROR_CODE_INVALID, "An arrival comes from the device it reached.")
 	}
 	return s.Store.update(func(data *saved) error {
 		r := data.Requests[arrival.RequestId]

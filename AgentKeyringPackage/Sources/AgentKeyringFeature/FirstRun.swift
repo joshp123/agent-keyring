@@ -216,7 +216,12 @@ extension FirstRun.Page {
 /// The last practice request sent to one device: shown on "Try a request on
 /// each device" and in Devices, by device key. Not saved.
 public enum PracticeResult: Equatable, Sendable {
+    /// Asked for; not yet with Apple.
     case sent
+    /// Apple has the notification.
+    case withApple(at: Date)
+    /// The device said it arrived.
+    case arrived(at: Date, on: String)
     case approved(at: Date)
     case denied(at: Date, reply: String)
     case unanswered

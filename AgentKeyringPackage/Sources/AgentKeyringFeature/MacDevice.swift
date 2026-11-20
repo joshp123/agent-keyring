@@ -385,6 +385,14 @@ public final class MacDevice {
                let leaseID = askedForAgents.first(where: { $0.value == request.requestID })?.key { onStoppedOnDevice?(leaseID) }
             return
         }
+        if !request.loginID.isEmpty {
+            onOtherComputersRequest?(request.requestID, request.loginID, .asked)
+            switch work.hasOutcome ? work.outcome.state : .waiting {
+            case .approved, .ended: onOtherComputersRequest?(request.requestID, request.loginID, .approved)
+            case .denied: onOtherComputersRequest?(request.requestID, request.loginID, .denied)
+            default: break
+            }
+        }
         if work.hasOutcome {
             waiting.removeValue(forKey: request.requestID)
             finished[request.requestID] = work
@@ -482,6 +490,8 @@ public final class MacDevice {
     public private(set) var reports: [String: Agentkeyring_V2_SelfTestReport] = [:]
     /// A device joined, or one's status report changed: first run's windows may move on.
     @ObservationIgnored var onDevicesChanged: (@MainActor () async -> Void)?
+    /// A request from an agent on another computer, and Josh's answer: for the counts per password.
+    @ObservationIgnored var onOtherComputersRequest: ((String, String, PasswordUsageLog.Event) -> Void)?
 
     /// Every revision since ours, each checked against the one before: a
     /// later one may be signed by a device this Mac has not seen sign yet.
@@ -802,19 +812,37 @@ public final class MacDevice {
 
     /// A practice request on another device of Josh's (Test in Devices): it
     /// arrives there like a real one, and this ends when that device answers.
-    public func practice(on deviceKeyID: String) async throws -> Agentkeyring_V2_Lease {
-        guard let relay, deviceKeyID != keys.deviceKeyID else {
+    /// `progress` hears each step on the way (sent, with Apple, arrived). A
+    /// dropped connection is still waiting: the same request is rejoined by
+    /// its id, never made again.
+    public func practice(on deviceKeyID: String, progress: @MainActor (Agentkeyring_V2_Lease) -> Void) async throws -> Agentkeyring_V2_Lease {
+        guard deviceKeyID != keys.deviceKeyID else {
             throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.")
         }
         var test = Agentkeyring_V2_TestRequest()
         test.forDeviceKeyID = deviceKeyID
+        test.requestID = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
         var request = Agentkeyring_V2_RelayRequest()
         request.method = .testRequest(test)
-        var final = Agentkeyring_V2_Lease()
-        try await relay.stream(request) { response in
-            if case let .lease(lease) = response.result { final = lease }
+        let giveUp = ContinuousClock.now + .seconds(660)
+        DiagnosticLog.record("practice", "sent", ["request": test.requestID, "device": deviceKeyID.prefix(16).description])
+        var last = Agentkeyring_V2_Lease()
+        while true {
+            guard let relay else { throw RelayFailure(.unavailable, "This Mac is not connected to your iPhone or Apple Watch.") }
+            do {
+                try await relay.stream(request) { response in
+                    guard case let .lease(lease) = response.result else { return }
+                    last = lease
+                    progress(lease)
+                }
+                if last.state != .waiting { break }
+            } catch where ContinuousClock.now < giveUp && !Task.isCancelled {
+                DiagnosticLog.record("practice", "rejoining", ["request": test.requestID, "reason": "\(error)"])
+                try await Task.sleep(for: .seconds(2))
+            }
         }
-        return final
+        DiagnosticLog.record("practice", "answered", ["request": test.requestID, "state": "\(last.state)"])
+        return last
     }
 
     /// The agent stopped asking, or its approval ended: the iPhone and Watch
