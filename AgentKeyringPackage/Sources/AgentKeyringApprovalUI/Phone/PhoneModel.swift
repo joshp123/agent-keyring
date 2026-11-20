@@ -143,8 +143,9 @@ public protocol PhoneBackend: AnyObject {
     func join(invitation: String) async throws
     /// A step of first run: a tap, or what iOS answered.
     func firstRun(_ event: PhoneFirstRun.Event) async
-    /// A practice request to this iPhone (nil) or to another device he answers on.
-    func sendPractice(to deviceID: String?) async
+    /// A practice request to this iPhone (nil) or to another device he answers on. For this iPhone, returns
+    /// the one already waiting, to be shown again, instead of making a second.
+    func sendPractice(to deviceID: String?) async -> String?
     func dismiss(_ notice: PhoneNotice) async
     func setSettings(_ settings: PhoneSettings) async
     /// A new device's request to approve requests: Face ID signs it in.
@@ -240,7 +241,9 @@ public final class PhoneModel {
         if snapshot.firstRun == .finished { tab = .home }
     }
 
-    public func sendPractice(to deviceID: String? = nil) async { await backend.sendPractice(to: deviceID) }
+    public func sendPractice(to deviceID: String? = nil) async {
+        if let waiting = await backend.sendPractice(to: deviceID) { shownRequestID = waiting }
+    }
     public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
     public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
 

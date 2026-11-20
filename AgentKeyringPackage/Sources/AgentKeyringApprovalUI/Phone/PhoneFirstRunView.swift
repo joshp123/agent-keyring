@@ -16,7 +16,12 @@ struct PhoneFirstRunView: View {
     var body: some View {
         let relay = model.snapshot.relayName
         switch stage {
-        case let .welcome(card, _):
+        case .welcome:
+            PhoneWelcome(title: PhoneCopy.welcomeSecureTitle, lines: [PhoneCopy.welcomeSecureDetail]) {
+                PhoneButton(PhoneCopy.addThisPhone) { await model.firstRun(.addThisPhone) }
+                PhoneButton(PhoneCopy.tryPractice, secondary: true) { await model.firstRun(.tryPractice) }
+            }
+        case let .linking(card):
             welcome(card)
         case .notifications, .askingNotifications:
             PhoneStep(title: PhoneCopy.notificationsTitle, lines: [PhoneCopy.notificationsLead, PhoneCopy.notificationsFocus]) {
@@ -31,7 +36,7 @@ struct PhoneFirstRunView: View {
             }
         case .practiceOffer:
             PhoneStep(title: PhoneCopy.practiceOfferTitle, lines: [PhoneCopy.practiceOfferDetail]) {
-                PhoneButton(PhoneCopy.sendPractice) { await model.firstRun(.sendPractice) }
+                PhoneButton(PhoneCopy.sendPractice) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
             }
         case .practiceWaiting, .practice:
             PhoneStep(title: PhoneCopy.practiceCheckTitle, lines: [PhoneCopy.practiceCheckDetail(relay)]) {
@@ -39,14 +44,14 @@ struct PhoneFirstRunView: View {
             }
         case .practiceNotArrived:
             PhoneStep(title: PhoneCopy.practiceNotArrivedTitle, lines: [PhoneCopy.practiceNotArrivedDetail(relay)]) {
-                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.tryAgain) }
+                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.tryAgain(id: PhoneFirstRun.newPracticeID())) }
             }
         case .settingUpNotifications:
             PhoneStep(title: PhoneCopy.settingUpTitle, lines: [PhoneCopy.settingUpDetail]) { EmptyView() }
         case let .practiceResult(outcome):
             PhoneStep(title: PhoneCopy.practiceResultTitle(outcome), lines: [PhoneCopy.practiceResultDetail(outcome)],
                       mark: outcome == .approved ? .approved : outcome == .denied ? .denied : nil) {
-                PhoneButton(PhoneCopy.sendAnother, secondary: true) { await model.firstRun(.sendPractice) }
+                PhoneButton(PhoneCopy.sendAnother, secondary: true) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
                 PhoneButton(PhoneCopy.continueButton) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watchToAdd)) }
             }
         case .addWatch:
@@ -66,11 +71,11 @@ struct PhoneFirstRunView: View {
         switch card {
         case let .startOnMac(longWait):
             PhoneWelcome(title: PhoneCopy.startOnMac, lines: [PhoneCopy.startOnMacDetail] + (longWait ? [PhoneCopy.startOnMacLongWait] : [])) {
-                PhoneButton(PhoneCopy.tryPractice, secondary: true) { await model.firstRun(.tryPractice) }
+                PhoneWaitingLine(text: PhoneCopy.lookingForMac)
             }
         case let .addComputer(mac):
             PhoneWelcome(title: PhoneCopy.addComputer, lines: [PhoneCopy.addComputerDetail(mac)]) {
-                PhoneButton(PhoneCopy.tryPractice, secondary: true) { await model.firstRun(.tryPractice) }
+                PhoneWaitingLine(text: PhoneCopy.lookingForMac)
             }
         case let .approveOnMac(mac):
             PhoneWelcome(title: PhoneCopy.approveOn(mac), lines: [PhoneCopy.approveOnDetail(mac)]) {

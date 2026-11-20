@@ -144,6 +144,10 @@ public enum PhoneCopy {
     public static let appLead = "Agent Keyring gives your AI agents, such as Claude Code and Codex, your passwords when they need them. They ask first, and you answer here with Face ID."
     /// The Mac's name until the invitation carries it.
     static func mac(_ name: String?) -> String { name ?? "your Mac" }
+    public static let welcomeSecureTitle = "End-to-end encrypted, locked in Secure Enclave"
+    public static let welcomeSecureDetail = "Your passwords are end-to-end encrypted with unlock keys stored inside your devices’ Secure Enclave, and signed so nothing in between can read or tamper with them. Nothing can access a password except an agent you approve, one password at a time, with each approval lasting up to 30 minutes."
+    public static let addThisPhone = "Add This iPhone"
+    public static let lookingForMac = "Looking for your Mac"
     public static let startOnMac = "Start on your Mac"
     public static let startOnMacDetail = "Agent Keyring on your Mac holds your passwords. Install it there and follow its steps. This screen moves on by itself when your Mac is ready."
     /// After two minutes with nothing found.

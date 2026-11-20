@@ -22,14 +22,14 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
     case notificationsOff
     /// "Try a request on this iPhone", with Send Practice Request.
     case practiceOffer
-    /// A practice request has been asked for. `id`: the relay's request, once it has answered, so a return
-    /// to the app shows that one again; nil while the ask is in flight. `arrived`: it is here, and its
-    /// notification waits for a tap.
-    case practiceWaiting(id: String?, arrived: Bool)
+    /// A practice request has been asked for. `id`: chosen by this iPhone and saved, so asking again with it
+    /// rejoins the same request on a return to the app; the relay may answer with the one already waiting.
+    /// `arrived`: it is here, and its notification waits for a tap.
+    case practiceWaiting(id: String, arrived: Bool)
     /// 30 seconds passed and Apple has given no push address: the practice request opens by itself when it arrives.
-    case settingUpNotifications(id: String?)
+    case settingUpNotifications(id: String)
     /// 30 seconds passed and nothing arrived, though Apple gave an address.
-    case practiceNotArrived(id: String?)
+    case practiceNotArrived(id: String)
     /// The practice request is open.
     case practice(id: String)
     /// The practice's result stays on screen, with Send Another and Continue.
@@ -55,16 +55,17 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case continueTapped
         case notificationsAnswered(allowed: Bool)
         case continueWithoutNotifications
-        /// The relay has made the practice request asked for, with this id.
+        /// The relay names the practice request it made or already had waiting.
         case practiceSent(id: String)
         /// `pushExpected`: its notification will come, so it waits for a tap.
         case practiceArrived(pushExpected: Bool)
         case practiceTapped
         /// 30 seconds after asking. `pushAddress`: Apple has given one.
         case practiceTimedOut(pushAddress: Bool)
-        case tryAgain
-        /// Send Practice Request, or Send Another.
-        case sendPractice
+        /// Try Again, with a new id.
+        case tryAgain(id: String)
+        /// Send Practice Request, or Send Another, with a new id (`newPracticeID()`).
+        case sendPractice(id: String)
         case practiceEnded(PhonePracticeOutcome)
         /// Continue after the practice's result. `watchToAdd`: an Apple Watch is paired and not yet added.
         case continueAfterPractice(watchToAdd: Bool)
@@ -75,7 +76,7 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
     }
 
     public static let start = PhoneFirstRun.welcome(practising: false)
-    static let lookingForMac = PhoneFirstRun.linking(.startOnMac(longWait: false))
+    public static let lookingForMac = PhoneFirstRun.linking(.startOnMac(longWait: false))
 
     /// The next state. A pair the table does not list leaves the state as it is,
     /// so a repeated tap or a late answer cannot move first run anywhere wrong.
@@ -98,16 +99,16 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
              (.notificationsOff, .notificationsAnswered(true)): .practiceOffer
         case (.notifications, .notificationsAnswered(false)), (.askingNotifications, .notificationsAnswered(false)): .notificationsOff
         case (.notificationsOff, .continueWithoutNotifications): .practiceOffer
-        case (.practiceOffer, .sendPractice), (.practiceResult, .sendPractice), (.practiceNotArrived, .tryAgain):
-            .practiceWaiting(id: nil, arrived: false)
-        case let (.practiceWaiting(nil, arrived), .practiceSent(id)): .practiceWaiting(id: id, arrived: arrived)
-        case let (.settingUpNotifications(nil), .practiceSent(id)): .settingUpNotifications(id: id)
-        case let (.practiceNotArrived(nil), .practiceSent(id)): .practiceNotArrived(id: id)
-        case let (.practiceWaiting(id?, false), .practiceArrived(pushExpected)):
+        case let (.practiceOffer, .sendPractice(id)), let (.practiceResult, .sendPractice(id)), let (.practiceNotArrived, .tryAgain(id)):
+            .practiceWaiting(id: id, arrived: false)
+        case let (.practiceWaiting(_, arrived), .practiceSent(id)): .practiceWaiting(id: id, arrived: arrived)
+        case let (.settingUpNotifications, .practiceSent(id)): .settingUpNotifications(id: id)
+        case let (.practiceNotArrived, .practiceSent(id)): .practiceNotArrived(id: id)
+        case let (.practiceWaiting(id, false), .practiceArrived(pushExpected)):
             pushExpected ? .practiceWaiting(id: id, arrived: true) : .practice(id: id)
-        case let (.settingUpNotifications(id?), .practiceArrived), let (.practiceNotArrived(id?), .practiceArrived),
-             let (.practiceWaiting(id?, _), .practiceTapped), let (.settingUpNotifications(id?), .practiceTapped),
-             let (.practiceNotArrived(id?), .practiceTapped), let (.practiceWaiting(id?, true), .practiceTimedOut):
+        case let (.settingUpNotifications(id), .practiceArrived), let (.practiceNotArrived(id), .practiceArrived),
+             let (.practiceWaiting(id, _), .practiceTapped), let (.settingUpNotifications(id), .practiceTapped),
+             let (.practiceNotArrived(id), .practiceTapped), let (.practiceWaiting(id, true), .practiceTimedOut):
             .practice(id: id)
         case let (.practiceWaiting(id, false), .practiceTimedOut(pushAddress)):
             pushAddress ? .practiceNotArrived(id: id) : .settingUpNotifications(id: id)
@@ -120,17 +121,15 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
     }
 
     /// Where first run picks up after the app was closed. A question iOS was asking did not outlive the
-    /// app. A request to join, or a practice request the relay has made, is picked up by the same request;
-    /// a practice ask the relay never answered is offered again.
+    /// app. A request to join, or a practice request, is picked up by the same request.
     public var restored: PhoneFirstRun {
         switch self {
         case .welcome: .start
         case .linking(.denied): self
         case .linking: .lookingForMac
         case .askingNotifications: .notifications
-        case let .practiceWaiting(id?, _), let .settingUpNotifications(id?), let .practiceNotArrived(id?), let .practice(id):
+        case let .practiceWaiting(id, _), let .settingUpNotifications(id), let .practiceNotArrived(id), let .practice(id):
             .practiceWaiting(id: id, arrived: false)
-        case .practiceWaiting, .settingUpNotifications, .practiceNotArrived: .practiceOffer
         default: self
         }
     }
@@ -142,21 +141,17 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         return true
     }
 
-    /// The practice request first run is waiting on or showing, once the relay has made it.
+    /// The practice request first run is waiting on or showing.
     public var practiceID: String? {
         switch self {
-        case let .practiceWaiting(id, _), let .settingUpNotifications(id), let .practiceNotArrived(id): id
-        case let .practice(id): id
+        case let .practiceWaiting(id, _), let .settingUpNotifications(id), let .practiceNotArrived(id), let .practice(id): id
         default: nil
         }
     }
 
-    /// A practice request has been asked for and the relay has not yet said which.
-    public var practiceAskInFlight: Bool {
-        switch self {
-        case .practiceWaiting(nil, _), .settingUpNotifications(nil), .practiceNotArrived(nil): true
-        default: false
-        }
+    /// A new practice request's id: 32 hex digits, chosen by the asker.
+    public static func newPracticeID() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 }
 
