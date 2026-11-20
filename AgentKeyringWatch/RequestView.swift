@@ -1,8 +1,8 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
 // The request inside Apple's notification on the Watch: who is asking, the
-// site, the account and the agent's reason, then our three buttons, one kind:
-// Deny and Approve on the first screen, Deny and Explain under them.
+// site and the account, Deny and Approve, the agent's whole reason, then Deny
+// and Explain. Our three buttons, one kind.
 
 import AgentKeyringWatchCore
 import SwiftUI
@@ -116,7 +116,8 @@ struct RequestView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Short enough that Deny and Approve sit on the first screen: each line keeps to one line, the reason to two.
+    /// The first screen holds what he decides on: who asks, the site, the account, Deny and Approve, and the
+    /// start of the reason under them. The whole reason follows once, read by scrolling, then Deny and Explain.
     @ViewBuilder private func content(_ request: WatchRequest) -> some View {
         VStack(spacing: 1) {
             Text(request.wants).font(.system(size: 13)).foregroundStyle(Self.ink2).lineLimit(1).minimumScaleFactor(0.85).truncationMode(.middle)
@@ -124,13 +125,23 @@ struct RequestView: View {
             if !request.account.isEmpty {
                 Text(request.account).font(.system(size: 13)).foregroundStyle(Self.ink2).lineLimit(1).truncationMode(.middle)
             }
+            decision(request).padding(.top, 8)
             if !request.reason.isEmpty {
-                Text("“\(request.reason)”").font(.system(size: 15)).lineLimit(2).padding(.top, 3)
+                // Wraps to its full height: the notification would otherwise cut it to one line.
+                Text("“\(request.reason)”").font(.system(size: 15)).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
             }
-            answers(request).padding(.top, 8)
-            if request.reason.count > 70 {
-                // The whole reason, under the buttons, for one too long for two lines.
-                Text("“\(request.reason)”").font(.system(size: 15)).padding(.top, 16)
+            if isOpen(request) {
+                // His words for the agent, from watchOS's own input (dictation, Scribble or keyboard).
+                TextFieldLink(prompt: Text("What should it do instead?")) {
+                    pillLabel("Deny and Explain", Self.explain, text: Self.deny)
+                } onSubmit: { words in
+                    let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { model.respond(approve: false, words: trimmed) }
+                }
+                .buttonStyle(.plain)
+                .disabled(model.isSending)
+                .padding(.horizontal, 4)
+                .padding(.top, 10)
             }
             if let project = request.project {
                 Text("Project \(project)").font(.system(size: 12)).foregroundStyle(Self.ink2).lineLimit(1).padding(.top, 8)
@@ -138,25 +149,22 @@ struct RequestView: View {
         }
     }
 
-    @ViewBuilder private func answers(_ request: WatchRequest) -> some View {
+    private func isOpen(_ request: WatchRequest) -> Bool {
+        if case .ended = request.state { return false }
+        if case .answered = model.card { return false }
+        return true
+    }
+
+    /// Deny and Approve, or the outcome once there is one.
+    @ViewBuilder private func decision(_ request: WatchRequest) -> some View {
         if case .ended(let outcome) = request.state {
-            Text(outcome).font(.system(size: 15, weight: .semibold))
+            Text(outcome).font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
         } else if case let .answered(_, line) = model.card {
-            Text(line).font(.system(size: 15, weight: .semibold))
+            Text(line).font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
         } else {
-            VStack(spacing: 6) {
-                HStack(spacing: 5) {
-                    pill("Deny", Self.deny) { model.respond(approve: false) }
-                    pill("Approve", Self.approve) { model.respond(approve: true) }
-                }
-                // His words for the agent, from watchOS's own input (dictation, Scribble or keyboard).
-                TextFieldLink(prompt: Text("What should it do instead?")) {
-                    pillLabel("Deny and Explain", Self.explain)
-                } onSubmit: { words in
-                    let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty { model.respond(approve: false, words: trimmed) }
-                }
-                .buttonStyle(.plain)
+            HStack(spacing: 5) {
+                pill("Deny", Self.deny) { model.respond(approve: false) }
+                pill("Approve", Self.approve) { model.respond(approve: true) }
             }
             .disabled(model.isSending)
             .padding(.horizontal, 4)
@@ -167,8 +175,8 @@ struct RequestView: View {
         Button(action: action) { pillLabel(title, color) }.buttonStyle(.plain)
     }
 
-    private func pillLabel(_ title: String, _ color: Color) -> some View {
-        Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.8)
+    private func pillLabel(_ title: String, _ color: Color, text: Color = .white) -> some View {
+        Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(text).lineLimit(1).minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity, minHeight: 40)
             .background(color, in: .capsule)
     }

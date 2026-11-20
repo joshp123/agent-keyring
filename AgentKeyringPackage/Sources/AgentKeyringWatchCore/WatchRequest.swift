@@ -47,7 +47,7 @@ public struct WatchRequest: Sendable, Equatable {
     public static var sample: WatchRequest { WatchRequest(work: Data(), id: "sample", site: "example.com",
                                             account: UserDefaults.standard.string(forKey: "SampleAccount") ?? "you@example.com", sites: [],
                                             agent: "Claude Code", wants: "Claude Code on MacBook Pro (M4) wants", project: "agent-keyring",
-                                            reason: "Test 3: APPROVE on Apple Watch.", state: .waiting, who: "Codex on Linux server",
+                                            reason: UserDefaults.standard.string(forKey: "SampleReason") ?? "You asked me to download October’s invoice.", state: .waiting, who: "Codex on Linux server",
                                             inUseUntil: nil, isPractice: false) }
     #endif
 

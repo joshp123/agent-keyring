@@ -315,7 +315,7 @@ Code: `RequestModel.Card` in `AgentKeyringWatch/RequestView.swift`; the answer i
 |---|---|
 | `opening` | nothing yet |
 | `unreadable` | "Open Agent Keyring on your iPhone to see this request." The Watch has asked its iPhone for the list of devices. |
-| `showing(request)` | who asks, the site, the account and up to two lines of the reason, each kept short so Deny and Approve sit on the first screen; Deny and Explain under them. An ended request shows its outcome instead. |
+| `showing(request)` | who asks, the site and the account, each on one line, then Deny and Approve, all on the first screen; then the agent's whole reason, once, read by scrolling; then Deny and Explain. An ended request shows its outcome in place of Deny and Approve. |
 | `sending(request)` | the same, with the three buttons disabled |
 | `answered(request, line)` | "Approved", "Denied", or "Not approved. Try on your iPhone."; the card closes 1.2 seconds later |
 
