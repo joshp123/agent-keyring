@@ -25,6 +25,7 @@ type Server struct {
 	Push        *apns.Sender // Nil: no pushes; devices see work on their stream.
 	Ring        *Ring        // The relay's own recent log lines; nil keeps none.
 	logsMu      sync.Mutex
+	pushLocks   sync.Map // Request id: *sync.Mutex, so its pushes keep their order.
 	deviceLogs  map[string][]string // Device key id: its latest log.
 	Certificate tls.Certificate
 	Lookup      NodeLookup
