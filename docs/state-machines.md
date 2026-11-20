@@ -192,37 +192,39 @@ Known and left alone: a restart of the Mac app in the middle of setup forgets it
 
 Code: `PhoneFirstRun` in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone/PhoneFirstRun.swift`. `PhoneRelayBackend` sends it events and does what each state asks. Tests: `PhoneFirstRunTests`.
 
-The machine follows the Paper board "iPhone and Apple Watch" (page "First run and the app"), iPhone first run. Each state is one screen on that board, and each event a button or a caption.
+Each state is one screen and each event one button or one thing the iPhone saw. The screens and their words wait for the Paper boards of the rebuild; the states and transitions below are what those pages will be built on.
 
 ### States
 
 | State | Screen |
 |---|---|
-| `welcome(startOnMac(longWait))` | "Welcome to Agent Keyring" and "Start on your Mac", with Try a Practice Request. After two minutes, the iCloud paragraph is added. |
-| `welcome(addComputer(mac))` | "Add a computer that stays on", with Try a Practice Request. |
-| `welcome(approveOnMac(mac))` | "Approve on MacBook Pro", with "Waiting for MacBook Pro". |
-| `welcome(denied(mac))` | "MacBook Pro didn't add this iPhone", with Ask Again. |
-| `welcome(_, practising: true)` | The same screen, with the practice request open over it. |
+| `welcome(practising: false)` | What the app is and how it keeps passwords safe, with Add This iPhone and Try a Practice Request. Nothing is asked of the Mac until Add This iPhone. |
+| `welcome(practising: true)` | The same, with the practice request open over it. It never leaves this iPhone. |
+| `linking(startOnMac(longWait))` | Looking for the Mac's invitation. After two minutes, the iCloud Keychain paragraph is added. |
+| `linking(addComputer(mac))` | The Mac is set up but has no computer that stays on. |
+| `linking(approveOnMac(mac))` | The request to join waits on the Mac. |
+| `linking(denied(mac))` | The Mac refused, with Ask Again. |
 | `notifications` | "Turn on notifications", with Continue. |
 | `askingNotifications` | iOS's own question, over the same screen. |
-| `notificationsOff` | "Notifications are off", with Open Settings and Continue Without Notifications. |
-| `practiceOffer` | "Try a request on this iPhone", with Send Practice Request. |
-| `practiceWaiting(arrived)` | "Check that requests reach this iPhone", with "Waiting for the practice request". |
-| `settingUpNotifications` | "Setting up notifications". |
-| `practiceNotArrived` | "The practice request hasn't arrived", with Try Again. |
-| `practice` | The practice request, open as a sheet. |
-| `practiceResult(outcome)` | "You approved it" (or denied, or no answer), with Send Another and Continue. It stays until he goes on. |
-| `addWatch` | "Add your Apple Watch", with Open the Watch App and Skip; Apple Watch's request to be added comes up over it. Only when a Watch is paired and not yet added. |
-| `finished` | The app's tabs: Home, Passwords, Devices. |
+| `notificationsOff` | Notifications are off, with Open Settings and Continue Without Notifications. |
+| `practiceOffer` | Send Practice Request. |
+| `practiceWaiting(id, arrived)` | Waiting for practice request `id`. `arrived`: it is here, and its notification waits for a tap. |
+| `settingUpNotifications(id)` | 30 seconds and Apple has given no push address. |
+| `practiceNotArrived(id)` | 30 seconds and nothing arrived, with Try Again. |
+| `practice(id)` | Practice request `id`, open as a sheet. |
+| `practiceResult(outcome)` | Approved, denied or no answer, with Send Another and Continue. It stays until he goes on. |
+| `addWatch` | Add your Apple Watch, with Skip. Apple Watch's request to be added comes up over it, and says before Face ID that adding it gives it the passwords and asks for Face ID. Face ID runs only from that request's Approve. Only when a Watch is paired and not yet added. |
+| `finished` | The app's tabs, Home first. |
 
 ### What must always be true
 
-- First run has one state. Every screen of first run, and every step the app takes in it, follows from that state alone.
-- Only the steps after joining are saved. Before joining, the state starts afresh on each launch at `welcome(startOnMac(longWait: false))`. A step saved by an earlier build that this build does not have reads as no step, never as broken saved state (test: `earlierBuildsFirstRunStillReads`).
-- After a relaunch, `askingNotifications` becomes `notifications`, and any practice state, or its result, becomes `practiceOffer`: he sends a new one when he wants. A device that joined on an earlier build, with no saved step, starts at `notifications`.
-- The practice request is sent only when he presses Send Practice Request or Send Another; nothing sends one by itself.
-- Once the Mac refuses the iPhone, the look for the Mac makes no join request until Ask Again (`mayJoin`).
-- The practice request's end is taken from its own stream or from the work stream, whichever comes first.
+- First run has one state, saved on every change. Every first-run screen and every step the app takes in it follow from that state alone.
+- Nothing asks the Mac to join before Add This iPhone. The look for the Mac runs only in `linking` and not after a refusal (`mayJoin`).
+- Leaving the app cancels the look and the join's connection. That is not a failure: `linking` is saved, and coming back looks again and rejoins the same request (`restored`). Test: `joinIsHisAndSurvivesLeaving`.
+- A practice request has one id, chosen by this iPhone (32 hex digits) and saved in the state. Asking again with the same id rejoins it at the relay, and if one is already waiting for this iPhone the relay answers with that one, whose id first run then takes (`practiceSent`). A dropped connection is still waiting. A new id is made only by Send Practice Request, Send Another or Try Again. Test: `practiceKeepsItsID`.
+- After a relaunch, any practice state becomes `practiceWaiting(id, false)` with its id, and the app rejoins it. The result stays, across a relaunch, until he goes on. Test: `resultStays`.
+- Only first run's own practice request moves first run. One sent from Home is answered like any request.
+- Once the Mac refuses, nothing the look finds moves first run until Ask Again. Test: `refusalOutlastsTheLook`.
 - An event the table does not list for a state leaves the state unchanged.
 - Timers stay outside the machine and arrive as events: two minutes for `longWait`, and 30 seconds for `practiceTimedOut`.
 
@@ -230,37 +232,57 @@ The machine follows the Paper board "iPhone and Apple Watch" (page "First run an
 
 | From | Event | To |
 |---|---|---|
-| any | `removed` (this iPhone left the list of devices) | `welcome(startOnMac(false))` |
-| `welcome(denied)` | `noMac`, `macWithoutComputer`, `joinWaiting` | unchanged |
-| `welcome(denied)` | `askAgain` | `welcome(startOnMac(false))` |
-| `welcome` | `noMac(longWait)` | `welcome(startOnMac(longWait))` |
-| `welcome` | `macWithoutComputer(mac)` (the Mac's item names it but has no relay) | `welcome(addComputer(mac))` |
-| `welcome` | `joinWaiting(mac)` | `welcome(approveOnMac(mac))` |
-| `welcome` | `joinRefused(mac)` | `welcome(denied(mac))` |
-| `welcome` | `joined` | `notifications` |
-| `welcome(card, false)` | `tryPractice` | `welcome(card, true)` |
-| `welcome(card, true)` | `closePractice` (approved with Face ID, or denied) | `welcome(card, false)` |
+| any | `removed` (this iPhone left the list of devices) | `welcome(false)` |
+| `welcome(false)` | `addThisPhone` | `linking(startOnMac(false))` |
+| `welcome(false)` | `tryPractice` | `welcome(true)` |
+| `welcome(true)` | `closePractice` (approved with Face ID, or denied) | `welcome(false)` |
+| `linking(denied)` | `noMac`, `macWithoutComputer`, `joinWaiting` | unchanged |
+| `linking(denied)` | `askAgain` | `linking(startOnMac(false))` |
+| `linking` | `noMac(longWait)` | `linking(startOnMac(longWait))` |
+| `linking` | `macWithoutComputer(mac)` | `linking(addComputer(mac))` |
+| `linking` | `joinWaiting(mac)` | `linking(approveOnMac(mac))` |
+| `linking` | `joinRefused(mac)` | `linking(denied(mac))` |
+| `linking` | `joined` | `notifications` |
 | `notifications` | `continueTapped` | `askingNotifications` |
 | `notifications`, `askingNotifications`, `notificationsOff` | `notificationsAnswered(allowed: true)` | `practiceOffer` |
 | `notifications`, `askingNotifications` | `notificationsAnswered(allowed: false)` | `notificationsOff` |
 | `notificationsOff` | `continueWithoutNotifications` | `practiceOffer` |
-| `practiceOffer`, `practiceResult` | `sendPractice` (Send Practice Request, Send Another) | `practiceWaiting(false)` |
-| `practiceWaiting(false)` | `practiceArrived(pushExpected: true)` | `practiceWaiting(true)` |
-| `practiceWaiting(false)` | `practiceArrived(pushExpected: false)` | `practice` |
-| `settingUpNotifications`, `practiceNotArrived` | `practiceArrived` | `practice` |
-| `practiceWaiting`, `settingUpNotifications`, `practiceNotArrived` | `practiceTapped` | `practice` |
-| `practiceWaiting(true)` | `practiceTimedOut` | `practice` |
-| `practiceWaiting(false)` | `practiceTimedOut(pushAddress: true)` | `practiceNotArrived` |
-| `practiceWaiting(false)` | `practiceTimedOut(pushAddress: false)` | `settingUpNotifications` |
-| `practiceNotArrived` | `tryAgain` | `practiceWaiting(false)` |
+| `practiceOffer`, `practiceResult` | `sendPractice(id)` | `practiceWaiting(id, false)` |
+| `practiceNotArrived` | `tryAgain(id)` | `practiceWaiting(id, false)` |
+| `practiceWaiting`, `settingUpNotifications`, `practiceNotArrived` | `practiceSent(id)` (the relay names the waiting one) | the same state with that id |
+| `practiceWaiting(id, false)` | `practiceArrived(pushExpected: true)` | `practiceWaiting(id, true)` |
+| `practiceWaiting(id, false)` | `practiceArrived(pushExpected: false)` | `practice(id)` |
+| `settingUpNotifications(id)`, `practiceNotArrived(id)` | `practiceArrived` | `practice(id)` |
+| `practiceWaiting`, `settingUpNotifications`, `practiceNotArrived` | `practiceTapped` | `practice(id)` |
+| `practiceWaiting(id, true)` | `practiceTimedOut` | `practice(id)` |
+| `practiceWaiting(id, false)` | `practiceTimedOut(pushAddress: true)` | `practiceNotArrived(id)` |
+| `practiceWaiting(id, false)` | `practiceTimedOut(pushAddress: false)` | `settingUpNotifications(id)` |
 | `practiceWaiting`, `settingUpNotifications`, `practiceNotArrived`, `practice` | `practiceEnded(outcome)` | `practiceResult(outcome)` |
 | `practiceResult` | `continueAfterPractice(watchToAdd: true)` | `addWatch` |
 | `practiceResult` | `continueAfterPractice(watchToAdd: false)` | `finished` |
 | `addWatch` | `watchDone` (Skip, or Apple Watch added) | `finished` |
 
 What each state starts:
-- Entering `practiceWaiting(false)` starts the 30-second timer, and asks for the practice request if the relay already has this launch's push address; otherwise when the address arrives.
-- Entering `settingUpNotifications` asks for the practice request at once.
+- Entering `linking(startOnMac(false))` starts the look for the Mac.
+- Entering `practiceWaiting(id, false)` with a new id starts the 30-second timer and asks the relay for practice request `id` once it has this launch's push address.
+- Entering `settingUpNotifications(id)` asks for practice request `id` at once.
+- A change of journey step sends a new status report.
+
+### The one journey
+
+Each device's status report (`SelfTestReport`, signed with its reply key) carries its step on the journey, whether its part is finished, and its checklist. The iPhone sends a new one when its step changes, when what iOS allows for notifications changes, and when Apple Watch's facts change.
+- Step: `IPHONE` until `addWatch`, then `WATCH`, then `READY` once first run is over. `finished` is set from `addWatch` on: the iPhone's own part is done, and adding Apple Watch is the Watch's step.
+- Checklist, by the names every device uses: `linked`, `notifications`, `time_sensitive`, `practice`. Then, while a Watch is paired or listed, Apple Watch's on its behalf, since it reports through this iPhone: `watch installed`, `watch opened`, `watch added`, `watch notifications`, `watch push_address`, `watch practice`. Lines only the logs need follow (`push address`, `push reached this iPhone`, `opening key`, `watch problem`).
+- Reading: when `Changes.reports_revision` rises on the work stream, the iPhone fetches every report, keeps those whose signature checks against the list of devices, and takes the Mac's journey (its steps, in order) and each other device's step into the snapshot (`PhoneJourney`), so each page can say where to go next.
+- Filling: after joining, `Changes.sealed_for_you` over the count of passwords not Blocked is how far this iPhone's copies have come (`PhoneSnapshot.filling`, absent once they are all here).
+
+### When a request arrives
+
+The relay hears when a request has reached each device, so the Mac can say where it is.
+- iPhone, notification extension: on naming a waiting request, before it shows, it posts an unsigned `Arrival` naming SHA-256 of its push address to the relay's HTTPS door (`POST /v2/arrived`), giving up after two seconds however far the call has got. The phone may be locked, and the reply key needs it unlocked; the note grants nothing.
+- iPhone app: the first time it holds a waiting request's work, it sends an `Arrival` signed with its reply key (`arrived` on the framed connection). The relay keeps the first arrival only.
+- Apple Watch, notification extension: on naming a waiting request it posts an `Arrival` signed with its reply key to the same HTTPS door, giving up after two seconds.
+- Both extensions' Info.plists turn off App Transport Security's default, as the Watch app's does: the relay has no public certificate, and the pin to its key in the list of devices is the check.
 
 ## iPhone: every day
 
@@ -274,7 +296,8 @@ Code: `PhoneHomeView`, `PhoneLoginsView`, `PhoneDevicesView` and `PhoneSettingsV
 These are observations kept only for the self-test the relay stores. Nothing on a first-run screen reads them.
 - `pushRegistered`: the relay has this launch's push address.
 - `pushSeen`: a push has reached this iPhone. It is saved.
-- `notificationsAllowed`: what iOS allows, read each time the app comes to the front.
+- `facts` (`PhoneNotificationFacts`): what iOS allows (notifications, banners, Lock Screen, Time Sensitive, in the Scheduled Summary), read each time the app comes to the front and after iOS's question. The notifications checklist ticks only from these.
+- Apple Watch's facts (`PhoneWatchFacts`): paired and app installed (WatchConnectivity), opened (it has sent its keys or a self-test, or is listed), added (listed), notifications and push address (its self-test), practice answered (its self-test, from `WatchSaved.practiceAnswered`).
 - `openingWorks`: the opening key opened a sealed password.
 - `practiceOutcome`: how the last practice request ended. Once approved it stays approved: the approval's own end a minute later is not a failure (test: `practiceApprovalLatches`).
 - `watchPracticed`: Apple Watch's practice request has been made by the relay. It is saved, so the Watch gets one only.
@@ -285,7 +308,8 @@ Where the welcome card comes from: the look for the Mac reads the item the Mac l
 
 1. **First run stuck with no button.** In the build before this one, the practice request's end was read only from its own stream, and a new request was asked for only at three moments: notifications allowed, push address registered, and 30 seconds with no address. Suppose that stream was lost while the app was away, for example because he answered from the Lock Screen. First run then stayed on the notifications screen with no button until the app was relaunched. Now the work stream also ends the practice, and coming back to the front asks again. Test: `practiceEndSeenOnTheWorkStream`, `relaunchMidPractice`.
 2. **This iPhone removed while the app was open.** The work stream kept retrying with no relay to reach, and nothing looked for the Mac until the app was reopened. Now removal stops the stream and starts the look. Test: `removed`.
-3. **Two practice requests after a relaunch.** A practice request still waiting from the last launch stayed beside the new one, and the sheet could show either. Now a new request removes the old one, and the latest is the one shown.
+3. **The join asked twice.** It asked the Mac 0.03 seconds after the app first opened, and leaving the app cancelled the waiting join; a retry 30 seconds later asked again. Now nothing asks before Add This iPhone, and a cancelled connection is "still waiting". Test: `joinIsHisAndSurvivesLeaving`.
+4. **Two or three practice requests, and "Your answer wasn't sent".** iOS cut the practice request's connection on leaving the app; the app called that a failure, asked for a new one, and deleted its record of the one on screen, so his answer took the path for a real request and failed. Now the request keeps its id and is rejoined. Test: `practiceKeepsItsID`.
 
 ## Apple Watch: setup
 
@@ -331,6 +355,8 @@ Code: `RequestModel.Card` in `AgentKeyringWatch/RequestView.swift`; the answer i
 
 The three buttons are ours, one kind: Deny (red), Approve (green), Deny and Explain (grey), which opens watchOS's own text entry (dictation, Scribble or keyboard) inside the card. The notification category has no actions of Apple's, so Double Tap has nothing to choose and never answers.
 
+The log has a line when the card is shown (`card shown`, with the request, and how many seconds it waited for the list of devices if it had to) and when it cannot read the request (`card unreadable`, with the error). With the extension's `push named` and `arrival sent`, that times each request from the push to his wrist.
+
 What must always be true:
 - An answer goes only to the request on screen, and only once: `respond` works only from `showing`.
 - The retry that reads the request again while the list arrives is cancelled when another notification takes the card, and when the card closes.
@@ -340,3 +366,27 @@ What must always be true:
 - A request's notification goes when it is answered on this device, when this device learns it has ended (its work stream, or the relay's silent push for every outcome), and never comes back as a separate "Approved on your iPhone" notification. The silent push carries the request id at the top level (`"id"`) and no alert.
 - Answering is the same whichever way it comes: the notification's Approve and the app's button can both run for one request; once this iPhone has answered it, or it has ended, a second answer returns without error. If the relay's reply is lost, the iPhone asks for the request and counts an outcome that matches its answer as sent. Test: `answeringTwice`.
 - Tapping a notification opens its request even when the app was away and its stream has not yet sent it: the iPhone asks the relay for that request.
+- On the Watch, the relay's silent push for an outcome (`apns-push-type: background`, priority 5, `content-available`, the request id as `"id"`) reaches `didReceiveRemoteNotification`, which removes the request's notification. The Watch app declares `UIBackgroundModes` with `remote-notification`; before bdd2231 it declared `WKBackgroundModes`, which App Store Connect refused, and that is the likely reason answered requests stayed on the Watch. Not yet seen on a real Watch. Apple rations background pushes, so one may still come late; the request's own notification is also removed when its card is answered.
+
+## Deny and Explain on the iPhone
+
+- From a notification, Deny and Explain is a foreground action: it opens the app on that request, with the reply box focused and our microphone beside it. Approve and plain Deny stay on the notification. The Watch keeps its own three buttons.
+- The reply box grows with what he says or types, up to ten lines, then scrolls.
+
+### The microphone
+
+Code: `PhoneDictation` and `PhoneSpeechModel` in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone/PhoneDictation.swift`. Apple's on-device transcription (SpeechAnalyzer with SpeechTranscriber).
+
+The language's speech model (`PhoneSpeechModel`): `unknown`, `downloading(percent)`, `ready(locale)`, `unsupported(language)`, `failed`. It is fetched when the iPhone joins, so the first tap works, and again before listening if it is missing.
+
+| State | Under the reply box |
+|---|---|
+| `idle` | nothing |
+| `starting` | nothing; the button shows it is listening |
+| `listening(settled, tentative)` | the words, written into the box as they are heard |
+| `cannotListen(microphoneOff)` | one line, with Open Settings |
+| `cannotListen(gettingReady(percent))` | one line: the speech model is still downloading |
+| `cannotListen(unsupported(language))` | one line naming the language |
+| `cannotListen(failed)` | one line |
+
+It never moves to the keyboard without a word. Every step is logged: tapped, listening, stopped, cannot listen with the reason, and the model's downloading, ready, unsupported and download failed.

@@ -33,12 +33,12 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
 
     public func approve(_ requestID: String, reusingUnlock: Bool) async throws {
-        if requestID == snapshot.practiceRequest?.id { await firstRun(snapshot.firstRun == .practice ? .practiceEnded(.approved) : .closePractice); return }
+        if requestID == snapshot.practiceRequest?.id { await firstRun(snapshot.firstRun.practiceID != nil ? .practiceEnded(.approved) : .closePractice); return }
         update(requestID) { .approved(by: .iPhone, until: .now.addingTimeInterval(RequestedAccess.longestLease)) }
     }
 
     public func deny(_ requestID: String, reply: String?) async throws {
-        if requestID == snapshot.practiceRequest?.id { await firstRun(snapshot.firstRun == .practice ? .practiceEnded(.denied) : .closePractice); return }
+        if requestID == snapshot.practiceRequest?.id { await firstRun(snapshot.firstRun.practiceID != nil ? .practiceEnded(.denied) : .closePractice); return }
         update(requestID) { .denied(by: .iPhone, reply: reply, askAgainAfter: .now.addingTimeInterval(1800)) }
     }
 
@@ -60,29 +60,30 @@ public final class PhoneSampleBackend: PhoneBackend {
         next.practiceRequest = Self.practiceOpen(next.firstRun) ? .practice() : nil
         snapshot = next
     }
-    public func sendPractice(to deviceID: String?) async {}
+    public func sendPractice(to deviceID: String?) async -> String? { nil }
+    public func notificationFacts(_ facts: PhoneNotificationFacts) async { snapshot.notificationFacts = facts }
     public func dismiss(_ notice: PhoneNotice) async { snapshot.notices.removeAll { $0 == notice } }
     public func setSettings(_ settings: PhoneSettings) async { snapshot.settings = settings }
     public func approveDevice(_ id: String) async throws { snapshot.deviceRequest = nil }
     public func denyDevice(_ id: String) async { snapshot.deviceRequest = nil }
 
     static func practiceOpen(_ stage: PhoneFirstRun) -> Bool {
-        if case .welcome(_, true) = stage { return true }
-        return stage == .practice
+        if stage == .welcome(practising: true) { return true }
+        return stage == .practice(id: "practice")
     }
 
     /// Paper's first-run iPhone screens.
     static func firstRun(_ step: String, into snapshot: inout PhoneSnapshot) {
         snapshot.requests = []; snapshot.deviceRequest = nil; snapshot.notices = []
-        snapshot.relayName = "Mac mini"; snapshot.watchPaired = true
+        snapshot.relayName = "Mac mini"; snapshot.watch.paired = true; snapshot.watch.installed = true
         let stages: [String: PhoneFirstRun] = [
-            "start": .start, "long-wait": .welcome(.startOnMac(longWait: true), practising: false),
-            "add-computer": .welcome(.addComputer(mac: "MacBook Pro"), practising: false),
-            "approve-on-mac": .welcome(.approveOnMac(mac: "MacBook Pro"), practising: false),
-            "denied": .welcome(.denied(mac: "MacBook Pro"), practising: false),
+            "start": .start, "looking": .linking(.startOnMac(longWait: false)), "long-wait": .linking(.startOnMac(longWait: true)),
+            "add-computer": .linking(.addComputer(mac: "MacBook Pro")),
+            "approve-on-mac": .linking(.approveOnMac(mac: "MacBook Pro")),
+            "denied": .linking(.denied(mac: "MacBook Pro")),
             "notifications": .notifications, "notifications-off": .notificationsOff,
-            "practice-waiting": .practiceWaiting(arrived: false), "practice": .practice,
-            "not-arrived": .practiceNotArrived, "setting-up": .settingUpNotifications, "practice-offer": .practiceOffer,
+            "practice-waiting": .practiceWaiting(id: "practice", arrived: false), "practice": .practice(id: "practice"),
+            "not-arrived": .practiceNotArrived(id: "practice"), "setting-up": .settingUpNotifications(id: "practice"), "practice-offer": .practiceOffer,
             "approved": .practiceResult(.approved), "denied-practice": .practiceResult(.denied), "add-watch-step": .addWatch,
         ]
         snapshot.firstRun = stages[step] ?? .finished

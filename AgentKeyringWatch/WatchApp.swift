@@ -135,6 +135,13 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
                 _ = try await WatchAnswers().deny(request, words: words)
             }
             watchLog.note("answer", "sent", ["request": request.id])
+            if request.isPractice, WatchStore().read().practiceAnswered != true {
+                let store = WatchStore()
+                var saved = store.read()
+                saved.practiceAnswered = true
+                store.write(saved)
+                await WatchLink.shared.sendHandOver()
+            }
             return true
         } catch {
             WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") did not reach the relay: \(error)")
@@ -162,6 +169,21 @@ enum WatchCopy {
         }
     }
     static let continueButton = "Continue"
+    // The request card.
+    static let deny = "Deny"
+    static let approve = "Approve"
+    static let denyAndExplain = "Deny and Explain"
+    static let whatInstead = "What should it do instead?"
+    static let unreadable = "Open Agent Keyring on your iPhone to see this request."
+    static func project(_ name: String) -> String { "Project \(name)" }
+    static func answered(approve: Bool, sent: Bool) -> String {
+        switch (approve, sent) {
+        case (true, true): "Approved"
+        case (false, true): "Denied"
+        case (true, false): "Not approved. Try on your iPhone."
+        case (false, false): "Not sent. Try on your iPhone."
+        }
+    }
     static let inUse = "In use"
     static let stop = "Stop"
     /// Not on the board: when Stop can't reach the iPhone.

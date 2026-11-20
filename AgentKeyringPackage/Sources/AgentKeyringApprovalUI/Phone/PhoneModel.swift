@@ -74,6 +74,79 @@ public enum PhoneNotice: Hashable, Sendable, Identifiable {
     public var dismissable: Bool { self == .addAppleWatch }
 }
 
+public struct PhoneFill: Hashable, Sendable {
+    public var copied: Int
+    public var of: Int
+    public init(copied: Int, of: Int) { self.copied = copied; self.of = of }
+}
+
+/// The one journey, as the Mac publishes it: the steps for the devices he chose, in order, the same on
+/// every device, and where each device is on it. Read from the devices' signed status reports.
+public struct PhoneJourney: Hashable, Sendable {
+    public enum Step: String, Hashable, Sendable {
+        case welcome, chooseDevices, practice, passwords, agents, alwaysOn, iPhone, watch, computers, tryDevices, ready
+    }
+
+    /// Where one device is.
+    public struct Place: Hashable, Sendable {
+        public var device: String
+        public var step: Step?
+        public var finished: Bool
+        public init(device: String, step: Step?, finished: Bool) { self.device = device; self.step = step; self.finished = finished }
+    }
+
+    /// Empty until the Mac has published its list.
+    public var steps: [Step] = []
+    /// The Mac's place, and every other device's but this iPhone's.
+    public var mac: Place?
+    public var others: [Place] = []
+    public init() {}
+}
+
+/// What the iPhone can see of its Apple Watch, each a fact the Apple Watch step ticks. The iPhone cannot
+/// open or install the Watch app; it can only see these.
+public struct PhoneWatchFacts: Hashable, Sendable {
+    /// An Apple Watch is paired with this iPhone (WatchConnectivity).
+    public var paired = false
+    /// Agent Keyring's Watch app is installed on it.
+    public var installed = false
+    /// The Watch app has run and sent this iPhone its keys.
+    public var opened = false
+    /// It is in the list of devices.
+    public var added = false
+    public var notificationsAllowed = false
+    /// Apple has given it a push address.
+    public var pushAddress = false
+    /// It has answered a practice request.
+    public var practiceAnswered = false
+
+    public init() {}
+
+    /// Paired, with the app, and not yet added: first run offers the Apple Watch step.
+    public var toAdd: Bool { paired && installed && !added }
+}
+
+/// What iOS lets the app see of its notification settings: the facts the notifications checklist ticks.
+/// Whether a Focus such as Sleep lets requests through is not among them: no app can read it.
+public struct PhoneNotificationFacts: Hashable, Sendable {
+    public var allowed = false
+    public var banners = false
+    public var lockScreen = false
+    public var timeSensitive = false
+    /// Delivered in a Scheduled Summary, which would hold requests back.
+    public var inScheduledSummary = false
+
+    public init() {}
+
+    public init(_ settings: UNNotificationSettings) {
+        allowed = settings.authorizationStatus == .authorized
+        banners = settings.alertSetting == .enabled
+        lockScreen = settings.lockScreenSetting == .enabled
+        timeSensitive = settings.timeSensitiveSetting == .enabled
+        inScheduledSummary = settings.scheduledDeliverySetting == .enabled
+    }
+}
+
 /// The two notification settings (Paper, "On iPhone and Apple Watch", Settings).
 public struct PhoneSettings: Hashable, Sendable {
     public var timeSensitive: Bool
@@ -108,13 +181,15 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var practiceRequest: AccessRequest?
     /// The computer that stays on and passes requests to this iPhone, by name.
     public var relayName: String?
-    /// An Apple Watch with the app is paired with this iPhone.
-    public var watchPaired = false
-    /// That Apple Watch is not yet in the list of devices.
-    public var watchToAdd = false
+    /// What this iPhone can see of its Apple Watch, for the Apple Watch step.
+    public var watch = PhoneWatchFacts()
     public var notices: [PhoneNotice] = []
     public var settings = PhoneSettings()
+    public var notificationFacts = PhoneNotificationFacts()
     public var deviceRequest: PhoneDeviceRequest?
+    public var journey = PhoneJourney()
+    /// While this iPhone's copies of the passwords arrive after joining: how many are here, of how many.
+    public var filling: PhoneFill?
     /// In the signed list of devices.
     public var joined = false
 
@@ -143,8 +218,11 @@ public protocol PhoneBackend: AnyObject {
     func join(invitation: String) async throws
     /// A step of first run: a tap, or what iOS answered.
     func firstRun(_ event: PhoneFirstRun.Event) async
-    /// A practice request to this iPhone (nil) or to another device he answers on.
-    func sendPractice(to deviceID: String?) async
+    /// What iOS now allows, read each time the app comes to the front and after its question.
+    func notificationFacts(_ facts: PhoneNotificationFacts) async
+    /// A practice request to this iPhone (nil) or to another device he answers on. For this iPhone, returns
+    /// the one already waiting, to be shown again, instead of making a second.
+    func sendPractice(to deviceID: String?) async -> String?
     func dismiss(_ notice: PhoneNotice) async
     func setSettings(_ settings: PhoneSettings) async
     /// A new device's request to approve requests: Face ID signs it in.
@@ -159,9 +237,16 @@ public final class PhoneModel {
     public var tab = PhoneTab.home
     /// The request on screen, from a tap on a notification or on Show.
     public var shownRequestID: String? {
-        didSet { if shownRequestID != nil { tab = .home } }
+        didSet { if shownRequestID != nil { tab = .home } else { explaining = nil } }
     }
     public var replyDraft = ""
+    /// The request was opened from Deny and Explain: its reply box takes the keyboard as it appears.
+    public private(set) var explaining: String?
+
+    public func explain(_ id: String) {
+        explaining = id
+        shownRequestID = id
+    }
     public private(set) var answering: AnswerChoice?
     public private(set) var failure: String?
 
@@ -223,6 +308,7 @@ public final class PhoneModel {
     /// have turned notifications on in Settings, and first run then carries on by itself.
     public func recheckNotifications() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
+        await backend.notificationFacts(PhoneNotificationFacts(settings))
         guard settings.authorizationStatus != .notDetermined else { return }
         await backend.firstRun(.notificationsAnswered(allowed: settings.authorizationStatus == .authorized))
     }
@@ -232,6 +318,7 @@ public final class PhoneModel {
         guard snapshot.firstRun == .notifications else { return }
         await backend.firstRun(.continueTapped)
         let allowed = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        await backend.notificationFacts(PhoneNotificationFacts(await UNUserNotificationCenter.current().notificationSettings()))
         await backend.firstRun(.notificationsAnswered(allowed: allowed))
     }
 
@@ -240,7 +327,9 @@ public final class PhoneModel {
         if snapshot.firstRun == .finished { tab = .home }
     }
 
-    public func sendPractice(to deviceID: String? = nil) async { await backend.sendPractice(to: deviceID) }
+    public func sendPractice(to deviceID: String? = nil) async {
+        if let waiting = await backend.sendPractice(to: deviceID) { shownRequestID = waiting }
+    }
     public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
     public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
 

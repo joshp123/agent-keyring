@@ -16,6 +16,8 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
             contentHandler(request.content); return
         }
+        let log = DeviceLog(device: "watch-notice")
+        var arriving: WatchRequest?
         do {
             let saved = WatchStore().read()
             let opened = try WatchRequest.from(userInfo: content.userInfo, keys: WatchKeys(), saved: saved)
@@ -23,11 +25,26 @@ final class NotificationService: UNNotificationServiceExtension {
             // An approval from any device arrives here as its outcome: it is in use until it ends.
             let noted = saved.noting(opened)
             if noted != saved { WatchStore().write(noted) }
-            DeviceLog(device: "watch-notice").note("push", "named", ["request": opened.id])
+            log.note("push", "named", ["request": opened.id])
+            if case .waiting = opened.state { arriving = opened }
         } catch {
-            DeviceLog(device: "watch-notice").note("push", "refused", ["reason": "\(error)"])
+            log.note("push", "refused", ["reason": "\(error)"])
             WatchWords.writeFallback(into: content)
         }
-        contentHandler(content)
+        guard let arriving else { return contentHandler(content) }
+        // The relay hears that the request reached the wrist before it shows.
+        let done = UncheckedContent(handler: contentHandler, content: content)
+        Task {
+            do { try await WatchAnswers().arrived(arriving); log.note("push", "arrival sent", ["request": arriving.id]) }
+            catch { log.note("push", "arrival not sent", ["request": arriving.id, "error": "\(error)"]) }
+            done.call()
+        }
     }
+}
+
+/// The content handler and the content, carried into the task that calls it once.
+private struct UncheckedContent: @unchecked Sendable {
+    let handler: (UNNotificationContent) -> Void
+    let content: UNNotificationContent
+    func call() { handler(content) }
 }

@@ -7,6 +7,7 @@
 // the request has ended (Paper, "Wherever you are").
 
 import AgentKeyringApprovalUI
+import AgentKeyringPhoneApprover
 import UserNotifications
 
 final class NotificationService: UNNotificationServiceExtension {
@@ -27,9 +28,23 @@ final class NotificationService: UNNotificationServiceExtension {
             content.userInfo[PhoneNotification.wordsKey] = PhoneNotification.encode(words.request, deadline: deadline)
             // No subtitle: iOS cuts it to one line. Who asks leads the body, which wraps; the reason comes last.
             content.subtitle = ""
-            content.body = PhoneCopy.notificationSubtitle(words.request.agent) + ".\n" + PhoneCopy.notificationBody(words.request)
+            content.body = words.request.isPractice ? PhoneCopy.practiceNotificationBody
+                : PhoneCopy.notificationSubtitle(words.request.agent) + ".\n" + PhoneCopy.notificationBody(words.request)
             content.categoryIdentifier = PhoneNotification.requestCategory
             content.interruptionLevel = PhoneNoticeReader.level()
+            // The relay hears that the request reached this iPhone before it shows.
+            let id = words.request.id
+            let done = UncheckedContent(handler: contentHandler, content: content)
+            Task {
+                do {
+                    try await PhoneRelayBackend.noteArrival(id, shared: PhoneNoticeReader.shared)
+                    PhoneDiagnostics.log.note("push", "arrival sent", ["request": id])
+                } catch {
+                    PhoneDiagnostics.log.note("push", "arrival not sent", ["request": id, "error": "\(error)"])
+                }
+                done.call()
+            }
+            return
         } else {
             content.body = PhoneCopy.outcomeBody(words.request, answeredBy: words.answeredBy)
             content.categoryIdentifier = ""
@@ -37,4 +52,11 @@ final class NotificationService: UNNotificationServiceExtension {
         }
         contentHandler(content)
     }
+}
+
+/// The content handler and the content, carried into the task that calls it once.
+private struct UncheckedContent: @unchecked Sendable {
+    let handler: (UNNotificationContent) -> Void
+    let content: UNNotificationContent
+    func call() { handler(content) }
 }

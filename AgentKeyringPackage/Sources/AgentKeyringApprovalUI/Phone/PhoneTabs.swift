@@ -33,7 +33,7 @@ public struct PhoneRootView: View {
         .task { await model.followUpdates() }
         .alert(model.failure ?? "", isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sheet(item: shownRequest) { request in
-            PhoneRequestView(model: model, request: request, practice: request.agent.name == PhoneCopy.practiceAgent)
+            PhoneRequestView(model: model, request: request, practice: request.isPractice)
         }
         .sheet(item: practiceShown) { request in
             PhoneRequestView(model: model, request: request, practice: true).interactiveDismissDisabled()
@@ -138,7 +138,7 @@ struct PhoneHomeView: View {
                     ForEach(model.inUse) { request in
                         HStack(spacing: 10) {
                             if case let .approved(_, until) = request.state {
-                                TwoLines(title: request.login.site, detail: PhoneCopy.inUseDetail(request.agent, until: until))
+                                TwoLines(title: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until))
                             }
                             Button(PhoneCopy.stop) { Task { await model.stop(request.id) } }
                                 .buttonStyle(RowButtonStyle(fill: Phone.fill, text: Phone.ink))
@@ -189,7 +189,7 @@ struct PhoneHomeView: View {
     /// The request in place: who, the site, the reason, then Deny… (the reply box) and Approve.
     private func waitingCard(_ request: AccessRequest) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(PhoneCopy.homeDetail(request.agent)).font(.footnote).foregroundStyle(Phone.ink2).lineLimit(1)
+            Text(PhoneCopy.homeDetail(request)).font(.footnote).foregroundStyle(Phone.ink2).lineLimit(1)
             Text(request.login.site).font(.title3.bold()).foregroundStyle(Phone.ink).lineLimit(1).minimumScaleFactor(0.6)
             if !request.agentReason.isEmpty {
                 Text(PhoneCopy.quoted(request.agentReason)).font(.subheadline).foregroundStyle(Phone.ink).lineLimit(3)

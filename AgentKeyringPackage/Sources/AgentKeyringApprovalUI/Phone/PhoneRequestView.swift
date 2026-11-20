@@ -38,6 +38,7 @@ struct PhoneRequestView: View {
         .sensoryFeedback(.selection, trigger: model.answering)
         .onChange(of: dictation.heard) { _, heard in if dictation.isListening { model.replyDraft = spokenAfter + heard } }
         .onDisappear { Task { await dictation.stop() } }
+        .onAppear { if model.explaining == request.id { replyFocused = true } }
     }
 
     private var answers: some View {
@@ -47,7 +48,7 @@ struct PhoneRequestView: View {
                     TextField("", text: $model.replyDraft, axis: .vertical)
                         .font(.subheadline)
                         .foregroundStyle(Phone.ink)
-                        .lineLimit(1...4)
+                        .lineLimit(1...10)
                         .focused($replyFocused)
                         .submitLabel(.send)
                         .accessibilityLabel(PhoneCopy.replyPlaceholder(request.agent))
@@ -62,13 +63,12 @@ struct PhoneRequestView: View {
                                 .allowsHitTesting(false)
                             }
                         }
-                    // One tap to speak, one to stop. If it can't listen, the keyboard opens, with its own dictation key.
+                    // One tap to speak, one to stop. If it can't listen, the line under the box says why.
                     Button {
                         if !dictation.isListening { spokenAfter = model.replyDraft.isEmpty ? "" : model.replyDraft + " " }
                         replyFocused = false
                         Task {
                             await dictation.toggle()
-                            if dictation.state == .unavailable { replyFocused = true }
                         }
                     } label: {
                         Image(systemName: dictation.isListening ? "stop.circle.fill" : "mic.fill")
@@ -96,7 +96,18 @@ struct PhoneRequestView: View {
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(PillButtonStyle(fill: Phone.approve))
-            if !replyFocused {
+            if case let .cannotListen(reason) = dictation.state {
+                HStack(spacing: 6) {
+                    Text(PhoneCopy.cannotListen(reason)).font(.footnote).foregroundStyle(Phone.ink2)
+                    if reason == .microphoneOff {
+                        Button(PhoneCopy.openSettings) {
+                            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                        }
+                        .font(.footnote.weight(.semibold))
+                    }
+                }
+                .multilineTextAlignment(.center)
+            } else if !replyFocused {
                 Text(practice ? PhoneCopy.practiceLasts : PhoneCopy.lasts(request.agent))
                     .font(.footnote).foregroundStyle(Phone.ink2)
                     .multilineTextAlignment(.center)

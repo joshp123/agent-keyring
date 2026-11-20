@@ -16,6 +16,17 @@ public enum PhoneCopy {
     public static let replyPlaceholderShort = "What should it do instead?"
     public static let deny = "Deny"
     public static let speakReply = "Speak your reply"
+    #if os(iOS)
+    /// Under the reply box when the microphone cannot listen, and why.
+    static func cannotListen(_ reason: PhoneDictation.Reason) -> String {
+        switch reason {
+        case .microphoneOff: "Agent Keyring may not use the microphone."
+        case let .gettingReady(percent): "Getting speech ready on this iPhone (\(percent)%). Type, or try again in a moment."
+        case let .unsupported(language): "This iPhone can’t turn \(language) speech into text. Type your reply instead."
+        case .failed: "The microphone didn’t start. Type your reply, or try again."
+        }
+    }
+    #endif
     public static let stopSpeaking = "Stop"
     public static let approveWithFaceID = "Approve with Face ID"
     public static func lasts(_ agent: RequestingAgent) -> String {
@@ -63,8 +74,6 @@ public enum PhoneCopy {
     // The buttons iOS draws under a held notification.
     public static let approve = "Approve"
     public static let denyAndExplain = "Deny and Explain"
-    /// The category is fixed, so it cannot name the agent.
-    public static let explainPlaceholder = replyPlaceholderShort
 
     // Activity.
     public static let activity = "Activity"
@@ -77,11 +86,17 @@ public enum PhoneCopy {
     public static func waitingDetail(_ agent: RequestingAgent) -> String {
         [ "\(agent.name) on \(agent.machine)", agent.project ].compactMap { $0 }.joined(separator: " · ")
     }
-    public static func inUseDetail(_ agent: RequestingAgent, until: Date) -> String {
-        "\(agent.name) on \(agent.machine) · until \(clock(until))"
+    /// Who asked, in a list: "Codex on Mac mini", or "Practice request" for a practice request.
+    public static func who(_ request: AccessRequest) -> String {
+        if request.isPractice { return practiceLabel }
+        return request.agent.machine.isEmpty ? request.agent.name : "\(request.agent.name) on \(request.agent.machine)"
+    }
+    public static let practiceLabel = "Practice request"
+    public static func inUseDetail(_ request: AccessRequest, until: Date) -> String {
+        "\(who(request)) · until \(clock(until))"
     }
     public static func historyDetail(_ request: AccessRequest) -> String {
-        "\(clock(request.askedAt)) · \(request.agent.name) on \(request.agent.machine)"
+        "\(clock(request.askedAt)) · \(who(request))"
     }
     public static func day(_ date: Date, calendar: Calendar = .current) -> String {
         if calendar.isDateInToday(date) { return "Earlier today" }
@@ -144,6 +159,10 @@ public enum PhoneCopy {
     public static let appLead = "Agent Keyring gives your AI agents, such as Claude Code and Codex, your passwords when they need them. They ask first, and you answer here with Face ID."
     /// The Mac's name until the invitation carries it.
     static func mac(_ name: String?) -> String { name ?? "your Mac" }
+    public static let welcomeSecureTitle = "End-to-end encrypted, locked in Secure Enclave"
+    public static let welcomeSecureDetail = "Your passwords are end-to-end encrypted with unlock keys stored inside your devices’ Secure Enclave, and signed so nothing in between can read or tamper with them. Nothing can access a password except an agent you approve, one password at a time, with each approval lasting up to 30 minutes."
+    public static let addThisPhone = "Add This iPhone"
+    public static let lookingForMac = "Looking for your Mac"
     public static let startOnMac = "Start on your Mac"
     public static let startOnMacDetail = "Agent Keyring on your Mac holds your passwords. Install it there and follow its steps. This screen moves on by itself when your Mac is ready."
     /// After two minutes with nothing found.
@@ -232,9 +251,11 @@ public enum PhoneCopy {
     public static let needsYourAnswer = "Needs your answer"
     public static let denyEllipsis = "Deny…"
     public static let earlierToday = "Earlier today"
-    public static func homeDetail(_ agent: RequestingAgent) -> String {
-        [ "\(agent.name) on \(agent.machine)", agent.project ].compactMap { $0 }.joined(separator: " · ")
+    public static func homeDetail(_ request: AccessRequest) -> String {
+        [ who(request), request.agent.project ].compactMap { $0 }.joined(separator: " · ")
     }
+    /// The practice request's notification: short enough that iOS does not cut it.
+    public static let practiceNotificationBody = "Practice request: “You asked me to download October’s invoice.”"
     public static let noRequestsYet = "No requests yet"
     public static let noRequestsDetail = "When an agent asks for a password, the request appears here."
     public static let addAppleWatch = "Add Apple Watch"
@@ -264,7 +285,7 @@ public enum PhoneCopy {
     // Apple Watch's request to be added (Paper, "On Apple Watch").
     public static let addWatchLead = "Add to Agent Keyring"
     public static let pairedWithThisIPhone = "Paired with this iPhone"
-    public static let watchFootnote = "It approves requests with one tap while unlocked on your wrist. Remove it in Devices."
+    public static let watchFootnote = "Adding it gives it your passwords, locked to its own Secure Enclave, and asks for Face ID. It then approves requests with one tap while unlocked on your wrist. Remove it in Devices."
 
     // Failures.
     public static let answerFailed = "Your answer wasn’t sent. Try again."
@@ -285,6 +306,14 @@ public enum PhoneCopy {
     // Devices list (Paper, "On iPhone and Apple Watch", Devices).
     public static let ready = "Ready"
     public static let passesRequests = "Stays on, and passes requests to this iPhone"
+
+    // What Face ID says it is for.
+    public static let faceIDPractice = "Approve the practice request."
+    public static func faceIDApprove(agent: String, computer: String, site: String) -> String {
+        "Let \(agent) on \(computer) use \(site) for up to 30 minutes."
+    }
+    public static func faceIDRemove(_ name: String) -> String { "Remove \(name)." }
+    public static let faceIDAddWatch = "Let your Apple Watch approve requests."
 
     public static func clock(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en_GB")))

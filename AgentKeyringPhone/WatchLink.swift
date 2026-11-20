@@ -47,9 +47,9 @@ final class WatchLink: NSObject, WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
         let context = Self.plain(session.receivedApplicationContext)
-        let paired = session.isPaired && session.isWatchAppInstalled
+        let paired = session.isPaired, installed = session.isWatchAppInstalled
         Task { @MainActor in
-            self.relay.watchPaired = paired
+            self.relay.watchPairing(paired: paired, installed: installed)
             self.receive(context)
             self.sendMembers()
         }
@@ -110,8 +110,8 @@ final class WatchLink: NSObject, WCSessionDelegate {
     }
 
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
-        let paired = session.isPaired && session.isWatchAppInstalled
-        Task { @MainActor in self.relay.watchPaired = paired; self.sendMembers() }
+        let paired = session.isPaired, installed = session.isWatchAppInstalled
+        Task { @MainActor in self.relay.watchPairing(paired: paired, installed: installed); self.sendMembers() }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
