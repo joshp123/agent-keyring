@@ -172,6 +172,9 @@ extension AccessRequest {
     /// The practice request id before joining, when it never leaves this iPhone.
     public static let localPracticeID = "practice"
 
+    /// A practice request: it names no computer, and carries the practice words.
+    public var isPractice: Bool { agent.machine.isEmpty && agent.name == PhoneCopy.practiceAgent }
+
     /// The practice request in the real request's layout, with the board's words.
     public static func practice(id: String = localPracticeID, askedAt: Date = .now, until: Date = .now.addingTimeInterval(600)) -> AccessRequest {
         AccessRequest(id: id, login: RequestedLogin(site: PhoneCopy.practiceSite, account: PhoneCopy.practiceAccount),

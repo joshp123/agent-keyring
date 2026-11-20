@@ -30,7 +30,8 @@ struct AgentKeyringPhoneApp: App {
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
                 .onOpenURL { url in Task { await delegate.model.join(invitation: url.absoluteString) } }
                 .onChange(of: delegate.model.snapshot.joined, initial: true) { _, joined in
-                    if joined { delegate.askForPushAddress() }
+                    // Joined: ask Apple for a push address, and fetch the speech model so the first tap on the microphone works.
+                    if joined { delegate.askForPushAddress(); PhoneSpeechModel.shared.prepare() }
                 }
                 // The Watch learns of every change to the list of devices, its own admission first of all.
                 .onChange(of: delegate.model.snapshot.devices, initial: true) { delegate.watch?.sendMembers() }
@@ -79,6 +80,9 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             model = PhoneModel(backend: real, initial: real.snapshot)
         }
         super.init()
+        PhoneSpeechModel.log = { event, fields in
+            PhoneDiagnostics.log.note("speech", event, KeyValuePairs(dictionaryLiteral: ("detail", fields.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))))
+        }
         if let relay { watch = WatchLink(relay: relay) }
         #if DEBUG
         // For comparing screens with Paper in the simulator: -SampleTab logins, -SampleShow r1.
@@ -140,10 +144,11 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let deny = UNNotificationAction(
             identifier: PhoneNotification.denyAction, title: PhoneCopy.deny,
             options: [.destructive], icon: UNNotificationActionIcon(systemImageName: "xmark"))
-        let explain = UNTextInputNotificationAction(
+        // Deny and Explain opens the app on the request, with the reply box and our microphone, so there is
+        // one way to explain, wherever he starts.
+        let explain = UNNotificationAction(
             identifier: PhoneNotification.denyAndExplainAction, title: PhoneCopy.denyAndExplain,
-            options: [.destructive, .authenticationRequired], icon: UNNotificationActionIcon(systemImageName: "mic.fill"),
-            textInputButtonTitle: PhoneCopy.deny, textInputPlaceholder: PhoneCopy.explainPlaceholder)
+            options: [.foreground], icon: UNNotificationActionIcon(systemImageName: "mic.fill"))
         return UNNotificationCategory(identifier: PhoneNotification.requestCategory, actions: [approve, deny, explain],
                                       intentIdentifiers: [], options: [])
     }
@@ -154,19 +159,19 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let userInfo = response.notification.request.content.userInfo
         let action = response.actionIdentifier
-        let reply = (response as? UNTextInputNotificationResponse)?.userText
         // If the extension could not open the notice, the thread is still the request id.
         let thread = response.notification.request.content.threadIdentifier
         let id = PhoneNotification.requestID(userInfo) ?? (thread.isEmpty ? nil : thread)
         let done = UncheckedCompletion(completionHandler)
         Task { @MainActor in
             relay?.pushArrived()
-            if let id { await answer(id, action: action, reply: reply) }
+            if let id { await answer(id, action: action) }
             done.call()
         }
     }
 
-    private func answer(_ id: String, action: String, reply: String?) async {
+    private func answer(_ id: String, action: String) async {
+        PhoneDiagnostics.log.note("notification", "action", ["request": id, "action": action])
         switch action {
         case PhoneNotification.approveAction:
             // The Face ID that unlocked the phone a moment ago counts, so it is one look, not two.
@@ -177,9 +182,8 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             do { try await backend.deny(id, reply: nil); PhoneDiagnostics.note("Deny from the notification: sent") }
             catch { PhoneDiagnostics.note("Deny from the notification: failed, \(error)") }
         case PhoneNotification.denyAndExplainAction:
-            let words = reply?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            do { try await backend.deny(id, reply: words.isEmpty ? nil : words); PhoneDiagnostics.note("Deny and Explain: sent, \(words.count) characters") }
-            catch { PhoneDiagnostics.note("Deny and Explain: failed, \(error)") }
+            relay?.notificationOpened(id)
+            model.explain(id)
         default:
             relay?.notificationOpened(id)
             model.shownRequestID = id

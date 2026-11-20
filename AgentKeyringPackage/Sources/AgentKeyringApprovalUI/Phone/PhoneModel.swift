@@ -160,9 +160,16 @@ public final class PhoneModel {
     public var tab = PhoneTab.home
     /// The request on screen, from a tap on a notification or on Show.
     public var shownRequestID: String? {
-        didSet { if shownRequestID != nil { tab = .home } }
+        didSet { if shownRequestID != nil { tab = .home } else { explaining = nil } }
     }
     public var replyDraft = ""
+    /// The request was opened from Deny and Explain: its reply box takes the keyboard as it appears.
+    public private(set) var explaining: String?
+
+    public func explain(_ id: String) {
+        explaining = id
+        shownRequestID = id
+    }
     public private(set) var answering: AnswerChoice?
     public private(set) var failure: String?
 
