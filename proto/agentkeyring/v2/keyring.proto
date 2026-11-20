@@ -200,14 +200,21 @@ message Request {
   string task = 10;                // The agent's grouping of requests into one job.
   int64 asked_unix_seconds = 11;
   int64 answer_by_unix_seconds = 12;  // After this the request is unanswered.
-  // A device's own test request (test_request): it names no login and no
-  // machine, is written by the relay unsigned, goes only to this device, and
-  // is approved by a signed Answer with no delivery.
+  // A practice request: it names no login, goes only to this device, and is
+  // approved by a signed Answer with no delivery. Signed like any request, by
+  // the machine that made it, or by the relay's TLS key for one a device asked
+  // the relay for (test_request).
   string for_device_key_id = 13;
   // The machine uses its own copy of an Automatic login: the relay grants it
   // at once, for 30 minutes, if the catalogue says Automatic and Members
   // allows this machine. Devices show it in use and may stop it.
   bool automatic = 14;
+  // Where this request's answers go: the asking machine's own answer door,
+  // "host:port" on the tailnet, and the SPKI DER of the TLS key it serves
+  // with, fresh for each asking process. Devices pin that key; the request's
+  // signature is what makes it the asking machine's.
+  string answer_address = 15;
+  bytes answer_tls_public_key = 16;
 }
 
 // A device's answer, the payload of a Signed by that device's signing key.
@@ -311,7 +318,7 @@ message Work {
   reserved 5;                      // Rule proposals: cut with the fourth rule.
 }
 
-// The push. Apple carries nothing readable about a request. The relay sends:
+// The push. Apple carries nothing readable about a request. The asking machine sends:
 //   aps.alert            {"title": "Agent Keyring", "body": "A request is waiting."}
 //   aps.category         "REQUEST"
 //   aps.interruption-level  "time-sensitive"
@@ -321,7 +328,7 @@ message Work {
 // with the header apns-collapse-id set to the request id, so the push for the
 // outcome replaces the one for the request. The app's notification service
 // extension opens the Notice with the device's notice key and writes the
-// alert from the Work in it; the relay sends one push per device.
+// alert from the Work in it; one push goes to each device.
 // info = "agentkeyring.notice.v2"; aad = the device's Device.key_id UTF-8
 // plaintext = serialized Work.
 message Notice {
@@ -383,6 +390,12 @@ message RelayRequest {
     // one-time secret our app there leaves in iCloud Keychain (RelayOffer).
     // Returns SetupOffer.
     Empty setup_offer = 30;
+    // Asking machines, before they push: each device that may answer, with
+    // its push address and its sealed copy of the login. Returns AskTargets.
+    AskTargetsRequest ask_targets = 31;
+    // Asking machines: Apple's push credential, sealed to this machine's
+    // receiving key. Returns SealedPushCredential.
+    Empty push_credential = 32;
   }
 }
 
@@ -399,8 +412,8 @@ message Arrival {
   string request_id = 2;
   string device_key_id = 3;
   int64 arrived_unix_seconds = 4;
-  // For an unsigned Arrival: SHA-256 of the push address the relay sent the
-  // request to, which only that device and the relay know.
+  // For an unsigned Arrival: SHA-256 of the push address the request was sent
+  // to, which only that device and the asking machine know.
   bytes push_token_sha256 = 5;
 }
 
@@ -417,6 +430,42 @@ message RelayOffer {
   bytes relay_tls_public_key = 3;  // SPKI DER, pinned on first contact.
   bytes secret = 4;                // SetupOffer.secret.
   string label = 5;                // The computer as macOS names it, e.g. "Mac mini".
+}
+
+message AskTargetsRequest {
+  string login_id = 1;             // A request for this login: every device that may approve it.
+  string for_device_key_id = 2;    // A practice request: this device only.
+}
+
+message AskTargets {
+  repeated PushTarget targets = 1;
+}
+
+// One device to push a request to. Seal the Work to notice_public_key
+// (Notice) and send it to apns_token, as in "The push" above.
+message PushTarget {
+  string device_key_id = 1;
+  bytes apns_token = 2;
+  string apns_topic = 3;
+  bool apns_production = 4;
+  bytes notice_public_key = 5;     // X9.63 uncompressed.
+  SealedLogin sealed_login = 6;    // This device's copy, for Work.sealed_login. Absent for a practice request.
+}
+
+// What Apple needs to accept a push from us: the ES256 key of the Apple
+// developer team that signs the apps.
+message PushCredential {
+  string team_id = 1;
+  string key_id = 2;
+  bytes private_key = 3;           // PKCS#8 DER, P-256.
+}
+
+// A PushCredential sealed to one machine's receiving key.
+// info = "agentkeyring.push-credential.v2"; aad = opener_id UTF-8
+message SealedPushCredential {
+  string opener_id = 1;            // Machine.machine_id.
+  bytes encapsulated_key = 2;
+  bytes ciphertext = 3;
 }
 
 message LogsRequest {
@@ -445,6 +494,8 @@ message RelayResponse {
     Changes changes = 14;
     Logs logs = 15;
     SetupOffer setup_offer = 16;
+    AskTargets ask_targets = 17;
+    SealedPushCredential push_credential = 18;
   }
   bool end_of_stream = 11;
 }
@@ -488,6 +539,18 @@ message SealedLogins {
 }
 
 // Sent by the device that answered.
+// The answer door. The asking machine serves HTTPS at Request.answer_address
+// while its request waits, with the key in Request.answer_tls_public_key:
+//   POST /v2/answer   body: AnswerUpload. Replies 200 with the request's Lease
+//                     once the answer is taken, or with the Lease that already
+//                     ended it (the first answer wins); 403 with a sentence if
+//                     the answer is refused (unknown or removed device, a
+//                     changed request).
+//   POST /v2/arrived  body: Signed Arrival. Replies 200.
+// A plain denial (deny_request_id) is taken from anyone who knows the request
+// id, which only the devices' sealed pushes carry; it grants nothing.
+// The asking machine sends the pushes itself, with the push credential
+// (push_credential) and each device's push address (ask_targets).
 message AnswerUpload {
   // Approve: signed with a device's signing key. Deny with words: with its
   // signing key or its reply key.

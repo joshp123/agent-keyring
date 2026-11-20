@@ -100,7 +100,7 @@ extension MirrorAppModel {
     /// test password if no copy has yet. Nothing to send if one has.
     public func useTestPassword() async {
         if (try? await store.loadCurrent())?.items.contains(where: \.isTestPassword) != true {
-            guard await importBatch(MirrorImportBatch(scope: .full, exportedAt: .now, exporterIdentifier: MirrorItem.testPasswordSource,
+            guard await importBatch(MirrorImportBatch(scope: .unknown, exportedAt: .now, exporterIdentifier: MirrorItem.testPasswordSource,
                 exporterDisplayName: "Test password", items: [], skippedCredentialCount: 0), hadExistingMirror: status != nil)
             else { return }
         }
@@ -164,7 +164,7 @@ extension MirrorAppModel {
             return
         }
 
-        let copied = mapper.map(exportedData, scope: .unknown)
+        let copied = mapper.map(exportedData, scope: .full)
         if await importBatch(copied, hadExistingMirror: hadExistingMirror) {
             closePasswordsCopy()
             send(.imported(count: copied.items.count))
@@ -185,7 +185,8 @@ extension MirrorAppModel {
             credentialExchangeLogger.info(
                 "Mapped \(importBatch.items.count, privacy: .public) items; skipped \(importBatch.skippedCredentialCount, privacy: .public) unsupported credentials"
             )
-            generation = try merger.merge(previous: previous, importBatch: importBatch)
+            generation = try merger.merge(previous: previous, importBatch: importBatch,
+                keep: Set((previous?.items ?? []).map(\.id).filter { accessControl.policy(for: $0) != .ask }))
             // Seal only what arrived: a login missing from this export keeps
             // its earlier copies, and the saved list holds no secrets to seal.
             let arrived = Set(importBatch.items.map(\.sourceIdentity))

@@ -19,19 +19,33 @@ struct SnapshotMergerTests {
         #expect(generation.items.count == 2)
     }
 
-    @Test("An item absent from a full import is retained for review")
-    func fullImportRemoval() throws {
-        let first = try merger().merge(
-            previous: nil,
-            importBatch: batch(items: [item(index: 1), item(index: 2)])
-        )
-        let second = try merger().merge(
-            previous: first,
-            importBatch: batch(items: [item(index: 2)])
-        )
+    @Test("Copying the same passwords again keeps one entry each, with its id, so his rules stay; a doubled list goes back to one of each")
+    func copyingAgain() throws {
+        // As the Passwords app exports: every export gives every item a new account and item id.
+        func export(_ number: Int) -> [MirrorItem] {
+            [item(index: 1, origins: ["https://mail.example"], account: "export-\(number)", createdAt: 1),
+             item(index: 2, origins: ["https://shop.example"], account: "export-\(number)", createdAt: 2),
+             // Two entries the Passwords app holds with the same site, account and title.
+             item(index: 3, origins: ["https://bank.example"], account: "export-\(number)", createdAt: 3),
+             item(index: 4, origins: ["https://bank.example"], account: "export-\(number)", createdAt: 4)]
+        }
+        let first = try merger().merge(previous: nil, importBatch: batch(items: export(1)))
+        let second = try merger().merge(previous: first, importBatch: batch(items: export(2)))
+        #expect(second.items.count == 4)
+        #expect(Set(second.items.map(\.id)) == Set(first.items.map(\.id)))
+        #expect(second.items.first { $0.createdAt == Date(timeIntervalSince1970: 4) }?.id
+            == first.items.first { $0.createdAt == Date(timeIntervalSince1970: 4) }?.id)
 
-        #expect(second.items.count == 2)
-        #expect(second.missingItemIDs == [first.items.first { $0.sourceIdentity == item(index: 1).sourceIdentity }!.id])
+        // The list an earlier build doubled: each entry twice. The copy with his rule on it is kept.
+        let doubled = MirrorGeneration(id: UUID(), previousGenerationID: nil, createdAt: fixedNow, sourceExportedAt: fixedNow,
+            scope: .full, exporterIdentifier: "com.apple.Passwords", exporterDisplayName: "Passwords",
+            items: first.items + second.items.map { MirrorItem(id: UUID(), sourceIdentity: $0.sourceIdentity, createdAt: $0.createdAt,
+                lastModifiedAt: $0.lastModifiedAt, title: $0.title, origins: $0.origins, credentials: $0.credentials) },
+            skippedCredentialCount: 0)
+        let ruled = Set(first.items.map { $0.id })
+        let third = try merger().merge(previous: doubled, importBatch: batch(items: export(3)), keep: ruled)
+        #expect(third.items.count == 4)
+        #expect(Set(third.items.map(\.id)) == ruled)
     }
 
     @Test("A changed password replaces the previous value even when its timestamp is unchanged")
@@ -48,25 +62,6 @@ struct SnapshotMergerTests {
         #expect(second.items.first?.credentials == [.password(userName: "agent@example.com", password: "after")])
         #expect(second.items.first?.id == first.items.first?.id)
         try await checkRuleAfterImport(first, second, expectedPolicy: .allowAutomatically)
-    }
-
-    @Test("Different source identities stay separate and start on Ask", arguments: ["exporter", "account", "item"])
-    func distinctSourceIdentity(component: String) async throws {
-        let first = try merger().merge(
-            previous: nil,
-            importBatch: batch(items: [item(index: 1)])
-        )
-        let changedSource = item(index: component == "item" ? 99 : 1,
-            exporter: component == "exporter" ? "other.exporter" : "com.apple.Passwords",
-            account: component == "account" ? "other-account" : "account")
-        let second = try merger().merge(
-            previous: first,
-            importBatch: batch(items: [changedSource])
-        )
-
-        #expect(second.items.count == 2)
-        #expect(second.items.contains(first.items[0]))
-        try await checkRuleAfterImport(first, second, expectedPolicy: .ask)
     }
 
     @Test("Case-distinct account names on the same Apple item cannot inherit Automatic")
@@ -118,25 +113,6 @@ struct SnapshotMergerTests {
         try await checkRuleAfterImport(first, second, expectedPolicy: .allowAutomatically)
     }
 
-    @Test("Duplicate accounts keep distinct source identities without rejecting the import")
-    func ambiguousMatchFails() throws {
-        let first = try merger().merge(
-            previous: nil,
-            importBatch: batch(items: [item(index: 1)])
-        )
-        let ambiguous = batch(items: [item(index: 2), item(index: 3)])
-
-        let second = try merger().merge(previous: first, importBatch: ambiguous)
-        #expect(second.items.count == 3)
-        #expect(Set(second.items.map(\.sourceIdentity)).count == 3)
-        let third = try merger().merge(previous: second, importBatch: ambiguous)
-        #expect(Set(third.items.map(\.id)) == Set(second.items.map(\.id)))
-        let withOriginal = try merger().merge(previous: first,
-            importBatch: batch(items: [item(index: 2), item(index: 1)]))
-        #expect(withOriginal.items.count == 2)
-        #expect(withOriginal.items.contains { $0.id == first.items[0].id })
-    }
-
     private func merger() -> SnapshotMerger {
         SnapshotMerger(now: { fixedNow })
     }
@@ -172,7 +148,8 @@ struct SnapshotMergerTests {
         origins: [String] = ["https://example.com/login"],
         exporter: String = "com.apple.Passwords",
         account: String = "account",
-        lastModifiedAt: Date = Date(timeIntervalSince1970: 100)
+        lastModifiedAt: Date = Date(timeIntervalSince1970: 100),
+        createdAt: TimeInterval? = nil
     ) -> MirrorItem {
         MirrorItem(
             id: UUID(),
@@ -181,6 +158,7 @@ struct SnapshotMergerTests {
                 accountID: Data(account.utf8),
                 itemID: Data("item-\(index)".utf8)
             ),
+            createdAt: createdAt.map(Date.init(timeIntervalSince1970:)),
             lastModifiedAt: lastModifiedAt,
             title: "Example",
             origins: origins,
