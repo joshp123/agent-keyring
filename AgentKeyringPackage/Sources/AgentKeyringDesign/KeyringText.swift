@@ -149,12 +149,16 @@ public struct KeyringText: View {
             .font(font)
             .modifier(Colouring(colour: colour ?? role.colour))
             .textCase(role == .sectionName ? .uppercase : nil)
-            .modifier(Reporting(id: id, audit: audit))
+            .modifier(Reporting(id: id, label: words, shown: Array(String(Self.markdown(shown).characters)), audit: audit))
             .reportsPlacement(.init(id: id, kind: .text, label: words, owner: owner), to: audit)
     }
 
+    /// Bold and italics only: no links, so an address or a site is never turned blue.
     static func markdown(_ words: String) -> AttributedString {
-        (try? AttributedString(markdown: words, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(words)
+        guard words.contains("*"), var parsed = try? AttributedString(markdown: words, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        else { return AttributedString(words) }
+        parsed.link = nil
+        return parsed
     }
 
     /// A zero-width space after each dot, so a long site wraps at a dot, not mid-word.
@@ -165,10 +169,12 @@ public struct KeyringText: View {
 
 private struct Reporting: ViewModifier {
     let id: UUID
+    let label: String
+    let shown: [Character]
     let audit: KeyringAudit?
 
     func body(content: Content) -> some View {
-        if let audit { content.textRenderer(TruncationReporter(id: id, audit: audit)) } else { content }
+        if let audit { content.textRenderer(TruncationReporter(id: id, label: label, shown: shown, audit: audit)) } else { content }
     }
 }
 

@@ -24,13 +24,33 @@ public struct KeyringAction {
     public let kind: Kind
     public let isEnabled: Bool
     public let perform: () -> Void
+    /// Set for an action that asks for words first: the prompt, and what to do with the words.
+    let words: (prompt: String, send: (String) -> Void)?
 
     public init(_ title: String, _ kind: Kind = .plain, isEnabled: Bool = true, perform: @escaping () -> Void) {
         self.title = title
         self.kind = kind
         self.isEnabled = isEnabled
         self.perform = perform
+        self.words = nil
     }
+
+    #if os(watchOS)
+    /// Deny and Explain on the Watch: opens watchOS's own text input (dictation,
+    /// Scribble or the keyboard) with `prompt`, then sends what he said. Nothing
+    /// is sent if he says nothing.
+    public static func explain(_ title: String, prompt: String, isEnabled: Bool = true, send: @escaping (String) -> Void) -> Self {
+        .init(title: title, prompt: prompt, isEnabled: isEnabled, send: send)
+    }
+
+    private init(title: String, prompt: String, isEnabled: Bool, send: @escaping (String) -> Void) {
+        self.title = title
+        self.kind = .plain
+        self.isEnabled = isEnabled
+        self.perform = {}
+        self.words = (prompt, send)
+    }
+    #endif
 
     public static func advance(_ title: String, isEnabled: Bool = true, perform: @escaping () -> Void) -> Self { .init(title, .advance, isEnabled: isEnabled, perform: perform) }
     public static func approve(_ title: String, isEnabled: Bool = true, perform: @escaping () -> Void) -> Self { .init(title, .approve, isEnabled: isEnabled, perform: perform) }
@@ -59,14 +79,33 @@ public struct KeyringButton: View {
     }
 
     public var body: some View {
-        styled(Button(action: action.perform) {
-            KeyringText(action.title, as: .label)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: fills && action.kind != .link ? .infinity : nil)
-                .environment(\.keyringAuditOwner, id)
-        })
-        .disabled(!action.isEnabled)
-        .reportsPlacement(.init(id: id, kind: .button, label: action.title, owner: nil), to: audit)
+        control
+            .disabled(!action.isEnabled)
+            .reportsPlacement(.init(id: id, kind: .button, label: action.title, owner: nil), to: audit)
+    }
+
+    @ViewBuilder private var control: some View {
+        #if os(watchOS)
+        if let words = action.words {
+            TextFieldLink(prompt: Text(words.prompt)) { label } onSubmit: { said in
+                let trimmed = said.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { words.send(trimmed) }
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+        } else {
+            styled(Button(action: action.perform) { label })
+        }
+        #else
+        styled(Button(action: action.perform) { label })
+        #endif
+    }
+
+    private var label: some View {
+        KeyringText(action.title, as: .label)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: fills && action.kind != .link ? .infinity : nil)
+            .environment(\.keyringAuditOwner, id)
     }
 
     @ViewBuilder private func styled(_ button: Button<some View>) -> some View {
@@ -86,6 +125,12 @@ public struct KeyringButton: View {
 
     private func prominent(_ button: Button<some View>, _ colour: Color) -> some View {
         button.buttonStyle(.borderedProminent).buttonBorderShape(.capsule).tint(colour).controlSize(Self.size)
+        #if os(macOS)
+            // macOS greys a prominent button in a window that is not key, and
+            // the approval panel never takes key on its own: keep the colour,
+            // which is the answer's meaning.
+            .environment(\.controlActiveState, .key)
+        #endif
     }
 
     private static var size: ControlSize {
