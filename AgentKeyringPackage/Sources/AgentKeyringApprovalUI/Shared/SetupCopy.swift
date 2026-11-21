@@ -116,7 +116,7 @@ public enum FirstRunCopy {
         "If Passwords says some items will not be exported, click **Continue**, then click **Continue** on **Export Passwords**.",
         "Unlock with Touch ID or your Mac password.",
         "In **Select a Destination**, choose **Agent Keyring** (blue keyhole), then click **Continue**.",
-        "Click **Continue** in “Agent Keyring” on the final confirmation sheet.",
+        "Click **Continue in “Agent Keyring”** on the final confirmation sheet.",
     ]
     public static let earlierVersion = "If you also see “AgentKeyring”, that is an earlier version. Don’t choose it."
     public static let previous = "Previous"
@@ -165,6 +165,8 @@ public enum FirstRunCopy {
     public static let computers = "Other Computers"
     public static let computersDetail = "Let agents on a Linux server or another Mac ask too."
     public static func added(_ names: [String]) -> String { MainWindowCopy.list(names) + " added." }
+    /// Under a row whose title is already the device's name: "iPhone", then "Added."
+    public static func added(_ name: String, under title: String) -> String { name == title ? "Added." : added([name]) }
     public static let addButton = "Add…"
     public static let showPasswords = "Show Passwords"
     /// Under the menu bar icon after Show Passwords.

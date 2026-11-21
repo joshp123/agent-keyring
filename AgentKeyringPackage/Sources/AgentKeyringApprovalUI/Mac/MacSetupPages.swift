@@ -379,14 +379,14 @@ public struct MacReadyPage: View {
                 KeyringText(FirstRunCopy.otherDevices, as: .heading)
                 KeyringRowGroup {
                     if let phone = devices.iPhone {
-                        KeyringDeviceRow(symbol: "iphone", name: FirstRunCopy.iPhone, detail: FirstRunCopy.added([phone]), tone: .approved)
+                        KeyringDeviceRow(symbol: "iphone", name: FirstRunCopy.iPhone, detail: FirstRunCopy.added(phone, under: FirstRunCopy.iPhone), tone: .approved)
                     } else {
                         KeyringDeviceRow(symbol: "iphone", name: FirstRunCopy.iPhone, detail: FirstRunCopy.iPhoneDetail) {
                             KeyringButton(.plain(FirstRunCopy.addButton, perform: actions.addIPhone))
                         }
                     }
                     if let watch = devices.watch {
-                        KeyringDeviceRow(symbol: "applewatch", name: FirstRunCopy.watch, detail: FirstRunCopy.added([watch]), tone: .approved)
+                        KeyringDeviceRow(symbol: "applewatch", name: FirstRunCopy.watch, detail: FirstRunCopy.added(watch, under: FirstRunCopy.watch), tone: .approved)
                     } else {
                         KeyringDeviceRow(symbol: "applewatch", name: FirstRunCopy.watch, detail: FirstRunCopy.watchDetail)
                     }
