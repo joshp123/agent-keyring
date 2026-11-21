@@ -1,10 +1,11 @@
 // Written by AI on 2026.11.18 by model Claude Opus 5.5.
 //
-// The iPhone's side of setting up the Watch. The Watch app sends its Device
-// and PushRegistration once ("watchDevice", "watchPush"); the iPhone sends
-// back the signed Members ("members") whenever they change, so the Watch
-// knows it has been added. Both directions use application context and user
-// info, so it works whichever app opens first.
+// The iPhone's side of Apple Watch. The iPhone sends the signed lists and
+// settings whenever they change, and "addUntil" while it holds a Face ID
+// confirmation for the Watch to be added: only then does the Watch offer Add.
+// After Add, the Watch sends its Device and PushRegistration ("watchDevice",
+// "watchPush"). Both directions use application context and user info, so it
+// works whichever app opens first.
 
 import AgentKeyringPhoneApprover
 import Foundation
@@ -12,44 +13,44 @@ import WatchConnectivity
 
 @MainActor
 final class WatchLink: NSObject, WCSessionDelegate {
-    private let relay: PhoneRelayBackend
+    private let keyring: PhoneKeyring
+    /// The end of the held Face ID confirmation, while the iPhone waits for Apple Watch to ask.
+    private var addUntil: Date?
 
-    init(relay: PhoneRelayBackend) {
-        self.relay = relay
+    init(keyring: PhoneKeyring) {
+        self.keyring = keyring
         super.init()
+        keyring.onWatchMayAsk = { [weak self] until in self?.addUntil = until; self?.sendMembers() }
         guard WCSession.isSupported() else { return }
         WCSession.default.delegate = self
         WCSession.default.activate()
     }
 
-    private var membersContext: [String: Any]? {
-        guard let members = relay.signedMembers, let answerURL = relay.relayAnswerURL else { return nil }
-        var context: [String: Any] = ["members": members, "relayAnswerURL": answerURL]
-        // Apple Watch names every request from this signed Catalogue, not from what the relay sends.
-        if let catalogue = relay.signedCatalogue { context["catalogue"] = catalogue }
-        if let settings = try? PropertyListEncoder().encode(relay.notificationSettings) { context["settings"] = settings }
+    private var membersContext: [String: Any] {
+        var context: [String: Any] = [:]
+        if let members = keyring.signedMembers { context["members"] = members }
+        // Apple Watch names every request from this signed Catalogue, never from what a push says.
+        if let catalogue = keyring.signedCatalogue { context["catalogue"] = catalogue }
+        if let settings = try? PropertyListEncoder().encode(keyring.notificationSettings) { context["settings"] = settings }
+        if let addUntil { context["addUntil"] = addUntil.timeIntervalSince1970 }
         return context
     }
 
-    /// Sends the current signed Members to the Watch.
+    /// Sends the current lists, settings and Add offer to the Watch.
     func sendMembers() {
         let session = WCSession.default
-        guard WCSession.isSupported(), session.activationState == .activated, session.isPaired, session.isWatchAppInstalled,
-              let members = relay.signedMembers, let answerURL = relay.relayAnswerURL else {
-            PhoneDiagnostics.note("Members not sent to the Watch: activated \(WCSession.default.activationState == .activated), paired \(WCSession.default.isPaired), installed \(WCSession.default.isWatchAppInstalled), members \(relay.signedMembers != nil)")
-            return
-        }
-        let context: [String: Any] = membersContext ?? ["members": members, "relayAnswerURL": answerURL]
-        do { try session.updateApplicationContext(context) } catch { PhoneDiagnostics.note("Members not sent to the Watch: \(error)") }
+        guard WCSession.isSupported(), session.activationState == .activated, session.isPaired, session.isWatchAppInstalled else { return }
+        let context = membersContext
+        do { try session.updateApplicationContext(context) } catch { PhoneDiagnostics.note("Lists not sent to the Watch: \(error)") }
         session.transferUserInfo(context)
-        PhoneDiagnostics.note("Members sent to the Watch (\(members.count) bytes)")
+        PhoneDiagnostics.log.note("watch", "lists sent", ["addOffered": "\(addUntil != nil)"])
     }
 
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
         let context = Self.plain(session.receivedApplicationContext)
         let paired = session.isPaired, installed = session.isWatchAppInstalled
         Task { @MainActor in
-            self.relay.watchPairing(paired: paired, installed: installed)
+            self.keyring.watchPairing(paired: paired, installed: installed)
             self.receive(context)
             self.sendMembers()
         }
@@ -74,15 +75,20 @@ final class WatchLink: NSObject, WCSessionDelegate {
                              replyHandler: @escaping ([String: Any]) -> Void) {
         let reply = UncheckedReply(replyHandler)
         let stop = message["stop"] as? String
+        let practice = message["practice"] != nil
         Task { @MainActor in
-            // Stop on Apple Watch: it cannot reach the relay's device methods, so the iPhone ends the approval.
+            // Stop on Apple Watch: the iPhone holds the request's door and ends the approval there.
             if let stop {
-                do { try await self.relay.stop(stop); PhoneDiagnostics.note("Stopped from Apple Watch"); reply.call(["stopped": true]) }
+                do { try await self.keyring.stop(stop); PhoneDiagnostics.note("Stopped from Apple Watch"); reply.call(["stopped": true]) }
                 catch { PhoneDiagnostics.note("Stop from Apple Watch failed: \(error)"); reply.call(["stopped": false]) }
                 return
             }
-            PhoneDiagnostics.note("The Watch asked for Members at once")
-            reply.call(self.membersContext ?? [:])
+            // Try Practice on Apple Watch: only an iPhone or the Mac can ask the Mac for one.
+            if practice {
+                reply.call(["asked": await self.keyring.practiceForWatch()])
+                return
+            }
+            reply.call(self.membersContext)
         }
     }
 
@@ -100,9 +106,9 @@ final class WatchLink: NSObject, WCSessionDelegate {
 
     private func receive(_ payload: [String: Data]) {
         if payload["watchDevice"] != nil || payload["watchPush"] != nil {
-            relay.watchOffered(device: payload["watchDevice"], push: payload["watchPush"])
+            keyring.watchOffered(device: payload["watchDevice"], push: payload["watchPush"])
         }
-        if let test = payload["watchSelfTest"] { relay.watchTested(test) }
+        if let test = payload["watchSelfTest"] { keyring.watchTested(test) }
         // Apple Watch's recent log lines, kept beside the iPhone's own.
         if let data = payload["log"], let lines = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] {
             PhoneDiagnostics.log.merge(lines)
@@ -111,7 +117,7 @@ final class WatchLink: NSObject, WCSessionDelegate {
 
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
         let paired = session.isPaired, installed = session.isWatchAppInstalled
-        Task { @MainActor in self.relay.watchPairing(paired: paired, installed: installed); self.sendMembers() }
+        Task { @MainActor in self.keyring.watchPairing(paired: paired, installed: installed); self.sendMembers() }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}

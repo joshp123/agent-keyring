@@ -69,8 +69,8 @@ final class RequestModel {
         guard case let .showing(request) = card else { return }
         card = .sending(request)
         Task {
-            let sent = await WatchDelegate.answer(request, approve: approve, words: words)
-            card = .answered(request, WatchCopy.answered(approve: approve, sent: sent))
+            let result = await WatchDelegate.answer(request, approve: approve, words: words)
+            card = .answered(request, WatchCopy.answered(approve: approve, result))
             try? await Task.sleep(for: .seconds(1.2))
             dismiss()
         }
