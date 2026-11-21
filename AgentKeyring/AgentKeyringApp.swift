@@ -107,7 +107,9 @@ private struct HomeWindow: View {
                     actions: copyActions(model))
             } else if model.firstRunFinished {
                 if let main {
+                    // Add Device opens the add sheets through this one closure.
                     MacMainWindowView(model: main) { sheet, close in AnyView(SetupSheet(sheet, model: model, close: close)) }
+                        .frame(minWidth: 760, idealWidth: 860, minHeight: 560, idealHeight: 640)
                 } else { ProgressView().padding(40) }
             } else {
                 FirstRunHome(model: model, presentation: presentation)
@@ -286,7 +288,7 @@ struct AgentKeyringApp: App {
 
         MenuBarExtra {
             AgentKeyringMenuWindow(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar,
-                approvals: appDelegate.approvals)
+                approvals: appDelegate.approvals, model: appDelegate.model)
         } label: {
             AgentKeyringMenuBarLabel(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar)
         }

@@ -243,19 +243,34 @@ public enum FirstRunCopy {
     /// After "Agent Keyring is trying to" in macOS's dialog.
 }
 
-/// The words of the main window: the Passwords and Devices tabs.
+/// The words of the main window: the Passwords and Devices tabs, from the
+/// copy ledger of 21 November 2026 (section 3, "Every day"). Rewritten on
+/// 2026.11.21 by model claude opus 5.5 for the direct design: no relay and no
+/// computer that stays on.
 public enum MainWindowCopy {
     public static let passwordsTab = "Passwords"
     public static let devicesTab = "Devices"
-    public static let search = "Search"
-    public static let all = "All"
-    public static let copyAgain = "Copy Again"
-    public static let noneCopied = "No passwords copied yet."
-    public static let sampleOnly = "example.com is the test password. Agent Keyring always keeps it."
-    public static let copyFromPasswords = "Copy from Passwords"
-    public static func copiedOn(_ date: String) -> String { "Copied from Passwords on \(date). To add newer passwords, copy them again." }
 
-    // The rule bar
+    // Passwords
+    public static let rulesExplained = "**Ask:** approve each time (2FA secret stays on your devices). **Automatic:** chosen computers get it without asking (keeps its own encrypted copy, 2FA secret included). **Blocked:** no agent can use it."
+    public static func search(_ count: Int) -> String { count == 1 ? "Search 1 password" : "Search \(count) passwords" }
+    public static let all = "All"
+    /// A filter with its count: "Ask 533".
+    public static func filter(_ name: String, _ count: Int) -> String { "\(name) \(count)" }
+    public static let website = "Website"
+    public static let asked = "Asked"
+    public static let approved = "Approved"
+    public static let denied = "Denied"
+    public static let rule = "Rule"
+    /// The tag beside example.com, the password Agent Keyring always keeps.
+    public static let testPassword = "Test password"
+    public static func copiedOn(_ date: String) -> String { "Copied from the Passwords app on \(date)." }
+    public static let noneCopied = "No passwords copied yet."
+    public static let sampleOnly = "Only the example.com test password so far."
+    public static let copyAgain = "Copy Again"
+    public static let copyFromPasswords = "Copy from Passwords"
+
+    // The bar shown while rules are changed, saved together with one Touch ID
     public static let cancel = "Cancel"
     public static let saveWithTouchID = "Save with Touch ID"
     public static let useTouchIDToSave = "Use Touch ID to save"
@@ -268,38 +283,60 @@ public enum MainWindowCopy {
     }
     public static let didNotFinish = "That didn't finish. Nothing changed."
 
-    // Devices
-    public static let devicesIntro = "Each request goes to every device below that can answer. Answer on whichever is nearest, and the others clear."
-    public static let whereYouAnswer = "Where you answer requests"
-    public static let computersThatAsk = "Computers whose agents can ask"
-    public static let remove = "Remove"
-    public static let thisMac = "This Mac"
-    public static let macAnswers = "You answer with Touch ID"
-    public static let phoneAnswers = "You answer with Face ID"
-    public static let watchAnswers = "You answer with a tap, while you wear it unlocked"
-    public static let staysOn = "Stays on, and passes requests to your iPhone and Apple Watch"
-    public static let addPhoneOrWatch = "Add iPhone or Apple Watch…"
-    public static let addComputer = "Add Computer…"
-    public static let tellYourAgents = "Tell Your Agents…"
-    public static let close = "Close"
-
-    // Passwords: the three rules, and Sort with AI
-    public static let askExplained = "an agent asks you each time it needs the password."
-    public static let automaticExplained = "agents get it without asking. When you choose this, Touch ID shows which computers that means."
-    public static let blockedExplained = "no agent can use it, and Agent Keyring deletes its copy."
-    public static func sortBody(_ count: Int) -> String {
-        "\(count) passwords are a lot to sort by hand. An agent can suggest a rule for each one from its website and account name. It never sees a password."
-    }
+    // Sort with AI
     public static let sortWithAI = "Sort with AI…"
-    public static let sortCopied = "Prompt copied"
-    /// Not drawn: what Sort with AI copies for an agent. Names only, never a password.
+    public static let sortTitle = "Sort your passwords with AI"
+    public static let sortBody = "Copy a safe prompt for your AI agent with website names and account names only. No passwords or two-factor codes are included. Review every suggested rule before applying."
+    public static let copyPrompt = "Copy Prompt"
+    public static let promptCopied = "Copied"
+    public static let applySuggestions = "Apply Suggestions…"
+    /// After Copy Prompt: what to do with the agent's answer.
+    public static let applyHow = "When your agent answers, copy its whole reply, then click Apply Suggestions. Nothing changes until you save with Touch ID."
+    public static let noSuggestions = "No suggested changes found in what you copied. Copy the agent's whole reply, then try again."
+    /// Not drawn: what Copy Prompt copies for an agent. Names only, never a password.
     public static func sortPrompt(_ rows: [(site: String, account: String, rule: String)]) -> String {
         "Help me choose a rule for each of my saved passwords in Agent Keyring. The rules: Ask (an agent asks me each time), "
-            + "Automatic (agents get it without asking) and Blocked (no agent can use it). Suggest Automatic only for low-risk sites "
+            + "Automatic (agents on the computers I choose get it without asking) and Blocked (no agent can use it). Suggest Automatic only for low-risk sites "
             + "an agent of mine uses often, Blocked for banks, email, government and anything that can move money or reset other accounts, "
-            + "and Ask for the rest. Reply with a table of website, account, current rule and your suggestion, changes first.\n\n"
+            + "and Ask for the rest. Reply with one line for each password whose rule you would change, and nothing else: "
+            + "the website, a tab, the account, a tab, then Ask, Automatic or Blocked.\n\n"
             + rows.map { "\($0.site)\t\($0.account)\t\($0.rule)" }.joined(separator: "\n")
     }
+
+    // Devices
+    public static let addDevice = "Add Device…"
+    public static let addIPhone = "Add iPhone…"
+    public static let addComputer = "Add Another Computer…"
+    public static let whereYouApprove = "Where you approve password requests"
+    public static let otherComputers = "Other computers"
+    public static func thisMacName(_ name: String) -> String { "\(name) (this Mac)" }
+    /// Also first run's device rows (SetupScreens.practiceRows).
+    public static let thisMac = "This Mac"
+    /// In a sentence: "Agents on this Mac and Mac mini".
+    public static let thisMacInSentence = "this Mac"
+    public static let macAnswers = "Approves with Touch ID"
+    public static let phoneAnswers = "Approves with Face ID"
+    public static let watchAnswers = "Approves with one tap · added on your iPhone"
+    public static let noOtherComputers = "Let agents on a Linux server or another Mac ask too."
+    public static let sendPractice = "Send Practice Request"
+    // A practice request on its way, step by step.
+    public static let practiceSending = "Sending…"
+    public static let practiceWithApple = "With Apple"
+    public static let practiceOnPhone = "On your iPhone, waiting for your answer"
+    public static let practiceOnWatch = "On your Apple Watch, waiting for your answer"
+    public static let practiceHere = "Beside this window, waiting for your answer"
+    public static let practiceApproved = "Approved"
+    public static let practiceDenied = "Denied"
+    public static let practiceNoAnswer = "No answer"
+    public static let remove = "Remove…"
+    public static func removeTitle(_ name: String) -> String { "Remove \(name)?" }
+    public static func removeDevice(_ name: String) -> String { "\(name) will no longer receive password requests or hold copies of your passwords." }
+    public static func removeComputer(_ name: String) -> String {
+        "Agents on \(name) will no longer be able to ask for your passwords, and it no longer gets copies of your Automatic passwords."
+    }
+    public static let removeConfirm = "Remove"
+    /// The door could not be opened, such as when another program holds its port.
+    public static let doorFailed = "Agent Keyring couldn't open its connection for your other devices. It tries again every 10 seconds."
 
     // macOS's dialog, after "Agent Keyring is trying to" (page "The request", board "On the Mac").
     /// Making one password Automatic, naming every computer that will get it.

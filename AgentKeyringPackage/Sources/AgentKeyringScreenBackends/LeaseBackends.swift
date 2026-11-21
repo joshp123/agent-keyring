@@ -80,11 +80,15 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
     }
 
     /// This Mac's agents' leases, and computers and devices waiting to join.
+    /// Offline: Tailscale is off here while an iPhone or Apple Watch is added, so requests can't reach them.
     public func snapshot() -> MacMenuBarSnapshot {
-        MacMenuBarSnapshot(
+        let device = model.device
+        let hasPhoneOrWatch = device?.members?.devices.contains { $0.kind == .iphone || $0.kind == .watch } == true
+        return MacMenuBarSnapshot(
             requests: model.leaseStore.leases.map(model.accessRequest(for:)),
-            enrolments: model.device?.joins.map(RelayScreenMapping.enrolment) ?? [],
-            offlineComputer: nil, passwordCount: model.status?.credentialItemCount ?? 0)
+            enrolments: device?.joins.map(JoinScreenMapping.enrolment) ?? [],
+            offline: device?.door == .noTailscale && hasPhoneOrWatch,
+            passwordCount: model.status?.credentialItemCount ?? 0)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {
