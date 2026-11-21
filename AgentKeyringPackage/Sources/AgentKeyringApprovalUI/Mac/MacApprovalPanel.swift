@@ -7,6 +7,7 @@
 
 #if os(macOS)
 import AgentKeyringApprovalCore
+import AgentKeyringDesign
 import AppKit
 import LocalAuthentication
 import LocalAuthenticationEmbeddedUI
@@ -212,12 +213,14 @@ func canAsk(_ context: LAContext, _ policy: LAPolicy) -> Bool {
 }
 
 /// The approve button outside the request panel: a click starts macOS's own
-/// Touch ID or Watch dialog, the same route the request panel uses.
+/// Touch ID or Watch dialog, the same route the request panel uses. Built
+/// from the parts, so the cut-off check covers it.
 public struct TouchIDButton: View {
     let action: String
     let isWaiting: Bool
     let start: () -> Void
 
+    /// `action` finishes "Touch ID or Apple Watch to …", read out as the button's hint.
     public init(action: String, isWaiting: Bool, start: @escaping () -> Void) {
         self.action = action
         self.isWaiting = isWaiting
@@ -225,14 +228,11 @@ public struct TouchIDButton: View {
     }
 
     public var body: some View {
-        Button(action: start) {
-            Label(isWaiting ? "Touch the sensor to \(action)" : "Click here, then touch the sensor to \(action)",
-                systemImage: ownerApprovalSymbol())
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 40))
-        .disabled(isWaiting)
+        let touchID = ownerApprovalSymbol() == "touchid"
+        let title = isWaiting ? (touchID ? AccessRequestCopy.useTouchID : AccessRequestCopy.useWatch)
+            : (touchID ? AccessRequestCopy.clickForTouchID : AccessRequestCopy.clickForWatch)
+        KeyringButton(.approve(title, isEnabled: !isWaiting, perform: start))
+            .accessibilityHint(SetupCopy.touchIDTo(action))
     }
 }
 

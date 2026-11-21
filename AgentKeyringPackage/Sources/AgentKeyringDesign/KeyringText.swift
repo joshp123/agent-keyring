@@ -122,6 +122,7 @@ public struct KeyringText: View {
 
     @Environment(\.keyringAudit) private var audit
     @Environment(\.keyringAuditOwner) private var owner
+    @Environment(\.keyringButtonsFill) private var buttonFills
     @State private var id = UUID()
 
     public init(_ words: String, as role: KeyringTextRole = .body, fit: TextFit = .wraps, colour: Color? = nil) {
@@ -149,7 +150,8 @@ public struct KeyringText: View {
             .font(font)
             .modifier(Colouring(colour: colour ?? role.colour))
             .textCase(role == .sectionName ? .uppercase : nil)
-            .modifier(Reporting(id: id, label: words, shown: Array(String(Self.markdown(shown).characters)), audit: audit))
+            .modifier(Reporting(id: id, label: words, shown: Array(String(Self.markdown(shown).characters)),
+                                mustStayOnOneLine: owner != nil && !buttonFills, audit: audit))
             .reportsPlacement(.init(id: id, kind: .text, label: words, owner: owner), to: audit)
     }
 
@@ -171,10 +173,15 @@ private struct Reporting: ViewModifier {
     let id: UUID
     let label: String
     let shown: [Character]
+    let mustStayOnOneLine: Bool
     let audit: KeyringAudit?
 
     func body(content: Content) -> some View {
-        if let audit { content.textRenderer(TruncationReporter(id: id, label: label, shown: shown, audit: audit)) } else { content }
+        if let audit {
+            content.textRenderer(TruncationReporter(id: id, label: label, shown: shown, mustStayOnOneLine: mustStayOnOneLine, audit: audit))
+        } else {
+            content
+        }
     }
 }
 

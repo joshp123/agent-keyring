@@ -87,11 +87,11 @@ public enum KeyringGallery {
             KeyringSetupWindow(heading: "Setup on this Mac", steps: steps.enumerated().map { KeyringSetupStep($1.title, $0 < 2 ? .done : $0 == 2 ? .current : .upcoming) }) {
                 KeyringPage(step: (3, 4), title: "Connect an agent",
                             sentence: "Give your AI agent this instruction so it knows how to ask Agent Keyring for passwords and two-factor codes.",
-                            status: .waiting("Waiting for your agent’s request. It opens beside this window."),
                             primary: .advance("Continue", perform: none), secondary: .plain("Back", perform: none), aside: .link("Skip the Test", perform: none)) {
                     KeyringCopyBlock("1. Add to your agent’s instructions (AGENTS.md or CLAUDE.md)",
                                      text: "When a task needs a website password or a two-factor code, use Agent Keyring. To learn how, run \"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring\" skill")
                     KeyringCopyBlock("2. Try it: send this to an agent", text: "Use Agent Keyring to get the test password for example.com.")
+                    KeyringHint(symbol: "rectangle.on.rectangle", "**What to expect:** When your agent asks for a password, an approval card pops up beside your active window.", tone: .plain)
                 }
             }
         },
@@ -130,12 +130,12 @@ public enum KeyringGallery {
         },
         .init("add-iphone-sheet", .macPanel(width: 460)) {
             KeyringPage(title: "Add your iPhone",
-                        sentence: "Approve password requests from your AI agents with Face ID anywhere. Each password is end-to-end encrypted for your iPhone’s Secure Enclave and signed against tampering.",
+                        sentence: "Approve password requests from your AI agents with Face ID anywhere. Each password is end-to-end encrypted for your iPhone’s Secure Enclave and signed against tampering. Both devices need Tailscale turned on.",
                         status: .waiting("Waiting for your iPhone…"),
                         primary: .plain("Do This Later", perform: none), aside: .link("Having trouble?", perform: none)) {
                 KeyringQRBlock(url: "https://testflight.apple.com/join/EXAMPLE1", steps: [
                     "Scan to get TestFlight from the App Store, then open Agent Keyring inside TestFlight.",
-                    "Tap **Connect** on your iPhone.",
+                    "Make sure Tailscale is on for both devices, then tap **Connect** on your iPhone.",
                     "Approve your iPhone beside this window with Touch ID."])
             }
         },
@@ -194,9 +194,10 @@ public enum KeyringGallery {
                         status: .problem("Notifications are turned off for Agent Keyring. Turn them on in Settings so password requests reach your Lock Screen."),
                         primary: .advance("Turn On Notifications", perform: none), secondary: .link("Continue Without Notifications", perform: none)) {
                 KeyringRowGroup {
-                    KeyringDeviceRow(symbol: "checkmark", name: "Notifications allowed")
-                    KeyringDeviceRow(symbol: "checkmark", name: "Banners and Lock Screen")
-                    KeyringDeviceRow(symbol: "exclamationmark.circle", name: "Not in Scheduled Summary", tone: .waiting)
+                    KeyringCheckRow("Notifications allowed", isDone: true)
+                    KeyringCheckRow("Banners and Lock Screen", isDone: true)
+                    KeyringCheckRow("Time Sensitive", isDone: true)
+                    KeyringCheckRow("Not in Scheduled Summary", isDone: false, toDo: "In Settings > Notifications > Scheduled Summary, turn off Agent Keyring.")
                 }
                 KeyringHint(symbol: "moon.fill", "Vibe coding late at night? If Sleep or Driving Focus is on, iOS silences notifications unless Agent Keyring is allowed in Settings > Focus.", tone: .focus)
             }
@@ -216,8 +217,29 @@ public enum KeyringGallery {
         },
         .init("approval-card-home", .phone) {
             KeyringApprovalCard(lead: "\(Longest.agent) on \(Longest.macName) wants", subject: Longest.site, detail: Longest.account, reason: Longest.reason,
-                                approve: .approve("Approve", perform: none), deny: .deny("Deny", perform: none), explain: .link("Deny and Explain", perform: none))
+                                approve: .approve("Approve", perform: none), deny: .deny("Deny", perform: none), explain: .denyLink("Deny and Explain", perform: none))
                 .padding(KeyringSpace.s6)
+        },
+        .init("deny-and-explain-sheet", .phone) {
+            KeyringPage(primary: .deny("Deny and Send", perform: none), secondary: .approveLink("Approve Instead", perform: none)) {
+                KeyringRequestHeader(lead: "\(Longest.agent) on \(Longest.macName) wants", subject: Longest.site, detail: Longest.account, reason: Longest.reason)
+                KeyringReplyBox(text: .constant(""), prompt: "Tell the agent what to do instead", note: .listening("Listening…")) {
+                    KeyringButton(.plain("Stop", perform: none))
+                }
+            }
+        },
+        .init("everyday-list", .phone) {
+            List {
+                Section {
+                    ForEach(1...24, id: \.self) { number in
+                        KeyringDeviceRow(symbol: "key", name: "site\(number).example", detail: "you@example.com · asked \(number) times") {
+                            KeyringText(number % 3 == 0 ? "Automatic" : "Ask", as: .meta)
+                        }
+                    }
+                } header: {
+                    KeyringText("Passwords", as: .sectionName)
+                }
+            }
         },
         .init("reply-box-microphone", .phone) {
             VStack(spacing: KeyringSpace.s4) {

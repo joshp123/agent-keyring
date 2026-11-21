@@ -13,7 +13,6 @@ public struct KeyringReplyBox<Trailing: View>: View {
     let note: KeyringStatus?
     let noteAction: KeyringAction?
     let trailing: Trailing
-    @Environment(\.dynamicTypeSize) private var textSize
 
     /// - Parameters:
     ///   - prompt: shown in the empty box, such as "What should the agent do instead?".
@@ -31,20 +30,40 @@ public struct KeyringReplyBox<Trailing: View>: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-            // At accessibility text sizes the microphone goes under the words, so neither is squeezed.
-            let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .trailing, spacing: KeyringSpace.s2)) : AnyLayout(HStackLayout(alignment: .bottom, spacing: KeyringSpace.s2))
-            layout {
-                TextField("", text: text, prompt: Text(prompt), axis: .vertical)
-                    .lineLimit(3...10)
-                    .textFieldStyle(.plain)
-                    .font(KeyringTextRole.body.font)
-                    .foregroundStyle(KeyringPalette.ink)
-                    .multilineTextAlignment(.leading)
+            TrailingOrBelow(spacing: KeyringSpace.s2, belowAlignment: .trailing, besideAtBottom: true) {
+                // The prompt sits under the field, in the layout, so a long one makes the box taller.
+                ZStack(alignment: .topLeading) {
+                    KeyringPrompt(prompt, showing: text.wrappedValue.isEmpty)
+                    TextField("", text: text, axis: .vertical)
+                        .lineLimit(3...10)
+                        .textFieldStyle(.plain)
+                        .font(KeyringTextRole.body.font)
+                        .foregroundStyle(KeyringPalette.ink)
+                        .multilineTextAlignment(.leading)
+                        .accessibilityLabel(prompt)
+                }
                 trailing
             }
             .padding(KeyringSpace.s4)
             .background(KeyringPalette.fill, in: .rect(cornerRadius: KeyringRadius.card))
             if let note { KeyringStatusLine(note, action: noteAction) }
+        }
+    }
+}
+
+/// The empty box's prompt, drawn by the parts: a text field's own placeholder
+/// is cut off at large text sizes, where the check cannot see it.
+struct KeyringPrompt: View {
+    let words: String
+    let showing: Bool
+    init(_ words: String, showing: Bool) { self.words = words; self.showing = showing }
+
+    var body: some View {
+        if showing {
+            KeyringText(words, as: .body, colour: KeyringPalette.ink3)
+                .multilineTextAlignment(.leading)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 }

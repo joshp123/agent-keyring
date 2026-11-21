@@ -12,7 +12,7 @@ public struct KeyringPage<Content: View>: View {
     public enum Alignment: Sendable { case leading, centre }
 
     let step: (Int, Int)?
-    let title: String
+    let title: String?
     let sentence: String?
     let alignment: Alignment
     let mascot: KeyringMascot.Mood?
@@ -26,12 +26,13 @@ public struct KeyringPage<Content: View>: View {
 
     /// - Parameters:
     ///   - step: (2, 4) shows "Step 2 of 4" above the title.
+    ///   - title: none for a page whose body says what it is about (the Deny and Explain sheet starts with the request).
     ///   - mascot: a mascot above a centred title (iPhone and Watch; the Mac's is in the setup window).
     ///   - status: one line under the body: waiting, taking long, done, or a problem.
     ///   - primary: the page's main button. Blue to move on; green or red only to approve or deny.
     ///   - secondary: Back on the Mac; on iPhone and Watch, the way out under the main button.
     ///   - aside: the Mac's quiet button at the bottom left (Use Test Password Only, Skip the Test).
-    public init(step: (Int, Int)? = nil, title: String, sentence: String? = nil, alignment: Alignment = .leading,
+    public init(step: (Int, Int)? = nil, title: String? = nil, sentence: String? = nil, alignment: Alignment = .leading,
                 mascot: KeyringMascot.Mood? = nil, status: KeyringStatus? = nil,
                 primary: KeyringAction? = nil, secondary: KeyringAction? = nil, aside: KeyringAction? = nil,
                 @ViewBuilder content: () -> Content) {
@@ -50,11 +51,13 @@ public struct KeyringPage<Content: View>: View {
     private var horizontal: HorizontalAlignment { alignment == .centre ? .center : .leading }
     private var frameAlignment: SwiftUI.Alignment { alignment == .centre ? .top : .topLeading }
 
+    private var hasHeading: Bool { step != nil || title != nil || sentence != nil || mascot != nil }
+
     private var heading: some View {
         VStack(alignment: horizontal, spacing: KeyringSpace.s2) {
             if let mascot { KeyringMascot(mascot).frame(width: Self.mascotSize, height: Self.mascotSize).padding(.bottom, KeyringSpace.s2) }
             if let step { KeyringText(PartsCopy.step(step.0, of: step.1), as: .stepMarker) }
-            KeyringText(title, as: mascot == nil ? .title : .heroTitle)
+            if let title { KeyringText(title, as: mascot == nil ? .title : .heroTitle) }
             if let sentence {
                 KeyringText(sentence, as: .sentence).frame(maxWidth: KeyringSize.measure, alignment: alignment == .centre ? .center : .leading)
             }
@@ -74,7 +77,7 @@ public struct KeyringPage<Content: View>: View {
     public var body: some View {
         #if os(macOS)
         VStack(alignment: .leading, spacing: KeyringSpace.s6) {
-            heading
+            if hasHeading { heading }
             bodyAndStatus
             Spacer(minLength: 0)
             HStack(spacing: KeyringSpace.s3) {
@@ -113,7 +116,7 @@ public struct KeyringPage<Content: View>: View {
     #if !os(macOS)
     private var column: some View {
         VStack(alignment: horizontal, spacing: Self.gap) {
-            heading
+            if hasHeading { heading }
             bodyAndStatus
         }
         .padding(.horizontal, Self.margin)
@@ -160,7 +163,7 @@ public struct KeyringPage<Content: View>: View {
 }
 
 extension KeyringPage where Content == EmptyView {
-    public init(step: (Int, Int)? = nil, title: String, sentence: String? = nil, alignment: Alignment = .leading,
+    public init(step: (Int, Int)? = nil, title: String? = nil, sentence: String? = nil, alignment: Alignment = .leading,
                 mascot: KeyringMascot.Mood? = nil, status: KeyringStatus? = nil,
                 primary: KeyringAction? = nil, secondary: KeyringAction? = nil, aside: KeyringAction? = nil) {
         self.init(step: step, title: title, sentence: sentence, alignment: alignment, mascot: mascot, status: status,
