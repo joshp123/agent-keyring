@@ -84,7 +84,7 @@ public enum MessageCopy {
     public static let noTailscale = "Tailscale is off on this Mac, so your iPhone, Apple Watch and other computers can't reach it. Turn on Tailscale, then try again."
     /// Said when a device or computer is added: both ends need Tailscale.
     public static func bothNeedTailscale(_ name: String) -> String { "This Mac and \(name) both need Tailscale turned on to reach each other." }
-    public static func doorClosed(_ reason: String) -> String { "This Mac couldn't open its door for your devices: \(reason)" }
+    public static func doorClosed(_ reason: String) -> String { "This Mac couldn't start listening for your devices: \(reason)" }
     public static let noPushKey = "This Mac can't notify your iPhone or Apple Watch yet: it has no push key. An agent adds it with agent-keyring push-key."
     public static func noPushAddress(_ name: String) -> String { "\(name) hasn't given this Mac its notification address yet. Open Agent Keyring on it." }
     public static let joinRanOut = "This request to join ran out after ten minutes. Ask again from the other device."
