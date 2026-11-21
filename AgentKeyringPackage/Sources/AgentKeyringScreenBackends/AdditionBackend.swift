@@ -1,6 +1,6 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// Adding the computer that stays on, another computer or a device is a request
+// Adding a computer or a device is a request
 // in the same panel and with the same click and Touch ID as a password request
 // (Paper, "First run", "Other computers, iPhone and Apple Watch").
 
@@ -15,7 +15,6 @@ import Observation
 @available(macOS 26.0, *)
 @MainActor
 public final class AdditionBackend: MacApprovalBackend {
-    public static let setupID = "agent-keyring-setup"
     private let model: MirrorAppModel
     private var contexts: [String: LAContext] = [:]
     private var answered: [String: AccessRequestState] = [:]
@@ -24,7 +23,7 @@ public final class AdditionBackend: MacApprovalBackend {
         self.model = model
     }
 
-    /// The setup or join waiting under this id, as the panel shows it.
+    /// The join waiting under this id, as the panel shows it.
     public func request(_ id: String) -> AccessRequest? {
         if let state = answered[id], let last = lastShown[id] {
             var request = last
@@ -40,14 +39,7 @@ public final class AdditionBackend: MacApprovalBackend {
         }
         guard let device = model.device else { return nil }
         let request: AccessRequest?
-        if id == Self.setupID, let setup = device.setup, let machine = setup.machine {
-            request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
-                agent: RequestingAgent(name: setup.agent, machine: "This Mac", address: "", isLocal: true),
-                access: .setUp(lead: SetupCopy.addingComputerLead(agent: setup.agent), detail: "",
-                    footer: SetupCopy.addingComputerFooter(machine.label, staysOn: true), denied: SetupCopy.notAdded(machine.label),
-                    replies: setup.refusable),
-                agentReason: setup.reason, askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
-        } else if let join = device.joins.first(where: { MacDevice.joinID($0) == id }) {
+        if let join = device.joins.first(where: { MacDevice.joinID($0) == id }) {
             let asked = Date(timeIntervalSince1970: TimeInterval(join.askedUnixSeconds))
             switch join.request.joining {
             case let .device(joining)?:
@@ -87,13 +79,8 @@ public final class AdditionBackend: MacApprovalBackend {
         defer { if contexts[requestID] === context { contexts[requestID] = nil } }
         do {
             try await screenErrors {
-                if requestID == Self.setupID {
-                    try await device.confirmSetup(thisMacAutomatic: model.automaticOnThisMac, context: context,
-                        onAuthenticated: onAuthenticated)
-                    await model.reportLastSelfTest()
-                } else {
-                    try await device.approveJoin(requestID, context: context, onAuthenticated: onAuthenticated)
-                }
+                try await device.approveJoin(requestID, thisMacAutomatic: model.automaticOnThisMac, context: context,
+                    onAuthenticated: onAuthenticated)
             }
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw CancellationError()
@@ -109,9 +96,7 @@ public final class AdditionBackend: MacApprovalBackend {
 
     public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         cancelAuthentication(requestID: requestID)
-        let told = requestID == Self.setupID
-            ? await model.device?.refuseSetup(reply: reply ?? "") ?? false
-            : await model.device?.refuseJoin(requestID, reply: reply ?? "") ?? false
+        let told = model.device?.refuseJoin(requestID, reply: reply ?? "") ?? false
         // The words show as sent only if the waiting agent will get them.
         let state = AccessRequestState.denied(by: .mac, reply: told ? reply : nil, askAgainAfter: nil)
         answered[requestID] = state

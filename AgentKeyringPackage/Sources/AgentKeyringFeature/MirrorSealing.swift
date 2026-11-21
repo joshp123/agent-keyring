@@ -79,7 +79,8 @@ extension MirrorAppModel {
             sealed += try sealCopies(of: secret, version: copy.version, automatic: true).filter { machines.contains($0.openerID) }
         }
         try await store.replaceSealed(sealed)
-        if device?.isJoined == true { try await device?.publish(context: context, withdrawn: withdrawn) }
+        _ = withdrawn // The computers' copies are gone from the store above; the next bundle leaves them out.
+        try await device?.publish(context: context)
     }
 
     static let automaticOnThisMacKey = "automaticOnThisMac"
@@ -122,12 +123,14 @@ extension MirrorAppModel {
             }
         }
         try await store.replaceSealed(sealed)
-        try await device?.sendCopies(for: Set(changes.keys).subtracting([keys.machineID]))
+        device?.sendCopies(for: Set(changes.keys).subtracting([keys.machineID]))
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
     }
 
-    /// A rule change from another device: its rules, and this Mac's Automatic
-    /// copies exactly as that device left them at the relay.
+    /// A rule change from the iPhone, which sends only the signed catalogue: its
+    /// rules here, and every computer's copies of a password no longer
+    /// Automatic withdrawn. Copies for a password newly Automatic need this
+    /// Mac's Touch ID to make (`automaticCopiesMissing`).
     func adoptCatalogue(_ catalogue: Agentkeyring_V2_Catalogue, ownCopies: [Agentkeyring_V2_SealedLogin]) async {
         guard let keys = try? macKeys() else { return }
         var next: [UUID: CredentialAccessPolicy] = [:]
@@ -144,11 +147,49 @@ extension MirrorAppModel {
             sealed.removeAll { $0.openerID == keys.machineID }
             let blocked = Set(next.filter { $0.value == .block }.keys.map(\.uuidString))
             sealed.removeAll { $0.openerID != keys.deviceKeyID && blocked.contains($0.loginID) }
+            let computers = Set((device?.members?.machines ?? []).map(\.machineID))
+            sealed.removeAll { computers.contains($0.openerID) && !automatic.contains($0.loginID) }
             let listed = Dictionary(catalogue.logins.map { ($0.loginID, $0) }, uniquingKeysWith: { first, _ in first })
             sealed += ownCopies.filter { automatic.contains($0.loginID) && (try? keys.check($0, members: device?.members, listed: listed[$0.loginID])) != nil }
             try? await store.replaceSealed(sealed)
         }
         accessControl.adopt(next)
+        await noteMissingAutomaticCopies()
+    }
+
+    /// Whether a computer allowed Automatic passwords lacks a copy of one: a fact read from the copies, kept for the panel.
+    func noteMissingAutomaticCopies() async {
+        automaticCopiesMissing = !(await missingAutomaticCopies()).isEmpty
+    }
+
+    /// Each Automatic password, with the computers allowed Automatic passwords that have no copy of it.
+    private func missingAutomaticCopies() async -> [String: [(id: String, key: P256.KeyAgreement.PublicKey)]] {
+        guard let keys = try? macKeys(), let sealed = try? await store.sealed() else { return [:] }
+        let receivers = (automaticOnThisMac ? [(id: keys.machineID, key: keys.receiving.publicKey)] : [])
+            + (device?.otherOpeners(automatic: true) ?? []).filter { opener in device?.members?.machines.contains { $0.machineID == opener.id } == true }
+        var missing: [String: [(id: String, key: P256.KeyAgreement.PublicKey)]] = [:]
+        for login in leaseLogins where accessControl.policy(for: login.id) == .allowAutomatically {
+            let lacking = receivers.filter { receiver in !sealed.contains { $0.loginID == login.id.uuidString && $0.openerID == receiver.id } }
+            if !lacking.isEmpty { missing[login.id.uuidString] = lacking }
+        }
+        return missing
+    }
+
+    /// "Not now": asked again after the next rule change on the iPhone.
+    public func declineAutomaticCopies() { automaticCopiesMissing = false }
+
+    /// Makes the missing Automatic copies, with a context Josh has just approved: each password opened once.
+    public func sealAutomaticCopies(context: LAContext) async throws {
+        let keys = try macKeys()
+        var sealed = try await store.sealed()
+        for (loginID, receivers) in await missingAutomaticCopies() {
+            let copy = try await macCopy(of: loginID)
+            let secret = try keys.open(copy, context: context)
+            sealed += try receivers.map { try Sealing.seal(secret, version: copy.version, to: $0.key, openerID: $0.id, signer: keys.signer) }
+        }
+        try await store.replaceSealed(sealed)
+        device?.sendCopies(for: Set((device?.members?.machines ?? []).map(\.machineID)))
+        await noteMissingAutomaticCopies()
     }
 
     /// The logins and their rules, as the other devices see them, each with

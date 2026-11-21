@@ -64,6 +64,10 @@ public final class CredentialLeaseStore {
         var leases: [String: SavedLease] = [:]
         var requests: [String: RequestRecord] = [:]
         var suppressions: [String: Suppression] = [:]
+        /// Each waiting or approved lease this Mac also pushed to the iPhone and
+        /// Apple Watch: lease ID to the signed request (Signed, serialized), so a
+        /// restart takes their answers again. Optional, so older records still load.
+        var pushed: [String: Data]? = nil
     }
     private var snapshot: Snapshot?
     private let persistence: LeasePersistence
@@ -242,11 +246,11 @@ public final class CredentialLeaseStore {
     }
 
     /// The iPhone or Watch approved: what it sent, held in memory for the lease.
-    func approveFromDevices(_ leaseID: String, contents: Agentkeyring_V2_DeliveryContents) throws {
+    func approveFromDevices(_ leaseID: String, contents: Agentkeyring_V2_DeliveryContents, by device: Agentkeyring_V1_ApprovedBy) throws {
         var lease = try get(leaseID)
         guard lease.state == .pending else { return }
         lease.state = .active
-        lease.approvedBy = .iphone
+        lease.approvedBy = device
         lease.approvedAtUnixSeconds = Self.now
         lease.notAfterUnixSeconds = contents.notAfterUnixSeconds
         lease.statusLines = []
@@ -259,7 +263,26 @@ public final class CredentialLeaseStore {
         try saveLease(lease)
         try forgetDenials(of: lease.loginID)
         onDecision?(leaseID, lease.loginID, .approved)
-        DiagnosticLog.record("lease", "approved", ["lease": leaseID, "by": "device"])
+        DiagnosticLog.record("lease", "approved", ["lease": leaseID, "by": "\(device)"])
+    }
+
+    /// The requests this Mac pushed for its agents' leases, by lease ID.
+    var pushedRequests: [String: Data] { snapshot?.pushed ?? [:] }
+
+    /// Remembers that this lease's request went to the iPhone and Apple Watch.
+    func notePushed(_ leaseID: String, request: Data) throws {
+        try load()
+        var next = snapshot!
+        next.pushed = (next.pushed ?? [:]).merging([leaseID: request]) { _, new in new }
+        try commit(next)
+    }
+
+    /// The lease has ended and the devices were told: nothing more to take for it.
+    func forgetPushed(_ leaseID: String) throws {
+        guard snapshot?.pushed?[leaseID] != nil else { return }
+        var next = snapshot!
+        next.pushed?.removeValue(forKey: leaseID)
+        try commit(next)
     }
 
     func openedCodes(for leaseID: String) -> [Agentkeyring_V2_TimedCode]? { openedCodes[leaseID] }
@@ -407,6 +430,7 @@ public final class CredentialLeaseStore {
             return !lease.state.isTerminal || lease.endedAtUnixSeconds + 7 * 86400 > Self.now
         }
         next.requests = next.requests.filter { next.leases[$0.value.leaseID] != nil }
+        next.pushed = next.pushed?.filter { next.leases[$0.key] != nil }
         next.suppressions = next.suppressions.filter { $0.value.until > Self.now }
         if next.leases.mapValues(\.lease) != snapshot.leases.mapValues(\.lease)
             || next.suppressions.count != snapshot.suppressions.count { try commit(next) }

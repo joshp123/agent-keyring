@@ -39,15 +39,14 @@ public enum SetupScreens {
     public static func addPhone(_ model: MirrorAppModel) -> FirstRunScreen { .addPhone(added: joined(model, .iphone)) }
     public static func addWatch(_ model: MirrorAppModel) -> FirstRunScreen { .addWatch(added: joined(model, .watch)) }
 
-    /// The computers that have joined, other than this Mac and the one that stays on.
+    /// The computers that have joined, other than this Mac.
     public static func addComputers(_ model: MirrorAppModel, command: String?) -> FirstRunScreen {
         let device = model.device
-        let others = (device?.members?.machines ?? [])
-            .filter { $0.machineID != device?.ownMachineID && $0.machineID != device?.alwaysOnMachineID }.map(\.label)
+        let others = (device?.members?.machines ?? []).filter { $0.machineID != device?.ownMachineID }.map(\.label)
         return .addComputers(command: command, joined: others)
     }
 
-    /// The one-time command for "Add other computers"; nil if this Mac reaches no computer that stays on.
+    /// The one-time command for "Add other computers"; nil while this Mac has no Tailscale address (`MacDevice.door`).
     public static func enrolCommand(_ model: MirrorAppModel) -> String? {
         (try? model.device?.inviteMachine()).map(FirstRunCopy.enrolCommand)
     }
@@ -85,79 +84,25 @@ public enum SetupScreens {
     }
 }
 
-/// Connect on "Approve from your iPhone and Apple Watch": the address, then
-/// macOS's Touch ID dialog, then joined; or the reason it failed.
-@available(macOS 26.0, *)
-@MainActor
-@Observable
-public final class ConnectFlow {
-    public enum State: Equatable { case idle, waiting(name: String), failed(String) }
-    public private(set) var state = State.idle
-    private let backend: AppMainWindowBackend
-
-    public init(model: MirrorAppModel) { backend = AppMainWindowBackend(model: model) }
-
-    /// The computer that stays on which announced itself, by name; nil if none did.
-    public var offered: String? { backend.offeredRelay }
-
-    public func connectOffered(then joined: @escaping @MainActor () -> Void) {
-        guard let name = offered else { return }
-        run(name, then: joined) { try await self.backend.connectOffered() }
-    }
-
-    public func connect(_ address: String, then joined: @escaping @MainActor () -> Void) {
-        let name = address.split(separator: ":").first.map(String.init) ?? address
-        run(name, then: joined) { try await self.backend.connectRelay(address) }
-    }
-
-    private func run(_ name: String, then joined: @escaping @MainActor () -> Void, connecting: @escaping @MainActor () async throws -> Void) {
-        if case .waiting = state { return }
-        state = .waiting(name: name)
-        Task {
-            do {
-                try await connecting()
-                state = .idle
-                joined()
-            } catch is CancellationError {
-                state = .idle
-            } catch {
-                state = .failed((error as? LocalizedError)?.errorDescription ?? MessageCopy.somethingWentWrong)
-            }
-        }
-    }
-
-    /// The window for a computer that stays on, as Connect has left it.
-    public var screen: FirstRunScreen {
-        switch state {
-        case .idle: .stayingOn(failure: nil, offered: offered)
-        case let .waiting(name): .connecting(name: name)
-        case let .failed(message): .stayingOn(failure: message, offered: offered)
-        }
-    }
-}
-
 /// The sheet: which of its windows shows is its only state.
 @available(macOS 26.0, *)
 public struct SetupSheet: View {
-    enum Step { case stayingOn, phone, watch, computers, tellAgents }
+    enum Step { case phone, watch, computers, tellAgents }
     let model: MirrorAppModel
     let close: () -> Void
     @State private var step: Step
-    @State private var connect: ConnectFlow
     @State private var command: String?
 
     public init(_ sheet: DevicesSheet, model: MirrorAppModel, close: @escaping () -> Void) {
         self.model = model
         self.close = close
-        let joined = model.device?.isJoined == true
         let hasPhone = model.device?.members?.devices.contains { $0.kind == .iphone } == true
         let first: Step = switch sheet {
         case .tellAgents: .tellAgents
-        case .addPhoneOrWatch: joined ? (hasPhone ? .watch : .phone) : .stayingOn
-        case .addComputer: joined ? .computers : .stayingOn
+        case .addPhoneOrWatch: hasPhone ? .watch : .phone
+        case .addComputer: .computers
         }
         _step = State(initialValue: first)
-        _connect = State(initialValue: ConnectFlow(model: model))
         self.sheet = sheet
     }
 
@@ -170,7 +115,6 @@ public struct SetupSheet: View {
 
     private var screen: FirstRunScreen {
         switch step {
-        case .stayingOn: connect.screen
         case .phone: SetupScreens.addPhone(model)
         case .watch: SetupScreens.addWatch(model)
         case .computers: SetupScreens.addComputers(model, command: command)
@@ -181,11 +125,6 @@ public struct SetupSheet: View {
     private var actions: FirstRunActions {
         var actions = FirstRunActions()
         actions.useThisMacAlone = close
-        let connected: @MainActor () -> Void = {
-            if sheet == .addComputer { command = SetupScreens.enrolCommand(model); step = .computers } else { step = .phone }
-        }
-        actions.connect = { address in connect.connect(address, then: connected) }
-        actions.connectOffered = { connect.connectOffered(then: connected) }
         actions.skip = close
         actions.continueOn = {
             if step == .phone { step = .watch } else { close() }

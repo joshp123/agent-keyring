@@ -145,6 +145,7 @@ enum ApprovedBy {
   APPROVED_BY_AUTOMATIC_RULE = 1;
   APPROVED_BY_MAC = 2;
   APPROVED_BY_IPHONE = 3;
+  APPROVED_BY_WATCH = 4;
 }
 
 enum CredentialField {
@@ -256,6 +257,9 @@ message WireRequest {
     FillRequest fill = 6;
     DeliverRequest deliver = 8;
     SetupRequest setup = 11;
+    PushKeyRequest push_key = 12;
+    ComplainRequest complain = 13;
+    ComplaintsRequest complaints = 14;
   }
   reserved 7, 9, 10;
 }
@@ -268,6 +272,7 @@ message WireResponse {
     RpcError error = 5;
     Delivery delivery = 7;
     SetupResponse setup = 10;
+    ComplaintsResponse complaints = 11;
   }
   reserved 4, 8, 9;
   bool end_of_stream = 6;
@@ -295,6 +300,41 @@ message SetupRequest {
   int64 since_unix_seconds = 7;    // LOGS: from this time; 0 for all.
   string request_id = 8;           // LOGS: only lines naming this request.
 }
+// On the Mac: the key of the Apple developer team that signs the apps, which
+// the app keeps in its keychain to send pushes to the iPhone and Apple Watch
+// and seals to each computer that joins. Replies with an empty setup.
+// An agent's report that Agent Keyring was annoying, confusing or broken
+// (agent-keyring complain on the Mac). Never a password or any secret. The
+// app keeps it with the computers' (keyring.proto v2, Complaint); no screen
+// shows it. Replies with an empty setup.
+message Complaint {
+  int64 at_unix_seconds = 1;
+  string computer = 2;             // Set by the app: this Mac's name.
+  string version = 3;
+  string command = 4;              // What the agent was running, as it typed it.
+  string thread = 5;               // The agent's thread or session, if it has one.
+  string summary = 6;              // One line.
+  string detail = 7;               // Anything more, from standard input.
+}
+
+message ComplainRequest {
+  Complaint complaint = 1;
+}
+
+message ComplaintsRequest {
+  int64 since_unix_seconds = 1;    // 0: all of them.
+}
+
+message ComplaintsResponse {
+  repeated Complaint complaints = 1;  // Oldest first.
+}
+
+message PushKeyRequest {
+  string key_id = 1;
+  string team_id = 2;
+  bytes private_key = 3;           // PKCS#8 DER, P-256: the .p8 file without its PEM armour.
+}
+
 message SetupResponse {
   string machine_name = 1;
   string relay_status = 2;

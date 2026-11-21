@@ -87,11 +87,18 @@ public struct RelayTLSIdentity: @unchecked Sendable {
         publicKeySPKI = try Self.spki(certificate: cert)
     }
 
-    static func spki(certificate: SecCertificate) throws -> Data {
+    /// A new identity held only in memory, never in the keychain: for tests and stand-in devices.
+    public static func ephemeral() throws -> Self {
+        let key = P256.Signing.PrivateKey()
+        return try Self(privateKey: key.x963Representation, certificate: certificate(key))
+    }
+
+    /// The SubjectPublicKeyInfo of a P-256 certificate's key, which is what peers pin.
+    public static func spki(certificate: SecCertificate) throws -> Data {
         guard let key = SecCertificateCopyKey(certificate),
             let bytes = SecKeyCopyExternalRepresentation(key, nil) as? Data,
             (try? P256.Signing.PublicKey(x963Representation: bytes)) != nil else {
-            throw RelayFailure(.unauthenticated, MessageCopy.relayBadIdentity)
+            throw RelayFailure(.unauthenticated, MessageCopy.unacceptedKey)
         }
         return spkiPrefix + bytes
     }

@@ -79,32 +79,12 @@ public final class LeaseMenuBarBackend: MacMenuBarBackend {
         self.model = model
     }
 
-    /// Local leases and requests from agents on other machines.
+    /// This Mac's agents' leases, and computers and devices waiting to join.
     public func snapshot() -> MacMenuBarSnapshot {
-        let device = model.device
-        let remote = ((device.map { Array($0.waiting.values) + Array($0.finished.values) }) ?? []).compactMap { work in
-            device.flatMap { RelayScreenMapping.accessRequest(work, device: $0, logins: model.leaseLogins) }
-        }
-        return MacMenuBarSnapshot(
-            requests: model.leaseStore.leases.map(model.accessRequest(for:)) + remote,
-            enrolments: device?.joins.map(RelayScreenMapping.enrolment) ?? [],
-            offlineComputer: offlineComputer(device), passwordCount: model.status?.credentialItemCount ?? 0)
-    }
-
-    /// Set when the connection fails, cleared only once it is back: while the
-    /// computer is down, MacDevice tries again every few seconds and is
-    /// "connecting" in between, which must not make the banner flicker.
-    private var lostConnection = false
-
-    private func offlineComputer(_ device: MacDevice?) -> String? {
-        guard let device, device.isJoined else { return nil }
-        switch device.connection {
-        case .unreachable: lostConnection = true
-        case .connected, .notSetUp: lostConnection = false
-        case .connecting: break
-        }
-        guard lostConnection else { return nil }
-        return device.members?.machines.first { $0.machineID == device.alwaysOnMachineID }?.label ?? MenuBarCopy.relayComputer
+        MacMenuBarSnapshot(
+            requests: model.leaseStore.leases.map(model.accessRequest(for:)),
+            enrolments: model.device?.joins.map(RelayScreenMapping.enrolment) ?? [],
+            offlineComputer: nil, passwordCount: model.status?.credentialItemCount ?? 0)
     }
 
     public func updates() -> AsyncStream<MacMenuBarSnapshot> {

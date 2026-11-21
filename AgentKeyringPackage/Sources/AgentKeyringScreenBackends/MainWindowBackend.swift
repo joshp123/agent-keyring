@@ -1,6 +1,6 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// The Passwords and Devices tabs over the rules, the sealed copies and the relay.
+// The Passwords and Devices tabs over the rules, the sealed copies and the members list.
 
 #if os(macOS)
 import AgentKeyringApprovalUI
@@ -29,8 +29,7 @@ public final class AppMainWindowBackend: MainWindowBackend {
         let devices = SetupScreens.practiceRows(model).map { DeviceRow(practice: $0, isThisMac: $0.id == model.thisMacDeviceKey) }
         let machines: [MachineRow] = device?.members.map { members in
             members.machines.map { m in
-                MachineRow(id: m.machineID, name: m.label, isThisMac: m.machineID == device?.ownMachineID,
-                    isAlwaysOn: m.machineID == device?.alwaysOnMachineID)
+                MachineRow(id: m.machineID, name: m.label, isThisMac: m.machineID == device?.ownMachineID, isAlwaysOn: false)
             }
         } ?? [MachineRow(id: device?.ownMachineID ?? "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true, isAlwaysOn: false)]
         return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, sampleOnly: model.status?.sampleOnly == true,
@@ -72,31 +71,6 @@ public final class AppMainWindowBackend: MainWindowBackend {
 
     /// Copy from Passwords: Passwords opens, and the window shows the steps until the passwords arrive.
     public func importAgain() { model.openPasswordsExport() }
-
-    /// The computer that stays on which announced itself through iCloud Keychain, by name.
-    public var offeredRelay: String? { model.device?.relayOffer()?.label }
-
-    /// "Connect to Mac mini?": the announced relay, after Touch ID. Nothing typed.
-    public func connectOffered(onAuthenticated: @MainActor () -> Void = {}) async throws {
-        guard let device = model.device, let offer = device.relayOffer() else {
-            throw ScreenFailure(message: MessageCopy.noneAnnounced)
-        }
-        try await screenErrors { try await device.connect(to: offer, context: LAContext(), onAuthenticated: onAuthenticated) }
-    }
-
-    /// "Connect a computer of yours that stays on": the address of the relay
-    /// already running there ("100.64.0.5:17445" or "mac-mini:17445"), then
-    /// Touch ID. Onboarding and Add Computer in Devices use the same.
-    public func connectRelay(_ address: String, onAuthenticated: @MainActor () -> Void = {}) async throws {
-        guard let device = model.device else { throw ScreenFailure(message: MessageCopy.noKeysYet) }
-        let parts = address.trimmingCharacters(in: .whitespaces).split(separator: ":", omittingEmptySubsequences: false)
-        guard parts.count == 2, let port = UInt16(parts[1]) else {
-            throw ScreenFailure(message: MessageCopy.enterAddress)
-        }
-        try await screenErrors {
-            try await device.connect(to: try RelayEndpoint(host: String(parts[0]), port: port), context: LAContext(), onAuthenticated: onAuthenticated)
-        }
-    }
 
     private func confirmed(_ action: () async throws -> Void) async throws {
         do { try await screenErrors(action) }

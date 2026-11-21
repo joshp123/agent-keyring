@@ -210,7 +210,7 @@ extension MirrorAppModel {
         leaseLogins = generation.metadata.candidates
         await accessControl.refresh(from: generation)
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
-        if device?.isJoined == true {
+        if device?.hasMembers == true {
             // Josh approves sending the list in a panel beside his window.
             importedLoginsAwaitApproval = true
         }

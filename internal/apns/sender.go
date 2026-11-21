@@ -86,6 +86,21 @@ func NewWithKey(pkcs8 []byte, config Config) (*Sender, error) {
 	return &Sender{config: config, key: key, client: &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
+// UseToken starts from a token another process made, so that a computer's
+// processes give Apple one token, not one each (Apple refuses new tokens
+// more often than every 20 minutes). Token is the one in use.
+func (s *Sender) UseToken(token string, issued time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.token, s.issued = token, issued
+}
+
+func (s *Sender) Token() (string, time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.token, s.issued
+}
+
 func (s *Sender) authorization() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
