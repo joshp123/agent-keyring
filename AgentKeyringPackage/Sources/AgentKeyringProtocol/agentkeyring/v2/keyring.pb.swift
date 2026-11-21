@@ -1759,12 +1759,17 @@ public nonisolated struct Agentkeyring_V2_SealedLogins: Sendable {
 /// tries to bind it once a second, so another takes over within a second when
 /// the holder exits. A device whose POST cannot connect retries for 30 seconds.
 ///
-/// On every door, for that computer's own requests:
+/// On every door, for that computer's own requests, with no client certificate:
 ///   POST /v2/answer, POST /v2/arrived: below.
 ///   POST /v2/end      body: Signed EndRequest (Stop). Replies 200 with the Lease.
 ///
-/// On the Mac's door only. These need a TLS client certificate: a member's TLS
-/// key, or for /v2/join the key the JoinRequest names.
+/// The Mac also serves its members' door, on port 17447 of the same address
+/// with the same key: the port JoinInvite.door_port names. Never assume 17446
+/// for it. macOS's TLS can either require a client certificate or ask for none,
+/// so the routes below, which need one, are on their own door, and the answer
+/// door stays open to the Apple Watch and a locked iPhone, which have none.
+/// On the members' door only. These need a TLS client certificate: a member's
+/// TLS key, or for /v2/join the key the JoinRequest names.
 ///   POST /v2/join              body: JoinRequest. Replies 200 with JoinStatus at
 ///                              once if decided, else after up to 25 seconds
 ///                              still WAITING; post the same request again to go
@@ -2162,7 +2167,7 @@ public nonisolated struct Agentkeyring_V2_JoinInvite: Sendable {
   /// holds all of these, with a secret, whenever the Mac app runs.
   public var doorHost: String = String()
 
-  /// 17446.
+  /// The Mac's members' door: 17447, not its answer door.
   public var doorPort: UInt32 = 0
 
   /// The Mac's Machine.tls_public_key, SPKI DER: pin it.
