@@ -111,6 +111,8 @@ public final class MirrorAppModel {
     /// saved this way, or whose saved state a later build cannot read, is never stuck.
     static func savedFirstRun(_ settings: UserDefaults) -> FirstRun {
         if let data = settings.data(forKey: firstRunKey), let saved = try? JSONDecoder().decode(FirstRun.self, from: data) {
+            // An earlier build saved the page for a computer that stays on, which nothing needs now.
+            if case let .journey(devices, .stayingOn) = saved { return FirstRun.journey(devices, .stayingOn).after(.connected, facts: .init(alwaysOn: true)) }
             return saved
         }
         return settings.bool(forKey: firstRunFinishedKey) || settings.object(forKey: testedAtKey) != nil ? .finished : .welcome

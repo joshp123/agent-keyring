@@ -175,6 +175,9 @@ extension MirrorAppModel {
         return missing
     }
 
+    /// "Not now": asked again after the next rule change on the iPhone.
+    public func declineAutomaticCopies() { automaticCopiesMissing = false }
+
     /// Makes the missing Automatic copies, with a context Josh has just approved: each password opened once.
     public func sealAutomaticCopies(context: LAContext) async throws {
         let keys = try macKeys()

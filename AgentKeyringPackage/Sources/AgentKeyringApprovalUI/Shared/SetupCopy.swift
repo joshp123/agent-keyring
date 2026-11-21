@@ -25,6 +25,10 @@ public enum SetupCopy {
     public static let sendImportedBody = "Until you allow this, they can only use the list you had before."
     /// After "Agent Keyring is trying to" in macOS's dialog.
     public static let sendImportedReason = "let agents on your other computers use the passwords you just copied"
+    /// A password set to Automatic on the iPhone: the computers get their copies only after Touch ID here.
+    public static let automaticCopiesTitle = "Let your computers use the passwords you set to Automatic on your iPhone?"
+    public static let automaticCopiesBody = "Agents on those computers keep asking for them until you allow this."
+    public static let automaticCopiesReason = "let your computers use the passwords you set to Automatic"
 
     // MARK: A computer or device being added (the request panel)
 

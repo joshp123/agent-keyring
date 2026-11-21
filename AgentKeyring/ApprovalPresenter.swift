@@ -2,8 +2,8 @@
 //
 // Shows the floating panel for everything that waits for Josh, one at a
 // time (RFC 0007 U2 and U4): devices joining first, because someone is at
-// the other device comparing a code, then requests from this Mac and from
-// the relay, oldest first. Replaces the transitional system Touch ID prompt.
+// the other device waiting, then requests from this Mac's agents, oldest
+// first. Replaces the transitional system Touch ID prompt.
 
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
@@ -19,16 +19,15 @@ import SwiftUI
 final class ApprovalPresenter {
     private enum Item: Hashable {
         case local(String)
-        case remote(String)
         case joining(String)
-        case relay
         case sendImported
+        case automaticCopies
         case selfTest
 
         var isRequest: Bool {
             switch self {
-            case .local, .remote: true
-            case .joining, .relay, .sendImported, .selfTest: false
+            case .local: true
+            case .joining, .sendImported, .automaticCopies, .selfTest: false
             }
         }
     }
@@ -62,7 +61,6 @@ final class ApprovalPresenter {
 
     private let model: MirrorAppModel
     private let localBackend: LeaseApprovalBackend
-    private let remoteBackend: RelayApprovalBackend
     private let additionBackend: AdditionBackend
     private let selfTestBackend: SelfTestBackend
     private let panel = MacApprovalPanelController()
@@ -72,7 +70,6 @@ final class ApprovalPresenter {
     init(model: MirrorAppModel) {
         self.model = model
         self.localBackend = LeaseApprovalBackend(model: model)
-        self.remoteBackend = RelayApprovalBackend(model: model)
         self.additionBackend = AdditionBackend(model: model)
         self.selfTestBackend = SelfTestBackend(model: model)
     }
@@ -87,21 +84,15 @@ final class ApprovalPresenter {
     }
 
     /// With the lid shut the panel says where the request can still be
-    /// answered. Agents' requests, from this Mac or another computer, reach the
-    /// iPhone and Apple Watch through the relay; this Mac's own only while the
-    /// relay can be reached, since this Mac never waits for it.
+    /// answered: on the iPhone and Apple Watch, when this Mac can push to them.
     private func approvesElsewhere(_ item: Item) -> Bool {
-        let phoneOrWatch = model.device?.members?.devices.contains { $0.kind == .iphone || $0.kind == .watch } == true
-        switch item {
-        case .remote: return phoneOrWatch
-        case .local: return phoneOrWatch && model.device?.connection == .connected
-        default: return false
-        }
+        guard case .local = item, let device = model.device else { return false }
+        return device.devicesUnreachable == nil
     }
 
     /// Brings a waiting request forward, from the menu bar's Review.
     func present(requestID: String) {
-        if let item = waiting.first(where: { $0 == .local(requestID) || $0 == .remote(requestID) }) { show(first: [item]) }
+        if let item = waiting.first(where: { $0 == .local(requestID) }) { show(first: [item]) }
     }
 
     /// Brings a joining device forward, from the menu bar or Machines window.
@@ -113,13 +104,12 @@ final class ApprovalPresenter {
         let device = model.device
         // A device being given its copies stays up, showing how far, until it is done.
         let joining = (device?.joins.map { Item.joining(MacDevice.joinID($0)) } ?? []) + (device?.filling.map { [Item.joining($0.deviceKeyID)] } ?? [])
-        let relaySetup: [Item] = device?.setup?.machine == nil ? [] : [.relay]
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
-        let remote = (device?.waitingRequests ?? []).map { (Item.remote($0.requestID), $0.askedUnixSeconds) }
-        let sendImported: [Item] = model.importedLoginsAwaitApproval ? [.sendImported] : []
+        let sendImported: [Item] = (model.importedLoginsAwaitApproval ? [.sendImported] : [])
+            + (model.automaticCopiesMissing ? [.automaticCopies] : [])
         // The window says "Open the lid" or "Add a fingerprint" in its place.
         let selfTest: [Item] = (model.firstRun.isPractice || model.practiceWaitingHere) && MacApprover.shared.state == .ready ? [.selfTest] : []
-        return selfTest + relaySetup + joining + sendImported + (local + remote).sorted { $0.1 < $1.1 }.map(\.0)
+        return selfTest + joining + sendImported + local.sorted { $0.1 < $1.1 }.map(\.0)
     }
 
     private func update(_ items: [Item]) {
@@ -154,7 +144,9 @@ final class ApprovalPresenter {
                 panel.show(approval)
                 approval.close = { [weak self] in self?.dismiss() }
             case let .question(approval):
-                panel.show(question: SetupCopy.sendImportedTitle, message: SetupCopy.sendImportedBody, approval: approval)
+                let automatic = item == .automaticCopies
+                panel.show(question: automatic ? SetupCopy.automaticCopiesTitle : SetupCopy.sendImportedTitle,
+                    message: automatic ? SetupCopy.automaticCopiesBody : SetupCopy.sendImportedBody, approval: approval)
             }
             presented = .showing(item, shown)
             DiagnosticLog.record("panel", "shown", ["item": "\(item)"])
@@ -168,17 +160,20 @@ final class ApprovalPresenter {
             request.map { .request(MacApprovalModel(request: $0, moreWaiting: more, backend: backend)) }
         }
         switch item {
-        case .relay: return request(additionBackend.request(AdditionBackend.setupID), additionBackend)
         case .selfTest: return request(selfTestBackend.request, selfTestBackend)
         case let .local(id):
             return request(model.leaseStore.waitingRequests.first { $0.leaseID == id }.map(model.accessRequest(for:)), localBackend)
-        case let .remote(id): return request(remoteBackend.current(id), remoteBackend)
         case let .joining(id): return request(additionBackend.request(id), additionBackend)
         case .sendImported:
             let model = model
             return .question(ask(reason: SetupCopy.sendImportedReason,
                 perform: { context in try await model.sendImportedLogins(context: context) },
                 declined: { model.declineSendingImportedLogins() }))
+        case .automaticCopies:
+            let model = model
+            return .question(ask(reason: SetupCopy.automaticCopiesReason,
+                perform: { context in try await model.sealAutomaticCopies(context: context) },
+                declined: { model.declineAutomaticCopies() }))
         }
     }
 

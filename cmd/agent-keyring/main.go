@@ -47,6 +47,12 @@ const help = `Agent Keyring: use a saved login for one task.
                             Start connecting this Mac to the relay on the computer
                             that stays on; prints the link that computer enrols with
   relay-status              Check whether this Mac has connected to the relay
+  push-key --key-id ID --team-id ID < AuthKey_ID.p8
+                            On the Mac: give the app Apple's push key
+  complain --summary LINE [--command TEXT] [--thread ID]
+                            Tell the people building Agent Keyring what got in your
+                            way; anything more on standard input; never a secret
+  complaints [--since 24h]  The complaints kept on the Mac
   logs [--since 30m] [--request ID]
                             What the Mac, the relay, the iPhone and the Apple Watch
                             did and why, in time order; no secrets
@@ -101,7 +107,8 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
+		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile",
+			"key-id", "team-id", "summary", "command", "thread":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -303,6 +310,9 @@ func run(ctx context.Context, args []string) (int, error) {
 			fmt.Fprintln(os.Stderr, "On the computer that stays on, run: agent-keyring enrol --name NAME --invite LINK, with the link above. Josh then approves one request on this Mac; check with relay-status.")
 		}
 		return 0, nil
+	}
+	if code, handled, e := onMac(ctx, command, a); handled {
+		return code, e
 	}
 	if !strings.Contains(" find lease status release read ", " "+command+" ") {
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)

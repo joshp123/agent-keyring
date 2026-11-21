@@ -24,7 +24,6 @@ public enum MessageCopy {
     public static func add(_ name: String) -> String { "add \(name)" }
     public static let addADevice = "add a device"
     public static func remove(_ name: String) -> String { "remove \(name)" }
-    public static func connectTo(_ host: String) -> String { "connect to the computer that stays on at \(host)" }
 
     // MARK: Approving with Touch ID or Apple Watch
 
@@ -70,7 +69,6 @@ public enum MessageCopy {
     }
     public static let leasesNotEnded = "The leases could not be ended."
     public static let endsByItself = "Access on another computer ends by itself 30 minutes after approval."
-    public static let holdIsElsewhere = "A denial on another computer holds the password off for a few minutes. It cannot be lifted from this Mac."
 
     // MARK: The reminder to copy again
 
