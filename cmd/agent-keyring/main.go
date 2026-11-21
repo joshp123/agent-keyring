@@ -250,6 +250,20 @@ func run(ctx context.Context, args []string) (int, error) {
 	if command == "fill" {
 		return fillBrowser(ctx, a)
 	}
+	if command == "hold" {
+		if len(args) != 1 {
+			return 2, errors.New("hold takes no arguments.")
+		}
+		store, e := clientstate.Default()
+		if e != nil {
+			return 1, e
+		}
+		client, e := remote.Load(ctx, store)
+		if e != nil {
+			return 1, e
+		}
+		return 0, client.HoldUntilIdle(ctx)
+	}
 	if command == "enrol" {
 		if err = a.check("name invite", ""); err != nil {
 			return 2, err

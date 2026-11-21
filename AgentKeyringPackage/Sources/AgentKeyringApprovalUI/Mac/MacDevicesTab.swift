@@ -38,6 +38,9 @@ public struct MacDevicesTab: View {
                         HStack(spacing: KeyringSpace.s2) {
                             KeyringButton(.plain(MainWindowCopy.sendPractice, isEnabled: approver.canPractise) { model.sendPractice(approver.id) })
                             if approver.kind != .thisMac {
+                                KeyringButton(.plain(MainWindowCopy.rename, isEnabled: !model.isWorking) {
+                                    model.askToRename(approver.id, name: approver.name)
+                                })
                                 KeyringButton(.plain(MainWindowCopy.remove, isEnabled: !model.isWorking) {
                                     model.askToRemove(approver.id, name: approver.name, isComputer: false)
                                 })
@@ -56,9 +59,15 @@ public struct MacDevicesTab: View {
                 }
                 ForEach(model.snapshot.computers) { computer in
                     KeyringDeviceRow(symbol: "desktopcomputer", name: computer.name) {
-                        KeyringButton(.plain(MainWindowCopy.remove, isEnabled: !model.isWorking) {
-                            model.askToRemove(computer.id, name: computer.name, isComputer: true)
-                        })
+                        HStack(spacing: KeyringSpace.s2) {
+                            KeyringButton(.plain(MainWindowCopy.rename, isEnabled: !model.isWorking) {
+                                model.askToRename(computer.id, name: computer.name)
+                            })
+                            KeyringButton(.plain(MainWindowCopy.remove, isEnabled: !model.isWorking) {
+                                model.askToRemove(computer.id, name: computer.name, isComputer: true)
+                            })
+                        }
+                        .fixedSize()
                     }
                 }
             } header: {
@@ -66,6 +75,12 @@ public struct MacDevicesTab: View {
             }
         }
         .formStyle(.grouped)
+        .alert(MainWindowCopy.renameTitle,
+               isPresented: Binding(get: { model.renaming != nil }, set: { if !$0 { model.renaming = nil } })) {
+            TextField(MainWindowCopy.renameField, text: $model.renameDraft)
+            Button(MainWindowCopy.save) { model.commitRename() }
+            Button(MainWindowCopy.cancel, role: .cancel) { model.renaming = nil }
+        }
         .confirmationDialog(MainWindowCopy.removeTitle(model.removing?.name ?? ""),
             isPresented: Binding(get: { model.removing != nil }, set: { if !$0 { model.removing = nil } })) {
             Button(MainWindowCopy.removeConfirm, role: .destructive) { if let id = model.removing?.id { model.remove(id) } }

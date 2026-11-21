@@ -16,12 +16,16 @@ public struct MacWelcomePage: View {
 
     public init(getStarted: @escaping () -> Void) { self.getStarted = getStarted }
 
+    private static let badges: [KeyringDeviceRow<EmptyView>.Badge] = [.brand, .approve, .focus]
+
     public var body: some View {
-        KeyringPage(title: FirstRunCopy.title, sentence: FirstRunCopy.intro, alignment: .centre, mascot: .calm,
+        KeyringPage(title: FirstRunCopy.title, sentence: FirstRunCopy.intro, sentenceColour: KeyringPalette.brand,
+                    alignment: .centre, mascot: .calm,
                     primary: .advance(FirstRunCopy.getStarted, perform: getStarted)) {
-            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-                ForEach(FirstRunCopy.points, id: \.title) { point in
-                    KeyringDeviceRow(symbol: point.symbol, name: point.title, detail: point.body)
+            VStack(alignment: .leading, spacing: KeyringSpace.s3) {
+                ForEach(Array(FirstRunCopy.points.enumerated()), id: \.element.title) { index, point in
+                    KeyringDeviceRow(symbol: point.symbol, name: point.title, detail: point.body,
+                                     badge: Self.badges[min(index, Self.badges.count - 1)])
                 }
             }
         }
@@ -177,12 +181,15 @@ public struct MacCopyPage: View {
         self.actions = actions
     }
 
+    private var isCopied: Bool {
+        if case .copied = state { true } else { false }
+    }
+
     private var status: KeyringStatus? {
         switch state {
-        case .guide, .waiting: nil
+        case .guide, .waiting, .copied: nil
         case .noneArrived: .takingLong(FirstRunCopy.noneArrived)
         case .copying: .waiting(FirstRunCopy.copying)
-        case let .copied(count): .done(FirstRunCopy.copied(count))
         case let .failed(reason): .problem(reason)
         }
     }
@@ -193,29 +200,30 @@ public struct MacCopyPage: View {
     }
 
     private var page: some View {
-        KeyringPage(step: inFirstRun ? (2, 4) : nil, title: FirstRunCopy.copyTitle, sentence: FirstRunCopy.copyBody, status: status,
-                    primary: primary,
+        KeyringPage(step: inFirstRun ? (2, 4) : nil, title: FirstRunCopy.copyTitle, sentence: isCopied ? nil : FirstRunCopy.copyBody,
+                    status: status, primary: primary,
                     secondary: inFirstRun ? .plain(FirstRunCopy.back, perform: actions.back) : .plain(FirstRunCopy.cancel, perform: actions.cancel),
-                    aside: inFirstRun ? .link(FirstRunCopy.useTestPasswordOnly, perform: actions.useTestPasswordOnly) : nil) {
-            // s2 between the guide's parts: the worst case (step 4, the earlier version, the taking-long line) fits 560 points with it.
-            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-                KeyringText(FirstRunCopy.guideStep(guideStep), as: .stepMarker)
-                KeyringStepRow(guideStep, FirstRunCopy.guide[guideStep - 1]) {
-                    // With a status line under the guide there is no room for this note at 760 by 560;
-                    // the taking-long line names the earlier version itself, and the picture shows it dimmed.
-                    if guideStep == 4, earlierVersion, status == nil { KeyringText(FirstRunCopy.earlierVersion, as: .meta) }
-                    // What the Passwords app shows at this step, with the thing to click ringed.
+                    aside: inFirstRun && !isCopied ? .link(FirstRunCopy.useTestPasswordOnly, perform: actions.useTestPasswordOnly) : nil) {
+            if case let .copied(count) = state {
+                KeyringConfirmation(FirstRunCopy.copiedHeadline(count), detail: FirstRunCopy.copiedDetail, tone: .approved)
+            } else {
+                // Full-width guide card so Apple's picture sits cleanly centred and never crowds the window edges.
+                VStack(alignment: .leading, spacing: KeyringSpace.s2) {
+                    KeyringText(FirstRunCopy.guideStep(guideStep), as: .stepMarker)
+                    KeyringStepRow(guideStep, FirstRunCopy.guide[guideStep - 1]) {
+                        if guideStep == 4, earlierVersion, status == nil { KeyringText(FirstRunCopy.earlierVersion, as: .meta) }
+                    }
                     if let items {
                         PasswordsExportPicture(guideStep: guideStep, earlierVersion: earlierVersion, items: items)
                     } else {
                         PasswordsExportPicture(guideStep: guideStep, earlierVersion: earlierVersion)
                     }
-                }
-                HStack(spacing: KeyringSpace.s2) {
-                    KeyringButton(.plain(FirstRunCopy.previous, isEnabled: guideStep > 1) { actions.showGuideStep(guideStep - 1) })
-                    KeyringButton(.plain(FirstRunCopy.next, isEnabled: guideStep < FirstRunCopy.guide.count) { actions.showGuideStep(guideStep + 1) })
-                    Spacer(minLength: 0)
-                    KeyringButton(.link(FirstRunCopy.notInList, perform: actions.notInList))
+                    HStack(spacing: KeyringSpace.s2) {
+                        KeyringButton(.plain(FirstRunCopy.previous, isEnabled: guideStep > 1) { actions.showGuideStep(guideStep - 1) })
+                        KeyringButton(.plain(FirstRunCopy.next, isEnabled: guideStep < FirstRunCopy.guide.count) { actions.showGuideStep(guideStep + 1) })
+                        Spacer(minLength: 0)
+                        KeyringButton(.link(FirstRunCopy.notInList, perform: actions.notInList))
+                    }
                 }
             }
         }
@@ -223,7 +231,8 @@ public struct MacCopyPage: View {
 
     public var body: some View {
         if inFirstRun {
-            MacFirstRunWindow(step: 2, mascot: state == .noneArrived ? .waiting : .calm) { page }
+            let mood: KeyringMascot.Mood = isCopied ? .approved : (state == .noneArrived ? .waiting : .calm)
+            MacFirstRunWindow(step: 2, mascot: mood) { page }
         } else {
             page.frame(width: KeyringSize.macWindow.width - KeyringSize.macSidebar, height: KeyringSize.macWindow.height)
         }

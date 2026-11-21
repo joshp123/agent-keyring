@@ -117,32 +117,45 @@ public struct KeyringQRCode: View {
 public struct KeyringDeviceRow<Trailing: View>: View {
     /// Colours the symbol and the detail: green done, red refused, blue waiting, orange needs doing.
     public enum Tone: Sendable { case plain, approved, denied, waiting, needsDoing }
+    /// Optional soft-tinted badge behind the symbol (used on Welcome feature points).
+    public enum Badge: Sendable { case brand, approve, focus }
     let symbol: String
     let name: String
     let detail: String?
     let tone: Tone
+    let badge: Badge?
     let nameFit: TextFit
     let trailing: Trailing
 
     /// `nameFit: .siteName` for a website, so a long one wraps at its dots.
-    public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, nameFit: TextFit = .wraps,
-                @ViewBuilder trailing: () -> Trailing) {
+    public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, badge: Badge? = nil,
+                nameFit: TextFit = .wraps, @ViewBuilder trailing: () -> Trailing) {
         self.symbol = symbol
         self.name = name
         self.nameFit = nameFit
         self.detail = detail
         self.tone = tone
+        self.badge = badge
         self.trailing = trailing()
     }
 
     public var body: some View {
         TrailingOrBelow(belowFills: true) {
-            HStack(alignment: .firstTextBaseline, spacing: KeyringSpace.s3) {
-                Image(systemName: symbol)
-                    .font(KeyringTextRole.heading.font)
-                    .foregroundStyle(tone == .plain ? KeyringPalette.ink : detailColour)
-                    .frame(width: KeyringSpace.s6)
-                    .accessibilityHidden(true)
+            HStack(alignment: badge == nil ? .firstTextBaseline : .top, spacing: KeyringSpace.s3) {
+                if let badge {
+                    Image(systemName: symbol)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(badgeForeground(badge))
+                        .frame(width: 34, height: 34)
+                        .background(badgeBackground(badge), in: .rect(cornerRadius: 9, style: .continuous))
+                        .accessibilityHidden(true)
+                } else {
+                    Image(systemName: symbol)
+                        .font(KeyringTextRole.heading.font)
+                        .foregroundStyle(tone == .plain ? KeyringPalette.ink : detailColour)
+                        .frame(width: KeyringSpace.s6)
+                        .accessibilityHidden(true)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     KeyringText(name, as: .heading, fit: nameFit)
                     if let detail { KeyringText(detail, as: .meta, colour: detailColour) }
@@ -152,6 +165,22 @@ public struct KeyringDeviceRow<Trailing: View>: View {
             trailing.environment(\.keyringButtonsFill, true)
         }
         .padding(.vertical, KeyringSpace.s2)
+    }
+
+    private func badgeForeground(_ badge: Badge) -> Color {
+        switch badge {
+        case .brand: KeyringPalette.brand
+        case .approve: KeyringPalette.approve
+        case .focus: KeyringPalette.focus
+        }
+    }
+
+    private func badgeBackground(_ badge: Badge) -> Color {
+        switch badge {
+        case .brand: KeyringPalette.brandTint
+        case .approve: KeyringPalette.approveTint
+        case .focus: KeyringPalette.focusTint
+        }
     }
 
     private var detailColour: Color {
@@ -166,8 +195,8 @@ public struct KeyringDeviceRow<Trailing: View>: View {
 }
 
 extension KeyringDeviceRow where Trailing == EmptyView {
-    public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, nameFit: TextFit = .wraps) {
-        self.init(symbol: symbol, name: name, detail: detail, tone: tone, nameFit: nameFit) { EmptyView() }
+    public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, badge: Badge? = nil, nameFit: TextFit = .wraps) {
+        self.init(symbol: symbol, name: name, detail: detail, tone: tone, badge: badge, nameFit: nameFit) { EmptyView() }
     }
 }
 

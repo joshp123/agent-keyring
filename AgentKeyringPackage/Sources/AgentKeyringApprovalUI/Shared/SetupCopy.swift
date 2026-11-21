@@ -127,8 +127,12 @@ public enum FirstRunCopy {
     public static let cancel = "Cancel"
     public static let noneArrived = "No passwords have arrived yet. In Select a Destination, make sure you chose Agent Keyring with the blue keyhole (not an earlier version), or check that Agent Keyring is turned on in AutoFill Settings."
     public static let copying = "Copying passwords…"
+    public static func copiedHeadline(_ count: Int) -> String {
+        count == 1 ? "1 password copied." : "\(count.formatted()) passwords copied."
+    }
+    public static let copiedDetail = "Every password starts as Ask, so an agent must ask you before using it."
     public static func copied(_ count: Int) -> String {
-        (count == 1 ? "1 password copied." : "\(count.formatted()) passwords copied.") + " Every password starts as Ask, so an agent must ask you before using it."
+        copiedHeadline(count) + " " + copiedDetail
     }
     public static let allowExportTitle = "Allow export from Apple Passwords"
     public static let allowExportBody = "macOS uses its AutoFill setting to choose which apps Apple Passwords can export to. Agent Keyring never fills in passwords on its own. Click Open AutoFill Settings, turn on Agent Keyring, then return here."
@@ -317,6 +321,10 @@ public enum MainWindowCopy {
     public static let practiceDenied = "Denied"
     public static let practiceNoAnswer = "No answer"
     public static let remove = "Remove…"
+    public static let rename = "Rename…"
+    public static let renameTitle = "Rename device"
+    public static let renameField = "Device name"
+    public static let save = "Save"
     public static func removeTitle(_ name: String) -> String { "Remove \(name)?" }
     public static func removeDevice(_ name: String) -> String { "\(name) will no longer receive password requests or hold copies of your passwords." }
     public static func removeComputer(_ name: String) -> String {

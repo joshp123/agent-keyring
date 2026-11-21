@@ -26,6 +26,7 @@ public enum MessageCopy {
     public static func add(_ name: String) -> String { "add \(name)" }
     public static let addADevice = "add a device"
     public static func remove(_ name: String) -> String { "remove \(name)" }
+    public static func rename(_ name: String, to next: String) -> String { "rename \(name) to \(next)" }
 
     // MARK: Approving with Touch ID or Apple Watch
 

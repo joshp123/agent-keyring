@@ -195,6 +195,7 @@ func (c *Client) ask(ctx context.Context, scope *v1.RequestLeaseRequest) (*v1.Le
 		return c.lease(ctx, saved.LeaseId)
 	}
 	c.holdDoor() // Before the push, so a quick answer finds the door open.
+	c.ensureHold() // Detached single-instance holder keeps port 17446 open for 10m pending + 30m active leases.
 	if automatic != nil {
 		if !current.reached {
 			c.log("automatic used without the Mac id=" + saved.LeaseId + " login=" + scope.LoginId + " reason=" + strconv.Quote("the Mac did not answer within 500 ms; used this computer's own copy"))

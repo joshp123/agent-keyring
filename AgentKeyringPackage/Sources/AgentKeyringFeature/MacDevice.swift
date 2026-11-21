@@ -593,6 +593,23 @@ public final class MacDevice {
         try await publishMembers(next, context: context)
     }
 
+    /// Renames a device or another computer in Members, after owner confirmation, so every device shows the new name.
+    public func renameConfirmed(_ id: String, to newName: String, context: LAContext) async throws {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, var next = members else { return }
+        let current = next.machines.first { $0.machineID == id }?.label ?? next.devices.first { $0.keyID == id }?.label ?? "it"
+        guard trimmed != current else { return }
+        try await confirm(context, reason: MessageCopy.rename(current, to: trimmed))
+        if let idx = next.devices.firstIndex(where: { $0.keyID == id }) {
+            next.devices[idx].label = trimmed
+        } else if let idx = next.machines.firstIndex(where: { $0.machineID == id }) {
+            next.machines[idx].label = trimmed
+        } else {
+            return
+        }
+        try await publishMembers(next, context: context)
+    }
+
     /// The other openers each login must be sealed to: devices' opening keys,
     /// and machines allowed Automatic logins for those that are Automatic.
     public func otherOpeners(automatic: Bool) -> [(id: String, key: P256.KeyAgreement.PublicKey)] {

@@ -116,6 +116,11 @@ public final class AppMainWindowBackend: MainWindowBackend {
         try await confirmed { try await device.removeConfirmed(id, context: context) }
     }
 
+    public func rename(id: String, to newName: String, context: LAContext) async throws {
+        guard let device = model.device else { return }
+        try await confirmed { try await device.renameConfirmed(id, to: newName, context: context) }
+    }
+
     /// Copy Again: Passwords opens, and the window shows the steps until the passwords arrive.
     public func importAgain() { model.openPasswordsExport() }
 

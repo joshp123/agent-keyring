@@ -137,6 +137,7 @@ public protocol MainWindowBackend: AnyObject {
     func updates() -> AsyncStream<MainSnapshot>
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws
     func remove(id: String, context: LAContext) async throws
+    func rename(id: String, to newName: String, context: LAContext) async throws
     func importAgain()
     /// Send Practice Request, by device key.
     func sendPractice(deviceID: String)
@@ -161,6 +162,9 @@ public final class MacMainModel {
     public private(set) var failure: String?
     /// Remove…: the device or computer whose confirmation is showing.
     public var removing: (id: String, name: String, isComputer: Bool)?
+    /// Rename…: the device or computer whose rename dialog is showing.
+    public var renaming: (id: String, name: String)?
+    public var renameDraft = ""
     private let backend: any MainWindowBackend
     private var context: LAContext?
 
@@ -255,6 +259,19 @@ public final class MacMainModel {
     public func remove(_ id: String) {
         removing = nil
         run { [backend] context in try await backend.remove(id: id, context: context) }
+    }
+
+    public func askToRename(_ id: String, name: String) {
+        renameDraft = name
+        renaming = (id, name)
+    }
+
+    public func commitRename() {
+        guard let target = renaming else { return }
+        let next = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        renaming = nil
+        guard !next.isEmpty, next != target.name else { return }
+        run { [backend] context in try await backend.rename(id: target.id, to: next, context: context) }
     }
 
     public func importAgain() { backend.importAgain() }

@@ -68,6 +68,8 @@ public struct KeyringAction {
 extension EnvironmentValues {
     /// Set by the part a button sits in: a page's or card's buttons on iPhone and Watch take the full width.
     @Entry var keyringButtonsFill = false
+    /// Set by ApprovalCard on macOS so Deny, Approve and the reply input share one matched height.
+    @Entry var keyringButtonTall = false
 }
 
 /// A system button for one `KeyringAction`.
@@ -76,6 +78,7 @@ public struct KeyringButton: View {
 
     @Environment(\.keyringAudit) private var audit
     @Environment(\.keyringButtonsFill) private var fills
+    @Environment(\.keyringButtonTall) private var tall
     @State private var id = UUID()
 
     public init(_ action: KeyringAction) { self.action = action }
@@ -110,6 +113,9 @@ public struct KeyringButton: View {
     private var label: some View {
         KeyringText(action.title, as: .label)
             .multilineTextAlignment(.center)
+            #if os(macOS)
+            .padding(.vertical, tall && !isTextOnly ? 5 : 0)
+            #endif
             .frame(maxWidth: fills && !isTextOnly ? .infinity : nil)
             .environment(\.keyringAuditOwner, id)
     }

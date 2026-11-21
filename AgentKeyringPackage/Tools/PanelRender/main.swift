@@ -67,6 +67,7 @@ final class StubBackend: MainWindowBackend {
     func updates() -> AsyncStream<MainSnapshot> { AsyncStream { $0.finish() } }
     func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws {}
     func remove(id: String, context: LAContext) async throws {}
+    func rename(id: String, to newName: String, context: LAContext) async throws {}
     func importAgain() {}
     func sendPractice(deviceID: String) {}
     func sendUpdates() {}

@@ -196,7 +196,7 @@ What must always be true:
 
 ## The door, shared by a computer's command processes
 
-Written by AI on 2026.11.21 by model claude opus 5.5. Code: `door.Hold` in `internal/door/door.go`, started once per process by `remote.Client.holdDoor` and let go by `remote.Close`.
+Written by AI on 2026.11.21 by model claude opus 5.5; updated with `agent-keyring hold` by Gemini 4 Neon. Code: `door.Hold` in `internal/door/door.go`, `internal/remote/hold.go` (`ensureHold`, `HoldUntilIdle`), started by `remote.Client.holdDoor` and let go by `remote.Close`.
 
 Each command process that runs for a request (`lease`, `status`, `read`, `release`, `fill`) is in one of these states:
 
@@ -210,9 +210,24 @@ Each command process that runs for a request (`lease`, `status`, `read`, `releas
 
 Each waiting process reads its own request's state from the state file every 200 ms, so it sees an answer whichever process took it. A device whose post cannot connect retries for 30 seconds, so an answer during a hand-over reaches the next holder (tested: two waiting `lease` processes, the holder's request approved and the process gone, the other then answered).
 
+### The single detached door holder (`agent-keyring hold`)
+
+When `lease` asks for a password (or an Automatic use starts), it ensures one detached `agent-keyring hold` process is running for this computer's state directory (`Setsid`, stdio redirected to `/dev/null` so calling agents never hang waiting for stdout/stderr to close). Only one holder runs per state directory, enforced by an exclusive non-blocking `flock` on `hold.lock`.
+
+`agent-keyring hold` keeps no private request state in memory; its two states are derived strictly from `state.pb` under the state file's lock:
+
+| Hold state | When | Action |
+|---|---|---|
+| `holding` | at least one request in `state.pb` is `WAITING` before `answer_by` (up to 10 minutes) or `APPROVED` before `not_after` (up to 30 minutes) | keeps port 17446 bound so answers, arrivals and immediate `Stop` from iPhone or Apple Watch reach this computer even after the agent exits, times out, or uses `--no-wait`, and even while the MacBook is asleep; settles requests whose window has passed and sends their outcome push once |
+| `idle` | zero pending requests and zero active approvals for 5 seconds (re-checked once more before exit) | calls `remote.Close()`, releases `hold.lock` and exits cleanly |
+
+Concurrency invariants:
+- **Zero duplicate holders:** Two agents calling `lease` concurrently both try `ensureHold()`; `hold.lock` guarantees at most one holder stays running.
+- **Zero shared-state races:** Every request mutation goes through `Store.Update` under the state file's lock, so `agent-keyring hold` and foreground commands (`lease`, `status`, `read`, `release`) safely share one `state.pb`.
+- **Clean fallback:** If the holder is killed or the computer restarts, any Stop still lands at the Mac ("A Stop left at the Mac", below), and the next `lease` spawns a fresh holder.
+
 Known and left alone:
 
-- **No process, no door.** After `lease` prints its id, or with `lease --no-wait`, nothing holds the door until another command runs for a request. A device's answer then fails after 30 seconds, and so does the Mac's. A Stop is then left at the Mac and found before the approval's next use ("A Stop left at the Mac", below).
 - **A list signed by a device this computer has never seen** checks only through `Bundle.members_since`, every revision since the one it holds, each against the one before.
 
 ## The Mac's approval panel

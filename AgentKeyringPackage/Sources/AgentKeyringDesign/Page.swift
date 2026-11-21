@@ -14,6 +14,7 @@ public struct KeyringPage<Content: View>: View {
     let step: (Int, Int)?
     let title: String?
     let sentence: String?
+    let sentenceColour: Color?
     let alignment: Alignment
     let mascot: KeyringMascot.Mood?
     let status: KeyringStatus?
@@ -32,13 +33,14 @@ public struct KeyringPage<Content: View>: View {
     ///   - primary: the page's main button. Blue to move on; green or red only to approve or deny.
     ///   - secondary: Back on the Mac; on iPhone and Watch, the way out under the main button.
     ///   - aside: the Mac's quiet button at the bottom left (Use Test Password Only, Skip the Test).
-    public init(step: (Int, Int)? = nil, title: String? = nil, sentence: String? = nil, alignment: Alignment = .leading,
-                mascot: KeyringMascot.Mood? = nil, status: KeyringStatus? = nil,
+    public init(step: (Int, Int)? = nil, title: String? = nil, sentence: String? = nil, sentenceColour: Color? = nil,
+                alignment: Alignment = .leading, mascot: KeyringMascot.Mood? = nil, status: KeyringStatus? = nil,
                 primary: KeyringAction? = nil, secondary: KeyringAction? = nil, aside: KeyringAction? = nil,
                 @ViewBuilder content: () -> Content) {
         self.step = step
         self.title = title
         self.sentence = sentence
+        self.sentenceColour = sentenceColour
         self.alignment = alignment
         self.mascot = mascot
         self.status = status
@@ -59,7 +61,8 @@ public struct KeyringPage<Content: View>: View {
             if let step { KeyringText(PartsCopy.step(step.0, of: step.1), as: .stepMarker) }
             if let title { KeyringText(title, as: mascot == nil ? .title : .heroTitle) }
             if let sentence {
-                KeyringText(sentence, as: .sentence).frame(maxWidth: KeyringSize.measure, alignment: alignment == .centre ? .center : .leading)
+                KeyringText(sentence, as: .sentence, colour: sentenceColour)
+                    .frame(maxWidth: KeyringSize.measure, alignment: alignment == .centre ? .center : .leading)
             }
         }
         .multilineTextAlignment(alignment == .centre ? .center : .leading)
@@ -104,10 +107,17 @@ public struct KeyringPage<Content: View>: View {
                 Spacer(minLength: 0)
                 buttons
             }
-            .padding(.bottom, Self.margin)
+            .padding(.bottom, KeyringSpace.s3)
+            .background(KeyringPalette.surface)
         } else {
             ScrollView { column }
-                .safeAreaInset(edge: .bottom) { buttons.padding(.bottom, Self.margin).background(.bar) }
+                .scrollBounceBehavior(.basedOnSize)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    buttons
+                        .padding(.bottom, KeyringSpace.s2)
+                        .background(KeyringPalette.surface)
+                }
+                .background(KeyringPalette.surface.ignoresSafeArea())
         }
         #endif
         #endif
@@ -120,12 +130,13 @@ public struct KeyringPage<Content: View>: View {
             bodyAndStatus
         }
         .padding(.horizontal, Self.margin)
-        .padding(.top, Self.margin)
+        .padding(.top, alignment == .centre ? KeyringSpace.s8 : Self.margin)
+        .padding(.bottom, KeyringSpace.s4)
     }
 
     @ViewBuilder private var buttons: some View {
         if primary != nil || secondary != nil || aside != nil {
-            VStack(spacing: KeyringSpace.s2) {
+            VStack(spacing: KeyringSpace.s3) {
                 if let primary { KeyringButton(primary) }
                 if let secondary { KeyringButton(secondary) }
                 if let aside { KeyringButton(aside) }

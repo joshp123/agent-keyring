@@ -74,6 +74,7 @@ public struct KeyringApprovalCard: View {
         }
         .multilineTextAlignment(.center)
         .environment(\.keyringButtonsFill, true)
+        .environment(\.keyringButtonTall, true)
     }
 
     /// Approve, or the line that says why it cannot be done here.
@@ -88,18 +89,26 @@ public struct KeyringApprovalCard: View {
     @ViewBuilder private var buttons: some View {
         #if os(macOS)
         if let reply {
-            HStack(spacing: KeyringSpace.s2) {
-                ZStack(alignment: .leading) {
+            HStack(alignment: .bottom, spacing: KeyringSpace.s2) {
+                ZStack(alignment: .topLeading) {
                     KeyringPrompt(replyPrompt, showing: reply.wrappedValue.isEmpty)
                     TextField("", text: reply, axis: .vertical)
+                        .lineLimit(1...4)
                         .textFieldStyle(.plain)
                         .multilineTextAlignment(.leading)
                         .font(KeyringTextRole.body.font)
                         .accessibilityLabel(replyPrompt)
+                        .onKeyPress(keys: [.return]) { press in
+                            guard !press.modifiers.contains(.shift) else { return .ignored }
+                            deny.perform()
+                            return .handled
+                        }
+                        .onSubmit { deny.perform() }
                 }
-                    .padding(.horizontal, KeyringSpace.s4).padding(.vertical, KeyringSpace.s2)
-                    .frame(minHeight: 36)
-                    .background(KeyringPalette.fill, in: .capsule)
+                .padding(.horizontal, KeyringSpace.s3)
+                .padding(.vertical, 9)
+                .frame(minHeight: 36, alignment: .leading)
+                .background(KeyringPalette.fill, in: .rect(cornerRadius: 10, style: .continuous))
                 KeyringButton(deny).environment(\.keyringButtonsFill, false)
             }
             approveSlot
