@@ -5,6 +5,8 @@
 // person takes from adding his iPhone to answering an agent's request. Every
 // key is made up here; nothing reaches Apple, a real device or the keychain.
 
+import AgentKeyringApprovalUI
+import AgentKeyringPhoneApprover
 import AgentKeyringProtocol
 import AgentKeyringSealing
 import CryptoKit
@@ -306,6 +308,136 @@ struct MacDoorTests {
         for server in mac.servers { server.stop() }
     }
 
+    /// The iPhone engineer's half: the iPhone app's own PhoneKeyring, not a stand-in, against this Mac's real door,
+    /// walking what he does first: find the Mac from its card, join and be approved, get its copies, register for
+    /// pushes, answer a pushed request at the asking computer's door, ask for a practice request, add its Watch
+    /// with the Watch's copies, and Stop, with the Stop left at the Mac when the asking computer's door is closed.
+    @Test func theIPhoneAppJoinsTheRealMacAndAnswers() async throws {
+        UserDefaults.standard.register(defaults: ["StandInKey": true])
+        Tailnet.acceptsLoopbackForTests = true
+        defer { Tailnet.acceptsLoopbackForTests = false }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "phone-door-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let pushes = ApplePushes()
+        let appleIdentity = try RelayTLSIdentity.ephemeral()
+        let apple = try DoorServer(identity: appleIdentity, host: "127.0.0.1", port: 0) { request in pushes.add(request); return .ok() }
+        let applePort = try await apple.start()
+        defer { apple.stop() }
+
+        let keys = MacKeys(testing: try RelayTLSIdentity.ephemeral(), label: "Test Mac")
+        let store = LoginStore(directory: folder.appending(path: "logins"))
+        let leases = CredentialLeaseStore(persistence: LeasePersistence(directory: folder.appending(path: "leases")))
+        let loginID = UUID()
+        var secret = Agentkeyring_V2_LoginSecret()
+        secret.loginID = loginID.uuidString
+        secret.username = "you@example.com"
+        secret.password = "correct horse"
+        secret.title = "example.com"
+        secret.sites = ["https://example.com"]
+        try await store.replaceSealed([try Sealing.seal(secret, version: 7, to: keys.openingPublicKey, openerID: keys.deviceKeyID, signer: keys.signer)])
+        var login = Agentkeyring_V2_Login()
+        login.loginID = loginID.uuidString
+        login.title = "example.com"
+        login.sites = ["https://example.com"]
+        login.account = "you@example.com"
+        login.rule = .ask
+        login.version = 7
+        final class Left: @unchecked Sendable { var invite: Agentkeyring_V2_JoinInvite? }
+        let left = Left()
+        var environment = MacDevice.Environment(storage: .memory())
+        environment.address = { "127.0.0.1" }
+        environment.answerPort = 0
+        environment.membersPort = 0
+        environment.gateway = ApplePush.Gateway(production: URL(string: "https://127.0.0.1:\(applePort)/production")!,
+            sandbox: URL(string: "https://127.0.0.1:\(applePort)/sandbox")!, pin: appleIdentity.publicKeySPKI)
+        environment.invitationItem = InvitationItem(read: { left.invite }, write: { left.invite = $0 })
+        environment.joinWait = .seconds(5)
+        environment.complaints = folder.appending(path: "complaints.pb")
+        let mac = MacDevice(keys: keys, store: store, leaseStore: leases, environment: environment) { [login] in [login] }
+        try mac.setPushCredential(keyID: "TESTKEY123", teamID: "TESTTEAM12", privateKey: P256.Signing.PrivateKey().derRepresentation)
+        mac.followLeases()
+        await mac.reconcileDoor()
+        guard case .open = mac.door else { Issue.record("The door did not open: \(mac.door)"); return }
+        defer { for server in mac.servers { server.stop() } }
+
+        // The iPhone app, with software keys in place of its Secure Enclave, finds the Mac from its card.
+        let phoneKeys = SoftwarePhoneKeys()
+        let tls = try RelayTLSIdentity.ephemeral()
+        let phone = PhoneKeyring(directory: folder.appending(path: "phone"), shared: PhoneSharedContext(accessGroup: nil),
+                                 keys: phoneKeys, identity: { tls })
+        let card = try #require(left.invite)
+        let link = "agentkeyring://join?invite=" + (try card.serializedData()).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        try await phone.join(invitation: link)
+        try await eventually("the iPhone to find the Mac") { if case .foundMac = phone.snapshot.firstRun { true } else { false } }
+        #expect(phone.snapshot.firstRun == .foundMac(name: "Test Mac"))
+
+        // Connect: the join shows on the Mac, he approves, and the iPhone gets its copies.
+        await phone.firstRun(.connect)
+        try await eventually("the join to show on the Mac") { !mac.joins.isEmpty }
+        try await mac.approveJoin(try #require(mac.joins.first).request.device.keyID, thisMacAutomatic: false, context: LAContext(), onAuthenticated: {})
+        try await eventually("first run to reach notifications", within: 20) { phone.snapshot.firstRun == .notifications }
+        #expect(phone.snapshot.joined && phone.snapshot.logins.map(\.site) == ["example.com"])
+
+        // Push address, signed with the reply key.
+        let token = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+        try await phone.registerPush(token: token, topic: "com.example.test.phone", production: false)
+        let hexToken = token.map { String(format: "%02x", $0) }.joined()
+
+        // An agent on the Mac asks; the push reaches the iPhone app, which approves at the Mac's answer door.
+        let lease = try leases.request(Self.leaseRequest(loginID), login: Self.candidate(loginID), policy: .ask)
+        mac.ask(for: lease, agent: "Test Agent", project: "example")
+        try await eventually("the push to the iPhone") { pushes.received.contains { $0.headers["apns-push-type"] == "alert" && $0.path.hasSuffix(hexToken) } }
+        let push = try #require(pushes.received.first { $0.headers["apns-push-type"] == "alert" && $0.path.hasSuffix(hexToken) })
+        await phone.received(try #require(JSONSerialization.jsonObject(with: push.body) as? [AnyHashable: Any]))
+        let request = try #require(phone.snapshot.requests.first { $0.state.isWaitingForYou })
+        #expect(request.login.site == "example.com" && request.agent.machine == "Test Mac")
+        try await phone.approve(request.id, reusingUnlock: false)
+        #expect(try leases.get(lease.leaseID).state == .active)
+        #expect(phone.snapshot.requests.contains { $0.id == request.id && $0.state.isInUse })
+
+        // Stop, at the asking computer's door.
+        try await phone.stop(request.id)
+        #expect(try leases.get(lease.leaseID).state == .revoked)
+
+        // A practice request for this iPhone, made and pushed by the Mac.
+        _ = await phone.sendPractice(to: nil)
+        try await eventually("the practice push") { pushes.received.contains { $0.path.hasSuffix(hexToken) && $0.headers["apns-collapse-id"]?.count == 32 } }
+
+        // The Watch: Face ID first, then the Watch asks, then its copies go to the Mac.
+        let watch = try StandInDevice(kind: .watch, label: "Test Watch")
+        phone.watchPairing(paired: true, installed: true)
+        await phone.addWatch(.open)
+        await phone.addWatch(.continueWithFaceID)
+        #expect({ if case .waitingForWatch = phone.snapshot.addWatch { true } else { false } }())
+        var watchPush = Agentkeyring_V2_PushRegistration()
+        watchPush.deviceKeyID = watch.keyID
+        watchPush.apnsToken = watch.token
+        watchPush.apnsTopic = "com.example.test.watch"
+        watchPush.noticePublicKey = watch.notice.publicKey.x963Representation
+        phone.watchOffered(device: try watch.device.serializedData(), push: try watchPush.serializedData())
+        try await eventually("the Watch to be added", within: 20) { phone.snapshot.addWatch == .added }
+        let watchHex = watch.token.map { String(format: "%02x", $0) }.joined()
+        let second = try leases.request(Self.leaseRequest(loginID), login: Self.candidate(loginID), policy: .ask)
+        mac.ask(for: second, agent: "Test Agent", project: "example")
+        try await eventually("a push to the Watch carrying its copy") { pushes.received.contains { $0.headers["apns-push-type"] == "alert" && $0.path.hasSuffix(watchHex) } }
+        let watchWork = try Self.work(try #require(pushes.received.last { $0.headers["apns-push-type"] == "alert" && $0.path.hasSuffix(watchHex) }), device: watch)
+        #expect(try Sealing.open(watchWork.sealedLogin, with: watch.opening).password == "correct horse")
+
+        // Stop when no process holds the asking computer's door: it is left at the Mac.
+        let pushToPhone = try #require(pushes.received.last { $0.headers["apns-push-type"] == "alert" && $0.path.hasSuffix(hexToken) })
+        await phone.received(try #require(JSONSerialization.jsonObject(with: pushToPhone.body) as? [AnyHashable: Any]))
+        let secondRequest = try #require(phone.snapshot.requests.first { $0.state.isWaitingForYou })
+        try await phone.approve(secondRequest.id, reusingUnlock: false)
+        mac.servers.first?.stop() // The answer door: [answers, members].
+        AnswerDoor.retryFor = 1
+        defer { AnswerDoor.retryFor = 30 }
+        await withKnownIssue("The Mac's door has no POST /v2/stop yet (c37d5dc names it; the door behind it is the core engineer's)") {
+            await #expect(throws: PhoneStopWaitsWithMac.self) { try await phone.stop(secondRequest.id) }
+        }
+    }
+
     static func leaseRequest(_ loginID: UUID) -> Agentkeyring_V1_RequestLeaseRequest {
         var request = Agentkeyring_V1_RequestLeaseRequest()
         request.loginID = loginID.uuidString
@@ -340,6 +472,26 @@ struct MacDoorTests {
         let signature = try P256.Signing.ECDSASignature(rawRepresentation: bytes(token[2]))
         #expect(key.isValidSignature(signature, for: Data((token[0] + "." + token[1]).utf8)))
         #expect(String(decoding: bytes(token[0]), as: UTF8.self).contains("\"kid\":\"TESTKEY123\""))
+    }
+}
+
+/// The iPhone's four keys in software, in place of its Secure Enclave; Face ID always says yes.
+@MainActor
+private final class SoftwarePhoneKeys: PhoneDeviceKeys {
+    let signing = P256.Signing.PrivateKey()
+    let opening = P256.KeyAgreement.PrivateKey()
+    let reply = P256.Signing.PrivateKey()
+    let notice = P256.KeyAgreement.PrivateKey()
+    func signingPublicKey() throws -> Data { signing.publicKey.x963Representation }
+    func openingPublicKey() throws -> Data { opening.publicKey.x963Representation }
+    func replyPublicKey() throws -> Data { reply.publicKey.x963Representation }
+    func noticePublicKey() throws -> Data { notice.publicKey.x963Representation }
+    func authorize(_ context: LAContext, reason: String) async throws {}
+    func sign(_ bytes: Data, context: LAContext) throws -> Data { try signing.signature(for: bytes).derRepresentation }
+    func open(_ sealed: SealedLogin, context: LAContext) throws -> LoginSecret { try Sealing.open(sealed, with: opening) }
+    func signReply(_ bytes: Data) throws -> Data { try reply.signature(for: bytes).derRepresentation }
+    func openNotice(_ notice: Agentkeyring_V2_Notice, deviceKeyID: String) throws -> Agentkeyring_V2_Work {
+        try Sealing.openNotice(notice, deviceKeyID: deviceKeyID, with: self.notice)
     }
 }
 

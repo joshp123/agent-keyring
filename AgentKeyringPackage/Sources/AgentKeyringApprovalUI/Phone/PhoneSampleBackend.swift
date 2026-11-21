@@ -93,11 +93,24 @@ public final class PhoneSampleBackend: PhoneBackend {
             "practice-waiting": .practiceWaiting(id: "practice", arrived: false), "practice": .practice(id: "practice"),
             "not-arrived": .practiceNotArrived(id: "practice"), "setting-up": .settingUpNotifications(id: "practice"), "practice-offer": .practiceOffer,
             "approved": .practiceResult(.approved), "denied-practice": .practiceResult(.denied),
-            "offer-watch": .readyOfferWatch(watchToAdd: true), "add-watch": .addWatch,
+            "offer-watch": .readyOfferWatch(watchToAdd: true), "no-watch": .readyOfferWatch(watchToAdd: false),
+            "no-answer": .practiceResult(.noAnswer),
         ]
-        snapshot.firstRun = stages[step] ?? .finished
+        let until = Calendar.current.date(bySettingHour: 14, minute: 17, second: 0, of: .now) ?? .now
+        let flows: [String: PhoneAddWatch] = [
+            "watch-not-paired": .notPaired, "watch-missing": .watchAppMissing, "add-watch": .faceIDFirst,
+            "watch-waiting": .waitingForWatch(until: until), "watch-expired": .faceIDExpired,
+            "watch-passcode": .watchNeedsPasscode(until: until), "watch-encrypting": .encrypting(done: 312, total: 547),
+            "watch-failed": .copiesFailed(reason: "Your Mac couldn’t be reached"), "watch-added": .added,
+        ]
+        snapshot.firstRun = flows[step] != nil ? .addWatch : stages[step] ?? .finished
+        snapshot.addWatch = flows[step]
         snapshot.practiceRequest = practiceOpen(snapshot.firstRun) ? .practice() : nil
-        if step == "add-watch" { snapshot.addWatch = .faceIDFirst }
+        if step == "receiving" { snapshot.filling = PhoneFill(copied: 312, of: 547) }
+        if step == "notifications-checklist" {
+            snapshot.firstRun = .notifications
+            snapshot.notificationFacts.allowed = true; snapshot.notificationFacts.banners = true; snapshot.notificationFacts.lockScreen = true
+        }
     }
 
     private func update(_ id: String, to state: () -> AccessRequestState) {
@@ -115,36 +128,35 @@ public final class PhoneSampleBackend: PhoneBackend {
         let claudeMac = RequestingAgent(name: "Claude Code", machine: "MacBook Pro", address: "")
         let codexLinux = RequestingAgent(name: "Codex", machine: "Linux server", address: "")
         let requests = [
-            AccessRequest(id: "r1", login: RequestedLogin(site: "example.com", account: "josh@example.com"), agent: codexMini,
+            AccessRequest(id: "r1", login: RequestedLogin(site: "example.com", account: "you@example.com"), agent: codexMini,
                           access: .login, agentReason: "You asked me to download October’s invoice.", askedAt: at(14, 2),
                           state: .waitingForYou(until: now.addingTimeInterval(600))),
-            AccessRequest(id: "r2", login: RequestedLogin(site: "example.org", account: "josh@example.org"), agent: claudeMac,
+            AccessRequest(id: "r2", login: RequestedLogin(site: "example.org", account: "you@example.org"), agent: claudeMac,
                           access: .login, agentReason: "Checking the order status you asked about.", askedAt: at(14, 0),
                           state: .approved(by: .mac, until: at(14, 32))),
-            AccessRequest(id: "r3", login: RequestedLogin(site: "shop.example", account: "josh@example.com"), agent: claudeMac,
+            AccessRequest(id: "r3", login: RequestedLogin(site: "shop.example", account: "you@example.com"), agent: claudeMac,
                           access: .login, agentReason: "Reordering coffee filters.", askedAt: at(13, 40),
                           state: .expired(at: at(14, 10))),
-            AccessRequest(id: "r4", login: RequestedLogin(site: "forum.example", account: "josh"), agent: codexLinux,
+            AccessRequest(id: "r4", login: RequestedLogin(site: "forum.example", account: "you"), agent: codexLinux,
                           access: .login, agentReason: "Posting the release notes.", askedAt: at(13, 12),
                           state: .denied(by: .iPhone, reply: nil, askAgainAfter: nil)),
-            AccessRequest(id: "r5", login: RequestedLogin(site: "example.com", account: "josh@example.com"),
+            AccessRequest(id: "r5", login: RequestedLogin(site: "example.com", account: "you@example.com"),
                           agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: ""),
                           access: .login, agentReason: "Downloading statements.", askedAt: at(11, 5), state: .unanswered),
         ]
         let logins = [
-            PhoneLogin(id: "l1", site: "example.com", account: "josh@example.com", rule: .ask),
-            PhoneLogin(id: "l2", site: "news.example", account: "josh@example.com", rule: .ask),
-            PhoneLogin(id: "l3", site: "example.org", account: "josh@example.org", rule: .ask),
-            PhoneLogin(id: "l4", site: "bank.example", account: "josh@example.com", rule: .ask),
-            PhoneLogin(id: "l5", site: "mail.example", account: "josh@example.com", rule: .ask),
-            PhoneLogin(id: "l6", site: "forum.example", account: "josh", rule: .automatic),
-            PhoneLogin(id: "l7", site: "shop.example", account: "josh@example.com", rule: .ask),
+            PhoneLogin(id: "l1", site: "example.com", account: "you@example.com", rule: .ask),
+            PhoneLogin(id: "l2", site: "news.example", account: "you@example.com", rule: .ask),
+            PhoneLogin(id: "l3", site: "example.org", account: "you@example.org", rule: .ask),
+            PhoneLogin(id: "l4", site: "bank.example", account: "you@example.com", rule: .ask),
+            PhoneLogin(id: "l5", site: "mail.example", account: "you@example.com", rule: .ask),
+            PhoneLogin(id: "l6", site: "forum.example", account: "you", rule: .automatic),
+            PhoneLogin(id: "l7", site: "shop.example", account: "you@example.com", rule: .ask),
         ]
         let devices = [
-            PhoneDevice(id: "d1", name: "iPhone", detail: PhoneCopy.answersWithFaceID, role: .approves, isThisIPhone: true, canRemove: false),
+            PhoneDevice(id: "d1", name: "iPhone", detail: PhoneCopy.answersWithFaceID, role: .approves, isThisIPhone: true, canPractice: true, canRemove: false),
             PhoneDevice(id: "d2", name: "Apple Watch", detail: PhoneCopy.answersWithTap, role: .approves, canPractice: true),
             PhoneDevice(id: "d3", name: "MacBook Pro", detail: PhoneCopy.answersWithTouchID, role: .approves, canPractice: true),
-            PhoneDevice(id: "d4", name: "MacBook Pro", role: .asks, canRemove: false),
             PhoneDevice(id: "d5", name: "Mac mini", role: .asks),
             PhoneDevice(id: "d6", name: "Linux server", role: .asks),
         ]

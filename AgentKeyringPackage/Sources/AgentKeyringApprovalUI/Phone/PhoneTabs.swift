@@ -1,9 +1,10 @@
 // Written by AI on 2026.11.18 by model Claude Opus 5.5.
 //
-// The app after first run (Paper, "On iPhone and Apple Watch"): Activity,
-// Passwords and Devices, the same three things as the Mac.
+// The app after first run: Home, Passwords and Devices, the same three things
+// as the Mac, from the shared page parts in system lists.
 
 #if os(iOS)
+import AgentKeyringDesign
 import SwiftUI
 
 public struct PhoneRootView: View {
@@ -27,20 +28,26 @@ public struct PhoneRootView: View {
                         Label { Text(PhoneCopy.devices) } icon: { Image(uiImage: TabGlyph.outline("iphone")) }
                     }
                 }
-                .tint(Phone.ink)
             }
         }
         .task { await model.followUpdates() }
         .alert(model.failure ?? "", isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sheet(item: shownRequest) { request in
-            PhoneRequestView(model: model, request: request, practice: request.isPractice)
+            // The sheet's top bar (Cancel, and how long ago it was asked) is the system's.
+            NavigationStack { PhoneRequestView(model: model, request: request, practice: request.isPractice).toolbar { requestBar(request) } }
         }
         .sheet(item: practiceShown) { request in
-            PhoneRequestView(model: model, request: request, practice: true).interactiveDismissDisabled()
+            NavigationStack { PhoneRequestView(model: model, request: request, practice: true).toolbar { requestBar(request) } }
+                .interactiveDismissDisabled()
         }
         .sheet(isPresented: addWatchShown) {
             PhoneAddWatchView(flow: model.snapshot.addWatch, model: model).interactiveDismissDisabled()
         }
+    }
+
+    @ToolbarContentBuilder private func requestBar(_ request: AccessRequest) -> some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) { Button(PhoneCopy.cancel) { model.shownRequestID = nil } }
+        ToolbarItem(placement: .topBarTrailing) { KeyringText(PhoneCopy.askedAgo(request.askedAt), as: .caption) }
     }
 
     private var failureShown: Binding<Bool> {
@@ -64,145 +71,89 @@ public struct PhoneRootView: View {
     }
 }
 
-/// A grouped list on Paper's grey page, with Paper's section headings.
+/// A system grouped list under a navigation title.
 private struct PhoneList<Content: View>: View {
     let title: String
-    /// A text button at the top right: Activity's Settings.
-    var trailing: (label: String, action: () -> Void)? = nil
+    /// Home's Settings, at the top left.
+    var leading: (label: String, action: () -> Void)? = nil
+    /// A small pill beside the title: Home's count of requests waiting.
+    var pill: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
         NavigationStack {
             List { content }
                 .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
-                .background(Phone.page)
-                .listSectionSpacing(14)
                 .navigationTitle(title)
                 .toolbar {
-                    if let trailing {
-                        ToolbarItem(placement: .topBarTrailing) { Button(trailing.label, action: trailing.action) }
+                    if let leading {
+                        ToolbarItem(placement: .topBarLeading) { Button(leading.label, action: leading.action) }
+                    }
+                    if let pill {
+                        ToolbarItem(placement: .topBarTrailing) { KeyringText(pill, as: .caption, colour: KeyringPalette.brand) }
                     }
                 }
         }
     }
 }
 
-private struct SectionTitle: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-    var body: some View {
-        Text(text).font(.footnote.weight(.semibold)).foregroundStyle(Phone.ink2).textCase(nil)
-    }
-}
-
-/// A site or device name over one line of detail.
-private struct TwoLines: View {
-    let title: String
-    let detail: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title).font(.body.weight(.semibold)).foregroundStyle(Phone.ink)
-            if let detail { Text(detail).font(.subheadline).foregroundStyle(Phone.ink2) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private extension View {
-    func phoneRow() -> some View {
-        frame(minHeight: 40)
-            .listRowBackground(Phone.surface)
-            .listRowSeparatorTint(Phone.line)
-    }
-}
-
-/// Home (Paper, "iPhone every day"): whether everything works, what needs an answer, what is in use, earlier today.
+/// Home: what needs an answer, what is in use, earlier today, and a practice request.
 struct PhoneHomeView: View {
     let model: PhoneModel
 
     @State private var settingsShown = false
 
     var body: some View {
-        PhoneList(title: PhoneCopy.appName, trailing: (PhoneCopy.settings, { settingsShown = true })) {
-            status
+        PhoneList(title: PhoneCopy.home, leading: (PhoneCopy.settings, { settingsShown = true }),
+                  pill: model.waiting.isEmpty ? nil : PhoneCopy.waitingPill(model.waiting.count)) {
+            if let problem = model.snapshot.notices.first(where: { $0 != .addAppleWatch }) {
+                Section { KeyringStatusLine(.problem(PhoneCopy.notice(problem))) }
+            }
+            if model.waiting.isEmpty && model.inUse.isEmpty && earlier.isEmpty {
+                Section { KeyringText(PhoneCopy.nothingWaiting, as: .meta) }
+            }
             if !model.waiting.isEmpty {
                 Section {
-                    ForEach(model.waiting) { request in waitingCard(request).phoneRow() }
-                } header: { SectionTitle(PhoneCopy.needsYourAnswer) }
+                    ForEach(model.waiting) { request in waitingCard(request) }
+                } header: { KeyringText(PhoneCopy.waitingForYou, as: .sectionName) }
             }
             if !model.inUse.isEmpty {
                 Section {
                     ForEach(model.inUse) { request in
-                        HStack(spacing: 10) {
-                            if case let .approved(_, until) = request.state {
-                                TwoLines(title: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until))
+                        if case let .approved(_, until) = request.state {
+                            KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until)) {
+                                KeyringButton(.plain(PhoneCopy.stop) { Task { await model.stop(request.id) } })
                             }
-                            Button(PhoneCopy.stop) { Task { await model.stop(request.id) } }
-                                .buttonStyle(RowButtonStyle(fill: Phone.fill, text: Phone.ink))
                         }
-                        .phoneRow()
                     }
-                } header: { SectionTitle(PhoneCopy.inUse) }
+                } header: { KeyringText(PhoneCopy.inUse, as: .sectionName) }
             }
             if !earlier.isEmpty {
                 Section {
                     ForEach(earlier) { request in
-                        HStack(spacing: 10) {
-                            TwoLines(title: request.login.site, detail: PhoneCopy.historyDetail(request))
-                            OutcomeMark(state: request.state)
+                        let (outcome, word) = PhoneCopy.outcome(request.state)
+                        KeyringDeviceRow(symbol: "clock", name: request.login.site, detail: PhoneCopy.historyDetail(request)) {
+                            KeyringText(word, as: .meta, colour: outcome == .approved ? KeyringPalette.approve : outcome == .denied ? KeyringPalette.deny : nil)
                         }
-                        .phoneRow()
                     }
-                } header: { SectionTitle(PhoneCopy.earlierToday) }
+                } header: { KeyringText(PhoneCopy.earlierToday, as: .sectionName) }
             }
+            Section {} footer: { KeyringText(PhoneCopy.seenOnThisIPhone, as: .caption) }
         }
         .sheet(isPresented: $settingsShown) { PhoneSettingsView(model: model) }
     }
 
-    /// Ready, or the one line that says what is wrong; Send Practice Request either way.
-    private var status: some View {
-        let problem = model.snapshot.notices.first { $0 != .addAppleWatch }
-        let computers = model.snapshot.devices.filter { $0.role == .asks }.map(\.name)
-        let mac = model.snapshot.devices.contains { $0.role == .approves && $0.detail == PhoneCopy.answersWithTouchID }
-        let watch = model.snapshot.devices.contains { $0.role == .approves && $0.detail == PhoneCopy.answersWithTap }
-        return Section {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Circle().fill(problem == nil ? Phone.approve : Phone.noAnswer).frame(width: 9, height: 9)
-                    Text(problem == nil ? PhoneCopy.homeReady : PhoneCopy.notice(problem!)).font(.body.weight(.semibold)).foregroundStyle(Phone.ink)
-                }
-                if problem == nil {
-                    Text(PhoneCopy.homeReadyDetail(computers: computers, watch: watch, mac: mac)).font(.subheadline).foregroundStyle(Phone.ink2)
-                }
-                Button(PhoneCopy.sendPractice) { Task { await model.sendPractice() } }
-                    .buttonStyle(RowButtonStyle(fill: Phone.fill, text: Phone.ink))
-                    .padding(.top, 2)
-            }
-            .padding(.vertical, 6)
-            .phoneRow()
-        }
-    }
-
-    /// The request in place: who, the site, the reason, then Deny… (the reply box) and Approve.
+    /// The request in place: Deny and Approve, and Deny and Explain, which opens the reply box.
     private func waitingCard(_ request: AccessRequest) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(PhoneCopy.homeDetail(request)).font(.footnote).foregroundStyle(Phone.ink2).lineLimit(1)
-            Text(request.login.site).font(.title3.bold()).foregroundStyle(Phone.ink).lineLimit(1).minimumScaleFactor(0.6)
-            if !request.agentReason.isEmpty {
-                Text(PhoneCopy.quoted(request.agentReason)).font(.subheadline).foregroundStyle(Phone.ink).lineLimit(3)
-            }
-            HStack(spacing: 8) {
-                Button(PhoneCopy.denyEllipsis) { model.shownRequestID = request.id }
-                    .buttonStyle(PillButtonStyle(fill: Phone.fill, text: Phone.deny, height: 40))
-                Button(PhoneCopy.approve) { Task { await model.approve(request.id) } }
-                    .buttonStyle(PillButtonStyle(fill: Phone.approve, height: 40))
-            }
-            .disabled(model.answering != nil)
-            .padding(.top, 6)
-        }
-        .padding(.vertical, 6)
+        let busy = model.answering != nil
+        return KeyringApprovalCard(
+            lead: PhoneCopy.wants(request.agent),
+            subject: request.login.site, detail: request.login.account.isEmpty ? nil : request.login.account,
+            reason: request.agentReason.isEmpty ? nil : request.agentReason,
+            approve: .approve(PhoneCopy.approve, isEnabled: !busy) { Task { await model.approve(request.id) } },
+            deny: .deny(PhoneCopy.deny, isEnabled: !busy) { Task { await model.deny(request.id) } },
+            explain: .denyLink(PhoneCopy.denyAndExplain, isEnabled: !busy) { model.explain(request.id) },
+            footer: model.snapshot.undelivered.contains(request.id) ? PhoneCopy.notDeliveredYet : nil)
     }
 
     private var earlier: [AccessRequest] {
@@ -238,21 +189,7 @@ enum KeyholeGlyph {
     }()
 }
 
-private struct OutcomeMark: View {
-    let state: AccessRequestState
-
-    var body: some View {
-        let (outcome, word) = PhoneCopy.outcome(state)
-        HStack(spacing: 6) {
-            Circle()
-                .fill(outcome == .approved ? Phone.approve : outcome == .denied ? Phone.deny : Phone.noAnswer)
-                .frame(width: 8, height: 8)
-            Text(word).font(.subheadline).foregroundStyle(Phone.ink)
-        }
-        .fixedSize()
-    }
-}
-
+/// Passwords: what Ask, Automatic and Blocked mean, then every password with its rule.
 struct PhoneLoginsView: View {
     let model: PhoneModel
     @State private var query = ""
@@ -260,43 +197,25 @@ struct PhoneLoginsView: View {
     var body: some View {
         PhoneList(title: PhoneCopy.passwords) {
             Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(PhoneCopy.passwordsCount(model.snapshot.logins.count)).font(.subheadline).foregroundStyle(Phone.ink)
-                    VStack(alignment: .leading, spacing: 2) {
-                        meaning(PhoneCopy.rule(.ask), PhoneCopy.askMeans)
-                        meaning(PhoneCopy.rule(.automatic), PhoneCopy.automaticMeans)
-                        meaning(PhoneCopy.rule(.blocked), PhoneCopy.blockedMeans)
-                    }
-                }
-                .padding(.vertical, 6)
-                .phoneRow()
-            }
+                KeyringText(PhoneCopy.askLegend, as: .meta)
+                KeyringText(PhoneCopy.automaticLegend, as: .meta)
+                KeyringText(PhoneCopy.blockedLegend, as: .meta)
+            } header: { KeyringText(PhoneCopy.passwordsCount(model.snapshot.logins.count), as: .sectionName) }
             Section {
                 ForEach(shown) { login in
-                    HStack(spacing: 10) {
-                        TwoLines(title: login.site, detail: login.account)
+                    KeyringDeviceRow(symbol: "key", name: login.site, detail: login.account.isEmpty ? nil : login.account) {
                         Menu {
                             ForEach([PhoneLogin.Rule.ask, .automatic, .blocked], id: \.self) { rule in
                                 Button(PhoneCopy.rule(rule)) { Task { await model.setRule(rule, forLogin: login.id) } }
                             }
                         } label: {
-                            HStack(spacing: 2) {
-                                Text(PhoneCopy.rule(login.rule))
-                                Image(systemName: "chevron.down").font(.caption.weight(.bold))
-                            }
-                            .font(.subheadline).foregroundStyle(Phone.ink2)
+                            KeyringText(PhoneCopy.rule(login.rule), as: .meta, colour: KeyringPalette.brand)
                         }
-                        .fixedSize()
                     }
-                    .phoneRow()
                 }
             }
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: PhoneCopy.search)
-    }
-
-    private func meaning(_ rule: String, _ means: String) -> some View {
-        (Text(rule + ": ").fontWeight(.semibold) + Text(means)).font(.footnote).foregroundStyle(Phone.ink)
     }
 
     private var shown: [PhoneLogin] {
@@ -307,26 +226,57 @@ struct PhoneLoginsView: View {
     }
 }
 
+/// Devices: where he approves, Add Apple Watch while a paired one is not added, and the other computers.
 struct PhoneDevicesView: View {
     let model: PhoneModel
     @State private var removing: PhoneDevice?
 
     var body: some View {
         PhoneList(title: PhoneCopy.devices) {
-            section(PhoneCopy.youApproveOn, role: .approves)
-            if model.snapshot.watch.toAdd {
-                Section {
-                    Button(PhoneCopy.addAppleWatch) { Task { await model.addWatch(.open) } }
-                        .font(.body.weight(.semibold)).foregroundStyle(Phone.accent).phoneRow()
+            Section {
+                ForEach(model.snapshot.devices.filter { $0.role == .approves }) { row($0) }
+                if model.snapshot.watch.toAdd {
+                    KeyringButton(.link(PhoneCopy.addAppleWatchRow) { Task { await model.addWatch(.open) } })
                 }
+            } header: { KeyringText(PhoneCopy.youApproveOn, as: .sectionName) }
+            let computers = model.snapshot.devices.filter { $0.role == .asks }
+            if !computers.isEmpty {
+                Section {
+                    ForEach(computers) { row($0) }
+                } header: { KeyringText(PhoneCopy.agentsAskFrom, as: .sectionName) }
             }
-            section(PhoneCopy.agentsAskFrom, role: .asks)
         }
         .confirmationDialog(removing.map { PhoneCopy.removeQuestion($0.name) } ?? "", isPresented: removingShown,
                             titleVisibility: .visible, presenting: removing) { device in
             Button(PhoneCopy.remove, role: .destructive) { Task { await model.remove(device: device.id) } }
             Button(PhoneCopy.cancel, role: .cancel) {}
         } message: { device in Text(PhoneCopy.removeDetail(device, alsoAsks: alsoAsks(device))) }
+    }
+
+    /// Send Practice Request on the row; Remove by swiping it to the left, out of the way.
+    private func row(_ device: PhoneDevice) -> some View {
+        KeyringDeviceRow(symbol: symbol(device), name: device.isThisIPhone ? PhoneCopy.thisIPhone : device.name,
+                         detail: device.role == .asks ? PhoneCopy.connected : device.detail) {
+            if device.canPractice {
+                KeyringButton(.link(PhoneCopy.practiceShort) {
+                    Task { await model.sendPractice(to: device.isThisIPhone ? nil : device.id) }
+                })
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            if device.canRemove && !device.isThisIPhone {
+                Button(PhoneCopy.remove, role: .destructive) { removing = device }
+            }
+        }
+    }
+
+    private func symbol(_ device: PhoneDevice) -> String {
+        if device.role == .asks { return "desktopcomputer" }
+        switch device.detail {
+        case PhoneCopy.answersWithTap: return "applewatch"
+        case PhoneCopy.answersWithTouchID: return "laptopcomputer"
+        default: return "iphone"
+        }
     }
 
     /// A Mac that approves and whose agents ask: one Remove takes both.
@@ -337,31 +287,8 @@ struct PhoneDevicesView: View {
     private var removingShown: Binding<Bool> {
         Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
     }
-
-    @ViewBuilder private func section(_ title: String, role: PhoneDevice.Role) -> some View {
-        let rows = model.snapshot.devices.filter { $0.role == role }
-        if !rows.isEmpty {
-            Section {
-                ForEach(rows) { device in
-                    HStack(spacing: 10) {
-                        TwoLines(title: device.isThisIPhone ? PhoneCopy.thisIPhone : device.name, detail: device.detail)
-                        if device.canPractice {
-                            Button(PhoneCopy.practiceShort) { Task { await model.sendPractice(to: device.id) } }
-                                .font(.subheadline.weight(.semibold)).foregroundStyle(Phone.accent)
-                                .buttonStyle(.borderless)
-                        }
-                        if device.canRemove && !device.isThisIPhone {
-                            Button(PhoneCopy.remove) { removing = device }
-                                .font(.subheadline.weight(.semibold)).foregroundStyle(Phone.deny)
-                                .buttonStyle(.borderless)
-                        }
-                    }
-                    .phoneRow()
-                }
-            } header: { SectionTitle(title) }
-        }
-    }
 }
+
 /// Paper, "On iPhone and Apple Watch", iPhone, Settings: Time Sensitive and Quiet Hours.
 struct PhoneSettingsView: View {
     let model: PhoneModel
@@ -372,19 +299,19 @@ struct PhoneSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle(PhoneCopy.timeSensitive, isOn: binding(\.timeSensitive)).tint(Phone.approve)
-                } footer: { Text(PhoneCopy.timeSensitiveDetail) }
+                    Toggle(isOn: binding(\.timeSensitive)) { KeyringText(PhoneCopy.timeSensitive) }
+                } footer: { KeyringText(PhoneCopy.timeSensitiveDetail, as: .caption) }
                 Section {
-                    Toggle(PhoneCopy.quietHours, isOn: binding(\.quietHours)).tint(Phone.approve)
+                    Toggle(isOn: binding(\.quietHours)) { KeyringText(PhoneCopy.quietHours) }
                         .disabled(!settings.timeSensitive)
                     if settings.quietHours && settings.timeSensitive {
-                        DatePicker(PhoneCopy.from, selection: time(\.quietFrom), displayedComponents: .hourAndMinute)
-                        DatePicker(PhoneCopy.to, selection: time(\.quietTo), displayedComponents: .hourAndMinute)
+                        DatePicker(selection: time(\.quietFrom), displayedComponents: .hourAndMinute) { KeyringText(PhoneCopy.from) }
+                        DatePicker(selection: time(\.quietTo), displayedComponents: .hourAndMinute) { KeyringText(PhoneCopy.to) }
                     }
                 } footer: {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text(PhoneCopy.quietHoursDetail)
-                        Text(PhoneCopy.watchFollows)
+                    VStack(alignment: .leading, spacing: KeyringSpace.s3) {
+                        KeyringText(PhoneCopy.quietHoursDetail, as: .caption)
+                        KeyringText(PhoneCopy.watchFollows, as: .caption)
                     }
                 }
             }

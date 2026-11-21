@@ -12,7 +12,7 @@ import SwiftUI
 @MainActor
 public enum PageGallery {
     public static var entries: [KeyringGalleryEntry] {
-        #if os(macOS)
+#if os(macOS)
         [
             // The panel whose green button was cut off at "Click here, then touch the sen…".
             .init("question-panel-send-copied-passwords", .macPanel(width: 380)) {
@@ -21,6 +21,8 @@ public enum PageGallery {
                         perform: { _ in }, finish: { _ in }))
             },
         ]
+        #elseif os(iOS)
+        PhoneGallery.entries
         #else
         []
         #endif

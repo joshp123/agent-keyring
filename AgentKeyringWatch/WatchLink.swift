@@ -177,6 +177,15 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         return asked
     }
 
+    /// Cancel while waiting for the practice request: the offer comes back.
+    func cancelPractice() async {
+        let store = WatchStore()
+        var saved = store.read()
+        saved.practiceAsked = nil
+        store.write(saved)
+        await refreshSetup()
+    }
+
     /// Done on the practice offer.
     func practiceOfferDone() async {
         let store = WatchStore()

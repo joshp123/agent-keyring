@@ -31,6 +31,13 @@ public struct WatchRequest: Sendable, Equatable {
     /// The practice request the iPhone asks for after adding this Apple Watch.
     public let isPractice: Bool
 
+    public init(work: Data, id: String, site: String, account: String, sites: [String], agent: String, wants: String,
+                project: String?, reason: String, state: State, who: String, inUseUntil: Date?, isPractice: Bool) {
+        self.work = work; self.id = id; self.site = site; self.account = account; self.sites = sites; self.agent = agent
+        self.wants = wants; self.project = project; self.reason = reason; self.state = state; self.who = who
+        self.inUseUntil = inUseUntil; self.isPractice = isPractice
+    }
+
     /// Opens the push's notice and names everything in it. Fails with one
     /// reason, for the report; the Watch then shows a plain line.
     public static func from(userInfo: [AnyHashable: Any], keys: WatchKeys, saved: WatchSaved) throws -> WatchRequest {
@@ -48,7 +55,7 @@ public struct WatchRequest: Sendable, Equatable {
                                             account: UserDefaults.standard.string(forKey: "SampleAccount") ?? "you@example.com", sites: [],
                                             agent: "Claude Code", wants: "Claude Code on MacBook Pro (M4) wants", project: "agent-keyring",
                                             reason: UserDefaults.standard.string(forKey: "SampleReason") ?? "You asked me to download October’s invoice.", state: .waiting, who: "Codex on Linux server",
-                                            inUseUntil: nil, isPractice: false) }
+                                            inUseUntil: nil, isPractice: UserDefaults.standard.bool(forKey: "SamplePractice")) }
     #endif
 
     /// Where the extension leaves the opened Work for the app's own layout.

@@ -70,11 +70,10 @@ public final class PhoneKeyring: PhoneBackend {
         let macLabels = Set(members.devices.filter { $0.kind == .mac }.map(\.label))
         snapshot.devices = members.devices.map { device in
             PhoneDevice(id: device.keyID, name: device.label, detail: Self.howItApproves(device.kind), role: .approves,
-                        isThisIPhone: device.keyID == mine, canPractice: device.keyID != mine && device.kind == .watch,
-                        canRemove: device.keyID != mine)
-        } + members.machines.map { machine in
-            // A Mac is removed from its device row above, both at once.
-            PhoneDevice(id: machine.machineID, name: machine.label, role: .asks, canRemove: !macLabels.contains(machine.label))
+                        isThisIPhone: device.keyID == mine, canPractice: true, canRemove: device.keyID != mine)
+        } + members.machines.filter { !macLabels.contains($0.label) }.map { machine in
+            // A Mac he approves on is listed once, above; its Remove takes both.
+            PhoneDevice(id: machine.machineID, name: machine.label, role: .asks)
         }
         snapshot.joined = true
         snapshot.watch = watchFacts(members)
@@ -157,7 +156,8 @@ public final class PhoneKeyring: PhoneBackend {
     private func refresh() async -> Bool {
         guard let door = state.mac else { return false }
         do {
-            let reply = try await macDoor(door).get("/v2/bundle")
+            // Every revision of the list of devices since the one held, so each checks against the one before.
+            let reply = try await macDoor(door).get("/v2/bundle", query: [URLQueryItem(name: "members", value: "\(members?.revision ?? 0)")])
             try accept(bundle: Agentkeyring_V2_Bundle(serializedBytes: reply))
             if macUnreachable { macUnreachable = false; publish() }
             return true
@@ -172,7 +172,8 @@ public final class PhoneKeyring: PhoneBackend {
 
     /// Takes a bundle: each part checked on its own, the lists by their signatures, the copies by their signers.
     func accept(bundle: Agentkeyring_V2_Bundle) throws {
-        if bundle.hasMembers { try accept(members: bundle.members) }
+        if bundle.membersSince.isEmpty, bundle.hasMembers { try accept(members: bundle.members) }
+        for revision in bundle.membersSince where state.deviceKeyID != nil { try accept(members: revision) }
         guard state.deviceKeyID != nil else { return }
         if bundle.hasCatalogue { try accept(catalogue: bundle.catalogue) }
         guard let members, let catalogue else { return }
@@ -460,10 +461,18 @@ public final class PhoneKeyring: PhoneBackend {
         end.deviceKeyID = keyID
         end.endedUnixSeconds = Int64(Date().timeIntervalSince1970)
         let signed = try Sealing.signed(end.serializedData(), by: Sealing.keyID(keys.replyPublicKey())) { try keys.signReply($0) }
-        let lease = try Agentkeyring_V2_Lease(serializedBytes: await AnswerDoor.end(signed, at: door))
-        var ended = work
-        ended.outcome = lease
-        receive(ended)
+        do {
+            let lease = try Agentkeyring_V2_Lease(serializedBytes: await AnswerDoor.end(signed, at: door))
+            var ended = work
+            ended.outcome = lease
+            receive(ended)
+        } catch is AnswerDoor.NotDelivered {
+            // No process holds that computer's door now: the Mac keeps the Stop, and the computer asks for it
+            // before its agents next use an approval.
+            _ = try await mac().post("/v2/stop", signed.serializedData())
+            PhoneDiagnostics.log.note("stop", "left with the Mac", ["request": requestID])
+            throw PhoneStopWaitsWithMac()
+        }
     }
 
     // MARK: Rules and devices

@@ -1,15 +1,15 @@
-// Written by AI on 2026.11.19 by model Claude Opus 5.5.
+// Written by AI on 2026.11.19 by model Claude Opus 5.5; rebuilt from the shared page parts on 2026.11.21.
 //
-// First run on the iPhone (Paper, "First run", iPhone row): one screen for
-// each state of PhoneFirstRun. The app still checks itself and reports to the
-// relay; none of that is shown here.
+// Adding this iPhone, and adding Apple Watch from it: one page per state of
+// PhoneFirstRun and PhoneAddWatch, built only from AgentKeyringDesign's parts.
+// Every word comes from PhoneCopy; the page owns every margin and colour.
 
 #if os(iOS)
+import AgentKeyringDesign
 import SwiftUI
 import UIKit
 
-/// One screen per state of first run; the practice request is a sheet over it. The pages themselves wait
-/// for the drawings: these show each state plainly with today's parts.
+/// One page per state of first run; the practice request is a sheet over it.
 struct PhoneFirstRunView: View {
     let stage: PhoneFirstRun
     let model: PhoneModel
@@ -18,87 +18,63 @@ struct PhoneFirstRunView: View {
         let mac = model.snapshot.macName
         switch stage {
         case .searching(let longWait):
-            PhoneWelcome(title: PhoneCopy.lookingForMac, lines: [PhoneCopy.lookingForMacDetail]) {
-                PhoneWaitingLine(text: PhoneCopy.lookingForMac)
-                if longWait { trouble }
-            }
+            KeyringPage(title: PhoneCopy.continueFrom(nil), sentence: PhoneCopy.continueFromDetail, alignment: .centre, mascot: .waiting,
+                        status: .waiting(PhoneCopy.lookingForMac),
+                        secondary: longWait ? .link(PhoneCopy.havingTrouble) { send(.havingTrouble) } : nil) { trust }
         case .trouble:
-            PhoneWelcome(title: PhoneCopy.troubleTitle, lines: [PhoneCopy.troubleBanner] + PhoneCopy.troubleSteps) {
-                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.tryAgain) }
+            KeyringPage(title: PhoneCopy.troubleTitle, sentence: PhoneCopy.troubleBanner, mascot: .offline,
+                        primary: .advance(PhoneCopy.tryAgain) { send(.tryAgain) }) {
+                KeyringSteps(PhoneCopy.troubleSteps)
             }
         case .foundMac:
-            PhoneWelcome(title: PhoneCopy.continueFrom(mac), lines: [PhoneCopy.continueFromDetail, PhoneCopy.welcomeSecureDetail]) {
-                PhoneButton(PhoneCopy.connectTo(mac)) { await model.firstRun(.connect) }
-                trouble
-            }
+            KeyringPage(step: (1, 3), title: PhoneCopy.continueFrom(mac), sentence: PhoneCopy.continueFromDetail, alignment: .centre, mascot: .calm,
+                        primary: .advance(PhoneCopy.connectTo(mac)) { send(.connect) },
+                        secondary: .link(PhoneCopy.havingTrouble) { send(.havingTrouble) }) { trust }
         case .waitingForMac:
-            PhoneWelcome(title: PhoneCopy.approveOn(mac), lines: [PhoneCopy.approveOnDetail(mac)]) {
-                PhoneWaitingLine(text: PhoneCopy.waitingFor(mac))
-                PhoneButton(PhoneCopy.cancel, secondary: true) { await model.firstRun(.cancel) }
-            }
+            KeyringPage(step: (1, 3), title: PhoneCopy.approveOn(mac), sentence: PhoneCopy.approveOnDetail(mac), alignment: .centre, mascot: .waiting,
+                        status: .waiting(PhoneCopy.waitingFor(mac)), secondary: .plain(PhoneCopy.cancel) { send(.cancel) })
         case .deniedByMac:
-            PhoneWelcome(title: PhoneCopy.didNotAdd(mac), lines: [PhoneCopy.didNotAddDetail(mac)]) {
-                PhoneButton(PhoneCopy.askAgain) { await model.firstRun(.askAgain) }
-                PhoneButton(PhoneCopy.cancel, secondary: true) { await model.firstRun(.cancel) }
-            }
+            KeyringPage(step: (1, 3), title: PhoneCopy.notApprovedOn(mac), sentence: PhoneCopy.notApprovedDetail, alignment: .centre, mascot: .denied,
+                        primary: .advance(PhoneCopy.askAgain) { send(.askAgain) }, secondary: .plain(PhoneCopy.cancel) { send(.cancel) })
         case .cantReachMac:
-            PhoneWelcome(title: PhoneCopy.cantReach(mac), lines: [PhoneCopy.cantReachDetail(mac)]) {
-                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.tryAgain) }
-                PhoneButton(PhoneCopy.cancel, secondary: true) { await model.firstRun(.cancel) }
-            }
+            KeyringPage(step: (1, 3), title: PhoneCopy.cantReach(mac), sentence: PhoneCopy.cantReachDetail(mac), alignment: .centre, mascot: .offline,
+                        primary: .advance(PhoneCopy.tryAgain) { send(.tryAgain) }, secondary: .plain(PhoneCopy.cancel) { send(.cancel) })
         case .expired:
-            PhoneWelcome(title: PhoneCopy.joinExpiredTitle, lines: [PhoneCopy.joinExpiredDetail(mac)]) {
-                PhoneButton(PhoneCopy.askAgain) { await model.firstRun(.askAgain) }
-                PhoneButton(PhoneCopy.cancel, secondary: true) { await model.firstRun(.cancel) }
-            }
+            KeyringPage(step: (1, 3), title: PhoneCopy.joinExpiredTitle, sentence: PhoneCopy.joinExpiredDetail(mac), alignment: .centre, mascot: .offline,
+                        primary: .advance(PhoneCopy.askAgain) { send(.askAgain) }, secondary: .plain(PhoneCopy.cancel) { send(.cancel) })
         case .receivingPasswords:
-            PhoneStep(title: PhoneCopy.receivingPasswords, lines: [PhoneCopy.receivingDetail(model.snapshot.filling)], icon: "lock") {
-                PhoneWaitingLine(text: PhoneCopy.receivingPasswords)
-            }
-        case .notifications, .askingNotifications:
-            PhoneStep(title: PhoneCopy.notificationsTitle, lines: [PhoneCopy.notificationsLead, PhoneCopy.notificationsFocus]) {
-                PhoneButton(PhoneCopy.continueButton) { await model.askAboutNotifications() }
-            }
-        case .notificationsOff:
-            PhoneStep(title: PhoneCopy.notificationsOffTitle, lines: [PhoneCopy.notificationsOff]) {
-                PhoneButton(PhoneCopy.openSettings) {
-                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) { await UIApplication.shared.open(url) }
-                }
-                PhoneButton(PhoneCopy.continueWithout, secondary: true) { await model.firstRun(.continueWithoutNotifications) }
-            }
+            KeyringPage(step: (1, 3), title: PhoneCopy.receivingTitle, alignment: .centre, mascot: .waiting,
+                        status: .waiting(PhoneCopy.receivingDetail(model.snapshot.filling)))
+        case .notifications, .askingNotifications, .notificationsOff:
+            notifications
         case .practiceOffer:
-            PhoneStep(title: PhoneCopy.practiceOfferTitle, lines: [PhoneCopy.practiceOfferDetail]) {
-                PhoneButton(PhoneCopy.sendPractice) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
-                PhoneButton(PhoneCopy.skipForNow, secondary: true) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
+            practicePage(primary: .advance(PhoneCopy.sendPractice) { sendPractice() }, secondary: skip) {
+                KeyringHint(symbol: "bell.badge", title: PhoneCopy.practicePreviewTitle, PhoneCopy.practicePreview)
+                KeyringHint(symbol: "moon.fill", PhoneCopy.practiceNote, tone: .plain)
             }
         case .practiceWaiting, .practice:
-            PhoneStep(title: PhoneCopy.practiceCheckTitle, lines: [PhoneCopy.practiceCheckDetail(mac)]) {
-                PhoneWaitingLine(text: PhoneCopy.practiceWaiting)
-            }
+            practicePage(status: .waiting(PhoneCopy.practiceWaiting)) { EmptyView() }
+        case .settingUpNotifications:
+            practicePage(status: .takingLong(PhoneCopy.practiceSettingUp), secondary: skip) { EmptyView() }
         case .practiceNotArrived:
-            PhoneStep(title: PhoneCopy.practiceNotArrivedTitle, lines: [PhoneCopy.practiceNotArrivedDetail(mac)]) {
-                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
-                PhoneButton(PhoneCopy.skipForNow, secondary: true) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
+            practicePage(status: .takingLong(PhoneCopy.practiceNotArrived),
+                         primary: .advance(PhoneCopy.answerItHere) { send(.practiceTapped) },
+                         secondary: .plain(PhoneCopy.tryAgain) { sendPractice() }, aside: skip) {
+                KeyringHint(symbol: "moon.fill", PhoneCopy.notificationsFocus, tone: .focus)
             }
         case .practiceMacUnreachable:
-            PhoneStep(title: PhoneCopy.practiceMacUnreachableTitle(mac), lines: [PhoneCopy.practiceMacUnreachableDetail(mac)]) {
-                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
-                PhoneButton(PhoneCopy.skipForNow, secondary: true) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
-            }
-        case .settingUpNotifications:
-            PhoneStep(title: PhoneCopy.settingUpTitle, lines: [PhoneCopy.settingUpDetail]) {
-                PhoneButton(PhoneCopy.skipForNow, secondary: true) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
-            }
+            practicePage(status: .problem(PhoneCopy.practiceMacAsleep(mac)),
+                         primary: .advance(PhoneCopy.tryAgain) { sendPractice() }, secondary: skip) { EmptyView() }
         case let .practiceResult(outcome):
-            PhoneStep(title: PhoneCopy.practiceResultTitle(outcome), lines: [PhoneCopy.practiceResultDetail(outcome)],
-                      mark: outcome == .approved ? .approved : outcome == .denied ? .denied : nil) {
-                PhoneButton(PhoneCopy.sendAnother, secondary: true) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
-                PhoneButton(PhoneCopy.continueButton) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
+            practicePage(primary: .advance(PhoneCopy.continueButton) { continueAfterPractice() },
+                         secondary: .plain(PhoneCopy.sendAnother) { sendPractice() }) {
+                KeyringConfirmation(PhoneCopy.practiceResult(outcome), tone: outcome == .approved ? .approved : .denied)
             }
         case let .readyOfferWatch(watchToAdd):
-            PhoneStep(title: watchToAdd ? PhoneCopy.addAppleWatchQuestion : PhoneCopy.homeReady, lines: [], icon: "applewatch") {
-                if watchToAdd { PhoneButton(PhoneCopy.addAppleWatch) { await model.firstRun(.addAppleWatch) } }
-                PhoneButton(PhoneCopy.done, secondary: watchToAdd) { await model.firstRun(.done) }
+            KeyringPage(title: PhoneCopy.readyTitle, sentence: PhoneCopy.readyDetail, alignment: .centre, mascot: .approved,
+                        primary: watchToAdd ? .advance(PhoneCopy.addAppleWatch) { send(.addAppleWatch) } : .advance(PhoneCopy.done) { send(.done) },
+                        secondary: watchToAdd ? .plain(PhoneCopy.done) { send(.done) } : nil) {
+                if watchToAdd { KeyringHint(symbol: "applewatch", title: PhoneCopy.addWatchOfferTitle, PhoneCopy.addWatchOfferDetail) }
             }
         case .addWatch:
             PhoneAddWatchView(flow: model.snapshot.addWatch, model: model)
@@ -107,13 +83,57 @@ struct PhoneFirstRunView: View {
         }
     }
 
-    private var trouble: some View {
-        Button(PhoneCopy.havingTrouble) { Task { await model.firstRun(.havingTrouble) } }
-            .font(.subheadline.weight(.semibold)).foregroundStyle(Phone.accent).frame(height: 36)
+    private var trust: some View {
+        KeyringHint(symbol: "lock.fill", title: PhoneCopy.trustTitle, PhoneCopy.trustDetail)
+    }
+
+    /// The checklist ticks only from what iOS lets the app read.
+    private var notifications: some View {
+        let facts = model.snapshot.notificationFacts
+        let asked = facts.allowed || stage == .notificationsOff
+        let primary: KeyringAction = stage == .notificationsOff ? .advance(PhoneCopy.openSettings) { openNotificationSettings() }
+            : !asked ? .advance(PhoneCopy.turnOnNotifications) { Task { await model.askAboutNotifications() } }
+            : .advance(PhoneCopy.continueButton) { send(.notificationsDone) }
+        let allSet = facts.allowed && facts.banners && facts.lockScreen && facts.timeSensitive && !facts.inScheduledSummary
+        let secondary: KeyringAction? = stage == .notificationsOff ? .link(PhoneCopy.continueWithout) { send(.continueWithoutNotifications) }
+            : asked && !allSet ? .plain(PhoneCopy.openSettings) { openNotificationSettings() } : nil
+        return KeyringPage(step: (2, 3), title: PhoneCopy.notificationsTitle, sentence: PhoneCopy.notificationsLead,
+                           status: stage == .notificationsOff ? .problem(PhoneCopy.notificationsOff) : nil,
+                           primary: primary, secondary: secondary) {
+            KeyringRowGroup {
+                check(PhoneCopy.checkAllowed, facts.allowed, fix: asked ? PhoneCopy.checkInSettings : PhoneCopy.checkTurnOnFirst)
+                check(PhoneCopy.checkBanners, facts.banners && facts.lockScreen, fix: PhoneCopy.checkInSettings)
+                check(PhoneCopy.checkTimeSensitive, facts.timeSensitive, fix: PhoneCopy.checkInSettings)
+                check(PhoneCopy.checkNotScheduled, facts.allowed && !facts.inScheduledSummary, fix: PhoneCopy.checkScheduledInSettings)
+            }
+            KeyringHint(symbol: "moon.fill", PhoneCopy.notificationsFocus, tone: .focus)
+        }
+    }
+
+    /// A ticked row, or an unticked one with what to do. Before iOS has asked, only the first row says what.
+    private func check(_ name: String, _ on: Bool, fix: String) -> some View {
+        let asked = model.snapshot.notificationFacts.allowed || stage == .notificationsOff
+        return KeyringCheckRow(name, isDone: on, toDo: on || (!asked && name != PhoneCopy.checkAllowed) ? nil : fix)
+    }
+
+    private func practicePage(status: KeyringStatus? = nil, primary: KeyringAction? = nil, secondary: KeyringAction? = nil,
+                              aside: KeyringAction? = nil, @ViewBuilder content: () -> some View) -> some View {
+        KeyringPage(step: (3, 3), title: PhoneCopy.practiceTitle, sentence: PhoneCopy.practiceLead, status: status,
+                    primary: primary, secondary: secondary, aside: aside, content: content)
+    }
+
+    private var skip: KeyringAction { .link(PhoneCopy.skipForNow) { continueAfterPractice() } }
+
+    private func send(_ event: PhoneFirstRun.Event) { Task { await model.firstRun(event) } }
+    private func sendPractice() { send(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
+    private func continueAfterPractice() { send(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
+
+    private func openNotificationSettings() {
+        if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
     }
 }
 
-/// Adding Apple Watch, one screen per state; from first run or from Devices.
+/// Adding Apple Watch, one page per state; from first run or from Devices.
 struct PhoneAddWatchView: View {
     let flow: PhoneAddWatch?
     let model: PhoneModel
@@ -121,155 +141,43 @@ struct PhoneAddWatchView: View {
     var body: some View {
         switch flow {
         case .notPaired:
-            PhoneStep(title: PhoneCopy.notPairedTitle, lines: [], icon: "applewatch") { cancel(PhoneCopy.close) }
+            KeyringPage(title: PhoneCopy.notPairedTitle, alignment: .centre, mascot: .curious, primary: .plain(PhoneCopy.close) { tap(.cancel) })
         case .watchAppMissing:
-            PhoneStep(title: PhoneCopy.installOnWatchTitle, lines: [PhoneCopy.installOnWatchDetail], icon: "applewatch") {
-                PhoneButton(PhoneCopy.checkAgain) { await model.addWatch(.checkAgain) }
-                cancel(PhoneCopy.cancel)
+            KeyringPage(title: PhoneCopy.installOnWatchTitle, sentence: PhoneCopy.installOnWatchDetail,
+                        primary: .advance(PhoneCopy.checkAgain) { tap(.checkAgain) }, secondary: .link(PhoneCopy.doThisLater) { tap(.cancel) }) {
+                KeyringSteps(PhoneCopy.installOnWatchSteps)
             }
         case .faceIDFirst:
-            PhoneStep(title: PhoneCopy.addWatchTitle, lines: [PhoneCopy.addWatchFaceIDDetail], icon: "applewatch") {
-                PhoneButton(PhoneCopy.continueWithFaceID) { await model.addWatch(.continueWithFaceID) }
-                cancel(PhoneCopy.cancel)
+            KeyringPage(step: (1, 2), title: PhoneCopy.addWatchTitle, sentence: PhoneCopy.addWatchDetail,
+                        primary: .advance(PhoneCopy.continueWithFaceID) { tap(.continueWithFaceID) },
+                        secondary: .link(PhoneCopy.cancel) { tap(.cancel) }) {
+                KeyringSteps(PhoneCopy.addWatchSteps)
             }
         case let .waitingForWatch(until):
-            PhoneStep(title: PhoneCopy.tapAddOnWatch, lines: [PhoneCopy.confirmedUntil(until), PhoneCopy.tapAddOnWatchDetail], icon: "applewatch") {
-                PhoneWaitingLine(text: PhoneCopy.tapAddOnWatch)
-                cancel(PhoneCopy.cancel)
+            KeyringPage(step: (2, 2), title: PhoneCopy.tapAddOnWatch, sentence: PhoneCopy.tapAddOnWatchDetail, secondary: cancel) {
+                KeyringConfirmation(PhoneCopy.confirmedUntil(until))
+                KeyringHint(symbol: "exclamationmark.circle.fill", title: PhoneCopy.watchNotShowingTitle, PhoneCopy.watchNotShowing, tone: .stalled)
             }
         case .faceIDExpired:
-            PhoneStep(title: PhoneCopy.faceIDExpiredTitle, lines: [PhoneCopy.faceIDExpiredDetail], icon: "faceid") {
-                PhoneButton(PhoneCopy.continueWithFaceID) { await model.addWatch(.continueWithFaceID) }
-                cancel(PhoneCopy.cancel)
-            }
+            KeyringPage(step: (1, 2), title: PhoneCopy.addWatchTitle, status: .takingLong(PhoneCopy.faceIDExpired),
+                        primary: .advance(PhoneCopy.continueWithFaceID) { tap(.continueWithFaceID) }, secondary: cancel)
         case .watchNeedsPasscode:
-            PhoneStep(title: PhoneCopy.watchNeedsPasscodeTitle, lines: [PhoneCopy.watchNeedsPasscodeDetail], icon: "applewatch") {
-                PhoneButton(PhoneCopy.tryAgain) { await model.addWatch(.tryAgain) }
-                cancel(PhoneCopy.cancel)
-            }
+            KeyringPage(step: (2, 2), title: PhoneCopy.addWatchTitle, status: .problem(PhoneCopy.watchNeedsPasscode),
+                        primary: .advance(PhoneCopy.tryAgain) { tap(.tryAgain) }, secondary: cancel)
         case let .encrypting(done, total):
-            PhoneStep(title: PhoneCopy.encryptingForWatch(done, total), lines: [], icon: "lock") { EmptyView() }
-        case .copiesFailed:
-            PhoneStep(title: PhoneCopy.watchCopiesFailed, lines: [], icon: "applewatch") {
-                PhoneButton(PhoneCopy.tryAgain) { await model.addWatch(.tryAgain) }
-                cancel(PhoneCopy.cancel)
-            }
+            KeyringPage(step: (2, 2), title: PhoneCopy.addWatchTitle, status: .waiting(PhoneCopy.encryptingForWatch(done, total)))
+        case let .copiesFailed(reason):
+            KeyringPage(step: (2, 2), title: PhoneCopy.addWatchTitle, status: .problem(PhoneCopy.watchCopiesFailed(reason)),
+                        primary: .advance(PhoneCopy.tryAgain) { tap(.tryAgain) }, secondary: cancel)
         case .added:
-            PhoneStep(title: PhoneCopy.watchAdded, lines: [], mark: .approved) {
-                PhoneButton(PhoneCopy.done) { await model.addWatch(.done) }
-            }
+            KeyringPage(title: PhoneCopy.watchAdded, sentence: PhoneCopy.watchAddedDetail, alignment: .centre, mascot: .approved,
+                        primary: .advance(PhoneCopy.done) { tap(.done) })
         case .closed, nil:
             EmptyView()
         }
     }
 
-    private func cancel(_ title: String) -> some View {
-        PhoneButton(title, secondary: true) { await model.addWatch(.cancel) }
-    }
+    private var cancel: KeyringAction { .plain(PhoneCopy.cancel) { tap(.cancel) } }
+    private func tap(_ tap: PhoneAddWatchTap) { Task { await model.addWatch(tap) } }
 }
-
-/// The first screen: the icon, the name, what the app is for, and a card for where setup stands.
-private struct PhoneWelcome<Bottom: View>: View {
-    let title: String
-    let lines: [String]
-    @ViewBuilder let bottom: Bottom
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 32) {
-                VStack(spacing: 16) {
-                    KeyholeIcon(size: 64)
-                    VStack(spacing: 8) {
-                        Text(PhoneCopy.welcomeTitle).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
-                        Text(PhoneCopy.appLead).font(.body).foregroundStyle(Phone.ink2)
-                    }
-                    .multilineTextAlignment(.center)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title).font(.title3.weight(.semibold)).foregroundStyle(Phone.ink)
-                    ForEach(lines, id: \.self) { Text($0).font(.subheadline).foregroundStyle(Phone.ink2) }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 18).padding(.horizontal, 20)
-                .background(Phone.fill, in: .rect(cornerRadius: 22))
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-            .padding(.top, 40)
-            VStack(spacing: 10) { bottom }
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 30)
-        .background(Phone.surface)
-    }
-}
-
-/// One step: the bell in its tile, a title, its sentences, and the buttons at the bottom.
-private struct PhoneStep<Bottom: View>: View {
-    enum Mark { case approved, denied }
-    let title: String
-    let lines: [String]
-    var icon = "bell"
-    /// In place of the icon: a green tick or a red cross, for the practice's result.
-    var mark: Mark? = nil
-    @ViewBuilder let bottom: Bottom
-
-    init(title: String, lines: [String], icon: String = "bell", mark: Mark? = nil, @ViewBuilder bottom: () -> Bottom) {
-        self.title = title; self.lines = lines; self.icon = icon; self.mark = mark; self.bottom = bottom()
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 22) {
-                if let mark {
-                    Circle().fill(mark == .approved ? Phone.approve : Phone.deny).frame(width: 64, height: 64)
-                        .overlay(Image(systemName: mark == .approved ? "checkmark" : "xmark").font(.system(size: 28, weight: .bold)).foregroundStyle(Phone.onAnswer))
-                } else {
-                    Image(systemName: icon).font(.system(size: 32)).foregroundStyle(Phone.accent)
-                        .frame(width: 72, height: 72).background(Phone.fill, in: .rect(cornerRadius: 18))
-                }
-                VStack(spacing: 14) {
-                    Text(title).font(.title.bold()).tracking(-0.6).foregroundStyle(Phone.ink)
-                    ForEach(lines, id: \.self) { Text($0).font(.body).foregroundStyle(Phone.ink2) }
-                }
-                .multilineTextAlignment(.center)
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-            .padding(.top, 100)
-            VStack(spacing: 10) { bottom }
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 30)
-        .background(Phone.surface)
-    }
-}
-
-/// A pill at the bottom: black, or grey for the second choice.
-private struct PhoneButton: View {
-    let title: String
-    var secondary = false
-    let action: () async -> Void
-
-    init(_ title: String, secondary: Bool = false, action: @escaping () async -> Void) {
-        self.title = title; self.secondary = secondary; self.action = action
-    }
-
-    var body: some View {
-        Button(title) { Task { await action() } }
-            .buttonStyle(PillButtonStyle(fill: secondary ? Phone.fill : Phone.ink, text: secondary ? Phone.ink : Phone.surface))
-    }
-}
-
-/// A spinner and what the screen waits for, where a button would be.
-private struct PhoneWaitingLine: View {
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-            Text(text).font(.subheadline).foregroundStyle(Phone.ink2)
-        }
-        .frame(height: 50)
-    }
-}
-
 #endif

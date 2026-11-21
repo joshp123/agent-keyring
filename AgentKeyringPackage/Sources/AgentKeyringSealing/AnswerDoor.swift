@@ -11,7 +11,8 @@ import Foundation
 
 public enum AnswerDoor {
     /// How long an answer that cannot reach the door keeps trying.
-    public static let retryFor: TimeInterval = 30
+    /// A variable only so a test need not wait the whole of it.
+    nonisolated(unsafe) public static var retryFor: TimeInterval = 30
     static let retryEvery: TimeInterval = 2
 
     public typealias Door = (host: String, port: UInt16, key: Data)
@@ -64,8 +65,10 @@ public enum AnswerDoor {
                 throw Refused(words: failure.words)
             } catch let failure as DoorHTTPS.Failure where failure.status != 0 {
                 throw failure
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
-                guard Date() < giveUp, !(error is CancellationError) else { throw error }
+                guard Date() < giveUp else { throw NotDelivered(last: error) }
                 try await Task.sleep(for: .seconds(retryEvery))
             }
         }

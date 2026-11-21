@@ -28,7 +28,7 @@ struct PhoneMacDoor: @unchecked Sendable {
         try await DoorHTTPS.send("POST", body, host: host, port: port, path: path, pinned: key, client: client, timeout: timeout)
     }
 
-    func get(_ path: String) async throws -> Data {
-        try await DoorHTTPS.send("GET", host: host, port: port, path: path, pinned: key, client: client)
+    func get(_ path: String, query: [URLQueryItem] = []) async throws -> Data {
+        try await DoorHTTPS.send("GET", host: host, port: port, path: path, query: query, pinned: key, client: client)
     }
 }

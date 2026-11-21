@@ -72,6 +72,8 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case passwordsReceived
         case continueTapped
         case notificationsAnswered(allowed: Bool)
+        /// Continue on the checklist, once iOS has answered.
+        case notificationsDone
         case continueWithoutNotifications
         /// The relay names the practice request it made or already had waiting.
         case practiceSent(id: String)
@@ -115,8 +117,9 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case (.waitingForMac, .joined): .receivingPasswords
         case (.receivingPasswords, .passwordsReceived): .notifications
         case (.notifications, .continueTapped): .askingNotifications
-        case (.notifications, .notificationsAnswered(true)), (.askingNotifications, .notificationsAnswered(true)),
-             (.notificationsOff, .notificationsAnswered(true)): .practiceOffer
+        // Allowed: the checklist stays up, ticking from what iOS allows, until he taps Continue.
+        case (.askingNotifications, .notificationsAnswered(true)), (.notificationsOff, .notificationsAnswered(true)): .notifications
+        case (.notifications, .notificationsDone): .practiceOffer
         case (.notifications, .notificationsAnswered(false)), (.askingNotifications, .notificationsAnswered(false)): .notificationsOff
         case (.notificationsOff, .continueWithoutNotifications): .practiceOffer
         case let (.practiceOffer, .sendPractice(id)), let (.practiceResult, .sendPractice(id)), let (.practiceNotArrived, .sendPractice(id)),
