@@ -449,7 +449,24 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 		if logs.err != nil || !strings.Contains(logs.stdout, "automatic used without the Mac id="+id) {
 			t.Fatalf("logs: %v\n%s%s", logs.err, logs.stdout, logs.stderr)
 		}
+		// An agent's complaint while the Mac is shut waits here, and goes at the next contact.
+		complaining := linux.command("complain", "--summary", "The lease hung.", "--command", "lease login-ask", "--thread", "thread-1")
+		complaining.Stdin = strings.NewReader("It waited and printed nothing.\n")
+		if got := wait(t, start(complaining), "complain"); got.err != nil || !strings.Contains(got.stderr, "kept here and goes to the Mac at the next contact") {
+			t.Fatalf("complain with the Mac shut: %v\n%s", got.err, got.stderr)
+		}
 		w.macLog, w.stopMac = w.background("mac")
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+			linux.run("find", "example.com") // A contact with the Mac.
+			got := linux.run("complaints")
+			if got.err == nil && strings.Contains(got.stdout, "Linux server") && strings.Contains(got.stdout, "The lease hung.") &&
+				strings.Contains(got.stdout, "thread: thread-1") && strings.Contains(got.stdout, "It waited and printed nothing.") {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the Mac never got the complaint: %v\n%s%s", got.err, got.stdout, got.stderr)
+			}
+		}
 	})
 
 	t.Run("an answer from a device Josh removed is refused", func(t *testing.T) {

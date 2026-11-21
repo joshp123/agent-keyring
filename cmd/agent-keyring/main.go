@@ -37,6 +37,11 @@ const help = `Agent Keyring: use a saved login for one task.
   install --undo            Put back the links an earlier version's install replaced
   install --browser-profile DIRECTORY
                             Register a helper only in this browser user-data directory
+  complain --summary LINE [--command COMMAND] [--thread ID]
+                            Tell whoever builds Agent Keyring it was annoying,
+                            confusing or broken; more detail on standard input.
+                            Never include a password or secret
+  complaints [--since 24h]  Read agents' complaints, from the Mac
   machines                  List the computers on this Tailscale network
   enrol --name NAME --invite LINK
                             Join this computer, with a link from 'invite' on the Mac
@@ -94,7 +99,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "invite", "browser-profile":
+		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "invite", "browser-profile", "summary", "command", "thread":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -221,6 +226,12 @@ func run(ctx context.Context, args []string) (int, error) {
 			return 1, e
 		}
 		return 0, nil
+	}
+	if command == "complain" {
+		return complain(ctx, a)
+	}
+	if command == "complaints" {
+		return listComplaints(ctx, a)
 	}
 	if command == "tabs" || command == "fields" {
 		return inspectBrowser(ctx, command, a)

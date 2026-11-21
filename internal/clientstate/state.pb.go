@@ -117,7 +117,10 @@ type State struct {
 	// computer's receiving key (agentkeyring.v2.SealedPushCredential).
 	PushCredential []byte `protobuf:"bytes,21,opt,name=push_credential,json=pushCredential,proto3" json:"push_credential,omitempty"`
 	// After a denial, when this computer may ask for each password again.
-	Holds         []*Hold `protobuf:"bytes,22,rep,name=holds,proto3" json:"holds,omitempty"`
+	Holds []*Hold `protobuf:"bytes,22,rep,name=holds,proto3" json:"holds,omitempty"`
+	// Agents' complaints the Mac has not taken yet (agentkeyring.v2.Complaint),
+	// sent at the next contact with the Mac's door.
+	Complaints    [][]byte `protobuf:"bytes,23,rep,name=complaints,proto3" json:"complaints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -246,6 +249,13 @@ func (x *State) GetPushCredential() []byte {
 func (x *State) GetHolds() []*Hold {
 	if x != nil {
 		return x.Holds
+	}
+	return nil
+}
+
+func (x *State) GetComplaints() [][]byte {
+	if x != nil {
+		return x.Complaints
 	}
 	return nil
 }
@@ -577,7 +587,7 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\vPrivateKeys\x12'\n" +
 	"\x0fcertificate_pem\x18\x01 \x01(\fR\x0ecertificatePem\x12\x1e\n" +
 	"\vtls_key_pem\x18\x02 \x01(\fR\ttlsKeyPem\x120\n" +
-	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xb1\x05\n" +
+	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xd1\x05\n" +
 	"\x05State\x12#\n" +
 	"\rrelay_address\x18\x01 \x01(\tR\frelayAddress\x12\x1d\n" +
 	"\n" +
@@ -595,7 +605,10 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\x12mac_tls_public_key\x18\x13 \x01(\fR\x0fmacTlsPublicKey\x12\x16\n" +
 	"\x06bundle\x18\x14 \x01(\fR\x06bundle\x12'\n" +
 	"\x0fpush_credential\x18\x15 \x01(\fR\x0epushCredential\x124\n" +
-	"\x05holds\x18\x16 \x03(\v2\x1e.agentkeyring.clientstate.HoldR\x05holdsJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
+	"\x05holds\x18\x16 \x03(\v2\x1e.agentkeyring.clientstate.HoldR\x05holds\x12\x1e\n" +
+	"\n" +
+	"complaints\x18\x17 \x03(\fR\n" +
+	"complaintsJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
 	"J\x04\b\n" +
 	"\x10\vJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10\"`\n" +
 	"\x0eLocalAuthority\x121\n" +

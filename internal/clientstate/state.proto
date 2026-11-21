@@ -42,6 +42,9 @@ message State {
   bytes push_credential = 21;
   // After a denial, when this computer may ask for each password again.
   repeated Hold holds = 22;
+  // Agents' complaints the Mac has not taken yet (agentkeyring.v2.Complaint),
+  // sent at the next contact with the Mac's door.
+  repeated bytes complaints = 23;
 }
 message LocalAuthority {
   string application_contents = 1;

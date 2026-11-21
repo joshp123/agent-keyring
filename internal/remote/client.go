@@ -257,6 +257,9 @@ func (c *Client) refresh(ctx context.Context, limit time.Duration) (*view, error
 		c.log("mac unreachable error=" + strconv.Quote(err.Error()))
 		return current, nil
 	}
+	if len(state.Complaints) > 0 { // The next contact with the Mac takes what waits here.
+		c.sendComplaints(ctx)
+	}
 	have := current.revisions
 	if have != nil && revisions.Members <= have.Members && revisions.Catalogue <= have.Catalogue && revisions.Copies <= have.Copies &&
 		revisions.Members <= current.members.Revision {

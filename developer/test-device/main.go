@@ -111,6 +111,7 @@ type saved struct {
 	Revisions      [3]uint64        `json:"revisions"`     // Members, catalogue, copies.
 	Secrets        [][]byte         `json:"secrets"`       // Invitations not yet used.
 	Joins          map[string]*join `json:"joins"`
+	Complaints     [][]byte         `json:"complaints"` // Complaint, as computers sent them.
 }
 
 const (
@@ -395,6 +396,29 @@ func (d *devices) serveMac(joinWithin time.Duration) error {
 		if s, machine := d.member(w, r); machine != nil {
 			since, _ := strconv.ParseUint(r.URL.Query().Get("members"), 10, 64)
 			reply(w, s.bundle(machine, since))
+		}
+	})
+	mux.HandleFunc("POST /v2/complaint", func(w http.ResponseWriter, r *http.Request) {
+		if _, machine := d.member(w, r); machine != nil {
+			raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+			if proto.Unmarshal(raw, &pb.Complaint{}) != nil {
+				http.Error(w, "The body must be a Complaint.", http.StatusBadRequest)
+				return
+			}
+			d.change(func(s *saved) error { s.Complaints = append(s.Complaints, raw); return nil })
+		}
+	})
+	mux.HandleFunc("GET /v2/complaints", func(w http.ResponseWriter, r *http.Request) {
+		if s, machine := d.member(w, r); machine != nil {
+			since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+			result := &pb.Complaints{}
+			for _, raw := range s.Complaints {
+				complaint := &pb.Complaint{}
+				if proto.Unmarshal(raw, complaint) == nil && complaint.AtUnixSeconds >= since {
+					result.Complaints = append(result.Complaints, complaint)
+				}
+			}
+			reply(w, result)
 		}
 	})
 	mux.HandleFunc("GET /v2/logs", func(w http.ResponseWriter, r *http.Request) {
