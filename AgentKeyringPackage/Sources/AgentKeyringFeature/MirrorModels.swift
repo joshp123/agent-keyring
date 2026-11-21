@@ -29,7 +29,8 @@ extension MirrorGeneration {
             credentialItemCount: items.count,
             skippedCredentialCount: skippedCredentialCount,
             skippedCredentialSummary: skippedCredentialSummary,
-            sampleOnly: items.allSatisfy(\.isTestPassword)
+            sampleOnly: items.allSatisfy(\.isTestPassword),
+            testPasswordID: items.first(where: \.isTestPassword)?.id
         )
     }
 }

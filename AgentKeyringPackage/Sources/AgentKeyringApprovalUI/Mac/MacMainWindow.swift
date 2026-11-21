@@ -1,13 +1,16 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5, from the Paper
-// boards "Passwords and rules" and "Devices"; rebuilt on 2026.11.20 from the
-// board "Mac", "Every day" (page "First run and the app").
+// Written by AI on 2026.11.18 by model claude opus 5.5; rebuilt on 2026.11.21
+// by the same model from the shared page parts, the copy ledger of 21
+// November and the Paper page "Agent Keyring (Holistic)", board 3.
 //
 // The window after first run: Passwords, where each password has one rule and
-// rule changes are saved together with one Touch ID; and Devices, the devices
-// he approves on and the computers whose agents can ask.
+// rule changes are saved together with one Touch ID; and Devices, where he
+// approves and which computers' agents can ask. The tabs are in
+// MacPasswordsTab.swift and MacDevicesTab.swift.
 
 #if os(macOS)
 import AppKit
+import AgentKeyringApprovalCore
+import AgentKeyringDesign
 import LocalAuthentication
 import Observation
 import SwiftUI
@@ -17,13 +20,15 @@ public struct LoginRow: Identifiable, Hashable, Sendable {
     public var site: String
     public var account: String
     public var rule: LoginRule
-    /// How often agents asked for it, and how he answered; for showing and sorting.
+    /// How often agents asked for it, and how he answered.
     public var asked: Int
     public var approved: Int
     public var denied: Int
-    public var lastAsked: Date?
+    /// The example.com password Agent Keyring always keeps.
+    public var isTestPassword: Bool
 
-    public init(id: UUID, site: String, account: String, rule: LoginRule, asked: Int = 0, approved: Int = 0, denied: Int = 0, lastAsked: Date? = nil) {
+    public init(id: UUID, site: String, account: String, rule: LoginRule, asked: Int = 0, approved: Int = 0, denied: Int = 0,
+        isTestPassword: Bool = false) {
         self.id = id
         self.site = site
         self.account = account
@@ -31,57 +36,94 @@ public struct LoginRow: Identifiable, Hashable, Sendable {
         self.asked = asked
         self.approved = approved
         self.denied = denied
-        self.lastAsked = lastAsked
+        self.isTestPassword = isTestPassword
     }
+
+    /// For sorting by rule: Ask, Automatic, Blocked.
+    public var ruleOrder: Int { LoginRule.allCases.firstIndex(of: rule) ?? 0 }
 }
 
-/// A device he answers on, with its last practice result in `detail`.
-public struct DeviceRow: Identifiable, Hashable, Sendable {
+/// Where a practice request on one device is up to.
+public enum PracticeStatus: Hashable, Sendable {
+    /// On this Mac: the practice card is beside the window.
+    case waitingHere
+    case sending
+    case withApple
+    /// The iPhone or Apple Watch said it arrived.
+    case arrived
+    case approved
+    case denied
+    case noAnswer
+    /// The sentence the Mac gave for why it could not be sent.
+    case failed(String)
+
+    public var isUnderWay: Bool { [.waitingHere, .sending, .withApple, .arrived].contains(self) }
+}
+
+/// A device he approves on: this Mac, an iPhone or an Apple Watch.
+public struct ApproverRow: Identifiable, Hashable, Sendable {
+    public enum Kind: Sendable { case thisMac, iPhone, watch }
     public let id: String
-    public var practice: PracticeRow
-    public var isThisMac: Bool
+    public var kind: Kind
+    public var name: String
+    public var practice: PracticeStatus?
+    /// The Mac can send this device a practice request now.
+    public var canPractise: Bool
 
-    public init(practice: PracticeRow, isThisMac: Bool) {
-        self.id = practice.id
+    public init(id: String, kind: Kind, name: String, practice: PracticeStatus? = nil, canPractise: Bool) {
+        self.id = id
+        self.kind = kind
+        self.name = name
         self.practice = practice
-        self.isThisMac = isThisMac
+        self.canPractise = canPractise
     }
 }
 
-/// What Devices' three buttons open: the same windows as first run, in a sheet.
-public enum DevicesSheet: String, Identifiable, Sendable {
-    case addPhoneOrWatch, addComputer, tellAgents
-    public var id: String { rawValue }
-}
-
-public struct MachineRow: Identifiable, Hashable, Sendable {
+/// Another computer whose agents can ask.
+public struct ComputerRow: Identifiable, Hashable, Sendable {
     public let id: String
     public var name: String
-    public var isThisMac: Bool
-    public var isAlwaysOn: Bool
 
-    public init(id: String, name: String, isThisMac: Bool, isAlwaysOn: Bool) {
+    public init(id: String, name: String) {
         self.id = id
         self.name = name
-        self.isThisMac = isThisMac
-        self.isAlwaysOn = isAlwaysOn
     }
+}
+
+/// What stops this Mac reaching his other devices, said plainly on Devices.
+public enum DoorNotice: Hashable, Sendable {
+    /// No Tailscale address on this Mac.
+    case noTailscale
+    /// No push key from `agent-keyring push-key`.
+    case noPushKey
+    /// A port could not be opened; the Mac tries again by itself.
+    case failed
+}
+
+/// What the Add Device menu opens: the same sheets as first run.
+public enum DevicesSheet: String, Identifiable, Sendable {
+    case addIPhone, addComputer
+    public var id: String { rawValue }
 }
 
 public struct MainSnapshot: Hashable, Sendable {
     public var logins: [LoginRow]
     public var importedAt: Date?
-    /// The only password is first run's sample.
+    /// The only password is the test password.
     public var sampleOnly: Bool
-    public var devices: [DeviceRow]
-    public var machines: [MachineRow]
+    public var approvers: [ApproverRow]
+    /// Other computers, not this Mac.
+    public var computers: [ComputerRow]
+    public var notices: [DoorNotice]
 
-    public init(logins: [LoginRow], importedAt: Date?, sampleOnly: Bool = false, devices: [DeviceRow], machines: [MachineRow]) {
+    public init(logins: [LoginRow], importedAt: Date?, sampleOnly: Bool = false, approvers: [ApproverRow] = [],
+        computers: [ComputerRow] = [], notices: [DoorNotice] = []) {
         self.logins = logins
         self.importedAt = importedAt
         self.sampleOnly = sampleOnly
-        self.devices = devices
-        self.machines = machines
+        self.approvers = approvers
+        self.computers = computers
+        self.notices = notices
     }
 }
 
@@ -106,10 +148,14 @@ public final class MacMainModel {
     public private(set) var snapshot: MainSnapshot
     public var filter: LoginRule?
     public var search = ""
+    /// Most asked first, as the board draws it.
+    public var sortOrder = [KeyPathComparator(\LoginRow.asked, order: .reverse)]
     /// Rule changes not yet saved, by login.
     public private(set) var pending: [UUID: LoginRule] = [:]
     public private(set) var isWorking = false
     public private(set) var failure: String?
+    /// Remove…: the device or computer whose confirmation is showing.
+    public var removing: (id: String, name: String, isComputer: Bool)?
     private let backend: any MainWindowBackend
     private var context: LAContext?
 
@@ -135,6 +181,7 @@ public final class MacMainModel {
             (filter == nil || rule(of: row) == filter)
                 && (query.isEmpty || row.site.lowercased().contains(query) || row.account.lowercased().contains(query))
         }
+        .sorted(using: sortOrder)
     }
 
     public func choose(_ rule: LoginRule, for row: LoginRow) {
@@ -142,12 +189,11 @@ public final class MacMainModel {
         pending[row.id] = rule == row.rule ? nil : rule
     }
 
-    /// Names every computer that will get a password made Automatic: saving
-    /// switches on any of them not yet allowed Automatic passwords.
+    /// Names every computer that will get a password made Automatic.
     public var pendingSentence: String {
         let changed = snapshot.logins.filter { pending[$0.id] != nil }
         let toAutomatic = changed.filter { pending[$0.id] == .automatic }.count
-        let computers = snapshot.machines.map { $0.isThisMac ? "this Mac" : $0.name }
+        let computers = [MainWindowCopy.thisMacInSentence] + snapshot.computers.map(\.name)
         let automatic = toAutomatic > 0 ? MainWindowCopy.automaticTo(computers, count: toAutomatic) : ""
         guard changed.count == 1, let row = changed.first, let next = pending[row.id] else {
             return MainWindowCopy.rulesChange(changed.count) + automatic
@@ -166,14 +212,41 @@ public final class MacMainModel {
 
     public func sendPractice(_ id: String) { backend.sendPractice(deviceID: id) }
 
-    /// Sort with AI: a prompt with each password's website, account and rule, never a password.
-    public func copySortPrompt() {
-        let rows = snapshot.logins.map { (site: $0.site, account: $0.account, rule: rule(of: $0).name) }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(MainWindowCopy.sortPrompt(rows), forType: .string)
+    // MARK: Sort with AI
+
+    /// The prompt for an agent: each password's website, account and rule, never a password.
+    public var sortPrompt: String {
+        MainWindowCopy.sortPrompt(snapshot.logins.map { (site: $0.site, account: $0.account, rule: rule(of: $0).name) })
     }
 
+    /// Reads an agent's reply, one line per password (website, account, rule,
+    /// separated by tabs or a table's bars), and makes each suggestion a
+    /// pending change for him to review and save. Returns how many changed.
+    @discardableResult
+    public func applySuggestions(_ reply: String) -> Int {
+        var applied = 0
+        for line in reply.split(whereSeparator: \.isNewline) {
+            let cells = line.split(whereSeparator: { $0 == "\t" || $0 == "|" })
+                .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "`*")) }
+                .filter { !$0.isEmpty }
+            guard cells.count >= 3,
+                let suggested = LoginRule.allCases.first(where: { $0.name.caseInsensitiveCompare(cells[cells.count - 1]) == .orderedSame }),
+                let row = snapshot.logins.first(where: {
+                    $0.site.caseInsensitiveCompare(cells[0]) == .orderedSame && $0.account.caseInsensitiveCompare(cells[1]) == .orderedSame
+                }), rule(of: row) != suggested
+            else { continue }
+            choose(suggested, for: row)
+            applied += 1
+        }
+        return applied
+    }
+
+    // MARK: Devices
+
+    public func askToRemove(_ id: String, name: String, isComputer: Bool) { removing = (id, name, isComputer) }
+
     public func remove(_ id: String) {
+        removing = nil
         run { [backend] context in try await backend.remove(id: id, context: context) }
     }
 
@@ -200,28 +273,26 @@ public final class MacMainModel {
     }
 }
 
+/// The window: Passwords | Devices in the toolbar's centre, Search on
+/// Passwords, Add Device on Devices. Its size is the app's to set.
 public struct MacMainWindowView: View {
     @Bindable var model: MacMainModel
-    /// The windows Devices' buttons open, drawn by the app.
+    /// The sheets Add Device opens, drawn by the app.
     let sheetContent: (DevicesSheet, @escaping () -> Void) -> AnyView
     @State private var sheet: DevicesSheet?
 
-    public init(model: MacMainModel, sheet: @escaping (DevicesSheet, @escaping () -> Void) -> AnyView = { _, _ in AnyView(EmptyView()) }) {
+    public init(model: MacMainModel, sheet: @escaping (DevicesSheet, @escaping () -> Void) -> AnyView) {
         self.model = model
         self.sheetContent = sheet
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        Group {
             switch model.tab {
-            case .logins: LoginsTab(model: model)
-            case .devices: DevicesTab(model: model, open: { sheet = $0 })
+            case .logins: MacPasswordsTab(model: model)
+            case .devices: MacDevicesTab(model: model)
             }
         }
-        .frame(width: 820)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(RequestToken.surface)
-        // One toolbar row: the window's buttons, Passwords | Devices in the centre, Search on Passwords.
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Picker(MainWindowCopy.passwordsTab, selection: $model.tab) {
@@ -230,262 +301,24 @@ public struct MacMainWindowView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
-            if model.tab == .logins {
-                ToolbarItem(placement: .primaryAction) { SearchField(text: $model.search).frame(width: 200) }
+            if model.tab == .devices {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button(MainWindowCopy.addIPhone) { sheet = .addIPhone }
+                        Button(MainWindowCopy.addComputer) { sheet = .addComputer }
+                    } label: {
+                        Label(MainWindowCopy.addDevice, systemImage: "plus")
+                    }
+                    .labelStyle(.titleAndIcon)
+                }
             }
         }
         .toolbar(removing: .title)
         .sheet(item: $sheet) { which in sheetContent(which) { sheet = nil } }
         .task { await model.followUpdates() }
-        .alert(SetupCopy.appName, isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.dismissFailure() } })) {
+        .alert(MenuBarCopy.appName, isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.dismissFailure() } })) {
             Button(SetupCopy.ok) { model.dismissFailure() }
         } message: { Text(model.failure ?? "") }
-    }
-}
-
-private struct SearchField: View {
-    @Binding var text: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .semibold)).foregroundStyle(RequestToken.ink2)
-            TextField(MainWindowCopy.search, text: $text).textFieldStyle(.plain).font(.system(size: 13))
-        }
-        .padding(.horizontal, 12).frame(height: 32)
-        .background(RequestToken.fill, in: Capsule())
-    }
-}
-
-private struct LoginsTab: View {
-    @Bindable var model: MacMainModel
-
-    @State private var promptCopied = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    rule(LoginRule.ask.name, MainWindowCopy.askExplained)
-                    rule(LoginRule.automatic.name, MainWindowCopy.automaticExplained)
-                    rule(LoginRule.blocked.name, MainWindowCopy.blockedExplained)
-                }
-                .padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(RequestToken.fill, in: .rect(cornerRadius: 14))
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(MainWindowCopy.sortBody(model.snapshot.logins.count)).font(.system(size: 13)).lineSpacing(2)
-                        .foregroundStyle(RequestToken.ink).fixedSize(horizontal: false, vertical: true)
-                    Pill(title: promptCopied ? MainWindowCopy.sortCopied : MainWindowCopy.sortWithAI, style: .dark) {
-                        model.copySortPrompt()
-                        promptCopied = true
-                    }
-                }
-                .padding(14).frame(width: 300, alignment: .topLeading).frame(maxHeight: .infinity, alignment: .top)
-                .background(RequestToken.fill, in: .rect(cornerRadius: 14))
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 20).padding(.top, 14)
-            HStack {
-                Picker(MainWindowCopy.all, selection: $model.filter) {
-                    Text(label(MainWindowCopy.all, nil)).tag(LoginRule?.none)
-                    ForEach(LoginRule.allCases, id: \.self) { Text(label($0.name, $0)).tag(LoginRule?.some($0)) }
-                }
-                .pickerStyle(.segmented).labelsHidden().fixedSize()
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 20).padding(.vertical, 12)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(model.visibleLogins) { row in
-                        HStack(spacing: 10) {
-                            Text(row.site).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                                .lineLimit(1).frame(width: 230, alignment: .leading)
-                            Text(row.account).font(.system(size: 13)).foregroundStyle(RequestToken.ink2).lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            RuleMenu(rule: model.rule(of: row)) { model.choose($0, for: row) }
-                        }
-                        .padding(.horizontal, 20).frame(height: 46)
-                        .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
-                    }
-                }
-            }
-            .frame(height: 420)
-            footer.overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
-        }
-    }
-
-    /// "Ask: an agent asks you each time it needs the password."
-    private func rule(_ name: String, _ meaning: String) -> some View {
-        (Text(name + ": ").fontWeight(.semibold) + Text(meaning)).font(.system(size: 13)).lineSpacing(2)
-            .foregroundStyle(RequestToken.ink).fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// "Ask 528": the rule and how many passwords have it, the count in grey.
-    private func label(_ title: String, _ rule: LoginRule?) -> AttributedString {
-        var name = AttributedString(title + " ")
-        name.foregroundColor = .primary
-        var count = AttributedString("\(model.count(rule))")
-        count.foregroundColor = .secondary
-        return name + count
-    }
-
-    @ViewBuilder private var footer: some View {
-        HStack(spacing: 10) {
-            if model.pending.isEmpty {
-                Text(imported).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Pill(title: model.snapshot.sampleOnly ? MainWindowCopy.copyFromPasswords : MainWindowCopy.copyAgain,
-                    style: .quiet, action: model.importAgain)
-            } else {
-                Text(model.pendingSentence)
-                    .font(.system(size: 14)).foregroundStyle(RequestToken.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Pill(title: MainWindowCopy.cancel, style: .quiet, action: model.cancelChanges)
-                Pill(title: model.isWorking ? MainWindowCopy.useTouchIDToSave : MainWindowCopy.saveWithTouchID, style: .approve, action: model.save)
-                    .disabled(model.isWorking)
-            }
-        }
-        .padding(.horizontal, 20).padding(.vertical, 12)
-    }
-
-    private var imported: String {
-        if model.snapshot.sampleOnly { return MainWindowCopy.sampleOnly }
-        guard let at = model.snapshot.importedAt else { return MainWindowCopy.noneCopied }
-        return MainWindowCopy.copiedOn(at.formatted(.dateTime.day().month(.wide)))
-    }
-}
-
-private struct RuleMenu: View {
-    let rule: LoginRule
-    let choose: (LoginRule) -> Void
-
-    var body: some View {
-        Menu {
-            ForEach(LoginRule.allCases, id: \.self) { option in
-                Button { choose(option) } label: {
-                    Text(option.name)
-                    Text(option.explanation)
-                    if option == rule { Image(systemName: "checkmark") }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(rule.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(RequestToken.ink2)
-            }
-            .padding(.leading, 12).padding(.trailing, 8).frame(height: 28)
-            .background(RequestToken.fill, in: Capsule())
-        }
-        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-    }
-}
-
-private struct DevicesTab: View {
-    @Bindable var model: MacMainModel
-    let open: (DevicesSheet) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(MainWindowCopy.devicesIntro).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
-                .padding(.horizontal, 20).padding(.top, 16)
-            heading(MainWindowCopy.whereYouAnswer)
-            ForEach(model.snapshot.devices) { device in
-                let row = device.practice
-                DeviceLine(symbol: row.symbol, name: row.name, detail: row.detail, tone: row.tone) {
-                    Pill(title: FirstRunCopy.sendPractice, style: .quiet) { model.sendPractice(row.id) }.disabled(!row.canSend)
-                    if !device.isThisMac { Pill(title: MainWindowCopy.remove, style: .remove) { model.remove(device.id) }.disabled(model.isWorking) }
-                }
-            }
-            rule
-            heading(MainWindowCopy.computersThatAsk)
-            ForEach(model.snapshot.machines) { machine in
-                DeviceLine(symbol: machine.isThisMac ? "laptopcomputer" : "macmini", name: machine.name, detail: machineDetail(machine)) {
-                    if !machine.isThisMac { Pill(title: MainWindowCopy.remove, style: .remove) { model.remove(machine.id) }.disabled(model.isWorking) }
-                }
-            }
-            rule
-            HStack(spacing: 8) {
-                Pill(title: MainWindowCopy.addPhoneOrWatch, style: .quiet) { open(.addPhoneOrWatch) }
-                Pill(title: MainWindowCopy.addComputer, style: .quiet) { open(.addComputer) }
-                Pill(title: MainWindowCopy.tellYourAgents, style: .quiet) { open(.tellAgents) }
-            }
-            .padding(.horizontal, 20).padding(.vertical, 16)
-        }
-    }
-
-    /// The line under the last row of a list.
-    private var rule: some View { RequestToken.line.frame(height: 1).padding(.horizontal, 20) }
-
-    private func heading(_ title: String) -> some View {
-        Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(RequestToken.ink)
-            .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 10)
-    }
-
-    private func machineDetail(_ machine: MachineRow) -> String? {
-        machine.isThisMac ? MainWindowCopy.thisMac : machine.isAlwaysOn ? MainWindowCopy.staysOn : nil
-    }
-}
-
-private struct DeviceLine<Trailing: View>: View {
-    let symbol: String
-    let name: String
-    let detail: String?
-    var tone = PracticeRow.Tone.plain
-    @ViewBuilder var trailing: Trailing
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: symbol).font(.system(size: 15)).foregroundStyle(RequestToken.ink).frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.system(size: 14, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                if let detail {
-                    Text(detail).font(.system(size: 13))
-                        .foregroundStyle(tone == .approved ? RequestToken.approve : tone == .denied ? RequestToken.deny : RequestToken.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            trailing
-        }
-        .padding(.vertical, 10)
-        .overlay(alignment: .top) { RequestToken.line.frame(height: 1) }
-        .padding(.horizontal, 20)
-    }
-}
-
-private struct Pill: View {
-    enum Style { case quiet, approve, dark, remove }
-    let title: String
-    let style: Style
-    let action: () -> Void
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        Button(action: action) {
-            Text(title).font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(foreground)
-                .padding(.horizontal, style == .approve ? 16 : 12).frame(height: style == .approve ? 32 : 28)
-                .background(background, in: Capsule())
-                .contentShape(Capsule())
-                .opacity(isEnabled ? 1 : 0.5)
-        }
-        .buttonStyle(.plain).fixedSize()
-    }
-
-    private var foreground: Color {
-        switch style {
-        case .quiet: RequestToken.ink
-        case .dark: RequestToken.surface
-        case .approve: RequestToken.onAnswer
-        case .remove: RequestToken.deny
-        }
-    }
-
-    private var background: Color {
-        switch style {
-        case .quiet, .remove: RequestToken.fill
-        case .dark: RequestToken.ink
-        case .approve: RequestToken.approve
-        }
     }
 }
 #endif

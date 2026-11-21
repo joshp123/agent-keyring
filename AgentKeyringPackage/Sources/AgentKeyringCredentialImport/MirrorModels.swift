@@ -184,6 +184,8 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
     public let skippedCredentialSummary: MirrorSkippedCredentialSummary?
     /// The only password is the test password (nil in a status saved before there was one).
     public let sampleOnly: Bool?
+    /// The test password's id, for the "Test password" tag in Passwords (nil in a status saved before this).
+    public let testPasswordID: UUID?
 
     public init(
         generationID: UUID,
@@ -193,8 +195,10 @@ public struct SafeMirrorStatus: Codable, Equatable, Sendable {
         credentialItemCount: Int,
         skippedCredentialCount: Int,
         skippedCredentialSummary: MirrorSkippedCredentialSummary? = nil,
-        sampleOnly: Bool? = nil
+        sampleOnly: Bool? = nil,
+        testPasswordID: UUID? = nil
     ) {
+        self.testPasswordID = testPasswordID
         self.generationID = generationID
         self.importedAt = importedAt
         self.sourceExportedAt = sourceExportedAt

@@ -1,5 +1,6 @@
 // Written by AI on 2026.10.31 by model Claude Opus 5.5; rewritten on
-// 2026.11.18 by the same model for protocol version 2.
+// 2026.11.18 by the same model for protocol version 2; renamed from
+// RelayBackends.swift on 2026.11.21: there is no relay.
 //
 // The Mac screens over MacDevice: computers and devices joining, in the menu
 // bar. Plumbing only. Requests from agents on other computers no longer reach
@@ -16,7 +17,7 @@ import Observation
 
 /// Turns joins into the values the screens show.
 @MainActor
-public enum RelayScreenMapping {
+public enum JoinScreenMapping {
     public static func enrolment(_ join: Agentkeyring_V2_PendingJoin) -> DeviceEnrolment {
         let (kind, name): (DeviceEnrolment.Kind, String) = switch join.request.joining {
         case let .machine(machine)?: (.machine, machine.label)

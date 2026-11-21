@@ -84,10 +84,12 @@ public enum SetupScreens {
     }
 }
 
-/// The sheet: which of its windows shows is its only state.
+/// The sheet Devices' Add Device menu opens, until first run's new add
+/// sheets replace it: which of its windows shows is its only state. The Apple
+/// Watch is added from the iPhone, so adding an iPhone ends at the iPhone.
 @available(macOS 26.0, *)
 public struct SetupSheet: View {
-    enum Step { case phone, watch, computers, tellAgents }
+    enum Step { case phone, computers }
     let model: MirrorAppModel
     let close: () -> Void
     @State private var step: Step
@@ -96,17 +98,8 @@ public struct SetupSheet: View {
     public init(_ sheet: DevicesSheet, model: MirrorAppModel, close: @escaping () -> Void) {
         self.model = model
         self.close = close
-        let hasPhone = model.device?.members?.devices.contains { $0.kind == .iphone } == true
-        let first: Step = switch sheet {
-        case .tellAgents: .tellAgents
-        case .addPhoneOrWatch: hasPhone ? .watch : .phone
-        case .addComputer: .computers
-        }
-        _step = State(initialValue: first)
-        self.sheet = sheet
+        _step = State(initialValue: sheet == .addIPhone ? .phone : .computers)
     }
-
-    private let sheet: DevicesSheet
 
     public var body: some View {
         MacFirstRunView(screen: screen, actions: actions)
@@ -116,9 +109,7 @@ public struct SetupSheet: View {
     private var screen: FirstRunScreen {
         switch step {
         case .phone: SetupScreens.addPhone(model)
-        case .watch: SetupScreens.addWatch(model)
         case .computers: SetupScreens.addComputers(model, command: command)
-        case .tellAgents: SetupScreens.tellAgents(model, copied: nil)
         }
     }
 
@@ -126,9 +117,7 @@ public struct SetupSheet: View {
         var actions = FirstRunActions()
         actions.useThisMacAlone = close
         actions.skip = close
-        actions.continueOn = {
-            if step == .phone { step = .watch } else { close() }
-        }
+        actions.continueOn = close
         return actions
     }
 }

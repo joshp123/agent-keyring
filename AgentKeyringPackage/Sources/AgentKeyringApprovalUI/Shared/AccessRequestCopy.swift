@@ -74,8 +74,16 @@ public enum AccessRequestCopy {
     }()
 }
 
-/// The words of the menu bar window (MacMenuBarView), from the Paper board "In the menu bar".
+/// The words of the menu bar window (MacMenuBarView), from the copy ledger of
+/// 21 November 2026 ("Mac Menu Bar Popover"). Rewritten on 2026.11.21 by model
+/// claude opus 5.5 for the direct design: no relay and no computer that stays on.
 public enum MenuBarCopy {
+    public static let appName = "Agent Keyring"
+    public static func waiting(_ count: Int) -> String { "\(count) waiting" }
+    public static let allQuiet = "All quiet"
+    public static let offline = "Offline"
+    /// Tailscale is off on this Mac, and an iPhone or Apple Watch is added.
+    public static let offlineNotice = "This Mac is offline, so password requests can’t reach your iPhone or Apple Watch. Approvals on this Mac still work."
     public static let waitingForYou = "Waiting for you"
     public static let inUse = "In use"
     public static let earlierToday = "Earlier today"
@@ -84,28 +92,37 @@ public enum MenuBarCopy {
     public static let stop = "Stop"
     public static func passwords(_ count: Int) -> String { count == 1 ? "1 password" : "\(count) passwords" }
     public static let devices = "Devices"
-    /// A password the agent got by its Automatic rule, without asking.
-    public static let automatic = "Automatic"
-    public static let open = "Open Agent Keyring"
-    public static let quit = "Quit Agent Keyring"
     public static let more = "More"
-    /// When the computer that stays on has no name this Mac knows.
-    public static let relayComputer = "The computer that stays on"
-    public static func offline(_ computer: String) -> String { "\(computer) is offline, so requests can’t get to your iPhone or Apple Watch." }
-    public static let paused = "Agents are paused on this Mac. Agent Keyring can’t read its record of what agents are using. Reset it to let them ask again. Your passwords and rules stay."
-    public static let reset = "Reset…"
+    public static let copyAgain = "Copy Passwords Again…"
+    public static let quit = "Quit Agent Keyring"
+    /// On a denial that still holds the password off for that computer (right-click).
+    public static let letAskAgain = "Let It Ask Again"
 
-    /// "Codex on Mac mini · bookkeeping", "Claude Code on this Mac".
-    public static func who(_ request: AccessRequest, project: Bool = true) -> String {
-        let place = request.agent.isLocal ? "this Mac" : request.agent.machine
-        let base = "\(request.agent.name) on \(place)"
-        guard project, let name = request.agent.project, !name.isEmpty else { return base }
-        return "\(base) · \(name)"
+    // How a request earlier today ended
+    public static let approved = "Approved"
+    public static let denied = "Denied"
+    public static let automatic = "Automatic"
+    public static let stopped = "Stopped"
+    public static let noAnswer = "No answer"
+    public static let cancelled = "Cancelled"
+    public static let blocked = "Blocked"
+
+    /// "Codex on Mac mini", "Claude Code on this Mac".
+    public static func who(_ request: AccessRequest) -> String {
+        "\(request.agent.name) on \(request.agent.isLocal ? "this Mac" : request.agent.machine)"
+    }
+
+    /// "Codex on Mac mini · You asked me to download October’s invoice."
+    public static func waitingDetail(_ request: AccessRequest) -> String {
+        request.agentReason.isEmpty ? who(request) : "\(who(request)) · \(request.agentReason)"
     }
 
     /// "Claude Code on this Mac · until 14:32".
     public static func inUseDetail(_ request: AccessRequest) -> String {
-        guard case let .approved(_, until) = request.state else { return who(request, project: false) }
-        return "\(who(request, project: false)) · until \(AccessRequestCopy.clock(until))"
+        guard case let .approved(_, until) = request.state else { return who(request) }
+        return "\(who(request)) · until \(AccessRequestCopy.clock(until))"
     }
+
+    /// "shop.example · 13:40".
+    public static func earlier(_ request: AccessRequest) -> String { "\(request.login.site) · \(AccessRequestCopy.clock(request.askedAt))" }
 }

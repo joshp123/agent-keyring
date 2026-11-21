@@ -63,9 +63,11 @@ struct AgentKeyringMenuWindow: View {
     let presentation: AgentKeyringPresentation
     let menuBar: MacMenuBarModel
     let approvals: ApprovalPresenter
+    let model: MirrorAppModel
 
     var body: some View {
         MacMenuBarView(model: menuBar)
+            .frame(width: 360)
             .onAppear {
                 menuBar.review = { leaseID in
                     dismiss()
@@ -75,17 +77,19 @@ struct AgentKeyringMenuWindow: View {
                     dismiss()
                     approvals.present(enrolmentID: enrolmentID)
                 }
-                menuBar.openMachines = {
+                menuBar.openDevices = {
                     dismiss()
                     presentation.requestMainWindow(.devices)
                 }
-                menuBar.openRules = {
+                menuBar.openPasswords = {
                     dismiss()
                     presentation.requestMainWindow(.logins)
                 }
-                menuBar.openAgentKeyring = {
+                // The main window shows "Copy your passwords" while the copy is open.
+                menuBar.copyAgain = {
                     dismiss()
-                    presentation.requestMainWindow()
+                    model.openPasswordsExport()
+                    presentation.requestMainWindow(.logins)
                 }
                 menuBar.quit = { NSApplication.shared.terminate(nil) }
             }

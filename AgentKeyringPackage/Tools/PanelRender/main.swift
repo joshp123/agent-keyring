@@ -48,24 +48,6 @@ let invited = AccessRequest(id: "i", login: RequestedLogin(site: "Mac mini", acc
         footer: SetupCopy.addingComputerFooter("Mac mini", staysOn: false), denied: SetupCopy.notAdded("Mac mini"), replies: false),
     agentReason: "", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
 var longName = request; longName.agent.name = "Research Assistant for Bookkeeping"
-func at(_ hour: Int, _ minute: Int) -> Date { Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: .now)! }
-func row(_ site: String, _ agent: String, _ computer: String?, _ hour: Int, _ minute: Int, _ state: AccessRequestState, project: String? = nil, automatic: Bool = false) -> AccessRequest {
-    AccessRequest(id: site + agent + "\(hour)", login: RequestedLogin(site: site, account: "you@example.com"),
-        agent: RequestingAgent(name: agent, machine: computer ?? "", address: "", project: project, isLocal: computer == nil),
-        access: .login, agentReason: "", askedAt: at(hour, minute), state: state, byAutomaticRule: automatic)
-}
-let earlier = [row("shop.example", "Claude Code", nil, 13, 40, .released(at: at(13, 50))),
-    row("forum.example", "Codex", "Linux server", 13, 12, .denied(by: .mac, reply: nil, askAgainAfter: nil)),
-    row("example.com", "Codex", "Mac mini", 11, 5, .unanswered),
-    row("news.example", "Codex", "Mac mini", 9, 30, .released(at: at(9, 31)), automatic: true)]
-final class MenuStub: MacMenuBarBackend {
-    func updates() -> AsyncStream<MacMenuBarSnapshot> { AsyncStream { $0.finish() } }
-    func endAccess(requestID: String) async throws -> AccessRequestState { .cancelled }
-    func allowAskingAgain(requestID: String) async throws -> AccessRequestState { .cancelled }
-}
-@MainActor func menu(_ snapshot: MacMenuBarSnapshot) -> AnyView {
-    AnyView(MacMenuBarView(model: MacMenuBarModel(backend: MenuStub(), initial: snapshot)).clipShape(.rect(cornerRadius: 16)))
-}
 let cases: [(String, AnyView)] = [
     ("waiting", AnyView(ReviewRendering.panel(request))),
     ("waiting-for-touch", AnyView(ReviewRendering.panel(request, waiting: true))),
@@ -120,42 +102,23 @@ final class StubBackend: MainWindowBackend {
     func importAgain() {}
     func sendPractice(deviceID: String) {}
 }
-let thisMac = DeviceRow(practice: practiceRows[0], isThisMac: true)
-let plainRows = [
-    PracticeRow(id: "d1", name: "MacBook Pro", symbol: "laptopcomputer", detail: "This Mac · You answer with Touch ID", tone: .plain, canSend: true),
-    PracticeRow(id: "d2", name: "iPhone", symbol: "iphone", detail: MainWindowCopy.phoneAnswers, tone: .plain, canSend: true),
-    PracticeRow(id: "d3", name: "Apple Watch", symbol: "applewatch", detail: MainWindowCopy.watchAnswers, tone: .plain, canSend: true),
-]
-let logins = [("example.com", LoginRule.ask), ("news.example", .ask), ("forum.example", .automatic), ("old.example", .blocked)]
-    .map { LoginRow(id: UUID(), site: $0.0, account: "you@example.com", rule: $0.1) }
-let alone = MainSnapshot(logins: logins, importedAt: .now, devices: [DeviceRow(practice: plainRows[0], isThisMac: true)],
-    machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true, isAlwaysOn: false)])
+let logins = [("example.com", LoginRule.ask, true), ("news.example", .ask, false), ("forum.example", .automatic, false), ("old.example", .blocked, false)]
+    .map { LoginRow(id: UUID(), site: $0.0, account: "you@example.com", rule: $0.1, asked: 3, approved: 2, denied: 1, isTestPassword: $0.2) }
 let everything = MainSnapshot(logins: logins, importedAt: .now,
-    devices: plainRows.enumerated().map { DeviceRow(practice: $1, isThisMac: $0 == 0) },
-    machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true, isAlwaysOn: false),
-        MachineRow(id: "m2", name: "Mac mini", isThisMac: false, isAlwaysOn: true),
-        MachineRow(id: "m3", name: "Linux server", isThisMac: false, isAlwaysOn: false)])
-@MainActor func mainWindow(_ snapshot: MainSnapshot, tab: MacMainModel.Tab, makeAutomatic: Bool = false) -> AnyView {
+    approvers: [ApproverRow(id: "d1", kind: .thisMac, name: "MacBook Pro", canPractise: true),
+        ApproverRow(id: "d2", kind: .iPhone, name: "iPhone", practice: .arrived, canPractise: false),
+        ApproverRow(id: "d3", kind: .watch, name: "Apple Watch", canPractise: true)],
+    computers: [ComputerRow(id: "m2", name: "Mac mini"), ComputerRow(id: "m3", name: "Linux server")])
+@MainActor func mainWindow(_ snapshot: MainSnapshot, tab: MacMainModel.Tab) -> AnyView {
     let model = MacMainModel(backend: StubBackend(), initial: snapshot)
     model.tab = tab
-    if makeAutomatic { model.choose(.automatic, for: snapshot.logins[1]) }
-    return AnyView(MacMainWindowView(model: model))
+    return AnyView(MacMainWindowView(model: model) { _, _ in AnyView(EmptyView()) }.frame(width: 860, height: 640))
 }
 MainActor.assumeIsolated {
-    let windows: [(String, AnyView)] = [
-        ("menu-bar-open", menu(MacMenuBarSnapshot(requests: [
-            row("example.com", "Codex", "Mac mini", 14, 1, .waitingForYou(until: .now.addingTimeInterval(500)), project: "bookkeeping"),
-            row("example.org", "Claude Code", nil, 14, 2, .approved(by: .mac, until: at(14, 32)))] + earlier, passwordCount: 542))),
-        ("menu-bar-nothing", menu(MacMenuBarSnapshot(requests: earlier, passwordCount: 542))),
-        ("menu-bar-offline", menu(MacMenuBarSnapshot(requests: earlier, offlineComputer: "Mac mini", passwordCount: 542))),
-        ("devices-this-mac-only", mainWindow(alone, tab: .devices)),
-        ("devices-everything", mainWindow(everything, tab: .devices)),
-        ("passwords-rule-bar-automatic", mainWindow(everything, tab: .logins, makeAutomatic: true)),
-    ]
     // The main window in a real window, off screen, so its toolbar and native controls draw as macOS draws them.
     _ = NSApplication.shared
     for (name, snapshot, tab) in [("window-passwords", everything, MacMainModel.Tab.logins), ("window-devices", everything, .devices),
-        ("window-sample-only", MainSnapshot(logins: [logins[0]], importedAt: .now, devices: [thisMac], machines: alone.machines), .logins)] {
+        ("window-sample-only", MainSnapshot(logins: [logins[0]], importedAt: .now, sampleOnly: true, approvers: [everything.approvers[0]]), .logins)] {
         for (appearance, label) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
             let host = NSHostingController(rootView: mainWindow(snapshot, tab: tab))
             host.sceneBridgingOptions = [.toolbars, .title]
@@ -171,7 +134,7 @@ MainActor.assumeIsolated {
             print(name, label, Int(frame.bounds.width), "x", Int(frame.bounds.height))
         }
     }
-    for (name, view) in cases + windows {
+    for (name, view) in cases {
         for (scheme, label) in [(ColorScheme.light, "light"), (.dark, "dark")] {
             let renderer = ImageRenderer(content: view.environment(\.colorScheme, scheme).padding(30).background(scheme == .dark ? Color(white: 0.1) : Color(white: 0.93)))
             renderer.scale = 2

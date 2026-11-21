@@ -20,7 +20,7 @@ public enum PageGallery {
                     approval: OwnerApproval(action: SetupCopy.sendImportedReason, reason: SetupCopy.sendImportedReason,
                         perform: { _ in }, finish: { _ in }))
             },
-        ]
+        ] + MacEverydayGallery.entries
         #elseif os(iOS)
         PhoneGallery.entries
         #else
