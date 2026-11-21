@@ -20,12 +20,12 @@ struct AgentKeyringPhoneApp: App {
         WindowGroup {
             PhoneRootView(model: delegate.model)
                 .onChange(of: scenePhase, initial: true) { _, phase in
-                    // In front: follow the relay, or until joined keep looking for the Mac's invitation.
+                    // In front: fetch what changed from the Mac, or until joined look for its join card.
                     if phase == .active {
-                        delegate.relay?.start()
+                        delegate.keyring?.start()
                         PhoneDiagnostics.log.collect()
                         Task { await delegate.model.recheckNotifications() }
-                    } else if phase == .background { delegate.relay?.stop() }
+                    } else if phase == .background { delegate.keyring?.stop() }
                 }
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
                 .onOpenURL { url in Task { await delegate.model.join(invitation: url.absoluteString) } }
@@ -46,7 +46,7 @@ struct AgentKeyringPhoneApp: App {
 final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     let backend: any PhoneBackend
     /// The real backend; nil when the app runs on Paper's sample (`-Sample YES`).
-    let relay: PhoneRelayBackend?
+    let keyring: PhoneKeyring?
     let model: PhoneModel
     private(set) var watch: WatchLink?
 
@@ -59,7 +59,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         #endif
         if sampled {
             let sample = PhoneSampleBackend(step: UserDefaults.standard.string(forKey: "SampleStep"))
-            backend = sample; relay = nil
+            backend = sample; keyring = nil
             model = PhoneModel(backend: sample, initial: sample.current)
         } else {
             // A new install: removing the app cleared its own files but not its keychain. The keys stay.
@@ -72,17 +72,17 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             #else
             let keys: any PhoneDeviceKeys = PhoneEnclaveKeys(accessGroup: Self.keychainGroup)
             #endif
-            let real = PhoneRelayBackend(directory: .applicationSupportDirectory.appending(path: "AgentKeyring", directoryHint: .isDirectory),
-                                         shared: PhoneSharedContext(accessGroup: Self.keychainGroup), keys: keys,
-                                         identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v2") })
-            backend = real; relay = real
+            let real = PhoneKeyring(directory: .applicationSupportDirectory.appending(path: "AgentKeyring", directoryHint: .isDirectory),
+                                    shared: PhoneSharedContext(accessGroup: Self.keychainGroup), keys: keys,
+                                    identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v2") })
+            backend = real; keyring = real
             model = PhoneModel(backend: real, initial: real.snapshot)
         }
         super.init()
         PhoneSpeechModel.log = { event, fields in
             PhoneDiagnostics.log.note("speech", event, KeyValuePairs(dictionaryLiteral: ("detail", fields.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))))
         }
-        if let relay { watch = WatchLink(relay: relay) }
+        if let keyring { watch = WatchLink(keyring: keyring) }
         #if DEBUG
         // For comparing screens with Paper in the simulator: -SampleTab logins, -SampleShow r1.
         if let tab = UserDefaults.standard.string(forKey: "SampleTab").flatMap(PhoneTab.init(rawValue:)) { model.tab = tab }
@@ -99,17 +99,18 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let production = PushEnvironment.isProduction
         Task {
             do {
-                try await relay?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production)
-                PhoneDiagnostics.note("Push address registered with the relay")
+                try await keyring?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production)
+                PhoneDiagnostics.note("Push address registered with the Mac")
             } catch { PhoneDiagnostics.note("Could not register for pushes: \(error)") }
         }
     }
 
-    /// A silent push: a request was answered or ended. Its notification goes, wherever it was answered.
+    /// A silent push: a request was answered or ended, so its notification goes wherever it was answered;
+    /// or the Mac's lists changed ("rev"), so they are fetched.
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
-        guard let id = PhoneNotification.ended(userInfo) else { return .noData }
-        PhoneNotifications.remove(id)
-        relay?.notificationOpened(id)  // fetches the request's outcome, if this iPhone has joined
+        if let id = PhoneNotification.ended(userInfo) { PhoneNotifications.remove(id) }
+        guard userInfo["rev"] != nil || userInfo["akr"] != nil else { return .noData }
+        await keyring?.received(userInfo)
         return .newData
     }
 
@@ -162,9 +163,9 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let thread = response.notification.request.content.threadIdentifier
         let id = PhoneNotification.requestID(userInfo) ?? (thread.isEmpty ? nil : thread)
         let done = UncheckedCompletion(completionHandler)
+        let info = UncheckedUserInfo(userInfo)
         Task { @MainActor in
-            relay?.pushArrived()
-            if let id { await answer(id, action: action) }
+            if let id { await keyring?.notificationOpened(id, info.value); await answer(id, action: action) }
             done.call()
         }
     }
@@ -174,29 +175,33 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         switch action {
         case PhoneNotification.approveAction:
             // The Face ID that unlocked the phone a moment ago counts, so it is one look, not two.
-            relay?.notificationOpened(id)
             model.shownRequestID = id
             await model.approve(id, reusingUnlock: true)
         case PhoneNotification.denyAction:
             do { try await backend.deny(id, reply: nil); PhoneDiagnostics.note("Deny from the notification: sent") }
             catch { PhoneDiagnostics.note("Deny from the notification: failed, \(error)") }
         case PhoneNotification.denyAndExplainAction:
-            relay?.notificationOpened(id)
             model.explain(id)
         default:
-            relay?.notificationOpened(id)
             model.shownRequestID = id
         }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        if notification.request.trigger is UNPushNotificationTrigger { await MainActor.run { relay?.pushArrived() } }
+        let info = UncheckedUserInfo(notification.request.content.userInfo)
+        await keyring?.received(info.value)
         // With the app open, a request or rule change shows a banner; an outcome does not.
         let content = notification.request.content
         return content.categoryIdentifier == PhoneNotification.requestCategory || content.interruptionLevel == .timeSensitive
             ? [.banner, .list, .sound] : [.list]
     }
+}
+
+/// A notification's user info, carried to the main actor.
+struct UncheckedUserInfo: @unchecked Sendable {
+    let value: [AnyHashable: Any]
+    init(_ value: [AnyHashable: Any]) { self.value = value }
 }
 
 /// A completion handler carried to the main actor, where UIKit wants it called.

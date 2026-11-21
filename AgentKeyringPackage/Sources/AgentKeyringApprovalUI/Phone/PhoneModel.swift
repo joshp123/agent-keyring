@@ -1,7 +1,7 @@
 // Written by AI on 2026.11.18 by model Claude Opus 5.5.
 //
 // What the iPhone app shows and what it can ask for. Views read the model;
-// everything real (the relay, push, the Secure Enclave and Face ID) sits
+// everything real (the Mac's door, push, the Secure Enclave and Face ID) sits
 // behind PhoneBackend.
 
 import Foundation
@@ -59,15 +59,15 @@ public enum PhoneTab: String, Hashable, Sendable {
 public enum PhoneNotice: Hashable, Sendable, Identifiable {
     /// Apple has not yet given this iPhone a push address.
     case stillConnecting
-    /// The computer the relay runs on can't be reached; its name if known.
-    case relayOffline(String?)
+    /// The Mac can't be reached, so lists and practice requests wait for it; its name if known.
+    case macOffline(String?)
     /// An Apple Watch is paired and has not been added.
     case addAppleWatch
 
     public var id: String {
         switch self {
         case .stillConnecting: "stillConnecting"
-        case .relayOffline: "relayOffline"
+        case .macOffline: "macOffline"
         case .addAppleWatch: "addAppleWatch"
         }
     }
@@ -78,29 +78,6 @@ public struct PhoneFill: Hashable, Sendable {
     public var copied: Int
     public var of: Int
     public init(copied: Int, of: Int) { self.copied = copied; self.of = of }
-}
-
-/// The one journey, as the Mac publishes it: the steps for the devices he chose, in order, the same on
-/// every device, and where each device is on it. Read from the devices' signed status reports.
-public struct PhoneJourney: Hashable, Sendable {
-    public enum Step: String, Hashable, Sendable {
-        case welcome, chooseDevices, practice, passwords, agents, alwaysOn, iPhone, watch, computers, tryDevices, ready
-    }
-
-    /// Where one device is.
-    public struct Place: Hashable, Sendable {
-        public var device: String
-        public var step: Step?
-        public var finished: Bool
-        public init(device: String, step: Step?, finished: Bool) { self.device = device; self.step = step; self.finished = finished }
-    }
-
-    /// Empty until the Mac has published its list.
-    public var steps: [Step] = []
-    /// The Mac's place, and every other device's but this iPhone's.
-    public var mac: Place?
-    public var others: [Place] = []
-    public init() {}
 }
 
 /// What the iPhone can see of its Apple Watch, each a fact the Apple Watch step ticks. The iPhone cannot
@@ -123,7 +100,8 @@ public struct PhoneWatchFacts: Hashable, Sendable {
     public init() {}
 
     /// Paired, with the app, and not yet added: first run offers the Apple Watch step.
-    public var toAdd: Bool { paired && installed && !added }
+    /// Paired and not added: the flow then helps install the Watch app if it is missing.
+    public var toAdd: Bool { paired && !added }
 }
 
 /// What iOS lets the app see of its notification settings: the facts the notifications checklist ticks.
@@ -160,18 +138,6 @@ public struct PhoneSettings: Hashable, Sendable {
     }
 }
 
-/// A device asking to approve requests, answered here like a login request.
-public struct PhoneDeviceRequest: Identifiable, Hashable, Sendable {
-    public let id: String
-    /// "Apple Watch Ultra 3".
-    public var name: String
-    /// "Paired with this iPhone".
-    public var detail: String
-
-    public init(id: String, name: String, detail: String) { self.id = id; self.name = name; self.detail = detail }
-}
-
-
 public struct PhoneSnapshot: Hashable, Sendable {
     public var requests: [AccessRequest]
     public var logins: [PhoneLogin]
@@ -179,24 +145,26 @@ public struct PhoneSnapshot: Hashable, Sendable {
     public var firstRun: PhoneFirstRun
     /// First run's practice request, in the real request's layout, while it is open.
     public var practiceRequest: AccessRequest?
-    /// The computer that stays on and passes requests to this iPhone, by name.
-    public var relayName: String?
+    /// The Mac this iPhone joined, by name.
+    public var macName: String?
     /// What this iPhone can see of its Apple Watch, for the Apple Watch step.
     public var watch = PhoneWatchFacts()
     public var notices: [PhoneNotice] = []
     public var settings = PhoneSettings()
     public var notificationFacts = PhoneNotificationFacts()
-    public var deviceRequest: PhoneDeviceRequest?
-    public var journey = PhoneJourney()
+    /// Adding Apple Watch, while its flow is open.
+    public var addWatch: PhoneAddWatch?
     /// While this iPhone's copies of the passwords arrive after joining: how many are here, of how many.
     public var filling: PhoneFill?
+    /// Requests whose answer is not delivered yet: the asking computer's door cannot be reached, and it is retried.
+    public var undelivered: Set<String> = []
     /// In the signed list of devices.
     public var joined = false
 
     public init(firstRun: PhoneFirstRun, requests: [AccessRequest] = [], logins: [PhoneLogin] = [], devices: [PhoneDevice] = [],
-                practiceRequest: AccessRequest? = nil, deviceRequest: PhoneDeviceRequest? = nil) {
+                practiceRequest: AccessRequest? = nil) {
         self.firstRun = firstRun; self.requests = requests; self.logins = logins; self.devices = devices
-        self.practiceRequest = practiceRequest; self.deviceRequest = deviceRequest
+        self.practiceRequest = practiceRequest
     }
 }
 
@@ -214,7 +182,7 @@ public protocol PhoneBackend: AnyObject {
     func setRule(_ rule: PhoneLogin.Rule, forLogin loginID: String) async throws
     /// Removing a device is signed by this iPhone after Face ID.
     func remove(device deviceID: String) async throws
-    /// Joins from the Mac's invitation (an `agentkeyring://join` link).
+    /// Uses the Mac's join card from an `agentkeyring://join` link, for the simulator, which has no iCloud Keychain.
     func join(invitation: String) async throws
     /// A step of first run: a tap, or what iOS answered.
     func firstRun(_ event: PhoneFirstRun.Event) async
@@ -225,9 +193,8 @@ public protocol PhoneBackend: AnyObject {
     func sendPractice(to deviceID: String?) async -> String?
     func dismiss(_ notice: PhoneNotice) async
     func setSettings(_ settings: PhoneSettings) async
-    /// A new device's request to approve requests: Face ID signs it in.
-    func approveDevice(_ id: String) async throws
-    func denyDevice(_ id: String) async
+    /// A tap in the Apple Watch flow.
+    func addWatch(_ tap: PhoneAddWatchTap) async
 }
 
 @MainActor
@@ -333,11 +300,7 @@ public final class PhoneModel {
     public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
     public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
 
-    public func approveDevice(_ id: String) async {
-        await answer(.approve) { try await backend.approveDevice(id) }
-    }
-
-    public func denyDevice(_ id: String) async { await backend.denyDevice(id) }
+    public func addWatch(_ tap: PhoneAddWatchTap) async { await backend.addWatch(tap) }
 
 
 

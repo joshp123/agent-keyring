@@ -175,7 +175,7 @@ enum AgreementKey {
 
 public enum WatchFailure: Error, CustomStringConvertible, Sendable {
     case keychain(OSStatus)
-    case notSetUp, unknownMachine, notInRequest, relay(Int, String), noAnswerAddress
+    case notSetUp, unknownMachine, notInRequest, refused(String), noAnswerAddress
 
     public var description: String {
         switch self {
@@ -183,8 +183,8 @@ public enum WatchFailure: Error, CustomStringConvertible, Sendable {
         case .notSetUp: "the iPhone has not added this Watch yet"
         case .unknownMachine: "the asking machine is not in Members"
         case .notInRequest: "the push carried no login for this Watch"
-        case .relay(let status, let text): "the relay answered \(status): \(text)"
-        case .noAnswerAddress: "no relay address for answers yet"
+        case .refused(let words): "the asking computer refused it: \(words)"
+        case .noAnswerAddress: "the request names no door to answer at"
         }
     }
 }
