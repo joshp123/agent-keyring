@@ -33,13 +33,21 @@ var (
 	tailnetIPv6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
 )
 
+// noTailscale is what Josh's agents are told when this computer has no
+// Tailscale address: nothing can reach it, and it can reach nothing.
+var noTailscale = errors.New("This computer has no Tailscale address: Tailscale is not installed, not running, or signed out. Agent Keyring reaches the Mac, and Josh's iPhone and Apple Watch reach this computer, only over Tailscale. Start Tailscale and sign in, then run this again.")
+
 // testDoor is AGENT_KEYRING_TEST_DOOR: a loopback IP:port that end-to-end
-// tests give each stand-in computer in place of its Tailscale IP. Anything
-// else in it is refused, so it cannot send a login off the tailnet.
+// tests give each stand-in computer in place of its Tailscale IP, or "none"
+// for a computer without Tailscale. Anything else in it is refused, so it
+// cannot send a login off the tailnet.
 func testDoor() (netip.AddrPort, bool, error) {
 	text := os.Getenv("AGENT_KEYRING_TEST_DOOR")
 	if text == "" {
 		return netip.AddrPort{}, false, nil
+	}
+	if text == "none" {
+		return netip.AddrPort{}, true, noTailscale
 	}
 	address, err := netip.ParseAddrPort(text)
 	if err != nil || !address.Addr().IsLoopback() {
@@ -58,7 +66,10 @@ func Testing() bool {
 // its own interfaces, and port 17446.
 func Address() (string, error) {
 	if test, testing, err := testDoor(); testing || err != nil {
-		return test.String(), err
+		if err != nil {
+			return "", err
+		}
+		return test.String(), nil
 	}
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {
@@ -80,7 +91,7 @@ func Address() (string, error) {
 		}
 	}
 	if !found.IsValid() {
-		return "", errors.New("This computer has no Tailscale address, so Josh's iPhone and Apple Watch cannot answer it. Connect Tailscale, then ask again.")
+		return "", noTailscale
 	}
 	return net.JoinHostPort(found.String(), strconv.Itoa(Port)), nil
 }

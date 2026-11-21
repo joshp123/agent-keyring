@@ -1,22 +1,26 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5; the practice request and refusals on 2026.11.19.
+// Written by AI on 2026.11.18 by model claude opus 5.5; the practice request and refusals on 2026.11.19;
+// moved to the direct design (no relay) on 2026.11.21.
 //
-// A stand-in for an approving device, with software keys where an iPhone has
-// its chip, for end-to-end tests of the relay and the command. It does what
-// the iPhone app does over the same protocol, with made-up logins only.
+// Stand-ins for Josh's Mac, iPhone and Apple Watch, and for Apple's push
+// service, with software keys where the devices have their chips, for
+// end-to-end tests of the command (proto/agentkeyring/v2/keyring.proto,
+// "Direct: no relay"). They speak the same protocol as the apps, with
+// made-up passwords and a made-up P-256 push key only: nothing here ever
+// reaches Apple or a real device.
 //
-//	test-device init    --state DIR --relay HOST:PORT   create keys, members, catalogue, sealed logins
-//	                    [--keys-only]                   only keys and the relay's key, as the Mac before setup
-//	test-device approve-joins --state DIR               approve every waiting machine, Automatic allowed
-//	test-device refuse-joins  --state DIR [--reply WORDS]
-//	                                                    refuse every waiting machine; without an invitation
-//	                                                    of this device's, with a made-up key, as a stranger would
-//	test-device join    --state DIR --invite LINK      a second device that joins by invitation
-//	test-device invite  --state DIR                     print a one-time link for one machine or device to join
-//	test-device self-test --state DIR                   ask for the practice request, approve it, report
-//	test-device withdraw-automatic --state DIR          set the Automatic login back to Ask
-//	test-device stop    --state DIR --request ID        end an approval early, as Stop on a device does
-//	test-device answer  --state DIR (--approve | --deny WORDS | --deny-plain | --ignore)
-//	                                                    answer the next waiting request
+//	test-device init    --state DIR --door IP:PORT        the Mac, iPhone and Apple Watch: keys, lists, copies, push addresses
+//	test-device mac     --state DIR [--join-within 10m]   serve the Mac's door until killed
+//	test-device apple   --state DIR --listen IP:PORT      stand in for Apple until killed; writes DIR/apple-ca.pem
+//	test-device invite  --state DIR [--host HOST]         print a one-time link for one computer to join
+//	test-device approve-joins --state DIR                 approve every waiting computer, Automatic allowed
+//	test-device refuse-joins  --state DIR [--reply WORDS] refuse every waiting computer
+//	test-device answer  --state DIR --device iphone|watch [--request ID] (--approve | --deny WORDS | --deny-plain | --ignore)
+//	                                                      answer the next request pushed to that device, at its door
+//	test-device outcome --state DIR --device iphone|watch --request ID
+//	                                                      wait for the silent push with that request's outcome
+//	test-device stop    --state DIR --device iphone|watch --request ID
+//	                                                      end an approval early, as Stop on a device does
+//	test-device remove  --state DIR --device watch        Josh removes a device from his list
 package main
 
 import (
@@ -30,103 +34,140 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"math/big"
 	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/keyring"
-	"github.com/joshp123/agent-keyring/internal/remote"
 	"github.com/joshp123/agent-keyring/internal/tlsid"
-	"github.com/joshp123/agent-keyring/internal/wire"
 	"google.golang.org/protobuf/proto"
 )
 
-// The made-up logins. "example.com" asks; "automatic.example" is Automatic.
+// The made-up passwords. "login-ask" and "login-other" ask; "login-automatic" is Automatic.
 var logins = []*pb.LoginSecret{
 	{LoginId: "login-ask", Username: "agent@example.com", Password: "example-ask-password", TotpSeed: []byte("12345678901234567890")},
+	{LoginId: "login-other", Username: "other@example.com", Password: "example-other-password"},
 	{LoginId: "login-automatic", Username: "agent@automatic.example", Password: "example-automatic-password"},
 }
 
-// When the made-up logins were imported: every sealed copy carries it.
+// When the made-up passwords were imported: every sealed copy carries it.
 const importedAt = 1763500000000000000
 
 var catalogueLogins = []*pb.Login{
 	{LoginId: "login-ask", Title: "Example", Sites: []string{"https://example.com"}, Account: "agent@example.com", HasOneTimeCode: true, Rule: pb.Rule_RULE_ASK, Version: importedAt},
+	{LoginId: "login-other", Title: "Other example", Sites: []string{"https://other.example"}, Account: "other@example.com", Rule: pb.Rule_RULE_ASK, Version: importedAt},
 	{LoginId: "login-automatic", Title: "Automatic example", Sites: []string{"https://automatic.example"}, Account: "agent@automatic.example", Rule: pb.Rule_RULE_AUTOMATIC, Version: importedAt},
 }
 
-type saved struct {
-	Relay       string   `json:"relay"`
-	RelaySPKI   []byte   `json:"relay_spki"`
-	Certificate []byte   `json:"certificate"`
-	TLSKey      []byte   `json:"tls_key"`
-	Signing     []byte   `json:"signing"`
-	Reply       []byte   `json:"reply"`
-	Opening     []byte   `json:"opening"`
-	Revision    uint64   `json:"revision"`
-	Secrets     [][]byte `json:"secrets,omitempty"` // Invitations not yet used.
+// keys is one device's software keys, standing in for its chip.
+type keys struct {
+	Signing []byte `json:"signing"`
+	Reply   []byte `json:"reply"`
+	Opening []byte `json:"opening"`
+	Notice  []byte `json:"notice"`
+	Token   []byte `json:"token"` // Its made-up push address.
 }
 
-type device struct {
-	saved
-	path        string
-	certificate tls.Certificate
-	signing     *ecdsa.PrivateKey
-	reply       *ecdsa.PrivateKey
-	opening     *ecdh.PrivateKey
-	self        *pb.Device
+type join struct {
+	Request []byte       `json:"request"` // JoinRequest.
+	Secret  []byte       `json:"secret"`  // The invitation it proves.
+	Asked   int64        `json:"asked"`
+	State   pb.JoinState `json:"state"`
+	Refusal []byte       `json:"refusal,omitempty"`
 }
+
+// saved is everything the stand-ins keep, in DIR/devices.json, changed only
+// under DIR/devices.lock, so the Mac's door and the other commands share it.
+type saved struct {
+	Door           string           `json:"door"`
+	MacCertificate []byte           `json:"mac_certificate"`
+	MacTLSKey      []byte           `json:"mac_tls_key"`
+	Devices        map[string]*keys `json:"devices"` // "mac", "iphone", "watch".
+	PushKey        []byte           `json:"push_key"` // PKCS#8: made up, never Apple's.
+	Members        []byte           `json:"members"`  // Signed.
+	Catalogue      []byte           `json:"catalogue"`
+	Copies         [][]byte         `json:"copies"`        // SealedLogin.
+	Registrations  [][]byte         `json:"registrations"` // Signed PushRegistration.
+	Revisions      [3]uint64        `json:"revisions"`     // Members, catalogue, copies.
+	Secrets        [][]byte         `json:"secrets"`       // Invitations not yet used.
+	Joins          map[string]*join `json:"joins"`
+}
+
+const (
+	pushKeyID = "KEY0000000"
+	teamID    = "TEAM000000"
+	topic     = "com.example.AgentKeyring"
+)
+
+var labels = map[string]string{"mac": "Test Mac", "iphone": "Test iPhone", "watch": "Test Apple Watch"}
+var kinds = map[string]pb.DeviceKind{"mac": pb.DeviceKind_DEVICE_KIND_MAC, "iphone": pb.DeviceKind_DEVICE_KIND_IPHONE, "watch": pb.DeviceKind_DEVICE_KIND_WATCH}
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: test-device init|approve-joins|answer --state DIR ...")
+		fmt.Fprintln(os.Stderr, "usage: test-device init|mac|apple|invite|approve-joins|refuse-joins|answer|outcome|stop|remove --state DIR ...")
 		os.Exit(2)
 	}
 	flags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	state := flags.String("state", "", "state directory")
-	relay := flags.String("relay", "", "relay HOST:PORT (init)")
-	invite := flags.String("invite", "", "an invitation link (join)")
+	doorAddress := flags.String("door", "", "the Mac's door, IP:PORT (init)")
+	listen := flags.String("listen", "", "IP:PORT (apple)")
+	host := flags.String("host", "", "the Mac's door as the invitation names it (invite)")
+	joinWithin := flags.Duration("join-within", 10*time.Minute, "how long a join stays open (mac)")
+	device := flags.String("device", "", "iphone or watch")
 	approve := flags.Bool("approve", false, "approve the next request")
 	deny := flags.String("deny", "", "deny the next request with these words")
 	denyPlain := flags.Bool("deny-plain", false, "deny the next request with no words")
 	ignore := flags.Bool("ignore", false, "see the next request and leave it unanswered")
-	keysOnly := flags.Bool("keys-only", false, "create keys and publish nothing (init)")
 	reply := flags.String("reply", "", "words for the waiting agent (refuse-joins)")
-	request := flags.String("request", "", "request id (stop)")
+	request := flags.String("request", "", "request id")
 	flags.Parse(os.Args[2:])
-	ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
-	defer cancel()
+	if *state == "" {
+		fmt.Fprintln(os.Stderr, "test-device: --state is required")
+		os.Exit(2)
+	}
+	d := &devices{dir: *state}
+	ctx := context.Background()
 	var err error
 	switch os.Args[1] {
 	case "init":
-		err = initialise(ctx, *state, *relay, *keysOnly)
-	case "join":
-		err = joinAsDevice(ctx, *state, *invite)
-	case "approve-joins":
-		err = withDevice(*state, func(d *device) error { return d.approveJoins(ctx) })
-	case "refuse-joins":
-		err = withDevice(*state, func(d *device) error { return d.refuseJoins(ctx, *reply) })
-	case "withdraw-automatic": // Josh sets the Automatic login back to Ask.
-		err = withDevice(*state, func(d *device) error { return d.withdrawAutomatic(ctx) })
+		err = d.initialise(*doorAddress)
+	case "mac":
+		err = d.serveMac(*joinWithin)
+	case "apple":
+		err = d.serveApple(*listen)
 	case "invite":
-		err = withDevice(*state, func(d *device) error { return d.invite() })
-	case "self-test":
-		err = withDevice(*state, func(d *device) error { return d.selfTest(ctx) })
-	case "stop":
-		err = withDevice(*state, func(d *device) error {
-			_, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_End{End: &pb.RequestReference{RequestId: *request}}}, nil)
-			return err
-		})
+		err = d.invite(*host)
+	case "approve-joins":
+		err = d.decideJoins(true, "")
+	case "refuse-joins":
+		err = d.decideJoins(false, *reply)
 	case "answer":
-		err = withDevice(*state, func(d *device) error { return d.answer(ctx, *approve, *deny, *denyPlain, *ignore) })
+		err = d.answer(ctx, *device, *request, *approve, *deny, *denyPlain, *ignore)
+	case "outcome":
+		err = d.outcome(*device, *request)
+	case "stop":
+		err = d.stop(ctx, *device, *request)
+	case "remove":
+		err = d.remove(*device)
 	default:
 		err = errors.New("unknown command")
 	}
@@ -136,331 +177,690 @@ func main() {
 	}
 }
 
-func ecdsaKey(raw []byte) (*ecdsa.PrivateKey, error) {
+// ---- The saved state ----------------------------------------------------------
+
+type devices struct{ dir string }
+
+// change runs one change to the saved state under its lock.
+func (d *devices) change(apply func(*saved) error) error {
+	lock, err := os.OpenFile(filepath.Join(d.dir, "devices.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	s := &saved{Devices: map[string]*keys{}, Joins: map[string]*join{}}
+	path := filepath.Join(d.dir, "devices.json")
+	if raw, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(raw, s); err != nil {
+			return err
+		}
+	}
+	if err := apply(s); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
+}
+
+func (d *devices) read() (*saved, error) {
+	var copied *saved
+	err := d.change(func(s *saved) error { copied = s; return nil })
+	return copied, err
+}
+
+func ecdsaKey(raw []byte) *ecdsa.PrivateKey {
 	key, err := x509.ParseECPrivateKey(raw)
-	return key, err
+	if err != nil {
+		panic(err)
+	}
+	return key
 }
 
 func publicBytes(key *ecdsa.PrivateKey) []byte {
 	return elliptic.Marshal(elliptic.P256(), key.X, key.Y) //nolint:staticcheck // X9.63 uncompressed, as CryptoKit writes.
 }
 
-func newDevice(directory, relay string) (*device, error) {
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nil, err
-	}
-	certificate, tlsKey, err := tlsid.New("Agent Keyring test device")
+func ecdhKey(raw []byte) *ecdh.PrivateKey {
+	key, err := ecdh.P256().NewPrivateKey(raw)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	generate := func() []byte {
-		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		raw, _ := x509.MarshalECPrivateKey(key)
-		return raw
-	}
-	opening, err := ecdh.P256().GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	d := &device{saved: saved{Relay: relay, Certificate: certificate, TLSKey: tlsKey, Signing: generate(), Reply: generate(), Opening: opening.Bytes()},
-		path: filepath.Join(directory, "device.json")}
-	return d, d.load()
+	return key
 }
 
-// joinAsDevice is a second approving device, added after machines have joined.
-func joinAsDevice(ctx context.Context, directory, link string) error {
-	invite, err := remote.ParseInvite(link)
-	if err != nil {
-		return err
+// device is one device as the list of devices describes it.
+func (s *saved) device(name string) *pb.Device {
+	k := s.Devices[name]
+	signing, reply := ecdsaKey(k.Signing), ecdsaKey(k.Reply)
+	d := &pb.Device{KeyId: keyring.KeyID(publicBytes(signing)), Kind: kinds[name], Label: labels[name], SigningPublicKey: publicBytes(signing),
+		OpeningPublicKey: ecdhKey(k.Opening).PublicKey().Bytes(), ReplyKeyId: keyring.KeyID(publicBytes(reply)), ReplyPublicKey: publicBytes(reply)}
+	if name == "mac" {
+		d.TlsPublicKey = s.macSPKI()
 	}
-	d, err := newDevice(directory, net.JoinHostPort(invite.RelayHost, strconv.Itoa(int(invite.RelayPort))))
-	if err != nil {
-		return err
-	}
-	join := &pb.JoinRequest{Joining: &pb.JoinRequest_Device{Device: d.self}}
-	join.Proof = keyring.JoinProof(invite.Secret, join)
-	var observed []byte
-	var status *pb.JoinStatus
-	if err := d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Join{Join: join}}, &observed, func(response *pb.RelayResponse) bool {
-		status = response.GetJoin()
-		return status.GetState() == pb.JoinState_JOIN_STATE_WAITING
-	}); err != nil {
-		return err
-	}
-	if sum := sha256.Sum256(observed); !bytes.Equal(sum[:], invite.RelayTlsSha256) || status.GetState() != pb.JoinState_JOIN_STATE_APPROVED {
-		return errors.New("not admitted by the relay the invitation names")
-	}
-	d.RelaySPKI = observed
-	fmt.Println("Joined as a second device.")
-	return d.write()
+	return d
 }
 
-// initialise sets up the relay as the first device, keeping the keys of an
-// earlier init --keys-only.
-func initialise(ctx context.Context, directory, relay string, keysOnly bool) error {
-	if directory == "" || relay == "" {
-		return errors.New("init needs --state and --relay")
-	}
-	if _, err := os.Stat(filepath.Join(directory, "device.json")); err == nil {
-		return withDevice(directory, func(d *device) error { return d.setUpRelay(ctx) })
-	}
-	d, err := newDevice(directory, relay)
+func (s *saved) macCertificate() tls.Certificate {
+	certificate, err := tls.X509KeyPair(s.MacCertificate, s.MacTLSKey)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	var observed []byte
-	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Members{Members: &pb.Empty{}}}, &observed); err != nil && observed == nil {
-		return err
-	}
-	d.RelaySPKI = observed
-	if keysOnly {
-		return d.write()
-	}
-	if err := d.setUpRelay(ctx); err != nil {
-		return err
-	}
-	return d.write()
+	return certificate
 }
 
-func (d *device) setUpRelay(ctx context.Context) error {
-	observed := d.RelaySPKI
-	members := &pb.Members{Domain: keyring.MembersDomain, Revision: 1, Devices: []*pb.Device{d.self}, RelayTlsPublicKey: observed}
-	// As the Mac does with the offer our app on the relay's computer leaves in
-	// iCloud Keychain: here the stand-in runs on that computer and asks itself.
-	if response, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_SetupOffer{SetupOffer: &pb.Empty{}}}, nil); err == nil {
-		members.SetupProof = keyring.SetupProof(response.GetSetupOffer().GetSecret(), observed, d.self.KeyId)
-	}
-	if err := d.publishMembers(ctx, members); err != nil {
-		return err
-	}
-	catalogue, _ := proto.Marshal(&pb.Catalogue{Domain: keyring.CatalogueDomain, Revision: 1, Logins: catalogueLogins, ImportedUnixSeconds: time.Now().Unix()})
-	signed, err := keyring.Sign(catalogue, d.self.KeyId, keyring.SoftwareSigner(d.signing))
+func (s *saved) macSPKI() []byte {
+	spki, _ := tlsid.SPKI(s.macCertificate())
+	return spki
+}
+
+func (s *saved) members() *pb.Members {
+	signed, members := &pb.Signed{}, &pb.Members{}
+	proto.Unmarshal(s.Members, signed)
+	proto.Unmarshal(signed.Payload, members)
+	return members
+}
+
+func (s *saved) signAsMac(payload []byte) []byte {
+	signed, err := keyring.Sign(payload, s.device("mac").KeyId, keyring.SoftwareSigner(ecdsaKey(s.Devices["mac"].Signing)))
 	if err != nil {
-		return err
+		panic(err)
 	}
-	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishCatalogue{PublishCatalogue: signed}}, nil); err != nil {
-		return err
-	}
-	if err := d.seal(ctx, d.self.KeyId, d.opening.PublicKey().Bytes(), false); err != nil {
-		return err
-	}
-	fmt.Printf("Device %s set up the relay with %d made-up logins.\n", d.self.KeyId[:16], len(logins))
-	return nil
+	raw, _ := proto.Marshal(signed)
+	return raw
 }
 
-func (d *device) withdrawAutomatic(ctx context.Context) error {
-	changed := append([]*pb.Login(nil), catalogueLogins...)
-	var withdrawn []string
-	for i, login := range changed {
-		if login.Rule == pb.Rule_RULE_AUTOMATIC {
-			copied := proto.Clone(login).(*pb.Login)
-			copied.Rule = pb.Rule_RULE_ASK
-			changed[i] = copied
-			withdrawn = append(withdrawn, login.LoginId)
-		}
-	}
-	catalogue, _ := proto.Marshal(&pb.Catalogue{Domain: keyring.CatalogueDomain, Revision: 2, Logins: changed, ImportedUnixSeconds: time.Now().Unix()})
-	signed, err := keyring.Sign(catalogue, d.self.KeyId, keyring.SoftwareSigner(d.signing))
-	if err != nil {
-		return err
-	}
-	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishCatalogue{PublishCatalogue: signed}}, nil); err != nil {
-		return err
-	}
-	_, err = d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishSealedLogins{PublishSealedLogins: &pb.SealedLogins{WithdrawnLoginIds: withdrawn}}}, nil)
-	return err
+func (s *saved) publishMembers(members *pb.Members) {
+	s.Revisions[0]++
+	members.Domain, members.Revision = keyring.MembersDomain, s.Revisions[0]
+	payload, _ := proto.Marshal(members)
+	s.Members = s.signAsMac(payload)
 }
 
-func withDevice(directory string, run func(*device) error) error {
-	raw, err := os.ReadFile(filepath.Join(directory, "device.json"))
-	if err != nil {
-		return err
-	}
-	d := &device{path: filepath.Join(directory, "device.json")}
-	if err := json.Unmarshal(raw, &d.saved); err != nil {
-		return err
-	}
-	if err := d.load(); err != nil {
-		return err
-	}
-	if err := run(d); err != nil {
-		return err
-	}
-	return d.write()
-}
-
-func (d *device) load() (err error) {
-	if d.certificate, err = tls.X509KeyPair(d.Certificate, d.TLSKey); err != nil {
-		return err
-	}
-	if d.signing, err = ecdsaKey(d.Signing); err != nil {
-		return err
-	}
-	if d.reply, err = ecdsaKey(d.Reply); err != nil {
-		return err
-	}
-	if d.opening, err = ecdh.P256().NewPrivateKey(d.Opening); err != nil {
-		return err
-	}
-	spki, err := tlsid.SPKI(d.certificate)
-	if err != nil {
-		return err
-	}
-	d.self = &pb.Device{KeyId: keyring.KeyID(publicBytes(d.signing)), Kind: pb.DeviceKind_DEVICE_KIND_IPHONE, Label: "Test iPhone",
-		SigningPublicKey: publicBytes(d.signing), OpeningPublicKey: d.opening.PublicKey().Bytes(), TlsPublicKey: spki,
-		ReplyKeyId: keyring.KeyID(publicBytes(d.reply)), ReplyPublicKey: publicBytes(d.reply)}
-	return nil
-}
-
-func (d *device) write() error {
-	raw, err := json.Marshal(&d.saved)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(d.path, raw, 0o600)
-}
-
-func (d *device) stream(ctx context.Context, request *pb.RelayRequest, observed *[]byte, receive func(*pb.RelayResponse) bool) error {
-	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 5 * time.Second}, Config: tlsid.Client(d.certificate, d.RelaySPKI, observed)}
-	conn, err := dialer.DialContext(ctx, "tcp", d.Relay)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	defer stop()
-	if err := wire.Write(conn, request); err != nil {
-		return err
-	}
-	for {
-		response := &pb.RelayResponse{}
-		if err := wire.Read(conn, response); err != nil {
-			return err
-		}
-		if failure := response.GetError(); failure != nil {
-			return errors.New(failure.Message)
-		}
-		if !receive(response) || response.EndOfStream {
-			return nil
-		}
-	}
-}
-
-func (d *device) call(ctx context.Context, request *pb.RelayRequest, observed *[]byte) (*pb.RelayResponse, error) {
-	var result *pb.RelayResponse
-	err := d.stream(ctx, request, observed, func(response *pb.RelayResponse) bool { result = response; return false })
-	return result, err
-}
-
-func (d *device) members(ctx context.Context) (*pb.Members, error) {
-	response, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Members{Members: &pb.Empty{}}}, nil)
-	if err != nil {
-		return nil, err
-	}
-	members := &pb.Members{}
-	return members, proto.Unmarshal(response.GetSigned().GetPayload(), members)
-}
-
-func (d *device) publishMembers(ctx context.Context, members *pb.Members) error {
-	raw, _ := proto.Marshal(members)
-	signed, err := keyring.Sign(raw, d.self.KeyId, keyring.SoftwareSigner(d.signing))
-	if err != nil {
-		return err
-	}
-	_, err = d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishMembers{PublishMembers: signed}}, nil)
-	d.Revision = members.Revision
-	return err
-}
-
-// seal seals the made-up logins to one opener: this device, or, with
-// automaticOnly, a machine allowed to use Automatic logins.
-func (d *device) seal(ctx context.Context, openerID string, key []byte, automaticOnly bool) error {
-	batch := &pb.SealedLogins{}
+// seal seals the made-up passwords to one opener, sealed by the Mac's reply key.
+func (s *saved) seal(openerID string, publicKey []byte, automaticOnly bool) {
 	for i, secret := range logins {
 		if automaticOnly && catalogueLogins[i].Rule != pb.Rule_RULE_AUTOMATIC {
 			continue
 		}
 		bound := proto.Clone(secret).(*pb.LoginSecret)
 		bound.Title, bound.Sites = catalogueLogins[i].Title, catalogueLogins[i].Sites
-		sealed, err := keyring.SealLogin(bound, catalogueLogins[i].Version, key, openerID, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply))
+		sealed, err := keyring.SealLogin(bound, catalogueLogins[i].Version, publicKey, openerID, s.device("mac").ReplyKeyId,
+			keyring.SoftwareSigner(ecdsaKey(s.Devices["mac"].Reply)))
 		if err != nil {
-			return err
+			panic(err)
 		}
-		batch.Logins = append(batch.Logins, sealed)
+		raw, _ := proto.Marshal(sealed)
+		s.Copies = append(s.Copies, raw)
 	}
-	_, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PublishSealedLogins{PublishSealedLogins: batch}}, nil)
-	return err
+	s.Revisions[2]++
 }
 
-func (d *device) approveJoins(ctx context.Context) error {
-	response, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PendingJoins{PendingJoins: &pb.Empty{}}}, nil)
-	if err != nil {
+func (s *saved) copies() []*pb.SealedLogin {
+	var copies []*pb.SealedLogin
+	for _, raw := range s.Copies {
+		sealed := &pb.SealedLogin{}
+		proto.Unmarshal(raw, sealed)
+		copies = append(copies, sealed)
+	}
+	return copies
+}
+
+// ---- init ---------------------------------------------------------------------
+
+func newKey() []byte {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	raw, _ := x509.MarshalECPrivateKey(key)
+	return raw
+}
+
+func newECDH() []byte {
+	key, _ := ecdh.P256().GenerateKey(rand.Reader)
+	return key.Bytes()
+}
+
+func (d *devices) initialise(doorAddress string) error {
+	if _, err := netip.ParseAddrPort(doorAddress); err != nil {
+		return errors.New("init needs --door IP:PORT")
+	}
+	if err := os.MkdirAll(d.dir, 0o700); err != nil {
 		return err
 	}
-	members, err := d.members(ctx)
-	if err != nil {
-		return err
-	}
-	var joined []*pb.Machine
-	var devices []*pb.Device
-	for _, pending := range response.GetPendingJoins().GetJoins() {
-		if d.useInvitation(pending.GetRequest()) == nil {
-			fmt.Printf("Ignoring a join with no valid invitation (Tailscale node %s).\n", pending.TailscaleNodeName)
-			continue
+	return d.change(func(s *saved) error {
+		s.Door = doorAddress
+		var err error
+		if s.MacCertificate, s.MacTLSKey, err = tlsid.New("Agent Keyring test Mac"); err != nil {
+			return err
 		}
-		if joining := pending.GetRequest().GetDevice(); joining != nil {
-			members.Devices = append(members.Devices, joining)
-			devices = append(devices, joining)
-			fmt.Printf("Approving device %q (Tailscale node %s).\n", joining.Label, pending.TailscaleNodeName)
+		for name := range labels {
+			token := make([]byte, 32)
+			rand.Read(token)
+			s.Devices[name] = &keys{Signing: newKey(), Reply: newKey(), Opening: newECDH(), Notice: newECDH(), Token: token}
 		}
-		if m := pending.GetRequest().GetMachine(); m != nil {
-			m.AutomaticAllowed = true
-			members.Machines = append(members.Machines, m)
-			if members.RelayMachineId == "" {
-				members.RelayMachineId = m.MachineId // The first computer added stands in for the one that stays on.
+		pushKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		s.PushKey, _ = x509.MarshalPKCS8PrivateKey(pushKey)
+		s.publishMembers(&pb.Members{Devices: []*pb.Device{s.device("mac"), s.device("iphone"), s.device("watch")},
+			Machines: []*pb.Machine{{MachineId: keyring.KeyID(s.macSPKI()), Label: labels["mac"], TlsPublicKey: s.macSPKI(),
+				ReceivingPublicKey: ecdhKey(s.Devices["mac"].Opening).PublicKey().Bytes()}}})
+		s.Revisions[1]++
+		catalogue, _ := proto.Marshal(&pb.Catalogue{Domain: keyring.CatalogueDomain, Revision: s.Revisions[1], Logins: catalogueLogins, ImportedUnixSeconds: time.Now().Unix()})
+		s.Catalogue = s.signAsMac(catalogue)
+		for _, name := range []string{"iphone", "watch"} {
+			s.seal(s.device(name).KeyId, s.device(name).OpeningPublicKey, false)
+			// Each device's push address, signed by the iPhone's reply key:
+			// its own, and its Apple Watch's on the Watch's behalf.
+			registration, _ := proto.Marshal(&pb.PushRegistration{Domain: keyring.PushDomain, DeviceKeyId: s.device(name).KeyId,
+				ApnsToken: s.Devices[name].Token, ApnsTopic: topic, NoticePublicKey: ecdhKey(s.Devices[name].Notice).PublicKey().Bytes(),
+				RegisteredUnixSeconds: time.Now().Unix()})
+			signed, err := keyring.Sign(registration, s.device("iphone").ReplyKeyId, keyring.SoftwareSigner(ecdsaKey(s.Devices["iphone"].Reply)))
+			if err != nil {
+				return err
 			}
-			joined = append(joined, m)
-			fmt.Printf("Approving %q (Tailscale node %s).\n", m.Label, pending.TailscaleNodeName)
+			raw, _ := proto.Marshal(signed)
+			s.Registrations = append(s.Registrations, raw)
 		}
-	}
-	if len(joined) == 0 && len(devices) == 0 {
-		return errors.New("nothing is waiting to join")
-	}
-	members.Revision++
-	if err := d.publishMembers(ctx, members); err != nil {
-		return err
-	}
-	for _, m := range joined {
-		if err := d.seal(ctx, m.MachineId, m.ReceivingPublicKey, true); err != nil {
-			return err
-		}
-	}
-	for _, joining := range devices {
-		if err := d.seal(ctx, joining.KeyId, joining.OpeningPublicKey, false); err != nil {
-			return err
-		}
-	}
-	return nil
+		fmt.Printf("The Mac, iPhone and Apple Watch are set up with %d made-up passwords.\n", len(logins))
+		return nil
+	})
 }
 
-// answer waits for the next waiting request and answers it as asked.
-func (d *device) answer(ctx context.Context, approve bool, deny string, denyPlain, ignore bool) error {
-	var work *pb.Work
-	err := d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_WatchWork{WatchWork: &pb.Empty{}}}, nil, func(response *pb.RelayResponse) bool {
-		if w := response.GetWork(); w != nil && w.Outcome == nil {
-			work = w
-			return false
+// ---- The Mac's door ---------------------------------------------------------------
+
+func (d *devices) serveMac(joinWithin time.Duration) error {
+	s, err := d.read()
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", s.Door)
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v2/join", func(w http.ResponseWriter, r *http.Request) { d.join(w, r, joinWithin) })
+	mux.HandleFunc("POST /v2/join/withdraw", d.withdraw)
+	mux.HandleFunc("GET /v2/rev", func(w http.ResponseWriter, r *http.Request) {
+		if s, machine := d.member(w, r); machine != nil {
+			reply(w, &pb.Revisions{Members: s.Revisions[0], Catalogue: s.Revisions[1], Copies: s.Revisions[2]})
 		}
-		return true
+	})
+	mux.HandleFunc("GET /v2/bundle", func(w http.ResponseWriter, r *http.Request) {
+		if s, machine := d.member(w, r); machine != nil {
+			reply(w, s.bundle(machine))
+		}
+	})
+	mux.HandleFunc("GET /v2/logs", func(w http.ResponseWriter, r *http.Request) {
+		if _, machine := d.member(w, r); machine != nil {
+			reply(w, &pb.Logs{Lines: []string{time.Now().UTC().Format("2006-01-02T15:04:05.000Z") + " Test_Mac mac logs asked"}})
+		}
+	})
+	server := &http.Server{Handler: mux, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{s.macCertificate()},
+		ClientAuth: tls.RequireAnyClientCert}}
+	fmt.Println("The Mac's door is open at", s.Door)
+	return server.ServeTLS(listener, "", "")
+}
+
+func reply(w http.ResponseWriter, message proto.Message) {
+	raw, _ := proto.Marshal(message)
+	w.Write(raw)
+}
+
+func peerSPKI(r *http.Request) []byte {
+	if r.TLS == nil || len(r.TLS.PeerCertificates) != 1 {
+		return nil
+	}
+	return r.TLS.PeerCertificates[0].RawSubjectPublicKeyInfo
+}
+
+// member is the computer calling, by its TLS key, if Members lists it.
+func (d *devices) member(w http.ResponseWriter, r *http.Request) (*saved, *pb.Machine) {
+	s, err := d.read()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return nil, nil
+	}
+	for _, m := range s.members().Machines {
+		if bytes.Equal(m.TlsPublicKey, peerSPKI(r)) {
+			return s, m
+		}
+	}
+	http.Error(w, "This computer is not in Josh's list of computers.", http.StatusForbidden)
+	return nil, nil
+}
+
+// bundle is what one computer keeps: the lists, the push addresses, the
+// Apple Watch's copies and its own Automatic copies.
+func (s *saved) bundle(machine *pb.Machine) *pb.Bundle {
+	members, catalogue := &pb.Signed{}, &pb.Signed{}
+	proto.Unmarshal(s.Members, members)
+	proto.Unmarshal(s.Catalogue, catalogue)
+	b := &pb.Bundle{Members: members, Catalogue: catalogue, Revisions: &pb.Revisions{Members: s.Revisions[0], Catalogue: s.Revisions[1], Copies: s.Revisions[2]}}
+	for _, raw := range s.Registrations {
+		signed := &pb.Signed{}
+		proto.Unmarshal(raw, signed)
+		b.PushRegistrations = append(b.PushRegistrations, signed)
+	}
+	var watch string
+	for _, device := range s.members().Devices {
+		if device.Kind == pb.DeviceKind_DEVICE_KIND_WATCH {
+			watch = device.KeyId
+		}
+	}
+	for _, sealed := range s.copies() {
+		if (watch != "" && sealed.OpenerId == watch) || sealed.OpenerId == machine.MachineId {
+			b.Copies = append(b.Copies, sealed)
+		}
+	}
+	return b
+}
+
+func readJoin(w http.ResponseWriter, r *http.Request) (*pb.JoinRequest, *pb.Machine) {
+	raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	request := &pb.JoinRequest{}
+	if proto.Unmarshal(raw, request) != nil || request.GetMachine() == nil {
+		http.Error(w, "The body must be a computer's JoinRequest.", http.StatusBadRequest)
+		return nil, nil
+	}
+	m := request.GetMachine()
+	if !bytes.Equal(m.TlsPublicKey, peerSPKI(r)) || m.MachineId != keyring.KeyID(m.TlsPublicKey) {
+		http.Error(w, "A computer joins with its own TLS key.", http.StatusForbidden)
+		return nil, nil
+	}
+	return request, m
+}
+
+// join takes a computer's join, then answers once it is decided or after 25
+// seconds still waiting. A second computer proving the same invitation
+// withdraws both.
+func (d *devices) join(w http.ResponseWriter, r *http.Request, joinWithin time.Duration) {
+	request, m := readJoin(w, r)
+	if request == nil {
+		return
+	}
+	err := d.change(func(s *saved) error {
+		if s.Joins[m.MachineId] != nil {
+			return nil // Posted again while it waits.
+		}
+		var secret []byte
+		for _, candidate := range s.Secrets {
+			if hmac.Equal(keyring.JoinProof(candidate, request), request.Proof) {
+				secret = candidate
+			}
+		}
+		if secret == nil {
+			for _, other := range s.Joins {
+				if hmac.Equal(keyring.JoinProof(other.Secret, request), request.Proof) && other.State == pb.JoinState_JOIN_STATE_WAITING {
+					other.State = pb.JoinState_JOIN_STATE_WITHDRAWN
+					raw, _ := proto.Marshal(request)
+					s.Joins[m.MachineId] = &join{Request: raw, Secret: other.Secret, Asked: time.Now().Unix(), State: pb.JoinState_JOIN_STATE_WITHDRAWN}
+					return nil
+				}
+			}
+			return errors.New("This join does not prove an invitation of this Mac's.")
+		}
+		s.Secrets = slices.DeleteFunc(s.Secrets, func(candidate []byte) bool { return bytes.Equal(candidate, secret) })
+		raw, _ := proto.Marshal(request)
+		s.Joins[m.MachineId] = &join{Request: raw, Secret: secret, Asked: time.Now().Unix(), State: pb.JoinState_JOIN_STATE_WAITING}
+		return nil
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	for deadline := time.Now().Add(25 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		var status *pb.JoinStatus
+		d.change(func(s *saved) error {
+			j := s.Joins[m.MachineId]
+			if j.State == pb.JoinState_JOIN_STATE_WAITING && time.Since(time.Unix(j.Asked, 0)) > joinWithin {
+				j.State = pb.JoinState_JOIN_STATE_EXPIRED
+			}
+			status = &pb.JoinStatus{State: j.State}
+			switch j.State {
+			case pb.JoinState_JOIN_STATE_APPROVED:
+				status.Members = &pb.Signed{}
+				proto.Unmarshal(s.Members, status.Members)
+				sealed, err := keyring.SealPushCredential(&pb.PushCredential{TeamId: teamID, KeyId: pushKeyID, PrivateKey: s.PushKey}, m.ReceivingPublicKey, m.MachineId)
+				if err != nil {
+					return err
+				}
+				status.PushCredential = sealed
+			case pb.JoinState_JOIN_STATE_REFUSED:
+				status.Refusal = &pb.JoinRefusal{}
+				proto.Unmarshal(j.Refusal, status.Refusal)
+			}
+			return nil
+		})
+		if status.State != pb.JoinState_JOIN_STATE_WAITING || time.Now().After(deadline) || r.Context().Err() != nil {
+			reply(w, status)
+			return
+		}
+	}
+}
+
+func (d *devices) withdraw(w http.ResponseWriter, r *http.Request) {
+	request, m := readJoin(w, r)
+	if request == nil {
+		return
+	}
+	d.change(func(s *saved) error {
+		if j := s.Joins[m.MachineId]; j != nil && j.State == pb.JoinState_JOIN_STATE_WAITING {
+			j.State = pb.JoinState_JOIN_STATE_WITHDRAWN
+			fmt.Printf("%q withdrew its join.\n", m.Label)
+		}
+		return nil
+	})
+	reply(w, &pb.Empty{})
+}
+
+// invite makes a one-time invitation, as the Mac does for a computer. host
+// replaces the door's address, to test an invitation naming a name or an
+// address off the tailnet.
+func (d *devices) invite(host string) error {
+	return d.change(func(s *saved) error {
+		doorHost, portText, _ := net.SplitHostPort(s.Door)
+		if host != "" {
+			doorHost = host
+		}
+		port, _ := strconv.Atoi(portText)
+		secret := make([]byte, 32)
+		rand.Read(secret)
+		s.Secrets = append(s.Secrets, secret)
+		raw, _ := proto.Marshal(&pb.JoinInvite{InviterKeyId: s.device("mac").KeyId, InviterLabel: labels["mac"], Secret: secret,
+			ExpiresUnixSeconds: time.Now().Add(10 * time.Minute).Unix(), DoorHost: doorHost, DoorPort: uint32(port), DoorTlsPublicKey: s.macSPKI()})
+		fmt.Println("agentkeyring://join?invite=" + base64.RawURLEncoding.EncodeToString(raw))
+		return nil
+	})
+}
+
+// decideJoins approves every waiting computer, Automatic allowed, or refuses
+// each with words its invitation's secret vouches for.
+func (d *devices) decideJoins(approve bool, words string) error {
+	return d.change(func(s *saved) error {
+		decided := 0
+		members := s.members()
+		for _, j := range s.Joins {
+			if j.State != pb.JoinState_JOIN_STATE_WAITING {
+				continue
+			}
+			request := &pb.JoinRequest{}
+			proto.Unmarshal(j.Request, request)
+			m := request.GetMachine()
+			if approve {
+				m.AutomaticAllowed = true
+				members.Machines = append(members.Machines, m)
+				s.seal(m.MachineId, m.ReceivingPublicKey, true)
+				j.State = pb.JoinState_JOIN_STATE_APPROVED
+				fmt.Printf("Approved %q.\n", m.Label)
+			} else {
+				j.Refusal, _ = proto.Marshal(&pb.JoinRefusal{JoinerId: m.MachineId, Key: keyring.RefusalKey(j.Secret, m.MachineId), Reply: words,
+					ReplyProof: keyring.RefusalReplyProof(j.Secret, m.MachineId, words)})
+				j.State = pb.JoinState_JOIN_STATE_REFUSED
+				fmt.Printf("Refused %q.\n", m.Label)
+			}
+			decided++
+		}
+		if decided == 0 {
+			return errors.New("nothing is waiting to join")
+		}
+		if approve {
+			s.publishMembers(members)
+		}
+		return nil
+	})
+}
+
+// remove takes a device off Josh's list, with its copies and push address.
+func (d *devices) remove(name string) error {
+	return d.change(func(s *saved) error {
+		gone := s.device(name)
+		members := s.members()
+		members.Devices = slices.DeleteFunc(members.Devices, func(device *pb.Device) bool { return device.KeyId == gone.KeyId })
+		s.publishMembers(members)
+		s.Copies = slices.DeleteFunc(s.Copies, func(raw []byte) bool {
+			sealed := &pb.SealedLogin{}
+			proto.Unmarshal(raw, sealed)
+			return sealed.OpenerId == gone.KeyId
+		})
+		s.Revisions[2]++
+		fmt.Printf("Removed %s.\n", gone.Label)
+		return nil
+	})
+}
+
+// ---- Apple's push service ----------------------------------------------------------
+
+// serveApple stands in for Apple's push service: it checks each push's token
+// signature against the made-up push key, and writes each push to
+// DIR/pushes/DEVICE/ for the stand-in devices to receive.
+func (d *devices) serveApple(listen string) error {
+	s, err := d.read()
+	if err != nil {
+		return err
+	}
+	address, err := netip.ParseAddrPort(listen)
+	if err != nil || !address.Addr().IsLoopback() {
+		return errors.New("apple needs --listen with a loopback IP:PORT")
+	}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Stand-in for Apple's push service"},
+		NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(24 * time.Hour), IsCA: true, BasicConstraintsValid: true,
+		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses: []net.IP{net.IP(address.Addr().AsSlice())}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return err
+	}
+	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	private, _ := x509.MarshalECPrivateKey(key)
+	certificate, err := tls.X509KeyPair(certificatePEM, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: private}))
+	if err != nil {
+		return err
+	}
+	parsed, _ := x509.ParsePKCS8PrivateKey(s.PushKey)
+	pushPublic := &parsed.(*ecdsa.PrivateKey).PublicKey
+	tokens := map[string]string{}
+	for name, k := range s.Devices {
+		tokens[hex.EncodeToString(k.Token)] = name
+	}
+	listener, err := net.Listen("tcp", listen)
+	if err != nil {
+		return err
+	}
+	server := &http.Server{TLSConfig: &tls.Config{Certificates: []tls.Certificate{certificate}, NextProtos: []string{"h2"}},
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ProtoMajor != 2 || !validToken(strings.TrimPrefix(r.Header.Get("authorization"), "bearer "), pushPublic) {
+				w.WriteHeader(http.StatusForbidden)
+				io.WriteString(w, `{"reason":"InvalidProviderToken"}`)
+				return
+			}
+			token := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+			name := tokens[token]
+			if name == "" || r.Header.Get("apns-topic") != topic {
+				w.WriteHeader(http.StatusBadRequest)
+				io.WriteString(w, `{"reason":"BadDeviceToken"}`)
+				return
+			}
+			payload, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+			record, _ := json.Marshal(map[string]any{"visible": r.Header.Get("apns-push-type") == "alert", "collapse": r.Header.Get("apns-collapse-id"),
+				"payload": json.RawMessage(payload)})
+			folder := filepath.Join(d.dir, "pushes", name)
+			os.MkdirAll(folder, 0o700)
+			os.WriteFile(filepath.Join(folder, fmt.Sprintf("%020d.json", time.Now().UnixNano())), record, 0o600)
+			w.WriteHeader(http.StatusOK)
+		})}
+	if err := os.WriteFile(filepath.Join(d.dir, "apple-ca.pem"), certificatePEM, 0o600); err != nil {
+		return err
+	}
+	fmt.Println("The stand-in for Apple is listening at", listen)
+	return server.ServeTLS(listener, "", "")
+}
+
+// validToken checks the ES256 token Apple requires against the made-up push key.
+func validToken(token string, public *ecdsa.PublicKey) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	var header struct{ Alg, Kid string }
+	var claims struct {
+		Iss string `json:"iss"`
+	}
+	rawHeader, _ := base64.RawURLEncoding.DecodeString(parts[0])
+	rawClaims, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	signature, _ := base64.RawURLEncoding.DecodeString(parts[2])
+	if json.Unmarshal(rawHeader, &header) != nil || json.Unmarshal(rawClaims, &claims) != nil || len(signature) != 64 ||
+		header.Alg != "ES256" || header.Kid != pushKeyID || claims.Iss != teamID {
+		return false
+	}
+	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	return ecdsa.Verify(public, digest[:], new(big.Int).SetBytes(signature[:32]), new(big.Int).SetBytes(signature[32:]))
+}
+
+// ---- The iPhone and the Apple Watch ---------------------------------------------------
+
+type push struct {
+	path    string
+	visible bool
+	work    *pb.Work
+	request *pb.Request
+}
+
+// pushes is every push Apple delivered to a device so far, oldest first,
+// each opened with the device's notice key.
+func (d *devices) pushes(s *saved, name string) ([]push, error) {
+	folder := filepath.Join(d.dir, "pushes", name)
+	entries, _ := os.ReadDir(folder)
+	var names []string
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	var found []push
+	for _, file := range names {
+		raw, err := os.ReadFile(filepath.Join(folder, file))
+		if err != nil {
+			return nil, err
+		}
+		var record struct {
+			Visible bool `json:"visible"`
+			Payload struct {
+				Akr string `json:"akr"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(raw, &record); err != nil {
+			return nil, err
+		}
+		sealed, _ := base64.StdEncoding.DecodeString(record.Payload.Akr)
+		notice := &pb.Notice{}
+		if err := proto.Unmarshal(sealed, notice); err != nil {
+			return nil, err
+		}
+		work, err := keyring.OpenNotice(notice, ecdhKey(s.Devices[name].Notice), s.device(name).KeyId)
+		if err != nil {
+			return nil, fmt.Errorf("cannot open the push: %w", err)
+		}
+		request, err := keyring.ParseRequest(work.Request)
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, push{filepath.Join(folder, file), record.Visible, work, request})
+	}
+	return found, nil
+}
+
+// next waits for a push to a device that matches.
+func (d *devices) next(name string, match func(push) bool) (*saved, push, error) {
+	return d.pick(name, func(found []push) []push { return found }, match)
+}
+
+// pick is next over the pushes before() keeps.
+func (d *devices) pick(name string, before func([]push) []push, match func(push) bool) (*saved, push, error) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		s, err := d.read()
+		if err != nil {
+			return nil, push{}, err
+		}
+		found, err := d.pushes(s, name)
+		if err != nil {
+			return nil, push{}, err
+		}
+		for _, p := range before(found) {
+			if match(p) {
+				return s, p, nil
+			}
+		}
+	}
+	return nil, push{}, fmt.Errorf("no such push reached the %s in 30 seconds", name)
+}
+
+// toDoor posts to the asking computer's door, the address and key its signed
+// request names, as the apps do: it retries for 30 seconds while nothing
+// answers there, and never after a refusal.
+func toDoor(ctx context.Context, request *pb.Request, path string, body proto.Message) (int, []byte, error) {
+	host, _, err := net.SplitHostPort(request.AnswerAddress)
+	if ip, e := netip.ParseAddr(host); err != nil || e != nil || !(ip.IsLoopback() || netip.MustParsePrefix("100.64.0.0/10").Contains(ip) ||
+		netip.MustParsePrefix("fd7a:115c:a1e0::/48").Contains(ip)) {
+		return 0, nil, fmt.Errorf("refused: the request's door %q is not a Tailscale address", request.AnswerAddress)
+	}
+	pinned := request.AnswerTlsPublicKey
+	client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true,
+		VerifyConnection: func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 || !bytes.Equal(state.PeerCertificates[0].RawSubjectPublicKeyInfo, pinned) {
+				return errors.New("the door's key is not the one the request names")
+			}
+			return nil
+		}}}}
+	raw, _ := proto.Marshal(body)
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+		response, err := client.Post("https://"+request.AnswerAddress+path, "application/octet-stream", bytes.NewReader(raw))
+		if err == nil {
+			defer response.Body.Close()
+			text, _ := io.ReadAll(response.Body)
+			return response.StatusCode, text, nil
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return 0, nil, err
+		}
+	}
+}
+
+// answer takes the oldest request pushed to this device that it has not yet
+// seen, and answers it at the asking computer's door, as the app does.
+func (d *devices) answer(ctx context.Context, name, requestID string, approve bool, deny string, denyPlain, ignore bool) error {
+	if labels[name] == "" || name == "mac" {
+		return errors.New("--device is iphone or watch")
+	}
+	ended := map[string]bool{} // A request whose outcome came is no longer shown, as on the devices.
+	s, p, err := d.pick(name, func(found []push) []push {
+		clear(ended)
+		for _, p := range found {
+			if p.work.Outcome != nil {
+				ended[p.request.RequestId] = true
+			}
+		}
+		return found
+	}, func(p push) bool {
+		if requestID != "" {
+			return p.visible && p.request.RequestId == requestID
+		}
+		_, err := os.Stat(p.path + ".seen")
+		return p.visible && os.IsNotExist(err) && !ended[p.request.RequestId]
 	})
 	if err != nil {
 		return err
 	}
-	request, err := keyring.ParseRequest(work.Request)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Request %s: %s wants %s: %q\n", request.RequestId[:8], request.Agent, request.LoginId, request.Reason)
+	os.WriteFile(p.path+".seen", nil, 0o600)
+	request := p.request
+	fmt.Printf("Request %s: %s wants %s: %q\n", request.RequestId, request.Agent, request.LoginId, request.Reason)
+	self := s.device(name)
+	k := s.Devices[name]
 	var upload *pb.AnswerUpload
 	switch {
 	case ignore:
@@ -469,33 +869,36 @@ func (d *device) answer(ctx context.Context, approve bool, deny string, denyPlai
 	case denyPlain:
 		upload = &pb.AnswerUpload{DenyRequestId: request.RequestId}
 	case deny != "":
-		upload, err = keyring.Deny(work.Request, deny, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply), time.Now())
+		upload, err = keyring.Deny(p.work.Request, deny, self.ReplyKeyId, keyring.SoftwareSigner(ecdsaKey(k.Reply)), time.Now())
 	case approve:
-		members, err := d.members(ctx)
+		members := s.members()
+		_, asking, err := keyring.CheckRequest(p.work.Request, p.work.RequestSignature, members)
 		if err != nil {
-			return err
+			return fmt.Errorf("refused: the request was not signed by the computer it names: %w", err)
 		}
-		_, asking, err := keyring.CheckRequest(work.Request, work.RequestSignature, members)
-		if err != nil {
-			return fmt.Errorf("refused: the request was not signed by the machine it names: %w", err)
+		if !bytes.Equal(asking.TlsPublicKey, request.AnswerTlsPublicKey) {
+			return errors.New("refused: the request's door key is not the computer's")
 		}
-		var listed *pb.Login
-		for _, login := range catalogueLogins {
-			if login.LoginId == request.LoginId {
-				listed = login
+		listed := catalogueLogins[slices.IndexFunc(catalogueLogins, func(l *pb.Login) bool { return l.LoginId == request.LoginId })]
+		sealed := p.work.SealedLogin // The Apple Watch's copy comes in the push;
+		if name == "iphone" {        // the iPhone keeps its own.
+			for _, own := range s.copies() {
+				if own.OpenerId == self.KeyId && own.LoginId == request.LoginId {
+					sealed = own
+				}
 			}
 		}
-		if work.SealedLogin == nil {
-			return errors.New("cannot approve: no sealed login for this device")
+		if sealed == nil {
+			return errors.New("cannot approve: no sealed copy of this password for this device")
 		}
-		if err := keyring.CheckSealed(work.SealedLogin, members, listed); err != nil {
-			return fmt.Errorf("refused: the relay sent a sealed copy no device signed, or an old one: %w", err)
+		if err := keyring.CheckSealed(sealed, members, listed); err != nil {
+			return fmt.Errorf("refused: a copy no device signed, or an old one: %w", err)
 		}
-		secret, err := keyring.OpenLogin(work.SealedLogin, d.opening)
+		secret, err := keyring.OpenLogin(sealed, ecdhKey(k.Opening))
 		if err != nil {
 			return err
 		}
-		upload, err = keyring.Approve(work.Request, secret, listed.Sites, asking.ReceivingPublicKey, d.self.KeyId, keyring.SoftwareSigner(d.signing), time.Now())
+		upload, err = keyring.Approve(p.work.Request, secret, listed.Sites, asking.ReceivingPublicKey, self.KeyId, keyring.SoftwareSigner(ecdsaKey(k.Signing)), time.Now())
 		if err != nil {
 			return err
 		}
@@ -505,121 +908,53 @@ func (d *device) answer(ctx context.Context, approve bool, deny string, denyPlai
 	if err != nil {
 		return err
 	}
-	response, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Answer{Answer: upload}}, nil)
+	status, text, err := toDoor(ctx, request, "/v2/answer", upload)
 	if err != nil {
-		return err
+		return fmt.Errorf("the computer's door did not answer for 30 seconds: %w", err)
 	}
-	fmt.Println("Answered:", response.GetLease().GetState())
+	if status != http.StatusOK {
+		return fmt.Errorf("the door refused (%d): %s", status, text)
+	}
+	lease := &pb.Lease{}
+	proto.Unmarshal(text, lease)
+	fmt.Printf("The door says: %s by %s\n", lease.State, lease.AnsweredBy)
 	return nil
 }
 
-// selfTest is a device's first-run check: it asks the relay for a test
-// request, approves it with a signed answer and no delivery, and reports.
-func (d *device) selfTest(ctx context.Context) error {
-	outcome := make(chan *pb.Lease, 1)
-	go d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_TestRequest{TestRequest: &pb.TestRequest{}}}, nil, func(response *pb.RelayResponse) bool {
-		if lease := response.GetLease(); lease != nil && lease.State != pb.LeaseState_LEASE_STATE_WAITING {
-			outcome <- lease
-			return false
-		}
-		return true
-	})
-	var work *pb.Work
-	err := d.stream(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_WatchWork{WatchWork: &pb.Empty{}}}, nil, func(response *pb.RelayResponse) bool {
-		if w := response.GetWork(); w != nil && w.Outcome == nil {
-			if request, err := keyring.ParseRequest(w.Request); err == nil && request.ForDeviceKeyId == d.self.KeyId {
-				work = w
-				return false
-			}
-		}
-		return true
-	})
+// outcome waits for the silent push that tells this device how a request ended.
+func (d *devices) outcome(name, requestID string) error {
+	_, p, err := d.next(name, func(p push) bool { return !p.visible && p.request.RequestId == requestID && p.work.Outcome != nil })
 	if err != nil {
 		return err
 	}
-	request, _ := keyring.ParseRequest(work.Request)
-	fmt.Printf("%s (%s) wants %s, %s: %q\n", request.Agent, request.Project, work.GetLogin().GetTitle(), work.GetLogin().GetAccount(), request.Reason)
-	now := time.Now()
-	payload, _ := proto.Marshal(&pb.Answer{Domain: keyring.AnswerDomain, RequestSha256: keyring.SHA256(work.Request), Choice: pb.Choice_CHOICE_APPROVE,
-		DecidedUnixSeconds: now.Unix(), NotAfterUnixSeconds: now.Unix() + 60})
-	answer, err := keyring.Sign(payload, d.self.KeyId, keyring.SoftwareSigner(d.signing))
-	if err != nil {
-		return err
-	}
-	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Answer{Answer: &pb.AnswerUpload{Answer: answer}}}, nil); err != nil {
-		return err
-	}
-	lease := <-outcome
-	report, _ := proto.Marshal(&pb.SelfTestReport{Domain: keyring.SelfTestDomain, DeviceKeyId: d.self.KeyId, TestedUnixSeconds: now.Unix(),
-		Checks: []*pb.SelfTestCheck{{Name: "practice", Passed: lease.State == pb.LeaseState_LEASE_STATE_APPROVED}}})
-	signed, err := keyring.Sign(report, d.self.ReplyKeyId, keyring.SoftwareSigner(d.reply))
-	if err != nil {
-		return err
-	}
-	if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_ReportSelfTest{ReportSelfTest: signed}}, nil); err != nil {
-		return err
-	}
-	fmt.Println("Practice request:", lease.State)
+	fmt.Printf("Outcome: %s by %s\n", p.work.Outcome.State, p.work.Outcome.AnsweredBy)
 	return nil
 }
 
-// invite makes a one-time invitation, as the Mac does for a machine.
-func (d *device) invite() error {
-	host, portText, err := net.SplitHostPort(d.Relay)
+// stop is Stop on a device: an EndRequest signed by its reply key, posted to
+// the door the request names. If nobody holds that door, the approval ends
+// by itself at its time.
+func (d *devices) stop(ctx context.Context, name, requestID string) error {
+	s, p, err := d.next(name, func(p push) bool { return p.request.RequestId == requestID })
 	if err != nil {
 		return err
 	}
-	port, _ := strconv.Atoi(portText)
-	secret := make([]byte, 32)
-	rand.Read(secret)
-	d.Secrets = append(d.Secrets, secret)
-	sum := sha256.Sum256(d.RelaySPKI)
-	raw, _ := proto.Marshal(&pb.JoinInvite{RelayHost: host, RelayPort: uint32(port), RelayTlsSha256: sum[:], InviterKeyId: d.self.KeyId,
-		Secret: secret, ExpiresUnixSeconds: time.Now().Add(10 * time.Minute).Unix()})
-	fmt.Println("agentkeyring://join?invite=" + base64.RawURLEncoding.EncodeToString(raw))
-	return nil
-}
-
-// useInvitation is the secret of this device's invitation the join proves, now used.
-func (d *device) useInvitation(join *pb.JoinRequest) []byte {
-	for i, secret := range d.Secrets {
-		if hmac.Equal(keyring.JoinProof(secret, join), join.Proof) {
-			d.Secrets = append(d.Secrets[:i], d.Secrets[i+1:]...)
-			return secret
-		}
-	}
-	return nil
-}
-
-// refuseJoins refuses every waiting machine with these words, as the Mac's
-// Deny does.
-func (d *device) refuseJoins(ctx context.Context, reply string) error {
-	response, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_PendingJoins{PendingJoins: &pb.Empty{}}}, nil)
+	self := s.device(name)
+	payload, _ := proto.Marshal(&pb.EndRequest{Domain: keyring.EndDomain, RequestId: requestID, DeviceKeyId: self.KeyId, EndedUnixSeconds: time.Now().Unix()})
+	signed, err := keyring.Sign(payload, self.ReplyKeyId, keyring.SoftwareSigner(ecdsaKey(s.Devices[name].Reply)))
 	if err != nil {
 		return err
 	}
-	refused := 0
-	for _, pending := range response.GetPendingJoins().GetJoins() {
-		m := pending.GetRequest().GetMachine()
-		if m == nil {
-			continue
-		}
-		secret := d.useInvitation(pending.GetRequest())
-		if secret == nil {
-			secret = make([]byte, 32)
-			rand.Read(secret)
-			fmt.Printf("No invitation of this device's matches %q; refusing with a made-up key.\n", m.Label)
-		}
-		refusal := &pb.JoinRefusal{JoinerId: m.MachineId, Key: keyring.RefusalKey(secret, m.MachineId), Reply: reply,
-			ReplyProof: keyring.RefusalReplyProof(secret, m.MachineId, reply)}
-		if _, err := d.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_RefuseJoin{RefuseJoin: refusal}}, nil); err != nil {
-			return err
-		}
-		fmt.Printf("Refused %q.\n", m.Label)
-		refused++
+	status, text, err := toDoor(ctx, p.request, "/v2/end", signed)
+	if err != nil {
+		fmt.Println("The computer could not be reached; the access ends by itself at its time.")
+		return nil
 	}
-	if refused == 0 {
-		return errors.New("nothing is waiting to join")
+	if status != http.StatusOK {
+		return fmt.Errorf("the door refused (%d): %s", status, text)
 	}
+	lease := &pb.Lease{}
+	proto.Unmarshal(text, lease)
+	fmt.Printf("Stopped: %s by %s\n", lease.State, lease.EndedBy)
 	return nil
 }
