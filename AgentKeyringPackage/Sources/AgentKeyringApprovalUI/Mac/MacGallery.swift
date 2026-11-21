@@ -14,7 +14,8 @@ enum MacGallery {
     private static let account = "firstname.lastname.for.work@example.com"
     private static let agent = "Research Assistant for Bookkeeping"
     private static let reason = "You asked me to download October’s invoice from the billing page and attach it to the expenses report, then file it in the shared bookkeeping folder."
-    private static let phone = "Research Team iPhone 17 Pro Max"
+    /// An iPhone reports only "iPhone"; a computer's name is his to choose, so it holds the long name.
+    private static let phone = "iPhone"
     private static let computer = "Research Team Linux Build Server"
     private static let reply = "Use the invoice already in my Downloads folder instead, it is the same one, then carry on with the report."
     private static let command = DeviceSheetCopy.enrolCommand("agentkeyring://join?invite=CiBhNWYzZTk4YzQxN2IyMGQ2ZjE5ODBhN2M1ZTNiMjQxMBIRUmVzZWFyY2ggVGVhbSBNYWMaCjEwMC42NC4wLjI")

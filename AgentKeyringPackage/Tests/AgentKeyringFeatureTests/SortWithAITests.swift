@@ -16,6 +16,7 @@ import Testing
         func remove(id: String, context: LAContext) async throws {}
         func importAgain() {}
         func sendPractice(deviceID: String) {}
+        func sendUpdates() {}
     }
 
     let news = LoginRow(id: UUID(), site: "news.example", account: "you@example.com", rule: .ask)

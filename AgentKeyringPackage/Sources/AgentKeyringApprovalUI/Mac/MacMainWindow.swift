@@ -115,15 +115,18 @@ public struct MainSnapshot: Hashable, Sendable {
     /// Other computers, not this Mac.
     public var computers: [ComputerRow]
     public var notices: [DoorNotice]
+    /// Password changes the other devices have not been sent, after Not Now.
+    public var unsentChanges: Int
 
     public init(logins: [LoginRow], importedAt: Date?, sampleOnly: Bool = false, approvers: [ApproverRow] = [],
-        computers: [ComputerRow] = [], notices: [DoorNotice] = []) {
+        computers: [ComputerRow] = [], notices: [DoorNotice] = [], unsentChanges: Int = 0) {
         self.logins = logins
         self.importedAt = importedAt
         self.sampleOnly = sampleOnly
         self.approvers = approvers
         self.computers = computers
         self.notices = notices
+        self.unsentChanges = unsentChanges
     }
 }
 
@@ -137,6 +140,8 @@ public protocol MainWindowBackend: AnyObject {
     func importAgain()
     /// Send Practice Request, by device key.
     func sendPractice(deviceID: String)
+    /// Send Updates: asks again, beside the window, to send the unsent changes.
+    func sendUpdates()
 }
 
 @MainActor
@@ -211,6 +216,8 @@ public final class MacMainModel {
     public func save() { run { [pending, backend] context in try await backend.saveRules(pending, context: context) } done: { self.pending = [:] } }
 
     public func sendPractice(_ id: String) { backend.sendPractice(deviceID: id) }
+
+    public func sendUpdates() { backend.sendUpdates() }
 
     // MARK: Sort with AI
 

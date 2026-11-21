@@ -176,7 +176,8 @@ public struct MacMenuBarView: View {
                 }
             }
             if model.waitingCount == 0 && model.inUse.isEmpty {
-                KeyringRowGroup { KeyringText(MenuBarCopy.nothing, as: .meta).frame(maxWidth: .infinity, alignment: .leading) }
+                // The same card shape and margins as the offline notice above it.
+                KeyringHint(symbol: "tray", MenuBarCopy.nothing, tone: .plain)
             }
             if !model.earlierToday.isEmpty {
                 section(MenuBarCopy.earlierToday) {

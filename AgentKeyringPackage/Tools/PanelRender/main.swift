@@ -69,6 +69,7 @@ final class StubBackend: MainWindowBackend {
     func remove(id: String, context: LAContext) async throws {}
     func importAgain() {}
     func sendPractice(deviceID: String) {}
+    func sendUpdates() {}
 }
 let logins = [("example.com", LoginRule.ask, true), ("news.example", .ask, false), ("forum.example", .automatic, false), ("old.example", .blocked, false)]
     .map { LoginRow(id: UUID(), site: $0.0, account: "you@example.com", rule: $0.1, asked: 3, approved: 2, denied: 1, isTestPassword: $0.2) }

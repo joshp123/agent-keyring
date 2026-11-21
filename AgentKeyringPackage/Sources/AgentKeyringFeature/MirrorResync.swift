@@ -53,8 +53,9 @@ extension MirrorAppModel {
         sentList = Dictionary(catalogue.logins.map { ($0.loginID, Date?.none) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// After a copy from Passwords: ask to send the changes, if another device holds the list and something changed.
-    func askToSendChanges() {
+    /// After a copy from Passwords, and Devices' Send Updates: ask to send the
+    /// changes, if another device holds the list and something changed.
+    public func askToSendChanges() {
         resyncAsked = unsentChanges.total > 0
     }
 

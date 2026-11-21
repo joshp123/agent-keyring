@@ -72,7 +72,7 @@ public enum MessageCopy {
 
     // MARK: The reminder to copy again
 
-    public static func copyIsOld(days: Int) -> String { "Agent Keyring's copy of your passwords is \(days) days old." }
+    public static func copyIsOld(days: Int) -> String { "Agent Keyring's copy of your passwords is \(days.formatted()) days old." }
     public static let exportInstruction = "File > Export All Items to App"
     public static let updateFromPasswords = "Update from Passwords"
 

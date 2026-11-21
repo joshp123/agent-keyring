@@ -105,7 +105,7 @@ Found and fixed (tests in `FirstRunTests`):
 
 ### Sending changes to the other devices
 
-Code: `MirrorResync.swift`, `ApprovalPresenter` (`.sendChanges`), `MacQuestionPanelView`. Test: `changesSinceTheListLastSent`.
+Code: `MirrorResync.swift`, `ApprovalPresenter` (`.sendChanges`), `MacQuestionPanelView`, `MacDevicesTab` (the banner). Test: `changesSinceTheListLastSent`.
 
 `MirrorAppModel.sentList` is the list the other devices last received, by password id and last-changed date, saved in the app's settings. It is written each time the catalogue is signed (`MacDevice.onPublished`): a device joining, a rule change, or Touch ID on this panel. A Mac whose devices joined before it was kept starts from the signed catalogue's ids, with no dates. What is unsent is always the current list against it (`unsentChanges`: added, changed by last-changed date, removed), so it survives a quit; it is nothing while no other device or computer holds the list.
 
@@ -114,8 +114,9 @@ Code: `MirrorResync.swift`, `ApprovalPresenter` (`.sendChanges`), `MacQuestionPa
 | not asked | a copy from Passwords finishes, and something is unsent | asked: the panel beside the window, "Send n password changes to your other devices?" |
 | asked | Touch ID | not asked: the catalogue is signed, the record follows, nothing is unsent |
 | asked | Not Now | not asked: the other devices keep their list; the changes stay unsent |
+| not asked | Send Updates… on Devices, while something is unsent | asked: the same panel |
 
-`resyncAsked` is not saved: after a quit the panel does not come back by itself. Known and left for later: Devices shows no "Send Updates…" banner for unsent changes, and the Passwords footer says nothing when a copy changed nothing.
+While not asked and something is unsent, Devices shows a banner at its top with the count and Send Updates… (`MainSnapshot.unsentChanges`, `askToSendChanges`). `resyncAsked` is not saved: after a quit the panel does not come back by itself, but the banner does, as what is unsent is read from the saved record. Known and left for later: the Passwords footer says nothing when a copy changed nothing.
 
 ## The lease, across the Mac, the relay and the command
 

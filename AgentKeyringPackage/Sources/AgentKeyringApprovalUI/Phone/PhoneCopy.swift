@@ -132,7 +132,7 @@ public enum PhoneCopy {
     public static let watchNotShowing = "Check that your Watch is unlocked, has a passcode, and Bluetooth is on. You can cancel and start again any time."
     public static let faceIDExpired = "Face ID confirmation expired. Confirm again to add your Apple Watch."
     public static let watchNeedsPasscode = "Your Apple Watch needs a passcode before it can store Secure Enclave keys. Turn on a passcode in Apple’s Watch app, then try again."
-    public static func encryptingForWatch(_ done: Int, _ total: Int) -> String { "Encrypting passwords for Apple Watch (\(done) of \(total))" }
+    public static func encryptingForWatch(_ done: Int, _ total: Int) -> String { "Encrypting passwords for Apple Watch (\(done.formatted()) of \(total.formatted()))" }
     public static func watchCopiesFailed(_ reason: String) -> String {
         let reason = reason.hasSuffix(".") ? String(reason.dropLast()) : reason
         return "Couldn’t finish preparing passwords for your Apple Watch. \(reason)."
@@ -215,7 +215,7 @@ public enum PhoneCopy {
     // MARK: Home
 
     public static let home = "Home"
-    public static func waitingPill(_ count: Int) -> String { "\(count) waiting" }
+    public static func waitingPill(_ count: Int) -> String { "\(count.formatted()) waiting" }
     public static let allQuiet = "All quiet"
     public static let waitingForYou = "Waiting for you"
     public static let inUse = "In use"
@@ -268,7 +268,7 @@ public enum PhoneCopy {
     public static let blockedLegend = "**Blocked:** no agent can ever use it."
     public static let twoFactorLegend = "**Two-factor codes:** for Ask passwords, the secret stays on your devices and agents get only the current code. For Automatic passwords, the chosen computer holds its own encrypted copy."
     public static let sortWithAI = "To set rules for many passwords at once, use Sort with AI on your Mac."
-    public static func passwordsCount(_ count: Int) -> String { "\(count) passwords" }
+    public static func passwordsCount(_ count: Int) -> String { "\(count.formatted()) passwords" }
     public static let search = "Search"
     public static let filter = "Show"
     public static let all = "All"

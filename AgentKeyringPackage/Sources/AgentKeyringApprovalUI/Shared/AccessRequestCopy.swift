@@ -81,7 +81,7 @@ public enum AccessRequestCopy {
 /// claude opus 5.5 for the direct design: no relay and no computer that stays on.
 public enum MenuBarCopy {
     public static let appName = "Agent Keyring"
-    public static func waiting(_ count: Int) -> String { "\(count) waiting" }
+    public static func waiting(_ count: Int) -> String { "\(count.formatted()) waiting" }
     public static let allQuiet = "All quiet"
     public static let offline = "Offline"
     /// Tailscale is off on this Mac, and an iPhone or Apple Watch is added.
@@ -92,7 +92,7 @@ public enum MenuBarCopy {
     public static let nothing = "Nothing waiting. Nothing in use."
     public static let show = "Show"
     public static let stop = "Stop"
-    public static func passwords(_ count: Int) -> String { count == 1 ? "1 password" : "\(count) passwords" }
+    public static func passwords(_ count: Int) -> String { count == 1 ? "1 password" : "\(count.formatted()) passwords" }
     public static let devices = "Devices"
     public static let more = "More"
     public static let copyAgain = "Copy Passwords Again…"

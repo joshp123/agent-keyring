@@ -30,14 +30,14 @@ public enum SetupCopy {
     // MARK: Sending changes to the other devices, after a copy from Passwords
 
     public static func sendChangesTitle(_ total: Int) -> String {
-        total == 1 ? "Send 1 password change to your other devices?" : "Send \(total) password changes to your other devices?"
+        total == 1 ? "Send 1 password change to your other devices?" : "Send \(total.formatted()) password changes to your other devices?"
     }
-    /// "You copied 12 new, 2 changed and 1 removed password from Passwords.", leaving out what is none.
+    /// "You copied 12 new, 2 changed and 1 removed password from the Passwords app.", leaving out what is none.
     public static func sendChangesBody(added: Int, changed: Int, removed: Int) -> String {
-        let counts = [added > 0 ? "\(added) new" : nil, changed > 0 ? "\(changed) changed" : nil, removed > 0 ? "\(removed) removed" : nil]
+        let counts = [added > 0 ? "\(added.formatted()) new" : nil, changed > 0 ? "\(changed.formatted()) changed" : nil, removed > 0 ? "\(removed.formatted()) removed" : nil]
         let what = added == 0 && changed == 0
-            ? "You removed \(removed == 1 ? "1 password" : "\(removed) passwords") from Passwords."
-            : "You copied \(MainWindowCopy.list(counts.compactMap { $0 })) \(added + changed + removed == 1 ? "password" : "passwords") from Passwords."
+            ? "You removed \(removed == 1 ? "1 password" : "\(removed.formatted()) passwords") from the Passwords app."
+            : "You copied \(MainWindowCopy.list(counts.compactMap { $0 })) \(added + changed + removed == 1 ? "password" : "passwords") from the Passwords app."
         return what + " Confirm with Touch ID to update your other devices. If you choose Not Now, they keep your previous list until you update them."
     }
     /// After "Agent Keyring is trying to" in macOS's dialog.
@@ -48,15 +48,15 @@ public enum SetupCopy {
     public static let addIPhoneLead = "Add this iPhone to Agent Keyring?"
     public static let addWatchLead = "Add this Apple Watch to Agent Keyring?"
     public static let addComputerLead = "Add this computer to Agent Keyring?"
-    public static let addIPhoneBody = "Same Apple Account. It gets its own encrypted copy of your passwords, locked in its Secure Enclave, and can approve password requests with Face ID."
-    public static let addWatchBody = "Paired with your iPhone. It approves password requests with one tap on your wrist, and each request carries the one encrypted copy it needs."
+    public static let addIPhoneBody = "It gets its own encrypted copy of your passwords, locked in its Secure Enclave, and can approve password requests with Face ID."
+    public static let addWatchBody = "It approves password requests with one tap on your wrist, and each request carries the one encrypted copy it needs."
     public static let addComputerBody = "Agents on this computer will be able to ask you for passwords. You approve each Ask password before it is shared."
     public static let denyNotePrompt = "Optional note if you deny"
     public static func copyingTo(done: Int, total: Int) -> String {
-        "Copying your passwords to it: \(done) of \(total). You can remove it later in Devices."
+        "Copying your passwords to it: \(done.formatted()) of \(total.formatted()). You can remove it later in Devices."
     }
     public static func stoppedCopying(done: Int, total: Int, reason: String) -> String {
-        "Stopped copying after \(done) of \(total) passwords. \(reason) Remove it in Devices and add it again."
+        "Stopped copying after \(done.formatted()) of \(total.formatted()) passwords. \(reason) Remove it in Devices and add it again."
     }
     public static func added(_ name: String) -> String { "\(name) added" }
     public static let addedPhoneDetail = "It can approve password requests with Face ID."
@@ -128,7 +128,7 @@ public enum FirstRunCopy {
     public static let noneArrived = "No passwords have arrived yet. In Select a Destination, make sure you chose Agent Keyring with the blue keyhole (not an earlier version), or check that Agent Keyring is turned on in AutoFill Settings."
     public static let copying = "Copying passwords…"
     public static func copied(_ count: Int) -> String {
-        (count == 1 ? "1 password copied." : "\(count) passwords copied.") + " Every password starts as Ask, so an agent must ask you before using it."
+        (count == 1 ? "1 password copied." : "\(count.formatted()) passwords copied.") + " Every password starts as Ask, so an agent must ask you before using it."
     }
     public static let allowExportTitle = "Allow export from Apple Passwords"
     public static let allowExportBody = "macOS uses its AutoFill setting to choose which apps Apple Passwords can export to. Agent Keyring never fills in passwords on its own. Click Open AutoFill Settings, turn on Agent Keyring, then return here."
@@ -154,7 +154,7 @@ public enum FirstRunCopy {
 
     public static let ready = "Agent Keyring is ready on this Mac"
     public static func readyCopied(_ count: Int) -> String {
-        (count == 1 ? "1 password copied." : "\(count) passwords copied.") + " Click the keyhole in your menu bar any time."
+        (count == 1 ? "1 password copied." : "\(count.formatted()) passwords copied.") + " Click the keyhole in your menu bar any time."
     }
     public static let readyTestOnly = "Ready with the example.com test password. Click the keyhole in your menu bar any time."
     public static let otherDevices = "Add your other devices (optional, or later in the Devices tab)"
@@ -206,7 +206,7 @@ public enum DeviceSheetCopy {
     ]
     public static let phoneNoTailscale = "Tailscale isn’t running on this Mac. Turn on Tailscale on your Mac and iPhone so they can connect."
     public static func approveBeside(_ name: String) -> String { "Approve \(name) beside this window with Touch ID." }
-    public static func copyingTo(_ name: String, done: Int, total: Int) -> String { "Copying your passwords to \(name): \(done) of \(total)." }
+    public static func copyingTo(_ name: String, done: Int, total: Int) -> String { "Copying your passwords to \(name): \(done.formatted()) of \(total.formatted())." }
     public static let checkAgain = "Check Again"
     public static let doThisLater = "Do This Later"
     public static let done = "Done"
@@ -233,18 +233,17 @@ public enum MainWindowCopy {
     public static let devicesTab = "Devices"
 
     // Passwords
-    /// Each rule, then two-factor codes. One paragraph for now: the cut-off
-    /// check counts a wrapped line's start from its own paragraph, so a
-    /// wrapped line after a line break is reported as a split word.
-    public static let rulesExplained = "**Ask:** you approve each time an agent wants it. "
-        + "**Automatic:** agents on the computers you choose get it without asking you. "
-        + "**Blocked:** no agent can ever use it. "
-        + "**Two-factor codes:** for Ask passwords, the secret stays on your devices and agents get only the current code. "
-        + "For Automatic passwords, the chosen computer holds its own encrypted copy."
-    public static func search(_ count: Int) -> String { count == 1 ? "Search 1 password" : "Search \(count) passwords" }
+    /// Each rule, then two-factor codes: one line each, as on the iPhone.
+    public static let rulesExplained = [
+        "**Ask:** you approve each time an agent wants it.",
+        "**Automatic:** agents on the computers you choose get it without asking you.",
+        "**Blocked:** no agent can ever use it.",
+        "**Two-factor codes:** for Ask passwords, the secret stays on your devices and agents get only the current code. For Automatic passwords, the chosen computer holds its own encrypted copy.",
+    ]
+    public static func search(_ count: Int) -> String { count == 1 ? "Search 1 password" : "Search \(count.formatted()) passwords" }
     public static let all = "All"
     /// A filter with its count: "Ask 533".
-    public static func filter(_ name: String, _ count: Int) -> String { "\(name) \(count)" }
+    public static func filter(_ name: String, _ count: Int) -> String { "\(name) \(count.formatted())" }
     public static let website = "Website"
     public static let asked = "Asked"
     public static let approved = "Approved"
@@ -262,7 +261,7 @@ public enum MainWindowCopy {
     public static let cancel = "Cancel"
     public static let saveWithTouchID = "Save with Touch ID"
     public static let useTouchIDToSave = "Use Touch ID to save"
-    public static func rulesChange(_ count: Int) -> String { "The rules for \(count) passwords change." }
+    public static func rulesChange(_ count: Int) -> String { "The rules for \(count.formatted()) passwords change." }
     public static func ruleChange(site: String, from: String, to: String) -> String { "\(site) changes from \(from) to \(to)." }
     public static let stillKnown = " An agent that has already received its password still knows it."
     /// Names every computer that will get the password without asking.
@@ -323,6 +322,12 @@ public enum MainWindowCopy {
     }
     public static let removeConfirm = "Remove"
     /// The door could not be opened, such as when another program holds its port.
+    /// After Not Now on sending changes: the changes the other devices have not been sent.
+    public static func unsentChanges(_ count: Int) -> String {
+        count == 1 ? "1 password change isn’t on your other devices yet" : "\(count.formatted()) password changes aren’t on your other devices yet"
+    }
+    public static let unsentChangesDetail = "They keep your previous list until you send the changes."
+    public static let sendUpdates = "Send Updates…"
     public static let doorFailed = "Agent Keyring couldn't open its connection for your other devices. It tries again every 10 seconds."
 
     // macOS's dialog, after "Agent Keyring is trying to" (page "The request", board "On the Mac").
@@ -331,10 +336,10 @@ public enum MainWindowCopy {
         "let agents on \(list(computers)) use your \(site) password without asking"
     }
     public static func automaticReason(_ computers: [String], count: Int) -> String {
-        "let agents on \(list(computers)) use \(count) passwords without asking"
+        "let agents on \(list(computers)) use \(count.formatted()) passwords without asking"
     }
     public static func changeReason(site: String, from: String, to: String) -> String { "change \(site) from \(from) to \(to)" }
-    public static func changeReason(count: Int) -> String { "change the rules for \(count) passwords" }
+    public static func changeReason(count: Int) -> String { "change the rules for \(count.formatted()) passwords" }
 
     /// "a", "a and b", "a, b and c".
     public static func list(_ names: [String]) -> String {

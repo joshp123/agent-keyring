@@ -1,7 +1,7 @@
 // Written by AI on 2026.11.21 by model claude opus 5.5, from the Paper page
 // "Agent Keyring (Holistic)", board 3 ("Mac: Passwords"), and the copy ledger.
 //
-// Passwords: the three rules explained at the top, the filter with its
+// Passwords: the rules explained at the top, one line each, the filter with its
 // counts, and the table of every password with how often agents asked for
 // it and how he answered, sortable by each column. A rule changed in the
 // table waits, with the others changed, for one Touch ID.
@@ -21,8 +21,12 @@ public struct MacPasswordsTab: View {
         // The bands above and below the table set their own margins from the
         // tokens: no part draws an everyday window's top band and bottom bar yet.
         VStack(spacing: 0) {
-            HStack(spacing: KeyringSpace.s4) {
-                KeyringHint(symbol: "info.circle.fill", MainWindowCopy.rulesExplained)
+            HStack(alignment: .top, spacing: KeyringSpace.s4) {
+                // One line for each rule, as on the iPhone.
+                VStack(alignment: .leading, spacing: KeyringSpace.s1) {
+                    ForEach(MainWindowCopy.rulesExplained, id: \.self) { KeyringText($0, as: .meta) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 KeyringButton(.plain(MainWindowCopy.sortWithAI) { sorting = true })
             }
             .padding([.horizontal, .top], KeyringSpace.s5)
@@ -62,11 +66,11 @@ public struct MacPasswordsTab: View {
                 }
             }
             .width(min: 320)
-            TableColumn(MainWindowCopy.asked, value: \.asked) { KeyringText("\($0.asked)").monospacedDigit() }
+            TableColumn(MainWindowCopy.asked, value: \.asked) { KeyringText($0.asked.formatted()).monospacedDigit() }
                 .width(56).alignment(.trailing)
-            TableColumn(MainWindowCopy.approved, value: \.approved) { KeyringText("\($0.approved)").monospacedDigit() }
+            TableColumn(MainWindowCopy.approved, value: \.approved) { KeyringText($0.approved.formatted()).monospacedDigit() }
                 .width(76).alignment(.trailing)
-            TableColumn(MainWindowCopy.denied, value: \.denied) { KeyringText("\($0.denied)").monospacedDigit() }
+            TableColumn(MainWindowCopy.denied, value: \.denied) { KeyringText($0.denied.formatted()).monospacedDigit() }
                 .width(56).alignment(.trailing)
             TableColumn(MainWindowCopy.rule, value: \.ruleOrder) { row in
                 Picker(MainWindowCopy.rule, selection: Binding(get: { model.rule(of: row) }, set: { model.choose($0, for: row) })) {

@@ -199,6 +199,7 @@ public struct MacCopyPage: View {
                 KeyringStepRow(guideStep, FirstRunCopy.guide[guideStep - 1]) {
                     if guideStep == 4, earlierVersion { KeyringText(FirstRunCopy.earlierVersion, as: .meta) }
                 }
+                MacGuidePicture(step: guideStep)
                 HStack(spacing: KeyringSpace.s2) {
                     KeyringButton(.plain(FirstRunCopy.previous, isEnabled: guideStep > 1) { actions.showGuideStep(guideStep - 1) })
                     KeyringButton(.plain(FirstRunCopy.next, isEnabled: guideStep < FirstRunCopy.guide.count) { actions.showGuideStep(guideStep + 1) })
@@ -215,6 +216,17 @@ public struct MacCopyPage: View {
         } else {
             page.frame(width: KeyringSize.macWindow.width - KeyringSize.macSidebar, height: KeyringSize.macWindow.height)
         }
+    }
+}
+
+/// The picture of Passwords' own screen for one guide step, under the step's
+/// words. Empty until the parts engineer's pictures exist (each is a part in
+/// AgentKeyringDesign); this page draws none of Apple's screens itself.
+struct MacGuidePicture: View {
+    let step: Int
+
+    var body: some View {
+        EmptyView()
     }
 }
 

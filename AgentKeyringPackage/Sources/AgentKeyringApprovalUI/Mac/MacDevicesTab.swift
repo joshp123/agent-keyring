@@ -17,6 +17,15 @@ public struct MacDevicesTab: View {
 
     public var body: some View {
         Form {
+            // After Not Now on sending changes: the way to send them later.
+            if model.snapshot.unsentChanges > 0 {
+                Section {
+                    KeyringDeviceRow(symbol: "arrow.triangle.2.circlepath", name: MainWindowCopy.unsentChanges(model.snapshot.unsentChanges),
+                                     detail: MainWindowCopy.unsentChangesDetail, tone: .needsDoing) {
+                        KeyringButton(.plain(MainWindowCopy.sendUpdates, perform: model.sendUpdates))
+                    }
+                }
+            }
             if !model.snapshot.notices.isEmpty {
                 Section {
                     ForEach(model.snapshot.notices, id: \.self) { KeyringStatusLine(.takingLong(Self.words($0))) }

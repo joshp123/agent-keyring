@@ -32,7 +32,9 @@ public final class AppMainWindowBackend: MainWindowBackend {
         let device = model.device
         let others = (device?.members?.machines ?? []).filter { $0.machineID != device?.ownMachineID }
         return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, sampleOnly: model.status?.sampleOnly == true,
-            approvers: approvers(), computers: others.map { ComputerRow(id: $0.machineID, name: $0.label) }, notices: notices())
+            approvers: approvers(), computers: others.map { ComputerRow(id: $0.machineID, name: $0.label) }, notices: notices(),
+            // While the panel asks, the banner waits.
+            unsentChanges: model.resyncAsked ? 0 : model.unsentChanges.total)
     }
 
     /// This Mac, then each iPhone and Apple Watch in the members list. Before
@@ -106,6 +108,8 @@ public final class AppMainWindowBackend: MainWindowBackend {
     }
 
     public func sendPractice(deviceID: String) { Task { await model.sendPractice(to: deviceID) } }
+
+    public func sendUpdates() { model.askToSendChanges() }
 
     public func remove(id: String, context: LAContext) async throws {
         guard let device = model.device else { return }

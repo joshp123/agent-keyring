@@ -37,6 +37,12 @@ enum MacEverydayGallery {
                     ApproverRow(id: "mac", kind: .thisMac, name: Sample.macName, practice: .waitingHere, canPractise: false),
                 ], notices: [.noTailscale, .noPushKey]))
             },
+            .init("devices-changes-not-sent", .macPanel(width: KeyringSize.macWindow.width)) {
+                MacDevicesTab(model: main(approvers: [
+                    ApproverRow(id: "mac", kind: .thisMac, name: Sample.macName, canPractise: true),
+                    ApproverRow(id: "phone", kind: .iPhone, name: "iPhone", canPractise: true),
+                ], computers: [ComputerRow(id: "mini", name: "Mac mini")], unsentChanges: 1_249))
+            },
             .init("devices-door-failed", .macPanel(width: KeyringSize.macWindow.width)) {
                 MacDevicesTab(model: main(approvers: [
                     ApproverRow(id: "mac", kind: .thisMac, name: Sample.macName, canPractise: true),
@@ -87,9 +93,10 @@ enum MacEverydayGallery {
         ]
     }
 
-    private static func main(approvers: [ApproverRow] = [], computers: [ComputerRow] = [], notices: [DoorNotice] = []) -> MacMainModel {
+    private static func main(approvers: [ApproverRow] = [], computers: [ComputerRow] = [], notices: [DoorNotice] = [],
+                             unsentChanges: Int = 0) -> MacMainModel {
         MacMainModel(backend: SampleMainBackend(), initial: MainSnapshot(logins: Sample.logins, importedAt: Sample.copiedOn,
-            approvers: approvers, computers: computers, notices: notices))
+            approvers: approvers, computers: computers, notices: notices, unsentChanges: unsentChanges))
     }
 
     private static func menu(_ snapshot: MacMenuBarSnapshot) -> MacMenuBarView {
@@ -135,6 +142,7 @@ private final class SampleMainBackend: MainWindowBackend {
     func remove(id: String, context: LAContext) async throws {}
     func importAgain() {}
     func sendPractice(deviceID: String) {}
+    func sendUpdates() {}
 }
 
 private final class SampleMenuBackend: MacMenuBarBackend {
