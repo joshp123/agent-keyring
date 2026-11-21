@@ -101,7 +101,8 @@ private struct PhoneList<Content: View>: View {
 struct PhoneHomeView: View {
     let model: PhoneModel
 
-    @State private var settingsShown = false
+    /// -SampleSettings YES opens Settings, for looking at it in the simulator.
+    @State private var settingsShown = UserDefaults.standard.bool(forKey: "SampleSettings")
 
     var body: some View {
         PhoneList(title: PhoneCopy.home, leading: (PhoneCopy.settings, { settingsShown = true }),
@@ -121,7 +122,7 @@ struct PhoneHomeView: View {
                 Section {
                     ForEach(model.inUse) { request in
                         if case let .approved(_, until) = request.state {
-                            KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until)) {
+                            KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until), nameFit: .siteName) {
                                 KeyringButton(.plain(PhoneCopy.stop) { Task { await model.stop(request.id) } })
                             }
                         }
@@ -132,7 +133,7 @@ struct PhoneHomeView: View {
                 Section {
                     ForEach(earlier) { request in
                         let (outcome, word) = PhoneCopy.outcome(request.state)
-                        KeyringDeviceRow(symbol: "clock", name: request.login.site, detail: PhoneCopy.historyDetail(request)) {
+                        KeyringDeviceRow(symbol: "clock", name: request.login.site, detail: PhoneCopy.historyDetail(request), nameFit: .siteName) {
                             KeyringText(word, as: .meta, colour: outcome == .approved ? KeyringPalette.approve : outcome == .denied ? KeyringPalette.deny : nil)
                         }
                     }
@@ -203,7 +204,7 @@ struct PhoneLoginsView: View {
             } header: { KeyringText(PhoneCopy.passwordsCount(model.snapshot.logins.count), as: .sectionName) }
             Section {
                 ForEach(shown) { login in
-                    KeyringDeviceRow(symbol: "key", name: login.site, detail: login.account.isEmpty ? nil : login.account) {
+                    KeyringDeviceRow(symbol: "key", name: login.site, detail: login.account.isEmpty ? nil : login.account, nameFit: .siteName) {
                         Menu {
                             ForEach([PhoneLogin.Rule.ask, .automatic, .blocked], id: \.self) { rule in
                                 Button(PhoneCopy.rule(rule)) { Task { await model.setRule(rule, forLogin: login.id) } }
