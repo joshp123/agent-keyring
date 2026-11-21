@@ -139,7 +139,8 @@ func TestARequestIsSignedByTheMachineThatAsks(t *testing.T) {
 	}
 	machine := members.Machines[0]
 	signed, err := SignRequest(&pb.Request{Domain: RequestDomain, RequestId: "request-2", LoginId: "login-example", MachineId: machine.MachineId,
-		Reason: "You asked me to download October's invoice.", Agent: "Codex", AskedUnixSeconds: 1_795_000_000, AnswerByUnixSeconds: 1_795_000_600},
+		Reason: "You asked me to download October's invoice.", Agent: "Codex", AskedUnixSeconds: 1_795_000_000, AnswerByUnixSeconds: 1_795_000_600,
+		AnswerAddress: "100.100.1.2:17446", AnswerTlsPublicKey: machine.TlsPublicKey},
 		SoftwareSigner(tlsKey))
 	if err != nil {
 		t.Fatal(err)

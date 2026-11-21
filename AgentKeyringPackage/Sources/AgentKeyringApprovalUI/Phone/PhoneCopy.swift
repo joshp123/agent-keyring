@@ -161,16 +161,20 @@ public enum PhoneCopy {
     static func mac(_ name: String?) -> String { name ?? "your Mac" }
     public static let welcomeSecureTitle = "End-to-end encrypted, locked in Secure Enclave"
     public static let welcomeSecureDetail = "Your passwords are end-to-end encrypted with unlock keys stored inside your devices’ Secure Enclave, and signed so nothing in between can read or tamper with them. Nothing can access a password except an agent you approve, one password at a time, with each approval lasting up to 30 minutes."
-    public static let addThisPhone = "Add This iPhone"
+    // Joining the Mac (master-copy-audit-21-nov.md, Flow B; the words wait for Gemini's final page).
     public static let lookingForMac = "Looking for your Mac"
-    public static let startOnMac = "Start on your Mac"
-    public static let startOnMacDetail = "Agent Keyring on your Mac holds your passwords. Install it there and follow its steps. This screen moves on by itself when your Mac is ready."
-    /// After two minutes with nothing found.
-    public static let startOnMacLongWait = "Already set up on your Mac? This iPhone finds it through iCloud. Check that both use the same Apple Account, and that Passwords syncs on both: in Settings, tap your name, then iCloud, then Passwords."
-    public static let addComputer = "Add a computer that stays on"
-    public static func addComputerDetail(_ name: String?) -> String {
-        "Agent Keyring is set up on \(mac(name)), but your iPhone also needs a computer of yours that stays on, such as a Mac mini. On \(mac(name)), click the keyhole in the menu bar, then Devices, then Add iPhone or Apple Watch."
-    }
+    public static let lookingForMacDetail = "Open Agent Keyring on your Mac. This iPhone finds it through iCloud."
+    public static func continueFrom(_ name: String?) -> String { "Continue setup from \(mac(name))" }
+    public static let continueFromDetail = "Connect this iPhone to approve password requests from your AI agents with Face ID."
+    public static func connectTo(_ name: String?) -> String { "Connect to \(mac(name))" }
+    public static let havingTrouble = "Having trouble?"
+    public static let troubleBanner = "Can’t find your Mac right now"
+    public static let troubleTitle = "Check these three things"
+    public static let troubleSteps = [
+        "Agent Keyring is open on your Mac.",
+        "Both devices use the same Apple Account.",
+        "iCloud Passwords & Keychain is on in Settings.",
+    ]
     public static func approveOn(_ name: String?) -> String { "Approve on \(mac(name))" }
     public static func approveOnDetail(_ name: String?) -> String {
         "A request to add this iPhone is beside the pointer on \(mac(name)). Click the green button there and use Touch ID."
@@ -178,10 +182,19 @@ public enum PhoneCopy {
     public static func waitingFor(_ name: String?) -> String { "Waiting for \(mac(name))" }
     public static func didNotAdd(_ name: String?) -> String { name.map { "\($0) didn’t add this iPhone" } ?? "Your Mac didn’t add this iPhone" }
     public static func didNotAddDetail(_ name: String?) -> String {
-        "The request to add it was denied on your Mac. To try again, tap Ask Again, then approve it on \(mac(name))."
+        "The request to add it was denied on \(mac(name)). To try again, tap Ask Again, then approve it there."
     }
+    public static func cantReach(_ name: String?) -> String { "Can’t reach \(mac(name))" }
+    public static func cantReachDetail(_ name: String?) -> String {
+        "Check that \(mac(name)) is awake with Agent Keyring open, and that Tailscale is on on both."
+    }
+    public static let joinExpiredTitle = "The request to add this iPhone ended"
+    public static func joinExpiredDetail(_ name: String?) -> String { "Nobody answered it on \(mac(name)) within 10 minutes." }
     public static let askAgain = "Ask Again"
-    public static let tryPractice = "Try a Practice Request"
+    public static let receivingPasswords = "Receiving your passwords"
+    public static func receivingDetail(_ fill: PhoneFill?) -> String {
+        fill.map { "\($0.copied) of \($0.of)" } ?? "Your Mac is encrypting a copy of each password for this iPhone."
+    }
     public static let notificationsTitle = "Turn on notifications"
     public static let notificationsLead = "Each request arrives as a notification, so you can approve or deny it without opening Agent Keyring. Your Apple Watch shows it too, once you add it."
     public static let notificationsFocus = "If you use a Focus, such as Sleep or Do Not Disturb, requests wait until it ends. To get them anyway, allow Time Sensitive notifications for that Focus in Settings > Focus."
@@ -193,18 +206,21 @@ public enum PhoneCopy {
     public static let practiceOfferTitle = "Try a request on this iPhone"
     public static let practiceOfferDetail = "Send yourself a practice request. It arrives as a notification, as an agent’s request does. Approve it, deny it, or deny it with a reply. To speak the reply, tap the microphone in the reply box, and tap it again to stop."
     public static let sendPractice = "Send Practice Request"
-    /// The computer that stays on, by name, at the start of a sentence.
-    static func relay(_ name: String?) -> String { name ?? "The computer that passes on your requests" }
     public static let practiceCheckTitle = "Check that requests reach this iPhone"
-    public static func practiceCheckDetail(_ relayName: String?) -> String {
-        "\(relay(relayName)) is sending a practice request, the same way an agent’s request reaches you. Tap it when it arrives."
+    public static func practiceCheckDetail(_ name: String?) -> String {
+        "\(mac(name)) is sending a practice request, the same way an agent’s request reaches you. Tap it when it arrives."
     }
     public static let practiceWaiting = "Waiting for the practice request"
     public static let practiceNotArrivedTitle = "The practice request hasn’t arrived"
-    public static func practiceNotArrivedDetail(_ relayName: String?) -> String {
-        let name = relayName ?? "the computer that passes on your requests"
-        return "Requests reach this iPhone through \(name). Check that \(name) is turned on and connected to the internet, then try again."
+    public static func practiceNotArrivedDetail(_ name: String?) -> String {
+        "If a Focus such as Sleep is on, iOS holds notifications back unless Agent Keyring is allowed in Settings > Focus. Then try again."
     }
+    public static func practiceMacUnreachableTitle(_ name: String?) -> String { "Can’t reach \(mac(name))" }
+    public static func practiceMacUnreachableDetail(_ name: String?) -> String {
+        "\(mac(name)) sends practice requests, so it has to be awake with Agent Keyring open. Real requests come from the computer that asks."
+    }
+    public static let skipForNow = "Skip for Now"
+    public static let addAppleWatchQuestion = "Add your Apple Watch?"
     public static let tryAgain = "Try Again"
     public static let settingUpTitle = "Setting up notifications"
     public static let settingUpDetail = "Apple is connecting this iPhone for notifications. This usually takes a few seconds, and the practice request comes as soon as it is done."
@@ -261,14 +277,13 @@ public enum PhoneCopy {
     public static let addAppleWatch = "Add Apple Watch"
     public static let addAppleWatchDetail = "Open Agent Keyring on your Apple Watch to approve from your wrist."
     public static let stillConnecting = "This iPhone is still connecting. Until it finishes, requests appear only while Agent Keyring is open."
-    public static func relayOffline(_ name: String?) -> String {
-        // Paper names the computer (Members.relay_machine_id); the words without a name are for a relay that names none.
-        "\(name ?? "The computer that passes on your requests") is offline. Check that it is turned on and connected."
+    public static func macOffline(_ name: String?) -> String {
+        "Can’t reach \(mac(name)). Requests still come from the computers that ask; changes to your passwords arrive once it is back."
     }
     public static func notice(_ notice: PhoneNotice) -> String {
         switch notice {
         case .stillConnecting: stillConnecting
-        case let .relayOffline(name): relayOffline(name)
+        case let .macOffline(name): macOffline(name)
         case .addAppleWatch: addAppleWatchDetail
         }
     }
@@ -282,10 +297,6 @@ public enum PhoneCopy {
     public static let to = "To"
     public static let quietHoursDetail = "During these hours, requests arrive silently and wait in Notification Centre."
     public static let watchFollows = "Your Apple Watch follows these settings."
-    // Apple Watch's request to be added (Paper, "On Apple Watch").
-    public static let addWatchLead = "Add to Agent Keyring"
-    public static let pairedWithThisIPhone = "Paired with this iPhone"
-    public static let watchFootnote = "Adding it gives it your passwords, locked to its own Secure Enclave, and asks for Face ID. It then approves requests with one tap while unlocked on your wrist. Remove it in Devices."
 
     // Failures.
     public static let answerFailed = "Your answer wasn’t sent. Try again."
@@ -305,7 +316,6 @@ public enum PhoneCopy {
     }
     // Devices list (Paper, "On iPhone and Apple Watch", Devices).
     public static let ready = "Ready"
-    public static let passesRequests = "Stays on, and passes requests to this iPhone"
 
     // What Face ID says it is for.
     public static let faceIDPractice = "Approve the practice request."
@@ -314,6 +324,26 @@ public enum PhoneCopy {
     }
     public static func faceIDRemove(_ name: String) -> String { "Remove \(name)." }
     public static let faceIDAddWatch = "Let your Apple Watch approve requests."
+    public static func faceIDSetRule(site: String, rule: PhoneLogin.Rule) -> String { "Set \(site) to \(self.rule(rule))." }
+    public static let anAgent = "An agent"
+    public static let passwordNotOnThisIPhone = "This password isn’t on this iPhone yet. Open Agent Keyring on your Mac, then try again."
+    // Adding Apple Watch (master-copy-audit-21-nov.md, Flow C; the words wait for Gemini's final page).
+    public static let notPairedTitle = "No Apple Watch is paired with this iPhone"
+    public static let installOnWatchTitle = "Install Agent Keyring on your Apple Watch"
+    public static let installOnWatchDetail = "Your Apple Watch is paired with this iPhone, but Agent Keyring isn’t installed on it yet. Open the Watch app, scroll to Available Apps under My Watch, and tap Install next to Agent Keyring."
+    public static let checkAgain = "Check Again"
+    public static let addWatchFaceIDDetail = "Approve password requests from your AI agents with one tap on your wrist. Confirm with Face ID here so this iPhone can encrypt your passwords for your Apple Watch, then tap Add on your Apple Watch."
+    public static let continueWithFaceID = "Continue with Face ID"
+    public static func confirmedUntil(_ until: Date) -> String { "Confirmed with Face ID · ready until \(clock(until))" }
+    public static let tapAddOnWatch = "Now tap Add on your Apple Watch"
+    public static let tapAddOnWatchDetail = "Open Agent Keyring on your Apple Watch and tap Add."
+    public static let faceIDExpiredTitle = "Confirm with Face ID again"
+    public static let faceIDExpiredDetail = "The confirmation ended before your Apple Watch asked."
+    public static let watchNeedsPasscodeTitle = "Turn on a passcode on your Apple Watch"
+    public static let watchNeedsPasscodeDetail = "Agent Keyring needs a passcode to protect your passwords on your Apple Watch."
+    public static func encryptingForWatch(_ done: Int, _ total: Int) -> String { "Encrypting passwords for Apple Watch (\(done) of \(total))" }
+    public static let watchCopiesFailed = "Your Apple Watch is added, but its passwords didn’t reach your Mac"
+    public static let watchAdded = "Apple Watch added"
 
     public static func clock(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en_GB")))

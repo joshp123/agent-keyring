@@ -43,13 +43,15 @@ final class WatchModel {
     var setup: WatchSetup = {
         #if DEBUG
         // For comparing screens with Paper in the simulator: -SampleSetup notifications.
-        let samples: [String: WatchSetup] = ["no-passcode": .noPasscode, "set-up-iphone": .setUpIPhone, "approve-on-iphone": .approveOnIPhone,
+        let samples: [String: WatchSetup] = ["no-passcode": .noPasscode, "set-up-iphone": .setUpIPhone, "start-on-iphone": .startOnIPhone,
+                                             "ready-to-add": .readyToAdd, "preparing": .preparing,
                                              "notifications": .notifications, "notifications-off": .notificationsOff,
-                                             "setting-up": .settingUpNotifications, "ready": .ready]
+                                             "setting-up": .settingUpNotifications, "added": .addedOfferPractice,
+                                             "practice-waiting": .practiceWaiting, "ready": .ready]
         if let name = UserDefaults.standard.string(forKey: "SampleSetup"), let sample = samples[name] { return sample }
         #endif
         let saved = WatchStore().read()
-        return saved.lists((try? WatchKeys().keyID()) ?? "") ? .ready : saved.signedMembers != nil ? .approveOnIPhone : .setUpIPhone
+        return saved.lists((try? WatchKeys().keyID()) ?? "") ? .ready : saved.signedMembers != nil ? .startOnIPhone : .setUpIPhone
     }()
 }
 
@@ -149,13 +151,12 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
                 let store = WatchStore()
                 var saved = store.read()
                 saved.practiceAnswered = true
+                saved.practiceOfferDone = true
                 store.write(saved)
                 await WatchLink.shared.sendHandOver()
+                await WatchLink.shared.refreshSetup()
             }
             return .sent
-        } catch WatchFailure.relay(409, let words) {
-            watchLog.note("answer", "already answered", ["request": request.id, "words": words])
-            return .alreadyAnswered
         } catch {
             WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") was not delivered: \(error)")
             return .failed
@@ -174,7 +175,11 @@ enum WatchCopy {
         switch setup {
         case .noPasscode: ("Set a passcode", "To approve from your wrist, set one in the Apple Watch app on your iPhone.")
         case .setUpIPhone: ("Agent Keyring", "Approve your AI agents’ password requests with a tap. Set up Agent Keyring on your iPhone first.")
-        case .approveOnIPhone: ("Approve on your iPhone", "Your iPhone is asking to add this Apple Watch. Approve it there with Face ID.")
+        case .startOnIPhone: ("Start on your iPhone", "Open Agent Keyring on your iPhone, go to Devices, and tap Add Apple Watch.")
+        case .readyToAdd: ("Add this Apple Watch?", "Your iPhone encrypts your passwords for this Apple Watch. Each request brings the one it needs.")
+        case .preparing: ("Adding this Apple Watch", "Your iPhone is finishing. Keep it nearby.")
+        case .addedOfferPractice: ("Apple Watch added", "Try a practice request to see one on your wrist.")
+        case .practiceWaiting: ("Practice request sent", "It arrives in a few seconds.")
         case .notifications: ("Turn on notifications", "Requests then appear on your wrist. Approve or deny with a tap.")
         case .notificationsOff: ("Notifications are off", "Turn them on in the Apple Watch app on your iPhone, under Notifications.")
         case .settingUpNotifications: ("Setting up notifications", "Apple is connecting this Apple Watch for notifications. This usually takes a few seconds.")
@@ -182,6 +187,11 @@ enum WatchCopy {
         }
     }
     static let continueButton = "Continue"
+    static let add = "Add"
+    static let tryPractice = "Try Practice"
+    static let done = "Done"
+    /// Not drawn: when Try Practice cannot reach the iPhone, or the iPhone cannot reach the Mac.
+    static let practiceNotAsked = "Couldn’t ask for one. Your iPhone and Mac need to be nearby and awake."
     // The request card.
     static let deny = "Deny"
     static let approve = "Approve"
@@ -210,6 +220,7 @@ enum WatchCopy {
 struct WatchHome: View {
     let model: WatchModel
     @State private var asking = false
+    @State private var practiceFailed = false
 
     var body: some View {
         // Only "In use" while something is in use; otherwise the one line for where setup stands.
@@ -231,29 +242,41 @@ struct WatchHome: View {
                 }
                 Text(line.title).font(.system(size: 19, weight: .bold))
                 Text(line.detail).font(.system(size: 13)).foregroundStyle(.secondary)
-                if model.setup == .notifications {
+                switch model.setup {
+                case .notifications:
                     // watchOS's own question, only once the iPhone has added this Apple Watch.
-                    Button(WatchCopy.continueButton) {
-                        asking = true
-                        Task {
-                            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
-                            await WatchLink.shared.refreshSetup()
-                            await WatchLink.shared.sendHandOver()
-                            asking = false
-                        }
+                    action(WatchCopy.continueButton) {
+                        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+                        await WatchLink.shared.refreshSetup()
+                        await WatchLink.shared.sendHandOver()
                     }
-                    .font(.system(size: 16, weight: .semibold))
-                    .buttonStyle(.plain)
-                    .frame(width: 170, height: 40)
-                    .background(Color.white.opacity(0.18), in: .capsule)
-                    .disabled(asking)
-                    .padding(.top, 8)
+                case .readyToAdd:
+                    action(WatchCopy.add) { await WatchLink.shared.add() }
+                case .addedOfferPractice:
+                    action(WatchCopy.tryPractice) { practiceFailed = !(await WatchLink.shared.askForPractice()) }
+                    action(WatchCopy.done) { await WatchLink.shared.practiceOfferDone() }
+                    if practiceFailed { Text(WatchCopy.practiceNotAsked).font(.system(size: 13)).foregroundStyle(.secondary) }
+                default:
+                    EmptyView()
                 }
             }
             .multilineTextAlignment(.center)
             .padding(.horizontal, 6)
             .frame(maxWidth: .infinity, minHeight: 170)
         }
+    }
+
+    private func action(_ title: String, _ run: @escaping () async -> Void) -> some View {
+        Button(title) {
+            asking = true
+            Task { await run(); asking = false }
+        }
+        .font(.system(size: 16, weight: .semibold))
+        .buttonStyle(.plain)
+        .frame(width: 170, height: 40)
+        .background(Color.white.opacity(0.18), in: .capsule)
+        .disabled(asking)
+        .padding(.top, 8)
     }
 }
 

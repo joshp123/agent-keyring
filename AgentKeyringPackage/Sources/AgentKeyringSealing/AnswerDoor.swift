@@ -11,7 +11,7 @@ import Foundation
 
 public enum AnswerDoor {
     /// How long an answer that cannot reach the door keeps trying.
-    public static let retryFor: TimeInterval = 60
+    public static let retryFor: TimeInterval = 30
     static let retryEvery: TimeInterval = 2
 
     public typealias Door = (host: String, port: UInt16, key: Data)
@@ -37,11 +37,11 @@ public enum AnswerDoor {
         var told = false
         while true {
             do {
-                let reply = try await RelayHTTPS.post(body, host: door.host, port: door.port, path: "/v2/answer", pinned: door.key)
+                let reply = try await DoorHTTPS.post(body, host: door.host, port: door.port, path: "/v2/answer", pinned: door.key)
                 return try Agentkeyring_V2_Lease(serializedBytes: reply)
-            } catch let failure as RelayHTTPS.Failure where failure.status == 403 {
+            } catch let failure as DoorHTTPS.Failure where failure.status == 403 {
                 throw Refused(words: failure.words)
-            } catch let failure as RelayHTTPS.Failure where failure.status != 0 {
+            } catch let failure as DoorHTTPS.Failure where failure.status != 0 {
                 throw failure
             } catch is CancellationError {
                 throw CancellationError()
@@ -53,9 +53,27 @@ public enum AnswerDoor {
         }
     }
 
+    /// Stop: posts a signed EndRequest and returns the request's Lease, retrying as an answer does.
+    public static func end(_ request: SignedDocument, at door: Door) async throws -> Data {
+        let body = try request.serializedData()
+        let giveUp = Date().addingTimeInterval(retryFor)
+        while true {
+            do {
+                return try await DoorHTTPS.post(body, host: door.host, port: door.port, path: "/v2/end", pinned: door.key)
+            } catch let failure as DoorHTTPS.Failure where failure.status == 403 {
+                throw Refused(words: failure.words)
+            } catch let failure as DoorHTTPS.Failure where failure.status != 0 {
+                throw failure
+            } catch {
+                guard Date() < giveUp, !(error is CancellationError) else { throw error }
+                try await Task.sleep(for: .seconds(retryEvery))
+            }
+        }
+    }
+
     /// Posts an arrival note once, within `ArrivalNote.deadline`.
     public static func arrived(_ note: SignedDocument, at door: Door) async throws {
-        _ = try await RelayHTTPS.post(note.serializedData(), host: door.host, port: door.port, path: "/v2/arrived",
+        _ = try await DoorHTTPS.post(note.serializedData(), host: door.host, port: door.port, path: "/v2/arrived",
                                       pinned: door.key, timeout: ArrivalNote.deadline)
     }
 }

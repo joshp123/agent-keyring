@@ -4,6 +4,7 @@
 // signing and opening keys work only after Face ID, with one LAContext for
 // both; the reply and notice keys work whenever the phone is unlocked.
 
+import AgentKeyringProtocol
 import AgentKeyringSealing
 import CryptoKit
 import Foundation
@@ -21,4 +22,6 @@ public protocol PhoneDeviceKeys {
     func sign(_ bytes: Data, context: LAContext) throws -> Data
     func open(_ sealed: SealedLogin, context: LAContext) throws -> LoginSecret
     func signReply(_ bytes: Data) throws -> Data
+    /// Opens a push's notice with the notice key, which works once the phone has been unlocked after starting.
+    func openNotice(_ notice: Agentkeyring_V2_Notice, deviceKeyID: String) throws -> Agentkeyring_V2_Work
 }

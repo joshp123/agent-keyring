@@ -37,7 +37,7 @@ final class NotificationService: UNNotificationServiceExtension {
             let id = words.request.id
             let door = words.door.map { (host: $0.host, port: $0.port, key: $0.key) }
             let done = UncheckedContent(handler: contentHandler, content: content)
-            ArrivalNote.send(request: id, log: PhoneDiagnostics.log, { try await PhoneRelayBackend.noteArrival(id, door: door, shared: PhoneNoticeReader.shared) },
+            ArrivalNote.send(request: id, log: PhoneDiagnostics.log, { try await PhoneKeyring.noteArrival(id, door: door, shared: PhoneNoticeReader.shared) },
                              show: done.call)
             return
         } else {

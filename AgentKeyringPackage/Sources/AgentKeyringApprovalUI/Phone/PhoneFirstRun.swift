@@ -41,6 +41,8 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
     case settingUpNotifications(id: String)
     /// 30 seconds passed and nothing arrived, though Apple gave an address.
     case practiceNotArrived(id: String)
+    /// The Mac makes practice requests and could not be reached: it must be awake. Try Again, Skip for Now.
+    case practiceMacUnreachable(id: String)
     /// The practice request is open.
     case practice(id: String)
     /// The practice's result stays on screen, with Send Another and Continue.
@@ -78,6 +80,8 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case practiceTapped
         /// 30 seconds after asking. `pushAddress`: Apple has given one.
         case practiceTimedOut(pushAddress: Bool)
+        /// The Mac's door could not be reached to ask for the practice request.
+        case practiceMacUnreachable
         /// Send Practice Request, Send Another or Try Again, with a new id (`newPracticeID()`).
         case sendPractice(id: String)
         case practiceEnded(PhonePracticeOutcome)
@@ -115,8 +119,11 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
              (.notificationsOff, .notificationsAnswered(true)): .practiceOffer
         case (.notifications, .notificationsAnswered(false)), (.askingNotifications, .notificationsAnswered(false)): .notificationsOff
         case (.notificationsOff, .continueWithoutNotifications): .practiceOffer
-        case let (.practiceOffer, .sendPractice(id)), let (.practiceResult, .sendPractice(id)), let (.practiceNotArrived, .sendPractice(id)):
+        case let (.practiceOffer, .sendPractice(id)), let (.practiceResult, .sendPractice(id)), let (.practiceNotArrived, .sendPractice(id)),
+             let (.practiceMacUnreachable, .sendPractice(id)):
             .practiceWaiting(id: id, arrived: false)
+        case let (.practiceWaiting(id, false), .practiceMacUnreachable), let (.settingUpNotifications(id), .practiceMacUnreachable):
+            .practiceMacUnreachable(id: id)
         case let (.practiceWaiting(_, arrived), .practiceSent(id)): .practiceWaiting(id: id, arrived: arrived)
         case let (.settingUpNotifications, .practiceSent(id)): .settingUpNotifications(id: id)
         case let (.practiceNotArrived, .practiceSent(id)): .practiceNotArrived(id: id)
@@ -131,7 +138,8 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case let (.practiceWaiting, .practiceEnded(outcome)), let (.settingUpNotifications, .practiceEnded(outcome)),
              let (.practiceNotArrived, .practiceEnded(outcome)), let (.practice, .practiceEnded(outcome)): .practiceResult(outcome)
         case let (.practiceOffer, .continueAfterPractice(watchToAdd)), let (.practiceResult, .continueAfterPractice(watchToAdd)),
-             let (.practiceNotArrived, .continueAfterPractice(watchToAdd)), let (.settingUpNotifications, .continueAfterPractice(watchToAdd)):
+             let (.practiceNotArrived, .continueAfterPractice(watchToAdd)), let (.settingUpNotifications, .continueAfterPractice(watchToAdd)),
+             let (.practiceMacUnreachable, .continueAfterPractice(watchToAdd)):
             .readyOfferWatch(watchToAdd: watchToAdd)
         case (.readyOfferWatch(true), .addAppleWatch): .addWatch
         case (.readyOfferWatch, .done), (.addWatch, .done): .finished

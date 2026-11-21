@@ -1,9 +1,10 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
 // What the iPhone hands the Watch, kept in one keychain item the app shares
-// with its notification service extension: the signed Members (who may ask,
-// and the relay's key), the signed Catalogue (the logins' names and sites),
-// and where the relay takes the Watch's answers.
+// with its notification service extension: the signed Members (who may ask),
+// the signed Catalogue (the logins' names and sites), the iPhone's settings,
+// and the end of a Face ID confirmation the iPhone holds for it to be added;
+// and the few things the Watch keeps of its own setup.
 
 #if os(watchOS)
 import AgentKeyringProtocol
@@ -14,16 +15,23 @@ import Security
 public struct WatchSaved: Codable, Sendable, Equatable {
     public var members: Data?
     public var catalogue: Data?
-    public var answerURL: String?
     /// The iPhone's notification settings, which Apple Watch follows.
     public var settings: NotificationSettings?
     /// Approvals that still last, from the outcome pushes every device receives.
     public var inUse: [WatchInUse]?
-    /// He has answered a practice request on this Apple Watch: the Watch step's last tick.
+    /// He has answered a practice request on this Apple Watch.
     public var practiceAnswered: Bool?
+    /// The iPhone waits for this Watch to ask until then: Add is offered only before it.
+    public var addUntil: Date?
+    /// He tapped Add: the Watch's keys go to the iPhone until it is listed.
+    public var addTapped: Bool?
+    /// When Try Practice asked for a practice request.
+    public var practiceAsked: Date?
+    /// Done on the practice offer, or a practice answered.
+    public var practiceOfferDone: Bool?
 
-    public init(members: Data? = nil, catalogue: Data? = nil, answerURL: String? = nil) {
-        self.members = members; self.catalogue = catalogue; self.answerURL = answerURL
+    public init(members: Data? = nil, catalogue: Data? = nil) {
+        self.members = members; self.catalogue = catalogue
     }
 
     public var signedMembers: Members? {
@@ -68,8 +76,9 @@ public struct WatchSaved: Codable, Sendable, Equatable {
     /// the list Apple Watch already trusts (the first one by a device it names
     /// itself). It need not follow every revision in between: it may have missed
     /// some while asleep, and the iPhone and Mac that sign them stay in the list.
-    public func merging(members newMembers: Data?, catalogue newCatalogue: Data?, answerURL newURL: String?, settings newSettings: Data? = nil) -> WatchSaved {
+    public func merging(members newMembers: Data?, catalogue newCatalogue: Data?, settings newSettings: Data? = nil, addUntil: Date?) -> WatchSaved {
         var merged = self
+        merged.addUntil = addUntil
         if let newSettings, let settings = try? PropertyListDecoder().decode(NotificationSettings.self, from: newSettings) { merged.settings = settings }
         if let newMembers, let document = try? SignedDocument(serializedBytes: newMembers),
            // Chained from the list Apple Watch already trusts: a newer list must be signed by a device in it.
@@ -81,7 +90,6 @@ public struct WatchSaved: Codable, Sendable, Equatable {
            (try? Sealing.verifiedCatalogue(document, members: members, current: signedCatalogue)) != nil {
             merged.catalogue = newCatalogue
         }
-        if let newURL, !newURL.isEmpty { merged.answerURL = newURL }
         return merged
     }
 }

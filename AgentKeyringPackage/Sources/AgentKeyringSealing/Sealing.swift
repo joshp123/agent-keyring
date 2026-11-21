@@ -240,17 +240,20 @@ public enum Sealing {
             let signature = try? P256.Signing.ECDSASignature(derRepresentation: work.requestSignature),
             key.isValidSignature(signature, for: work.request)
         else { throw Failure.badSignature }
-        if !request.answerAddress.isEmpty, request.answerTlsPublicKey != signerKey { throw Failure.badSignature }
+        if !practice || !request.answerAddress.isEmpty {
+            guard answerDoor(request) != nil, request.answerTlsPublicKey == signerKey else { throw Failure.badSignature }
+        }
         return practice ? nil : machine
     }
 
-    /// Where a device posts its answer and arrival: the asking machine's door, pinned to its key in
-    /// Members. Nil when the request names none (one from before the doors).
+    /// Where a device posts its answer, arrival and Stop: the asking machine's door, a Tailscale IP and
+    /// port, pinned to its key in Members. Nil when the request names none or a name instead of an address.
     public static func answerDoor(_ request: KeyringRequest) -> (host: String, port: UInt16, key: Data)? {
         guard !request.answerAddress.isEmpty, let colon = request.answerAddress.lastIndex(of: ":"),
               let port = UInt16(request.answerAddress[request.answerAddress.index(after: colon)...]) else { return nil }
         var host = String(request.answerAddress[..<colon])
         if host.hasPrefix("["), host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
+        guard Tailnet.isAddress(host), !request.answerTlsPublicKey.isEmpty else { return nil }
         return (host, port, request.answerTlsPublicKey)
     }
 
