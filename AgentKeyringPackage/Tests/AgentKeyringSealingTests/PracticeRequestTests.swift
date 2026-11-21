@@ -31,7 +31,7 @@ struct PracticeRequestTests {
         var request = KeyringRequest()
         request.domain = "agentkeyring.request.v2"; request.requestID = "r1"
         if let device { request.forDeviceKeyID = device } else { request.machineID = "mini"; request.loginID = "example" }
-        if let door { request.answerAddress = "100.100.1.2:17446"; request.answerTlsPublicKey = door }
+        if let door { request.answerAddress = "100.64.0.20:17446"; request.answerTlsPublicKey = door }
         var work = Agentkeyring_V2_Work()
         work.request = try request.serializedData()
         if let signer { work.requestSignature = try signer.signature(for: work.request).derRepresentation }

@@ -65,7 +65,7 @@ struct PhoneNoticeTests {
         answered.outcome.state = .approved
         var saved = PhoneSavedState()
         saved.deviceKeyID = "phone"
-        saved.mac = MacDoor(host: "100.100.1.1", port: 17446, key: Data([1]), name: "MacBook Pro")
+        saved.mac = MacDoor(host: "100.64.0.10", port: 17446, key: Data([1]), name: "MacBook Pro")
         saved.work = ["r1": try answered.serializedData()]
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try PropertyListEncoder().encode(saved).write(to: directory.appending(path: "phone-v2.plist"))
