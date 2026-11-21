@@ -249,6 +249,7 @@ public enum PhoneCopy {
         case .addAppleWatch: addWatchOfferDetail
         }
     }
+    public static let stopLeftWithMac = "Stop reaches that computer the next time one of its agents uses Agent Keyring."
     public static func stopFailed(until: Date?) -> String {
         "Couldn’t stop it. Try again." + (until.map { " It ends by itself at \(clock($0))." } ?? "")
     }

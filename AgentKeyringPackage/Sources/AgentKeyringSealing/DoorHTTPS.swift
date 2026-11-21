@@ -96,8 +96,12 @@ public enum DoorHTTPS {
 /// Addresses on the tailnet. Every door is named by the Tailscale IP its computer read from Tailscale:
 /// never a host name, which anything on the network path could answer for.
 public enum Tailnet {
+    /// Tests that stand a door up in their own process on 127.0.0.1 turn this on. Nothing else does.
+    nonisolated(unsafe) public static var acceptsLoopbackForTests = false
+
     /// 100.64.0.0/10, or fd7a:115c:a1e0::/48.
     public static func isAddress(_ host: String) -> Bool {
+        if acceptsLoopbackForTests, host == "127.0.0.1" { return true }
         let parts = host.split(separator: ".", omittingEmptySubsequences: false).compactMap { UInt8($0) }
         if parts.count == 4, host.split(separator: ".").count == 4 { return parts[0] == 100 && (64...127).contains(parts[1]) }
         var address = in6_addr()

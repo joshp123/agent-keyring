@@ -461,10 +461,18 @@ public final class PhoneKeyring: PhoneBackend {
         end.deviceKeyID = keyID
         end.endedUnixSeconds = Int64(Date().timeIntervalSince1970)
         let signed = try Sealing.signed(end.serializedData(), by: Sealing.keyID(keys.replyPublicKey())) { try keys.signReply($0) }
-        let lease = try Agentkeyring_V2_Lease(serializedBytes: await AnswerDoor.end(signed, at: door))
-        var ended = work
-        ended.outcome = lease
-        receive(ended)
+        do {
+            let lease = try Agentkeyring_V2_Lease(serializedBytes: await AnswerDoor.end(signed, at: door))
+            var ended = work
+            ended.outcome = lease
+            receive(ended)
+        } catch is AnswerDoor.NotDelivered {
+            // No process holds that computer's door now: the Mac keeps the Stop, and the computer asks for it
+            // before its agents next use an approval.
+            _ = try await mac().post("/v2/stop", signed.serializedData())
+            PhoneDiagnostics.log.note("stop", "left with the Mac", ["request": requestID])
+            throw PhoneStopWaitsWithMac()
+        }
     }
 
     // MARK: Rules and devices

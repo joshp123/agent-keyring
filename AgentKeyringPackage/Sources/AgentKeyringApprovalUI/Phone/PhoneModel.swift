@@ -168,6 +168,9 @@ public struct PhoneSnapshot: Hashable, Sendable {
     }
 }
 
+/// Stop could not reach the asking computer, so it waits with the Mac until that computer next asks.
+public struct PhoneStopWaitsWithMac: Error { public init() {} }
+
 @MainActor
 public protocol PhoneBackend: AnyObject {
     /// The current snapshot first, then one each time anything changes.
@@ -248,7 +251,9 @@ public final class PhoneModel {
     }
 
     public func stop(_ id: String) async {
-        do { try await backend.stop(id) } catch {
+        do { try await backend.stop(id) } catch is PhoneStopWaitsWithMac {
+            failure = PhoneCopy.stopLeftWithMac
+        } catch {
             var until: Date?
             if case let .approved(_, end)? = request(id: id)?.state { until = end }
             failure = PhoneCopy.stopFailed(until: until)
