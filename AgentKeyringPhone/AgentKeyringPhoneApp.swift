@@ -86,7 +86,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         #if DEBUG
         // For comparing screens with Paper in the simulator: -SampleTab logins, -SampleShow r1.
         if let tab = UserDefaults.standard.string(forKey: "SampleTab").flatMap(PhoneTab.init(rawValue:)) { model.tab = tab }
-        model.shownRequestID = UserDefaults.standard.string(forKey: "SampleShow")
+        if let show = UserDefaults.standard.string(forKey: "SampleShow") { model.openDecide(show) }
         #endif
     }
 
@@ -165,25 +165,21 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let done = UncheckedCompletion(completionHandler)
         let info = UncheckedUserInfo(userInfo)
         Task { @MainActor in
-            if let id { await keyring?.notificationOpened(id, info.value); await answer(id, action: action) }
+            if let id { await answer(id, userInfo: info.value, action: action) }
             done.call()
         }
     }
 
-    private func answer(_ id: String, action: String) async {
+    private func answer(_ id: String, userInfo: [AnyHashable: Any], action: String) async {
         PhoneDiagnostics.log.note("notification", "action", ["request": id, "action": action])
-        switch action {
-        case PhoneNotification.approveAction:
-            // The Face ID that unlocked the phone a moment ago counts, so it is one look, not two.
-            model.shownRequestID = id
-            await model.approve(id, reusingUnlock: true)
-        case PhoneNotification.denyAction:
-            do { try await backend.deny(id, reply: nil); PhoneDiagnostics.note("Deny from the notification: sent") }
-            catch { PhoneDiagnostics.note("Deny from the notification: failed, \(error)") }
-        case PhoneNotification.denyAndExplainAction:
-            model.explain(id)
-        default:
-            model.shownRequestID = id
+        let keyring = self.keyring
+        await model.handleNotification(id: id, action: action) {
+            if action == PhoneNotification.denyAction {
+                await keyring?.received(userInfo)
+            } else {
+                await keyring?.notificationOpened(id, userInfo)
+            }
+            return keyring?.snapshot
         }
     }
 

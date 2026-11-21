@@ -63,6 +63,8 @@ public enum PhoneCopy {
     public static let notificationsTitle = "Turn on notifications"
     public static let notificationsLead = "Password requests from your AI agents arrive as notifications so you can approve or deny them straight from your Lock Screen."
     public static let checkAllowed = "Notifications allowed"
+    public static let checkNotYetAllowed = "Notifications not yet allowed"
+    public static let checkTurnedOff = "Notifications turned off"
     public static let checkBanners = "Banners and Lock Screen"
     public static let checkTimeSensitive = "Time Sensitive"
     public static let checkNotScheduled = "Not in Scheduled Summary"
@@ -91,10 +93,12 @@ public enum PhoneCopy {
     public static func practiceMacAsleep(_ name: String?) -> String {
         "\(mac(name)) sends practice requests, so it needs to be awake with Agent Keyring open. Real requests come from the computer that asks."
     }
-    public static func practiceResult(_ outcome: PhonePracticeOutcome) -> String {
+    public static func practiceResult(_ outcome: PhonePracticeOutcome, reply: String? = nil) -> String {
         switch outcome {
         case .approved: "Practice approved."
-        case .denied: "Practice denied."
+        case .denied:
+            if let reply, !reply.isEmpty { "Practice denied: \(quoted(reply))" }
+            else { "Practice denied." }
         case .noAnswer: "The practice request ended with no answer."
         }
     }
@@ -149,6 +153,9 @@ public enum PhoneCopy {
     public static func quoted(_ reason: String) -> String { "“\(reason)”" }
     public static let deny = "Deny"
     public static let approve = "Approve"
+    public static let approveWithFaceID = "Approve with Face ID"
+    public static let approving = "Approving…"
+    public static let back = "Back"
     public static let denyAndExplain = "Deny and Explain"
     public static func lasts(_ agent: RequestingAgent) -> String { "\(agent.name) can use this password for this task, 30 minutes at most." }
     public static let practiceLasts = "Practice only. No passwords are shared."
@@ -176,6 +183,15 @@ public enum PhoneCopy {
     #endif
     public static let answerFailed = "Your answer wasn’t sent. Try again."
     public static let notDeliveredYet = "Not delivered yet. Trying again…"
+    public static func staleRequestNote(_ state: AccessRequestState) -> String {
+        switch state {
+        case .approved, .released, .expired, .ended: "This request was already approved."
+        case .denied, .blockedByRule: "This request was already denied."
+        case .unanswered: "This request ended with no answer."
+        case .cancelled: "This request was cancelled."
+        default: "This request has already ended."
+        }
+    }
 
     // MARK: The notification on the Lock Screen
 

@@ -54,6 +54,14 @@ struct PhoneFirstRunTests {
         #expect(run(result, .practiceArrived(pushExpected: true), .practiceTimedOut(pushAddress: true)) == result)
         #expect(result.restored == result)
     }
+
+    @Test("Step 2 allows Skip for Now before iOS asks, and Cancel on practice returns to arrived state")
+    func step2SkipAndPracticeCancel() {
+        #expect(PhoneFirstRun.notifications.on(.continueWithoutNotifications) == .practiceOffer)
+        let open = PhoneFirstRun.practice(id: "p1")
+        #expect(open.on(.practiceDismissed) == .practiceWaiting(id: "p1", arrived: true))
+        #expect(PhoneCopy.practiceResult(.denied, reply: "Use the file in Downloads") == "Practice denied: “Use the file in Downloads”")
+    }
 }
 
 @Suite("Adding Apple Watch")

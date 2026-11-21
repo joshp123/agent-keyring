@@ -40,8 +40,17 @@ public final class PhoneKeyring: PhoneBackend {
         }
         // Joined before the direct protocol (no Mac door saved): that membership went with the relay. The keys stay.
         if state.deviceKeyID != nil, state.mac == nil { state = PhoneSavedState() }
+        // In-flight answer retries do not survive process termination; clear orphaned markers on cold launch
+        // so interrupted sends never stay stranded in Sending past expiry.
+        if !state.answered.isEmpty {
+            state.answered.removeAll()
+        }
         firstRun = (state.firstRun ?? (state.deviceKeyID == nil ? .start : .notifications)).restored
     }
+
+    private var snapshotRevision: UInt64 = 1
+    /// Work that arrived before this iPhone fetched newer Members; retried once `refresh()` finishes.
+    private var pendingUnverifiedWork: [String: Work] = [:]
 
     // MARK: What the screens see
 
@@ -56,6 +65,8 @@ public final class PhoneKeyring: PhoneBackend {
 
     public var snapshot: PhoneSnapshot {
         var snapshot = PhoneSnapshot(firstRun: firstRun, practiceRequest: practiceOpen)
+        snapshot.revision = snapshotRevision
+        snapshot.practiceDeniedReply = state.lastPracticeReply
         snapshot.settings = phoneSettings
         snapshot.notificationFacts = facts
         snapshot.addWatch = addWatchFlow
@@ -85,6 +96,7 @@ public final class PhoneKeyring: PhoneBackend {
     }
 
     private func publish() {
+        snapshotRevision &+= 1
         let next = snapshot
         for continuation in subscribers.values { continuation.yield(next) }
     }
@@ -110,6 +122,7 @@ public final class PhoneKeyring: PhoneBackend {
         if next == .receivingPasswords { Task { await receivePasswords() } }
         // A new practice request: the 30-second timer starts, and it is asked for once Apple has given a push address.
         if case let .practiceWaiting(id, false) = next, previous.practiceID != id { beginPractice(id) }
+        if event == .practiceDismissed { practiceTimer?.cancel(); practiceTimer = nil }
         if case let .settingUpNotifications(id) = next, practiceTask == nil { askForPractice(id) }
         if next == .addWatch, addWatchFlow == nil { openAddWatch() }
     }
@@ -133,6 +146,7 @@ public final class PhoneKeyring: PhoneBackend {
             if firstRun == .practiceWaiting(id: id, arrived: false), practiceTimer == nil { beginPractice(id) } else { askForPractice(id) }
         }
         if firstRun == .receivingPasswords { Task { await receivePasswords() } }
+        if firstRun == .addWatch, addWatchFlow == nil { openAddWatch() }
         uploading?.cancel()
         uploading = Task { [weak self] in
             while !Task.isCancelled {
@@ -159,6 +173,11 @@ public final class PhoneKeyring: PhoneBackend {
             // Every revision of the list of devices since the one held, so each checks against the one before.
             let reply = try await macDoor(door).get("/v2/bundle", query: [URLQueryItem(name: "members", value: "\(members?.revision ?? 0)")])
             try accept(bundle: Agentkeyring_V2_Bundle(serializedBytes: reply))
+            if !pendingUnverifiedWork.isEmpty {
+                let queued = Array(pendingUnverifiedWork.values)
+                pendingUnverifiedWork.removeAll()
+                for work in queued { receive(work, allowRefresh: false) }
+            }
             if macUnreachable { macUnreachable = false; publish() }
             return true
         } catch {
@@ -251,14 +270,18 @@ public final class PhoneKeyring: PhoneBackend {
     public func received(_ userInfo: [AnyHashable: Any]) async {
         if !state.pushSeen { var next = state; next.pushSeen = true; save(next) }
         if userInfo["rev"] != nil { await refresh() }
-        if let work = openNotice(userInfo) { receive(work) }
+        if let work = openNotice(userInfo) {
+            if !receive(work, allowRefresh: false), await refresh() {
+                _ = receive(work, allowRefresh: false)
+            }
+        }
     }
 
     /// A tap on a notification, or one of its buttons: the request it is about opens.
     public func notificationOpened(_ requestID: String, _ userInfo: [AnyHashable: Any]) async {
         PhoneDiagnostics.log.note("notification", "opened", ["request": requestID])
         await received(userInfo)
-        if requestID == firstRun.practiceID { apply(.practiceTapped) }
+        if requestID == firstRun.practiceID, practiceWork(requestID) != nil { apply(.practiceTapped) }
     }
 
     private func openNotice(_ userInfo: [AnyHashable: Any]) -> Work? {
@@ -278,27 +301,47 @@ public final class PhoneKeyring: PhoneBackend {
         #endif
     }
 
-    func receive(_ work: Work) {
-        guard let request = try? Sealing.parseRequest(work.request), let members, let keyID = state.deviceKeyID else { return }
-        // Only a request the computer it names signed, answered at its own door.
-        guard (try? Sealing.checkRequest(work, members: members, ownKeyID: keyID)) != nil || isPracticeWork(work) else {
-            PhoneDiagnostics.log.note("request", "refused", ["request": request.requestID, "reason": "not signed by the computer it names"])
-            if members.machines.contains(where: { $0.machineID == request.machineID }) == false { Task { await refresh() } }
-            return
+    @discardableResult
+    func receive(_ work: Work, allowRefresh: Bool = true) -> Bool {
+        guard let request = try? Sealing.parseRequest(work.request), let members, let keyID = state.deviceKeyID else { return false }
+        // Only a cryptographically verified request: either signed by the computer it names (returning Machine),
+        // or a verified practice request for this device (returning nil without throwing).
+        let verifiedMachine: Agentkeyring_V2_Machine?
+        do {
+            verifiedMachine = try Sealing.checkRequest(work, members: members, ownKeyID: keyID)
+        } catch {
+            PhoneDiagnostics.log.note("request", "refused", ["request": request.requestID, "reason": "signature check failed"])
+            if members.machines.contains(where: { $0.machineID == request.machineID }) == false {
+                // Preserve any already-queued outcome so an older waiting notice cannot resurrect a finished request.
+                if let existing = pendingUnverifiedWork[request.requestID] {
+                    if existing.request == work.request, !existing.hasOutcome || work.hasOutcome {
+                        pendingUnverifiedWork[request.requestID] = work
+                    }
+                } else {
+                    pendingUnverifiedWork[request.requestID] = work
+                }
+                if allowRefresh { Task { await refresh() } }
+            }
+            return false
         }
+        let isVerifiedPractice = (verifiedMachine == nil)
         // A request is written once; a later notice for it may only add the outcome.
         let saved = state.work[request.requestID].flatMap { try? Work(serializedBytes: $0) }
-        if let saved, saved.request != work.request { return }
-        if let saved, saved.hasOutcome, !work.hasOutcome { return }
+        if let saved, saved.request != work.request { return false }
+        if let saved, saved.hasOutcome, !work.hasOutcome { return true }
         if saved == nil, !work.hasOutcome { Task { await reportArrival(request) } }
         var next = state
         next.work[request.requestID] = try? work.serializedData()
         if work.hasOutcome { next.answered[request.requestID] = nil; PhoneNotifications.remove(request.requestID) }
+        if isVerifiedPractice, request.requestID == firstRun.practiceID, work.hasOutcome {
+            let reply = work.outcome.reply.trimmingCharacters(in: .whitespacesAndNewlines)
+            next.lastPracticeReply = reply.isEmpty ? nil : reply
+        }
         save(next)
-        guard isPracticeWork(work), request.requestID == firstRun.practiceID else {
+        guard isVerifiedPractice, request.requestID == firstRun.practiceID else {
             // A login this iPhone has not seen yet: the Mac's lists changed since it last looked.
             if !request.loginID.isEmpty, catalogue?.logins.contains(where: { $0.loginID == request.loginID }) != true { Task { await refresh() } }
-            return
+            return true
         }
         if work.hasOutcome {
             practiceOutcome = Self.latched(practiceOutcome, work.outcome.state)
@@ -306,6 +349,7 @@ public final class PhoneKeyring: PhoneBackend {
         } else {
             apply(.practiceArrived(pushExpected: facts.allowed && pushRegistered))
         }
+        return true
     }
 
     /// Tells the asking computer a request has reached this iPhone. Sent the first time the app holds the
@@ -356,28 +400,46 @@ public final class PhoneKeyring: PhoneBackend {
     // MARK: Answers
 
     public func approve(_ requestID: String, reusingUnlock: Bool) async throws {
-        if let work = practiceWork(requestID) { return try await approvePractice(work) }
-        // The notification's Approve and the app's can both run for one request: the second is not an error.
+        // Check settlement FIRST for both real and practice requests so an already-answered request
+        // never triggers a redundant Face ID prompt.
         if settled(requestID) { return PhoneNotifications.remove(requestID) }
+        if let work = practiceWork(requestID) { return try await approvePractice(work, reusingUnlock: reusingUnlock) }
         let work = try currentWork(requestID)
         let request = try Sealing.parseRequest(work.request)
+        guard request.answerByUnixSeconds > Int64(Date().timeIntervalSince1970) else {
+            PhoneNotifications.remove(requestID)
+            throw PhoneMacDoor.Failure.notAllowed("This request has already timed out.")
+        }
         guard let members, let machine = try Sealing.checkRequest(work, members: members, ownKeyID: state.deviceKeyID ?? "") else {
             throw PhoneMacDoor.Failure.notAllowed("This iPhone may not approve this request.")
         }
         var copy = try ownCopy(for: request, members: members)
         if copy == nil, await refresh() { copy = try ownCopy(for: request, members: members) }
-        guard let (login, sealed) = copy else { throw PhoneMacDoor.Failure.notAllowed(PhoneCopy.passwordNotOnThisIPhone) }
+        guard let (login, _) = copy else { throw PhoneMacDoor.Failure.notAllowed(PhoneCopy.passwordNotOnThisIPhone) }
         let context = LAContext()
         defer { context.invalidate() }
         if reusingUnlock { context.touchIDAuthenticationAllowableReuseDuration = 10 }
         try await keys.authorize(context, reason: PhoneCopy.faceIDApprove(agent: request.agent, computer: machine.label, site: Self.site(login)))
-        let secret = try keys.open(sealed, context: context)
-        try Sealing.checkBound(secret, title: login.title, sites: login.sites, account: login.account)
+        // Re-check settlement, deadline, membership, and password copy after Face ID in case anything changed while authenticating.
+        if settled(requestID) { return PhoneNotifications.remove(requestID) }
+        guard request.answerByUnixSeconds > Int64(Date().timeIntervalSince1970) else {
+            PhoneNotifications.remove(requestID)
+            throw PhoneMacDoor.Failure.notAllowed("This request has already timed out.")
+        }
+        let freshWork = try currentWork(requestID)
+        guard freshWork.request == work.request,
+              let freshMembers = self.members,
+              let freshMachine = try Sealing.checkRequest(freshWork, members: freshMembers, ownKeyID: state.deviceKeyID ?? ""),
+              let (freshLogin, freshSealed) = try ownCopy(for: request, members: freshMembers) else {
+            throw PhoneMacDoor.Failure.notAllowed("This request is no longer allowed.")
+        }
+        let secret = try keys.open(freshSealed, context: context)
+        try Sealing.checkBound(secret, title: freshLogin.title, sites: freshLogin.sites, account: freshLogin.account)
         let upload = try Sealing.approve(
-            request: work.request, secret: secret, sites: login.sites,
-            receivingKey: P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey),
+            request: freshWork.request, secret: secret, sites: freshLogin.sites,
+            receivingKey: P256.KeyAgreement.PublicKey(x963Representation: freshMachine.receivingPublicKey),
             signerKeyID: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
-        try await send(upload, for: work, approving: true)
+        try await send(upload, for: freshWork, approving: true)
     }
 
     /// The password a request is for, from the signed Catalogue, and this iPhone's copy of it, checked
@@ -389,11 +451,18 @@ public final class PhoneKeyring: PhoneBackend {
     }
 
     public func deny(_ requestID: String, reply: String?) async throws {
-        if let work = practiceWork(requestID), reply?.isEmpty ?? true {
-            return try await send(Sealing.plainDeny(requestID: requestID), for: work, approving: false)
-        }
+        // Check settlement and expiry FIRST for both real and practice requests.
         if settled(requestID) { return PhoneNotifications.remove(requestID) }
         let work = try currentWork(requestID)
+        let parsed = try Sealing.parseRequest(work.request)
+        guard parsed.answerByUnixSeconds > Int64(Date().timeIntervalSince1970) else {
+            PhoneNotifications.remove(requestID)
+            return
+        }
+        guard let members, let keyID = state.deviceKeyID else {
+            throw PhoneMacDoor.Failure.notAllowed("This iPhone has not joined yet.")
+        }
+        _ = try Sealing.checkRequest(work, members: members, ownKeyID: keyID)
         let upload: AnswerUpload
         if let reply, !reply.isEmpty {
             upload = try Sealing.deny(request: work.request, reply: reply, signerKeyID: Sealing.keyID(keys.replyPublicKey())) { try keys.signReply($0) }
@@ -751,8 +820,13 @@ public final class PhoneKeyring: PhoneBackend {
     }
 
     private func isPracticeWork(_ work: Work) -> Bool {
-        guard let mine = state.deviceKeyID, let request = try? Sealing.parseRequest(work.request) else { return false }
-        return request.forDeviceKeyID == mine && request.loginID.isEmpty
+        guard let members, let mine = state.deviceKeyID else { return false }
+        // Only cryptographically verified practice requests pass checkRequest returning nil.
+        do {
+            return (try Sealing.checkRequest(work, members: members, ownKeyID: mine)) == nil
+        } catch {
+            return false
+        }
     }
 
     /// How the last practice request ended, for the log.
@@ -773,6 +847,11 @@ public final class PhoneKeyring: PhoneBackend {
 
     /// First run waits for the practice request: 30 seconds, then the screen says why it hasn't come.
     private func beginPractice(_ id: String) {
+        if state.lastPracticeReply != nil {
+            var next = state
+            next.lastPracticeReply = nil
+            save(next)
+        }
         practiceTimer?.cancel()
         practiceTimer = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
@@ -822,10 +901,30 @@ public final class PhoneKeyring: PhoneBackend {
     }
 
     /// First run's practice request, approved with one Face ID: a signed answer with no delivery.
-    func approvePractice(_ work: Work) async throws {
+    func approvePractice(_ work: Work, reusingUnlock: Bool = false) async throws {
+        guard let members, let keyID = state.deviceKeyID,
+              (try Sealing.checkRequest(work, members: members, ownKeyID: keyID)) == nil else {
+            throw PhoneMacDoor.Failure.notAllowed("This practice request could not be verified.")
+        }
+        let parsed = try Sealing.parseRequest(work.request)
+        guard parsed.answerByUnixSeconds > Int64(Date().timeIntervalSince1970) else {
+            PhoneNotifications.remove(parsed.requestID)
+            throw PhoneMacDoor.Failure.notAllowed("This request has already timed out.")
+        }
         let context = LAContext()
         defer { context.invalidate() }
+        if reusingUnlock { context.touchIDAuthenticationAllowableReuseDuration = 10 }
         try await keys.authorize(context, reason: PhoneCopy.faceIDPractice)
+        if settled(parsed.requestID) { return PhoneNotifications.remove(parsed.requestID) }
+        guard parsed.answerByUnixSeconds > Int64(Date().timeIntervalSince1970) else {
+            PhoneNotifications.remove(parsed.requestID)
+            throw PhoneMacDoor.Failure.notAllowed("This request has already timed out.")
+        }
+        guard let freshMembers = self.members, let freshKeyID = state.deviceKeyID,
+              let freshWork = practiceWork(parsed.requestID), freshWork.request == work.request,
+              (try Sealing.checkRequest(freshWork, members: freshMembers, ownKeyID: freshKeyID)) == nil else {
+            throw PhoneMacDoor.Failure.notAllowed("This practice request is no longer valid.")
+        }
         var answer = Agentkeyring_V2_Answer()
         answer.domain = "agentkeyring.answer.v2"
         answer.requestSha256 = Sealing.sha256(work.request)
@@ -1085,6 +1184,7 @@ public final class PhoneKeyring: PhoneBackend {
             var practice = Self.practiceRequest(request)
             if work.hasOutcome { practice.state = Self.state(work.outcome, now: now, members: members) }
             else if request.answerByUnixSeconds <= now { practice.state = .unanswered }
+            else if let approved = self.state.answered[request.requestID] { practice.state = .sendingAnswer(approved ? .approve : .deny) }
             return practice
         }
         guard let machine = members.machines.first(where: { $0.machineID == request.machineID }) else { return nil }
@@ -1092,10 +1192,12 @@ public final class PhoneKeyring: PhoneBackend {
         let state: AccessRequestState
         if work.hasOutcome {
             state = Self.state(work.outcome, now: now, members: members)
+        } else if request.answerByUnixSeconds <= now {
+            state = .unanswered
         } else if let approved = self.state.answered[request.requestID] {
             state = .sendingAnswer(approved ? .approve : .deny)
         } else {
-            state = request.answerByUnixSeconds > now ? .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds))) : .unanswered
+            state = .waitingForYou(until: Date(timeIntervalSince1970: Double(request.answerByUnixSeconds)))
         }
         return AccessRequest(
             id: request.requestID,

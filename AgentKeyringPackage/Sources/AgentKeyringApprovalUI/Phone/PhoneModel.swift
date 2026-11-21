@@ -139,12 +139,16 @@ public struct PhoneSettings: Hashable, Sendable {
 }
 
 public struct PhoneSnapshot: Hashable, Sendable {
+    /// Monotonic revision set by the backend so delayed AsyncStream snapshots never overwrite newer state.
+    public var revision: UInt64 = 0
     public var requests: [AccessRequest]
     public var logins: [PhoneLogin]
     public var devices: [PhoneDevice]
     public var firstRun: PhoneFirstRun
     /// First run's practice request, in the real request's layout, while it is open.
     public var practiceRequest: AccessRequest?
+    /// The reply sent with a denied practice request, if any, to echo on the confirmation card.
+    public var practiceDeniedReply: String?
     /// The Mac this iPhone joined, by name.
     public var macName: String?
     /// What this iPhone can see of its Apple Watch, for the Apple Watch step.
@@ -205,30 +209,71 @@ public protocol PhoneBackend: AnyObject {
 public final class PhoneModel {
     public private(set) var snapshot: PhoneSnapshot
     public var tab = PhoneTab.home
-    /// The request on screen, from a tap on a notification or on Show.
-    public var shownRequestID: String? {
-        didSet { if shownRequestID != nil { tab = .home } else { explaining = nil } }
-    }
-    public var replyDraft = ""
-    /// The request was opened from Deny and Explain: its reply box takes the keyboard as it appears.
-    public private(set) var explaining: String?
-
-    public func explain(_ id: String) {
-        explaining = id
-        shownRequestID = id
-    }
+    /// Single explicit state machine for every modal sheet, notification open, and per-request reply draft.
+    public private(set) var sheet = PhoneSheetState()
     public private(set) var answering: AnswerChoice?
+    /// The specific request ID currently authenticating or sending an answer.
+    public private(set) var answeringID: String?
     public private(set) var failure: String?
 
     private let backend: any PhoneBackend
+    /// Request ID whose notification notice is currently being decoded/refreshed.
+    private var loadingNotificationID: String?
+    /// Monotonic token invalidated whenever a newer explicit notification tap takes over.
+    private var notificationToken: UInt64 = 0
+    /// Explicit notification actions queued in FIFO order while another request is authenticating/sending
+    /// so neither a Lock Screen Deny nor a second/third foreground tap is ever silently dropped.
+    private var queuedNotifications: [(id: String, action: String, loadNotice: () async -> PhoneSnapshot?)] = []
+
+    public func isLoadingNotification(_ id: String) -> Bool { loadingNotificationID == id }
 
     public init(backend: any PhoneBackend, initial: PhoneSnapshot) {
         self.backend = backend
         self.snapshot = initial
+        if let practice = initial.practiceRequest {
+            sheet.apply(.openDecide(id: practice.id))
+        } else if initial.firstRun == .finished, initial.addWatch != nil {
+            sheet.apply(.openAddWatch)
+        }
     }
 
     public func followUpdates() async {
-        for await next in backend.updates() { snapshot = next }
+        for await next in backend.updates() {
+            applySnapshot(next)
+        }
+    }
+
+    /// Synchronizes `sheet` deterministically whenever the backend emits a new snapshot.
+    /// Rejects stale snapshots whose revision is strictly older than the current snapshot.
+    public func applySnapshot(_ next: PhoneSnapshot) {
+        if next.revision > 0, next.revision < snapshot.revision { return }
+        let previous = snapshot
+        snapshot = next
+
+        if let openID = sheet.requestID, openID != loadingNotificationID, openID != answeringID {
+            let current = request(id: openID)
+            let stillPresentable = current.map { $0.state.isWaitingForYou || $0.state.isSending } ?? false
+            if !stillPresentable {
+                sheet.apply(.requestEnded(id: openID))
+            } else if current?.state.isSending == true, sheet.requestMode != .approving {
+                sheet.apply(.approveStarted(id: openID))
+            }
+        }
+
+        if let practice = next.practiceRequest, previous.practiceRequest?.id != practice.id {
+            // Never hijack an explicit notification that is loading or a request that is authenticating.
+            if sheet.requestID != practice.id, answeringID == nil, loadingNotificationID == nil {
+                sheet.apply(.openDecide(id: practice.id))
+            }
+        }
+
+        if next.firstRun == .finished {
+            if next.addWatch != nil, previous.addWatch == nil, answeringID == nil, loadingNotificationID == nil {
+                sheet.apply(.openAddWatch)
+            } else if next.addWatch == nil, sheet.presentation == .addWatch {
+                sheet.apply(.addWatchClosed)
+            }
+        }
     }
 
     public var waiting: [AccessRequest] { snapshot.requests.filter(\.state.isWaitingForYou).sorted { $0.askedAt > $1.askedAt } }
@@ -238,16 +283,171 @@ public final class PhoneModel {
             .sorted { $0.askedAt > $1.askedAt }
     }
 
-
-    public func request(id: String) -> AccessRequest? { snapshot.requests.first { $0.id == id } }
-
-    public func approve(_ id: String, reusingUnlock: Bool = false) async {
-        await answer(.approve) { try await backend.approve(id, reusingUnlock: reusingUnlock) }
+    public func request(id: String) -> AccessRequest? {
+        snapshot.requests.first { $0.id == id }
+            ?? (snapshot.practiceRequest?.id == id ? snapshot.practiceRequest : nil)
     }
 
-    public func deny(_ id: String) async {
-        let reply = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        await answer(.deny) { try await backend.deny(id, reply: reply.isEmpty ? nil : reply) }
+    public func openDecide(_ id: String) {
+        guard answeringID == nil else { return }
+        if snapshot.firstRun == .finished { tab = .home }
+        notificationToken &+= 1
+        loadingNotificationID = nil
+        sheet.apply(.openDecide(id: id))
+    }
+
+    public func explain(_ id: String) {
+        guard answeringID == nil else { return }
+        if snapshot.firstRun == .finished { tab = .home }
+        notificationToken &+= 1
+        loadingNotificationID = nil
+        sheet.apply(.openExplain(id: id))
+    }
+
+    public func openSettings() {
+        guard answeringID == nil else { return }
+        sheet.apply(.openSettings)
+    }
+
+    public func backToDecide() {
+        guard answeringID == nil else { return }
+        sheet.apply(.backToDecide)
+    }
+
+    public func draft(for id: String) -> String { sheet.draft(for: id) }
+
+    public func setDraft(_ text: String, for id: String) {
+        sheet.apply(.updateDraft(id: id, text: text))
+    }
+
+    public func dismissStaleNotice() {
+        sheet.apply(.dismissStaleNotice)
+    }
+
+    /// Dismisses the active sheet cleanly (scoped to `expectedItem` so a stale SwiftUI dismiss callback
+    /// from an older sheet can never dismiss a newer sheet).
+    public func dismissSheet(expectedItem: PhoneSheetState.SheetItem? = nil) {
+        if let expectedItem, sheet.item != expectedItem { return }
+        let openRequestID = sheet.requestID
+        let wasAddWatch = (sheet.presentation == .addWatch)
+        sheet.apply(.dismiss(expectedItem: expectedItem))
+        if let openRequestID, openRequestID == snapshot.firstRun.practiceID || openRequestID == snapshot.practiceRequest?.id {
+            Task { await firstRun(.practiceDismissed) }
+        } else if wasAddWatch {
+            Task { await addWatch(.cancel) }
+        }
+        if !queuedNotifications.isEmpty, answeringID == nil, loadingNotificationID == nil {
+            Task { @MainActor [weak self] in await self?.drainQueuedNotifications() }
+        }
+    }
+
+    /// Single entry point for every notification tap or action from the Lock Screen or Notification Centre.
+    /// Serializes against any in-flight authentication so an approval can never run behind another request
+    /// and no explicit Lock Screen Deny or foreground tap is silently dropped.
+    public func handleNotification(id: String, action: String, loadNotice: @escaping () async -> PhoneSnapshot?) async {
+        // If any answer is currently in flight, keep the authenticating request on screen and enqueue
+        // this explicit action in FIFO order (replacing any earlier queued intent for the same ID only).
+        if answeringID != nil {
+            if answeringID == id { return }
+            enqueueNotification(id: id, action: action, loadNotice: loadNotice)
+            return
+        }
+
+        if action == PhoneNotification.denyAction {
+            if let refreshed = await loadNotice() { applySnapshot(refreshed) }
+            if answeringID != nil {
+                if answeringID != id { enqueueNotification(id: id, action: action, loadNotice: loadNotice) }
+                return
+            }
+            if let current = request(id: id), !current.state.isWaitingForYou { return }
+            await answer(id, choice: .deny) { try await backend.deny(id, reply: nil) }
+            return
+        }
+
+        if snapshot.firstRun == .finished { tab = .home }
+
+        notificationToken &+= 1
+        let token = notificationToken
+        loadingNotificationID = id
+
+        // Set the single sheet state synchronously BEFORE awaiting `loadNotice` so any snapshot emitted
+        // during `loadNotice` sees `sheet.requestID == id` and never overwrites the mode or bounces.
+        switch action {
+        case PhoneNotification.approveAction:
+            sheet.apply(.notificationApproveTapped(id: id, isWaiting: true, endedNote: nil))
+        case PhoneNotification.denyAndExplainAction:
+            sheet.apply(.notificationExplainTapped(id: id, isWaiting: true, endedNote: nil))
+        default:
+            sheet.apply(.notificationTapped(id: id, isWaiting: true, endedNote: nil))
+        }
+
+        let refreshed = await loadNotice()
+        // Keep `loadingNotificationID == id` during `applySnapshot` so a returned snapshot containing
+        // practice or an ended state cannot hijack the sheet or skip setting `staleNotice`.
+        if let refreshed { applySnapshot(refreshed) }
+        if loadingNotificationID == id { loadingNotificationID = nil }
+
+        // A newer explicit tap or sheet change took over while `loadNotice` was suspended: never act behind its back.
+        guard token == notificationToken, sheet.requestID == id else { return }
+
+        guard let current = request(id: id) else {
+            sheet.apply(.notificationTapped(id: id, isWaiting: false, endedNote: PhoneCopy.staleRequestNote(.unanswered)))
+            await drainQueuedNotifications()
+            return
+        }
+        if current.state.isSending {
+            sheet.apply(.notificationApproveTapped(id: id, isWaiting: true, endedNote: nil))
+            return
+        }
+        if !current.state.isWaitingForYou {
+            sheet.apply(.notificationTapped(id: id, isWaiting: false, endedNote: PhoneCopy.staleRequestNote(current.state)))
+            await drainQueuedNotifications()
+            return
+        }
+
+        if action == PhoneNotification.approveAction {
+            await approve(id, reusingUnlock: true)
+        } else {
+            await drainQueuedBackgroundDenies()
+        }
+    }
+
+    private func enqueueNotification(id: String, action: String, loadNotice: @escaping () async -> PhoneSnapshot?) {
+        if let existing = queuedNotifications.firstIndex(where: { $0.id == id }) {
+            queuedNotifications[existing] = (id: id, action: action, loadNotice: loadNotice)
+        } else {
+            queuedNotifications.append((id: id, action: action, loadNotice: loadNotice))
+        }
+    }
+
+    /// Runs any queued background Lock Screen Denies right away without disturbing an open sheet.
+    private func drainQueuedBackgroundDenies() async {
+        while answeringID == nil,
+              let index = queuedNotifications.firstIndex(where: { $0.action == PhoneNotification.denyAction }) {
+            let next = queuedNotifications.remove(at: index)
+            await handleNotification(id: next.id, action: next.action, loadNotice: next.loadNotice)
+        }
+    }
+
+    /// Drains all queued background Denies first, then the next foreground notification if no sheet is open.
+    private func drainQueuedNotifications() async {
+        await drainQueuedBackgroundDenies()
+        if answeringID == nil, loadingNotificationID == nil, sheet.presentation == .none, !queuedNotifications.isEmpty {
+            let next = queuedNotifications.removeFirst()
+            await handleNotification(id: next.id, action: next.action, loadNotice: next.loadNotice)
+        }
+    }
+
+    public func approve(_ id: String, reusingUnlock: Bool = false) async {
+        guard answeringID == nil else { return }
+        sheet.apply(.approveStarted(id: id))
+        await answer(id, choice: .approve) { try await backend.approve(id, reusingUnlock: reusingUnlock) }
+    }
+
+    public func deny(_ id: String, withDraft: Bool = true) async {
+        guard answeringID == nil else { return }
+        let reply = withDraft ? sheet.draft(for: id).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        await answer(id, choice: .deny) { try await backend.deny(id, reply: reply.isEmpty ? nil : reply) }
     }
 
     public func stop(_ id: String) async {
@@ -300,30 +500,41 @@ public final class PhoneModel {
     }
 
     public func sendPractice(to deviceID: String? = nil) async {
-        if let waiting = await backend.sendPractice(to: deviceID) { shownRequestID = waiting }
+        if let waiting = await backend.sendPractice(to: deviceID) { openDecide(waiting) }
     }
     public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
     public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
 
     public func addWatch(_ tap: PhoneAddWatchTap) async { await backend.addWatch(tap) }
 
-
-
     public func dismissFailure() { failure = nil }
 
-    private func answer(_ choice: AnswerChoice, send: () async throws -> Void) async {
-        guard answering == nil else { return }
+    private func answer(_ id: String, choice: AnswerChoice, send: () async throws -> Void) async {
+        guard answering == nil, answeringID == nil else { return }
         answering = choice
-        defer { answering = nil }
+        answeringID = id
+        var ended = false
         do {
             try await send()
-            replyDraft = ""
-            shownRequestID = nil
+            ended = true
+            sheet.apply(.requestEnded(id: id))
         } catch is CancellationError {
-            // Face ID cancelled: the request stays on screen, unanswered.
+            // Face ID cancelled: if we entered in Approving mode, drop cleanly to Decide.
+            if choice == .approve { sheet.apply(.approveCancelled(id: id)) }
         } catch {
+            if choice == .approve { sheet.apply(.approveCancelled(id: id)) }
             failure = PhoneCopy.answerFailed
         }
+        answering = nil
+        answeringID = nil
+        if !ended, let openID = sheet.requestID {
+            let current = request(id: openID)
+            let stillPresentable = current.map { $0.state.isWaitingForYou || $0.state.isSending } ?? false
+            if !stillPresentable {
+                sheet.apply(.requestEnded(id: openID))
+            }
+        }
+        await drainQueuedNotifications()
     }
 }
 

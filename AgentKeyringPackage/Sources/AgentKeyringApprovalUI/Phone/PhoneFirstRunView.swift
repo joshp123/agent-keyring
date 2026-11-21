@@ -52,14 +52,30 @@ struct PhoneFirstRunView: View {
                 KeyringHint(symbol: "bell.badge", title: PhoneCopy.practicePreviewTitle, PhoneCopy.practicePreview)
                 KeyringHint(symbol: "moon.fill", PhoneCopy.practiceNote, tone: .plain)
             }
-        case .practiceWaiting, .practice:
-            practicePage(status: .waiting(PhoneCopy.practiceWaiting)) { EmptyView() }
+        case let .practiceWaiting(id, arrived):
+            if arrived && hasWaitingPractice(id) {
+                practicePage(primary: .advance(PhoneCopy.answerItHere) { send(.practiceTapped) },
+                             secondary: .plain(PhoneCopy.sendAnother) { sendPractice() }, aside: skip) {
+                    KeyringHint(symbol: "bell.badge", title: PhoneCopy.practicePreviewTitle, PhoneCopy.practicePreview)
+                }
+            } else {
+                practicePage(status: .waiting(PhoneCopy.practiceWaiting), aside: skip) { EmptyView() }
+            }
+        case let .practice(id):
+            if hasWaitingPractice(id) {
+                practicePage(status: .waiting(PhoneCopy.practiceWaiting), aside: skip) { EmptyView() }
+            } else {
+                practicePage(status: .waiting(PhoneCopy.practiceWaiting),
+                             primary: .plain(PhoneCopy.tryAgain) { sendPractice() }, secondary: skip) { EmptyView() }
+            }
         case .settingUpNotifications:
             practicePage(status: .takingLong(PhoneCopy.practiceSettingUp), secondary: skip) { EmptyView() }
-        case .practiceNotArrived:
+        case let .practiceNotArrived(id):
+            let canAnswerHere = hasWaitingPractice(id)
             practicePage(status: .takingLong(PhoneCopy.practiceNotArrived),
-                         primary: .advance(PhoneCopy.answerItHere) { send(.practiceTapped) },
-                         secondary: .plain(PhoneCopy.tryAgain) { sendPractice() }, aside: skip) {
+                         primary: canAnswerHere ? .advance(PhoneCopy.answerItHere) { send(.practiceTapped) } : .advance(PhoneCopy.tryAgain) { sendPractice() },
+                         secondary: canAnswerHere ? .plain(PhoneCopy.tryAgain) { sendPractice() } : skip,
+                         aside: canAnswerHere ? skip : nil) {
                 KeyringHint(symbol: "moon.fill", PhoneCopy.notificationsFocus, tone: .focus)
             }
         case .practiceMacUnreachable:
@@ -68,7 +84,8 @@ struct PhoneFirstRunView: View {
         case let .practiceResult(outcome):
             practicePage(primary: .advance(PhoneCopy.continueButton) { continueAfterPractice() },
                          secondary: .plain(PhoneCopy.sendAnother) { sendPractice() }) {
-                KeyringConfirmation(PhoneCopy.practiceResult(outcome), tone: outcome == .approved ? .approved : .denied)
+                KeyringConfirmation(PhoneCopy.practiceResult(outcome, reply: model.snapshot.practiceDeniedReply),
+                                    tone: outcome == .approved ? .approved : .denied)
             }
         case let .readyOfferWatch(watchToAdd):
             KeyringPage(title: PhoneCopy.readyTitle, sentence: PhoneCopy.readyDetail, alignment: .centre, mascot: .approved,
@@ -96,24 +113,27 @@ struct PhoneFirstRunView: View {
             : .advance(PhoneCopy.continueButton) { send(.notificationsDone) }
         let allSet = facts.allowed && facts.banners && facts.lockScreen && facts.timeSensitive && !facts.inScheduledSummary
         let secondary: KeyringAction? = stage == .notificationsOff ? .link(PhoneCopy.continueWithout) { send(.continueWithoutNotifications) }
-            : asked && !allSet ? .plain(PhoneCopy.openSettings) { openNotificationSettings() } : nil
+            : !asked ? .link(PhoneCopy.skipForNow) { send(.continueWithoutNotifications) }
+            : !allSet ? .plain(PhoneCopy.openSettings) { openNotificationSettings() } : nil
+        let allowedTitle = !asked ? PhoneCopy.checkNotYetAllowed : (facts.allowed ? PhoneCopy.checkAllowed : PhoneCopy.checkTurnedOff)
         return KeyringPage(step: (2, 3), title: PhoneCopy.notificationsTitle, sentence: PhoneCopy.notificationsLead,
                            status: stage == .notificationsOff ? .problem(PhoneCopy.notificationsOff) : nil,
                            primary: primary, secondary: secondary) {
             KeyringRowGroup {
-                check(PhoneCopy.checkAllowed, facts.allowed, fix: asked ? PhoneCopy.checkInSettings : PhoneCopy.checkTurnOnFirst)
-                check(PhoneCopy.checkBanners, facts.banners && facts.lockScreen, fix: PhoneCopy.checkInSettings)
-                check(PhoneCopy.checkTimeSensitive, facts.timeSensitive, fix: PhoneCopy.checkInSettings)
-                check(PhoneCopy.checkNotScheduled, facts.allowed && !facts.inScheduledSummary, fix: PhoneCopy.checkScheduledInSettings)
+                check(allowedTitle, facts.allowed, asked: asked, isPrimaryRow: true, fix: asked ? PhoneCopy.checkInSettings : PhoneCopy.checkTurnOnFirst)
+                check(PhoneCopy.checkBanners, facts.banners && facts.lockScreen, asked: asked, fix: PhoneCopy.checkInSettings)
+                check(PhoneCopy.checkTimeSensitive, facts.timeSensitive, asked: asked, fix: PhoneCopy.checkInSettings)
+                check(PhoneCopy.checkNotScheduled, facts.allowed && !facts.inScheduledSummary, asked: asked, fix: PhoneCopy.checkScheduledInSettings)
             }
             KeyringHint(symbol: "moon.fill", PhoneCopy.notificationsFocus, tone: .focus)
         }
     }
 
-    /// A ticked row, or an unticked one with what to do. Before iOS has asked, only the first row says what.
-    private func check(_ name: String, _ on: Bool, fix: String) -> some View {
-        let asked = model.snapshot.notificationFacts.allowed || stage == .notificationsOff
-        return KeyringCheckRow(name, isDone: on, toDo: on || (!asked && name != PhoneCopy.checkAllowed) ? nil : fix)
+    /// A ticked row once on, a neutral pending circle before iOS has asked, or an orange mark with what to do.
+    private func check(_ name: String, _ on: Bool, asked: Bool, isPrimaryRow: Bool = false, fix: String) -> some View {
+        let status: KeyringCheckRow.Status = on ? .done : (asked ? .needsAttention : .pending)
+        let detail: String? = on ? nil : ((!asked && !isPrimaryRow) ? nil : fix)
+        return KeyringCheckRow(name, status: status, toDo: detail)
     }
 
     private func practicePage(status: KeyringStatus? = nil, primary: KeyringAction? = nil, secondary: KeyringAction? = nil,
@@ -123,6 +143,10 @@ struct PhoneFirstRunView: View {
     }
 
     private var skip: KeyringAction { .link(PhoneCopy.skipForNow) { continueAfterPractice() } }
+    private func hasWaitingPractice(_ id: String) -> Bool {
+        guard case let .waitingForYou(until)? = model.request(id: id)?.state else { return false }
+        return until > .now
+    }
 
     private func send(_ event: PhoneFirstRun.Event) { Task { await model.firstRun(event) } }
     private func sendPractice() { send(.sendPractice(id: PhoneFirstRun.newPracticeID())) }

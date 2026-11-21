@@ -80,6 +80,8 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         /// `pushExpected`: its notification will come, so it waits for a tap.
         case practiceArrived(pushExpected: Bool)
         case practiceTapped
+        /// Cancel on the practice sheet: keeps the practice request available to open again.
+        case practiceDismissed
         /// 30 seconds after asking. `pushAddress`: Apple has given one.
         case practiceTimedOut(pushAddress: Bool)
         /// The Mac's door could not be reached to ask for the practice request.
@@ -121,9 +123,9 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         case (.askingNotifications, .notificationsAnswered(true)), (.notificationsOff, .notificationsAnswered(true)): .notifications
         case (.notifications, .notificationsDone): .practiceOffer
         case (.notifications, .notificationsAnswered(false)), (.askingNotifications, .notificationsAnswered(false)): .notificationsOff
-        case (.notificationsOff, .continueWithoutNotifications): .practiceOffer
+        case (.notifications, .continueWithoutNotifications), (.notificationsOff, .continueWithoutNotifications): .practiceOffer
         case let (.practiceOffer, .sendPractice(id)), let (.practiceResult, .sendPractice(id)), let (.practiceNotArrived, .sendPractice(id)),
-             let (.practiceMacUnreachable, .sendPractice(id)):
+             let (.practiceMacUnreachable, .sendPractice(id)), let (.practiceWaiting, .sendPractice(id)), let (.practice, .sendPractice(id)):
             .practiceWaiting(id: id, arrived: false)
         case let (.practiceWaiting(id, false), .practiceMacUnreachable), let (.settingUpNotifications(id), .practiceMacUnreachable):
             .practiceMacUnreachable(id: id)
@@ -134,15 +136,17 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
             pushExpected ? .practiceWaiting(id: id, arrived: true) : .practice(id: id)
         case let (.settingUpNotifications(id), .practiceArrived), let (.practiceNotArrived(id), .practiceArrived),
              let (.practiceWaiting(id, _), .practiceTapped), let (.settingUpNotifications(id), .practiceTapped),
-             let (.practiceNotArrived(id), .practiceTapped), let (.practiceWaiting(id, true), .practiceTimedOut):
+             let (.practiceNotArrived(id), .practiceTapped):
             .practice(id: id)
+        case let (.practice(id), .practiceDismissed): .practiceWaiting(id: id, arrived: true)
         case let (.practiceWaiting(id, false), .practiceTimedOut(pushAddress)):
             pushAddress ? .practiceNotArrived(id: id) : .settingUpNotifications(id: id)
         case let (.practiceWaiting, .practiceEnded(outcome)), let (.settingUpNotifications, .practiceEnded(outcome)),
              let (.practiceNotArrived, .practiceEnded(outcome)), let (.practice, .practiceEnded(outcome)): .practiceResult(outcome)
         case let (.practiceOffer, .continueAfterPractice(watchToAdd)), let (.practiceResult, .continueAfterPractice(watchToAdd)),
              let (.practiceNotArrived, .continueAfterPractice(watchToAdd)), let (.settingUpNotifications, .continueAfterPractice(watchToAdd)),
-             let (.practiceMacUnreachable, .continueAfterPractice(watchToAdd)):
+             let (.practiceMacUnreachable, .continueAfterPractice(watchToAdd)), let (.practiceWaiting, .continueAfterPractice(watchToAdd)),
+             let (.practice, .continueAfterPractice(watchToAdd)):
             .readyOfferWatch(watchToAdd: watchToAdd)
         case (.readyOfferWatch(true), .addAppleWatch): .addWatch
         case (.readyOfferWatch, .done), (.addWatch, .done): .finished

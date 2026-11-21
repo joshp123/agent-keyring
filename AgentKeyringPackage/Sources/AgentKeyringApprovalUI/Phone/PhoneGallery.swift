@@ -28,11 +28,20 @@ enum PhoneGallery {
         }
         let request = model(nil)
         return pages + [
-            KeyringGalleryEntry("iphone-request", .phone) {
-                PhoneRequestView(model: request, request: request.snapshot.requests[0])
+            KeyringGalleryEntry("iphone-request-decide", .phone) {
+                PhoneRequestView(model: request, request: request.snapshot.requests[0], mode: .decide)
             },
-            KeyringGalleryEntry("iphone-request-practice", .phone) {
-                PhoneRequestView(model: request, request: .practice(), practice: true)
+            KeyringGalleryEntry("iphone-request-approving", .phone) {
+                PhoneRequestView(model: request, request: request.snapshot.requests[0], mode: .approving)
+            },
+            KeyringGalleryEntry("iphone-request-explain", .phone) {
+                PhoneRequestView(model: request, request: request.snapshot.requests[0], mode: .explain)
+            },
+            KeyringGalleryEntry("iphone-request-practice-decide", .phone) {
+                PhoneRequestView(model: request, request: .practice(), mode: .decide, practice: true)
+            },
+            KeyringGalleryEntry("iphone-request-practice-explain", .phone) {
+                PhoneRequestView(model: request, request: .practice(), mode: .explain, practice: true)
             },
             KeyringGalleryEntry("iphone-held-notification", .phone) { PhoneNotificationCard(request: request.snapshot.requests[0]) },
             KeyringGalleryEntry("iphone-home", .phone) { PhoneHomeView(model: model(nil)) },

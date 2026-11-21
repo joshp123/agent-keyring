@@ -103,6 +103,12 @@ final class PhoneDictation {
     private var analyzer: SpeechAnalyzer?
     private var input: AsyncStream<AnalyzerInput>.Continuation?
     private var reading: Task<Void, Never>?
+    /// Process-wide owner of the shared AVAudioSession so an older PhoneDictation instance finishing
+    /// shutdown can never deactivate audio after a newer PhoneDictation instance has started recording.
+    private static var activeAudioOwner: UUID?
+    /// Per-session token incremented on every start/stop so an in-flight start cancelled during an await
+    /// (permission, model download, or analyzer start) can never activate the microphone afterwards.
+    private var sessionToken: UUID?
     private let log = PhoneSpeechModel.log
 
     var isListening: Bool { if case .listening = state { true } else { state == .starting } }
@@ -119,37 +125,56 @@ final class PhoneDictation {
 
     func start() async {
         if isListening { return }
+        let token = UUID()
+        sessionToken = token
         state = .starting
         log("tapped", [:])
-        guard await AVAudioApplication.requestRecordPermission() else { return cannotListen(.microphoneOff) }
+        guard await AVAudioApplication.requestRecordPermission() else {
+            if sessionToken == token { cannotListen(.microphoneOff, token: token) }
+            return
+        }
+        guard sessionToken == token else { return }
         let model = PhoneSpeechModel.shared
         model.prepare()
         if case .downloading = model.state {} else { await model.waitUntilSettled() }
+        guard sessionToken == token else { return }
         switch model.state {
-        case let .downloading(percent): return cannotListen(.gettingReady(percent: percent))
-        case let .unsupported(language): return cannotListen(.unsupported(language: language))
-        case .failed, .unknown: return cannotListen(.failed)
-        case let .ready(locale): await listen(locale)
+        case let .downloading(percent): return cannotListen(.gettingReady(percent: percent), token: token)
+        case let .unsupported(language): return cannotListen(.unsupported(language: language), token: token)
+        case .failed, .unknown: return cannotListen(.failed, token: token)
+        case let .ready(locale): await listen(locale, token: token)
         }
     }
 
-    private func listen(_ locale: Locale) async {
+    private func listen(_ locale: Locale, token: UUID) async {
         let transcriber = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
         do {
             guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
-                log("no audio format", [:]); return cannotListen(.failed)
+                if sessionToken == token { log("no audio format", [:]); cannotListen(.failed, token: token) }
+                return
             }
+            guard sessionToken == token else { return }
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            // .record does not support .duckOthers; pass empty options so setCategory succeeds reliably.
+            try session.setCategory(.record, mode: .measurement, options: [])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
+            Self.activeAudioOwner = token
             let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
             let analyzer = SpeechAnalyzer(modules: [transcriber])
             try await analyzer.start(inputSequence: stream)
+            guard sessionToken == token else {
+                continuation.finish()
+                try? await analyzer.finalizeAndFinishThroughEndOfInput()
+                Self.releaseAudioIfOwned(by: token)
+                return
+            }
             let engine = AVAudioEngine()
             let node = engine.inputNode
             let natural = node.outputFormat(forBus: 0)
             guard let converter = AVAudioConverter(from: natural, to: format) else {
-                log("no audio converter", [:]); return cannotListen(.failed)
+                continuation.finish()
+                try? await analyzer.finalizeAndFinishThroughEndOfInput()
+                log("no audio converter", [:]); return cannotListen(.failed, token: token)
             }
             node.installTap(onBus: 0, bufferSize: 4096, format: natural, block: Self.feed(converter, to: format, into: continuation))
             try engine.start()
@@ -159,15 +184,19 @@ final class PhoneDictation {
             reading = Task { [weak self] in
                 do {
                     for try await result in transcriber.results {
-                        guard let self, case let .listening(settled, _) = self.state else { return }
+                        guard let self, self.sessionToken == token, case let .listening(settled, _) = self.state else { return }
                         let text = String(result.text.characters)
                         self.state = result.isFinal ? .listening(settled: settled + text, tentative: "") : .listening(settled: settled, tentative: text)
                     }
                 } catch { self?.log("transcription ended", ["error": "\(error)"]) }
             }
         } catch {
-            log("could not listen", ["error": "\(error)"])
-            cannotListen(.failed)
+            if sessionToken == token {
+                log("could not listen", ["error": "\(error)"])
+                cannotListen(.failed, token: token)
+            } else {
+                Self.releaseAudioIfOwned(by: token)
+            }
         }
     }
 
@@ -188,22 +217,44 @@ final class PhoneDictation {
         }
     }
 
-    /// Stops listening; the words heard stay in the box.
-    func stop() async {
-        guard isListening else { return }
+    /// Stops listening, drains final speech results before invalidating the token, and returns final text.
+    @discardableResult
+    func stop() async -> String {
+        let activeToken = sessionToken
+        let wasActive = isListening || engine != nil || analyzer != nil || (activeToken != nil && Self.activeAudioOwner == activeToken)
+        // If we are still awaiting startup (no engine yet), invalidate immediately so startup aborts.
+        if engine == nil && analyzer == nil {
+            sessionToken = nil
+            if let activeToken { Self.releaseAudioIfOwned(by: activeToken) }
+            state = .idle
+            return ""
+        }
+        // Stop feeding audio and drain final transcription results BEFORE invalidating sessionToken,
+        // so the owning reader commits the final words into `state`.
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         input?.finish()
         try? await analyzer?.finalizeAndFinishThroughEndOfInput()
         await reading?.value
+        let finalText = heard
+        sessionToken = nil
         engine = nil; analyzer = nil; input = nil; reading = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if let activeToken { Self.releaseAudioIfOwned(by: activeToken) }
+        if wasActive { log("stopped", [:]) }
         state = .idle
-        log("stopped", [:])
+        return finalText
     }
 
-    private func cannotListen(_ reason: Reason) {
-        engine?.stop(); engine = nil; analyzer = nil; input?.finish(); input = nil
+    private static func releaseAudioIfOwned(by token: UUID) {
+        guard activeAudioOwner == token else { return }
+        activeAudioOwner = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func cannotListen(_ reason: Reason, token: UUID) {
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop(); engine = nil; analyzer = nil; input?.finish(); input = nil; reading?.cancel(); reading = nil
+        Self.releaseAudioIfOwned(by: token)
         state = .cannotListen(reason)
         log("cannot listen", ["reason": "\(reason)"])
     }

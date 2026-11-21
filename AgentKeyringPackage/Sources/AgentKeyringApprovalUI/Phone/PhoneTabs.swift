@@ -9,6 +9,9 @@ import SwiftUI
 
 public struct PhoneRootView: View {
     @Bindable var model: PhoneModel
+    /// Tracks the specific item currently shown by SwiftUI's sheet so a late dismiss callback
+    /// for an earlier sheet (such as Settings) can never dismiss a replacement request sheet.
+    @State private var presentedSheetItem: PhoneSheetState.SheetItem?
 
     public init(model: PhoneModel) { self.model = model }
 
@@ -32,41 +35,70 @@ public struct PhoneRootView: View {
         }
         .task { await model.followUpdates() }
         .alert(model.failure ?? "", isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
-        .sheet(item: shownRequest) { request in
-            // The sheet's top bar (Cancel, and how long ago it was asked) is the system's.
-            NavigationStack { PhoneRequestView(model: model, request: request, practice: request.isPractice).toolbar { requestBar(request) } }
-        }
-        .sheet(item: practiceShown) { request in
-            NavigationStack { PhoneRequestView(model: model, request: request, practice: true).toolbar { requestBar(request) } }
-                .interactiveDismissDisabled()
-        }
-        .sheet(isPresented: addWatchShown) {
-            PhoneAddWatchView(flow: model.snapshot.addWatch, model: model).interactiveDismissDisabled()
+        .sheet(item: activeSheet) { item in
+            Group {
+                switch item {
+                case let .request(id):
+                    if let request = model.request(id: id) {
+                        let mode = model.sheet.requestMode ?? .decide
+                        NavigationStack {
+                            PhoneRequestView(model: model, request: request, mode: mode, practice: request.isPractice)
+                                .toolbar { requestBar(item: item, mode: mode) }
+                        }
+                        .interactiveDismissDisabled(mode == .approving || model.answering != nil)
+                    } else {
+                        let busy = model.answering != nil || model.isLoadingNotification(id)
+                        NavigationStack {
+                            KeyringPage(alignment: .centre, status: .waiting(PhoneCopy.approving)) { EmptyView() }
+                                .toolbar { requestBar(item: item, mode: busy ? .approving : .decide) }
+                        }
+                        .interactiveDismissDisabled(busy)
+                    }
+                case .addWatch:
+                    PhoneAddWatchView(flow: model.snapshot.addWatch, model: model).interactiveDismissDisabled()
+                case .settings:
+                    PhoneSettingsView(model: model)
+                }
+            }
+            .onAppear { presentedSheetItem = item }
         }
     }
 
-    @ToolbarContentBuilder private func requestBar(_ request: AccessRequest) -> some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) { Button(PhoneCopy.cancel) { model.shownRequestID = nil } }
+    @ToolbarContentBuilder private func requestBar(item: PhoneSheetState.SheetItem, mode: PhoneSheetState.Mode) -> some ToolbarContent {
+        if model.sheet.canReturnToDecide {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(PhoneCopy.back) { model.backToDecide() }
+                    .disabled(model.answering != nil)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(PhoneCopy.cancel) { model.dismissSheet(expectedItem: item) }
+                    .disabled(model.answering != nil)
+            }
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(PhoneCopy.cancel) { model.dismissSheet(expectedItem: item) }
+                    .disabled(mode == .approving || model.answering != nil)
+            }
+        }
     }
 
     private var failureShown: Binding<Bool> {
-        Binding(get: { model.failure != nil && model.shownRequestID == nil }, set: { if !$0 { model.dismissFailure() } })
+        Binding(get: { model.failure != nil && model.sheet.item == nil }, set: { if !$0 { model.dismissFailure() } })
     }
 
-    /// The practice request, while first run has it open.
-    private var practiceShown: Binding<AccessRequest?> {
-        Binding(get: { model.snapshot.practiceRequest }, set: { _ in })
-    }
-
-
-    /// Adding Apple Watch from Devices, after first run.
-    private var addWatchShown: Binding<Bool> {
-        Binding(get: { model.snapshot.firstRun == .finished && model.snapshot.addWatch != nil }, set: { _ in })
-    }
-
-    private var shownRequest: Binding<AccessRequest?> {
-        Binding(get: { model.shownRequestID.flatMap(model.request(id:)).flatMap { $0.state.isWaitingForYou ? $0 : nil } },
-                set: { model.shownRequestID = $0?.id })
+    /// The single modal sheet driven directly by `PhoneSheetState` with dismissal scoped strictly
+    /// to `presentedSheetItem` so a late dismiss of an earlier sheet (or a nil item) cannot close a newer one.
+    private var activeSheet: Binding<PhoneSheetState.SheetItem?> {
+        Binding(
+            get: { model.sheet.item },
+            set: { next in
+                if next == nil {
+                    guard let dismissed = presentedSheetItem else { return }
+                    presentedSheetItem = nil
+                    model.dismissSheet(expectedItem: dismissed)
+                }
+            }
+        )
     }
 }
 
@@ -105,12 +137,15 @@ struct PhoneHomeView: View {
     let model: PhoneModel
 
     @Environment(\.dynamicTypeSize) private var textSize
-    /// -SampleSettings YES opens Settings, for looking at it in the simulator.
-    @State private var settingsShown = UserDefaults.standard.bool(forKey: "SampleSettings")
 
     var body: some View {
-        PhoneList(title: PhoneCopy.home, leading: (PhoneCopy.settings, { settingsShown = true }),
+        PhoneList(title: PhoneCopy.home, leading: (PhoneCopy.settings, { model.openSettings() }),
                   pill: model.waiting.isEmpty ? nil : PhoneCopy.waitingPill(model.waiting.count)) {
+            if let stale = model.sheet.staleNotice {
+                Section {
+                    KeyringStatusLine(.done(stale), action: .link(PhoneCopy.ok) { model.dismissStaleNotice() })
+                }
+            }
             if let problem = model.snapshot.notices.first(where: { $0 != .addAppleWatch }) {
                 Section { KeyringStatusLine(.problem(PhoneCopy.notice(problem))) }
             }
@@ -152,7 +187,6 @@ struct PhoneHomeView: View {
             }
             Section {} footer: { KeyringText(PhoneCopy.seenOnThisIPhone, as: .caption) }
         }
-        .sheet(isPresented: $settingsShown) { PhoneSettingsView(model: model) }
     }
 
     /// The request in place: Deny and Approve, and Deny and Explain, which opens the reply box.
@@ -163,7 +197,7 @@ struct PhoneHomeView: View {
             subject: request.login.site, detail: request.login.account.isEmpty ? nil : request.login.account,
             reason: request.agentReason.isEmpty ? nil : request.agentReason,
             approve: .approve(PhoneCopy.approve, isEnabled: !busy) { Task { await model.approve(request.id) } },
-            deny: .deny(PhoneCopy.deny, isEnabled: !busy) { Task { await model.deny(request.id) } },
+            deny: .deny(PhoneCopy.deny, isEnabled: !busy) { Task { await model.deny(request.id, withDraft: false) } },
             explain: .denyLink(PhoneCopy.denyAndExplain, isEnabled: !busy) { model.explain(request.id) },
             footer: model.snapshot.undelivered.contains(request.id) ? PhoneCopy.notDeliveredYet : nil)
     }

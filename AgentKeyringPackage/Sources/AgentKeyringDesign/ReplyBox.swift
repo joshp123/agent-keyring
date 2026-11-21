@@ -12,19 +12,22 @@ public struct KeyringReplyBox<Trailing: View>: View {
     let prompt: String
     let note: KeyringStatus?
     let noteAction: KeyringAction?
+    let focus: FocusState<Bool>.Binding?
     let trailing: Trailing
 
     /// - Parameters:
     ///   - prompt: shown in the empty box, such as "What should the agent do instead?".
     ///   - note: the microphone's state: `.listening`, `.waiting` while the speech model downloads, `.problem` if it is off.
     ///   - noteAction: the way to fix the note, such as Open Settings.
+    ///   - focus: optional FocusState binding applied directly to the inner TextField.
     ///   - trailing: the microphone button, at the box's bottom right.
     public init(text: Binding<String>, prompt: String, note: KeyringStatus? = nil, noteAction: KeyringAction? = nil,
-                @ViewBuilder trailing: () -> Trailing) {
+                focus: FocusState<Bool>.Binding? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.text = text
         self.prompt = prompt
         self.note = note
         self.noteAction = noteAction
+        self.focus = focus
         self.trailing = trailing()
     }
 
@@ -34,19 +37,28 @@ public struct KeyringReplyBox<Trailing: View>: View {
                 // The prompt sits under the field, in the layout, so a long one makes the box taller.
                 ZStack(alignment: .topLeading) {
                     KeyringPrompt(prompt, showing: text.wrappedValue.isEmpty)
-                    TextField("", text: text, axis: .vertical)
-                        .lineLimit(3...10)
-                        .textFieldStyle(.plain)
-                        .font(KeyringTextRole.body.font)
-                        .foregroundStyle(KeyringPalette.ink)
-                        .multilineTextAlignment(.leading)
-                        .accessibilityLabel(prompt)
+                    field
                 }
                 trailing
             }
             .padding(KeyringSpace.s4)
             .background(KeyringPalette.fill, in: .rect(cornerRadius: KeyringRadius.card))
             if let note { KeyringStatusLine(note, action: noteAction) }
+        }
+    }
+
+    @ViewBuilder private var field: some View {
+        let base = TextField("", text: text, axis: .vertical)
+            .lineLimit(2...6)
+            .textFieldStyle(.plain)
+            .font(KeyringTextRole.body.font)
+            .foregroundStyle(KeyringPalette.ink)
+            .multilineTextAlignment(.leading)
+            .accessibilityLabel(prompt)
+        if let focus {
+            base.focused(focus)
+        } else {
+            base
         }
     }
 }

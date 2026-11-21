@@ -8,8 +8,14 @@ import Foundation
 
 @MainActor
 public final class PhoneSampleBackend: PhoneBackend {
+    private var nextRevision: UInt64 = 1
     private var snapshot: PhoneSnapshot {
-        didSet { for continuation in subscribers.values { continuation.yield(snapshot) } }
+        didSet {
+            nextRevision &+= 1
+            var stamped = snapshot
+            stamped.revision = nextRevision
+            for continuation in subscribers.values { continuation.yield(stamped) }
+        }
     }
     private var subscribers: [UUID: AsyncStream<PhoneSnapshot>.Continuation] = [:]
 
@@ -18,17 +24,23 @@ public final class PhoneSampleBackend: PhoneBackend {
     /// setting-up, approved, denied-practice, offer-watch, add-watch (the Apple Watch flow), or empty (Home with nothing);
     /// nil is the app in use.
     public init(step: String? = nil, now: Date = .now) {
-        snapshot = Self.paper(now: now)
-        if let step { Self.firstRun(step, into: &snapshot) }
+        var initial = Self.paper(now: now)
+        if let step { Self.firstRun(step, into: &initial) }
+        initial.revision = 1
+        snapshot = initial
     }
 
-    public var current: PhoneSnapshot { snapshot }
+    public var current: PhoneSnapshot {
+        var stamped = snapshot
+        stamped.revision = nextRevision
+        return stamped
+    }
 
     public func updates() -> AsyncStream<PhoneSnapshot> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             subscribers[id] = continuation
-            continuation.yield(snapshot)
+            continuation.yield(current)
             continuation.onTermination = { [weak self] _ in Task { @MainActor in self?.subscribers.removeValue(forKey: id) } }
         }
     }
@@ -39,7 +51,11 @@ public final class PhoneSampleBackend: PhoneBackend {
     }
 
     public func deny(_ requestID: String, reply: String?) async throws {
-        if requestID == snapshot.practiceRequest?.id { await firstRun(.practiceEnded(.denied)); return }
+        if requestID == snapshot.practiceRequest?.id {
+            snapshot.practiceDeniedReply = reply?.isEmpty == true ? nil : reply
+            await firstRun(.practiceEnded(.denied))
+            return
+        }
         update(requestID) { .denied(by: .iPhone, reply: reply, askAgainAfter: .now.addingTimeInterval(1800)) }
     }
 

@@ -201,21 +201,48 @@ extension KeyringDeviceRow where Trailing == EmptyView {
 }
 
 /// One line of a checklist (Notifications allowed, Time Sensitive): a green
-/// tick when it is done, else an orange mark and what to do about it.
+/// tick when done, a neutral circle before it has been requested, or an orange
+/// mark with what to do when it needs attention.
 public struct KeyringCheckRow: View {
+    public enum Status: Equatable, Sendable {
+        case done
+        case pending
+        case needsAttention
+    }
+
     let title: String
-    let isDone: Bool
+    let status: Status
     let toDo: String?
 
-    public init(_ title: String, isDone: Bool, toDo: String? = nil) {
+    public init(_ title: String, status: Status, toDo: String? = nil) {
         self.title = title
-        self.isDone = isDone
+        self.status = status
         self.toDo = toDo
     }
 
+    public init(_ title: String, isDone: Bool, toDo: String? = nil) {
+        self.init(title, status: isDone ? .done : .needsAttention, toDo: toDo)
+    }
+
     public var body: some View {
-        KeyringDeviceRow(symbol: isDone ? "checkmark.circle.fill" : "exclamationmark.circle.fill", name: title,
-                         detail: isDone ? nil : toDo, tone: isDone ? .approved : .needsDoing)
+        let symbol: String = switch status {
+        case .done: "checkmark.circle.fill"
+        case .pending: "circle"
+        case .needsAttention: "exclamationmark.circle.fill"
+        }
+        let tone: KeyringDeviceRow<EmptyView>.Tone = switch status {
+        case .done: .approved
+        case .pending: .plain
+        case .needsAttention: .needsDoing
+        }
+        let spokenStatus: String = switch status {
+        case .done: PartsCopy.checkDone
+        case .pending: PartsCopy.checkPending
+        case .needsAttention: PartsCopy.checkNeedsAttention
+        }
+        KeyringDeviceRow(symbol: symbol, name: title, detail: status == .done ? nil : toDo, tone: tone)
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(spokenStatus)
     }
 }
 

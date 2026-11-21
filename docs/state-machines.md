@@ -551,6 +551,27 @@ What must always be true:
 - An answer goes only to the request on screen, and only once: `respond` works only from `showing`.
 - The retry that reads the request again while the list arrives is cancelled when another notification takes the card, and when the card closes.
 
+## iPhone: request sheets and notifications
+
+Written by AI on 2026.11.21 by model Gemini 4 Neon. Code: `PhoneSheetState` in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone/PhoneSheet.swift`, `PhoneModel` in `PhoneModel.swift`, `PhoneRequestView` in `PhoneRequestView.swift`, `PhoneRootView` in `PhoneTabs.swift`, `PhoneAppDelegate.answer` in `AgentKeyringPhoneApp.swift`. Tests: `PhoneSheetTests`.
+
+`PhoneRootView` owns **exactly one** `.sheet(item:)` modifier, driven strictly by `PhoneSheetState`. First-run practice requests and everyday agent requests share the exact same sheet state machine, eliminating competing `.sheet` modifiers and ghost double-popups.
+
+| Presentation | Mode | Screen |
+|---|---|---|
+| `none` | | Home (all waiting requests queued in `Waiting for you`, with optional `staleNotice` banner if a tapped notification already ended) or first-run page |
+| `request(id, mode, canReturnToDecide)` | `decide` | Normal tap on a notification or `Answer It Here`: Approve with Face ID (green), Deny (red), Deny and Explain (link). Cancel dismisses cleanly (for practice, sends `practiceDismissed` back to `practiceWaiting(id, arrived: true)` with `Answer It Here` and `Send Another`) |
+| `request(id, mode, canReturnToDecide)` | `approving` | Direct `Approve` action from a held notification: clean request header and `Approving…` status (never flashes a Deny form). Passes `reusingUnlock: true` to both real and practice approvals. Cancelling Face ID falls back cleanly to `decide` |
+| `request(id, mode, canReturnToDecide)` | `explain` | `Deny and Explain`: compact top summary card so the reply box and microphone stay clear above the iOS keyboard, `Deny and Send`, and `Approve Instead`. Back returns in place to `decide` when opened from `decide` |
+| `addWatch` | | Adding Apple Watch from Devices after first run |
+
+What must always be true:
+- **Exactly one modal sheet exists at any time.** `SheetItem` is keyed by `request:\(id)` (not by mode), so moving `decide` <-> `explain` <-> `approving` for the same request updates in place with zero sheet dismiss/re-present bounce.
+- **Reply drafts are scoped per request ID** (`drafts[id]`), never a single global string. Switching from Request A to Notification B preserves A's draft and starts B empty; ending A clears only `drafts[A]`.
+- **Incoming notifications never steal focus.** New waiting requests appear in Home's queue and do not interrupt an open sheet.
+- **Tapping an already-ended notification** opens no empty sheet and sets `staleNotice` explaining how the request ended.
+- **Step 2 (`Turn on notifications`)** shows neutral pending status (`Notifications not yet allowed`) before iOS has been asked and offers `Skip for Now` (`continueWithoutNotifications`).
+
 ## Notifications on the iPhone and Apple Watch
 
 - A request's notification goes when it is answered on this device, and when this device learns it has ended (the door's reply, or the asking computer's silent push for every outcome), and never comes back as a separate "Approved on your iPhone" notification. The silent push carries the request id at the top level (`"id"`) and no alert.
