@@ -43,9 +43,6 @@ type Result struct {
 }
 
 func New(config Config) (*Sender, error) {
-	if config.KeyID == "" || config.TeamID == "" {
-		return nil, errors.New("APNs needs a key path, key ID and team ID")
-	}
 	data, err := os.ReadFile(config.KeyPath)
 	if err != nil {
 		return nil, err
@@ -55,8 +52,17 @@ func New(config Config) (*Sender, error) {
 	if block == nil {
 		return nil, errors.New("APNs key must be PKCS#8 PEM")
 	}
-	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	clear(block.Bytes)
+	defer clear(block.Bytes)
+	return NewWithKey(block.Bytes, config)
+}
+
+// NewWithKey is a sender for a PKCS#8 DER key given in memory: a computer's
+// own copy of the push credential (keyring.proto, PushCredential).
+func NewWithKey(pkcs8 []byte, config Config) (*Sender, error) {
+	if config.KeyID == "" || config.TeamID == "" {
+		return nil, errors.New("APNs needs a key, key ID and team ID")
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(pkcs8)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +85,7 @@ func New(config Config) (*Sender, error) {
 	}
 	return &Sender{config: config, key: key, client: &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
+
 func (s *Sender) authorization() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

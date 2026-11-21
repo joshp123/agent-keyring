@@ -38,10 +38,8 @@ public struct PhoneRootView: View {
         .sheet(item: practiceShown) { request in
             PhoneRequestView(model: model, request: request, practice: true).interactiveDismissDisabled()
         }
-        .sheet(item: deviceShown) { device in
-            PhoneSimpleRequestView(model: model, lead: PhoneCopy.addWatchLead, title: device.name, detail: device.detail,
-                                   footnote: PhoneCopy.watchFootnote, stackedDeny: true, approve: { await model.approveDevice(device.id) },
-                                   deny: { await model.denyDevice(device.id) })
+        .sheet(isPresented: addWatchShown) {
+            PhoneAddWatchView(flow: model.snapshot.addWatch, model: model).interactiveDismissDisabled()
         }
     }
 
@@ -55,8 +53,9 @@ public struct PhoneRootView: View {
     }
 
 
-    private var deviceShown: Binding<PhoneDeviceRequest?> {
-        Binding(get: { [.finished, .addWatch].contains(model.snapshot.firstRun) ? model.snapshot.deviceRequest : nil }, set: { _ in })
+    /// Adding Apple Watch from Devices, after first run.
+    private var addWatchShown: Binding<Bool> {
+        Binding(get: { model.snapshot.firstRun == .finished && model.snapshot.addWatch != nil }, set: { _ in })
     }
 
     private var shownRequest: Binding<AccessRequest?> {
@@ -315,6 +314,12 @@ struct PhoneDevicesView: View {
     var body: some View {
         PhoneList(title: PhoneCopy.devices) {
             section(PhoneCopy.youApproveOn, role: .approves)
+            if model.snapshot.watch.toAdd {
+                Section {
+                    Button(PhoneCopy.addAppleWatch) { Task { await model.addWatch(.open) } }
+                        .font(.body.weight(.semibold)).foregroundStyle(Phone.accent).phoneRow()
+                }
+            }
             section(PhoneCopy.agentsAskFrom, role: .asks)
         }
         .confirmationDialog(removing.map { PhoneCopy.removeQuestion($0.name) } ?? "", isPresented: removingShown,

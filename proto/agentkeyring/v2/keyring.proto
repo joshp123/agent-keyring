@@ -209,10 +209,11 @@ message Request {
   // at once, for 30 minutes, if the catalogue says Automatic and Members
   // allows this machine. Devices show it in use and may stop it.
   bool automatic = 14;
-  // Where this request's answers go: the asking machine's own answer door,
-  // "host:port" on the tailnet, and the SPKI DER of the TLS key it serves
-  // with, fresh for each asking process. Devices pin that key; the request's
-  // signature is what makes it the asking machine's.
+  // Where this request's answers go: the asking machine's door, "IP:17446"
+  // with its Tailscale IP address (never a name), and the TLS key it serves
+  // with, its Machine.tls_public_key (SPKI DER). Devices pin that key and
+  // refuse an address outside Tailscale's ranges; the request's signature is
+  // what makes them the asking machine's.
   string answer_address = 15;
   bytes answer_tls_public_key = 16;
 }
@@ -390,12 +391,6 @@ message RelayRequest {
     // one-time secret our app there leaves in iCloud Keychain (RelayOffer).
     // Returns SetupOffer.
     Empty setup_offer = 30;
-    // Asking machines, before they push: each device that may answer, with
-    // its push address and its sealed copy of the login. Returns AskTargets.
-    AskTargetsRequest ask_targets = 31;
-    // Asking machines: Apple's push credential, sealed to this machine's
-    // receiving key. Returns SealedPushCredential.
-    Empty push_credential = 32;
   }
 }
 
@@ -430,26 +425,6 @@ message RelayOffer {
   bytes relay_tls_public_key = 3;  // SPKI DER, pinned on first contact.
   bytes secret = 4;                // SetupOffer.secret.
   string label = 5;                // The computer as macOS names it, e.g. "Mac mini".
-}
-
-message AskTargetsRequest {
-  string login_id = 1;             // A request for this login: every device that may approve it.
-  string for_device_key_id = 2;    // A practice request: this device only.
-}
-
-message AskTargets {
-  repeated PushTarget targets = 1;
-}
-
-// One device to push a request to. Seal the Work to notice_public_key
-// (Notice) and send it to apns_token, as in "The push" above.
-message PushTarget {
-  string device_key_id = 1;
-  bytes apns_token = 2;
-  string apns_topic = 3;
-  bool apns_production = 4;
-  bytes notice_public_key = 5;     // X9.63 uncompressed.
-  SealedLogin sealed_login = 6;    // This device's copy, for Work.sealed_login. Absent for a practice request.
 }
 
 // What Apple needs to accept a push from us: the ES256 key of the Apple
@@ -494,8 +469,6 @@ message RelayResponse {
     Changes changes = 14;
     Logs logs = 15;
     SetupOffer setup_offer = 16;
-    AskTargets ask_targets = 17;
-    SealedPushCredential push_credential = 18;
   }
   bool end_of_stream = 11;
 }
@@ -539,6 +512,46 @@ message SealedLogins {
 }
 
 // Sent by the device that answered.
+// ---- Direct: no relay ------------------------------------------------------
+//
+// Every computer that asks serves a door: HTTPS on its tailnet address, port
+// 17446, with its own TLS key (Machine.tls_public_key). The Mac's door is open
+// whenever the app runs; a command's door is held by whichever of that
+// computer's command processes binds the port first, and every waiting process
+// tries to bind it once a second, so another takes over within a second when
+// the holder exits. A device whose POST cannot connect retries for 30 seconds.
+//
+// On every door, for that computer's own requests:
+//   POST /v2/answer, POST /v2/arrived: below.
+//   POST /v2/end      body: Signed EndRequest (Stop). Replies 200 with the Lease.
+//
+// On the Mac's door only. These need a TLS client certificate: a member's TLS
+// key, or for /v2/join the key the JoinRequest names.
+//   POST /v2/join              body: JoinRequest. Replies 200 with JoinStatus at
+//                              once if decided, else after up to 25 seconds
+//                              still WAITING; post the same request again to go
+//                              on waiting. A join expires 10 minutes after it
+//                              was first asked, connected or not.
+//   POST /v2/join/withdraw     body: JoinRequest, from the same key. Replies 200.
+//   GET  /v2/rev               Replies Revisions.
+//   GET  /v2/bundle?members=N  Replies Bundle for the caller; N is the newest
+//                              Members revision the caller holds (0 for none).
+//   POST /v2/push-registration body: Signed PushRegistration.
+//   POST /v2/copies            body: SealedLogins: the Apple Watch's copies,
+//                              made by its iPhone.
+//   POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
+//   POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
+//                              practice request's id as plain text (the id
+//                              the device chose); the Mac pushes it.
+//   POST /v2/log               body: Signed DeviceLog.
+//   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
+//   POST /v2/complaint         body: Complaint, from a computer. Replies 200.
+//   GET  /v2/complaints?since=SECONDS  Replies Complaints.
+//
+// The Mac tells the iPhone something changed with a silent push:
+//   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
+// and the iPhone fetches /v2/bundle. Nothing depends on reaching the iPhone.
+//
 // The answer door. The asking machine serves HTTPS at Request.answer_address
 // while its request waits, with the key in Request.answer_tls_public_key:
 //   POST /v2/answer   body: AnswerUpload. Replies 200 with the request's Lease
@@ -561,12 +574,76 @@ message AnswerUpload {
   string deny_request_id = 3;
 }
 
+// Signed by the device's reply key, or for its Apple Watch by the iPhone's,
+// so every computer that asks can check where it pushes.
 message PushRegistration {
   string device_key_id = 1;        // The iPhone registers its Watch's token too.
   bytes apns_token = 2;
   string apns_topic = 3;           // The app's bundle identifier.
   bool apns_production = 4;        // Must match how the app was signed.
   bytes notice_public_key = 5;     // X9.63 uncompressed. Pushes are sealed to it.
+  string domain = 6;               // "agentkeyring.push.v2"
+  int64 registered_unix_seconds = 7;  // The newest registration for a device wins.
+}
+
+// Stop: a device ends an approved request early. Signed by its reply key.
+message EndRequest {
+  string domain = 1;               // "agentkeyring.end.v2"
+  string request_id = 2;
+  string device_key_id = 3;
+  int64 ended_unix_seconds = 4;
+}
+
+// A device asks the Mac for a practice request for itself or its Apple
+// Watch. Signed by its reply key.
+message PracticeAsk {
+  string domain = 1;               // "agentkeyring.practice.v2"
+  string for_device_key_id = 2;
+  string request_id = 3;           // Chosen by the device and saved: the same id rejoins.
+}
+
+// An agent's report that Agent Keyring was annoying, confusing or broken
+// (`agent-keyring complain`). Never a password or any secret. Kept on the
+// Mac for whoever builds the product; shown on no screen. A computer that
+// cannot reach the Mac keeps it and sends it at the next contact.
+message Complaint {
+  string domain = 1;               // "agentkeyring.complaint.v2"
+  int64 at_unix_seconds = 2;
+  string computer = 3;             // The computer's label in Members.
+  string version = 4;              // The command's or app's version.
+  string command = 5;              // What the agent was running, as it typed it.
+  string thread = 6;               // The agent's thread or session, if it has one.
+  string summary = 7;              // One line.
+  string detail = 8;               // Anything more, from standard input.
+}
+
+message Complaints {
+  repeated Complaint complaints = 1;  // Oldest first.
+}
+
+// How new a computer's lists are, to fetch only what changed.
+message Revisions {
+  uint64 members = 1;
+  uint64 catalogue = 2;
+  uint64 copies = 3;               // Rises whenever any sealed copy is added or removed.
+}
+
+// Everything a device or computer keeps, for it alone. Each part is checked
+// on its own: the lists by their signatures and revisions, each copy by its
+// signer and the catalogue's version.
+message Bundle {
+  Signed members = 1;
+  Signed catalogue = 2;
+  repeated Signed push_registrations = 3;
+  // To the iPhone: its own copy of every password that is not Blocked.
+  // To a computer: the Apple Watch's copies, which it puts in its pushes, and
+  // its own copies of the passwords Automatic for it.
+  repeated SealedLogin copies = 4;
+  Revisions revisions = 5;
+  // Every Members revision after the one the caller holds, oldest first, so
+  // each is checked against the one before (one may be signed by a device
+  // the caller has not seen yet). members is the last of them.
+  repeated Signed members_since = 6;
 }
 
 message JoinRequest {
@@ -617,13 +694,18 @@ message JoinRefusal {
 // So no item means no Mac yet; a name only means the Mac is set up but has no
 // computer that stays on yet; a full one is an invitation to join.
 message JoinInvite {
-  string relay_host = 1;
+  string relay_host = 1;           // The relay: goes once nothing reads it.
   uint32 relay_port = 2;
   bytes relay_tls_sha256 = 3;      // SHA-256 of the relay's TLS public key (SPKI).
   string inviter_key_id = 4;       // The inviting device's key id: Members must be signed by it.
   bytes secret = 5;                // 32 random bytes.
   int64 expires_unix_seconds = 6;
   string inviter_label = 7;        // The inviting device as he named it, e.g. "MacBook Pro".
+  // The inviting Mac's door, joined directly. The item in iCloud Keychain
+  // holds all of these, with a secret, whenever the Mac app runs.
+  string door_host = 8;            // The Mac's Tailscale IP address, read from Tailscale when written: never a name.
+  uint32 door_port = 9;            // 17446.
+  bytes door_tls_public_key = 10;  // The Mac's Machine.tls_public_key, SPKI DER: pin it.
 }
 
 // What a device found when it tested itself, the payload of a Signed by its
@@ -675,6 +757,8 @@ message JoinStatus {
   // exactly the keys sent, then pin it and its relay key.
   Signed members = 2;
   JoinRefusal refusal = 3;         // Refused: the inviter's words, if its proof checks.
+  // Approved, to a computer: Apple's push credential, sealed to its receiving key.
+  SealedPushCredential push_credential = 4;
 }
 
 enum JoinState {
@@ -683,6 +767,7 @@ enum JoinState {
   JOIN_STATE_APPROVED = 2;
   JOIN_STATE_REFUSED = 3;          // The inviter refused it (refuse_join).
   JOIN_STATE_EXPIRED = 4;          // Ten minutes passed.
+  JOIN_STATE_WITHDRAWN = 5;        // The joiner cancelled, or a second joiner used the same invitation.
 }
 
 message PendingJoins {

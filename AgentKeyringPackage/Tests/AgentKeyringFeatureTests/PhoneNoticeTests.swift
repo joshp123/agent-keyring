@@ -26,7 +26,12 @@ struct PhoneNoticeTests {
 
     @Test("A practice notice is named with the practice words")
     func practiceNotice() throws {
-        let named = try PhoneRelayBackend.named(work { $0.forDeviceKeyID = "phone" }, members: Members(), catalogue: nil, keyID: "phone")
+        let relay = P256.Signing.PrivateKey()
+        var members = Members()
+        members.relayTlsPublicKey = relay.publicKey.derRepresentation
+        var practice = try work { $0.forDeviceKeyID = "phone" }
+        practice.requestSignature = try relay.signature(for: practice.request).derRepresentation
+        let named = try PhoneKeyring.named(practice, members: members, catalogue: nil, keyID: "phone")
         #expect(named.request.login.site == PhoneCopy.practiceSite)
         #expect(named.request.agentReason == PhoneCopy.practiceReason)
     }
@@ -37,17 +42,17 @@ struct PhoneNoticeTests {
         machine.machineID = "mini"; machine.tlsPublicKey = P256.Signing.PrivateKey().publicKey.derRepresentation
         var members = Members()
         members.machines = [machine]
-        #expect(throws: PhoneRelayBackend.Unnamed.self) {
-            try PhoneRelayBackend.named(work { $0.machineID = "mini"; $0.loginID = "example" }, members: members, catalogue: nil, keyID: "phone")
+        #expect(throws: PhoneKeyring.Unnamed.self) {
+            try PhoneKeyring.named(work { $0.machineID = "mini"; $0.loginID = "example" }, members: members, catalogue: nil, keyID: "phone")
         }
     }
 
     /// On 20 Nov the self-test reported "test request: ended ended": the approval's own end overwrote the approval.
     @Test("An approved practice stays approved when its approval ends a minute later")
     func practiceApprovalLatches() {
-        #expect(PhoneRelayBackend.latched(.approved, .ended) == .approved)
-        #expect(PhoneRelayBackend.latched(nil, .denied) == .denied)
-        #expect(PhoneRelayBackend.latched(.denied, .approved) == .approved)
+        #expect(PhoneKeyring.latched(.approved, .ended) == .approved)
+        #expect(PhoneKeyring.latched(nil, .denied) == .denied)
+        #expect(PhoneKeyring.latched(.denied, .approved) == .approved)
     }
 
     /// On 20 Nov the relay recorded "approved by iPhone" and the app said "Your answer wasn't sent":
@@ -60,11 +65,12 @@ struct PhoneNoticeTests {
         answered.outcome.state = .approved
         var saved = PhoneSavedState()
         saved.deviceKeyID = "phone"
+        saved.mac = MacDoor(host: "100.64.0.10", port: 17446, key: Data([1]), name: "MacBook Pro")
         saved.work = ["r1": try answered.serializedData()]
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try PropertyListEncoder().encode(saved).write(to: directory.appending(path: "phone-v2.plist"))
-        let backend = PhoneRelayBackend(directory: directory, shared: PhoneSharedContext(accessGroup: nil), keys: NoKeys(),
-                                        identity: { throw CancellationError() })
+        let backend = PhoneKeyring(directory: directory, shared: PhoneSharedContext(accessGroup: nil), keys: NoKeys(),
+                                   identity: { throw CancellationError() })
         try await backend.approve("r1", reusingUnlock: false)
         try await backend.deny("r1", reply: nil)
     }
@@ -98,4 +104,5 @@ func earlierBuildsFirstRunStillReads() throws {
     func sign(_ bytes: Data, context: LAContext) throws -> Data { throw Unused() }
     func open(_ sealed: SealedLogin, context: LAContext) throws -> LoginSecret { throw Unused() }
     func signReply(_ bytes: Data) throws -> Data { throw Unused() }
+    func openNotice(_ notice: Agentkeyring_V2_Notice, deviceKeyID: String) throws -> Agentkeyring_V2_Work { throw Unused() }
 }

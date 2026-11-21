@@ -49,6 +49,7 @@ var (
 	loginInfo    = []byte("agentkeyring.login.v2")
 	deliveryInfo = []byte("agentkeyring.delivery.v2")
 	noticeInfo   = []byte("agentkeyring.notice.v2")
+	pushKeyInfo  = []byte("agentkeyring.push-credential.v2")
 
 	ErrWrongDomain   = errors.New("not the expected kind of document")
 	ErrUnknownSigner = errors.New("signed by a key that is not one of the devices")
@@ -186,6 +187,28 @@ func OpenNotice(notice *pb.Notice, private *ecdh.PrivateKey, deviceKeyID string)
 	}
 	work := &pb.Work{}
 	return work, proto.Unmarshal(plaintext, work)
+}
+
+// SealPushCredential seals Apple's push credential to one machine's receiving key.
+func SealPushCredential(credential *pb.PushCredential, receivingKey []byte, machineID string) (*pb.SealedPushCredential, error) {
+	plaintext, err := proto.Marshal(credential)
+	if err != nil {
+		return nil, err
+	}
+	enc, ciphertext, err := seal(receivingKey, pushKeyInfo, []byte(machineID), plaintext)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.SealedPushCredential{OpenerId: machineID, EncapsulatedKey: enc, Ciphertext: ciphertext}, nil
+}
+
+func OpenPushCredential(sealed *pb.SealedPushCredential, private *ecdh.PrivateKey) (*pb.PushCredential, error) {
+	plaintext, err := open(private, pushKeyInfo, sealed.EncapsulatedKey, []byte(sealed.OpenerId), sealed.Ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	credential := &pb.PushCredential{}
+	return credential, proto.Unmarshal(plaintext, credential)
 }
 
 // SignRequest is the asking machine's request, signed with its TLS key.
