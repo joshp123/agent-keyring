@@ -78,6 +78,18 @@ import UniformTypeIdentifiers
     }
     #endif
 
+    /// Text with line breaks: SwiftUI counts each paragraph from its own start,
+    /// which once made the check report split words that were not there.
+    @Test func paragraphsAreMeasuredFromTheirOwnStart() {
+        let rules = KeyringText("Ask: approve each time here.\nAutomatic: chosen computers get it.\nBlocked: no agent can use it.", as: .body)
+            .frame(width: 150)
+        let fine = ScreenCheck.run(rules, on: KeyringScreen("light", size: CGSize(width: 150, height: 0), scrolls: true))
+        #expect(fine.findings.isEmpty, "\(fine.findings)")
+        let split = KeyringText("Fine.\nUnbreakablewordthatistoolong", as: .title).frame(width: 120)
+        let broken = ScreenCheck.run(split, on: KeyringScreen("light", size: CGSize(width: 120, height: 0), scrolls: true))
+        #expect(broken.findings.contains(.brokenWord("Fine.\nUnbreakablewordthatistoolong")), "\(broken.findings)")
+    }
+
     /// A button squeezed beside words until its label stacks ("Send / Practice /
     /// Request") must be reported: it should move under the words instead.
     @Test func theCheckCatchesAButtonLabelWrappedBesideWords() {

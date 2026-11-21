@@ -137,17 +137,27 @@ struct TruncationReporter: TextRenderer {
 
     /// True if a line starts between two letters or digits: SwiftUI split a
     /// word because the space is narrower than the word. (A hyphen it adds
-    /// maps to a neighbouring character, so only where each line starts is used.)
+    /// maps to a neighbouring character, so only where each line starts is
+    /// used.) SwiftUI counts characters from the start of each paragraph, so
+    /// a line that starts no later than the one before begins a new paragraph.
     private func breaksAWord(_ layout: Text.Layout) -> Bool {
         let starts = layout.compactMap { line in line.flatMap(\.characterIndices).min() }
-        guard starts.count > 1, let base = starts.min() else { return false }
+        guard starts.count > 1, let origin = starts.min() else { return false }
+        let paragraphs = [0] + shown.indices.filter { shown[$0] == "\n" }.map { $0 + 1 }
         func isWordCharacter(_ offset: Int) -> Bool {
             shown.indices.contains(offset) && (shown[offset].isLetter || shown[offset].isNumber)
         }
-        return starts.dropFirst().contains { start in
-            let first = base.distance(to: start)
-            return first > 0 && isWordCharacter(first - 1) && isWordCharacter(first)
+        var paragraph = 0
+        var previous = -1
+        for start in starts {
+            let relative = origin.distance(to: start)
+            if previous >= 0, relative <= previous { paragraph += 1 }
+            previous = relative
+            guard relative > 0, paragraphs.indices.contains(paragraph) else { continue }
+            let offset = paragraphs[paragraph] + relative
+            if isWordCharacter(offset - 1), isWordCharacter(offset) { return true }
         }
+        return false
     }
 }
 
