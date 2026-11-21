@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "AgentKeyringWatchCore", targets: ["AgentKeyringWatchCore"]),
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
         .library(name: "AgentKeyringApprovalUI", targets: ["AgentKeyringApprovalUI"]),
+        .library(name: "AgentKeyringDesign", targets: ["AgentKeyringDesign"]),
         .library(name: "AgentKeyringScreenBackends", targets: ["AgentKeyringScreenBackends"]),
         .library(name: "AgentKeyringTestSupport", targets: ["AgentKeyringTestSupport"]),
         .library(name: "AgentKeyringFeature", targets: ["AgentKeyringFeature"]),
@@ -30,7 +31,9 @@ let package = Package(
         .target(name: "AgentKeyringSealing", dependencies: ["AgentKeyringProtocol"]),
         .target(name: "AgentKeyringWatchCore", dependencies: ["AgentKeyringSealing", "AgentKeyringProtocol"]),
         .target(name: "AgentKeyringApprovalCore"),
-        .target(name: "AgentKeyringApprovalUI", dependencies: ["AgentKeyringApprovalCore"]),
+        .target(name: "AgentKeyringApprovalUI", dependencies: ["AgentKeyringApprovalCore", "AgentKeyringDesign"]),
+        // The page parts every screen is built from, with the check that nothing on them is cut off.
+        .target(name: "AgentKeyringDesign"),
         // Joins the lease store and access rules to the screens (RFC 0007, U2 and U3).
         .target(name: "AgentKeyringScreenBackends", dependencies: ["AgentKeyringApprovalUI", "AgentKeyringFeature", "AgentKeyringProtocol", "AgentKeyringSealing"]),
         .target(name: "AgentKeyringFeature", dependencies: ["AgentKeyringRelaySupport", "AgentKeyringProtocol", "AgentKeyringSealing", "AgentKeyringApprovalCore", "AgentKeyringCredentialImport"]),
