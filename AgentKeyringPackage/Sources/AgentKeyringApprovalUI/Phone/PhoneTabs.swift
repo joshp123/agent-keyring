@@ -104,6 +104,7 @@ private struct PhoneList<Content: View>: View {
 struct PhoneHomeView: View {
     let model: PhoneModel
 
+    @Environment(\.dynamicTypeSize) private var textSize
     /// -SampleSettings YES opens Settings, for looking at it in the simulator.
     @State private var settingsShown = UserDefaults.standard.bool(forKey: "SampleSettings")
 
@@ -125,10 +126,15 @@ struct PhoneHomeView: View {
                 Section {
                     ForEach(model.inUse) { request in
                         if case let .approved(_, until) = request.state {
-                            // Stop under the words, so a long site and who asks keep the row's width.
-                            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-                                KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until), nameFit: .siteName)
-                                KeyringButton(.plain(PhoneCopy.stop) { Task { await model.stop(request.id) } })
+                            let stop = KeyringButton(.plain(PhoneCopy.stop) { Task { await model.stop(request.id) } })
+                            if textSize.isAccessibilitySize {
+                                // Under the words at large text sizes, so a long site and who asks keep the row's width.
+                                VStack(alignment: .leading, spacing: KeyringSpace.s2) {
+                                    KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until), nameFit: .siteName)
+                                    stop
+                                }
+                            } else {
+                                KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until), nameFit: .siteName) { stop }
                             }
                         }
                     }
@@ -199,6 +205,8 @@ enum KeyholeGlyph {
 struct PhoneLoginsView: View {
     let model: PhoneModel
     @State private var query = ""
+    /// The filter under the rules: nil is All.
+    @State private var filter: PhoneLogin.Rule?
 
     var body: some View {
         PhoneList(title: PhoneCopy.passwords) {
@@ -208,6 +216,15 @@ struct PhoneLoginsView: View {
                 KeyringText(PhoneCopy.blockedLegend, as: .meta)
                 KeyringText(PhoneCopy.twoFactorLegend, as: .meta)
             } header: { KeyringText(PhoneCopy.passwordsCount(model.snapshot.logins.count), as: .sectionName) }
+            Section {
+                Picker(PhoneCopy.filter, selection: $filter) {
+                    Text(PhoneCopy.all).tag(PhoneLogin.Rule?.none)
+                    ForEach([PhoneLogin.Rule.ask, .automatic, .blocked], id: \.self) { Text(PhoneCopy.rule($0)).tag(Optional($0)) }
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
             Section {
                 ForEach(shown) { login in
                     KeyringDeviceRow(symbol: "key", name: login.site, detail: login.account.isEmpty ? nil : login.account, nameFit: .siteName) {
@@ -227,7 +244,8 @@ struct PhoneLoginsView: View {
 
     private var shown: [PhoneLogin] {
         let q = query.trimmingCharacters(in: .whitespaces)
-        let sorted = model.snapshot.logins.sorted { $0.site.localizedStandardCompare($1.site) == .orderedAscending }
+        let sorted = model.snapshot.logins.filter { filter == nil || $0.rule == filter }
+            .sorted { $0.site.localizedStandardCompare($1.site) == .orderedAscending }
         guard !q.isEmpty else { return sorted }
         return sorted.filter { $0.site.localizedCaseInsensitiveContains(q) || $0.account.localizedCaseInsensitiveContains(q) }
     }

@@ -270,6 +270,8 @@ public enum PhoneCopy {
     public static let sortWithAI = "To set rules for many passwords at once, use Sort with AI on your Mac."
     public static func passwordsCount(_ count: Int) -> String { "\(count) passwords" }
     public static let search = "Search"
+    public static let filter = "Show"
+    public static let all = "All"
     public static func rule(_ rule: PhoneLogin.Rule) -> String {
         switch rule {
         case .ask: "Ask"
