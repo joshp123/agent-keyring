@@ -27,7 +27,7 @@ enum PhoneGallery {
             }
         }
         let request = model(nil)
-        let all = pages + [
+        return pages + [
             KeyringGalleryEntry("iphone-request", .phone) {
                 PhoneRequestView(model: request, request: request.snapshot.requests[0])
             },
@@ -41,10 +41,6 @@ enum PhoneGallery {
             KeyringGalleryEntry("iphone-devices", .phone) { PhoneDevicesView(model: model(nil)) },
             KeyringGalleryEntry("iphone-settings", .phone) { PhoneSettingsView(model: model(nil)) },
         ]
-        // KEYRING_GALLERY_PART=n/m checks every m-th page from the n-th, for a machine short of memory.
-        guard let part = ProcessInfo.processInfo.environment["KEYRING_GALLERY_PART"]?.split(separator: "/").compactMap({ Int($0) }),
-              part.count == 2, part[1] > 0 else { return all }
-        return all.enumerated().filter { $0.offset % part[1] == part[0] }.map(\.element)
     }
 }
 #endif

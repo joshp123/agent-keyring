@@ -113,8 +113,7 @@ struct PhoneFirstRunView: View {
     /// A ticked row, or an unticked one with what to do. Before iOS has asked, only the first row says what.
     private func check(_ name: String, _ on: Bool, fix: String) -> some View {
         let asked = model.snapshot.notificationFacts.allowed || stage == .notificationsOff
-        return KeyringDeviceRow(symbol: on ? "checkmark" : "circle", name: name,
-                                detail: on || (!asked && name != PhoneCopy.checkAllowed) ? nil : fix, tone: on ? .approved : .plain)
+        return KeyringCheckRow(name, isDone: on, toDo: on || (!asked && name != PhoneCopy.checkAllowed) ? nil : fix)
     }
 
     private func practicePage(status: KeyringStatus? = nil, primary: KeyringAction? = nil, secondary: KeyringAction? = nil,

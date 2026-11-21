@@ -141,12 +141,12 @@ struct PhoneHomeView: View {
     private func waitingCard(_ request: AccessRequest) -> some View {
         let busy = model.answering != nil
         return KeyringApprovalCard(
-            lead: request.isPractice ? PhoneCopy.practiceAgent : PhoneCopy.wants(request.agent),
+            lead: PhoneCopy.wants(request.agent),
             subject: request.login.site, detail: request.login.account.isEmpty ? nil : request.login.account,
             reason: request.agentReason.isEmpty ? nil : request.agentReason,
             approve: .approve(PhoneCopy.approve, isEnabled: !busy) { Task { await model.approve(request.id) } },
             deny: .deny(PhoneCopy.deny, isEnabled: !busy) { Task { await model.deny(request.id) } },
-            explain: .link(PhoneCopy.denyAndExplain, isEnabled: !busy) { model.explain(request.id) },
+            explain: .denyLink(PhoneCopy.denyAndExplain, isEnabled: !busy) { model.explain(request.id) },
             footer: model.snapshot.undelivered.contains(request.id) ? PhoneCopy.notDeliveredYet : nil)
     }
 

@@ -21,11 +21,12 @@ struct PhoneRequestView: View {
 
     var body: some View {
         let busy = model.answering != nil
-        KeyringPage(step: nil, title: request.login.site, sentence: PhoneCopy.wants(request.agent), alignment: .centre, status: status,
+        KeyringPage(status: status,
                         primary: .deny(PhoneCopy.denyAndSend, isEnabled: !busy) { deny() },
-                        secondary: .link(PhoneCopy.approveInstead, isEnabled: !busy) { approve() }) {
-                if !request.login.account.isEmpty { KeyringText(request.login.account, as: .meta) }
-                if !request.agentReason.isEmpty { KeyringText(PhoneCopy.quoted(request.agentReason), as: .body) }
+                        secondary: .approveLink(PhoneCopy.approveInstead, isEnabled: !busy) { approve() }) {
+                KeyringRequestHeader(lead: PhoneCopy.wants(request.agent),
+                                     subject: request.login.site, detail: request.login.account.isEmpty ? nil : request.login.account,
+                                     reason: request.agentReason.isEmpty ? nil : request.agentReason)
                 KeyringText(PhoneCopy.tellTheAgent, as: .heading)
                 replyBox
                 if dictation.isListening { KeyringText(PhoneCopy.speakHint, as: .caption) }
