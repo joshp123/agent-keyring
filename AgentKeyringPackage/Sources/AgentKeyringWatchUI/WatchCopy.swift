@@ -29,7 +29,7 @@ public enum WatchCopy {
     static let cancel = "Cancel"
     static let checkAgain = "Check Again"
     /// Not in the ledger: when Try Practice cannot reach the iPhone, or the iPhone cannot reach the Mac.
-    static let practiceNotAsked = "Couldn’t ask for one. Your iPhone and Mac need to be nearby and awake."
+    static let practiceNotAsked = "Couldn’t send a practice request. Make sure your iPhone and Mac are awake with Tailscale on."
     static let deny = "Deny"
     static let approve = "Approve"
     static let denyAndExplain = "Deny and Explain"

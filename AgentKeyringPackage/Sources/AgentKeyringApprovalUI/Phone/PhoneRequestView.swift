@@ -27,6 +27,7 @@ struct PhoneRequestView: View {
                 KeyringRequestHeader(lead: PhoneCopy.wants(request.agent),
                                      subject: request.login.site, detail: request.login.account.isEmpty ? nil : request.login.account,
                                      reason: request.agentReason.isEmpty ? nil : request.agentReason)
+                KeyringText(PhoneCopy.askedAgo(request.askedAt), as: .caption).frame(maxWidth: .infinity)
                 KeyringText(PhoneCopy.tellTheAgent, as: .heading)
                 replyBox
                 if dictation.isListening { KeyringText(PhoneCopy.speakHint, as: .caption) }

@@ -47,7 +47,6 @@ public struct PhoneRootView: View {
 
     @ToolbarContentBuilder private func requestBar(_ request: AccessRequest) -> some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) { Button(PhoneCopy.cancel) { model.shownRequestID = nil } }
-        ToolbarItem(placement: .topBarTrailing) { KeyringText(PhoneCopy.askedAgo(request.askedAt), as: .caption) }
     }
 
     private var failureShown: Binding<Bool> {
@@ -85,12 +84,16 @@ private struct PhoneList<Content: View>: View {
             List { content }
                 .listStyle(.insetGrouped)
                 .navigationTitle(title)
+                // The same large title on all three tabs, the search field on Passwords included.
+                .navigationBarTitleDisplayMode(.large)
                 .toolbar {
                     if let leading {
                         ToolbarItem(placement: .topBarLeading) { Button(leading.label, action: leading.action) }
                     }
                     if let pill {
+                        // Plain words, not a button: no glass capsule behind them.
                         ToolbarItem(placement: .topBarTrailing) { KeyringText(pill, as: .caption, colour: KeyringPalette.brand) }
+                            .sharedBackgroundVisibility(.hidden)
                     }
                 }
         }
@@ -203,6 +206,7 @@ struct PhoneLoginsView: View {
                 KeyringText(PhoneCopy.askLegend, as: .meta)
                 KeyringText(PhoneCopy.automaticLegend, as: .meta)
                 KeyringText(PhoneCopy.blockedLegend, as: .meta)
+                KeyringText(PhoneCopy.twoFactorLegend, as: .meta)
             } header: { KeyringText(PhoneCopy.passwordsCount(model.snapshot.logins.count), as: .sectionName) }
             Section {
                 ForEach(shown) { login in
@@ -216,9 +220,9 @@ struct PhoneLoginsView: View {
                         }
                     }
                 }
-            }
+            } footer: { KeyringText(PhoneCopy.sortWithAI, as: .caption) }
         }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: PhoneCopy.search)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: PhoneCopy.search)
     }
 
     private var shown: [PhoneLogin] {

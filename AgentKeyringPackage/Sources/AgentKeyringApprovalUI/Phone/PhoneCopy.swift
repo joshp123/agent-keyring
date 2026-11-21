@@ -133,7 +133,10 @@ public enum PhoneCopy {
     public static let faceIDExpired = "Face ID confirmation expired. Confirm again to add your Apple Watch."
     public static let watchNeedsPasscode = "Your Apple Watch needs a passcode before it can store Secure Enclave keys. Turn on a passcode in Apple’s Watch app, then try again."
     public static func encryptingForWatch(_ done: Int, _ total: Int) -> String { "Encrypting passwords for Apple Watch (\(done) of \(total))" }
-    public static func watchCopiesFailed(_ reason: String) -> String { "Couldn’t finish preparing passwords for your Apple Watch. \(reason)." }
+    public static func watchCopiesFailed(_ reason: String) -> String {
+        let reason = reason.hasSuffix(".") ? String(reason.dropLast()) : reason
+        return "Couldn’t finish preparing passwords for your Apple Watch. \(reason)."
+    }
     public static let watchAdded = "Apple Watch added"
     public static let watchAddedDetail = "You can now approve password requests with one tap on your wrist."
 
@@ -257,9 +260,11 @@ public enum PhoneCopy {
     // MARK: Passwords
 
     public static let passwords = "Passwords"
-    public static let askLegend = "**Ask:** agents ask you each time (two-factor secret stays on your devices)."
-    public static let automaticLegend = "**Automatic:** chosen computers get it without asking (secret included)."
-    public static let blockedLegend = "**Blocked:** no agent can use it. Sort with AI on Mac."
+    public static let askLegend = "**Ask:** you approve each time an agent wants it."
+    public static let automaticLegend = "**Automatic:** agents on the computers you choose get it without asking you."
+    public static let blockedLegend = "**Blocked:** no agent can ever use it."
+    public static let twoFactorLegend = "**Two-factor codes:** for Ask passwords, the secret stays on your devices and agents get only the current code. For Automatic passwords, the chosen computer holds its own encrypted copy."
+    public static let sortWithAI = "To set rules for many passwords at once, use Sort with AI on your Mac."
     public static func passwordsCount(_ count: Int) -> String { "\(count) passwords" }
     public static let search = "Search"
     public static func rule(_ rule: PhoneLogin.Rule) -> String {
@@ -288,7 +293,7 @@ public enum PhoneCopy {
     public static let answersWithFaceID = "Face ID"
     public static let answersWithTap = "One tap"
     public static let answersWithTouchID = "Touch ID"
-    public static let connected = "Connected"
+    public static let connected = "Its agents can ask you"
     public static let addAppleWatchRow = "Add Apple Watch…"
     public static let practiceShort = "Send Practice Request"
     public static let remove = "Remove"
