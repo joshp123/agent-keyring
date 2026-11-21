@@ -378,12 +378,21 @@ func (c *Client) end(ctx context.Context, leaseID string) (*v1.Lease, error) {
 
 // openValues opens the password for an approved request on this computer:
 // the device's delivery, checked against the newest Members held, or this
-// computer's own copy of an Automatic password.
+// computer's own copy of an Automatic password. First it asks the Mac for a
+// Stop a device left there (checkStopAtMac).
 func (c *Client) openValues(ctx context.Context, lease *v1.Lease, _ *v1.Delivery) (*v1.CredentialValues, []string, error) {
 	now := time.Now()
 	saved, err := c.settle(ctx, lease.LeaseId)
 	if err != nil {
 		return nil, nil, err
+	}
+	if saved.Lease.State == pb.LeaseState_LEASE_STATE_APPROVED {
+		if err := c.checkStopAtMac(ctx, lease.LeaseId); err != nil {
+			return nil, nil, err
+		}
+		if saved, err = c.settle(ctx, lease.LeaseId); err != nil {
+			return nil, nil, err
+		}
 	}
 	switch current := translate(saved); current.State {
 	case v1.LeaseState_LEASE_STATE_ACTIVE:

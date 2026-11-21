@@ -20,7 +20,11 @@
 //	                                                      wait for the silent push with that request's outcome
 //	test-device stop    --state DIR --device iphone|watch --request ID
 //	                                                      end an approval early, as Stop on a device does
+//	                                                      (--door-retry 1s: give up on the door sooner; it is then left at the Mac)
 //	test-device remove  --state DIR --device watch        Josh removes a device from his list
+//	test-device mac-answer  --state DIR [--request ID] (--approve | --deny WORDS)
+//	                                                      answer another computer's request shown on the Mac, at its door
+//	test-device mac-outcome --state DIR --request ID      wait for the computer to tell the Mac how its request ended
 package main
 
 import (
@@ -113,6 +117,22 @@ type saved struct {
 	Secrets        [][]byte         `json:"secrets"`       // Invitations not yet used.
 	Joins          map[string]*join `json:"joins"`
 	Complaints     [][]byte         `json:"complaints"` // Complaint, as computers sent them.
+	// The iPhone's TLS identity, for the Mac's members' door (POST /v2/stop).
+	PhoneCertificate []byte `json:"phone_certificate"`
+	PhoneTLSKey      []byte `json:"phone_tls_key"`
+	// Other computers' requests the Mac was shown (POST /v2/ask), by id: the
+	// Signed Request; how each ended (POST /v2/outcome): the Lease; and which
+	// ones the Mac has answered itself.
+	Asks       map[string][]byte `json:"asks"`
+	Outcomes   map[string][]byte `json:"outcomes"`
+	MacAnswers map[string]bool   `json:"mac_answers"`
+	// Stops devices left at the Mac (POST /v2/stop), by request id, kept an hour.
+	Stops map[string]*keptStop `json:"stops"`
+}
+
+type keptStop struct {
+	Signed []byte `json:"signed"` // Signed EndRequest.
+	At     int64  `json:"at"`
 }
 
 const (
@@ -126,7 +146,7 @@ var kinds = map[string]pb.DeviceKind{"mac": pb.DeviceKind_DEVICE_KIND_MAC, "ipho
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: test-device init|mac|apple|invite|approve-joins|refuse-joins|answer|outcome|stop|remove --state DIR ...")
+		fmt.Fprintln(os.Stderr, "usage: test-device init|mac|apple|invite|approve-joins|refuse-joins|answer|outcome|stop|remove|mac-answer|mac-outcome --state DIR ...")
 		os.Exit(2)
 	}
 	flags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
@@ -142,6 +162,7 @@ func main() {
 	ignore := flags.Bool("ignore", false, "see the next request and leave it unanswered")
 	reply := flags.String("reply", "", "words for the waiting agent (refuse-joins)")
 	request := flags.String("request", "", "request id")
+	flags.DurationVar(&doorRetry, "door-retry", doorRetry, "how long a post to a computer's door retries while nothing answers")
 	flags.Parse(os.Args[2:])
 	if *state == "" {
 		fmt.Fprintln(os.Stderr, "test-device: --state is required")
@@ -169,6 +190,10 @@ func main() {
 		err = d.outcome(*device, *request)
 	case "stop":
 		err = d.stop(ctx, *device, *request)
+	case "mac-answer":
+		err = d.macAnswer(ctx, *request, *approve, *deny)
+	case "mac-outcome":
+		err = d.macOutcome(*request)
 	case "remove":
 		err = d.remove(*device)
 	default:
@@ -195,7 +220,8 @@ func (d *devices) change(apply func(*saved) error) error {
 		return err
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	s := &saved{Devices: map[string]*keys{}, Joins: map[string]*join{}}
+	s := &saved{Devices: map[string]*keys{}, Joins: map[string]*join{}, Asks: map[string][]byte{}, Outcomes: map[string][]byte{},
+		MacAnswers: map[string]bool{}, Stops: map[string]*keptStop{}}
 	path := filepath.Join(d.dir, "devices.json")
 	if raw, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(raw, s); err != nil {
@@ -244,10 +270,22 @@ func (s *saved) device(name string) *pb.Device {
 	signing, reply := ecdsaKey(k.Signing), ecdsaKey(k.Reply)
 	d := &pb.Device{KeyId: keyring.KeyID(publicBytes(signing)), Kind: kinds[name], Label: labels[name], SigningPublicKey: publicBytes(signing),
 		OpeningPublicKey: ecdhKey(k.Opening).PublicKey().Bytes(), ReplyKeyId: keyring.KeyID(publicBytes(reply)), ReplyPublicKey: publicBytes(reply)}
-	if name == "mac" {
+	switch name {
+	case "mac":
 		d.TlsPublicKey = s.macSPKI()
+	case "iphone":
+		spki, _ := tlsid.SPKI(s.phoneCertificate())
+		d.TlsPublicKey = spki
 	}
 	return d
+}
+
+func (s *saved) phoneCertificate() tls.Certificate {
+	certificate, err := tls.X509KeyPair(s.PhoneCertificate, s.PhoneTLSKey)
+	if err != nil {
+		panic(err)
+	}
+	return certificate
 }
 
 func (s *saved) macCertificate() tls.Certificate {
@@ -342,6 +380,9 @@ func (d *devices) initialise(doorAddress string) error {
 		if s.MacCertificate, s.MacTLSKey, err = tlsid.New("Agent Keyring test Mac"); err != nil {
 			return err
 		}
+		if s.PhoneCertificate, s.PhoneTLSKey, err = tlsid.New("Agent Keyring test iPhone"); err != nil {
+			return err
+		}
 		for name := range labels {
 			token := make([]byte, 32)
 			rand.Read(token)
@@ -355,6 +396,7 @@ func (d *devices) initialise(doorAddress string) error {
 		s.Revisions[1]++
 		catalogue, _ := proto.Marshal(&pb.Catalogue{Domain: keyring.CatalogueDomain, Revision: s.Revisions[1], Logins: catalogueLogins, ImportedUnixSeconds: time.Now().Unix()})
 		s.Catalogue = s.signAsMac(catalogue)
+		s.seal(s.device("mac").KeyId, s.device("mac").OpeningPublicKey, false) // The Mac answers other computers' requests from its own copies.
 		for _, name := range []string{"iphone", "watch"} {
 			s.seal(s.device(name).KeyId, s.device(name).OpeningPublicKey, false)
 			// Each device's push address, signed by the iPhone's reply key:
@@ -420,6 +462,81 @@ func (d *devices) serveMac(joinWithin time.Duration) error {
 				}
 			}
 			reply(w, result)
+		}
+	})
+	// Another computer's request, shown on the Mac as it is pushed to the devices.
+	mux.HandleFunc("POST /v2/ask", func(w http.ResponseWriter, r *http.Request) {
+		s, machine := d.member(w, r)
+		if machine == nil {
+			return
+		}
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+		signed := &pb.Signed{}
+		if proto.Unmarshal(raw, signed) != nil {
+			http.Error(w, "The body must be a signed Request.", http.StatusBadRequest)
+			return
+		}
+		request, asking, err := keyring.CheckRequest(signed.Payload, signed.Signature, s.members())
+		if err != nil || asking.MachineId != machine.MachineId || signed.SignerKeyId != machine.MachineId ||
+			!bytes.Equal(request.AnswerTlsPublicKey, machine.TlsPublicKey) {
+			http.Error(w, "A computer shows the Mac only a request it signed itself, naming its own door.", http.StatusForbidden)
+			return
+		}
+		d.change(func(s *saved) error {
+			if s.Asks[request.RequestId] == nil {
+				s.Asks[request.RequestId] = raw
+			}
+			return nil
+		})
+		fmt.Printf("Shown on the Mac: %s from %q.\n", request.RequestId, machine.Label)
+	})
+	mux.HandleFunc("POST /v2/outcome", func(w http.ResponseWriter, r *http.Request) {
+		if _, machine := d.member(w, r); machine != nil {
+			raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+			lease := &pb.Lease{}
+			if proto.Unmarshal(raw, lease) != nil || lease.RequestId == "" {
+				http.Error(w, "The body must be a Lease.", http.StatusBadRequest)
+				return
+			}
+			d.change(func(s *saved) error { s.Outcomes[lease.RequestId] = raw; return nil })
+		}
+	})
+	// A Stop a device could not take to the asking computer's door, kept an hour.
+	mux.HandleFunc("POST /v2/stop", func(w http.ResponseWriter, r *http.Request) {
+		s, err := d.read()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		members := s.members()
+		if !slices.ContainsFunc(members.Devices, func(device *pb.Device) bool {
+			return len(device.TlsPublicKey) > 0 && bytes.Equal(device.TlsPublicKey, peerSPKI(r))
+		}) {
+			http.Error(w, "Only Josh's iPhone leaves a Stop here.", http.StatusForbidden)
+			return
+		}
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+		signed, end := &pb.Signed{}, &pb.EndRequest{}
+		if proto.Unmarshal(raw, signed) != nil || proto.Unmarshal(signed.Payload, end) != nil || end.Domain != keyring.EndDomain {
+			http.Error(w, "The body must be a signed EndRequest.", http.StatusBadRequest)
+			return
+		}
+		device, err := keyring.Verify(signed, members, true)
+		if err != nil || signed.SignerKeyId != device.ReplyKeyId || end.DeviceKeyId != device.KeyId {
+			http.Error(w, "Stop is signed by the reply key of a device in Josh's list of devices.", http.StatusForbidden)
+			return
+		}
+		d.change(func(s *saved) error { s.Stops[end.RequestId] = &keptStop{raw, time.Now().Unix()}; return nil })
+		fmt.Printf("Kept a Stop for %s from %q.\n", end.RequestId, device.Label)
+	})
+	mux.HandleFunc("GET /v2/stops", func(w http.ResponseWriter, r *http.Request) {
+		if s, machine := d.member(w, r); machine != nil {
+			kept := s.Stops[r.URL.Query().Get("request")]
+			if kept == nil || time.Since(time.Unix(kept.At, 0)) > time.Hour {
+				http.Error(w, "No Stop is waiting for that request.", http.StatusNotFound)
+				return
+			}
+			w.Write(kept.Signed)
 		}
 	})
 	mux.HandleFunc("GET /v2/logs", func(w http.ResponseWriter, r *http.Request) {
@@ -851,8 +968,12 @@ func (d *devices) pick(name string, before func([]push) []push, match func(push)
 	return nil, push{}, fmt.Errorf("no such push reached the %s in 30 seconds", name)
 }
 
+// doorRetry is how long a post to a computer's door retries: 30 seconds, as
+// the apps do; a test may shorten it (--door-retry).
+var doorRetry = 30 * time.Second
+
 // toDoor posts to the asking computer's door, the address and key its signed
-// request names, as the apps do: it retries for 30 seconds while nothing
+// request names, as the apps do: it retries for doorRetry while nothing
 // answers there, and never after a refusal.
 func toDoor(ctx context.Context, request *pb.Request, path string, body proto.Message) (int, []byte, error) {
 	host, _, err := net.SplitHostPort(request.AnswerAddress)
@@ -869,7 +990,7 @@ func toDoor(ctx context.Context, request *pb.Request, path string, body proto.Me
 			return nil
 		}}}}
 	raw, _ := proto.Marshal(body)
-	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+	for deadline := time.Now().Add(doorRetry); ; time.Sleep(250 * time.Millisecond) {
 		response, err := client.Post("https://"+request.AnswerAddress+path, "application/octet-stream", bytes.NewReader(raw))
 		if err == nil {
 			defer response.Body.Close()
@@ -1011,7 +1132,13 @@ func (d *devices) stop(ctx context.Context, name, requestID string) error {
 	}
 	status, text, err := toDoor(ctx, p.request, "/v2/end", signed)
 	if err != nil {
-		fmt.Println("The computer could not be reached; the access ends by itself at its time.")
+		// Nobody holds that computer's door: the Stop waits at the Mac, which the
+		// computer asks before its agents next use the approval. The iPhone
+		// carries it there over its own connection, the Apple Watch's too.
+		if status, text, err := s.toMacAsPhone("/v2/stop", signed); err != nil || status != http.StatusOK {
+			return fmt.Errorf("the computer's door did not answer, and the Mac did not keep the Stop (%d %s): %v", status, text, err)
+		}
+		fmt.Println("Left the Stop at the Mac.")
 		return nil
 	}
 	if status != http.StatusOK {
@@ -1021,4 +1148,124 @@ func (d *devices) stop(ctx context.Context, name, requestID string) error {
 	proto.Unmarshal(text, lease)
 	fmt.Printf("Stopped: %s by %s\n", lease.State, lease.EndedBy)
 	return nil
+}
+
+// toMacAsPhone posts to the Mac's members' door with the iPhone's TLS key,
+// the Mac's key pinned.
+func (s *saved) toMacAsPhone(path string, body proto.Message) (int, []byte, error) {
+	pinned := s.macSPKI()
+	client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13,
+		InsecureSkipVerify: true, Certificates: []tls.Certificate{s.phoneCertificate()},
+		VerifyConnection: func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 || !bytes.Equal(state.PeerCertificates[0].RawSubjectPublicKeyInfo, pinned) {
+				return errors.New("the Mac's key is not the one pinned")
+			}
+			return nil
+		}}}}
+	raw, _ := proto.Marshal(body)
+	response, err := client.Post("https://"+s.Door+path, "application/octet-stream", bytes.NewReader(raw))
+	if err != nil {
+		return 0, nil, err
+	}
+	defer response.Body.Close()
+	text, _ := io.ReadAll(response.Body)
+	return response.StatusCode, text, nil
+}
+
+// macAnswer is Josh answering, on the Mac, another computer's request the Mac
+// was shown: the named one, or one still waiting there. As a device
+// does: it checks the request against the Mac's list, opens the Mac's own copy,
+// seals it for the asking computer, and posts the answer to its door. The door's
+// reply is the request's Lease: this answer's, or the one that ended it first.
+func (d *devices) macAnswer(ctx context.Context, requestID string, approve bool, deny string) error {
+	if !approve && deny == "" {
+		return errors.New("choose --approve or --deny WORDS")
+	}
+	var s *saved
+	var signed *pb.Signed
+	for deadline := time.Now().Add(30 * time.Second); signed == nil; time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return errors.New("no request was shown on the Mac in 30 seconds")
+		}
+		err := d.change(func(saved *saved) error {
+			s = saved
+			ids := make([]string, 0, len(saved.Asks))
+			for id := range saved.Asks {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+			for _, id := range ids {
+				// With no id: one still waiting, as the panel shows only those.
+				if (requestID != "" && id == requestID) || (requestID == "" && !saved.MacAnswers[id] && saved.Outcomes[id] == nil) {
+					signed = &pb.Signed{}
+					proto.Unmarshal(saved.Asks[id], signed)
+					saved.MacAnswers[id] = true
+					return nil
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	members := s.members()
+	request, asking, err := keyring.CheckRequest(signed.Payload, signed.Signature, members)
+	if err != nil {
+		return fmt.Errorf("refused: the request was not signed by the computer it names: %w", err)
+	}
+	fmt.Printf("Request %s: %s on %s wants %s: %q\n", request.RequestId, request.Agent, asking.Label, request.LoginId, request.Reason)
+	mac := s.device("mac")
+	var upload *pb.AnswerUpload
+	if approve {
+		listed := catalogueLogins[slices.IndexFunc(catalogueLogins, func(l *pb.Login) bool { return l.LoginId == request.LoginId })]
+		var sealed *pb.SealedLogin
+		for _, own := range s.copies() {
+			if own.OpenerId == mac.KeyId && own.LoginId == request.LoginId {
+				sealed = own
+			}
+		}
+		if sealed == nil || keyring.CheckSealed(sealed, members, listed) != nil {
+			return errors.New("cannot approve: the Mac has no good copy of this password")
+		}
+		secret, err := keyring.OpenLogin(sealed, ecdhKey(s.Devices["mac"].Opening))
+		if err != nil {
+			return err
+		}
+		upload, err = keyring.Approve(signed.Payload, secret, listed.Sites, asking.ReceivingPublicKey, mac.KeyId,
+			keyring.SoftwareSigner(ecdsaKey(s.Devices["mac"].Signing)), time.Now())
+		if err != nil {
+			return err
+		}
+	} else if upload, err = keyring.Deny(signed.Payload, deny, mac.ReplyKeyId, keyring.SoftwareSigner(ecdsaKey(s.Devices["mac"].Reply)), time.Now()); err != nil {
+		return err
+	}
+	status, text, err := toDoor(ctx, request, "/v2/answer", upload)
+	if err != nil {
+		return fmt.Errorf("the computer's door did not answer: %w", err)
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("the door refused (%d): %s", status, text)
+	}
+	lease := &pb.Lease{}
+	proto.Unmarshal(text, lease)
+	fmt.Printf("The door says: %s by %s\n", lease.State, lease.AnsweredBy)
+	return nil
+}
+
+// macOutcome waits for the asking computer to tell the Mac how its request ended.
+func (d *devices) macOutcome(requestID string) error {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		s, err := d.read()
+		if err != nil {
+			return err
+		}
+		if raw := s.Outcomes[requestID]; raw != nil {
+			lease := &pb.Lease{}
+			proto.Unmarshal(raw, lease)
+			fmt.Printf("Outcome: %s by %s\n", lease.State, lease.AnsweredBy)
+			return nil
+		}
+	}
+	return errors.New("the Mac heard no outcome for that request in 30 seconds")
 }
