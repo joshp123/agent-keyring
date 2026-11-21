@@ -1,9 +1,11 @@
-// Written by AI on 2026.10.31 by model gpt-6.1-sol; the saved approval by claude opus 5.5 on 2026.11.19.
+// Written by AI on 2026.10.31 by model gpt-6.1-sol; the saved approval by claude opus 5.5 on 2026.11.19;
+// the direct design (no relay) by claude opus 5.5 on 2026.11.21.
 syntax = "proto3";
 package agentkeyring.clientstate;
 import "agentkeyring/v1/agentkeyring.proto";
+import "agentkeyring/v2/keyring.proto";
 option go_package = "github.com/joshp123/agent-keyring/internal/clientstate";
-// Local receiver storage, never a relay wire contract. PrivateKeys is stored
+// Local receiver storage, never a wire contract. PrivateKeys is stored
 // separately in an owner-only file on macOS and Linux.
 message PrivateKeys {
   bytes certificate_pem = 1;
@@ -11,6 +13,8 @@ message PrivateKeys {
   bytes receiver_private_key = 3;
 }
 message State {
+  // 1 and 2: the relay this computer joined through. A state that has them
+  // and no Mac door joined the relay and must enrol again.
   string relay_address = 1;
   bytes relay_spki = 2;
   string recipient_id = 3;        // This machine's id in Members.
@@ -22,9 +26,22 @@ message State {
   // The newest Members this machine has checked, as a serialized
   // agentkeyring.v2.Signed. Answers are verified against it.
   bytes members = 16;
-  // The newest Catalogue revision this machine has seen; an older one is a
-  // relay replaying the past (a login no longer Automatic, still served).
+  // The newest Catalogue revision this machine has seen; an older one is the
+  // Mac's door replaying the past (a login no longer Automatic, still served).
   uint64 catalogue_revision = 17;
+  // The Mac's door, "IP:17446" with its Tailscale IP, and its TLS key (SPKI
+  // DER), pinned from the invitation this computer joined with.
+  string mac_door = 18;
+  bytes mac_tls_public_key = 19;
+  // The last Bundle from the Mac's door whose parts all checked
+  // (agentkeyring.v2.Bundle): the catalogue, push registrations, the Apple
+  // Watch's copies and this computer's own Automatic copies.
+  bytes bundle = 20;
+  // Apple's push credential from the Mac's approval, still sealed to this
+  // computer's receiving key (agentkeyring.v2.SealedPushCredential).
+  bytes push_credential = 21;
+  // After a denial, when this computer may ask for each password again.
+  repeated Hold holds = 22;
 }
 message LocalAuthority {
   string application_contents = 1;
@@ -32,23 +49,24 @@ message LocalAuthority {
 }
 message ExpectedRequest {
   agentkeyring.v1.RequestLeaseRequest scope = 1;
-  string lease_id = 2;
-  reserved 3;                    // Automatic uses kept only here: the relay records them now.
-  bool ended = 4;
-  // A device's approval, as the relay gave it (agentkeyring.v2.Approval),
-  // kept for its window so it still works if the relay cannot be reached.
-  // Its delivery is sealed to this machine's receiving key; it holds the
-  // window's one-time codes, never the code secret. It is checked again on
-  // each use, and deleted on release or once approval_not_after has passed.
+  string lease_id = 2;            // The Request's request_id.
+  reserved 3, 4, 6, 8;            // Kept beside the relay's record: now the lease below is the record.
+  // The device's signed answer over this request (agentkeyring.v2.Approval):
+  // an approval, with its delivery sealed to this machine's receiving key,
+  // or a denial with words. Checked again on each use.
   bytes approval = 5;
-  int64 approval_not_after_unix_seconds = 6;  // From the signed answer.
   // The request this machine wrote and signed (agentkeyring.v2.Signed),
-  // saved before it is sent so a retry sends the same bytes. Approvals and
-  // denials are checked against these exact bytes.
+  // saved before it is pushed. Answers are checked against these exact bytes.
   bytes request = 7;
-  // An Automatic login: this machine opens its own sealed copy while the
-  // relay says the use is approved.
-  bool automatic = 8;
+  // Where the request is up to: its one state, with who answered, when it
+  // was pushed and arrived, and when it ends (docs/state-machines.md).
+  agentkeyring.v2.Lease lease = 9;
+}
+message Hold {
+  string login_id = 1;
+  int64 until_unix_seconds = 2;
+  int32 in_a_row = 3;
+  string reply = 4;               // His words with the last denial.
 }
 message OperationReceipt {
   string lease_id = 1;
