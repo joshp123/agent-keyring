@@ -1969,12 +1969,19 @@ func (x *Work) GetLogin() *Login {
 //	aps.interruption-level  "time-sensitive"
 //	aps.mutable-content  1
 //	aps.thread-id        the request id
+//	aps.sound            "default"
 //	akr                  base64 of a serialized Notice
 //
 // with the header apns-collapse-id set to the request id, so the push for the
 // outcome replaces the one for the request. The app's notification service
 // extension opens the Notice with the device's notice key and writes the
-// alert from the Work in it; one push goes to each device.
+// alert from the Work in it; one push goes to each device. The top level also
+// carries "id": the request id. Headers: apns-push-type alert, priority 10,
+// apns-expiration the request's answer_by.
+// Every outcome (answered, stopped, released, cancelled, no answer) is a silent
+// push to the same devices: apns-push-type background, priority 5, the same
+// collapse id, aps only {"content-available": 1, "thread-id": id}, with "id"
+// and "akr", whose Work has its outcome set.
 // info = "agentkeyring.notice.v2"; aad = the device's Device.key_id UTF-8
 // plaintext = serialized Work.
 type Notice struct {
@@ -3652,13 +3659,22 @@ func (x *SealedLogins) GetWithdrawnLoginIds() []string {
 //	                           made by its iPhone.
 //	POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
 //	POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-//	                           practice request's id; the Mac pushes it.
+//	                           practice request's id as UTF-8 text (32 hex
+//	                           digits); the Mac pushes it.
+//	POST /v2/report            body: Signed SelfTestReport, by the device's reply
+//	                           key: its first-run step and checklist. Replies 200.
 //	POST /v2/log               body: Signed DeviceLog.
 //	GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
 //
-// The Mac tells the iPhone something changed with a silent push:
+// Every door speaks HTTP/1.1 over TLS 1.3: a body is sent with Content-Length
+// (no chunked bodies), and the door closes the connection after its reply.
+// 400 means the body could not be read, 403 that it was refused, 404 an
+// unknown route; each with a sentence in the body.
 //
-//	{"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
+// The Mac tells the iPhone something changed with a silent push
+// (apns-push-type background, priority 5, apns-collapse-id "rev"):
+//
+//	{"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N, "reports": N}}
 //
 // and the iPhone fetches /v2/bundle. Nothing depends on reaching the iPhone.
 //
@@ -3970,7 +3986,8 @@ type Revisions struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Members       uint64                 `protobuf:"varint,1,opt,name=members,proto3" json:"members,omitempty"`
 	Catalogue     uint64                 `protobuf:"varint,2,opt,name=catalogue,proto3" json:"catalogue,omitempty"`
-	Copies        uint64                 `protobuf:"varint,3,opt,name=copies,proto3" json:"copies,omitempty"` // Rises whenever any sealed copy is added or removed.
+	Copies        uint64                 `protobuf:"varint,3,opt,name=copies,proto3" json:"copies,omitempty"`   // Rises whenever any sealed copy is added or removed.
+	Reports       uint64                 `protobuf:"varint,4,opt,name=reports,proto3" json:"reports,omitempty"` // Rises whenever a device's status report changes.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4026,6 +4043,13 @@ func (x *Revisions) GetCopies() uint64 {
 	return 0
 }
 
+func (x *Revisions) GetReports() uint64 {
+	if x != nil {
+		return x.Reports
+	}
+	return 0
+}
+
 // Everything a device or computer keeps, for it alone. Each part is checked
 // on its own: the lists by their signatures and revisions, each copy by its
 // signer and the catalogue's version.
@@ -4037,8 +4061,11 @@ type Bundle struct {
 	// To the iPhone: its own copy of every password that is not Blocked.
 	// To a computer: the Apple Watch's copies, which it puts in its pushes, and
 	// its own copies of the passwords Automatic for it.
-	Copies        []*SealedLogin `protobuf:"bytes,4,rep,name=copies,proto3" json:"copies,omitempty"`
-	Revisions     *Revisions     `protobuf:"bytes,5,opt,name=revisions,proto3" json:"revisions,omitempty"`
+	Copies    []*SealedLogin `protobuf:"bytes,4,rep,name=copies,proto3" json:"copies,omitempty"`
+	Revisions *Revisions     `protobuf:"bytes,5,opt,name=revisions,proto3" json:"revisions,omitempty"`
+	// Each device's latest status report (SelfTestReport), the Mac's included,
+	// each signed by its device's reply key: where each is in first run.
+	Reports       []*Signed `protobuf:"bytes,6,rep,name=reports,proto3" json:"reports,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4104,6 +4131,13 @@ func (x *Bundle) GetCopies() []*SealedLogin {
 func (x *Bundle) GetRevisions() *Revisions {
 	if x != nil {
 		return x.Revisions
+	}
+	return nil
+}
+
+func (x *Bundle) GetReports() []*Signed {
+	if x != nil {
+		return x.Reports
 	}
 	return nil
 }
@@ -5261,17 +5295,19 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12)\n" +
 	"\x11for_device_key_id\x18\x02 \x01(\tR\x0eforDeviceKeyId\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x03 \x01(\tR\trequestId\"[\n" +
+	"request_id\x18\x03 \x01(\tR\trequestId\"u\n" +
 	"\tRevisions\x12\x18\n" +
 	"\amembers\x18\x01 \x01(\x04R\amembers\x12\x1c\n" +
 	"\tcatalogue\x18\x02 \x01(\x04R\tcatalogue\x12\x16\n" +
-	"\x06copies\x18\x03 \x01(\x04R\x06copies\"\xaa\x02\n" +
+	"\x06copies\x18\x03 \x01(\x04R\x06copies\x12\x18\n" +
+	"\areports\x18\x04 \x01(\x04R\areports\"\xdd\x02\n" +
 	"\x06Bundle\x121\n" +
 	"\amembers\x18\x01 \x01(\v2\x17.agentkeyring.v2.SignedR\amembers\x125\n" +
 	"\tcatalogue\x18\x02 \x01(\v2\x17.agentkeyring.v2.SignedR\tcatalogue\x12F\n" +
 	"\x12push_registrations\x18\x03 \x03(\v2\x17.agentkeyring.v2.SignedR\x11pushRegistrations\x124\n" +
 	"\x06copies\x18\x04 \x03(\v2\x1c.agentkeyring.v2.SealedLoginR\x06copies\x128\n" +
-	"\trevisions\x18\x05 \x01(\v2\x1a.agentkeyring.v2.RevisionsR\trevisions\"\xc5\x01\n" +
+	"\trevisions\x18\x05 \x01(\v2\x1a.agentkeyring.v2.RevisionsR\trevisions\x121\n" +
+	"\areports\x18\x06 \x03(\v2\x17.agentkeyring.v2.SignedR\areports\"\xc5\x01\n" +
 	"\vJoinRequest\x124\n" +
 	"\amachine\x18\x01 \x01(\v2\x18.agentkeyring.v2.MachineH\x00R\amachine\x121\n" +
 	"\x06device\x18\x02 \x01(\v2\x17.agentkeyring.v2.DeviceH\x00R\x06device\x12\x14\n" +
@@ -5528,26 +5564,27 @@ var file_agentkeyring_v2_keyring_proto_depIdxs = []int32{
 	7,  // 60: agentkeyring.v2.Bundle.push_registrations:type_name -> agentkeyring.v2.Signed
 	13, // 61: agentkeyring.v2.Bundle.copies:type_name -> agentkeyring.v2.SealedLogin
 	44, // 62: agentkeyring.v2.Bundle.revisions:type_name -> agentkeyring.v2.Revisions
-	10, // 63: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
-	9,  // 64: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
-	50, // 65: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck
-	4,  // 66: agentkeyring.v2.SelfTestReport.journey:type_name -> agentkeyring.v2.JourneyStep
-	4,  // 67: agentkeyring.v2.SelfTestReport.step:type_name -> agentkeyring.v2.JourneyStep
-	7,  // 68: agentkeyring.v2.MembersChain.revisions:type_name -> agentkeyring.v2.Signed
-	7,  // 69: agentkeyring.v2.SelfTests.reports:type_name -> agentkeyring.v2.Signed
-	5,  // 70: agentkeyring.v2.JoinStatus.state:type_name -> agentkeyring.v2.JoinState
-	7,  // 71: agentkeyring.v2.JoinStatus.members:type_name -> agentkeyring.v2.Signed
-	47, // 72: agentkeyring.v2.JoinStatus.refusal:type_name -> agentkeyring.v2.JoinRefusal
-	30, // 73: agentkeyring.v2.JoinStatus.push_credential:type_name -> agentkeyring.v2.SealedPushCredential
-	56, // 74: agentkeyring.v2.PendingJoins.joins:type_name -> agentkeyring.v2.PendingJoin
-	56, // 75: agentkeyring.v2.Changes.pending_joins:type_name -> agentkeyring.v2.PendingJoin
-	46, // 76: agentkeyring.v2.PendingJoin.request:type_name -> agentkeyring.v2.JoinRequest
-	6,  // 77: agentkeyring.v2.Error.code:type_name -> agentkeyring.v2.ErrorCode
-	78, // [78:78] is the sub-list for method output_type
-	78, // [78:78] is the sub-list for method input_type
-	78, // [78:78] is the sub-list for extension type_name
-	78, // [78:78] is the sub-list for extension extendee
-	0,  // [0:78] is the sub-list for field type_name
+	7,  // 63: agentkeyring.v2.Bundle.reports:type_name -> agentkeyring.v2.Signed
+	10, // 64: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
+	9,  // 65: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
+	50, // 66: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck
+	4,  // 67: agentkeyring.v2.SelfTestReport.journey:type_name -> agentkeyring.v2.JourneyStep
+	4,  // 68: agentkeyring.v2.SelfTestReport.step:type_name -> agentkeyring.v2.JourneyStep
+	7,  // 69: agentkeyring.v2.MembersChain.revisions:type_name -> agentkeyring.v2.Signed
+	7,  // 70: agentkeyring.v2.SelfTests.reports:type_name -> agentkeyring.v2.Signed
+	5,  // 71: agentkeyring.v2.JoinStatus.state:type_name -> agentkeyring.v2.JoinState
+	7,  // 72: agentkeyring.v2.JoinStatus.members:type_name -> agentkeyring.v2.Signed
+	47, // 73: agentkeyring.v2.JoinStatus.refusal:type_name -> agentkeyring.v2.JoinRefusal
+	30, // 74: agentkeyring.v2.JoinStatus.push_credential:type_name -> agentkeyring.v2.SealedPushCredential
+	56, // 75: agentkeyring.v2.PendingJoins.joins:type_name -> agentkeyring.v2.PendingJoin
+	56, // 76: agentkeyring.v2.Changes.pending_joins:type_name -> agentkeyring.v2.PendingJoin
+	46, // 77: agentkeyring.v2.PendingJoin.request:type_name -> agentkeyring.v2.JoinRequest
+	6,  // 78: agentkeyring.v2.Error.code:type_name -> agentkeyring.v2.ErrorCode
+	79, // [79:79] is the sub-list for method output_type
+	79, // [79:79] is the sub-list for method input_type
+	79, // [79:79] is the sub-list for extension type_name
+	79, // [79:79] is the sub-list for extension extendee
+	0,  // [0:79] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v2_keyring_proto_init() }

@@ -325,11 +325,18 @@ message Work {
 //   aps.interruption-level  "time-sensitive"
 //   aps.mutable-content  1
 //   aps.thread-id        the request id
+//   aps.sound            "default"
 //   akr                  base64 of a serialized Notice
 // with the header apns-collapse-id set to the request id, so the push for the
 // outcome replaces the one for the request. The app's notification service
 // extension opens the Notice with the device's notice key and writes the
-// alert from the Work in it; one push goes to each device.
+// alert from the Work in it; one push goes to each device. The top level also
+// carries "id": the request id. Headers: apns-push-type alert, priority 10,
+// apns-expiration the request's answer_by.
+// Every outcome (answered, stopped, released, cancelled, no answer) is a silent
+// push to the same devices: apns-push-type background, priority 5, the same
+// collapse id, aps only {"content-available": 1, "thread-id": id}, with "id"
+// and "akr", whose Work has its outcome set.
 // info = "agentkeyring.notice.v2"; aad = the device's Device.key_id UTF-8
 // plaintext = serialized Work.
 message Notice {
@@ -540,12 +547,21 @@ message SealedLogins {
 //                              made by its iPhone.
 //   POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
 //   POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-//                              practice request's id; the Mac pushes it.
+//                              practice request's id as UTF-8 text (32 hex
+//                              digits); the Mac pushes it.
+//   POST /v2/report            body: Signed SelfTestReport, by the device's reply
+//                              key: its first-run step and checklist. Replies 200.
 //   POST /v2/log               body: Signed DeviceLog.
 //   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
 //
-// The Mac tells the iPhone something changed with a silent push:
-//   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
+// Every door speaks HTTP/1.1 over TLS 1.3: a body is sent with Content-Length
+// (no chunked bodies), and the door closes the connection after its reply.
+// 400 means the body could not be read, 403 that it was refused, 404 an
+// unknown route; each with a sentence in the body.
+//
+// The Mac tells the iPhone something changed with a silent push
+// (apns-push-type background, priority 5, apns-collapse-id "rev"):
+//   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N, "reports": N}}
 // and the iPhone fetches /v2/bundle. Nothing depends on reaching the iPhone.
 //
 // The answer door. The asking machine serves HTTPS at Request.answer_address
@@ -603,6 +619,7 @@ message Revisions {
   uint64 members = 1;
   uint64 catalogue = 2;
   uint64 copies = 3;               // Rises whenever any sealed copy is added or removed.
+  uint64 reports = 4;              // Rises whenever a device's status report changes.
 }
 
 // Everything a device or computer keeps, for it alone. Each part is checked
@@ -617,6 +634,9 @@ message Bundle {
   // its own copies of the passwords Automatic for it.
   repeated SealedLogin copies = 4;
   Revisions revisions = 5;
+  // Each device's latest status report (SelfTestReport), the Mac's included,
+  // each signed by its device's reply key: where each is in first run.
+  repeated Signed reports = 6;
 }
 
 message JoinRequest {

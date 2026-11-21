@@ -16,6 +16,11 @@
 // Find includes account metadata. Transport authentication
 // establishes the caller; task_ref, recipient labels and reasons do not.
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -138,6 +143,7 @@ public nonisolated enum Agentkeyring_V1_ApprovedBy: SwiftProtobuf.Enum, Swift.Ca
   case automaticRule // = 1
   case mac // = 2
   case iphone // = 3
+  case watch // = 4
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -150,6 +156,7 @@ public nonisolated enum Agentkeyring_V1_ApprovedBy: SwiftProtobuf.Enum, Swift.Ca
     case 1: self = .automaticRule
     case 2: self = .mac
     case 3: self = .iphone
+    case 4: self = .watch
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -160,6 +167,7 @@ public nonisolated enum Agentkeyring_V1_ApprovedBy: SwiftProtobuf.Enum, Swift.Ca
     case .automaticRule: return 1
     case .mac: return 2
     case .iphone: return 3
+    case .watch: return 4
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -170,6 +178,7 @@ public nonisolated enum Agentkeyring_V1_ApprovedBy: SwiftProtobuf.Enum, Swift.Ca
     .automaticRule,
     .mac,
     .iphone,
+    .watch,
   ]
 
 }
@@ -867,6 +876,14 @@ public nonisolated struct Agentkeyring_V1_WireRequest: Sendable {
     set {request = .setup(newValue)}
   }
 
+  public var pushKey: Agentkeyring_V1_PushKeyRequest {
+    get {
+      if case .pushKey(let v)? = request {return v}
+      return Agentkeyring_V1_PushKeyRequest()
+    }
+    set {request = .pushKey(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Request: Equatable, Sendable {
@@ -878,6 +895,7 @@ public nonisolated struct Agentkeyring_V1_WireRequest: Sendable {
     case fill(Agentkeyring_V1_FillRequest)
     case deliver(Agentkeyring_V1_DeliverRequest)
     case setup(Agentkeyring_V1_SetupRequest)
+    case pushKey(Agentkeyring_V1_PushKeyRequest)
 
   }
 
@@ -1045,6 +1063,26 @@ public nonisolated struct Agentkeyring_V1_SetupRequest: Sendable {
   public init() {}
 }
 
+/// On the Mac: the key of the Apple developer team that signs the apps, which
+/// the app keeps in its keychain to send pushes to the iPhone and Apple Watch
+/// and seals to each computer that joins. Replies with an empty setup.
+public nonisolated struct Agentkeyring_V1_PushKeyRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var keyID: String = String()
+
+  public var teamID: String = String()
+
+  /// PKCS#8 DER, P-256: the .p8 file without its PEM armour.
+  public var privateKey: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentkeyring_V1_SetupResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1092,7 +1130,7 @@ nonisolated extension Agentkeyring_V1_LeaseState: SwiftProtobuf._ProtoNameProvid
 }
 
 nonisolated extension Agentkeyring_V1_ApprovedBy: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0APPROVED_BY_UNSPECIFIED\0\u{1}APPROVED_BY_AUTOMATIC_RULE\0\u{1}APPROVED_BY_MAC\0\u{1}APPROVED_BY_IPHONE\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0APPROVED_BY_UNSPECIFIED\0\u{1}APPROVED_BY_AUTOMATIC_RULE\0\u{1}APPROVED_BY_MAC\0\u{1}APPROVED_BY_IPHONE\0\u{1}APPROVED_BY_WATCH\0")
 }
 
 nonisolated extension Agentkeyring_V1_CredentialField: SwiftProtobuf._ProtoNameProviding {
@@ -1879,7 +1917,7 @@ nonisolated extension Agentkeyring_V1_CredentialValues: SwiftProtobuf.Message, S
 
 nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WireRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}find_logins\0\u{3}request_lease\0\u{3}get_lease\0\u{3}watch_lease\0\u{3}end_lease\0\u{1}fill\0\u{2}\u{2}deliver\0\u{2}\u{3}setup\0\u{c}\u{7}\u{1}\u{c}\u{9}\u{1}\u{c}\u{a}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}find_logins\0\u{3}request_lease\0\u{3}get_lease\0\u{3}watch_lease\0\u{3}end_lease\0\u{1}fill\0\u{2}\u{2}deliver\0\u{2}\u{3}setup\0\u{3}push_key\0\u{c}\u{7}\u{1}\u{c}\u{9}\u{1}\u{c}\u{a}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1991,6 +2029,19 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
           self.request = .setup(v)
         }
       }()
+      case 12: try {
+        var v: Agentkeyring_V1_PushKeyRequest?
+        var hadOneofValue = false
+        if let current = self.request {
+          hadOneofValue = true
+          if case .pushKey(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.request = .pushKey(v)
+        }
+      }()
       default: break
       }
     }
@@ -2033,6 +2084,10 @@ nonisolated extension Agentkeyring_V1_WireRequest: SwiftProtobuf.Message, SwiftP
     case .setup?: try {
       guard case .setup(let v)? = self.request else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
+    }()
+    case .pushKey?: try {
+      guard case .pushKey(let v)? = self.request else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
     }()
     case nil: break
     }
@@ -2256,6 +2311,46 @@ nonisolated extension Agentkeyring_V1_SetupRequest: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentkeyring_V1_SetupRequest.Action: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTION_UNSPECIFIED\0\u{1}START_RELAY\0\u{1}VERIFY_RELAY\0\u{1}VERIFY_MACHINE\0\u{1}RELAY_STATUS\0\u{1}INVITE\0\u{2}\u{2}LOGS\0")
+}
+
+nonisolated extension Agentkeyring_V1_PushKeyRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".PushKeyRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}key_id\0\u{3}team_id\0\u{3}private_key\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.keyID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.teamID) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.privateKey) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.keyID.isEmpty {
+      try visitor.visitSingularStringField(value: self.keyID, fieldNumber: 1)
+    }
+    if !self.teamID.isEmpty {
+      try visitor.visitSingularStringField(value: self.teamID, fieldNumber: 2)
+    }
+    if !self.privateKey.isEmpty {
+      try visitor.visitSingularBytesField(value: self.privateKey, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V1_PushKeyRequest, rhs: Agentkeyring_V1_PushKeyRequest) -> Bool {
+    if lhs.keyID != rhs.keyID {return false}
+    if lhs.teamID != rhs.teamID {return false}
+    if lhs.privateKey != rhs.privateKey {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 nonisolated extension Agentkeyring_V1_SetupResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {

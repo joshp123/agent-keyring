@@ -999,11 +999,18 @@ public nonisolated struct Agentkeyring_V2_Work: @unchecked Sendable {
 ///   aps.interruption-level  "time-sensitive"
 ///   aps.mutable-content  1
 ///   aps.thread-id        the request id
+///   aps.sound            "default"
 ///   akr                  base64 of a serialized Notice
 /// with the header apns-collapse-id set to the request id, so the push for the
 /// outcome replaces the one for the request. The app's notification service
 /// extension opens the Notice with the device's notice key and writes the
-/// alert from the Work in it; one push goes to each device.
+/// alert from the Work in it; one push goes to each device. The top level also
+/// carries "id": the request id. Headers: apns-push-type alert, priority 10,
+/// apns-expiration the request's answer_by.
+/// Every outcome (answered, stopped, released, cancelled, no answer) is a silent
+/// push to the same devices: apns-push-type background, priority 5, the same
+/// collapse id, aps only {"content-available": 1, "thread-id": id}, with "id"
+/// and "akr", whose Work has its outcome set.
 /// info = "agentkeyring.notice.v2"; aad = the device's Device.key_id UTF-8
 /// plaintext = serialized Work.
 public nonisolated struct Agentkeyring_V2_Notice: Sendable {
@@ -1771,12 +1778,21 @@ public nonisolated struct Agentkeyring_V2_SealedLogins: Sendable {
 ///                              made by its iPhone.
 ///   POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
 ///   POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-///                              practice request's id; the Mac pushes it.
+///                              practice request's id as UTF-8 text (32 hex
+///                              digits); the Mac pushes it.
+///   POST /v2/report            body: Signed SelfTestReport, by the device's reply
+///                              key: its first-run step and checklist. Replies 200.
 ///   POST /v2/log               body: Signed DeviceLog.
 ///   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
 ///
-/// The Mac tells the iPhone something changed with a silent push:
-///   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
+/// Every door speaks HTTP/1.1 over TLS 1.3: a body is sent with Content-Length
+/// (no chunked bodies), and the door closes the connection after its reply.
+/// 400 means the body could not be read, 403 that it was refused, 404 an
+/// unknown route; each with a sentence in the body.
+///
+/// The Mac tells the iPhone something changed with a silent push
+/// (apns-push-type background, priority 5, apns-collapse-id "rev"):
+///   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N, "reports": N}}
 /// and the iPhone fetches /v2/bundle. Nothing depends on reaching the iPhone.
 ///
 /// The answer door. The asking machine serves HTTPS at Request.answer_address
@@ -1914,6 +1930,9 @@ public nonisolated struct Agentkeyring_V2_Revisions: Sendable {
   /// Rises whenever any sealed copy is added or removed.
   public var copies: UInt64 = 0
 
+  /// Rises whenever a device's status report changes.
+  public var reports: UInt64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1960,6 +1979,10 @@ public nonisolated struct Agentkeyring_V2_Bundle: Sendable {
   public var hasRevisions: Bool {self._revisions != nil}
   /// Clears the value of `revisions`. Subsequent reads from it will return its default value.
   public mutating func clearRevisions() {self._revisions = nil}
+
+  /// Each device's latest status report (SelfTestReport), the Mac's included,
+  /// each signed by its device's reply key: where each is in first run.
+  public var reports: [Agentkeyring_V2_Signed] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4824,7 +4847,7 @@ nonisolated extension Agentkeyring_V2_PracticeAsk: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Agentkeyring_V2_Revisions: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Revisions"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}members\0\u{1}catalogue\0\u{1}copies\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}members\0\u{1}catalogue\0\u{1}copies\0\u{1}reports\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -4835,6 +4858,7 @@ nonisolated extension Agentkeyring_V2_Revisions: SwiftProtobuf.Message, SwiftPro
       case 1: try { try decoder.decodeSingularUInt64Field(value: &self.members) }()
       case 2: try { try decoder.decodeSingularUInt64Field(value: &self.catalogue) }()
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.copies) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.reports) }()
       default: break
       }
     }
@@ -4850,6 +4874,9 @@ nonisolated extension Agentkeyring_V2_Revisions: SwiftProtobuf.Message, SwiftPro
     if self.copies != 0 {
       try visitor.visitSingularUInt64Field(value: self.copies, fieldNumber: 3)
     }
+    if self.reports != 0 {
+      try visitor.visitSingularUInt64Field(value: self.reports, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -4857,6 +4884,7 @@ nonisolated extension Agentkeyring_V2_Revisions: SwiftProtobuf.Message, SwiftPro
     if lhs.members != rhs.members {return false}
     if lhs.catalogue != rhs.catalogue {return false}
     if lhs.copies != rhs.copies {return false}
+    if lhs.reports != rhs.reports {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -4864,7 +4892,7 @@ nonisolated extension Agentkeyring_V2_Revisions: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V2_Bundle: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Bundle"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}members\0\u{1}catalogue\0\u{3}push_registrations\0\u{1}copies\0\u{1}revisions\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}members\0\u{1}catalogue\0\u{3}push_registrations\0\u{1}copies\0\u{1}revisions\0\u{1}reports\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -4877,6 +4905,7 @@ nonisolated extension Agentkeyring_V2_Bundle: SwiftProtobuf.Message, SwiftProtob
       case 3: try { try decoder.decodeRepeatedMessageField(value: &self.pushRegistrations) }()
       case 4: try { try decoder.decodeRepeatedMessageField(value: &self.copies) }()
       case 5: try { try decoder.decodeSingularMessageField(value: &self._revisions) }()
+      case 6: try { try decoder.decodeRepeatedMessageField(value: &self.reports) }()
       default: break
       }
     }
@@ -4902,6 +4931,9 @@ nonisolated extension Agentkeyring_V2_Bundle: SwiftProtobuf.Message, SwiftProtob
     try { if let v = self._revisions {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
     } }()
+    if !self.reports.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.reports, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -4911,6 +4943,7 @@ nonisolated extension Agentkeyring_V2_Bundle: SwiftProtobuf.Message, SwiftProtob
     if lhs.pushRegistrations != rhs.pushRegistrations {return false}
     if lhs.copies != rhs.copies {return false}
     if lhs._revisions != rhs._revisions {return false}
+    if lhs.reports != rhs.reports {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
