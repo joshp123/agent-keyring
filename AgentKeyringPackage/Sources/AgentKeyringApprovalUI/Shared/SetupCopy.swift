@@ -252,7 +252,14 @@ public enum MainWindowCopy {
     public static let devicesTab = "Devices"
 
     // Passwords
-    public static let rulesExplained = "**Ask:** approve each time (2FA secret stays on your devices). **Automatic:** chosen computers get it without asking (keeps its own encrypted copy, 2FA secret included). **Blocked:** no agent can use it."
+    /// Each rule, then two-factor codes. One paragraph for now: the cut-off
+    /// check counts a wrapped line's start from its own paragraph, so a
+    /// wrapped line after a line break is reported as a split word.
+    public static let rulesExplained = "**Ask:** you approve each time an agent wants it. "
+        + "**Automatic:** agents on the computers you choose get it without asking you. "
+        + "**Blocked:** no agent can ever use it. "
+        + "**Two-factor codes:** for Ask passwords, the secret stays on your devices and agents get only the current code. "
+        + "For Automatic passwords, the chosen computer holds its own encrypted copy."
     public static func search(_ count: Int) -> String { count == 1 ? "Search 1 password" : "Search \(count) passwords" }
     public static let all = "All"
     /// A filter with its count: "Ask 533".
