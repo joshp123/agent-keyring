@@ -7,6 +7,7 @@
 
 import AgentKeyringProtocol
 import AgentKeyringWatchCore
+import AgentKeyringWatchUI
 import LocalAuthentication
 import OSLog
 import SwiftUI
@@ -129,11 +130,9 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         }
     }
 
-    enum AnswerResult { case sent, alreadyAnswered, failed }
-
     /// Sends the answer from the request's card. The reply is the request's Lease: if another device's
     /// answer ended it first, that is the outcome.
-    static func answer(_ request: WatchRequest, approve: Bool, words: String) async -> AnswerResult {
+    static func answer(_ request: WatchRequest, approve: Bool, words: String) async -> WatchAnswerResult {
         watchLog.note("answer", "started", ["request": request.id, "choice": approve ? "approve" : words.isEmpty ? "deny" : "deny-with-words"])
         let saved = WatchStore().read()
         let mine = (try? WatchKeys().keyID()).flatMap { id in saved.signedMembers?.devices.first { $0.keyID == id }?.label }

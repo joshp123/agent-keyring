@@ -13,6 +13,9 @@ import AgentKeyringDesign
 #if canImport(AgentKeyringApprovalUI)
 import AgentKeyringApprovalUI
 #endif
+#if os(watchOS)
+import AgentKeyringWatchUI
+#endif
 import Foundation
 import ImageIO
 import SwiftUI
@@ -28,6 +31,12 @@ import UniformTypeIdentifiers
     #if canImport(AgentKeyringApprovalUI)
     @Test func everyPageFitsAtTheSmallestSize() throws {
         try checkAll(PageGallery.entries)
+    }
+    #endif
+
+    #if os(watchOS)
+    @Test func everyWatchPageFitsAtTheSmallestSize() throws {
+        try checkAll(WatchGallery.entries)
     }
     #endif
 

@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "AgentKeyringProtocol", targets: ["AgentKeyringProtocol"]),
         .library(name: "AgentKeyringSealing", targets: ["AgentKeyringSealing"]),
         .library(name: "AgentKeyringWatchCore", targets: ["AgentKeyringWatchCore"]),
+        .library(name: "AgentKeyringWatchUI", targets: ["AgentKeyringWatchUI"]),
         .library(name: "AgentKeyringApprovalCore", targets: ["AgentKeyringApprovalCore"]),
         .library(name: "AgentKeyringApprovalUI", targets: ["AgentKeyringApprovalUI"]),
         .library(name: "AgentKeyringDesign", targets: ["AgentKeyringDesign"]),
@@ -30,6 +31,8 @@ let package = Package(
         // Sealed logins and signed answers, shared by the Mac, iPhone and Watch apps.
         .target(name: "AgentKeyringSealing", dependencies: ["AgentKeyringProtocol"]),
         .target(name: "AgentKeyringWatchCore", dependencies: ["AgentKeyringSealing", "AgentKeyringProtocol"]),
+        // Apple Watch's pages, in a package target so the cut-off check can host them.
+        .target(name: "AgentKeyringWatchUI", dependencies: ["AgentKeyringDesign", "AgentKeyringWatchCore"]),
         .target(name: "AgentKeyringApprovalCore"),
         .target(name: "AgentKeyringApprovalUI", dependencies: ["AgentKeyringApprovalCore", "AgentKeyringDesign"]),
         // The page parts every screen is built from, with the check that nothing on them is cut off.
@@ -39,7 +42,8 @@ let package = Package(
         .target(name: "AgentKeyringFeature", dependencies: ["AgentKeyringRelaySupport", "AgentKeyringProtocol", "AgentKeyringSealing", "AgentKeyringApprovalCore", "AgentKeyringCredentialImport"]),
         .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),
         .testTarget(name: "AgentKeyringDesignTests", dependencies: ["AgentKeyringDesign",
-            .target(name: "AgentKeyringApprovalUI", condition: .when(platforms: [.macOS, .iOS]))]),
+            .target(name: "AgentKeyringApprovalUI", condition: .when(platforms: [.macOS, .iOS])),
+            .target(name: "AgentKeyringWatchUI", condition: .when(platforms: [.watchOS]))]),
         .testTarget(name: "AgentKeyringSealingTests", dependencies: ["AgentKeyringSealing", "AgentKeyringProtocol", "AgentKeyringWatchCore"]),
         .testTarget(name: "AgentKeyringFeatureTests", dependencies: ["AgentKeyringTestSupport", "AgentKeyringFeature", "AgentKeyringApprovalCore", "AgentKeyringApprovalUI", "AgentKeyringPhoneApprover"]),
     ]

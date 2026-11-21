@@ -12,6 +12,10 @@ import SwiftUI
 @MainActor
 public enum PageGallery {
     public static var entries: [KeyringGalleryEntry] {
-        []
+        var entries: [KeyringGalleryEntry] = []
+        #if os(iOS)
+        entries += PhoneGallery.entries
+        #endif
+        return entries
     }
 }

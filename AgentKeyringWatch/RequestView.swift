@@ -1,28 +1,17 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// The request inside Apple's notification on the Watch: who is asking, the
-// site and the account, Deny and Approve, the agent's whole reason, then Deny
-// and Explain. Our three buttons, one kind.
+// The request inside Apple's notification on the Watch: the card from
+// AgentKeyringWatchUI, and what opening and answering it does.
 
-import AgentKeyringDesign
 import AgentKeyringWatchCore
+import AgentKeyringWatchUI
 import SwiftUI
 import UserNotifications
 import WatchKit
 
 @MainActor @Observable
 final class RequestModel {
-    /// What the card shows: one state, so an answer can only follow the request on screen, and only once.
-    enum Card {
-        case opening
-        /// The Watch lacks the list of devices to read it, and has asked its iPhone.
-        case unreadable
-        case showing(WatchRequest)
-        case sending(WatchRequest)
-        case answered(WatchRequest, String)
-    }
-
-    private(set) var card = Card.opening
+    private(set) var card = WatchCard.opening
     var dismiss: () -> Void = {}
     /// Reads the request again while the list comes from the iPhone; replaced by the next notification.
     private var reading: Task<Void, Never>?
@@ -104,47 +93,5 @@ final class RequestController: WKUserNotificationHostingController<RequestView> 
 
 struct RequestView: View {
     let model: RequestModel
-
-    var body: some View {
-        switch model.card {
-        case .opening: EmptyView()
-        case .unreadable: KeyringPage(title: WatchCopy.unreadable, alignment: .centre)
-        case let .showing(request), let .sending(request): open(request)
-        case let .answered(request, line): ended(request, line)
-        }
-    }
-
-    /// The card: who asks, the site and the account, Deny and Approve before the reason, so a long reason
-    /// never pushes them off the screen. Deny and Explain is watchOS's own text input until the shared card has it.
-    @ViewBuilder private func open(_ request: WatchRequest) -> some View {
-        if case let .ended(outcome) = request.state {
-            ended(request, outcome)
-        } else {
-            ScrollView {
-                VStack(spacing: KeyringSpace.s2) {
-                    KeyringApprovalCard(
-                        lead: request.isPractice ? WatchCopy.practiceLead : request.wants,
-                        subject: request.site, detail: request.account.isEmpty ? nil : request.account,
-                        reason: request.reason.isEmpty ? nil : request.reason,
-                        approve: .approve(WatchCopy.approve, isEnabled: !model.isSending) { model.respond(approve: true) },
-                        deny: .deny(WatchCopy.deny, isEnabled: !model.isSending) { model.respond(approve: false) })
-                    TextFieldLink(prompt: Text(WatchCopy.whatInstead)) {
-                        KeyringText(WatchCopy.denyAndExplain, as: .label).frame(maxWidth: .infinity)
-                    } onSubmit: { words in
-                        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty { model.respond(approve: false, words: trimmed) }
-                    }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .disabled(model.isSending)
-                }
-            }
-        }
-    }
-
-    private func ended(_ request: WatchRequest, _ line: String) -> some View {
-        KeyringPage(title: request.site, alignment: .centre) {
-            KeyringConfirmation(line, tone: line == WatchCopy.answered(approve: true, .sent) ? .approved : .denied)
-        }
-    }
+    var body: some View { WatchRequestCard(card: model.card) { model.respond(approve: $0, words: $1) } }
 }

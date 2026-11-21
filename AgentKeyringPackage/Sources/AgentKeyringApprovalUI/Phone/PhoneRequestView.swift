@@ -3,8 +3,7 @@
 // One request inside the app, opened from its notification, from Deny and
 // Explain, or from Home: who asks and for what, the agent's reason, a reply
 // box that grows with our microphone, then Deny and Send, or Approve Instead
-// with Face ID. The reply box is a system text field until the shared parts
-// have one.
+// with Face ID.
 
 #if os(iOS)
 import AgentKeyringDesign
@@ -31,11 +30,6 @@ struct PhoneRequestView: View {
             if !request.agentReason.isEmpty { KeyringText(PhoneCopy.quoted(request.agentReason), as: .body) }
             KeyringText(PhoneCopy.tellTheAgent, as: .heading)
             replyBox
-            if case .cannotListen(.microphoneOff) = dictation.state {
-                KeyringButton(.link(PhoneCopy.openSettings) {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                })
-            }
             if dictation.isListening { KeyringText(PhoneCopy.speakHint, as: .caption) }
             KeyringText(practice ? PhoneCopy.practiceLasts : PhoneCopy.lasts(request.agent), as: .caption)
         }
@@ -46,23 +40,24 @@ struct PhoneRequestView: View {
         .onAppear { if model.explaining == request.id { replyFocused = true } }
     }
 
-    /// The microphone's state, or the answer not delivered yet; nothing otherwise.
+    /// The answer not delivered yet; nothing otherwise.
     private var status: KeyringStatus? {
-        if model.snapshot.undelivered.contains(request.id) { return .takingLong(PhoneCopy.notDeliveredYet) }
+        model.snapshot.undelivered.contains(request.id) ? .takingLong(PhoneCopy.notDeliveredYet) : nil
+    }
+
+    /// The microphone's state, under the reply box.
+    private var note: KeyringStatus? {
         switch dictation.state {
-        case .listening, .starting: return .waiting(PhoneCopy.listening)
-        case let .cannotListen(reason): return .problem(PhoneCopy.cannotListen(reason))
-        case .idle: return nil
+        case .listening, .starting: .listening(PhoneCopy.listening)
+        case let .cannotListen(.gettingReady(percent)): .waiting(PhoneCopy.cannotListen(.gettingReady(percent: percent)))
+        case let .cannotListen(reason): .problem(PhoneCopy.cannotListen(reason))
+        case .idle: nil
         }
     }
 
-    /// A system text field that grows to ten lines, with the microphone: one tap to speak, one to stop.
+    /// The reply box grows to ten lines, with the microphone: one tap to speak, one to stop.
     private var replyBox: some View {
-        HStack(alignment: .bottom, spacing: KeyringSpace.s2) {
-            TextField(PhoneCopy.tellTheAgent, text: $model.replyDraft, axis: .vertical)
-                .lineLimit(1...10)
-                .focused($replyFocused)
-                .textFieldStyle(.roundedBorder)
+        KeyringReplyBox(text: $model.replyDraft, prompt: PhoneCopy.tellTheAgent, note: note, noteAction: openSettings) {
             Button {
                 if !dictation.isListening { spokenAfter = model.replyDraft.isEmpty ? "" : model.replyDraft + " " }
                 replyFocused = false
@@ -70,10 +65,15 @@ struct PhoneRequestView: View {
             } label: {
                 Image(systemName: dictation.isListening ? "stop.circle.fill" : "mic.fill")
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
-            .tint(dictation.isListening ? KeyringPalette.deny : KeyringPalette.brand)
             .accessibilityLabel(dictation.isListening ? PhoneCopy.stopSpeaking : PhoneCopy.speakReply)
+        }
+        .focused($replyFocused)
+    }
+
+    private var openSettings: KeyringAction? {
+        guard case .cannotListen(.microphoneOff) = dictation.state else { return nil }
+        return .link(PhoneCopy.openSettings) {
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         }
     }
 
