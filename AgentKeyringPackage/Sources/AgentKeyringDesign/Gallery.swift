@@ -128,6 +128,56 @@ public enum KeyringGallery {
                                 approve: .approve("Click to approve with Touch ID", perform: none), deny: .plain("Not Now", perform: none))
                 .padding(KeyringSpace.s5)
         },
+        .init("approval-card-lid-shut", .macPanel(width: KeyringSize.macCard)) {
+            KeyringApprovalCard(lead: "Codex on \(Longest.macName) wants", subject: "example.com", detail: "you@example.com",
+                                reason: "You asked me to download October’s invoice.", reply: .constant(""), replyPrompt: "What should Codex do instead?",
+                                approve: nil, inPlaceOfApprove: "Open your Mac to use Touch ID, or use your Mac password.",
+                                deny: .deny("Deny", perform: none), header: "Agent Keyring")
+                .padding(KeyringSpace.s5)
+        },
+        .init("everyday-pane", .macPanel(width: 680)) {
+            KeyringPane {
+                HStack(spacing: KeyringSpace.s4) {
+                    KeyringHint(symbol: "info.circle.fill", "**Ask:** an agent asks you each time.\n**Automatic:** chosen computers get it without asking.\n**Blocked:** no agent can use it.")
+                    KeyringButton(.plain("Sort with AI…", perform: none))
+                }
+            } content: {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(["example.com", "mail.example", "news.example"], id: \.self) { site in
+                        HStack(spacing: KeyringSpace.s2) {
+                            KeyringText(site, as: .heading)
+                            if site == "example.com" { KeyringTag("Test password") }
+                            Spacer(minLength: 0)
+                            KeyringText("Ask", as: .meta)
+                        }
+                        .padding(.horizontal, KeyringSpace.s5).padding(.vertical, KeyringSpace.s2)
+                    }
+                }
+            } bottom: {
+                KeyringText("Copied from the Passwords app on 20 November.", as: .meta)
+                Spacer(minLength: 0)
+                KeyringButton(.plain("Copy Again", perform: none))
+            }
+        },
+        .init("menu-bar-window", .macPanel(width: KeyringMenuBarWindow<EmptyView>.width)) {
+            KeyringMenuBarWindow {
+                HStack(spacing: KeyringSpace.s2) {
+                    KeyringMascot(.curious).frame(width: KeyringSpace.s6, height: KeyringSpace.s6)
+                    KeyringText("Agent Keyring", as: .heading)
+                    Spacer(minLength: KeyringSpace.s2)
+                    KeyringPill("1 waiting", tone: .waiting)
+                }
+                KeyringSection("Waiting for you") {
+                    KeyringDeviceRow(symbol: "hourglass", name: Longest.site, detail: "Codex on \(Longest.macName) · bookkeeping", nameFit: .siteName) {
+                        KeyringButton(.plain("Show", perform: none))
+                    }
+                }
+                HStack(spacing: KeyringSpace.s2) {
+                    KeyringPill("All quiet", tone: .calm)
+                    KeyringPill("Offline", tone: .offline)
+                }
+            }
+        },
         .init("add-iphone-sheet", .macPanel(width: 460)) {
             KeyringPage(title: "Add your iPhone",
                         sentence: "Approve password requests from your AI agents with Face ID anywhere. Each password is end-to-end encrypted for your iPhone’s Secure Enclave and signed against tampering. Both devices need Tailscale turned on.",

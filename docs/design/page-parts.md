@@ -28,9 +28,13 @@ Every first-run page, device flow and everyday screen is built from the parts in
 | `KeyringQRBlock` and `KeyringQRCode` | A QR code beside its steps. Not on the Watch. |
 | `KeyringCheckRow(title, isDone:, toDo:)` | A checklist line: a green tick when done, else an orange mark and what to do. |
 | `KeyringDeviceRow` and `KeyringRowGroup` | Device rows. Put them in `KeyringRowGroup` on a page, or in a system `List` on the everyday tabs. |
-| `KeyringApprovalCard` | The one card for requests, practice and joins. On the Watch its buttons come before the reason. |
+| `KeyringApprovalCard` | The one card for requests, practice and joins. On the Watch its buttons come before the reason. With `approve: nil` and `inPlaceOfApprove:`, a line says why approving is not possible here (the lid is shut). |
 | `KeyringRequestHeader` | The card's top on its own: who asks, the site, the account and the reason, centred. Use it as the body of a page about one request; `KeyringPage`'s title is optional for this. |
 | `KeyringReplyBox` | iPhone and Mac reply box: it grows to ten lines, with the microphone button and its state line. |
+| `KeyringPane { top } content: { … } bottom: { … }` | A tab of the everyday window: the band at the top, the Table or List edge to edge, the bar at the bottom. It owns the margins and the background. |
+| `KeyringMenuBarWindow { … }` and `KeyringSection(name) { rows }` | The menu bar's window, and a named group of rows inside it or anywhere. |
+| `KeyringPill(words, tone:)` and `KeyringTag(words)` | A state in a pill ("1 waiting", "All quiet", "Offline") and a word that marks a name ("Test password"). |
+| `PasswordsExportPicture(guideStep:earlierVersion:)` | Apple's export screens for the Copy your passwords guide, with the thing to click ringed. |
 | `KeyringHint` | A tinted card: Focus, trust, "Not showing up?". |
 | `KeyringMascot(mood)` | The keyhole with eyes, in the moods `.calm`, `.curious`, `.waiting`, `.approved`, `.denied` and `.offline`. |
 | `KeyringPalette`, `KeyringSpace`, `KeyringRadius`, `KeyringSize` | The tokens from the Paper file's board 5. |
