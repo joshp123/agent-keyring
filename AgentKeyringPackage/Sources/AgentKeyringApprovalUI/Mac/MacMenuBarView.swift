@@ -166,8 +166,11 @@ public struct MacMenuBarView: View {
             if !model.inUse.isEmpty {
                 section(MenuBarCopy.inUse) {
                     ForEach(model.inUse) { request in
+                        // Stop here ends this Mac's own agents' access; another computer's is stopped from the iPhone.
                         KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: MenuBarCopy.inUseDetail(request), nameFit: .siteName) {
-                            KeyringButton(.plain(MenuBarCopy.stop) { Task { await model.endAccess(request.id) } })
+                            if request.agent.isLocal {
+                                KeyringButton(.plain(MenuBarCopy.stop) { Task { await model.endAccess(request.id) } })
+                            }
                         }
                     }
                 }
@@ -181,7 +184,7 @@ public struct MacMenuBarView: View {
                         let outcome = Self.outcome(request)
                         KeyringDeviceRow(symbol: outcome.symbol, name: MenuBarCopy.earlier(request), detail: outcome.word, tone: outcome.tone)
                             .contextMenu {
-                                if request.state.isHoldingOffNewRequests(now: .now) {
+                                if request.agent.isLocal && request.state.isHoldingOffNewRequests(now: .now) {
                                     Button(MenuBarCopy.letAskAgain) { Task { await model.allowAskingAgain(request.id) } }
                                 }
                             }

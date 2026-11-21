@@ -66,6 +66,8 @@ enum MacEverydayGallery {
                     Sample.request("mail.example", agent: "Codex", on: "Mac mini", reason: "You asked me to download October’s invoice.",
                                    state: .waitingForYou(until: .now.addingTimeInterval(500))),
                     Sample.request("example.org", agent: "Claude Code", on: nil, state: .approved(by: .mac, until: .now.addingTimeInterval(1500))),
+                    // Another computer's: stopped from the iPhone, so no Stop here.
+                    Sample.request("wiki.example", agent: "Codex", on: "Mac mini", state: .approved(by: .iPhone, until: .now.addingTimeInterval(1200))),
                 ] + Sample.earlier, passwordCount: 547))
             },
             .init("menu-bar-longest", .macPanel(width: Sample.menuWidth)) {
