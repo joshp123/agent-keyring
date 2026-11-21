@@ -10,15 +10,14 @@ What this file does not claim: that no other state exists. The sections below ar
 
 ## Mac first run
 
-Code: `AgentKeyringFeature/FirstRun.swift` (states and transitions, pure), `MirrorAppModel.send` (saves each move, reports it, bounces the Dock icon), `AgentKeyring/AgentKeyringApp.swift` `FirstRunHome` and `AgentKeyringScreenBackends/SetupScreens.swift` (draw it). One journey, the same list of steps on every device; its pages wait for the designer's drawing, so the windows today are interim.
+Code: `AgentKeyringFeature/FirstRun.swift` (states and transitions, pure), `MirrorAppModel.send` (saves each move, bounces the Dock icon), `AgentKeyring/AgentKeyringApp.swift` `FirstRunHome` and `AgentKeyringScreenBackends/SetupScreens.swift` (draw it). One journey, the same list of steps on every device; its pages wait for the designer's drawing, so the windows today are interim.
 
-One value, `FirstRun`, is saved in the app's settings: welcome, chooseDevices, `journey(devices, page)`, or finished. `devices` is what he chose (iPhone, Apple Watch, other computers), and the journey's pages are built from it (`FirstRun.pages(for:)`): practice, passwords, agents, then a computer that stays on if he chose any device, his iPhone, his Apple Watch, other computers, as chosen, then trying a request on each device, then Ready. Facts the world owns are read beside it and never copied into it:
+One value, `FirstRun`, is saved in the app's settings: welcome, chooseDevices, `journey(devices, page)`, or finished. `devices` is what he chose (iPhone, Apple Watch, other computers), and the journey's pages are built from it (`FirstRun.pages(for:)`): practice, passwords, agents, then a computer that stays on if he chose any device (always passed over since 21 November: no computer needs to stay on), his iPhone, his Apple Watch, other computers, as chosen, then trying a request on each device, then Ready. Facts the world owns are read beside it and never copied into it:
 
 - Touch ID can be used: `MacApprover.shared.state`.
 - The passwords, and whether the only one is the test password.
 - The first request from an agent on this Mac that he approved ("Try it now"): read from the leases.
-- Whether this Mac reaches a computer that stays on, and which devices and computers have joined: the members list.
-- Where each other device is in its own first run: its status report (`MacDevice.reports`: step, finished, checklist), which the relay tells the Mac about when it changes. Apple Watch sends none: its checklist is in the iPhone's report as lines named `watch …`, and adding it is the iPhone's `WATCH` step. This Mac's own report has one check, `practice`.
+- Which devices and computers have joined: the members list. The iPhone counts as done once it is listed and its copies are made (`MacDevice.filling` no longer names it); Apple Watch once it is listed. Devices send no status report any more.
 - The last practice request on each device (`MirrorAppModel.practiceResults`): sent, with Apple, arrived, approved, denied with his words, no answer, or failed. Not saved.
 
 | State | Event | Next |
@@ -29,28 +28,27 @@ One value, `FirstRun`, is saved in the app's settings: welcome, chooseDevices, `
 | journey(practice) | Deny, with or without words | practiceDenied(reply); Try Again goes back |
 | journey(copyPasswords) | his passwords arrive / Use the Test Password Only | tellAgents(passwords(n) / sample) |
 | journey(tellAgents(sample)), journey(ready) | Copy Your Own Passwords | copyPasswords |
-| journey(any page with Continue or Skip) | Continue / Skip | the next page of his journey, passing over what is done: the computer that stays on if this Mac reaches one, the iPhone if it has finished its first run, the Apple Watch if it is done (below) |
-| journey(stayingOn) | Touch ID connects to the announced computer | the next page |
-| journey(stayingOn) | Use This Mac Alone | journey(this Mac alone, tryDevices) |
-| journey(addPhone) | the iPhone reports its first run finished | the next page |
-| journey(addWatch) | the Apple Watch joins, or the iPhone reports `READY` (he skipped the Watch there, or none is paired) | the next page |
+| journey(any page with Continue or Skip) | Continue / Skip | the next page of his journey, passing over what is done: the computer that stays on (always), the iPhone once it is added and filled, the Apple Watch once it is added |
+| journey(stayingOn), saved by an earlier build | the app starts | the page after it |
+| journey(addPhone) | the iPhone is added and its copies made | the next page |
+| journey(addWatch) | the Apple Watch is added | the next page |
 | journey(ready) | Done | finished: the same window becomes Passwords and Devices |
 
-An event with no row leaves the state as it is. A step that finishes while he is in another app (his passwords arriving, a device done, a computer connected) bounces the Dock icon once; no window is ever pushed in front. Every move sends this Mac's status report (its step, the journey's steps, finished), so the iPhone and Apple Watch show the same list and where the Mac is.
+An event with no row leaves the state as it is. A step that finishes while he is in another app (his passwords arriving, a device done) bounces the Dock icon once; no window is ever pushed in front.
 
 Devices opens the same windows in a sheet.
 
 ### Adding a device
 
-`MacDevice.approveJoin`: after his Touch ID the device is in the members list at once, so it moves on in seconds. A new iPhone or Apple Watch then needs a copy of every password: this Mac opens its own copies with the same approval and seals them again for the device in batches of 50, off the main thread (`Resealer`), saving and uploading each batch. `MacDevice.filling` (the device, how many done, of how many) is set while that runs; the request panel stays up showing "<device> added. Copying your passwords to it: n of 547." and closes when it ends. The device counts its own copies on the relay (`Changes.sealed_for_you`) against the catalogue's count. If the app quits mid-way, the device has the batches already sent; adding the rest needs his Touch ID again (known and left alone).
+`MacDevice.approveJoin`: after his Touch ID the device is in the members list at once, so it moves on in seconds. A new iPhone or Apple Watch then needs a copy of every password: this Mac opens its own copies with the same approval and seals them again for the device in batches of 50, off the main thread (`Resealer`), saving each batch; the iPhone hears from a silent push that its copies changed and fetches its bundle. `MacDevice.filling` (the device, how many done, of how many) is set while that runs; the request panel stays up showing "<device> added. Copying your passwords to it: n of 547." and closes when it ends. If the app quits mid-way, the device has the batches already saved; adding the rest needs his Touch ID again (known and left alone). Joining itself is "Joining the Mac", below.
 
 ### Practice requests from the Mac
 
-Send Practice Request on another device chooses a request id and asks the relay for a practice request for that device (`MacDevice.practice(on:)`). The row shows each step as the relay reports it: sending, with Apple (the push was accepted), on the device (it said the request arrived), then the answer. A dropped connection is still waiting: the Mac asks again with the same id and rejoins it; the relay never makes a second one for a device while one waits. On this Mac the request panel shows the same practice request first run uses.
+Send Practice Request on another device makes a practice request for that device and pushes it (`MacDevice.practice(on:)`; "The Mac's own requests", below). The row shows each step: sending, with Apple (Apple accepted the push), on the device (it said the request arrived), then the answer. While one waits for a device, a second is never made. A device may ask the Mac for one itself (POST /v2/practice); one for this Mac shows the practice panel here. On this Mac the request panel shows the same practice request first run uses.
 
 ### The test password
 
-`MirrorItem.testPassword`: example.com, you@example.com, password "hello". The first copy brings it (`MirrorAppModel.importBatch`) and every later copy keeps it, as it keeps any password missing from an export; "Use the Test Password Only" is a copy of nothing. It is an ordinary Ask password: in his list, the catalogue and the relay like any other, so an agent on any of his computers can try the whole route with a secret that does not matter.
+`MirrorItem.testPassword`: example.com, you@example.com, password "hello". The first copy brings it (`MirrorAppModel.importBatch`) and every later copy keeps it, as it keeps any password missing from an export; "Use the Test Password Only" is a copy of nothing. It is an ordinary Ask password: in his list and the catalogue like any other, so an agent on any of his computers can try the whole route with a secret that does not matter.
 
 ### Copying from the Passwords app
 
@@ -75,9 +73,9 @@ What must always be true:
 - **The practice request exists only in `practice`, and only while Touch ID is ready.** When the lid is closed or no fingerprint is enrolled, the window says "Open the lid" or "Add a fingerprint" in its place.
 - **The request panel never covers the window that explains it.** It goes to the right of Agent Keyring's window, else to its left, else the window moves to the screen's left edge (`RequestPanel.frame`, tested on 1728- and 1280-point screens).
 - **A restart never strands him.** Every state resumes as saved, and a copy starts again from the steps. If a later build cannot read the saved state, first run starts at welcome. A Mac that finished first run before this state was saved opens as finished.
-- **A fresh container is a new install.** On its first launch the app deletes what an earlier install left in the keychain (its relay and members, its rules, the name it left for the iPhone in iCloud Keychain) and keeps this Mac's keys (`MirrorAppModel.forgetPreviousInstall`).
+- **A fresh container is a new install.** On its first launch the app deletes what an earlier install left in the keychain (its lists, members and push registrations, its rules, the invitation it left for the iPhone in iCloud Keychain) and keeps this Mac's keys (`MirrorAppModel.forgetPreviousInstall`).
 - **There is always exactly one test password.** A copy from Passwords keeps it; nothing removes it.
-- **A copy from Passwords replaces the list, one entry for one entry** (`SnapshotMerger`). The Passwords app gives every item new ids on each export, so an entry is matched by those ids first and then by its sites, account names and title, one to one, keeping the earlier entry's id and so its rule. When two earlier entries fit one, the one with a rule he set is kept. An entry the copy leaves out goes from the list, and the next Touch ID that sends the list removes its copies from the relay; the test password stays.
+- **A copy from Passwords replaces the list, one entry for one entry** (`SnapshotMerger`). The Passwords app gives every item new ids on each export, so an entry is matched by those ids first and then by its sites, account names and title, one to one, keeping the earlier entry's id and so its rule. When two earlier entries fit one, the one with a rule he set is kept. An entry the copy leaves out goes from the list, and the next Touch ID that signs the catalogue takes its copies out of every bundle; the test password stays.
 
 Found and fixed (tests in `FirstRunTests`, and `TestABlockedLoginHasNoCopyOnTheRelay` in `internal/relay`):
 
@@ -111,13 +109,10 @@ What must always be true:
 - **A device's approval keeps working while the relay is down, until its 30 minutes end.** The command saves it on first sight, and deletes it when the relay says the request ended. This is so a relay restart does not break an approval he already gave.
 - **A denial holds the password off for that computer briefly, in one place for each kind of agent.** A minute after the first denial, five after a second in a row, fifteen after more; an approval, or an hour with no denial, starts again at a minute. The agent is told the time it may ask again and his reply word for word.
   - For an agent on another computer, the relay holds it off (`hold` in `store.go`: until, how many in a row, his words).
-  - For an agent on the Mac, the Mac's lease store holds it off (`Suppression`). The Mac also tells the relay, so the iPhone and Apple Watch show the same outcome.
+  - For an agent on the Mac, the Mac's lease store holds it off (`Suppression`), whichever device denied ("The Mac's own requests", below).
 - **A device removed a moment ago cannot answer.** The relay checks an answer, and the asking computer's request, against the members list under the same lock that records it.
 - **Only a request that newly waits is a notification Josh sees and hears.** Every outcome (answered, stopped, released, cancelled, no answer) is a silent push with the request's `id`, so the iPhone and Apple Watch take the notification away.
-- **The Mac never waits for the relay.** A Mac agent's request is shown on the Mac at once, and also offered to the iPhone and Apple Watch when the relay can be reached. The first answer wins. The Mac's lease store is the record for that agent; the relay's copy follows it:
-  - approved or denied on the Mac: `answered_here`;
-  - released: `end`;
-  - Stop on a device: the Mac revokes the lease.
+- **The Mac never waits for the iPhone or Apple Watch.** A Mac agent's request is shown on the Mac at once, and also pushed to them when it can be ("The Mac's own requests", below). The first answer wins, in the Mac's lease store.
 
 Found and fixed this week, each by a run that reached it:
 
@@ -158,37 +153,85 @@ What must always be true:
 
 - **An answer from elsewhere closes the dialog.** If the request stops waiting while macOS's dialog is up, `followUpdates` cancels the dialog, and its end is a cancel, not an error.
 - **A Deny clicked while the dialog is up wins.** The dialog's own end changes `Local` only while it is still `authenticating` or `sending(approve)`.
-- **A touch that lands after another device answered releases nothing.** For an agent on the Mac, the lease store approves only a pending lease. For another computer, the relay refuses a second answer.
+- **A touch that lands after another device answered releases nothing.** The lease store approves only a pending lease.
 
 The presenter puts up one panel at a time, as one value: idle, showing an item, or closing an item (the outcome stays 2.5 seconds, a denial 10; the practice request goes at once, since first run's window says what happened). It always shows the first waiting item it can build; one whose request has gone is skipped, never left half-shown.
 
 Found and fixed: the panel used to write "sending" into the request's own state, so an update arriving mid-send had to be skipped by hand, and the presenter kept six fields (`shownItem`, `shownRequest`, `question`, `showing`, `closingAfterAnswer`, `needsFingerprint`); a request that vanished between being chosen and being shown left the presenter pointing at the previous one. Test: `anUpdateWhileHisDenialIsSentDoesNotUndoIt`.
 
-## Mac relay setup
+## The Mac's doors
 
-Code: `AgentKeyringFeature/MacDevice.swift`.
+Written by AI on 2026.11.21 by model claude opus 5.5. Code: `AgentKeyringFeature/MacDevice.swift` (`Door`, `reconcileDoor`), `DoorServer.swift`.
 
-One value, `Lifecycle`: notSetUp, settingUp(Setup), or joined(Saved). `Setup` carries the relay's address, its TLS key as first seen, the invitation's secret, the agent and its reason, and the computer that stays on once its join proves the invitation. `Saved` lives in the keychain.
+The Mac serves two doors on its Tailscale address, with its machine TLS key:
 
-| Lifecycle | Event | Next |
+- the answer door, port 17446: POST /v2/answer, /v2/arrived and /v2/end, with no client certificate, so the Apple Watch and a locked iPhone can reach it;
+- the members' door, port 17447: joining and the lists. A client certificate is required, and each route checks it is a member's, or for a join the joiner's own.
+
+macOS's TLS can require a client certificate or ask for none, never ask and go on without one, so one port cannot serve both. Every door speaks HTTP/1.1, one request per connection, with Content-Length bodies.
+
+One value, `MacDevice.door`:
+
+| Door | Reached by | Next |
 |---|---|---|
-| notSetUp | an agent runs `setup-relay` | settingUp |
-| settingUp | Josh denies the computer, or two computers prove one invitation | notSetUp |
-| settingUp | Touch ID on "add Mac mini", and the relay takes the members list | joined |
-| settingUp | Touch ID, but the relay refuses the list | settingUp (he can approve again) |
+| opening | the app starts; the address changed | open, failed, noTailscale |
+| noTailscale | this Mac has no address in 100.64.0.0/10 or fd7a:115c:a1e0::/48: Tailscale is not installed, not running, or signed out | opening, when an address appears |
+| open(host, answers, members) | both ports bound on that address | opening when the address changes; noTailscale when it goes |
+| failed(reason) | a port could not be bound | opening, ten seconds later |
 
-| notSetUp | Josh enters the address of a relay already running ("Connect"), then Touch ID | joined: this Mac the first device and the only computer, or, if the relay already lists this Mac's keys, that list as it stands |
-| notSetUp | the relay at that address belongs to other devices | notSetUp, with the error |
+The address is read from the Mac's interfaces whenever the network changes (`NWPathMonitor`), never a name. noTailscale is its own state, with its own sentence (`MessageCopy.noTailscale`): no invitation can be made in it (`inviteMachine` throws that sentence), an agent's request is shown on this Mac only and the log says why (`devicesUnreachable`), and the item in iCloud Keychain names this Mac only.
 
-| notSetUp | the computer that stays on announced itself; "Connect to Mac mini?", Touch ID | joined, the first members list carrying proof of the announced secret |
+## Joining the Mac
 
-What must always be true: joined is reached only by his Touch ID. An empty relay takes its first members list only from someone who reached the relay's own computer: with proof of the one-time secret it gives only to a caller on its own address (our app there leaves it in iCloud Keychain, `RelayOffer`), or naming as the computer that stays on one that asked to join from that address (an agent's `setup-relay` and `enrol`). Nobody else on the network can take it first.
+Written by AI on 2026.11.21 by model claude opus 5.5. Code: `AgentKeyringFeature/MacJoins.swift`. Test: `MacDoorTests`.
 
-### Staying connected
+Invitations: while the door is open, the item in iCloud Keychain holds a full invitation: this Mac's name and key id, the members' door's address, port and key, a secret, and seven days. One already there is kept while it names the door as it is and has a day left. `agent-keyring invite` makes a ten-minute one for a computer. Each secret admits one joiner: once its join is approved, refused or withdrawn, the secret is retired, and the item gets a new one.
 
-While joined, the Mac holds one connection to the relay (`watch_work`). On it come the requests, and `Changes`: the members revision, the catalogue revision and the computers waiting to join, sent when the connection opens, whenever one of them changes, and at least every 30 seconds. The Mac takes a newer members list or catalogue when `Changes` names one. If nothing arrives for 75 seconds the connection is dead without having closed, and the Mac connects again. Nothing polls: the Mac used to ask for waiting joins every 3 seconds, 20 new connections a minute, and never refreshed the members list between connections.
+One join per joiner (a computer's machine id, a device's key id), each with one state:
 
-Known and left alone: a restart of the Mac app in the middle of setup forgets it (settingUp is not saved). The agent's `enrol` then waits its ten minutes and stops with "no answer", and the agent runs `setup-relay` again. The connection, the members list and the running task are not part of this value: they follow the relay while joined.
+| Join | Reached by | Next |
+|---|---|---|
+| (none) | POST /v2/join whose proof checks against an open invitation, over the joiner's own TLS key (an Apple Watch: through its added iPhone) | waiting |
+| waiting | Touch ID on the panel | approved |
+| waiting | Deny | refused |
+| waiting | ten minutes after it was first asked, connected or not | expired |
+| waiting | POST /v2/join/withdraw from the same key; or a second joiner proves the same invitation, when both go and neither is shown | withdrawn |
+
+Approval publishes the members list (the first one, with this Mac's device and machine, if none), signs the first catalogue if there is none, fills a device's copies, and gives a computer the push credential sealed to its receiving key. A computer approved while the Mac has no push key is approved without it (logged `no-push-key`). Refusal gives a computer's agent his words with their proof.
+
+A join's long poll replies at once if decided, else after 25 seconds still waiting; posting it again goes on waiting and does not move its ten minutes. A joiner already in the members list with exactly these keys is approved at once, so a poll that dropped after his Touch ID still hears it. Joins are not saved: after a restart the joiner asks again.
+
+## The Mac's lists
+
+Written by AI on 2026.11.21 by model claude opus 5.5. Code: `MacDevice.swift`.
+
+Kept in the app's keychain (`MacStorage`): the signed members list and every revision of it, the signed catalogue as last signed here or on the iPhone, the copies revision, and each device's signed push registration (the newest for each device wins; an iPhone registers its Watch's). The push key from `agent-keyring push-key` is in the same keychain. The sealed copies are in `LoginStore`.
+
+- **GET /v2/bundle?members=N** gives the members list, every revision after N, the catalogue, the push registrations, the revisions, and the caller's copies: to a device its own; to a computer the Apple Watches' and its own Automatic ones. Only copies of the signed catalogue's current version are given, never a Blocked one, so copies from an import he has not yet approved sending stay on the Mac.
+- **From the iPhone**: a members list, checked against the one held (a device or computer it leaves out keeps no copy or push registration here); a catalogue, when a rule changed there; copies (the Watch's), each checked against its signer and the catalogue's version; practice asks; logs. Computers send complaints, kept in one owner-only file and shown on no screen.
+- **A rule changed on the iPhone** arrives as the catalogue only. The Mac takes its rules, withdraws every computer's copies of a password no longer Automatic, and if a computer allowed Automatic passwords lacks a copy of one, the panel asks for Touch ID to make them (`automaticCopiesMissing`, read from the copies after each catalogue and after the copies are made; "Not now" clears it until the next catalogue).
+- **The rev push**: whenever the members, the catalogue or any copy changes, the iPhone gets a silent push a second later (collapse id "rev") and fetches its bundle. Nothing depends on it arriving.
+
+## The Mac's own requests
+
+Written by AI on 2026.11.21 by model claude opus 5.5. Code: `AgentKeyringFeature/MacAsks.swift`, `CredentialLeaseStore.swift`. Test: `MacDoorTests`.
+
+When an agent's lease waits, the door is open, the push key is held and an iPhone or Apple Watch is listed, the Mac signs a request naming its answer door and key. The reason is cut to 400 bytes and the agent, project and task to 100, so the push fits Apple's 4 KB. The Mac saves the link from the lease to that request in the lease store and pushes it through Apple to every device with a push registration; the Watch's push carries its copy. The lease store is the record and moves as always; the devices follow it:
+
+| Lease on the Mac | Reached by | Told to the devices as |
+|---|---|---|
+| pending | the agent asked | the visible push |
+| active | Touch ID in the panel; or an approval at the answer door, whose delivery opens with this Mac's receiving key (`approvedBy` the signer's kind: iphone or watch) | approved, by that device or this Mac |
+| denied | Deny in the panel; or a denial at the answer door, recorded as the signer's device (a plain denial as the iPhone's); the hold applies | denied |
+| unanswered, cancelled | ten minutes; the agent stopped | the same |
+| released, expired, revoked | the agent's release; 30 minutes; Stop on a device (POST /v2/end, `ended_by` that device), in the menu bar, or a restart | ended |
+
+Each change is one silent push per device, in order with the request's other pushes. The first answer wins: a later one gets 200 with the request as it stands; an answer from a device not in the members list, or over other bytes, gets 403. Apple's acceptance and the arrival note (signed, or unsigned naming the SHA-256 of the push address the Mac used) are kept as how far it has got. After a restart the Mac reads the saved links: a lease still pending takes its answers again, and one that ended meanwhile is told once. The link goes when the lease ends.
+
+A practice request is the same with no lease. It has its own state (waiting, then approved, denied, or unanswered after ten minutes); only the device it names may answer it; an approval needs no delivery; and its outcome also goes to the device that asked for it.
+
+Known and left alone: requests from agents on other computers no longer reach this Mac, which cannot be pushed to. Those computers push to the iPhone and Apple Watch themselves.
+
 
 ## iPhone: first run
 
