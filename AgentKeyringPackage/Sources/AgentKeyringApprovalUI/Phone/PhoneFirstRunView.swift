@@ -8,21 +8,53 @@
 import SwiftUI
 import UIKit
 
-/// One screen per state of first run; the practice request is a sheet over it.
+/// One screen per state of first run; the practice request is a sheet over it. The pages themselves wait
+/// for the drawings: these show each state plainly with today's parts.
 struct PhoneFirstRunView: View {
     let stage: PhoneFirstRun
     let model: PhoneModel
 
     var body: some View {
-        let relay = model.snapshot.relayName
+        let mac = model.snapshot.macName
         switch stage {
-        case .welcome:
-            PhoneWelcome(title: PhoneCopy.welcomeSecureTitle, lines: [PhoneCopy.welcomeSecureDetail]) {
-                PhoneButton(PhoneCopy.addThisPhone) { await model.firstRun(.addThisPhone) }
-                PhoneButton(PhoneCopy.tryPractice, secondary: true) { await model.firstRun(.tryPractice) }
+        case .searching(let longWait):
+            PhoneWelcome(title: PhoneCopy.lookingForMac, lines: [PhoneCopy.lookingForMacDetail]) {
+                PhoneWaitingLine(text: PhoneCopy.lookingForMac)
+                if longWait { trouble }
             }
-        case let .linking(card):
-            welcome(card)
+        case .trouble:
+            PhoneWelcome(title: PhoneCopy.troubleTitle, lines: [PhoneCopy.troubleBanner] + PhoneCopy.troubleSteps) {
+                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.tryAgain) }
+            }
+        case .foundMac:
+            PhoneWelcome(title: PhoneCopy.continueFrom(mac), lines: [PhoneCopy.continueFromDetail, PhoneCopy.welcomeSecureDetail]) {
+                PhoneButton(PhoneCopy.connectTo(mac)) { await model.firstRun(.connect) }
+                trouble
+            }
+        case .waitingForMac:
+            PhoneWelcome(title: PhoneCopy.approveOn(mac), lines: [PhoneCopy.approveOnDetail(mac)]) {
+                PhoneWaitingLine(text: PhoneCopy.waitingFor(mac))
+                PhoneButton(PhoneCopy.cancel, secondary: true) { await model.firstRun(.cancel) }
+            }
+        case .deniedByMac:
+            PhoneWelcome(title: PhoneCopy.didNotAdd(mac), lines: [PhoneCopy.didNotAddDetail(mac)]) {
+                PhoneButton(PhoneCopy.askAgain) { await model.firstRun(.askAgain) }
+                PhoneButton(PhoneCopy.cancel, secondary: true) { await model.firstRun(.cancel) }
+            }
+        case .cantReachMac:
+            PhoneWelcome(title: PhoneCopy.cantReach(mac), lines: [PhoneCopy.cantReachDetail(mac)]) {
+                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.tryAgain) }
+                PhoneButton(PhoneCopy.cancel, secondary: true) { await model.firstRun(.cancel) }
+            }
+        case .expired:
+            PhoneWelcome(title: PhoneCopy.joinExpiredTitle, lines: [PhoneCopy.joinExpiredDetail(mac)]) {
+                PhoneButton(PhoneCopy.askAgain) { await model.firstRun(.askAgain) }
+                PhoneButton(PhoneCopy.cancel, secondary: true) { await model.firstRun(.cancel) }
+            }
+        case .receivingPasswords:
+            PhoneStep(title: PhoneCopy.receivingPasswords, lines: [PhoneCopy.receivingDetail(model.snapshot.filling)], icon: "lock") {
+                PhoneWaitingLine(text: PhoneCopy.receivingPasswords)
+            }
         case .notifications, .askingNotifications:
             PhoneStep(title: PhoneCopy.notificationsTitle, lines: [PhoneCopy.notificationsLead, PhoneCopy.notificationsFocus]) {
                 PhoneButton(PhoneCopy.continueButton) { await model.askAboutNotifications() }
@@ -37,55 +69,102 @@ struct PhoneFirstRunView: View {
         case .practiceOffer:
             PhoneStep(title: PhoneCopy.practiceOfferTitle, lines: [PhoneCopy.practiceOfferDetail]) {
                 PhoneButton(PhoneCopy.sendPractice) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
+                PhoneButton(PhoneCopy.skipForNow, secondary: true) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
             }
         case .practiceWaiting, .practice:
-            PhoneStep(title: PhoneCopy.practiceCheckTitle, lines: [PhoneCopy.practiceCheckDetail(relay)]) {
+            PhoneStep(title: PhoneCopy.practiceCheckTitle, lines: [PhoneCopy.practiceCheckDetail(mac)]) {
                 PhoneWaitingLine(text: PhoneCopy.practiceWaiting)
             }
         case .practiceNotArrived:
-            PhoneStep(title: PhoneCopy.practiceNotArrivedTitle, lines: [PhoneCopy.practiceNotArrivedDetail(relay)]) {
-                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.tryAgain(id: PhoneFirstRun.newPracticeID())) }
+            PhoneStep(title: PhoneCopy.practiceNotArrivedTitle, lines: [PhoneCopy.practiceNotArrivedDetail(mac)]) {
+                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
+                PhoneButton(PhoneCopy.skipForNow, secondary: true) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
+            }
+        case .practiceMacUnreachable:
+            PhoneStep(title: PhoneCopy.practiceMacUnreachableTitle(mac), lines: [PhoneCopy.practiceMacUnreachableDetail(mac)]) {
+                PhoneButton(PhoneCopy.tryAgain) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
+                PhoneButton(PhoneCopy.skipForNow, secondary: true) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
             }
         case .settingUpNotifications:
-            PhoneStep(title: PhoneCopy.settingUpTitle, lines: [PhoneCopy.settingUpDetail]) { EmptyView() }
+            PhoneStep(title: PhoneCopy.settingUpTitle, lines: [PhoneCopy.settingUpDetail]) {
+                PhoneButton(PhoneCopy.skipForNow, secondary: true) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
+            }
         case let .practiceResult(outcome):
             PhoneStep(title: PhoneCopy.practiceResultTitle(outcome), lines: [PhoneCopy.practiceResultDetail(outcome)],
                       mark: outcome == .approved ? .approved : outcome == .denied ? .denied : nil) {
                 PhoneButton(PhoneCopy.sendAnother, secondary: true) { await model.firstRun(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
                 PhoneButton(PhoneCopy.continueButton) { await model.firstRun(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
             }
-        case .addWatch:
-            PhoneStep(title: PhoneCopy.addWatchTitle, lines: [PhoneCopy.addWatchDetail, PhoneCopy.addWatchInstall], icon: "applewatch") {
-                PhoneButton(PhoneCopy.openWatchApp) {
-                    if let url = URL(string: "itms-watchs://") { await UIApplication.shared.open(url) }
-                }
-                Button(PhoneCopy.skip) { Task { await model.firstRun(.watchDone) } }
-                    .font(.subheadline.weight(.semibold)).foregroundStyle(Phone.accent).frame(height: 36)
+        case let .readyOfferWatch(watchToAdd):
+            PhoneStep(title: watchToAdd ? PhoneCopy.addAppleWatchQuestion : PhoneCopy.homeReady, lines: [], icon: "applewatch") {
+                if watchToAdd { PhoneButton(PhoneCopy.addAppleWatch) { await model.firstRun(.addAppleWatch) } }
+                PhoneButton(PhoneCopy.done, secondary: watchToAdd) { await model.firstRun(.done) }
             }
+        case .addWatch:
+            PhoneAddWatchView(flow: model.snapshot.addWatch, model: model)
         case .finished:
             EmptyView()
         }
     }
 
-    @ViewBuilder private func welcome(_ card: PhoneWelcomeCard) -> some View {
-        switch card {
-        case let .startOnMac(longWait):
-            PhoneWelcome(title: PhoneCopy.startOnMac, lines: [PhoneCopy.startOnMacDetail] + (longWait ? [PhoneCopy.startOnMacLongWait] : [])) {
-                PhoneWaitingLine(text: PhoneCopy.lookingForMac)
+    private var trouble: some View {
+        Button(PhoneCopy.havingTrouble) { Task { await model.firstRun(.havingTrouble) } }
+            .font(.subheadline.weight(.semibold)).foregroundStyle(Phone.accent).frame(height: 36)
+    }
+}
+
+/// Adding Apple Watch, one screen per state; from first run or from Devices.
+struct PhoneAddWatchView: View {
+    let flow: PhoneAddWatch?
+    let model: PhoneModel
+
+    var body: some View {
+        switch flow {
+        case .notPaired:
+            PhoneStep(title: PhoneCopy.notPairedTitle, lines: [], icon: "applewatch") { cancel(PhoneCopy.close) }
+        case .watchAppMissing:
+            PhoneStep(title: PhoneCopy.installOnWatchTitle, lines: [PhoneCopy.installOnWatchDetail], icon: "applewatch") {
+                PhoneButton(PhoneCopy.checkAgain) { await model.addWatch(.checkAgain) }
+                cancel(PhoneCopy.cancel)
             }
-        case let .addComputer(mac):
-            PhoneWelcome(title: PhoneCopy.addComputer, lines: [PhoneCopy.addComputerDetail(mac)]) {
-                PhoneWaitingLine(text: PhoneCopy.lookingForMac)
+        case .faceIDFirst:
+            PhoneStep(title: PhoneCopy.addWatchTitle, lines: [PhoneCopy.addWatchFaceIDDetail], icon: "applewatch") {
+                PhoneButton(PhoneCopy.continueWithFaceID) { await model.addWatch(.continueWithFaceID) }
+                cancel(PhoneCopy.cancel)
             }
-        case let .approveOnMac(mac):
-            PhoneWelcome(title: PhoneCopy.approveOn(mac), lines: [PhoneCopy.approveOnDetail(mac)]) {
-                PhoneWaitingLine(text: PhoneCopy.waitingFor(mac))
+        case let .waitingForWatch(until):
+            PhoneStep(title: PhoneCopy.tapAddOnWatch, lines: [PhoneCopy.confirmedUntil(until), PhoneCopy.tapAddOnWatchDetail], icon: "applewatch") {
+                PhoneWaitingLine(text: PhoneCopy.tapAddOnWatch)
+                cancel(PhoneCopy.cancel)
             }
-        case let .denied(mac):
-            PhoneWelcome(title: PhoneCopy.didNotAdd(mac), lines: [PhoneCopy.didNotAddDetail(mac)]) {
-                PhoneButton(PhoneCopy.askAgain) { await model.firstRun(.askAgain) }
+        case .faceIDExpired:
+            PhoneStep(title: PhoneCopy.faceIDExpiredTitle, lines: [PhoneCopy.faceIDExpiredDetail], icon: "faceid") {
+                PhoneButton(PhoneCopy.continueWithFaceID) { await model.addWatch(.continueWithFaceID) }
+                cancel(PhoneCopy.cancel)
             }
+        case .watchNeedsPasscode:
+            PhoneStep(title: PhoneCopy.watchNeedsPasscodeTitle, lines: [PhoneCopy.watchNeedsPasscodeDetail], icon: "applewatch") {
+                PhoneButton(PhoneCopy.tryAgain) { await model.addWatch(.tryAgain) }
+                cancel(PhoneCopy.cancel)
+            }
+        case let .encrypting(done, total):
+            PhoneStep(title: PhoneCopy.encryptingForWatch(done, total), lines: [], icon: "lock") { EmptyView() }
+        case .copiesFailed:
+            PhoneStep(title: PhoneCopy.watchCopiesFailed, lines: [], icon: "applewatch") {
+                PhoneButton(PhoneCopy.tryAgain) { await model.addWatch(.tryAgain) }
+                cancel(PhoneCopy.cancel)
+            }
+        case .added:
+            PhoneStep(title: PhoneCopy.watchAdded, lines: [], mark: .approved) {
+                PhoneButton(PhoneCopy.done) { await model.addWatch(.done) }
+            }
+        case .closed, nil:
+            EmptyView()
         }
+    }
+
+    private func cancel(_ title: String) -> some View {
+        PhoneButton(title, secondary: true) { await model.addWatch(.cancel) }
     }
 }
 
@@ -193,61 +272,4 @@ private struct PhoneWaitingLine: View {
     }
 }
 
-/// Apple Watch's request to be added: the request sheet with only Deny and
-/// Approve with Face ID.
-struct PhoneSimpleRequestView: View {
-    let model: PhoneModel
-    let lead: String
-    let title: String
-    let detail: String?
-    let footnote: String
-    var dismissable = false
-    /// Paper's request to add a device: Deny above the approve button, the same size.
-    var stackedDeny = false
-    let approve: () async -> Void
-    let deny: () async -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                KeyholeIcon(size: 22)
-                Text(PhoneCopy.appName).font(.subheadline.weight(.semibold)).foregroundStyle(Phone.ink2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 18)
-            VStack(spacing: 12) {
-                VStack(spacing: 1) {
-                    Text(lead).font(.subheadline).foregroundStyle(Phone.ink2)
-                    Text(title).font(.largeTitle.bold()).tracking(-0.75).foregroundStyle(Phone.ink)
-                    if let detail { Text(detail).font(.subheadline).foregroundStyle(Phone.ink2) }
-                }
-            }
-            .multilineTextAlignment(.center)
-            .frame(maxHeight: .infinity)
-            .padding(.bottom, 40)
-            VStack(spacing: 10) {
-                if stackedDeny {
-                    Button(PhoneCopy.deny) { Task { await deny() } }
-                        .buttonStyle(PillButtonStyle(fill: Phone.fill, text: Phone.deny))
-                } else {
-                    Button(PhoneCopy.deny) { Task { await deny() } }
-                        .buttonStyle(PillButtonStyle(fill: Phone.deny, height: 50, stretches: false))
-                        .fixedSize()
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                Button { Task { await approve() } } label: {
-                    Label(PhoneCopy.approveWithFaceID, systemImage: "faceid").labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(PillButtonStyle(fill: Phone.approve))
-                Text(footnote).font(.footnote).foregroundStyle(Phone.ink2).multilineTextAlignment(.center)
-            }
-            .disabled(model.answering != nil)
-        }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 44)
-        .background(Phone.surface)
-        .ignoresSafeArea(.container, edges: .bottom)
-        .interactiveDismissDisabled(!dismissable)
-    }
-}
 #endif

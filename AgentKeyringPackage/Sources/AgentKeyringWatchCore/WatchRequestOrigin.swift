@@ -2,7 +2,8 @@
 //
 // Whether a request is this Apple Watch's own practice request or one the
 // computer it names signed. Sealing.checkRequest returns no computer for the
-// first and throws for an unsigned request; `try?` would flatten both to nil.
+// first and throws for an unsigned request or a foreign answer door; `try?`
+// would flatten both to nil.
 
 import AgentKeyringProtocol
 import AgentKeyringSealing
@@ -14,5 +15,5 @@ public func isOwnPractice(_ work: Agentkeyring_V2_Work, members: Members, ownKey
 }
 
 public struct UnsignedRequest: Error, CustomStringConvertible {
-    public var description: String { "the request was not signed by the machine it names" }
+    public var description: String { "the request was not signed by the machine it names, or names another answer door" }
 }

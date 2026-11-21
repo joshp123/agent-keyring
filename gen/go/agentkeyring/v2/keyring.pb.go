@@ -3653,16 +3653,15 @@ func (x *SealedLogins) GetWithdrawnLoginIds() []string {
 //	                           was first asked, connected or not.
 //	POST /v2/join/withdraw     body: JoinRequest, from the same key. Replies 200.
 //	GET  /v2/rev               Replies Revisions.
-//	GET  /v2/bundle            Replies Bundle for the caller.
+//	GET  /v2/bundle?members=N  Replies Bundle for the caller; N is the newest
+//	                           Members revision the caller holds (0 for none).
 //	POST /v2/push-registration body: Signed PushRegistration.
 //	POST /v2/copies            body: SealedLogins: the Apple Watch's copies,
 //	                           made by its iPhone.
 //	POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
 //	POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-//	                           practice request's id as UTF-8 text (32 hex
-//	                           digits); the Mac pushes it.
-//	POST /v2/report            body: Signed SelfTestReport, by the device's reply
-//	                           key: its first-run step and checklist. Replies 200.
+//	                           practice request's id as plain text (the id
+//	                           the device chose); the Mac pushes it.
 //	POST /v2/log               body: Signed DeviceLog.
 //	GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
 //	POST /v2/complaint         body: Complaint, from a computer. Replies 200.
@@ -3676,7 +3675,7 @@ func (x *SealedLogins) GetWithdrawnLoginIds() []string {
 // The Mac tells the iPhone something changed with a silent push
 // (apns-push-type background, priority 5, apns-collapse-id "rev"):
 //
-//	{"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N, "reports": N}}
+//	{"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
 //
 // and the iPhone fetches /v2/bundle. Nothing depends on reaching the iPhone.
 //
@@ -4136,8 +4135,7 @@ type Revisions struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Members       uint64                 `protobuf:"varint,1,opt,name=members,proto3" json:"members,omitempty"`
 	Catalogue     uint64                 `protobuf:"varint,2,opt,name=catalogue,proto3" json:"catalogue,omitempty"`
-	Copies        uint64                 `protobuf:"varint,3,opt,name=copies,proto3" json:"copies,omitempty"`   // Rises whenever any sealed copy is added or removed.
-	Reports       uint64                 `protobuf:"varint,4,opt,name=reports,proto3" json:"reports,omitempty"` // Rises whenever a device's status report changes.
+	Copies        uint64                 `protobuf:"varint,3,opt,name=copies,proto3" json:"copies,omitempty"` // Rises whenever any sealed copy is added or removed.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4193,13 +4191,6 @@ func (x *Revisions) GetCopies() uint64 {
 	return 0
 }
 
-func (x *Revisions) GetReports() uint64 {
-	if x != nil {
-		return x.Reports
-	}
-	return 0
-}
-
 // Everything a device or computer keeps, for it alone. Each part is checked
 // on its own: the lists by their signatures and revisions, each copy by its
 // signer and the catalogue's version.
@@ -4213,9 +4204,10 @@ type Bundle struct {
 	// its own copies of the passwords Automatic for it.
 	Copies    []*SealedLogin `protobuf:"bytes,4,rep,name=copies,proto3" json:"copies,omitempty"`
 	Revisions *Revisions     `protobuf:"bytes,5,opt,name=revisions,proto3" json:"revisions,omitempty"`
-	// Each device's latest status report (SelfTestReport), the Mac's included,
-	// each signed by its device's reply key: where each is in first run.
-	Reports       []*Signed `protobuf:"bytes,6,rep,name=reports,proto3" json:"reports,omitempty"`
+	// Every Members revision after the one the caller holds, oldest first, so
+	// each is checked against the one before (one may be signed by a device
+	// the caller has not seen yet). members is the last of them.
+	MembersSince  []*Signed `protobuf:"bytes,6,rep,name=members_since,json=membersSince,proto3" json:"members_since,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4285,9 +4277,9 @@ func (x *Bundle) GetRevisions() *Revisions {
 	return nil
 }
 
-func (x *Bundle) GetReports() []*Signed {
+func (x *Bundle) GetMembersSince() []*Signed {
 	if x != nil {
-		return x.Reports
+		return x.MembersSince
 	}
 	return nil
 }
@@ -5459,19 +5451,18 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"Complaints\x12:\n" +
 	"\n" +
 	"complaints\x18\x01 \x03(\v2\x1a.agentkeyring.v2.ComplaintR\n" +
-	"complaints\"u\n" +
+	"complaints\"[\n" +
 	"\tRevisions\x12\x18\n" +
 	"\amembers\x18\x01 \x01(\x04R\amembers\x12\x1c\n" +
 	"\tcatalogue\x18\x02 \x01(\x04R\tcatalogue\x12\x16\n" +
-	"\x06copies\x18\x03 \x01(\x04R\x06copies\x12\x18\n" +
-	"\areports\x18\x04 \x01(\x04R\areports\"\xdd\x02\n" +
+	"\x06copies\x18\x03 \x01(\x04R\x06copies\"\xe8\x02\n" +
 	"\x06Bundle\x121\n" +
 	"\amembers\x18\x01 \x01(\v2\x17.agentkeyring.v2.SignedR\amembers\x125\n" +
 	"\tcatalogue\x18\x02 \x01(\v2\x17.agentkeyring.v2.SignedR\tcatalogue\x12F\n" +
 	"\x12push_registrations\x18\x03 \x03(\v2\x17.agentkeyring.v2.SignedR\x11pushRegistrations\x124\n" +
 	"\x06copies\x18\x04 \x03(\v2\x1c.agentkeyring.v2.SealedLoginR\x06copies\x128\n" +
-	"\trevisions\x18\x05 \x01(\v2\x1a.agentkeyring.v2.RevisionsR\trevisions\x121\n" +
-	"\areports\x18\x06 \x03(\v2\x17.agentkeyring.v2.SignedR\areports\"\xc5\x01\n" +
+	"\trevisions\x18\x05 \x01(\v2\x1a.agentkeyring.v2.RevisionsR\trevisions\x12<\n" +
+	"\rmembers_since\x18\x06 \x03(\v2\x17.agentkeyring.v2.SignedR\fmembersSince\"\xc5\x01\n" +
 	"\vJoinRequest\x124\n" +
 	"\amachine\x18\x01 \x01(\v2\x18.agentkeyring.v2.MachineH\x00R\amachine\x121\n" +
 	"\x06device\x18\x02 \x01(\v2\x17.agentkeyring.v2.DeviceH\x00R\x06device\x12\x14\n" +
@@ -5731,7 +5722,7 @@ var file_agentkeyring_v2_keyring_proto_depIdxs = []int32{
 	7,  // 61: agentkeyring.v2.Bundle.push_registrations:type_name -> agentkeyring.v2.Signed
 	13, // 62: agentkeyring.v2.Bundle.copies:type_name -> agentkeyring.v2.SealedLogin
 	46, // 63: agentkeyring.v2.Bundle.revisions:type_name -> agentkeyring.v2.Revisions
-	7,  // 64: agentkeyring.v2.Bundle.reports:type_name -> agentkeyring.v2.Signed
+	7,  // 64: agentkeyring.v2.Bundle.members_since:type_name -> agentkeyring.v2.Signed
 	10, // 65: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
 	9,  // 66: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
 	52, // 67: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck

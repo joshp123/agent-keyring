@@ -541,16 +541,15 @@ message SealedLogins {
 //                              was first asked, connected or not.
 //   POST /v2/join/withdraw     body: JoinRequest, from the same key. Replies 200.
 //   GET  /v2/rev               Replies Revisions.
-//   GET  /v2/bundle            Replies Bundle for the caller.
+//   GET  /v2/bundle?members=N  Replies Bundle for the caller; N is the newest
+//                              Members revision the caller holds (0 for none).
 //   POST /v2/push-registration body: Signed PushRegistration.
 //   POST /v2/copies            body: SealedLogins: the Apple Watch's copies,
 //                              made by its iPhone.
 //   POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
 //   POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-//                              practice request's id as UTF-8 text (32 hex
-//                              digits); the Mac pushes it.
-//   POST /v2/report            body: Signed SelfTestReport, by the device's reply
-//                              key: its first-run step and checklist. Replies 200.
+//                              practice request's id as plain text (the id
+//                              the device chose); the Mac pushes it.
 //   POST /v2/log               body: Signed DeviceLog.
 //   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
 //   POST /v2/complaint         body: Complaint, from a computer. Replies 200.
@@ -563,7 +562,7 @@ message SealedLogins {
 //
 // The Mac tells the iPhone something changed with a silent push
 // (apns-push-type background, priority 5, apns-collapse-id "rev"):
-//   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N, "reports": N}}
+//   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
 // and the iPhone fetches /v2/bundle. Nothing depends on reaching the iPhone.
 //
 // The answer door. The asking machine serves HTTPS at Request.answer_address
@@ -640,7 +639,6 @@ message Revisions {
   uint64 members = 1;
   uint64 catalogue = 2;
   uint64 copies = 3;               // Rises whenever any sealed copy is added or removed.
-  uint64 reports = 4;              // Rises whenever a device's status report changes.
 }
 
 // Everything a device or computer keeps, for it alone. Each part is checked
@@ -655,9 +653,10 @@ message Bundle {
   // its own copies of the passwords Automatic for it.
   repeated SealedLogin copies = 4;
   Revisions revisions = 5;
-  // Each device's latest status report (SelfTestReport), the Mac's included,
-  // each signed by its device's reply key: where each is in first run.
-  repeated Signed reports = 6;
+  // Every Members revision after the one the caller holds, oldest first, so
+  // each is checked against the one before (one may be signed by a device
+  // the caller has not seen yet). members is the last of them.
+  repeated Signed members_since = 6;
 }
 
 message JoinRequest {

@@ -1,10 +1,12 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
 // The one hand-over between the Watch and its iPhone, over Watch
-// Connectivity. The Watch sends its keys, its push address and what its
-// self-test found; the iPhone sends the signed Members and Catalogue and the
-// relay's address for answers. Each side sends with both transferUserInfo and
-// updateApplicationContext, so it arrives whichever app runs first.
+// Connectivity. The Watch sends what its self-test found, its push address,
+// and its keys once he has tapped Add; the iPhone sends the signed Members and
+// Catalogue, its settings, and the end of the Face ID confirmation it holds
+// while it waits for this Watch to ask. Each side sends with both
+// transferUserInfo and updateApplicationContext, so it arrives whichever app
+// runs first.
 
 import AgentKeyringProtocol
 import AgentKeyringSealing
@@ -69,7 +71,9 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         watchLog.collect()
         var payload: [String: Any] = ["watchSelfTest": await selfTest(keys), "log": watchLog.lines(last: 200)]
         do {
-            payload["watchDevice"] = try keys.device().serializedData()
+            let saved = WatchStore().read()
+            // The keys go only after Add, until the iPhone lists this Watch.
+            if saved.addTapped == true, !saved.lists(try keys.keyID()) { payload["watchDevice"] = try keys.device().serializedData() }
             if let token = pushToken {
                 var push = Agentkeyring_V2_PushRegistration()
                 push.deviceKeyID = try keys.keyID()
@@ -124,13 +128,62 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
 
     // MARK: Receiving
 
-    private func receive(_ payload: [String: Any]) {
+    /// `current`: the iPhone's latest context, whose Add offer stands; queued user info may be older.
+    private func receive(_ payload: [String: Any], current: Bool) {
         let store = WatchStore()
         let saved = store.read()
-        let next = saved.merging(members: payload["members"] as? Data, catalogue: payload["catalogue"] as? Data,
-                                 answerURL: payload["relayAnswerURL"] as? String, settings: payload["settings"] as? Data)
+        let addUntil = current ? (payload["addUntil"] as? Double).map(Date.init(timeIntervalSince1970:)) : saved.addUntil
+        var next = saved.merging(members: payload["members"] as? Data, catalogue: payload["catalogue"] as? Data,
+                                 settings: payload["settings"] as? Data, addUntil: addUntil)
+        if next.lists((try? WatchKeys().keyID()) ?? "") { next.addTapped = nil }
         if next != saved { store.write(next) }
         Task { await refreshSetup() }
+        // The iPhone's wait ends at its deadline: Add then goes from the screen by itself.
+        if let addUntil, addUntil > .now {
+            Task { try? await Task.sleep(for: .seconds(addUntil.timeIntervalSinceNow + 1)); await self.refreshSetup() }
+        }
+    }
+
+    /// Add on this Watch: its keys go to the iPhone, which lists it with the Face ID it holds.
+    func add() async {
+        let store = WatchStore()
+        var saved = store.read()
+        saved.addTapped = true
+        store.write(saved)
+        watchLog.note("setup", "add tapped", [:])
+        await sendHandOver()
+        await refreshSetup()
+    }
+
+    /// Try Practice: only an iPhone or the Mac can ask the Mac for a practice request, so the iPhone asks.
+    func askForPractice() async -> Bool {
+        let session = WCSession.default
+        activate()
+        for _ in 0..<30 where session.activationState != .activated || !session.isReachable { try? await Task.sleep(for: .milliseconds(100)) }
+        guard session.isReachable else { return false }
+        let asked: Bool = await withCheckedContinuation { done in
+            session.sendMessage(["practice": true], replyHandler: { done.resume(returning: $0["asked"] as? Bool ?? false) },
+                                errorHandler: { _ in done.resume(returning: false) })
+        }
+        watchLog.note("practice", asked ? "asked" : "not asked", [:])
+        if asked {
+            let store = WatchStore()
+            var saved = store.read()
+            saved.practiceAsked = .now
+            store.write(saved)
+            Task { try? await Task.sleep(for: .seconds(WatchSetup.practiceWait + 1)); await self.refreshSetup() }
+        }
+        await refreshSetup()
+        return asked
+    }
+
+    /// Done on the practice offer.
+    func practiceOfferDone() async {
+        let store = WatchStore()
+        var saved = store.read()
+        saved.practiceOfferDone = true
+        store.write(saved)
+        await refreshSetup()
     }
 
     /// Where setup stands, worked out again from what the Watch can read about itself.
@@ -142,16 +195,20 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         var error: NSError?
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
         let setup = WatchSetup(passcode: LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error),
-                               // Any Members at all means the iPhone has joined; until it lists this Apple Watch, the request waits there.
+                               // Any Members at all means the iPhone has joined a Mac.
                                phoneJoined: saved.signedMembers != nil,
                                listed: saved.lists((try? WatchKeys().keyID()) ?? ""),
+                               addOffered: saved.addUntil.map { $0 > .now } ?? false,
+                               addTapped: saved.addTapped == true,
                                notifications: status == .notDetermined ? .notAsked : status == .denied ? .denied : .allowed,
-                               pushAddress: pushToken != nil)
+                               pushAddress: pushToken != nil,
+                               practiceAsked: saved.practiceAnswered == true ? nil : saved.practiceAsked,
+                               practiceOfferDone: saved.practiceOfferDone == true)
         let inUse = WatchStore().read().currentInUse
         await MainActor.run { WatchModel.shared.setup = setup; WatchModel.shared.inUse = inUse }
     }
 
-    /// Stop on Apple Watch: the iPhone ends the approval at the relay. True once it has.
+    /// Stop on Apple Watch: the iPhone ends the approval at the asking computer's door. True once it has.
     func stop(_ id: String) async -> Bool {
         let session = WCSession.default
         activate()
@@ -189,25 +246,25 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
             }, errorHandler: { _ in done.resume(returning: nil) })
         }
         guard let reply, let payload = try? PropertyListSerialization.propertyList(from: reply, format: nil) as? [String: Any] else { return false }
-        receive(payload)
+        receive(payload, current: true)
         return WatchStore().read() != before
     }
 
     func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
         if state == .activated {
-            if !session.receivedApplicationContext.isEmpty { receive(session.receivedApplicationContext) }
+            if !session.receivedApplicationContext.isEmpty { receive(session.receivedApplicationContext, current: true) }
             Task { await sendHandOver() }
         }
         drainIdle()
     }
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        receive(applicationContext)
+        receive(applicationContext, current: true)
         drainIdle()
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        receive(userInfo)
+        receive(userInfo, current: false)
         drainIdle()
     }
 }
