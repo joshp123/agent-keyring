@@ -1784,6 +1784,8 @@ public nonisolated struct Agentkeyring_V2_SealedLogins: Sendable {
 ///                              key: its first-run step and checklist. Replies 200.
 ///   POST /v2/log               body: Signed DeviceLog.
 ///   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
+///   POST /v2/complaint         body: Complaint, from a computer. Replies 200.
+///   GET  /v2/complaints?since=SECONDS  Replies Complaints.
 ///
 /// Every door speaks HTTP/1.1 over TLS 1.3: a body is sent with Content-Length
 /// (no chunked bodies), and the door closes the connection after its reply.
@@ -1911,6 +1913,56 @@ public nonisolated struct Agentkeyring_V2_PracticeAsk: Sendable {
 
   /// Chosen by the device and saved: the same id rejoins.
   public var requestID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// An agent's report that Agent Keyring was annoying, confusing or broken
+/// (`agent-keyring complain`). Never a password or any secret. Kept on the
+/// Mac for whoever builds the product; shown on no screen. A computer that
+/// cannot reach the Mac keeps it and sends it at the next contact.
+public nonisolated struct Agentkeyring_V2_Complaint: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// "agentkeyring.complaint.v2"
+  public var domain: String = String()
+
+  public var atUnixSeconds: Int64 = 0
+
+  /// The computer's label in Members.
+  public var computer: String = String()
+
+  /// The command's or app's version.
+  public var version: String = String()
+
+  /// What the agent was running, as it typed it.
+  public var command: String = String()
+
+  /// The agent's thread or session, if it has one.
+  public var thread: String = String()
+
+  /// One line.
+  public var summary: String = String()
+
+  /// Anything more, from standard input.
+  public var detail: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentkeyring_V2_Complaints: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Oldest first.
+  public var complaints: [Agentkeyring_V2_Complaint] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4840,6 +4892,101 @@ nonisolated extension Agentkeyring_V2_PracticeAsk: SwiftProtobuf.Message, SwiftP
     if lhs.domain != rhs.domain {return false}
     if lhs.forDeviceKeyID != rhs.forDeviceKeyID {return false}
     if lhs.requestID != rhs.requestID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V2_Complaint: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".Complaint"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}at_unix_seconds\0\u{1}computer\0\u{1}version\0\u{1}command\0\u{1}thread\0\u{1}summary\0\u{1}detail\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.domain) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.atUnixSeconds) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.computer) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.version) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.command) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.thread) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.summary) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.detail) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.domain.isEmpty {
+      try visitor.visitSingularStringField(value: self.domain, fieldNumber: 1)
+    }
+    if self.atUnixSeconds != 0 {
+      try visitor.visitSingularInt64Field(value: self.atUnixSeconds, fieldNumber: 2)
+    }
+    if !self.computer.isEmpty {
+      try visitor.visitSingularStringField(value: self.computer, fieldNumber: 3)
+    }
+    if !self.version.isEmpty {
+      try visitor.visitSingularStringField(value: self.version, fieldNumber: 4)
+    }
+    if !self.command.isEmpty {
+      try visitor.visitSingularStringField(value: self.command, fieldNumber: 5)
+    }
+    if !self.thread.isEmpty {
+      try visitor.visitSingularStringField(value: self.thread, fieldNumber: 6)
+    }
+    if !self.summary.isEmpty {
+      try visitor.visitSingularStringField(value: self.summary, fieldNumber: 7)
+    }
+    if !self.detail.isEmpty {
+      try visitor.visitSingularStringField(value: self.detail, fieldNumber: 8)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V2_Complaint, rhs: Agentkeyring_V2_Complaint) -> Bool {
+    if lhs.domain != rhs.domain {return false}
+    if lhs.atUnixSeconds != rhs.atUnixSeconds {return false}
+    if lhs.computer != rhs.computer {return false}
+    if lhs.version != rhs.version {return false}
+    if lhs.command != rhs.command {return false}
+    if lhs.thread != rhs.thread {return false}
+    if lhs.summary != rhs.summary {return false}
+    if lhs.detail != rhs.detail {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentkeyring_V2_Complaints: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".Complaints"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}complaints\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.complaints) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.complaints.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.complaints, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentkeyring_V2_Complaints, rhs: Agentkeyring_V2_Complaints) -> Bool {
+    if lhs.complaints != rhs.complaints {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
