@@ -10,7 +10,8 @@ PRODUCT_NAME = AgentKeyring
 PRODUCT_DISPLAY_NAME = Agent Keyring
 // ".Mac" beside the iPhone's ".Phone"; 0.2.5 used ".AgentKeyring" alone.
 PRODUCT_BUNDLE_IDENTIFIER = $(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.Mac
-MARKETING_VERSION = 0.3.0
+// Shipped builds take both from script/version.sh; these are for runs from Xcode.
+MARKETING_VERSION = 0.5.0
 CURRENT_PROJECT_VERSION = 3
 
 // ==========================================

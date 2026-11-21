@@ -10,7 +10,7 @@ owner's leave first: it reads 0.2.5's data and talks to its socket.
 
 ## Building and installing the new app
 
-`script/build_release.sh VERSION`, from a clean, pushed commit, archives the
+`script/build_release.sh`, from a clean, pushed commit, archives the
 app, signs it with the Developer ID certificate in this Mac's keychain and the
 two Developer ID profiles named in the script, notarises it with `notarytool`,
 staples the ticket, checks it with Gatekeeper, and leaves `Agent Keyring.app`

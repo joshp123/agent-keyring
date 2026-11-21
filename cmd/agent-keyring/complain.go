@@ -22,8 +22,15 @@ import (
 // -ldflags '-X main.complaints=off'.
 var complaints = "on"
 
-// version is the command's own build: its module version, else its commit.
+// stamp is the version and build number every product of one commit shares,
+// "0.5.0 (202611210311)", set at build (script/version.sh, nix/cli.nix).
+var stamp string
+
+// version is the command's own build: its stamp, else what Go recorded.
 func version() string {
+	if stamp != "" {
+		return stamp
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return "unknown"

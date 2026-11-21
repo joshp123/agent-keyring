@@ -9,7 +9,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         relay = pkgs.callPackage ./nix/relay.nix { };
-        client = pkgs.callPackage ./nix/cli.nix { };
+        client = pkgs.callPackage ./nix/cli.nix { build = builtins.substring 0 12 (self.lastModifiedDate or "0"); };
       in
       {
         default = relay;

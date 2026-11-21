@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-}"
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "usage: $0 VERSION" >&2
+if [[ $# -ne 0 ]]; then
+  echo "usage: $0 (the version is the VERSION file; script/version.sh)" >&2
   exit 2
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_NUMBER="${AGENT_KEYRING_BUILD_NUMBER:-$(/bin/date -u +%Y%m%d%H%M)}"
+read -r VERSION BUILD_NUMBER < <("$ROOT_DIR/script/version.sh")
 BUILD_DIR="$ROOT_DIR/.build/Release-$VERSION"
 ARCHIVE_PATH="$BUILD_DIR/AgentKeyring.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"
@@ -29,10 +28,6 @@ done
 AUTH=(-authenticationKeyPath "$AGENT_KEYRING_ASC_KEY_PATH" -authenticationKeyID "$AGENT_KEYRING_ASC_KEY_ID"
   -authenticationKeyIssuerID "$AGENT_KEYRING_ASC_ISSUER_ID")
 
-if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "AGENT_KEYRING_BUILD_NUMBER must be a positive integer." >&2
-  exit 1
-fi
 if [[ -n "$(git -C "$ROOT_DIR" status --short)" ]]; then
   echo "Commit all source changes before building a release." >&2
   exit 1

@@ -48,6 +48,7 @@ const help = `Agent Keyring: use a saved login for one task.
   invite                    On the Mac: print a one-time link for one computer to join
   push-key --key-id ID --team-id ID < AuthKey_ID.p8
                             On the Mac: give the app Apple's push key
+  version                   Print this command's version and build number
   logs [--since 30m] [--request ID]
                             What this computer, the Mac, the iPhone and the Apple
                             Watch did and why, in time order; no secrets
@@ -160,6 +161,10 @@ func run(ctx context.Context, args []string) (int, error) {
 	}
 	if len(args) == 0 || args[0] == "help" {
 		fmt.Print(help)
+		return 0, nil
+	}
+	if args[0] == "version" || args[0] == "--version" {
+		fmt.Println(version())
 		return 0, nil
 	}
 	for _, arg := range args {

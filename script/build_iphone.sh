@@ -12,7 +12,8 @@
 #   AGENT_KEYRING_ASC_KEY_PATH, AGENT_KEYRING_ASC_KEY_ID, AGENT_KEYRING_ASC_ISSUER_ID
 # and for testflight, the team's Apple Distribution identity and `asc` signed in with the same key:
 #   AGENT_KEYRING_DISTRIBUTION_P12, AGENT_KEYRING_DISTRIBUTION_P12_PASSWORD
-# AGENT_KEYRING_BUILD_NUMBER defaults to the UTC time, so each upload's number is new.
+# The version and build number come from script/version.sh, the same pair as the Mac app and the command.
+# Apple refuses a second upload of one pair: set AGENT_KEYRING_BUILD_NUMBER to upload a commit again.
 # AGENT_KEYRING_UPLOAD=0 makes the App Store build without uploading it.
 set -euo pipefail
 
@@ -26,13 +27,13 @@ for variable in AGENT_KEYRING_ASC_KEY_PATH AGENT_KEYRING_ASC_KEY_ID AGENT_KEYRIN
 done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_NUMBER="${AGENT_KEYRING_BUILD_NUMBER:-$(/bin/date -u +%Y%m%d%H%M)}"
+read -r VERSION BUILD_NUMBER < <("$ROOT_DIR/script/version.sh")
 BUILD_DIR="$ROOT_DIR/.build/iPhone-$MODE-$BUILD_NUMBER"
 AUTH=(-authenticationKeyPath "$AGENT_KEYRING_ASC_KEY_PATH" -authenticationKeyID "$AGENT_KEYRING_ASC_KEY_ID"
   -authenticationKeyIssuerID "$AGENT_KEYRING_ASC_ISSUER_ID")
 COMMON=(-project "$ROOT_DIR/AgentKeyringPhone.xcodeproj" -scheme AgentKeyringPhone -configuration Release
   -destination 'generic/platform=iOS' -derivedDataPath "$BUILD_DIR/derived"
-  CURRENT_PROJECT_VERSION="$BUILD_NUMBER" CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates "${AUTH[@]}")
+  MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates "${AUTH[@]}")
 mkdir -p "$BUILD_DIR"
 
 if [[ "$MODE" == device ]]; then

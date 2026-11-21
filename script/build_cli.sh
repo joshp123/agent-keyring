@@ -7,8 +7,9 @@ if [[ "${AGENT_KEYRING_PINNED_GO:-}" != 1 ]]; then
     -c env AGENT_KEYRING_PINNED_GO=1 bash script/build_cli.sh "$@"
 fi
 mkdir -p build/cli/macos
+read -r VERSION BUILD_NUMBER < <(script/version.sh)
 for architecture in arm64 amd64; do
-  CGO_ENABLED=0 GOOS=darwin GOARCH="$architecture" go build -trimpath -ldflags='-s -w' \
+  CGO_ENABLED=0 GOOS=darwin GOARCH="$architecture" go build -trimpath -ldflags="-s -w -X 'main.stamp=$VERSION ($BUILD_NUMBER)'" \
     -o "build/cli/macos/agent-keyring-$architecture" ./cmd/agent-keyring
 done
 /usr/bin/lipo -create build/cli/macos/agent-keyring-arm64 build/cli/macos/agent-keyring-amd64 \

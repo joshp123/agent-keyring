@@ -1,9 +1,12 @@
 # Written by AI on 2026.11.01 by model gpt-6.1-sol.
-{ lib, buildGoModule }:
+{ lib, buildGoModule, build ? "0" }:
 
-buildGoModule {
+# version: the VERSION file. build: the commit's time, from the flake. Together
+# the same pair as the Mac and iPhone apps of this commit (script/version.sh).
+buildGoModule rec {
   pname = "agent-keyring";
-  version = "0.3.0";
+  version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
+  ldflags = [ "-X 'main.stamp=${version} (${build})'" ];
 
   src = lib.fileset.toSource {
     root = ../.;
