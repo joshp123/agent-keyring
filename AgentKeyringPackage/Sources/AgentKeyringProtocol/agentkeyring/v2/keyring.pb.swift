@@ -1765,13 +1765,15 @@ public nonisolated struct Agentkeyring_V2_SealedLogins: Sendable {
 ///                              was first asked, connected or not.
 ///   POST /v2/join/withdraw     body: JoinRequest, from the same key. Replies 200.
 ///   GET  /v2/rev               Replies Revisions.
-///   GET  /v2/bundle            Replies Bundle for the caller.
+///   GET  /v2/bundle?members=N  Replies Bundle for the caller; N is the newest
+///                              Members revision the caller holds (0 for none).
 ///   POST /v2/push-registration body: Signed PushRegistration.
 ///   POST /v2/copies            body: SealedLogins: the Apple Watch's copies,
 ///                              made by its iPhone.
 ///   POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
 ///   POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-///                              practice request's id; the Mac pushes it.
+///                              practice request's id as plain text (the id
+///                              the device chose); the Mac pushes it.
 ///   POST /v2/log               body: Signed DeviceLog.
 ///   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
 ///   POST /v2/complaint         body: Complaint, from a computer. Replies 200.
@@ -2012,6 +2014,11 @@ public nonisolated struct Agentkeyring_V2_Bundle: Sendable {
   public var hasRevisions: Bool {self._revisions != nil}
   /// Clears the value of `revisions`. Subsequent reads from it will return its default value.
   public mutating func clearRevisions() {self._revisions = nil}
+
+  /// Every Members revision after the one the caller holds, oldest first, so
+  /// each is checked against the one before (one may be signed by a device
+  /// the caller has not seen yet). members is the last of them.
+  public var membersSince: [Agentkeyring_V2_Signed] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -5011,7 +5018,7 @@ nonisolated extension Agentkeyring_V2_Revisions: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Agentkeyring_V2_Bundle: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Bundle"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}members\0\u{1}catalogue\0\u{3}push_registrations\0\u{1}copies\0\u{1}revisions\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}members\0\u{1}catalogue\0\u{3}push_registrations\0\u{1}copies\0\u{1}revisions\0\u{3}members_since\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -5024,6 +5031,7 @@ nonisolated extension Agentkeyring_V2_Bundle: SwiftProtobuf.Message, SwiftProtob
       case 3: try { try decoder.decodeRepeatedMessageField(value: &self.pushRegistrations) }()
       case 4: try { try decoder.decodeRepeatedMessageField(value: &self.copies) }()
       case 5: try { try decoder.decodeSingularMessageField(value: &self._revisions) }()
+      case 6: try { try decoder.decodeRepeatedMessageField(value: &self.membersSince) }()
       default: break
       }
     }
@@ -5049,6 +5057,9 @@ nonisolated extension Agentkeyring_V2_Bundle: SwiftProtobuf.Message, SwiftProtob
     try { if let v = self._revisions {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
     } }()
+    if !self.membersSince.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.membersSince, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -5058,6 +5069,7 @@ nonisolated extension Agentkeyring_V2_Bundle: SwiftProtobuf.Message, SwiftProtob
     if lhs.pushRegistrations != rhs.pushRegistrations {return false}
     if lhs.copies != rhs.copies {return false}
     if lhs._revisions != rhs._revisions {return false}
+    if lhs.membersSince != rhs.membersSince {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
