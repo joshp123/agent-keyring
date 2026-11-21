@@ -48,7 +48,7 @@ public struct WatchRequest: Sendable, Equatable {
                                             account: UserDefaults.standard.string(forKey: "SampleAccount") ?? "you@example.com", sites: [],
                                             agent: "Claude Code", wants: "Claude Code on MacBook Pro (M4) wants", project: "agent-keyring",
                                             reason: UserDefaults.standard.string(forKey: "SampleReason") ?? "You asked me to download October’s invoice.", state: .waiting, who: "Codex on Linux server",
-                                            inUseUntil: nil, isPractice: false) }
+                                            inUseUntil: nil, isPractice: UserDefaults.standard.bool(forKey: "SamplePractice")) }
     #endif
 
     /// Where the extension leaves the opened Work for the app's own layout.

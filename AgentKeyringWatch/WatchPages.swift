@@ -63,6 +63,15 @@ struct WatchHome: View {
     let model: WatchModel
 
     var body: some View {
+        #if DEBUG
+        // For looking at the request card in the simulator: -SampleCard YES (-SamplePractice YES for the practice's).
+        if UserDefaults.standard.bool(forKey: "SampleCard") { SampleCard() } else { home }
+        #else
+        home
+        #endif
+    }
+
+    private var home: some View {
         // "In use" while something is in use; otherwise the page for where setup stands.
         TimelineView(.periodic(from: .now, by: 30)) { context in
             let inUse = model.inUse.filter { $0.until > context.date }
@@ -70,6 +79,13 @@ struct WatchHome: View {
         }
     }
 }
+
+#if DEBUG
+private struct SampleCard: View {
+    @State private var model = RequestModel()
+    var body: some View { RequestView(model: model).onAppear { model.show(["akrSample": true]) } }
+}
+#endif
 
 struct WatchSetupPage: View {
     let setup: WatchSetup

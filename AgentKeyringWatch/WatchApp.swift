@@ -39,7 +39,15 @@ struct AgentKeyringWatchApp: App {
 final class WatchModel {
     static let shared = WatchModel()
 
-    var inUse: [WatchInUse] = WatchStore().read().currentInUse
+    var inUse: [WatchInUse] = {
+        #if DEBUG
+        // -SampleInUse YES: one approval in use, for looking at "In use".
+        if UserDefaults.standard.bool(forKey: "SampleInUse") {
+            return [WatchInUse(id: "u1", site: "example.com", who: "Codex on Linux server", until: .now.addingTimeInterval(1500))]
+        }
+        #endif
+        return WatchStore().read().currentInUse
+    }()
     var setup: WatchSetup = {
         #if DEBUG
         // For comparing screens with Paper in the simulator: -SampleSetup notifications.

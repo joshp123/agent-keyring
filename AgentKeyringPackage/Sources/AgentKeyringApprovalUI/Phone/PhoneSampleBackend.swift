@@ -93,11 +93,24 @@ public final class PhoneSampleBackend: PhoneBackend {
             "practice-waiting": .practiceWaiting(id: "practice", arrived: false), "practice": .practice(id: "practice"),
             "not-arrived": .practiceNotArrived(id: "practice"), "setting-up": .settingUpNotifications(id: "practice"), "practice-offer": .practiceOffer,
             "approved": .practiceResult(.approved), "denied-practice": .practiceResult(.denied),
-            "offer-watch": .readyOfferWatch(watchToAdd: true), "add-watch": .addWatch,
+            "offer-watch": .readyOfferWatch(watchToAdd: true), "no-watch": .readyOfferWatch(watchToAdd: false),
+            "no-answer": .practiceResult(.noAnswer),
         ]
-        snapshot.firstRun = stages[step] ?? .finished
+        let until = Calendar.current.date(bySettingHour: 14, minute: 17, second: 0, of: .now) ?? .now
+        let flows: [String: PhoneAddWatch] = [
+            "watch-not-paired": .notPaired, "watch-missing": .watchAppMissing, "add-watch": .faceIDFirst,
+            "watch-waiting": .waitingForWatch(until: until), "watch-expired": .faceIDExpired,
+            "watch-passcode": .watchNeedsPasscode(until: until), "watch-encrypting": .encrypting(done: 312, total: 547),
+            "watch-failed": .copiesFailed(reason: "Your Mac couldn’t be reached"), "watch-added": .added,
+        ]
+        snapshot.firstRun = flows[step] != nil ? .addWatch : stages[step] ?? .finished
+        snapshot.addWatch = flows[step]
         snapshot.practiceRequest = practiceOpen(snapshot.firstRun) ? .practice() : nil
-        if step == "add-watch" { snapshot.addWatch = .faceIDFirst }
+        if step == "receiving" { snapshot.filling = PhoneFill(copied: 312, of: 547) }
+        if step == "notifications-checklist" {
+            snapshot.firstRun = .notifications
+            snapshot.notificationFacts.allowed = true; snapshot.notificationFacts.banners = true; snapshot.notificationFacts.lockScreen = true
+        }
     }
 
     private func update(_ id: String, to state: () -> AccessRequestState) {
