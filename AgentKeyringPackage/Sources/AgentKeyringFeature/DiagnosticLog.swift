@@ -31,7 +31,7 @@ public enum DiagnosticLog {
             return all
         }
         // Only in the app's own container: a test run, which is not sandboxed, would write into his home folder.
-        guard ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil else { return }
+        guard file.path.contains("/Library/Containers/") else { return }
         writer.async {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? Data((snapshot.joined(separator: "\n") + "\n").utf8).write(to: file, options: .atomic)
