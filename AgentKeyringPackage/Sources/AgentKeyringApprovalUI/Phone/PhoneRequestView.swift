@@ -21,17 +21,21 @@ struct PhoneRequestView: View {
 
     var body: some View {
         let busy = model.answering != nil
-        KeyringPage(step: nil, title: request.login.site, sentence: PhoneCopy.wants(request.agent), status: status,
-                    primary: .deny(PhoneCopy.denyAndSend, isEnabled: !busy) { deny() },
-                    secondary: .approve(PhoneCopy.approveInstead, isEnabled: !busy) { approve() },
-                    aside: .link(PhoneCopy.cancel) { model.shownRequestID = nil }) {
-            KeyringText(PhoneCopy.askedAgo(request.askedAt), as: .caption)
-            if !request.login.account.isEmpty { KeyringText(request.login.account, as: .meta) }
-            if !request.agentReason.isEmpty { KeyringText(PhoneCopy.quoted(request.agentReason), as: .body) }
-            KeyringText(PhoneCopy.tellTheAgent, as: .heading)
-            replyBox
-            if dictation.isListening { KeyringText(PhoneCopy.speakHint, as: .caption) }
-            KeyringText(practice ? PhoneCopy.practiceLasts : PhoneCopy.lasts(request.agent), as: .caption)
+        NavigationStack {
+            KeyringPage(step: nil, title: request.login.site, sentence: PhoneCopy.wants(request.agent), alignment: .centre, status: status,
+                        primary: .deny(PhoneCopy.denyAndSend, isEnabled: !busy) { deny() },
+                        secondary: .link(PhoneCopy.approveInstead, isEnabled: !busy) { approve() }) {
+                if !request.login.account.isEmpty { KeyringText(request.login.account, as: .meta) }
+                if !request.agentReason.isEmpty { KeyringText(PhoneCopy.quoted(request.agentReason), as: .body) }
+                KeyringText(PhoneCopy.tellTheAgent, as: .heading)
+                replyBox
+                if dictation.isListening { KeyringText(PhoneCopy.speakHint, as: .caption) }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button(PhoneCopy.cancel) { model.shownRequestID = nil } }
+                ToolbarItem(placement: .topBarTrailing) { KeyringText(PhoneCopy.askedAgo(request.askedAt), as: .caption) }
+            }
+            .navigationBarTitleDisplayMode(.inline)
         }
         .alert(PhoneCopy.answerFailed, isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sensoryFeedback(.selection, trigger: model.answering)
@@ -57,7 +61,7 @@ struct PhoneRequestView: View {
 
     /// The reply box grows to ten lines, with the microphone: one tap to speak, one to stop.
     private var replyBox: some View {
-        KeyringReplyBox(text: $model.replyDraft, prompt: PhoneCopy.tellTheAgent, note: note, noteAction: openSettings) {
+        KeyringReplyBox(text: $model.replyDraft, prompt: PhoneCopy.replyPrompt, note: note, noteAction: openSettings) {
             Button {
                 if !dictation.isListening { spokenAfter = model.replyDraft.isEmpty ? "" : model.replyDraft + " " }
                 replyFocused = false

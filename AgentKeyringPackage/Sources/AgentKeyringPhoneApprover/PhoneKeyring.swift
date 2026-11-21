@@ -70,11 +70,10 @@ public final class PhoneKeyring: PhoneBackend {
         let macLabels = Set(members.devices.filter { $0.kind == .mac }.map(\.label))
         snapshot.devices = members.devices.map { device in
             PhoneDevice(id: device.keyID, name: device.label, detail: Self.howItApproves(device.kind), role: .approves,
-                        isThisIPhone: device.keyID == mine, canPractice: device.keyID != mine && device.kind == .watch,
-                        canRemove: device.keyID != mine)
-        } + members.machines.map { machine in
-            // A Mac is removed from its device row above, both at once.
-            PhoneDevice(id: machine.machineID, name: machine.label, role: .asks, canRemove: !macLabels.contains(machine.label))
+                        isThisIPhone: device.keyID == mine, canPractice: true, canRemove: device.keyID != mine)
+        } + members.machines.filter { !macLabels.contains($0.label) }.map { machine in
+            // A Mac he approves on is listed once, above; its Remove takes both.
+            PhoneDevice(id: machine.machineID, name: machine.label, role: .asks)
         }
         snapshot.joined = true
         snapshot.watch = watchFacts(members)

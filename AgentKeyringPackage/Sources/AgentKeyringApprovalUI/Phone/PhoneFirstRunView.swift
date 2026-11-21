@@ -49,7 +49,8 @@ struct PhoneFirstRunView: View {
             notifications
         case .practiceOffer:
             practicePage(primary: .advance(PhoneCopy.sendPractice) { sendPractice() }, secondary: skip) {
-                KeyringHint(symbol: "moon.fill", PhoneCopy.practiceNote, tone: .focus)
+                KeyringHint(symbol: "bell.badge", title: PhoneCopy.practicePreviewTitle, PhoneCopy.practicePreview)
+                KeyringHint(symbol: "moon.fill", PhoneCopy.practiceNote, tone: .plain)
             }
         case .practiceWaiting, .practice:
             practicePage(status: .waiting(PhoneCopy.practiceWaiting)) { EmptyView() }
@@ -100,17 +101,20 @@ struct PhoneFirstRunView: View {
                            status: stage == .notificationsOff ? .problem(PhoneCopy.notificationsOff) : nil,
                            primary: primary, secondary: secondary) {
             KeyringRowGroup {
-                check(PhoneCopy.checkAllowed, facts.allowed)
-                check(PhoneCopy.checkBanners, facts.banners && facts.lockScreen)
-                check(PhoneCopy.checkTimeSensitive, facts.timeSensitive)
-                check(PhoneCopy.checkNotScheduled, facts.allowed && !facts.inScheduledSummary)
+                check(PhoneCopy.checkAllowed, facts.allowed, fix: asked ? PhoneCopy.checkInSettings : PhoneCopy.checkTurnOnFirst)
+                check(PhoneCopy.checkBanners, facts.banners && facts.lockScreen, fix: PhoneCopy.checkInSettings)
+                check(PhoneCopy.checkTimeSensitive, facts.timeSensitive, fix: PhoneCopy.checkInSettings)
+                check(PhoneCopy.checkNotScheduled, facts.allowed && !facts.inScheduledSummary, fix: PhoneCopy.checkScheduledInSettings)
             }
             KeyringHint(symbol: "moon.fill", PhoneCopy.notificationsFocus, tone: .focus)
         }
     }
 
-    private func check(_ name: String, _ on: Bool) -> some View {
-        KeyringDeviceRow(symbol: on ? "checkmark.circle.fill" : "circle", name: name, tone: on ? .approved : .plain)
+    /// A ticked row, or an unticked one with what to do. Before iOS has asked, only the first row says what.
+    private func check(_ name: String, _ on: Bool, fix: String) -> some View {
+        let asked = model.snapshot.notificationFacts.allowed || stage == .notificationsOff
+        return KeyringDeviceRow(symbol: on ? "checkmark" : "circle", name: name,
+                                detail: on || (!asked && name != PhoneCopy.checkAllowed) ? nil : fix, tone: on ? .approved : .plain)
     }
 
     private func practicePage(status: KeyringStatus? = nil, primary: KeyringAction? = nil, secondary: KeyringAction? = nil,
@@ -146,13 +150,14 @@ struct PhoneAddWatchView: View {
             }
         case .faceIDFirst:
             KeyringPage(step: (1, 2), title: PhoneCopy.addWatchTitle, sentence: PhoneCopy.addWatchDetail,
-                        primary: .advance(PhoneCopy.continueWithFaceID) { tap(.continueWithFaceID) }, secondary: cancel) {
+                        primary: .advance(PhoneCopy.continueWithFaceID) { tap(.continueWithFaceID) },
+                        secondary: .link(PhoneCopy.cancel) { tap(.cancel) }) {
                 KeyringSteps(PhoneCopy.addWatchSteps)
             }
         case let .waitingForWatch(until):
-            KeyringPage(step: (2, 2), title: PhoneCopy.tapAddOnWatch, sentence: PhoneCopy.tapAddOnWatchDetail,
-                        status: .waiting(PhoneCopy.confirmedUntil(until)), secondary: cancel) {
-                KeyringHint(symbol: "applewatch", title: PhoneCopy.watchNotShowingTitle, PhoneCopy.watchNotShowing, tone: .plain)
+            KeyringPage(step: (2, 2), title: PhoneCopy.tapAddOnWatch, sentence: PhoneCopy.tapAddOnWatchDetail, secondary: cancel) {
+                KeyringConfirmation(PhoneCopy.confirmedUntil(until))
+                KeyringHint(symbol: "exclamationmark.circle.fill", title: PhoneCopy.watchNotShowingTitle, PhoneCopy.watchNotShowing, tone: .stalled)
             }
         case .faceIDExpired:
             KeyringPage(step: (1, 2), title: PhoneCopy.addWatchTitle, status: .takingLong(PhoneCopy.faceIDExpired),

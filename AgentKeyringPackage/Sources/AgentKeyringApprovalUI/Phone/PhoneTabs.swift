@@ -67,8 +67,10 @@ public struct PhoneRootView: View {
 /// A system grouped list under a navigation title.
 private struct PhoneList<Content: View>: View {
     let title: String
-    /// A button at the top right: Home's Settings.
-    var trailing: (label: String, action: () -> Void)? = nil
+    /// Home's Settings, at the top left.
+    var leading: (label: String, action: () -> Void)? = nil
+    /// A small pill beside the title: Home's count of requests waiting.
+    var pill: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -77,8 +79,11 @@ private struct PhoneList<Content: View>: View {
                 .listStyle(.insetGrouped)
                 .navigationTitle(title)
                 .toolbar {
-                    if let trailing {
-                        ToolbarItem(placement: .topBarTrailing) { Button(trailing.label, action: trailing.action) }
+                    if let leading {
+                        ToolbarItem(placement: .topBarLeading) { Button(leading.label, action: leading.action) }
+                    }
+                    if let pill {
+                        ToolbarItem(placement: .topBarTrailing) { KeyringText(pill, as: .caption, colour: KeyringPalette.brand) }
                     }
                 }
         }
@@ -92,10 +97,13 @@ struct PhoneHomeView: View {
     @State private var settingsShown = false
 
     var body: some View {
-        PhoneList(title: PhoneCopy.home, trailing: (PhoneCopy.settings, { settingsShown = true })) {
-            Section {
-                KeyringStatusLine(status)
-                KeyringButton(.plain(PhoneCopy.sendPractice) { Task { await model.sendPractice() } })
+        PhoneList(title: PhoneCopy.home, leading: (PhoneCopy.settings, { settingsShown = true }),
+                  pill: model.waiting.isEmpty ? nil : PhoneCopy.waitingPill(model.waiting.count)) {
+            if let problem = model.snapshot.notices.first(where: { $0 != .addAppleWatch }) {
+                Section { KeyringStatusLine(.problem(PhoneCopy.notice(problem))) }
+            }
+            if model.waiting.isEmpty && model.inUse.isEmpty && earlier.isEmpty {
+                Section { KeyringText(PhoneCopy.nothingWaiting, as: .meta) }
             }
             if !model.waiting.isEmpty {
                 Section {
@@ -128,13 +136,6 @@ struct PhoneHomeView: View {
         .sheet(isPresented: $settingsShown) { PhoneSettingsView(model: model) }
     }
 
-    /// All quiet, how many wait, or the one line that says what is wrong.
-    private var status: KeyringStatus {
-        if let problem = model.snapshot.notices.first(where: { $0 != .addAppleWatch }) { return .problem(PhoneCopy.notice(problem)) }
-        if !model.waiting.isEmpty { return .waiting(PhoneCopy.waitingPill(model.waiting.count)) }
-        return .done(model.inUse.isEmpty ? PhoneCopy.nothingWaiting : PhoneCopy.allQuiet)
-    }
-
     /// The request in place: Deny and Approve, and Deny and Explain, which opens the reply box.
     private func waitingCard(_ request: AccessRequest) -> some View {
         let busy = model.answering != nil
@@ -144,7 +145,7 @@ struct PhoneHomeView: View {
             reason: request.agentReason.isEmpty ? nil : request.agentReason,
             approve: .approve(PhoneCopy.approve, isEnabled: !busy) { Task { await model.approve(request.id) } },
             deny: .deny(PhoneCopy.deny, isEnabled: !busy) { Task { await model.deny(request.id) } },
-            explain: .plain(PhoneCopy.denyAndExplain, isEnabled: !busy) { model.explain(request.id) },
+            explain: .link(PhoneCopy.denyAndExplain, isEnabled: !busy) { model.explain(request.id) },
             footer: model.snapshot.undelivered.contains(request.id) ? PhoneCopy.notDeliveredYet : nil)
     }
 
@@ -245,14 +246,19 @@ struct PhoneDevicesView: View {
         } message: { device in Text(PhoneCopy.removeDetail(device, alsoAsks: alsoAsks(device))) }
     }
 
+    /// Send Practice Request on the row; Remove by swiping it to the left, out of the way.
     private func row(_ device: PhoneDevice) -> some View {
         KeyringDeviceRow(symbol: symbol(device), name: device.isThisIPhone ? PhoneCopy.thisIPhone : device.name,
                          detail: device.role == .asks ? PhoneCopy.connected : device.detail) {
             if device.canPractice {
-                KeyringButton(.link(PhoneCopy.practiceShort) { Task { await model.sendPractice(to: device.id) } })
+                KeyringButton(.link(PhoneCopy.practiceShort) {
+                    Task { await model.sendPractice(to: device.isThisIPhone ? nil : device.id) }
+                })
             }
+        }
+        .swipeActions(edge: .trailing) {
             if device.canRemove && !device.isThisIPhone {
-                KeyringButton(.link(PhoneCopy.remove) { removing = device })
+                Button(PhoneCopy.remove, role: .destructive) { removing = device }
             }
         }
     }

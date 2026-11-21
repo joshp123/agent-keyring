@@ -31,7 +31,7 @@ public enum PhoneCopy {
     public static let lookingForMac = "Looking for your Mac via iCloud…"
     public static func continueFrom(_ name: String?) -> String { "Continue setup from \(mac(name))" }
     public static let continueFromDetail = "Connect this iPhone to approve password requests from your AI agents with Face ID."
-    public static let trustTitle = "End-to-end encrypted and signed."
+    public static let trustTitle = "End-to-end encrypted and signed"
     public static let trustDetail = "Your Mac encrypts a copy of your passwords for this iPhone’s Secure Enclave and signs them against tampering, so nothing in between can read or change them."
     public static func connectTo(_ name: String?) -> String { "Connect to \(mac(name))" }
     public static let troubleBanner = "Can’t find your Mac right now"
@@ -66,6 +66,10 @@ public enum PhoneCopy {
     public static let checkBanners = "Banners and Lock Screen"
     public static let checkTimeSensitive = "Time Sensitive"
     public static let checkNotScheduled = "Not in Scheduled Summary"
+    /// Not in the ledger: under an unticked row, what to do.
+    public static let checkTurnOnFirst = "Tap Turn On Notifications below."
+    public static let checkInSettings = "Turn this on in Settings > Notifications > Agent Keyring."
+    public static let checkScheduledInSettings = "Turn off Scheduled Summary for Agent Keyring in Settings > Notifications."
     public static let notificationsFocus = "Vibe coding late at night? If Sleep or Driving Focus is on, iOS silences notifications unless Agent Keyring is allowed in Settings > Focus."
     public static let notificationsOff = "Notifications are turned off for Agent Keyring. Turn them on in Settings so password requests reach your Lock Screen."
     public static let turnOnNotifications = "Turn On Notifications"
@@ -75,6 +79,8 @@ public enum PhoneCopy {
 
     public static let practiceTitle = "Try a practice notification"
     public static let practiceLead = "Tap below to send yourself a practice password request. Touch and hold it to try Approve, Deny, or Deny and Explain. No real passwords are shared."
+    public static let practicePreviewTitle = "Practice request: example.com"
+    public static let practicePreview = "you@example.com: “You asked me to download October’s invoice.” Touch and hold to Approve, Deny, or Deny and Explain."
     public static let practiceNote = "If nothing arrives within 30 seconds, tap Answer It Here, or open Settings > Focus to allow Agent Keyring during Sleep or Driving Focus."
     public static let sendPractice = "Send Practice Request"
     public static let sendAnother = "Send Another"
@@ -145,6 +151,7 @@ public enum PhoneCopy {
         return minutes == 0 ? "Asked just now" : "Asked \(minutes) min ago"
     }
     public static let tellTheAgent = "Tell the agent what to do instead"
+    public static let replyPrompt = "Type, or tap the microphone and speak"
     public static let denyAndSend = "Deny and Send"
     public static let approveInstead = "Approve Instead"
     public static let listening = "Listening…"
