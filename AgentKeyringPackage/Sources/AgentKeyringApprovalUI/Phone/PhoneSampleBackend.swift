@@ -101,7 +101,7 @@ public final class PhoneSampleBackend: PhoneBackend {
             "watch-not-paired": .notPaired, "watch-missing": .watchAppMissing, "add-watch": .faceIDFirst,
             "watch-waiting": .waitingForWatch(until: until), "watch-expired": .faceIDExpired,
             "watch-passcode": .watchNeedsPasscode(until: until), "watch-encrypting": .encrypting(done: 312, total: 547),
-            "watch-failed": .copiesFailed(reason: "Your Mac couldn’t be reached"), "watch-added": .added,
+            "watch-failed": .copiesFailed(reason: PhoneCopy.macNotReached), "watch-added": .added,
         ]
         snapshot.firstRun = flows[step] != nil ? .addWatch : stages[step] ?? .finished
         snapshot.addWatch = flows[step]

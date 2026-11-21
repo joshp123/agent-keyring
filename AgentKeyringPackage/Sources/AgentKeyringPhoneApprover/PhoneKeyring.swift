@@ -630,7 +630,10 @@ public final class PhoneKeyring: PhoneBackend {
                     default: return  // withdrawn: Cancel already moved first run
                     }
                 } catch is CancellationError { return }
-                catch {
+                catch PhoneMacDoor.Failure.refusedByMac {
+                    PhoneDiagnostics.log.note("join", "refused by the Mac's door", [:])
+                    return self.apply(.joinRefused)
+                } catch {
                     if Task.isCancelled { return }
                     PhoneDiagnostics.log.note("join", "not answered", ["error": "\(error)"])
                     guard let heard = lastHeard, Date().timeIntervalSince(heard) < AnswerDoor.retryFor else { return self.apply(.macUnreachable) }
@@ -1037,7 +1040,9 @@ public final class PhoneKeyring: PhoneBackend {
                 self.applyAddWatch(.copiesSent)
             } catch {
                 PhoneDiagnostics.log.note("addwatch", "copies failed", ["error": "\(error)"])
-                self.applyAddWatch(.copiesFailed(reason: "\(error)"))
+                // His words only; the raw error stays in the log.
+                let refused = (error as? PhoneMacDoor.Failure).map { if case .refusedByMac = $0 { true } else { false } } ?? false
+                self.applyAddWatch(.copiesFailed(reason: refused ? PhoneCopy.macRefused : PhoneCopy.macNotReached))
             }
         }
     }

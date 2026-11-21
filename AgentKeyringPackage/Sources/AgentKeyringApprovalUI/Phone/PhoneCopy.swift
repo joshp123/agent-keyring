@@ -137,6 +137,9 @@ public enum PhoneCopy {
         let reason = reason.hasSuffix(".") ? String(reason.dropLast()) : reason
         return "Couldn’t finish preparing passwords for your Apple Watch. \(reason)."
     }
+    /// The reason in a failure line: the Mac refused it, or could not be reached. Never a raw error.
+    public static let macRefused = "Your Mac refused it"
+    public static let macNotReached = "Your Mac couldn’t be reached"
     public static let watchAdded = "Apple Watch added"
     public static let watchAddedDetail = "You can now approve password requests with one tap on your wrist."
 
