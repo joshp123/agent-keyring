@@ -91,7 +91,8 @@ struct MacApprovalPanelView: View {
                                 reason: words.reason.flatMap { $0.isEmpty ? nil : $0 }, explanation: words.explanation,
                                 reply: words.replies ? $model.replyDraft : nil, replyPrompt: words.replyPrompt,
                                 approve: approve,
-                                deny: .deny(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny, isEnabled: sending == nil) {
+                                deny: KeyringAction(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny,
+                                                    words.replies ? .deny : .denyLink, isEnabled: sending == nil) {
                                     Task { await model.deny() }
                                 },
                                 footer: words.footer, header: SetupCopy.appName)

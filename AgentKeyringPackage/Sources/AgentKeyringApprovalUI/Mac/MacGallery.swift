@@ -87,6 +87,7 @@ enum MacGallery {
             },
             .init("add-iphone-added", width) { iPhone(.added(name: phone)) },
             .init("add-computer-no-tailscale", width) { computer(.noTailscale) },
+            .init("add-computer-starting", width) { computer(.starting) },
             .init("add-computer-invite", width) { computer(.invite(command: command, until: "14:32")) },
             .init("add-computer-join-asked", width) { computer(.joinAsked(name: computer)) },
             .init("add-computer-added", width) { computer(.added(name: computer)) },
@@ -125,6 +126,11 @@ enum MacGallery {
         let practice = AccessRequest.practice(id: "p", state: waiting)
         return [
             .init("card-request", width) { ReviewRendering.panel(request(waiting)) },
+            .init("card-request-from-another-computer", width) {
+                var remote = request(waiting)
+                remote.agent = RequestingAgent(name: agent, machine: computer, address: "", isLocal: false)
+                return ReviewRendering.panel(remote)
+            },
             .init("card-request-typed-reply", width) { ReviewRendering.panel(request(waiting), reply: reply) },
             .init("card-request-waiting-for-touch-id", width) { ReviewRendering.panel(request(waiting), waiting: true) },
             .init("card-request-lid-closed", width) { ReviewRendering.panel(request(waiting), lidClosed: true, approvesElsewhere: true) },

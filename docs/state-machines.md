@@ -42,7 +42,7 @@ What must always be true:
 - **The practice card appears only after Send Practice Request**, and answers only the request it was opened for: the card's backend takes the id when he clicks, so a Touch ID that lands late cannot answer a newer request. When the lid is closed or Touch ID has no fingerprint, step 1 says so and Send Practice Request is off.
 - **Connect an agent has no waiting line.** The app cannot know that he pasted the note anywhere. The page says what to expect, and then shows the outcome of the first real request.
 - **Only Show Passwords finishes first run.** Quitting on Ready opens on Ready.
-- **A restart never strands him.** Every state resumes as saved, except that a practice request left waiting becomes notSent, so nothing appears beside the window by itself. A state saved by an earlier build (its journey of chosen devices) starts first run again at Welcome; a Mac that finished first run before it was saved at all opens as finished.
+- **A restart never strands him.** Every state resumes as saved, except that a practice request left waiting becomes notSent, so nothing appears beside the window by itself. An earlier build saved first run as one enum: its finished opens as finished, and anything else (its journey of chosen devices) starts first run again at Welcome. A Mac that finished first run before it was saved at all opens as finished.
 - **The request card never covers the window that explains it.** It goes to the right of Agent Keyring's window, else to its left, else the window moves to the screen's left edge (`RequestPanel.frame`).
 - **A fresh container is a new install.** On its first launch the app deletes what an earlier install left in the keychain and keeps this Mac's keys (`MirrorAppModel.forgetPreviousInstall`).
 - **There is always exactly one test password**, and a copy from Passwords replaces the list one entry for one entry (`SnapshotMerger`), keeping each entry's id and so its rule.
@@ -58,13 +58,13 @@ Add your iPhone, in order of what wins:
 | State | When |
 |---|---|
 | noTailscale / doorProblem | the door is not open: no Tailscale address, or a port would not open. Check Again reads the address now. |
-| copying(name, done, total) | an iPhone not listed when the sheet opened is being given its copies |
+| copying(name, done, total) | an iPhone (not an Apple Watch) not listed when the sheet opened is being given its copies |
 | stopped(name, done, total, reason) | its copies stopped; `filling` keeps the reason for 30 seconds, then the iPhone shows as added. Adding the rest needs it removed and added again. |
 | added(name) | an iPhone not listed when the sheet opened is in the members list |
 | joinAsked(name) | an iPhone's join is waiting: the card is beside the window |
 | waiting(notAdded) | otherwise; `notAdded` names an iPhone refused, withdrawn or run out since the sheet opened |
 
-Add another computer: noTailscale or doorProblem as above; otherwise the sheet's invitation (`MacDevice.machineInvite`, ten minutes, one joiner) decides: withdrawn if two computers proved it; then the join it admitted, as joinAsked, added, notAdded (refused) or expired; with no join, expired once its time passes (the sheet is drawn again at that moment) and otherwise the invite with its time. Create New Invite makes a new invitation. The command is not shown, only copied (Copy Prompt for Agent, Copy Command): its invitation is one word of about 250 characters, which the page parts cannot wrap without splitting it.
+Add another computer: noTailscale or doorProblem as above; starting while its invitation is not made yet (the door is still opening); otherwise the sheet's invitation (`MacDevice.machineInvite`, ten minutes, one joiner) decides: withdrawn if two computers proved it; then the join it admitted, as joinAsked, added, notAdded (refused) or expired; with no join, expired once its time passes (the sheet is drawn again at that moment) and otherwise the invite with its time. Create New Invite makes a new invitation. The command is not shown, only copied (Copy Prompt for Agent, Copy Command): its invitation is one word of about 250 characters, which the page parts cannot wrap without splitting it.
 
 ### Adding a device, after Touch ID
 
@@ -101,7 +101,7 @@ Found and fixed (tests in `FirstRunTests`):
 - **A late timer.** The five-minute timer moves the copy on only from `waiting`, so it cannot fire after the passwords arrived.
 - **Adding his iPhone froze the Mac for about two minutes** (20 Nov): the iPhone is now added first and its copies follow off the main thread, with progress.
 - **A practice approval moved first run by itself** from inside the Touch ID check; a late touch could answer a newer request. Now the card's backend sends the answer for the id it was opened with (`lateAnswer`).
-- **"Not Now" took the iPhone's copies away** (found 21 Nov, reading the code). A copy from Passwords deleted the other devices' copies of every password it brought, while the signed catalogue still named their old versions, and the iPhone replaces its copies with what its bundle holds. Now the other devices' copies of the versions the signed catalogue names are kept until the catalogue is signed again, and pruned then (`MacDevice.publish`).
+- **"Not Now" took the iPhone's copies away** (found 21 Nov, reading the code). A copy from Passwords deleted the other devices' copies of every password it brought, while the signed catalogue still named their old versions, and the iPhone replaces its copies with what its bundle holds. Now the other devices' copies of the versions the signed catalogue names are kept until the catalogue is signed again, and pruned then (`MacDevice.publish`). This Mac's own copies, and its own Automatic ones, are always the newest (`theIPhoneKeepsItsCopiesUntilTheChangesAreSent`).
 
 ### Sending changes to the other devices
 
@@ -235,7 +235,7 @@ What must always be true:
 - **A Deny clicked while the dialog is up wins.** The dialog's own end changes `Local` only while it is still `authenticating` or `sending(approve)`.
 - **A touch that lands after another device answered releases nothing.** The lease store approves only a pending lease.
 
-Since 21 November the card is the page parts' `KeyringApprovalCard` (`MacApprovalPanelView`, written by AI with claude opus 5.5): an agent's request, the practice request, an iPhone or Apple Watch asking to join, a computer asking to join (with "Optional note if you deny"). The green button takes the card's full width and reads "Click to approve with Touch ID" (or Apple Watch); while macOS's dialog is up it reads "Use Touch ID to approve" and is off. With the lid shut it is off and says where the request can still be answered, with the reason under the card.
+Since 21 November the card is the page parts' `KeyringApprovalCard` (`MacApprovalPanelView`, written by AI with claude opus 5.5): an agent's request, the practice request, a request from another computer, an iPhone or Apple Watch asking to join (Deny as red words under the green button, with no reply box), a computer asking to join (with "Optional note if you deny" beside a red Deny). The green button takes the card's full width and reads "Click to approve with Touch ID" (or Apple Watch); while macOS's dialog is up it reads "Use Touch ID to approve" and is off. With the lid shut it is off and says where the request can still be answered, with the reason under the card.
 
 The presenter puts up one panel at a time, as one value: idle, showing an item, or closing an item (the outcome stays 2.5 seconds, a denial 10; the practice request goes at once, since first run's window says what happened). The practice item is shown only while first run's practice waits (`FirstRun.waitingPractice`) or Devices sent one to this Mac. It always shows the first waiting item it can build; one whose request has gone is skipped, never left half-shown.
 

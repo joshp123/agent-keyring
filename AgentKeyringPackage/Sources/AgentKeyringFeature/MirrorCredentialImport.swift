@@ -40,6 +40,7 @@ extension MirrorAppModel {
     /// passwords that arrived first have already moved it on, so the late timer changes nothing.
     public func openPasswordsExport() {
         if passwordsCopy == nil { copyGuideStep = 1 }
+        problem = nil
         passwordsCopy = .waiting
         exportTimeout?.cancel()
         exportTimeout = Task { [weak self] in
@@ -189,10 +190,11 @@ extension MirrorAppModel {
             let arrived = Set(importBatch.items.map(\.sourceIdentity))
             let fresh = generation.items.filter { arrived.contains($0.sourceIdentity) }
             let kept = Set(generation.items.filter { !arrived.contains($0.sourceIdentity) }.map(\.id.uuidString))
-            let own = try macKeys().deviceKeyID
+            let keys = try macKeys()
+            let own: Set<String> = [keys.deviceKeyID, keys.machineID] // This Mac's own copies, and its Automatic ones.
             let signed = Dictionary((device?.catalogue?.logins ?? []).map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
             var sealed = try await store.sealed().filter { copy in
-                kept.contains(copy.loginID) || (copy.openerID != own && signed[copy.loginID] == copy.version)
+                kept.contains(copy.loginID) || (!own.contains(copy.openerID) && signed[copy.loginID] == copy.version)
             }
             let version = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
             for item in fresh {

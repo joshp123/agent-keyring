@@ -60,7 +60,6 @@ public enum SetupCopy {
     }
     public static func added(_ name: String) -> String { "\(name) added" }
     public static let addedPhoneDetail = "It can approve password requests with Face ID."
-    public static let addedWatchDetail = "It can approve password requests with one tap on your wrist."
     public static func addedComputerDetail(_ name: String) -> String { "Agents on \(name) can now ask you for passwords." }
     public static func notAdded(_ name: String) -> String { "\(name) wasn’t added." }
 }

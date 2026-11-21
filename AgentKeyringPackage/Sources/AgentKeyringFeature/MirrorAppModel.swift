@@ -123,12 +123,15 @@ public final class MirrorAppModel {
     static let firstRunKey = "firstRun"
     static let firstRunFinishedKey = "firstRunFinished"
 
-    /// The saved state, resumed. A Mac that finished first run before it was
-    /// saved this way is never stuck; a state an earlier build saved (its
-    /// journey of devices) starts first run again at Welcome.
+    /// The saved state, resumed. An earlier build saved first run as one enum:
+    /// its finished stays finished, and anything else (its journey of devices)
+    /// starts first run again at Welcome. A Mac that finished before first run
+    /// was saved at all is never stuck.
     static func savedFirstRun(_ settings: UserDefaults) -> FirstRun {
         if let data = settings.data(forKey: firstRunKey) {
-            return (try? JSONDecoder().decode(FirstRun.self, from: data))?.restored ?? .welcome
+            if let saved = try? JSONDecoder().decode(FirstRun.self, from: data) { return saved.restored }
+            let earlier = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            return earlier?["finished"] != nil ? .finished : .welcome
         }
         return settings.bool(forKey: firstRunFinishedKey) || settings.object(forKey: testedAtKey) != nil ? .finished : .welcome
     }

@@ -113,7 +113,8 @@ public enum SetupScreens {
         let device = model.device
         if case let .some(problem) = doorProblem(device) { return problem.map(MacAddIPhoneSheet.State.doorProblem) ?? .noTailscale }
         guard let device else { return .noTailscale }
-        if let filling = device.filling, !known.contains(filling.deviceKeyID) {
+        let listed = Dictionary((device.members?.devices ?? []).map { ($0.keyID, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        if let filling = device.filling, listed[filling.deviceKeyID] == .iphone, !known.contains(filling.deviceKeyID) {
             if let failure = filling.failure {
                 return .stopped(name: filling.label, done: filling.done, total: filling.total, reason: failure)
             }
@@ -137,7 +138,8 @@ public enum SetupScreens {
     public static func addComputer(_ model: MirrorAppModel, invite: MacDevice.MachineInvite?, now: Date) -> MacAddComputerSheet.State {
         let device = model.device
         if case let .some(problem) = doorProblem(device) { return problem.map(MacAddComputerSheet.State.doorProblem) ?? .noTailscale }
-        guard let device, let invite else { return .noTailscale }
+        guard let device else { return .noTailscale }
+        guard let invite else { return .starting }
         let joins = device.joinHistory.filter { $0.joiner == .computer && $0.secret == invite.secret }
         if joins.contains(where: { $0.state == .withdrawn }) { return .withdrawn }
         if let join = joins.first {

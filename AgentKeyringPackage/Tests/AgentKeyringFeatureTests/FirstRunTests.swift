@@ -81,7 +81,9 @@ struct FirstRunTests {
         #expect(MirrorAppModel.savedFirstRun(settings) == FirstRun(step: .ready, practice: .approved))
         settings.set(try? JSONEncoder().encode(FirstRun(step: .practice, practice: .waiting(id: UUID()))), forKey: MirrorAppModel.firstRunKey)
         #expect(MirrorAppModel.savedFirstRun(settings) == FirstRun(step: .practice))
-        // An earlier build's journey of devices: first run starts again.
+        // An earlier build's finished first run stays finished; its journey of devices starts again.
+        settings.set(Data(#"{"finished":{}}"#.utf8), forKey: MirrorAppModel.firstRunKey)
+        #expect(MirrorAppModel.savedFirstRun(settings) == .finished)
         settings.set(Data(#"{"journey":{"_0":{"iPhone":true,"watch":true,"computers":false},"_1":{"addWatch":{}}}}"#.utf8), forKey: MirrorAppModel.firstRunKey)
         #expect(MirrorAppModel.savedFirstRun(settings) == .welcome)
         // A Mac that finished before first run was saved at all.

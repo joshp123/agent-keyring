@@ -94,6 +94,8 @@ public struct MacAddComputerSheet: View {
     public enum State: Equatable, Sendable {
         case noTailscale
         case doorProblem(String)
+        /// This Mac is starting to listen for computers; the invite follows in a moment.
+        case starting
         /// The command with its one-time invite, and when the invite runs out (as a time of day).
         case invite(command: String, until: String)
         /// A computer used the invite: the card is beside the window.
@@ -139,7 +141,7 @@ public struct MacAddComputerSheet: View {
                 KeyringHint(symbol: "touchid", DeviceSheetCopy.approveBeside(name))
             case let .added(name):
                 KeyringConfirmation(SetupCopy.added(name), detail: SetupCopy.addedComputerDetail(name))
-            case .noTailscale, .doorProblem, .notAdded, .expired, .withdrawn:
+            case .noTailscale, .doorProblem, .starting, .notAdded, .expired, .withdrawn:
                 EmptyView()
             }
         }
@@ -156,7 +158,7 @@ public struct MacAddComputerSheet: View {
         switch state {
         case .noTailscale: .problem(DeviceSheetCopy.computerNoTailscale)
         case let .doorProblem(reason): .problem(reason)
-        case .invite, .added, .joinAsked: nil
+        case .invite, .added, .joinAsked, .starting: nil
         case let .notAdded(name): .problem(SetupCopy.notAdded(name))
         case .expired: .problem(DeviceSheetCopy.expired)
         case .withdrawn: .problem(DeviceSheetCopy.withdrawn)
@@ -168,14 +170,14 @@ public struct MacAddComputerSheet: View {
         case .noTailscale, .doorProblem: .plain(DeviceSheetCopy.checkAgain, perform: actions.checkAgain)
         case .notAdded, .expired, .withdrawn: .advance(DeviceSheetCopy.createNewInvite, perform: actions.newInvite)
         case .added: .advance(DeviceSheetCopy.done, perform: actions.close)
-        case .invite, .joinAsked: .plain(DeviceSheetCopy.done, perform: actions.close)
+        case .invite, .joinAsked, .starting: .plain(DeviceSheetCopy.done, perform: actions.close)
         }
     }
 
     private var secondary: KeyringAction? {
         switch state {
         case .noTailscale, .doorProblem, .notAdded, .expired, .withdrawn: .plain(FirstRunCopy.cancel, perform: actions.close)
-        case .invite, .joinAsked, .added: nil
+        case .invite, .joinAsked, .added, .starting: nil
         }
     }
 }
