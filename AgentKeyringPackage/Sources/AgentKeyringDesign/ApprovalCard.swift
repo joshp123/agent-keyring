@@ -86,10 +86,14 @@ public struct KeyringApprovalCard: View {
         #if os(macOS)
         if let reply {
             HStack(spacing: KeyringSpace.s2) {
-                TextField("", text: reply, prompt: Text(replyPrompt), axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .multilineTextAlignment(.leading)
-                    .font(KeyringTextRole.body.font)
+                ZStack(alignment: .leading) {
+                    KeyringPrompt(replyPrompt, showing: reply.wrappedValue.isEmpty)
+                    TextField("", text: reply, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.leading)
+                        .font(KeyringTextRole.body.font)
+                        .accessibilityLabel(replyPrompt)
+                }
                     .padding(.horizontal, KeyringSpace.s4).padding(.vertical, KeyringSpace.s2)
                     .frame(minHeight: 36)
                     .background(KeyringPalette.fill, in: .capsule)

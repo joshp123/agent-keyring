@@ -93,6 +93,6 @@ The `AgentKeyringDesignChecks` scheme builds only the parts, `AgentKeyringApprov
 
 ## What the check cannot see
 
-- **Words handed to native APIs as plain strings.** These include `navigationTitle`, toolbar items, alerts, `Picker` segments, `TextField` placeholders and `Section` headers given as strings. Pass a `KeyringText` where the API takes a view; otherwise keep the words short.
+- **Words handed to native APIs as plain strings.** These include `navigationTitle`, toolbar items, alerts, `Picker` segments and `Section` headers given as strings. (The reply boxes draw their own prompts for this reason: a text field's placeholder was cut off at large text and the check could not see it.) Pass a `KeyringText` where the API takes a view; otherwise keep the words short.
 - **Rows of a lazy `List` that are off screen.** They are never laid out, so give the gallery entry a size that shows every row.
 - **Apple's own audit as a second layer.** `performAccessibilityAudit(for: .textClipped)` works on iPhone and caught a deliberately cut-off label and button. It needs a UI-test target with an app that shows the pages, which this repository does not have yet. On the Watch it reported nothing, even for a deliberately cut-off label. Apple does not offer it for macOS.
