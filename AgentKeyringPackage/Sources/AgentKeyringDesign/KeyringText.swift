@@ -135,7 +135,7 @@ public struct KeyringText: View {
     public var body: some View {
         switch fit.way {
         case .wraps:
-            line(role.font, words).fixedSize(horizontal: false, vertical: true)
+            line(role.font, Self.breakingAtDots(words)).fixedSize(horizontal: false, vertical: true)
         case .siteName:
             ViewThatFits(in: .horizontal) {
                 line(role.font, words).lineLimit(1)
@@ -163,9 +163,20 @@ public struct KeyringText: View {
         return parsed
     }
 
-    /// A zero-width space after each dot, so a long site wraps at a dot, not mid-word.
-    static func breakingAtDots(_ site: String) -> String {
-        site.replacingOccurrences(of: ".", with: ".\u{200B}")
+    /// A zero-width space after each dot or @ inside a word, so a site or an
+    /// address too long for its line wraps there ("you@ / example.com"), not
+    /// mid-word ("you@exam- / ple.com"). Sentences are untouched: their dots
+    /// are followed by a space.
+    static func breakingAtDots(_ words: String) -> String {
+        var out = ""
+        let characters = Array(words)
+        for (index, character) in characters.enumerated() {
+            out.append(character)
+            if character == "." || character == "@", index + 1 < characters.count, characters[index + 1].isLetter || characters[index + 1].isNumber {
+                out.append("\u{200B}")
+            }
+        }
+        return out
     }
 }
 

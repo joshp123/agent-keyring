@@ -231,7 +231,7 @@ public enum KeyringGallery {
         .init("everyday-list", .phone) {
             List {
                 Section {
-                    ForEach(1...24, id: \.self) { number in
+                    ForEach(2...25, id: \.self) { number in
                         KeyringDeviceRow(symbol: "key", name: "site\(number).example", detail: "you@example.com · asked \(number) times", nameFit: .siteName) {
                             KeyringText(number % 3 == 0 ? "Automatic" : "Ask", as: .meta)
                         }
