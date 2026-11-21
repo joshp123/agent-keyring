@@ -14,7 +14,7 @@ import SwiftUI
 _ = NSApplication.shared
 let out = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/tmp/panel-render")
 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-let request = AccessRequest(id: "r", login: RequestedLogin(site: "example.com", account: "josh@example.com"),
+let request = AccessRequest(id: "r", login: RequestedLogin(site: "example.com", account: "you@example.com"),
     agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: "100.64.0.2", folder: "~/code/bookkeeping", project: "bookkeeping"),
     access: .login, agentReason: "You asked me to download October’s invoice.", askedAt: .now,
     state: .waitingForYou(until: .now.addingTimeInterval(600)))

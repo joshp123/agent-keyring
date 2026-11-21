@@ -385,6 +385,87 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 		wait(t, keeper, "the other lease")
 	})
 
+	t.Run("shown on the Mac too, approved there with Touch ID, and the agent reads the password", func(t *testing.T) {
+		asking := start(ask("login-ask", "on-the-mac"))
+		out := w.device("mac-answer", "--approve")
+		match := requestLine.FindStringSubmatch(out)
+		if match == nil || !strings.Contains(out, " on Linux server wants login-ask") || !strings.Contains(out, "The door says: LEASE_STATE_APPROVED by Test Mac") {
+			t.Fatalf("the Mac's approval: %s", out)
+		}
+		id := match[1]
+		if got := wait(t, asking, "lease"); got.err != nil || strings.TrimSpace(got.stdout) != id {
+			t.Fatalf("lease: %v %q, want %s\n%s", got.err, got.stdout, id, got.stderr)
+		}
+		if read := linux.run("read", id, "--field", "password"); read.err != nil || read.stdout != "example-ask-password" {
+			t.Fatalf("read: %v\n%s", read.err, read.stderr)
+		}
+		if out := w.device("outcome", "--device", "iphone", "--request", id); !strings.Contains(out, "Outcome: LEASE_STATE_APPROVED by Test Mac") {
+			t.Fatalf("the iPhone was not told the Mac approved it: %s", out)
+		}
+		linux.run("release", id)
+	})
+
+	t.Run("the iPhone answers first: the Mac's late answer is told the outcome, and the Mac hears it", func(t *testing.T) {
+		asking := start(ask("login-ask", "iphone-before-mac"))
+		id := w.answer("--device", "iphone", "--approve")
+		if got := wait(t, asking, "lease"); got.err != nil {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		if out := w.device("mac-outcome", "--request", id); !strings.Contains(out, "Outcome: LEASE_STATE_APPROVED by Test iPhone") {
+			t.Fatalf("the Mac was not told how it ended: %s", out)
+		}
+		keeper := start(ask("login-other", "keeps-the-door-for-the-mac")) // Holds the door for the Mac's late answer.
+		if out := w.device("mac-answer", "--request", id, "--deny", "No."); !strings.Contains(out, "The door says: LEASE_STATE_APPROVED by Test iPhone") {
+			t.Fatalf("the Mac's late answer was not told the first won: %s", out)
+		}
+		if read := linux.run("read", id, "--field", "password"); read.err != nil || read.stdout != "example-ask-password" {
+			t.Fatalf("read after the Mac's late denial: %v\n%s", read.err, read.stderr)
+		}
+		linux.run("release", linux.waiting(t, "login-other", "keeps-the-door-for-the-mac"))
+		wait(t, keeper, "the other lease")
+		linux.run("release", id)
+	})
+
+	t.Run("Stop after the agent's command exited is left at the Mac, and the next read is refused with who stopped it", func(t *testing.T) {
+		asking := start(ask("login-ask", "stop-at-the-mac"))
+		id := w.answer("--device", "iphone", "--approve")
+		if got := wait(t, asking, "lease"); got.err != nil {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		if linux.doorHeld() {
+			t.Fatal("something still holds this computer's door")
+		}
+		if out := w.device("stop", "--device", "iphone", "--request", id, "--door-retry", "1s"); !strings.Contains(out, "Left the Stop at the Mac.") {
+			t.Fatalf("stop: %s", out)
+		}
+		if read := linux.run("read", id, "--field", "password"); read.err == nil || read.stdout != "" || !strings.Contains(read.stderr, "Josh stopped it on Test iPhone") {
+			t.Fatalf("a Stop left at the Mac still delivered: %v %q\n%s", read.err, read.stdout, read.stderr)
+		}
+		if status := linux.run("status", id); !strings.Contains(status.stdout, id+": ended: Josh stopped it on Test iPhone") {
+			t.Fatalf("want Josh's Stop, got %q %v", status.stdout, status.err)
+		}
+		if logs := linux.run("logs", "--request", id); !strings.Contains(logs.stdout, "stopped id="+id+` by="Test iPhone" via=mac`) {
+			t.Fatalf("logs: %v\n%s%s", logs.err, logs.stdout, logs.stderr)
+		}
+	})
+
+	t.Run("with the Mac shut, a read goes ahead and the log says the Stop was not asked for", func(t *testing.T) {
+		asking := start(ask("login-ask", "read-mac-shut"))
+		id := w.answer("--device", "iphone", "--approve")
+		if got := wait(t, asking, "lease"); got.err != nil {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		w.stopMac()
+		defer func() { w.macLog, w.stopMac = w.background("mac") }()
+		if read := linux.run("read", id, "--field", "password"); read.err != nil || read.stdout != "example-ask-password" {
+			t.Fatalf("read with the Mac shut: %v\n%s", read.err, read.stderr)
+		}
+		if logs := linux.run("logs", "--request", id); !strings.Contains(logs.stdout, "used without asking the Mac for a Stop id="+id) {
+			t.Fatalf("logs: %v\n%s%s", logs.err, logs.stdout, logs.stderr)
+		}
+		linux.run("release", id)
+	})
+
 	t.Run("two agents wait on one computer; the door's holder is answered and exits, and the other is still answered", func(t *testing.T) {
 		before := w.visiblePushes("iphone")
 		first := start(ask("login-ask", "two-a"))
