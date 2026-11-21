@@ -45,7 +45,8 @@ public final class AppMainWindowBackend: MainWindowBackend {
         // The Mac pushes a practice request itself: its door must be open and it must hold the push key.
         let canPush: Bool = if case .open = device?.door, device?.hasPushKey == true { true } else { false }
         let thisMac = ApproverRow(id: own, kind: .thisMac, name: thisMacName, practice: practice(own, here: true),
-            canPractise: model.practiceResults[own] != .sent)
+            // The practice card appears only while Touch ID can be used (the lid open, a fingerprint added).
+            canPractise: model.practiceResults[own] != .sent && MacApprover.shared.state == .ready)
         return [thisMac] + devices.filter { $0.keyID != own && ($0.kind == .iphone || $0.kind == .watch) }.map { member in
             let practice = practice(member.keyID, here: false)
             return ApproverRow(id: member.keyID, kind: member.kind == .watch ? .watch : .iPhone, name: member.label, practice: practice,

@@ -100,7 +100,7 @@ enum MacEverydayGallery {
 private enum Sample {
     static let menuWidth: CGFloat = 360
     static let macName = "Research Team MacBook Pro"
-    static let longSite = "accounts.longcompany-example.co.uk"
+    static let longSite = "accounts.longcompany-example.example"
     static let longAgent = "Research Assistant for Bookkeeping"
     static let longReason = "You asked me to download October’s invoice from the billing page and attach it to the expenses report."
     static let copiedOn = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 11, day: 20))
