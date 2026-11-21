@@ -90,13 +90,13 @@ struct MacApprovalPanelView: View {
             KeyringApprovalCard(lead: words.lead, subject: request.login.site, detail: words.detail,
                                 reason: words.reason.flatMap { $0.isEmpty ? nil : $0 }, explanation: words.explanation,
                                 reply: words.replies ? $model.replyDraft : nil, replyPrompt: words.replyPrompt,
-                                approve: approve,
+                                approve: model.lidClosed ? nil : approve,
+                                inPlaceOfApprove: model.approvesElsewhere ? AccessRequestCopy.approveElsewhere : AccessRequestCopy.openTheLid,
                                 deny: KeyringAction(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny,
                                                     words.replies ? .deny : .denyLink, isEnabled: sending == nil) {
                                     Task { await model.deny() }
                                 },
                                 footer: words.footer, header: SetupCopy.appName)
-            if model.lidClosed { KeyringStatusLine(.problem(AccessRequestCopy.lidClosed)) }
             if let failure = model.failure { KeyringStatusLine(.problem(failure)) }
         }
     }
@@ -111,10 +111,8 @@ struct MacApprovalPanelView: View {
 
     /// One green button, the card's full width. Clicking it opens macOS's
     /// Touch ID or Apple Watch dialog; while that is up, it says what to do.
+    /// With the lid shut there is none: the card says why in its place.
     private var approve: KeyringAction {
-        if model.lidClosed {
-            return .approve(model.approvesElsewhere ? AccessRequestCopy.approveElsewhere : AccessRequestCopy.openTheLid, isEnabled: false) {}
-        }
         if sending == .approve { return .approve(AccessRequestCopy.approving, isEnabled: false) {} }
         let waiting = model.isWaitingForTouch
         let title = switch approver {

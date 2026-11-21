@@ -18,9 +18,7 @@ public struct MacPasswordsTab: View {
     public init(model: MacMainModel) { self.model = model }
 
     public var body: some View {
-        // The bands above and below the table set their own margins from the
-        // tokens: no part draws an everyday window's top band and bottom bar yet.
-        VStack(spacing: 0) {
+        KeyringPane {
             HStack(alignment: .top, spacing: KeyringSpace.s4) {
                 // One line for each rule, as on the iPhone.
                 VStack(alignment: .leading, spacing: KeyringSpace.s1) {
@@ -29,19 +27,15 @@ public struct MacPasswordsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 KeyringButton(.plain(MainWindowCopy.sortWithAI) { sorting = true })
             }
-            .padding([.horizontal, .top], KeyringSpace.s5)
-            HStack {
-                Picker(MainWindowCopy.all, selection: $model.filter) {
-                    Text(MainWindowCopy.filter(MainWindowCopy.all, model.count(nil))).tag(LoginRule?.none)
-                    ForEach(LoginRule.allCases, id: \.self) { Text(MainWindowCopy.filter($0.name, model.count($0))).tag(LoginRule?.some($0)) }
-                }
-                .pickerStyle(.segmented).labelsHidden().fixedSize()
-                Spacer(minLength: 0)
+            Picker(MainWindowCopy.all, selection: $model.filter) {
+                Text(MainWindowCopy.filter(MainWindowCopy.all, model.count(nil))).tag(LoginRule?.none)
+                ForEach(LoginRule.allCases, id: \.self) { Text(MainWindowCopy.filter($0.name, model.count($0))).tag(LoginRule?.some($0)) }
             }
-            .padding(KeyringSpace.s5)
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+        } content: {
             table
-            Divider()
-            footer.padding(.horizontal, KeyringSpace.s5).padding(.vertical, KeyringSpace.s3)
+        } bottom: {
+            footer
         }
         .searchable(text: $model.search, placement: .toolbar, prompt: Text(MainWindowCopy.search(model.snapshot.logins.count)))
         .sheet(isPresented: $sorting) {
@@ -60,7 +54,7 @@ public struct MacPasswordsTab: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .firstTextBaseline, spacing: KeyringSpace.s2) {
                         KeyringText(row.site, as: .heading)
-                        if row.isTestPassword { KeyringText(MainWindowCopy.testPassword, as: .caption) }
+                        if row.isTestPassword { KeyringTag(MainWindowCopy.testPassword) }
                     }
                     KeyringText(row.account, as: .meta)
                 }
@@ -83,16 +77,14 @@ public struct MacPasswordsTab: View {
     }
 
     @ViewBuilder private var footer: some View {
-        HStack(spacing: KeyringSpace.s3) {
-            if model.pending.isEmpty {
-                KeyringText(imported, as: .meta).frame(maxWidth: .infinity, alignment: .leading)
-                KeyringButton(.plain(model.snapshot.sampleOnly ? MainWindowCopy.copyFromPasswords : MainWindowCopy.copyAgain, perform: model.importAgain))
-            } else {
-                KeyringText(model.pendingSentence, as: .body).frame(maxWidth: .infinity, alignment: .leading)
-                KeyringButton(.plain(MainWindowCopy.cancel, perform: model.cancelChanges))
-                KeyringButton(.approve(model.isWorking ? MainWindowCopy.useTouchIDToSave : MainWindowCopy.saveWithTouchID,
-                    isEnabled: !model.isWorking, perform: model.save))
-            }
+        if model.pending.isEmpty {
+            KeyringText(imported, as: .meta).frame(maxWidth: .infinity, alignment: .leading)
+            KeyringButton(.plain(model.snapshot.sampleOnly ? MainWindowCopy.copyFromPasswords : MainWindowCopy.copyAgain, perform: model.importAgain))
+        } else {
+            KeyringText(model.pendingSentence, as: .body).frame(maxWidth: .infinity, alignment: .leading)
+            KeyringButton(.plain(MainWindowCopy.cancel, perform: model.cancelChanges))
+            KeyringButton(.approve(model.isWorking ? MainWindowCopy.useTouchIDToSave : MainWindowCopy.saveWithTouchID,
+                isEnabled: !model.isWorking, perform: model.save))
         }
     }
 

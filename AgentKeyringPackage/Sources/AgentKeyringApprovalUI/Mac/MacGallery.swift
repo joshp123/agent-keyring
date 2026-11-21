@@ -127,7 +127,7 @@ enum MacGallery {
     }
 
     private static func question(_ changes: (Int, Int, Int)) -> some View {
-        MacQuestionPanelView(title: SetupCopy.sendChangesTitle(changes.0 + changes.1 + changes.2),
+        MacQuestionPanelView(lead: SetupCopy.sendChangesLead, title: SetupCopy.sendChangesTitle(changes.0 + changes.1 + changes.2),
                              message: SetupCopy.sendChangesBody(added: changes.0, changed: changes.1, removed: changes.2),
                              approval: OwnerApproval(action: SetupCopy.allow.lowercased(), reason: SetupCopy.sendChangesReason,
                                                      perform: { _ in }, finish: { _ in }))
@@ -165,9 +165,14 @@ enum MacGallery {
                 ReviewRendering.panel(join(SetupCopy.addComputerLead, computer, SetupCopy.addComputerBody, replies: true,
                                            state: .denied(by: .mac, reply: nil, askAgainAfter: nil)))
             },
-            .init("question-send-changes", .macPanel(width: 380)) { question((1_212, 24, 13)) },
-            .init("question-send-changes-removed-only", .macPanel(width: 380)) { question((0, 0, 2)) },
-            .init("question-send-changes-one", .macPanel(width: 380)) { question((0, 1, 0)) },
+            .init("question-send-changes", width) { question((1_212, 24, 13)) },
+            .init("question-send-changes-removed-only", width) { question((0, 0, 2)) },
+            .init("question-send-changes-one", width) { question((0, 1, 0)) },
+            .init("question-automatic-copies", width) {
+                MacQuestionPanelView(lead: SetupCopy.automaticCopiesLead, title: SetupCopy.automaticCopiesTitle, message: SetupCopy.automaticCopiesBody,
+                                     approval: OwnerApproval(action: SetupCopy.allow.lowercased(), reason: SetupCopy.automaticCopiesReason,
+                                                             perform: { _ in }, finish: { _ in }))
+            },
         ]
     }
 }

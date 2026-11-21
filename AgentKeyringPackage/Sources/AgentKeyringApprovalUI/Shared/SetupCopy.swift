@@ -13,8 +13,6 @@ public enum SetupCopy {
     public static let appName = "Agent Keyring"
     public static let ok = "OK"
     public static let tryAgain = "Try again"
-    /// The approve button outside the request panel.
-    public static func touchIDTo(_ action: String) -> String { "Touch ID or Apple Watch to \(action)" }
     /// Under a joining device's name in the menu bar.
     public static func joiningDetail(_ enrolment: DeviceEnrolment) -> String {
         enrolment.kind == .machine ? "Wants its agents to ask for your passwords" : "Wants to approve requests"
@@ -23,6 +21,7 @@ public enum SetupCopy {
     public static let notNow = "Not Now"
     public static let allow = "Allow"
     /// A password set to Automatic on the iPhone: the computers get their copies only after Touch ID here.
+    public static let automaticCopiesLead = "Changed on your iPhone"
     public static let automaticCopiesTitle = "Let your computers use the passwords you set to Automatic on your iPhone?"
     public static let automaticCopiesBody = "Agents on those computers keep asking for them until you allow this."
     public static let automaticCopiesReason = "let your computers use the passwords you set to Automatic"
@@ -38,8 +37,9 @@ public enum SetupCopy {
         let what = added == 0 && changed == 0
             ? "You removed \(removed == 1 ? "1 password" : "\(removed.formatted()) passwords") from the Passwords app."
             : "You copied \(MainWindowCopy.list(counts.compactMap { $0 })) \(added + changed + removed == 1 ? "password" : "passwords") from the Passwords app."
-        return what + " Confirm with Touch ID to update your other devices. If you choose Not Now, they keep your previous list until you update them."
+        return what + " Confirm with Touch ID to update your other devices. If you choose Not Now, you can send them later from Devices."
     }
+    public static let sendChangesLead = "Your other devices still have your previous list"
     /// After "Agent Keyring is trying to" in macOS's dialog.
     public static let sendChangesReason = "send your password changes to your other devices"
 

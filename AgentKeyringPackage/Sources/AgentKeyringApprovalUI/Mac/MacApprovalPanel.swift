@@ -212,30 +212,6 @@ func canAsk(_ context: LAContext, _ policy: LAPolicy) -> Bool {
     return context.canEvaluatePolicy(policy, error: nil)
 }
 
-/// The approve button outside the request panel: a click starts macOS's own
-/// Touch ID or Watch dialog, the same route the request panel uses. Built
-/// from the parts, so the cut-off check covers it.
-public struct TouchIDButton: View {
-    let action: String
-    let isWaiting: Bool
-    let start: () -> Void
-
-    /// `action` finishes "Touch ID or Apple Watch to …", read out as the button's hint.
-    public init(action: String, isWaiting: Bool, start: @escaping () -> Void) {
-        self.action = action
-        self.isWaiting = isWaiting
-        self.start = start
-    }
-
-    public var body: some View {
-        let touchID = ownerApprovalSymbol() == "touchid"
-        let title = isWaiting ? (touchID ? AccessRequestCopy.useTouchID : AccessRequestCopy.useWatch)
-            : (touchID ? AccessRequestCopy.clickForTouchID : AccessRequestCopy.clickForWatch)
-        KeyringButton(.approve(title, isEnabled: !isWaiting, perform: start))
-            .accessibilityHint(SetupCopy.touchIDTo(action))
-    }
-}
-
 /// Hosts the panel beside the window Josh is working in (see
 /// ApprovalPanelPlacement). Non-activating: the app Josh is typing in keeps focus until
 /// he clicks the panel.

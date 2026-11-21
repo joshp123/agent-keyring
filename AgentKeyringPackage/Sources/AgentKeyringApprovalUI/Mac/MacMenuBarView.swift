@@ -140,16 +140,13 @@ public struct MacMenuBarView: View {
     }
 
     public var body: some View {
-        // The one place outside the parts that sets a margin, gaps and a
-        // ground: no part draws an everyday panel yet. When one exists, this
-        // stack, its padding and its background become that part.
-        VStack(alignment: .leading, spacing: KeyringSpace.s3) {
+        KeyringMenuBarWindow {
             header
             if model.snapshot.offline {
                 KeyringHint(symbol: "wifi.slash", MenuBarCopy.offlineNotice, tone: .stalled)
             }
             if model.waitingCount > 0 {
-                section(MenuBarCopy.waitingForYou) {
+                KeyringSection(MenuBarCopy.waitingForYou) {
                     ForEach(model.snapshot.enrolments) { enrolment in
                         KeyringDeviceRow(symbol: enrolment.kind == .machine ? "desktopcomputer" : "iphone", name: enrolment.name,
                                          detail: SetupCopy.joiningDetail(enrolment)) {
@@ -164,7 +161,7 @@ public struct MacMenuBarView: View {
                 }
             }
             if !model.inUse.isEmpty {
-                section(MenuBarCopy.inUse) {
+                KeyringSection(MenuBarCopy.inUse) {
                     ForEach(model.inUse) { request in
                         // Stop here ends this Mac's own agents' access; another computer's is stopped from the iPhone.
                         KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: MenuBarCopy.inUseDetail(request), nameFit: .siteName) {
@@ -180,7 +177,7 @@ public struct MacMenuBarView: View {
                 KeyringHint(symbol: "tray", MenuBarCopy.nothing, tone: .plain)
             }
             if !model.earlierToday.isEmpty {
-                section(MenuBarCopy.earlierToday) {
+                KeyringSection(MenuBarCopy.earlierToday) {
                     ForEach(model.earlierToday) { request in
                         let outcome = Self.outcome(request)
                         KeyringDeviceRow(symbol: outcome.symbol, name: MenuBarCopy.earlier(request), detail: outcome.word, tone: outcome.tone)
@@ -194,8 +191,6 @@ public struct MacMenuBarView: View {
             }
             footer
         }
-        .padding(KeyringSpace.s4)
-        .background(KeyringPalette.sidebar)
     }
 
     private var header: some View {
@@ -204,15 +199,13 @@ public struct MacMenuBarView: View {
                 .frame(width: KeyringSpace.s6, height: KeyringSpace.s6)
             KeyringText(MenuBarCopy.appName, as: .heading)
             Spacer(minLength: KeyringSpace.s2)
-            KeyringText(model.snapshot.offline ? MenuBarCopy.offline
-                : model.waitingCount > 0 ? MenuBarCopy.waiting(model.waitingCount) : MenuBarCopy.allQuiet, as: .meta)
-        }
-    }
-
-    private func section(_ name: String, @ViewBuilder rows: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: KeyringSpace.s1) {
-            KeyringText(name, as: .sectionName)
-            KeyringRowGroup(content: rows)
+            if model.snapshot.offline {
+                KeyringPill(MenuBarCopy.offline, tone: .offline)
+            } else if model.waitingCount > 0 {
+                KeyringPill(MenuBarCopy.waiting(model.waitingCount), tone: .waiting)
+            } else {
+                KeyringPill(MenuBarCopy.allQuiet, tone: .calm)
+            }
         }
     }
 

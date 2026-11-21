@@ -145,88 +145,51 @@ public final class OwnerApproval: Identifiable {
     }
 }
 
-/// The control in place: "Touch ID or Apple Watch to change this rule", with
-/// Cancel, or what went wrong and Try again.
-public struct OwnerApprovalBar: View {
-    let approval: OwnerApproval
-    let cancelTitle: String
-
-    public init(approval: OwnerApproval, cancelTitle: String = "Cancel") {
-        self.approval = approval
-        self.cancelTitle = cancelTitle
-    }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let note = approval.note {
-                Text(note).font(.callout).fixedSize(horizontal: false, vertical: true)
-            }
-            controls
-        }
-        .padding(12)
-        .background(KeyringColour.signal.opacity(0.08), in: .rect(cornerRadius: 10))
-        .onDisappear { approval.cancel() }
-    }
-
-    // One above the other: side by side, the green button was cut off at "Click here, then touch the sen…".
-    @ViewBuilder private var controls: some View {
-        if approval.context != nil {
-            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-                TouchIDButton(action: approval.action, isWaiting: approval.isWaiting) { approval.begin() }
-                cancelButton
-            }
-        } else {
-            // Without the control, say what Try again would approve.
-            Text(SetupCopy.touchIDTo(approval.action)).font(.callout.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
-            Text(approval.failure ?? "")
-                .font(.callout)
-                .foregroundStyle(KeyringColour.denyText)
-                .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-                KeyringButton(.approve(SetupCopy.tryAgain) { approval.retry() })
-                cancelButton
-            }
-        }
-    }
-
-    private var cancelButton: some View {
-        KeyringButton(.plain(cancelTitle) { approval.cancel() })
-    }
-}
-
-/// A question that needs Josh's approval and nothing else, in the floating
-/// panel beside his window: connecting the Mac mini, sending imported logins.
+/// A question that needs Josh's approval and nothing else, beside his
+/// window: sending password changes to the other devices, letting the
+/// computers have the passwords set to Automatic on the iPhone. The same
+/// card as a request: the keyhole, the question, what approving does, the
+/// green button the card's full width and Not Now under it. Rebuilt on the
+/// card on 2026.11.21 by model claude opus 5.5.
 public struct MacQuestionPanelView: View {
+    let lead: String
     let title: String
     let message: String
     let approval: OwnerApproval
 
-    public init(title: String, message: String, approval: OwnerApproval) {
+    public init(lead: String, title: String, message: String, approval: OwnerApproval) {
+        self.lead = lead
         self.title = title
         self.message = message
         self.approval = approval
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "key.horizontal.fill").foregroundStyle(KeyringColour.signal)
-                Text(SetupCopy.appName).font(.subheadline.weight(.semibold))
-            }
-            KeyringText(title, as: .heading)
-            KeyringText(message, as: .meta)
-            OwnerApprovalBar(approval: approval, cancelTitle: SetupCopy.notNow)
+        VStack(spacing: KeyringSpace.s3) {
+            KeyringApprovalCard(lead: lead, subject: title, explanation: message, approve: approve,
+                                deny: .plain(SetupCopy.notNow) { approval.cancel() }, header: SetupCopy.appName)
+            if let failure = approval.failure { KeyringStatusLine(.problem(failure)) }
         }
-        .padding(18)
-        .frame(width: 380)
+        .padding(KeyringSpace.s5)
+        .frame(width: MacApprovalPanelView.width)
         .fixedSize(horizontal: false, vertical: true)
+        // No cancel on disappear: the presenter invalidates the approval when it takes the panel down.
+    }
+
+    /// Clicking opens macOS's Touch ID or Apple Watch dialog; while it is up, the button says what to do.
+    /// When neither could be asked, the button asks again.
+    private var approve: KeyringAction {
+        guard approval.context != nil else { return .approve(SetupCopy.tryAgain) { approval.retry() } }
+        let touchID = ownerApprovalSymbol() == "touchid"
+        let title = approval.isWaiting ? (touchID ? AccessRequestCopy.useTouchID : AccessRequestCopy.useWatch)
+            : (touchID ? AccessRequestCopy.clickForTouchID : AccessRequestCopy.clickForWatch)
+        return .approve(title, isEnabled: !approval.isWaiting) { approval.begin() }
     }
 }
 
 extension MacApprovalPanelController {
-    public func show(question title: String, message: String, approval: OwnerApproval) {
-        showPanel(MacQuestionPanelView(title: title, message: message, approval: approval))
+    public func show(question title: String, lead: String, message: String, approval: OwnerApproval) {
+        showPanel(MacQuestionPanelView(lead: lead, title: title, message: message, approval: approval))
     }
 }
 #endif

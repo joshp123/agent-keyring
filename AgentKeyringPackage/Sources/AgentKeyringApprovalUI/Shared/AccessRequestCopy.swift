@@ -22,7 +22,6 @@ public enum AccessRequestCopy {
     /// In place of the green button while the lid is shut.
     public static let openTheLid = "Open the lid to approve"
     public static let approveElsewhere = "Approve on your Apple Watch or iPhone"
-    public static let lidClosed = "With the lid closed, this Mac can’t use Touch ID."
     public static let deny = "Deny"
     public static let denying = "Denying…"
     public static let approving = "Approving…"

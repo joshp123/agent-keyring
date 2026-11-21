@@ -152,10 +152,10 @@ final class ApprovalPresenter {
                 approval.close = { [weak self] in self?.dismiss() }
             case let .question(approval):
                 if item == .automaticCopies {
-                    panel.show(question: SetupCopy.automaticCopiesTitle, message: SetupCopy.automaticCopiesBody, approval: approval)
+                    panel.show(question: SetupCopy.automaticCopiesTitle, lead: SetupCopy.automaticCopiesLead, message: SetupCopy.automaticCopiesBody, approval: approval)
                 } else {
                     let changes = model.unsentChanges
-                    panel.show(question: SetupCopy.sendChangesTitle(changes.total),
+                    panel.show(question: SetupCopy.sendChangesTitle(changes.total), lead: SetupCopy.sendChangesLead,
                         message: SetupCopy.sendChangesBody(added: changes.added, changed: changes.changed, removed: changes.removed), approval: approval)
                 }
             }
