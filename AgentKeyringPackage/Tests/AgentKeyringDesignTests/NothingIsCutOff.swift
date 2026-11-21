@@ -10,6 +10,9 @@
 // beside it in a .txt file.
 
 import AgentKeyringDesign
+#if canImport(AgentKeyringApprovalUI)
+import AgentKeyringApprovalUI
+#endif
 import Foundation
 import ImageIO
 import SwiftUI
@@ -21,6 +24,12 @@ import UniformTypeIdentifiers
     @Test func everyPartFitsAtTheSmallestSize() throws {
         try checkAll(KeyringGallery.parts)
     }
+
+    #if canImport(AgentKeyringApprovalUI)
+    @Test func everyPageFitsAtTheSmallestSize() throws {
+        try checkAll(PageGallery.entries)
+    }
+    #endif
 
     /// The check itself: the green button Josh found cut off at "Click here,
     /// then touch the sen…" (beside Cancel, in the 380-point question panel)
