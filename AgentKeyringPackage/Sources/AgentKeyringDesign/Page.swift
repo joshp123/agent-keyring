@@ -89,7 +89,7 @@ public struct KeyringPage<Content: View>: View {
         }
         .padding(.horizontal, KeyringSize.macPageMargin)
         .padding(.top, KeyringSpace.s8)
-        .padding(.bottom, KeyringSpace.s6)
+        .padding(.bottom, KeyringSpace.s5)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(KeyringPalette.surface)
         #else

@@ -34,6 +34,10 @@ public enum KeyringTextRole: Sendable {
     case code
     /// A button's label.
     case label
+    /// Words inside a picture of another app's screen, such as Apple's dialogs in the export guide.
+    case pictureText
+    /// A title inside such a picture.
+    case pictureTitle
 
     var font: Font {
         #if os(macOS)
@@ -49,6 +53,8 @@ public enum KeyringTextRole: Sendable {
         case .sectionName: .system(size: 11, weight: .semibold)
         case .code: .system(size: 13, design: .monospaced)
         case .label: .system(size: 13, weight: .semibold)
+        case .pictureText: .system(size: 10)
+        case .pictureTitle: .system(size: 11, weight: .semibold)
         }
         #elseif os(watchOS)
         switch self {
@@ -60,6 +66,8 @@ public enum KeyringTextRole: Sendable {
         case .site: .title3.weight(.bold)
         case .code: .footnote.monospaced()
         case .label: .body.weight(.semibold)
+        case .pictureText: .caption2
+        case .pictureTitle: .caption2.weight(.semibold)
         }
         #else
         switch self {
@@ -74,6 +82,8 @@ public enum KeyringTextRole: Sendable {
         case .sectionName: .footnote.weight(.semibold)
         case .code: .callout.monospaced()
         case .label: .body.weight(.semibold)
+        case .pictureText: .caption2
+        case .pictureTitle: .caption.weight(.semibold)
         }
         #endif
     }
@@ -135,7 +145,8 @@ public struct KeyringText: View {
     public var body: some View {
         switch fit.way {
         case .wraps:
-            line(role.font, Self.breakingAtDots(words)).fixedSize(horizontal: false, vertical: true)
+            line(role.font, role == .code ? Self.breakingAnywhere(words) : Self.breakingAtDots(words))
+                .fixedSize(horizontal: false, vertical: true)
         case .siteName:
             ViewThatFits(in: .horizontal) {
                 line(role.font, words).lineLimit(1)
@@ -146,11 +157,11 @@ public struct KeyringText: View {
     }
 
     private func line(_ font: Font, _ shown: String) -> some View {
-        Text(Self.markdown(shown))
+        Text(role == .code ? AttributedString(shown) : Self.markdown(shown))
             .font(font)
             .modifier(Colouring(colour: colour ?? role.colour))
             .textCase(role == .sectionName ? .uppercase : nil)
-            .modifier(Reporting(id: id, label: words, shown: Array(String(Self.markdown(shown).characters)),
+            .modifier(Reporting(id: id, label: words, shown: Array(String((role == .code ? AttributedString(shown) : Self.markdown(shown)).characters)),
                                 mustStayOnOneLine: owner != nil && !buttonFills, audit: audit))
             .reportsPlacement(.init(id: id, kind: .text, label: words, owner: owner), to: audit)
     }
@@ -161,6 +172,12 @@ public struct KeyringText: View {
         else { return AttributedString(words) }
         parsed.link = nil
         return parsed
+    }
+
+    /// A command or link may break between any two characters, as a terminal
+    /// shows it: a 250-character invite is shown whole, never cut.
+    static func breakingAnywhere(_ code: String) -> String {
+        code.map(String.init).joined(separator: "\u{200B}")
     }
 
     /// A zero-width space after each dot or @ inside a word, so a site or an

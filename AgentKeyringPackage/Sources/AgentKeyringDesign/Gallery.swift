@@ -146,6 +146,48 @@ public enum KeyringGallery {
                 KeyringCopyBlock(text: Longest.command, monospaced: true, more: [.plain("Copy Prompt for Agent", perform: none)])
             }
         },
+        .init("passwords-export-pictures", .macPanel(width: 454)) {
+            VStack(spacing: KeyringSpace.s4) {
+                ForEach(1...5, id: \.self) { PasswordsExportPicture(guideStep: $0, earlierVersion: $0 == 4) }
+            }
+            .padding(.vertical, KeyringSpace.s4)
+        },
+        // The tallest guide step (2: alert and sheet) with everything the real page puts round it.
+        .init("setup-window-copy-guide-step-2-worst-case", .macWindow) {
+            KeyringSetupWindow(heading: "Setup on this Mac", steps: steps, mascot: .waiting) {
+                KeyringPage(step: (2, 4), title: "Copy your passwords",
+                            sentence: "Click Open Passwords below, then step through this 5-part guide at your own pace. Copying deletes nothing from Passwords.",
+                            status: .takingLong(Longest.waitedTooLong),
+                            primary: .advance("Open Passwords", perform: none), secondary: .plain("Back", perform: none),
+                            aside: .link("Use Test Password Only", perform: none)) {
+                    VStack(alignment: .leading, spacing: KeyringSpace.s3) {
+                        KeyringText("Guide step 2 of 5", as: .stepMarker)
+                        KeyringStepRow(2, "Click **Continue** on Apple’s notice about passkeys, then **Continue** on **Export Passwords**.")
+                        PasswordsExportPicture(guideStep: 2)
+                        HStack(spacing: KeyringSpace.s2) {
+                            KeyringButton(.plain("Previous", perform: none))
+                            KeyringButton(.plain("Next", perform: none))
+                            Spacer(minLength: 0)
+                            KeyringButton(.link("Agent Keyring isn’t in the list?", perform: none))
+                        }
+                    }
+                }
+            }
+        },
+        .init("setup-window-copy-guide-step-4", .macWindow) {
+            KeyringSetupWindow(heading: "Setup on this Mac", steps: steps, mascot: .calm) {
+                KeyringPage(step: (2, 4), title: "Copy your passwords",
+                            sentence: "Click Open Passwords below, then step through this 5-part guide at your own pace. Copying deletes nothing from Passwords.",
+                            status: .takingLong(Longest.waitedTooLong),
+                            primary: .advance("Open Passwords", perform: none), secondary: .plain("Back", perform: none),
+                            aside: .link("Use Test Password Only", perform: none)) {
+                    VStack(alignment: .leading, spacing: KeyringSpace.s3) {
+                        KeyringStepRow(4, "In **Select a Destination**, choose **Agent Keyring** (blue keyhole), then click **Continue**.")
+                        PasswordsExportPicture(guideStep: 4, earlierVersion: true)
+                    }
+                }
+            }
+        },
         .init("status-lines-and-hints", .macPanel(width: KeyringSize.measure)) {
             VStack(alignment: .leading, spacing: KeyringSpace.s4) {
                 KeyringStatusLine(.waiting("Looking for your Mac via iCloud…"))
