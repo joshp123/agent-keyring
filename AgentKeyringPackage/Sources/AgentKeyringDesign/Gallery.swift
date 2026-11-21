@@ -232,7 +232,7 @@ public enum KeyringGallery {
             List {
                 Section {
                     ForEach(1...24, id: \.self) { number in
-                        KeyringDeviceRow(symbol: "key", name: "site\(number).example", detail: "you@example.com · asked \(number) times") {
+                        KeyringDeviceRow(symbol: "key", name: "site\(number).example", detail: "you@example.com · asked \(number) times", nameFit: .siteName) {
                             KeyringText(number % 3 == 0 ? "Automatic" : "Ask", as: .meta)
                         }
                     }

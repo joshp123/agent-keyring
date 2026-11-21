@@ -121,18 +121,22 @@ public struct KeyringDeviceRow<Trailing: View>: View {
     let name: String
     let detail: String?
     let tone: Tone
+    let nameFit: TextFit
     let trailing: Trailing
 
-    public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, @ViewBuilder trailing: () -> Trailing) {
+    /// `nameFit: .siteName` for a website, so a long one wraps at its dots.
+    public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, nameFit: TextFit = .wraps,
+                @ViewBuilder trailing: () -> Trailing) {
         self.symbol = symbol
         self.name = name
+        self.nameFit = nameFit
         self.detail = detail
         self.tone = tone
         self.trailing = trailing()
     }
 
     public var body: some View {
-        TrailingOrBelow {
+        TrailingOrBelow(belowFills: true) {
             HStack(alignment: .firstTextBaseline, spacing: KeyringSpace.s3) {
                 Image(systemName: symbol)
                     .font(KeyringTextRole.heading.font)
@@ -140,12 +144,12 @@ public struct KeyringDeviceRow<Trailing: View>: View {
                     .frame(width: KeyringSpace.s6)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    KeyringText(name, as: .heading)
+                    KeyringText(name, as: .heading, fit: nameFit)
                     if let detail { KeyringText(detail, as: .meta, colour: detailColour) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            trailing
+            trailing.environment(\.keyringButtonsFill, true)
         }
         .padding(.vertical, KeyringSpace.s2)
     }
@@ -162,8 +166,8 @@ public struct KeyringDeviceRow<Trailing: View>: View {
 }
 
 extension KeyringDeviceRow where Trailing == EmptyView {
-    public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain) {
-        self.init(symbol: symbol, name: name, detail: detail, tone: tone) { EmptyView() }
+    public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, nameFit: TextFit = .wraps) {
+        self.init(symbol: symbol, name: name, detail: detail, tone: tone, nameFit: nameFit) { EmptyView() }
     }
 }
 

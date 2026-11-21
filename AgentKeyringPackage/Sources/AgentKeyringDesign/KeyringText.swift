@@ -81,11 +81,11 @@ public enum KeyringTextRole: Sendable {
     /// The same text one type step down, for `TextFit.siteName`.
     var smallerFont: Font {
         #if os(macOS)
-        .system(size: 24, weight: .bold)
+        self == .site ? .system(size: 24, weight: .bold) : .system(size: 13, weight: .semibold)
         #elseif os(watchOS)
-        .headline
+        self == .site ? .headline : .footnote.weight(.semibold)
         #else
-        .title.weight(.bold)
+        self == .site ? .title.weight(.bold) : .callout.weight(.semibold)
         #endif
     }
 
