@@ -51,9 +51,7 @@ public final class MirrorAppModel {
     }
     @ObservationIgnored var exportTimeout: Task<Void, Never>?
     /// Which of the copy guide's five steps he is reading. He moves it; nothing else does.
-    public var copyGuideStep = 1 {
-        didSet { copyGuideStep = min(max(copyGuideStep, 1), 5) }
-    }
+    public var copyGuideStep = 1
     /// This Mac's Automatic switch while nothing has joined it; after that,
     /// its entry in the members list decides.
     var savedAutomaticOnThisMac: Bool {

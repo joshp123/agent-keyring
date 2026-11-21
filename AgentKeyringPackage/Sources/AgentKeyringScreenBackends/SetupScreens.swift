@@ -162,9 +162,11 @@ public struct AddComputerSheet: View {
     }
 
     public var body: some View {
-        // Drawn again when the invite runs out, so Expired shows on time.
-        TimelineView(.explicit(invite.map { [$0.expires] } ?? [])) { context in
-            MacAddComputerSheet(SetupScreens.addComputer(model, invite: invite, now: context.date), actions: actions)
+        // Drawn again when the invite runs out, so Expired shows on time. The
+        // timeline's own date is the entry's (the expiry, even on the first
+        // draw), so the clock is read here.
+        TimelineView(.explicit(invite.map { [$0.expires, $0.expires.addingTimeInterval(1)] } ?? [])) { _ in
+            MacAddComputerSheet(SetupScreens.addComputer(model, invite: invite, now: .now), actions: actions)
         }
         .onAppear { if invite == nil { makeInvite() } }
         .onChange(of: model.device?.door) { if invite == nil { makeInvite() } }

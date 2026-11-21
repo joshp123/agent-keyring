@@ -74,7 +74,8 @@ public final class MacDevice {
     public private(set) var catalogue: Agentkeyring_V2_Catalogue?
     var saved: Saved
     @ObservationIgnored var deviceLogs: [String: [String]] = [:]
-    @ObservationIgnored var push: ApplePush?
+    /// Observed: the Devices tab drops its "no push key" notice when the key arrives.
+    var push: ApplePush?
     @ObservationIgnored var servers: [DoorServer] = []
     @ObservationIgnored private var doorWork: Task<Void, Never>?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
