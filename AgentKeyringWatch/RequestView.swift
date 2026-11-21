@@ -4,6 +4,7 @@
 // site and the account, Deny and Approve, the agent's whole reason, then Deny
 // and Explain. Our three buttons, one kind.
 
+import AgentKeyringDesign
 import AgentKeyringWatchCore
 import SwiftUI
 import UserNotifications
@@ -104,85 +105,46 @@ final class RequestController: WKUserNotificationHostingController<RequestView> 
 struct RequestView: View {
     let model: RequestModel
 
-    private static let ink2 = Color(red: 0xA6 / 255, green: 0xA6 / 255, blue: 0xAE / 255)
-    private static let deny = Color(red: 0xE5 / 255, green: 0x45 / 255, blue: 0x3D / 255)
-    private static let approve = Color(red: 0x23 / 255, green: 0xA4 / 255, blue: 0x55 / 255)
-    private static let explain = Color(red: 0x2E / 255, green: 0x2E / 255, blue: 0x31 / 255)
-
     var body: some View {
-        Group {
-            switch model.card {
-            case .opening: EmptyView()
-            case .unreadable: Text(WatchCopy.unreadable).font(.system(size: 15))
-            case let .showing(request), let .sending(request), let .answered(request, _): content(request)
-            }
-        }
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
-    }
-
-    /// The first screen holds what he decides on: who asks, the site, the account, Deny and Approve, and the
-    /// start of the reason under them. The whole reason follows once, read by scrolling, then Deny and Explain.
-    @ViewBuilder private func content(_ request: WatchRequest) -> some View {
-        VStack(spacing: 1) {
-            Text(request.wants).font(.system(size: 13)).foregroundStyle(Self.ink2).lineLimit(1).minimumScaleFactor(0.85).truncationMode(.middle)
-            Text(request.site).font(.system(size: 24, weight: .bold)).lineLimit(1).minimumScaleFactor(0.5)
-            if !request.account.isEmpty {
-                Text(request.account).font(.system(size: 13)).foregroundStyle(Self.ink2).lineLimit(1).truncationMode(.middle)
-            }
-            decision(request).padding(.top, 8)
-            if !request.reason.isEmpty {
-                // Wraps to its full height: the notification would otherwise cut it to one line.
-                Text("“\(request.reason)”").font(.system(size: 15)).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
-            }
-            if isOpen(request) {
-                // His words for the agent, from watchOS's own input (dictation, Scribble or keyboard).
-                TextFieldLink(prompt: Text(WatchCopy.whatInstead)) {
-                    pillLabel(WatchCopy.denyAndExplain, Self.explain, text: Self.deny)
-                } onSubmit: { words in
-                    let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty { model.respond(approve: false, words: trimmed) }
-                }
-                .buttonStyle(.plain)
-                .disabled(model.isSending)
-                .padding(.horizontal, 4)
-                .padding(.top, 10)
-            }
-            if let project = request.project {
-                Text(WatchCopy.project(project)).font(.system(size: 12)).foregroundStyle(Self.ink2).lineLimit(1).padding(.top, 8)
-            }
+        switch model.card {
+        case .opening: EmptyView()
+        case .unreadable: KeyringPage(title: WatchCopy.unreadable, alignment: .centre)
+        case let .showing(request), let .sending(request): open(request)
+        case let .answered(request, line): ended(request, line)
         }
     }
 
-    private func isOpen(_ request: WatchRequest) -> Bool {
-        if case .ended = request.state { return false }
-        if case .answered = model.card { return false }
-        return true
-    }
-
-    /// Deny and Approve, or the outcome once there is one.
-    @ViewBuilder private func decision(_ request: WatchRequest) -> some View {
-        if case .ended(let outcome) = request.state {
-            Text(outcome).font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-        } else if case let .answered(_, line) = model.card {
-            Text(line).font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+    /// The card: who asks, the site and the account, Deny and Approve before the reason, so a long reason
+    /// never pushes them off the screen. Deny and Explain is watchOS's own text input until the shared card has it.
+    @ViewBuilder private func open(_ request: WatchRequest) -> some View {
+        if case let .ended(outcome) = request.state {
+            ended(request, outcome)
         } else {
-            HStack(spacing: 5) {
-                pill(WatchCopy.deny, Self.deny) { model.respond(approve: false) }
-                pill(WatchCopy.approve, Self.approve) { model.respond(approve: true) }
+            ScrollView {
+                VStack(spacing: KeyringSpace.s2) {
+                    KeyringApprovalCard(
+                        lead: request.isPractice ? WatchCopy.practiceLead : request.wants,
+                        subject: request.site, detail: request.account.isEmpty ? nil : request.account,
+                        reason: request.reason.isEmpty ? nil : request.reason,
+                        approve: .approve(WatchCopy.approve, isEnabled: !model.isSending) { model.respond(approve: true) },
+                        deny: .deny(WatchCopy.deny, isEnabled: !model.isSending) { model.respond(approve: false) })
+                    TextFieldLink(prompt: Text(WatchCopy.whatInstead)) {
+                        KeyringText(WatchCopy.denyAndExplain, as: .label).frame(maxWidth: .infinity)
+                    } onSubmit: { words in
+                        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { model.respond(approve: false, words: trimmed) }
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .disabled(model.isSending)
+                }
             }
-            .disabled(model.isSending)
-            .padding(.horizontal, 4)
         }
     }
 
-    private func pill(_ title: String, _ color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) { pillLabel(title, color) }.buttonStyle(.plain)
-    }
-
-    private func pillLabel(_ title: String, _ color: Color, text: Color = .white) -> some View {
-        Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(text).lineLimit(1).minimumScaleFactor(0.8)
-            .frame(maxWidth: .infinity, minHeight: 40)
-            .background(color, in: .capsule)
+    private func ended(_ request: WatchRequest, _ line: String) -> some View {
+        KeyringPage(title: request.site, alignment: .centre) {
+            KeyringConfirmation(line, tone: line == WatchCopy.answered(approve: true, .sent) ? .approved : .denied)
+        }
     }
 }
