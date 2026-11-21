@@ -20,14 +20,14 @@ final class ApprovalPresenter {
     private enum Item: Hashable {
         case local(String)
         case joining(String)
-        case sendImported
+        case sendChanges
         case automaticCopies
         case selfTest
 
         var isRequest: Bool {
             switch self {
             case .local: true
-            case .joining, .sendImported, .automaticCopies, .selfTest: false
+            case .joining, .sendChanges, .automaticCopies, .selfTest: false
             }
         }
     }
@@ -105,11 +105,11 @@ final class ApprovalPresenter {
         // A device being given its copies stays up, showing how far, until it is done.
         let joining = (device?.joins.map { Item.joining(MacDevice.joinID($0)) } ?? []) + (device?.filling.map { [Item.joining($0.deviceKeyID)] } ?? [])
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
-        let sendImported: [Item] = (model.importedLoginsAwaitApproval ? [.sendImported] : [])
+        let questions: [Item] = (model.resyncAsked ? [.sendChanges] : [])
             + (model.automaticCopiesMissing ? [.automaticCopies] : [])
-        // The window says "Open the lid" or "Add a fingerprint" in its place.
-        let selfTest: [Item] = (model.firstRun.isPractice || model.practiceWaitingHere) && MacApprover.shared.state == .ready ? [.selfTest] : []
-        return selfTest + joining + sendImported + local.sorted { $0.1 < $1.1 }.map(\.0)
+        // Only after Send Practice Request; the window says "Open the lid" or "Add a fingerprint" in its place.
+        let selfTest: [Item] = (model.firstRun.waitingPractice != nil || model.practiceWaitingHere) && MacApprover.shared.state == .ready ? [.selfTest] : []
+        return selfTest + joining + questions + local.sorted { $0.1 < $1.1 }.map(\.0)
     }
 
     private func update(_ items: [Item]) {
@@ -144,9 +144,13 @@ final class ApprovalPresenter {
                 panel.show(approval)
                 approval.close = { [weak self] in self?.dismiss() }
             case let .question(approval):
-                let automatic = item == .automaticCopies
-                panel.show(question: automatic ? SetupCopy.automaticCopiesTitle : SetupCopy.sendImportedTitle,
-                    message: automatic ? SetupCopy.automaticCopiesBody : SetupCopy.sendImportedBody, approval: approval)
+                if item == .automaticCopies {
+                    panel.show(question: SetupCopy.automaticCopiesTitle, message: SetupCopy.automaticCopiesBody, approval: approval)
+                } else {
+                    let changes = model.unsentChanges
+                    panel.show(question: SetupCopy.sendChangesTitle(changes.total),
+                        message: SetupCopy.sendChangesBody(added: changes.added, changed: changes.changed, removed: changes.removed), approval: approval)
+                }
             }
             presented = .showing(item, shown)
             DiagnosticLog.record("panel", "shown", ["item": "\(item)"])
@@ -164,11 +168,11 @@ final class ApprovalPresenter {
         case let .local(id):
             return request(model.leaseStore.waitingRequests.first { $0.leaseID == id }.map(model.accessRequest(for:)), localBackend)
         case let .joining(id): return request(additionBackend.request(id), additionBackend)
-        case .sendImported:
+        case .sendChanges:
             let model = model
-            return .question(ask(reason: SetupCopy.sendImportedReason,
-                perform: { context in try await model.sendImportedLogins(context: context) },
-                declined: { model.declineSendingImportedLogins() }))
+            return .question(ask(reason: SetupCopy.sendChangesReason,
+                perform: { context in try await model.sendChanges(context: context) },
+                declined: { model.declineSendingChanges() }))
         case .automaticCopies:
             let model = model
             return .question(ask(reason: SetupCopy.automaticCopiesReason,

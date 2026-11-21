@@ -498,3 +498,54 @@ private final class SoftwarePhoneKeys: PhoneDeviceKeys {
 extension DoorRequest: Equatable {
     public static func == (lhs: DoorRequest, rhs: DoorRequest) -> Bool { lhs.path == rhs.path && lhs.body == rhs.body }
 }
+
+extension MacDoorTests {
+    /// He copied from Passwords and chose Not Now: the iPhone must keep the
+    /// copies of the list it holds until he sends the changes, then get the new ones.
+    /// Written by AI on 2026.11.21 by model claude opus 5.5.
+    @MainActor @Test func theIPhoneKeepsItsCopiesUntilTheChangesAreSent() async throws {
+        UserDefaults.standard.register(defaults: ["StandInKey": true]) // Touch ID answers at once; volatile, never saved.
+        let folder = FileManager.default.temporaryDirectory.appending(path: "mac-resync-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let keys = MacKeys(testing: try RelayTLSIdentity.ephemeral(), label: "Test Mac")
+        let store = LoginStore(directory: folder.appending(path: "logins"))
+        let leases = CredentialLeaseStore(persistence: LeasePersistence(directory: folder.appending(path: "leases")))
+        let phone = try StandInDevice(kind: .iphone, label: "Test iPhone")
+        final class Version: @unchecked Sendable { var value: UInt64 = 7 }
+        let version = Version()
+        var secret = Agentkeyring_V2_LoginSecret()
+        secret.loginID = UUID().uuidString
+        secret.password = "correct horse"
+        let loginID = secret.loginID
+        func copy(_ number: UInt64, for opener: String, key: P256.KeyAgreement.PublicKey) throws -> Agentkeyring_V2_SealedLogin {
+            try Sealing.seal(secret, version: number, to: key, openerID: opener, signer: keys.signer)
+        }
+        let mac = MacDevice(keys: keys, store: store, leaseStore: leases, environment: MacDevice.Environment(storage: .memory())) {
+            var login = Agentkeyring_V2_Login()
+            login.loginID = loginID
+            login.rule = .ask
+            login.version = version.value
+            return [login]
+        }
+        var members = Agentkeyring_V2_Members()
+        members.devices = [keys.device, phone.device]
+        members.machines = [keys.machine]
+        try await store.replaceSealed([try copy(7, for: keys.deviceKeyID, key: keys.openingPublicKey),
+                                       try copy(7, for: phone.keyID, key: phone.opening.publicKey)])
+        try await mac.publishMembers(members, context: LAContext())
+        try await mac.publish(context: LAContext())
+
+        // A copy from Passwords brought version 8; the iPhone's version 7 stays beside it.
+        try await store.replaceSealed([try copy(8, for: keys.deviceKeyID, key: keys.openingPublicKey),
+                                       try copy(7, for: phone.keyID, key: phone.opening.publicKey),
+                                       try copy(8, for: phone.keyID, key: phone.opening.publicKey)])
+        version.value = 8
+        let notSent = await mac.bundle(for: .device(phone.device), holding: 0)
+        #expect(notSent.copies.map(\.version) == [7], "Not Now: the iPhone keeps the list it holds")
+
+        try await mac.publish(context: LAContext())
+        let sent = await mac.bundle(for: .device(phone.device), holding: 0)
+        #expect(sent.copies.map(\.version) == [8])
+        #expect(try await store.sealed().filter { $0.openerID == phone.keyID }.map(\.version) == [8], "the old copy goes once the changes are sent")
+    }
+}

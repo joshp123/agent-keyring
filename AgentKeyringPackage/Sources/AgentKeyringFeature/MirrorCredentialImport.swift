@@ -11,18 +11,6 @@ private let credentialExchangeLogger = Logger(
 
 @available(macOS 26.0, *)
 extension MirrorAppModel {
-    /// Sends the new catalogue and the copies sealed to the other devices,
-    /// signed with a context Josh has just approved in the panel.
-    public func sendImportedLogins(context: LAContext) async throws {
-        try await device?.publish(context: context)
-        importedLoginsAwaitApproval = false
-    }
-
-    /// "Not now": the other devices keep the previous list until the next change.
-    public func declineSendingImportedLogins() {
-        importedLoginsAwaitApproval = false
-    }
-
     public func receive(_ activity: NSUserActivity) {
         credentialExchangeLogger.info(
             "Received user activity type: \(activity.activityType, privacy: .public)"
@@ -51,6 +39,7 @@ extension MirrorAppModel {
     /// "Open Passwords". After five minutes with nothing arrived, first run says so;
     /// passwords that arrived first have already moved it on, so the late timer changes nothing.
     public func openPasswordsExport() {
+        if passwordsCopy == nil { copyGuideStep = 1 }
         passwordsCopy = .waiting
         exportTimeout?.cancel()
         exportTimeout = Task { [weak self] in
@@ -74,26 +63,29 @@ extension MirrorAppModel {
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: String(identifier.dropLast(4))) != nil
     }
 
-    /// "Agent Keyring isn't in the list?"
+    /// "Agent Keyring isn't in the list?": the sheet that sends him to AutoFill settings.
     public func explainAllowExport() {
-        passwordsCopy = .allowExport(asking: false)
+        passwordsCopy = .allowExport
     }
 
-    /// Continue on "Allow export from Passwords": macOS asks "Turn on AutoFill
-    /// from “Agent Keyring”?". Turn On goes back to the steps. After Not Now the
-    /// screen stays, and Continue comes back after macOS's 10 seconds.
-    public func askToAllowExport() {
-        guard passwordsCopy == .allowExport(asking: false) else { return }
-        passwordsCopy = .allowExport(asking: true)
-        let asked = ContinuousClock.now
-        ASSettingsHelper.requestToTurnOnCredentialProviderExtension { [weak self] enabled in
-            Task { @MainActor in
-                guard let self, self.passwordsCopy == .allowExport(asking: true) else { return }
-                if enabled { self.passwordsCopy = .steps; return }
-                try? await Task.sleep(until: asked + .seconds(10))
-                if self.passwordsCopy == .allowExport(asking: true) { self.passwordsCopy = .allowExport(asking: false) }
-            }
+    /// Open AutoFill Settings: System Settings opens at AutoFill, where he turns on Agent Keyring.
+    public func openAutoFillSettings() {
+        Task { try? await ASSettingsHelper.openCredentialProviderAppSettings() }
+    }
+
+    /// The app came to the front: if he turned Agent Keyring on in AutoFill, the sheet closes and he starts the export again.
+    public func recheckAutoFill() {
+        guard passwordsCopy == .allowExport else { return }
+        Task {
+            guard await ASCredentialIdentityStore.shared.state().isEnabled, passwordsCopy == .allowExport else { return }
+            passwordsCopy = .steps
         }
+    }
+
+    /// Cancel on the AutoFill sheet: back to the guide.
+    public func closeAllowExport() {
+        guard passwordsCopy == .allowExport else { return }
+        passwordsCopy = .steps
     }
 
     /// The test password only, for now: a copy of nothing, which brings the
@@ -105,7 +97,7 @@ extension MirrorAppModel {
             else { return }
         }
         closePasswordsCopy()
-        send(.useSample)
+        send(.useTestPasswordOnly)
     }
 
     public func openPasswords() {
@@ -167,7 +159,9 @@ extension MirrorAppModel {
         let copied = mapper.map(exportedData, scope: .full)
         if await importBatch(copied, hadExistingMirror: hadExistingMirror) {
             closePasswordsCopy()
-            send(.imported(count: copied.items.count))
+            askToSendChanges()
+            // He is in Passwords: the Dock icon bounces once; the window is never pushed in front.
+            if !NSApplication.shared.isActive { NSApplication.shared.requestUserAttention(.informationalRequest) }
         }
     }
 
@@ -189,10 +183,17 @@ extension MirrorAppModel {
                 keep: Set((previous?.items ?? []).map(\.id).filter { accessControl.policy(for: $0) != .ask }))
             // Seal only what arrived: a login missing from this export keeps
             // its earlier copies, and the saved list holds no secrets to seal.
+            // The other devices' earlier copies stay too, until he sends the
+            // changes: they are served while the signed catalogue still names
+            // their versions, and pruned when it is signed again (MacDevice.publish).
             let arrived = Set(importBatch.items.map(\.sourceIdentity))
             let fresh = generation.items.filter { arrived.contains($0.sourceIdentity) }
             let kept = Set(generation.items.filter { !arrived.contains($0.sourceIdentity) }.map(\.id.uuidString))
-            var sealed = try await store.sealed().filter { kept.contains($0.loginID) }
+            let own = try macKeys().deviceKeyID
+            let signed = Dictionary((device?.catalogue?.logins ?? []).map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
+            var sealed = try await store.sealed().filter { copy in
+                kept.contains(copy.loginID) || (copy.openerID != own && signed[copy.loginID] == copy.version)
+            }
             let version = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
             for item in fresh {
                 let policy = accessControl.policy(for: item.id)
@@ -210,10 +211,6 @@ extension MirrorAppModel {
         leaseLogins = generation.metadata.candidates
         await accessControl.refresh(from: generation)
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
-        if device?.hasMembers == true {
-            // Josh approves sending the list in a panel beside his window.
-            importedLoginsAwaitApproval = true
-        }
         problem = nil
         return true
     }

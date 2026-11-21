@@ -35,6 +35,21 @@ public struct LoginRow: Identifiable, Hashable, Sendable {
     }
 }
 
+/// One device in Devices, with its last practice result.
+public struct PracticeRow: Identifiable, Hashable, Sendable {
+    public enum Tone: Hashable, Sendable { case plain, approved, denied }
+    public let id: String
+    public let name: String
+    public let symbol: String
+    public let detail: String
+    public let tone: Tone
+    /// False while a practice request to it is waiting.
+    public let canSend: Bool
+    public init(id: String, name: String, symbol: String, detail: String, tone: Tone, canSend: Bool) {
+        self.id = id; self.name = name; self.symbol = symbol; self.detail = detail; self.tone = tone; self.canSend = canSend
+    }
+}
+
 /// A device he answers on, with its last practice result in `detail`.
 public struct DeviceRow: Identifiable, Hashable, Sendable {
     public let id: String
@@ -58,13 +73,11 @@ public struct MachineRow: Identifiable, Hashable, Sendable {
     public let id: String
     public var name: String
     public var isThisMac: Bool
-    public var isAlwaysOn: Bool
 
-    public init(id: String, name: String, isThisMac: Bool, isAlwaysOn: Bool) {
+    public init(id: String, name: String, isThisMac: Bool) {
         self.id = id
         self.name = name
         self.isThisMac = isThisMac
-        self.isAlwaysOn = isAlwaysOn
     }
 }
 
@@ -421,7 +434,7 @@ private struct DevicesTab: View {
     }
 
     private func machineDetail(_ machine: MachineRow) -> String? {
-        machine.isThisMac ? MainWindowCopy.thisMac : machine.isAlwaysOn ? MainWindowCopy.staysOn : nil
+        machine.isThisMac ? MainWindowCopy.thisMac : nil
     }
 }
 

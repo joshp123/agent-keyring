@@ -27,14 +27,20 @@ public final class MirrorAppModel {
     /// This Mac as the place the lists live and its door, once its keys exist. Nil when the Mac has no Secure Enclave.
     public private(set) var device: MacDevice?
     @ObservationIgnored private var keys: MacKeys?
-    /// A new import changed the logins the other devices hold; Josh hasn't yet allowed sending them.
-    public internal(set) var importedLoginsAwaitApproval = false
+    /// After a copy from Passwords changed the list and other devices hold the
+    /// earlier one: the panel asks him to send the changes. Not saved: what is
+    /// unsent is (`unsentChanges`), and the panel shows only after a copy.
+    public internal(set) var resyncAsked = false
+    /// The list the other devices last received (MirrorResync.swift); saved on every change.
+    public internal(set) var sentList: [String: Date?]? {
+        didSet { Self.saveSentList(sentList, in: settings) }
+    }
     /// A password became Automatic on the iPhone, and a computer allowed Automatic passwords has no copy of it yet.
     public internal(set) var automaticCopiesMissing = false
     var isApprovingLease = false
     public internal(set) var leaseLogins: [CredentialCandidate] = []
     let bridge: AgentBridgeDirectory
-    /// When this Mac last passed its practice request: Touch ID, its chip keys and sealing work.
+    /// When this Mac last passed its practice request: Touch ID, its Secure Enclave keys and sealing work.
     public internal(set) var testedAt: Date?
     /// Where first run is (FirstRun.swift); saved, so a restart resumes it.
     public private(set) var firstRun: FirstRun
@@ -44,13 +50,17 @@ public final class MirrorAppModel {
         didSet { if passwordsCopy != oldValue { DiagnosticLog.record("copy", "moved", ["to": passwordsCopy.map { "\($0)" } ?? "closed"]) } }
     }
     @ObservationIgnored var exportTimeout: Task<Void, Never>?
+    /// Which of the copy guide's five steps he is reading. He moves it; nothing else does.
+    public var copyGuideStep = 1 {
+        didSet { copyGuideStep = min(max(copyGuideStep, 1), 5) }
+    }
     /// This Mac's Automatic switch while nothing has joined it; after that,
     /// its entry in the members list decides.
     var savedAutomaticOnThisMac: Bool {
         didSet { settings.set(savedAutomaticOnThisMac, forKey: Self.automaticOnThisMacKey) }
     }
-    /// He clicked Done at the end of first run. Until then the window opens at launch.
-    public var firstRunFinished: Bool { firstRun == .finished }
+    /// He clicked Show Passwords at the end of first run. Until then the window opens at launch.
+    public var firstRunFinished: Bool { firstRun.step == .finished }
     let settings: UserDefaults
     var handledTokens = Set<UUID>()
     var agentListener: AgentBridgeServer?
@@ -73,10 +83,16 @@ public final class MirrorAppModel {
         self.accessControl = accessControl
         self.settings = settings
         self.leaseStore = leaseStore
-        leaseStore.onDecision = { [usage] id, login, event in usage.note(event, request: id, login: login) }
         savedAutomaticOnThisMac = settings.bool(forKey: Self.automaticOnThisMacKey)
         testedAt = settings.object(forKey: Self.testedAtKey) as? Date
         firstRun = Self.savedFirstRun(settings)
+        sentList = Self.savedSentList(settings)
+        leaseStore.onDecision = { [usage, weak self] id, login, event in
+            usage.note(event, request: id, login: login)
+            guard event != .asked else { return }
+            // After the store has saved the lease, so its requester is there to name.
+            Task { @MainActor in self?.noteAgentAnswered(lease: id, approved: event == .approved) }
+        }
         accessControl.beforeSave = { [weak self] old, new, context in
             try await self?.applyRuleChange(from: old, to: new, context: context)
         }
@@ -108,43 +124,33 @@ public final class MirrorAppModel {
     static let firstRunFinishedKey = "firstRunFinished"
 
     /// The saved state, resumed. A Mac that finished first run before it was
-    /// saved this way, or whose saved state a later build cannot read, is never stuck.
+    /// saved this way is never stuck; a state an earlier build saved (its
+    /// journey of devices) starts first run again at Welcome.
     static func savedFirstRun(_ settings: UserDefaults) -> FirstRun {
-        if let data = settings.data(forKey: firstRunKey), let saved = try? JSONDecoder().decode(FirstRun.self, from: data) {
-            // An earlier build saved the page for a computer that stays on, which nothing needs now.
-            if case let .journey(devices, .stayingOn) = saved { return FirstRun.journey(devices, .stayingOn).after(.connected, facts: .init(alwaysOn: true)) }
-            return saved
+        if let data = settings.data(forKey: firstRunKey) {
+            return (try? JSONDecoder().decode(FirstRun.self, from: data))?.restored ?? .welcome
         }
         return settings.bool(forKey: firstRunFinishedKey) || settings.object(forKey: testedAtKey) != nil ? .finished : .welcome
     }
 
-    /// Moves first run on, as the board draws it, and saves where it is.
+    /// Moves first run on and saves where it is.
     public func send(_ event: FirstRun.Event) {
-        let next = firstRun.after(event, facts: firstRunFacts)
+        let next = firstRun.after(event)
         guard next != firstRun else { return }
         DiagnosticLog.record("firstrun", "moved", ["from": "\(firstRun)", "to": "\(next)", "by": "\(event)"])
         firstRun = next
         settings.set(try? JSONEncoder().encode(next), forKey: Self.firstRunKey)
-        // A step that finished while he is in another app: the Dock icon bounces
-        // once, and the window waits behind; it is never pushed in front.
-        if !NSApplication.shared.isActive, [.deviceDone, .connected].contains(event) || { if case .imported = event { true } else { false } }() {
-            NSApplication.shared.requestUserAttention(.informationalRequest)
-        }
     }
 
-    /// What the world says is already done, for the journey to pass over.
-    var firstRunFacts: FirstRun.Facts {
-        let devices = device?.members?.devices ?? []
-        let filling = device?.filling?.deviceKeyID
-        // No computer needs to stay on: this Mac's own door does that work.
-        return FirstRun.Facts(alwaysOn: true,
-            iPhoneDone: devices.contains { $0.kind == .iphone && $0.keyID != filling },
-            watchDone: devices.contains { $0.kind == .watch })
+    /// Send Practice Request on step 1: the practice panel appears beside the window, for this request.
+    public func sendFirstRunPractice() {
+        send(.sendPractice(id: UUID()))
     }
 
-    /// The iPhone or the Apple Watch joined: the Mac's window for it moves on.
-    func noteDevicesChanged() {
-        send(.deviceDone)
+    /// An agent on this Mac had its request answered: on "Connect an agent", that is the outcome he waits for.
+    func noteAgentAnswered(lease leaseID: String, approved: Bool) {
+        guard firstRun.step == .connectAgent(.notTried) else { return }
+        send(.agentAnswered(agent: leaseStore.requester(for: leaseID)?.name ?? MessageCopy.anAgent, approved: approved))
     }
 
     /// The last practice request on each device he answers on, by device key.
@@ -184,21 +190,6 @@ public final class MirrorAppModel {
     /// A practice request is waiting on this Mac, outside first run's own.
     public var practiceWaitingHere: Bool { practiceResults[thisMacDeviceKey] == .sent }
 
-    /// "Try it now": the first request from an agent on this Mac that he
-    /// approved, as (agent, site); nil until there is one. Read from the leases.
-    public var firstApprovedRequest: (agent: String, site: String)? {
-        guard let lease = leaseStore.leases.filter({ $0.approvedAtUnixSeconds > 0 && $0.approvedBy != .automaticRule })
-            .min(by: { $0.approvedAtUnixSeconds < $1.approvedAtUnixSeconds }) else { return nil }
-        let site = lease.sites.first.map { URL(string: $0)?.host ?? $0 } ?? "a website"
-        return (leaseStore.requester(for: lease.leaseID)?.name ?? "An agent", site)
-    }
-
-
-    /// "Done": the first-run window closes and the main window takes its place.
-    public func finishFirstRun() {
-        send(.done)
-    }
-
     var currentPolicies: [UUID: CredentialAccessPolicy] {
         Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, localPolicy(for: $0.id)) })
     }
@@ -228,7 +219,7 @@ public final class MirrorAppModel {
             try await self?.catalogueLogins() ?? []
         }
         device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
-        device?.onDevicesChanged = { [weak self] in self?.noteDevicesChanged() }
+        device?.onPublished = { [weak self] in self?.recordSentList() }
         device?.onPracticeHere = { [weak self] in
             guard let self else { return }
             Task { await self.sendPractice(to: self.thisMacDeviceKey) }
@@ -250,6 +241,7 @@ public final class MirrorAppModel {
         }
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
         if (try? macKeys()) != nil { device?.start() }
+        seedSentList()
     }
 
 }

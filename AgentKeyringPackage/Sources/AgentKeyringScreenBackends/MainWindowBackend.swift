@@ -29,9 +29,9 @@ public final class AppMainWindowBackend: MainWindowBackend {
         let devices = SetupScreens.practiceRows(model).map { DeviceRow(practice: $0, isThisMac: $0.id == model.thisMacDeviceKey) }
         let machines: [MachineRow] = device?.members.map { members in
             members.machines.map { m in
-                MachineRow(id: m.machineID, name: m.label, isThisMac: m.machineID == device?.ownMachineID, isAlwaysOn: false)
+                MachineRow(id: m.machineID, name: m.label, isThisMac: m.machineID == device?.ownMachineID)
             }
-        } ?? [MachineRow(id: device?.ownMachineID ?? "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true, isAlwaysOn: false)]
+        } ?? [MachineRow(id: device?.ownMachineID ?? "this-mac", name: Host.current().localizedName ?? "Mac", isThisMac: true)]
         return MainSnapshot(logins: logins, importedAt: model.status?.importedAt, sampleOnly: model.status?.sampleOnly == true,
             devices: devices, machines: machines)
     }

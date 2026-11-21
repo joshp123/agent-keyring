@@ -84,8 +84,8 @@ public final class MacDevice {
     let catalogueLogins: @MainActor () async throws -> [Agentkeyring_V2_Login]
     /// A newer catalogue the iPhone signed (a rule changed there), with this Mac's own Automatic copies as it now holds them.
     @ObservationIgnored var onCatalogue: (@MainActor (Agentkeyring_V2_Catalogue, [Agentkeyring_V2_SealedLogin]) async -> Void)?
-    /// A device or computer joined or left: first run's windows may move on.
-    @ObservationIgnored var onDevicesChanged: (@MainActor () async -> Void)?
+    /// The catalogue was signed and sent: the other devices now hold this Mac's list as it is.
+    @ObservationIgnored var onPublished: (@MainActor () -> Void)?
     /// A device asked for a practice request on this Mac itself.
     @ObservationIgnored var onPracticeHere: (@MainActor () -> Void)?
 
@@ -378,7 +378,6 @@ public final class MacDevice {
         }
         DiagnosticLog.record("members", "changed", ["revision": "\(next.revision)", "devices": "\(next.devices.count)", "computers": "\(next.machines.count)"])
         listsChanged(copies: true)
-        await onDevicesChanged?()
     }
 
     func takeCatalogue(_ body: Data) async -> DoorReply {
@@ -539,8 +538,19 @@ public final class MacDevice {
         catalogue = next
         saved.catalogue = try signed.serializedData()
         saved.catalogueRevision = next.revision
+        // The other devices' copies of versions this catalogue no longer names were kept for them until now.
+        let versions = Dictionary(next.logins.map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
+        let sealed = try await store.sealed()
+        let current = sealed.filter { versions[$0.loginID] == $0.version || $0.openerID == keys.deviceKeyID }
+        if current.count != sealed.count { try await store.replaceSealed(current) }
         listsChanged(copies: true)
         DiagnosticLog.record("catalogue", "signed", ["revision": "\(next.revision)", "passwords": "\(next.logins.count)"])
+        onPublished?()
+    }
+
+    /// Check Again: reads this Mac's Tailscale address now, as a change of network would.
+    public func checkAddress() {
+        followAddress()
     }
 
     /// Switches computers on or off for Automatic passwords in a new signed members list. The model seals the passwords.

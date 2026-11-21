@@ -1,7 +1,8 @@
 // Written by AI on 2026.10.31 by model Claude Opus 5.5; first run, the
 // practice request, Passwords and Devices rewritten on 2026.11.19 by model
-// claude opus 5.5 from the Paper boards "First run", "Passwords and rules"
-// and "Devices" (page "First run and the app").
+// claude opus 5.5; first run, the device sheets, the join card and sending
+// changes rewritten on 2026.11.21 by the same model from the copy ledger of
+// that day.
 //
 // Every sentence Josh reads on the Mac's setup screens, first run and the
 // main window, so each is a one-line change. Requests are in AccessRequestCopy.
@@ -19,228 +20,209 @@ public enum SetupCopy {
         enrolment.kind == .machine ? "Wants its agents to ask for your passwords" : "Wants to approve requests"
     }
 
-    public static let notNow = "Not now"
+    public static let notNow = "Not Now"
     public static let allow = "Allow"
-    public static let sendImportedTitle = "Let agents on your other computers use the passwords you just copied?"
-    public static let sendImportedBody = "Until you allow this, they can only use the list you had before."
-    /// After "Agent Keyring is trying to" in macOS's dialog.
-    public static let sendImportedReason = "let agents on your other computers use the passwords you just copied"
     /// A password set to Automatic on the iPhone: the computers get their copies only after Touch ID here.
     public static let automaticCopiesTitle = "Let your computers use the passwords you set to Automatic on your iPhone?"
     public static let automaticCopiesBody = "Agents on those computers keep asking for them until you allow this."
     public static let automaticCopiesReason = "let your computers use the passwords you set to Automatic"
 
-    // MARK: A computer or device being added (the request panel)
+    // MARK: Sending changes to the other devices, after a copy from Passwords
 
-    public static func addingComputerLead(agent: String) -> String { "\(agent) on this Mac wants to add" }
-    /// A computer joining with a link from `agent-keyring invite`: the agent's name is not known.
-    public static let addingLead = "Add to Agent Keyring"
-    public static func addingComputerFooter(_ name: String, staysOn: Bool) -> String {
-        staysOn ? "Agents on \(name) can ask for your passwords, and \(name) passes requests to your iPhone and Apple Watch. Remove it in Devices."
-            : "Agents on \(name) can ask for your passwords. Remove it in Devices."
+    public static func sendChangesTitle(_ total: Int) -> String {
+        total == 1 ? "Send 1 password change to your other devices?" : "Send \(total) password changes to your other devices?"
     }
-    public static let addingDeviceLead = "Add to Agent Keyring"
-    /// While a new device is given its copies, under "Approved".
-    public static func filling(_ name: String, done: Int, total: Int) -> String {
-        "\(name) added. Copying your passwords to it: \(done) of \(total)."
+    /// "You copied 12 new, 2 changed and 1 removed password from Passwords.", leaving out what is none.
+    public static func sendChangesBody(added: Int, changed: Int, removed: Int) -> String {
+        let counts = [added > 0 ? "\(added) new" : nil, changed > 0 ? "\(changed) changed" : nil, removed > 0 ? "\(removed) removed" : nil]
+        let what = added == 0 && changed == 0
+            ? "You removed \(removed == 1 ? "1 password" : "\(removed) passwords") from Passwords."
+            : "You copied \(MainWindowCopy.list(counts.compactMap { $0 })) \(added + changed + removed == 1 ? "password" : "passwords") from Passwords."
+        return what + " Confirm with Touch ID to update your other devices. If you choose Not Now, they keep your previous list until you update them."
     }
-    public static func fillingStopped(_ name: String, reason: String) -> String {
-        "\(name) added, but copying your passwords to it stopped: \(reason) Remove it in Devices and add it again."
+    /// After "Agent Keyring is trying to" in macOS's dialog.
+    public static let sendChangesReason = "send your password changes to your other devices"
+
+    // MARK: A computer or device asking to join (the card beside the window)
+
+    public static let addIPhoneLead = "Add this iPhone to Agent Keyring?"
+    public static let addWatchLead = "Add this Apple Watch to Agent Keyring?"
+    public static let addComputerLead = "Add this computer to Agent Keyring?"
+    public static let addIPhoneBody = "Same Apple Account. It gets its own encrypted copy of your passwords, locked in its Secure Enclave, and can approve password requests with Face ID."
+    public static let addWatchBody = "Paired with your iPhone. It approves password requests with one tap on your wrist, and each request carries the one encrypted copy it needs."
+    public static let addComputerBody = "Agents on this computer will be able to ask you for passwords. You approve each Ask password before it is shared."
+    public static let denyNotePrompt = "Optional note if you deny"
+    public static func copyingTo(done: Int, total: Int) -> String {
+        "Copying your passwords to it: \(done) of \(total). You can remove it later in Devices."
     }
-    public static func addingDeviceDetail(watch: Bool) -> String { watch ? "Paired with your iPhone" : "Same Apple Account" }
-    public static func addingDeviceFooter(watch: Bool) -> String {
-        watch ? "It approves requests with one tap while unlocked on your wrist. Remove it in Devices."
-            : "It approves requests with Face ID. Remove it in Devices."
+    public static func stoppedCopying(done: Int, total: Int, reason: String) -> String {
+        "Stopped copying after \(done) of \(total) passwords. \(reason) Remove it in Devices and add it again."
     }
-    public static func notAdded(_ name: String) -> String { "\(name) was not added." }
+    public static func added(_ name: String) -> String { "\(name) added" }
+    public static let addedPhoneDetail = "It can approve password requests with Face ID."
+    public static let addedWatchDetail = "It can approve password requests with one tap on your wrist."
+    public static func addedComputerDetail(_ name: String) -> String { "Agents on \(name) can now ask you for passwords." }
+    public static func notAdded(_ name: String) -> String { "\(name) wasn’t added." }
 }
 
-/// Every sentence of the first-run windows (MacFirstRunView) and the
-/// practice request, from the Paper board "First run".
+/// Every sentence of the Mac's first run, from the copy ledger of 21 November
+/// (Paper page "Agent Keyring (Holistic)", board 1).
 public enum FirstRunCopy {
-    // Welcome
+    public static let setupHeading = "Setup on this Mac"
+    public static let steps = ["Try a request", "Copy passwords", "Connect an agent", "Ready"]
+    public static let back = "Back"
+    public static let continueButton = "Continue"
+
+    // MARK: Welcome
+
     public static let title = "Welcome to Agent Keyring"
-    public static let intro = "Agent Keyring gives your AI agents, such as Claude Code and Codex, your passwords, so they can sign in to websites and finish tasks for you. Each time, they ask and you decide."
+    public static let intro = "Your agents ask. You tap yes."
     public static let points: [(symbol: String, title: String, body: String)] = [
-        ("checkmark.shield", "You approve every request",
-         "A request shows the website, the agent and why it asks. Approve it on this Mac with Touch ID, or on your iPhone or Apple Watch. Or deny it and tell the agent what to do instead."),
-        ("clock", "One approval covers one task", "The agent can use the password for the task you approved, for 30 minutes at most."),
-        ("lock", "Locked by this Mac’s security chip",
-         "Agent Keyring keeps its copy of your passwords encrypted with a key held in the Secure Enclave, the chip behind Touch ID. The key never leaves the chip, and Agent Keyring opens one password at a time, for one agent’s task."),
+        ("lock.fill", "End-to-end encrypted, locked in Secure Enclave",
+         "Your passwords stay encrypted with keys inside your devices’ Secure Enclave and signed against tampering. Nothing can open a password except an agent you approve, one at a time, with each approval lasting up to 30 minutes."),
+        ("checkmark.shield.fill", "You approve every password request",
+         "Approve on this Mac with Touch ID, on iPhone with Face ID, or on Apple Watch with one tap. Or deny and tell the agent what to do instead."),
+        ("number.square.fill", "Two-factor codes included",
+         "If the Passwords app holds a two-factor code for a website, an approved agent gets the current code too, while the secret stays on your devices for Ask passwords."),
     ]
     public static let getStarted = "Get Started"
 
-    // The practice request
-    public static let tryPractice = "Try a practice request"
-    public static let practiceIntro = "This is how an agent asks for a password. The website and account are made up, and nothing is shared."
-    public static let toApprove = "To approve, click the green button, then use Touch ID."
-    public static let toDeny = "To deny, click Deny. You can first type what the agent should do instead."
-    public static let approveToContinue = "To continue setting up, approve it. This also checks that Touch ID works with Agent Keyring."
-    public static let youDeniedIt = "You denied it"
-    public static let realAgentWouldRead = "A real agent would get no password and would read your reply:"
-    public static let realAgentWouldStop = "A real agent would get no password."
-    public static let approveOneToContinue = "To continue setting up, approve a practice request."
-    public static let tryAgain = "Try Again"
-    public static let addFingerprint = "Add a fingerprint"
-    public static let addFingerprintBody = "You approve requests on this Mac with Touch ID, but Touch ID has no fingerprint yet. Add one in System Settings, then come back here."
+    // MARK: Step 1 of 4: Try a password request
+
+    public static let practiceTitle = "Try a password request"
+    public static let practiceBody = "See how an AI agent asks for a password. This practice request doesn’t share any passwords."
+    public static let practiceTrigger = "Click **Send Practice Request** to open a sample approval card beside this window."
+    public static let sendPractice = "Send Practice Request"
+    public static let sendAnother = "Send Another Practice Request"
+    public static let howToApprove = "**Approve:** Click the green button, then use Touch ID."
+    public static let howToDeny = "**Deny:** Click Deny, or type what the agent should do instead first."
+    public static let youApproved = "You approved it"
+    public static let youApprovedDetail = "A real agent would now have this password, with each approval lasting up to 30 minutes."
+    public static let youDenied = "You denied it"
+    public static let youDeniedDetail = "A real agent would be told no and carry on without the password."
+    public static let youDeniedAndReplied = "You denied it and replied"
+    public static func youDeniedAndRepliedDetail(_ reply: String) -> String { "A real agent would get your reply: “\(reply)”" }
+    public static let lidClosed = "Open the lid to use Touch ID, then send the practice request."
+    public static let needsFingerprint = "Touch ID isn’t set up on this Mac. Add a fingerprint in System Settings, then come back here."
     public static let openTouchIDSettings = "Open Touch ID Settings"
-    public static let openTheLid = "Open the lid"
-    public static let openTheLidBody = "Touch ID is on the keyboard, so you can’t use it while the lid is closed. The practice request appears when you open the lid."
 
-    // Copy your passwords
+    // MARK: Step 2 of 4: Copy your passwords
+
     public static let copyTitle = "Copy your passwords"
-    public static let copyBody = "Agent Keyring works from its own copy of your passwords. The Passwords app can send it one."
-    /// Markdown: the menu items and buttons are in bold. Step 3 is followed by
-    /// this app's row as Passwords' list shows it.
-    public static let steps = [
-        "In the Passwords app, choose **File > Export All Items to App**, then click **Continue**.",
-        "When macOS asks, use Touch ID or enter your Mac’s login password.",
-        "Choose this app, click **Continue**, then **Continue in “Agent Keyring”**:",
+    public static let copyBody = "Click Open Passwords below, then step through this 5-part guide at your own pace. Copying deletes nothing from Passwords."
+    public static func guideStep(_ number: Int) -> String { "Guide step \(number) of 5" }
+    /// Markdown: the menu items and buttons are in bold.
+    public static let guide = [
+        "In Passwords, choose **File > Export All Items to App…**",
+        "Click **Continue** on Apple’s notice about passkeys, then **Continue** on **Export Passwords**.",
+        "Unlock with Touch ID or your Mac password.",
+        "In **Select a Destination**, choose **Agent Keyring** (blue keyhole), then click **Continue**.",
+        "Click **Continue** in “Agent Keyring” on the final confirmation sheet.",
     ]
-    public static let appName = "Agent Keyring"
-    public static let earlierVersion = "If you also see “AgentKeyring”, that is the earlier version. Don’t choose it."
+    public static let earlierVersion = "If you also see “AgentKeyring”, that is an earlier version. Don’t choose it."
+    public static let previous = "Previous"
+    public static let next = "Next"
     public static let notInList = "Agent Keyring isn’t in the list?"
-    public static let allowExportTitle = "Allow export from Passwords"
-    public static let allowExportBody = "macOS uses its AutoFill setting to choose which apps Passwords can export to. Agent Keyring never fills in passwords."
-    public static let deletesNothing = "Exporting deletes nothing from the Passwords app. Passwords you save later stay there until you copy them again."
-    public static let waitingForPasswords = "Waiting for your passwords…"
-    public static let noneArrived = "No passwords have arrived yet. In step 3, check that you chose Agent Keyring and clicked Continue in “Agent Keyring”."
     public static let openPasswords = "Open Passwords"
-    public static let useSample = "Use the Test Password Only"
-    public static let sampleNote = "Agent Keyring always keeps one test password: example.com, you@example.com, password “hello”. You can copy your own passwords later from Passwords."
-    public static let copying = "Copying your passwords…"
+    public static let useTestPasswordOnly = "Use Test Password Only"
     public static let cancel = "Cancel"
-    public static let copyOwn = "Copy Your Own Passwords"
+    public static let noneArrived = "No passwords have arrived yet. In Select a Destination, make sure you chose Agent Keyring with the blue keyhole (not an earlier version), or check that Agent Keyring is turned on in AutoFill Settings."
+    public static let copying = "Copying passwords…"
+    public static func copied(_ count: Int) -> String {
+        (count == 1 ? "1 password copied." : "\(count) passwords copied.") + " Every password starts as Ask, so an agent must ask you before using it."
+    }
+    public static let allowExportTitle = "Allow export from Apple Passwords"
+    public static let allowExportBody = "macOS uses its AutoFill setting to choose which apps Apple Passwords can export to. Agent Keyring never fills in passwords on its own. Click Open AutoFill Settings, turn on Agent Keyring, then return here."
+    public static let openAutoFillSettings = "Open AutoFill Settings"
 
-    // Tell your agents
-    public static func copied(_ count: Int) -> String { count == 1 ? "1 password copied." : "\(count) passwords copied." }
-    public static let mustAskAny = "An agent must ask you before using any of them."
-    public static let sampleAdded = "Test password added."
-    public static let sampleDetail = "Agent Keyring always keeps one test password: example.com, you@example.com, password “hello”. You can copy your own passwords later from Passwords."
-    public static let tellTitle = "Tell your agents about Agent Keyring"
-    public static let tellBody = "Your agents need nothing installed. Give them this note, and when a task needs a website password or a two-factor code, they ask you through Agent Keyring."
+    // MARK: Step 3 of 4: Connect an agent
+
+    public static let connectTitle = "Connect an agent"
+    public static let connectBody = "Give your AI agent this instruction so it knows how to ask Agent Keyring for passwords and two-factor codes."
+    public static let instructionLabel = "1. Add to AGENTS.md or CLAUDE.md"
     public static func agentNote(appPath: String) -> String {
         "When a task needs a website password or a two-factor code, use Agent Keyring. To learn how, run \"\(appPath)/Contents/Helpers/agent-keyring\" skill"
     }
     public static var agentNote: String { agentNote(appPath: Bundle.main.bundleURL.path) }
-    public static let pasteIt = "Paste it into a chat with an agent, or add it to the instructions your agents read every time, such as CLAUDE.md or AGENTS.md. Agent Keyring never changes your agents’ settings."
-    public static let tryItNow = "Try it now"
-    public static let tryItBody = "Ask an agent to sign in to one of your websites. Its request appears beside your pointer."
-    public static let tryItSample = "Send this to an agent: “Use Agent Keyring to get the test password for example.com, to check that Agent Keyring works.” Its request appears beside your pointer."
-    public static let noRequestYet = "No request from an agent yet"
-    public static func approvedRequest(agent: String, site: String) -> String { "\(agent) asked for \(site), and you approved it." }
-    public static let copied = "Copied"
-    public static let continueButton = "Continue"
-    /// Interim until the board is drawn: the computer that announced itself through iCloud Keychain.
-    public static func connectTo(_ name: String) -> String { "Connect to \(name)" }
-    // Which devices (interim until the board is drawn)
-    public static let chooseTitle = "Which devices will you use?"
-    public static let chooseBody = "Agent Keyring sets up only what you choose. You can add the others later, from Devices."
-    public static let chooseIPhone = "iPhone, to approve with Face ID"
-    public static let chooseWatch = "Apple Watch, to approve with a tap"
-    public static let chooseComputers = "Other computers where agents work"
-    public static let skip = "Skip"
+    public static let tryItLabel = "2. Try it: send this to an agent"
+    public static let tryItText = "Use Agent Keyring to get the test password for example.com."
+    public static let whatToExpect = "**What to expect:** When your agent asks for a password, an approval card pops up beside this window."
+    public static func agentWorked(_ agent: String) -> String { "\(agent) got the password. You’re connected." }
+    public static func agentDenied(_ agent: String) -> String { "You denied \(agent)’s request. Your connection works." }
+    public static let skipTest = "Skip the Test"
 
-    // A computer that stays on
-    public static let stayingOnTitle = "Approve from your iPhone and Apple Watch"
-    public static let stayingOnBody = "This Mac already works on its own. To answer on your iPhone or Apple Watch, or to let agents on other computers ask, Agent Keyring needs a computer of yours that stays on, such as a Mac mini or a home server. It passes requests between your devices, and the part that does this can’t read your passwords."
-    public static let itsAddress = "ITS ADDRESS"
-    public static let addressPlaceholder = "For example mac-mini.local:17445"
-    public static let addressHint = "Enter the name or address of the computer that stays on."
-    public static let connect = "Connect"
-    public static let isThisMacTitle = "Is this Mac the one that stays on?"
-    public static let isThisMacBody = "It can’t pass on requests yet. Choose another computer, or use this Mac alone for now."
-    public static let noneStaysOnTitle = "No computer that stays on?"
-    public static let noneStaysOnBody = "Agent Keyring works on this Mac with Touch ID. You can add your iPhone, Apple Watch and other computers later, from Devices."
-    public static let useThisMacAlone = "Use This Mac Alone"
-    public static func approveComputer(_ name: String) -> String { "Approve \(name)" }
-    /// After Connect, while macOS's own dialog asks for Touch ID (not drawn: the board draws a panel).
-    public static let approveInDialog = "Use Touch ID in the dialog beside your pointer."
-    public static let waitingForApproval = "Waiting for your approval"
+    // MARK: Step 4 of 4: Ready
 
-    // Add your iPhone, Apple Watch and other computers
-    public static let phoneTitle = "Add your iPhone"
-    public static let phoneBody = "Approve requests with Face ID wherever you are. Your iPhone finds this Mac by itself, through your Apple Account."
-    public static let phoneSteps = ["On your iPhone, open Agent Keyring.", "Approve your iPhone here, beside your pointer."]
-    public static let waitingForPhone = "Waiting for your iPhone"
-    public static func added(_ name: String) -> String { "\(name) added." }
-    public static let watchTitle = "Add your Apple Watch"
-    public static let watchBody = "Approve requests with one tap on your wrist. Your Apple Watch is added from your iPhone."
-    public static let watchSteps = [
-        "On your Apple Watch, press the Digital Crown and open Agent Keyring. If it isn’t there, install it from the Watch app on your iPhone, under Available Apps.",
-        "Your iPhone asks to add it.",
-        "Approve your Apple Watch on your iPhone with Face ID.",
-    ]
-    public static let waitingForWatch = "Waiting for your Apple Watch"
-    public static let computersTitle = "Add other computers"
-    public static let computersBody = "For example a Linux server where an agent works. On each computer, run this command. It joins Agent Keyring, and you approve it here."
-    public static let copyPrompt = "Copy Prompt for an Agent"
-    public static let copyCommand = "Copy Command"
-    public static let commandNote = "Each copy works for one computer, for 10 minutes. The computer needs Agent Keyring’s command installed. If an agent works there, copy the prompt instead, and the agent runs it for you."
-    /// The one-time command; the computer names itself after its host name.
-    public static func enrolCommand(_ link: String) -> String { "agent-keyring enrol --name \"$(hostname -s)\" --invite \"\(link)\"" }
-    /// Not drawn: the words around the command for an agent on that computer.
-    public static func enrolPrompt(_ command: String) -> String {
-        "Join this computer to Agent Keyring. Run this command here. It works once, for 10 minutes, and I approve it on my Mac:\n\(command)\nAfter that, run `agent-keyring skill` and follow it whenever a task needs a password."
+    public static let ready = "Agent Keyring is ready on this Mac"
+    public static func readyCopied(_ count: Int) -> String {
+        (count == 1 ? "1 password copied." : "\(count) passwords copied.") + " Click the keyhole in your menu bar any time."
     }
-    public static func joined(_ name: String) -> String { "\(name) joined." }
+    public static let readyTestOnly = "Ready with the example.com test password. Click the keyhole in your menu bar any time."
+    public static let otherDevices = "Add your other devices (optional, or later in the Devices tab)"
+    public static let iPhone = "iPhone"
+    public static let iPhoneDetail = "Approve password requests with Face ID anywhere."
+    public static let watch = "Apple Watch"
+    public static let watchDetail = "Approve with one tap on your wrist. Added from your iPhone."
+    public static let computers = "Other Computers"
+    public static let computersDetail = "Let agents on a Linux server or another Mac ask too."
+    public static func added(_ names: [String]) -> String { MainWindowCopy.list(names) + " added." }
+    public static let addButton = "Add…"
+    public static let showPasswords = "Show Passwords"
+    /// Under the menu bar icon after Show Passwords.
+    public static let staysHere = "Agent Keyring stays here."
 
-    // Try a request on each device
-    public static let tryTitle = "Try a request on each device"
-    public static let tryBody = "Send a practice request to one device at a time. Approve it, deny it, or deny it with a reply. On iPhone, tap the microphone in the reply box to speak the reply."
-    public static let sendPractice = "Send Practice Request"
-    public static let thisMac = "This Mac"
-    public static func practiceApprovedAt(_ time: String, touchID: Bool) -> String { touchID ? "Approved with Touch ID at \(time)" : "Approved at \(time)" }
-    public static func practiceDeniedAt(_ time: String, reply: String) -> String { reply.isEmpty ? "Denied at \(time)" : "Denied at \(time): “\(reply)”" }
-    // A practice request on its way, step by step, only what is known.
+    // MARK: The practice request in the card
+
+    public static let practiceAgent = "Agent Keyring"
+    public static let practiceWants = "Practice request: an agent wants"
+    public static let practiceSite = "example.com"
+    public static let practiceAccount = "you@example.com"
+    public static let practiceReason = "You asked me to download October’s invoice."
+    public static let practiceReplyPrompt = "What should the agent do instead?"
+    public static let practiceFooter = "Practice only. No passwords are shared."
+    public static let practiceApproved = "No real password was used."
+
+    // MARK: A practice request on another device, in Devices: only what is known
+
     public static let practiceSending = "Sending…"
     public static func practiceWithApple(_ time: String) -> String { "With Apple since \(time). On its way to the device." }
     public static func practiceOnWrist(_ time: String) -> String { "On your Apple Watch since \(time). Raise your wrist to answer." }
     public static func practiceOnPhone(_ time: String) -> String { "On your iPhone since \(time). Answer it there." }
     public static let practiceSentHere = "Sent. Answer it beside your pointer."
     public static let practiceUnanswered = "No answer within 10 minutes."
+    public static func practiceApprovedAt(_ time: String, touchID: Bool) -> String { touchID ? "Approved with Touch ID at \(time)" : "Approved at \(time)" }
+    public static func practiceDeniedAt(_ time: String, reply: String) -> String { reply.isEmpty ? "Denied at \(time)" : "Denied at \(time): “\(reply)”" }
+}
 
-    // Ready
-    public static let ready = "Agent Keyring is ready"
-    public static let sampleTitle = "You are using the test password only"
-    public static let sampleBody = "example.com is only for trying Agent Keyring. Copy your own passwords when you want your agents to use them."
-    /// With an iPhone or Apple Watch added.
-    public static let readyPoints: [(symbol: String, title: String, body: String)] = [
-        ("cursorarrow.rays", "Requests come to you",
-         "Each request appears beside your pointer, and on your iPhone and Apple Watch. Answer on whichever is nearest, and the others clear."),
-        ("keyhole", "Agent Keyring stays in the menu bar",
-         "Click the keyhole to see requests waiting for you, passwords agents are using now and what happened earlier. Click Stop to end an approval early."),
-        ("list.bullet", "Choose which passwords agents must ask for",
-         "Agents must ask before using any password. To change that for some, open Passwords from the keyhole. Sort with AI lets an agent suggest a rule for each one."),
-        ("iphone", "Add, test or remove devices",
-         "Open Devices from the keyhole to add an iPhone, Apple Watch or computer, or to send a practice request to one."),
+/// The sheets that add a device, from Ready and from Devices (board 2).
+public enum DeviceSheetCopy {
+    public static let addIPhoneTitle = "Add your iPhone"
+    public static let addIPhoneBody = "Approve password requests from your AI agents with Face ID anywhere. Each password is end-to-end encrypted for your iPhone’s Secure Enclave and signed against tampering. Both devices need Tailscale turned on."
+    /// TestFlight's page in the App Store: the code he scans.
+    public static let testFlightLink = "https://apps.apple.com/app/testflight/id899247664"
+    public static let addIPhoneSteps = [
+        "Scan to get TestFlight from the App Store, then open Agent Keyring inside TestFlight.",
+        "Make sure Tailscale is on for both devices, then tap **Connect** on your iPhone.",
+        "Approve your iPhone beside this window with Touch ID.",
     ]
-    /// This Mac alone.
-    public static let readyAlonePoints: [(symbol: String, title: String, body: String)] = [
-        ("cursorarrow.rays", "Requests appear beside your pointer",
-         "To approve one, click the green button and use Touch ID. To deny it, click Deny, with a reply if you want."),
-        ("keyhole", "Agent Keyring stays in the menu bar",
-         "Click the keyhole to see requests waiting for you, passwords agents are using now and what happened earlier."),
-        ("list.bullet", "Choose which passwords agents must ask for",
-         "Agents must ask before using any password. To change that for some, open Passwords from the keyhole. Sort with AI lets an agent suggest a rule for each one."),
-        ("iphone", "Add your iPhone and Apple Watch later",
-         "They need a computer of yours that stays on, such as a Mac mini. Open Devices from the keyhole when you have one."),
-    ]
+    public static let phoneNoTailscale = "Tailscale isn’t running on this Mac. Turn on Tailscale on your Mac and iPhone so they can connect."
+    public static func approveBeside(_ name: String) -> String { "Approve \(name) beside this window with Touch ID." }
+    public static func copyingTo(_ name: String, done: Int, total: Int) -> String { "Copying your passwords to \(name): \(done) of \(total)." }
+    public static let checkAgain = "Check Again"
+    public static let doThisLater = "Do This Later"
     public static let done = "Done"
-    /// Under the menu bar icon after Done.
-    public static let staysHere = "Agent Keyring stays here."
 
-    public static let copy = "Copy"
-
-    // The practice request in the panel
-    public static let practiceAgent = "Agent Keyring"
-    public static let practiceWants = "Practice request: an agent wants"
-    public static let practiceSite = "example.com"
-    public static let practiceAccount = "you@example.com"
-    public static let practiceReason = "You asked me to download October’s invoice."
-    public static let practiceFooter = "Practice only. No password is shared."
-    public static let practiceApproved = "No real password was used."
-    /// After "Agent Keyring is trying to" in macOS's dialog.
+    public static let addComputerTitle = "Add another computer"
+    public static let addComputerBody = "Send this note to an agent on a Linux server or another Mac on your Tailscale network. The invite works once, for 10 minutes, and you approve it beside this window with Touch ID."
+    public static let computerNoTailscale = "Tailscale isn’t running on this Mac. Turn on Tailscale on both computers before creating an invite."
+    public static func enrolCommand(_ link: String) -> String { "agent-keyring enrol --name \"$(hostname -s)\" --invite \"\(link)\"" }
+    public static func enrolPrompt(_ command: String) -> String { "Connect this computer to Agent Keyring by running: \(command)" }
+    public static let copyPrompt = "Copy Prompt for Agent"
+    public static let copyCommand = "Copy Command"
+    public static func worksUntil(_ time: String) -> String { "This invite works once, until \(time)." }
+    public static let expired = "This invite expired. Create a new one to add another computer."
+    public static let withdrawn = "Two computers tried to use this invite, so it was cancelled for safety. Create a new invite and try again."
+    public static let createNewInvite = "Create New Invite"
 }
 
 /// The words of the main window: the Passwords and Devices tabs.
@@ -277,7 +259,6 @@ public enum MainWindowCopy {
     public static let macAnswers = "You answer with Touch ID"
     public static let phoneAnswers = "You answer with Face ID"
     public static let watchAnswers = "You answer with a tap, while you wear it unlocked"
-    public static let staysOn = "Stays on, and passes requests to your iPhone and Apple Watch"
     public static let addPhoneOrWatch = "Add iPhone or Apple Watch…"
     public static let addComputer = "Add Computer…"
     public static let tellYourAgents = "Tell Your Agents…"

@@ -105,7 +105,48 @@ extension MacDevice {
     /// A one-time link for one computer to join, valid for ten minutes, for an
     /// agent to pass to `agent-keyring enrol --invite` over SSH.
     public func inviteMachine() throws -> String {
-        "agentkeyring://join?invite=" + (try invitation(lasting: Self.joinLasts).serializedData()).base64URLEncoded
+        try machineInvite().link
+    }
+
+    /// One invitation for one computer: its link, when it runs out, and its secret, by which its join is found.
+    public struct MachineInvite: Equatable, Sendable {
+        public let link: String
+        public let expires: Date
+        public let secret: Data
+    }
+
+    public func machineInvite() throws -> MachineInvite {
+        let invite = try invitation(lasting: Self.joinLasts)
+        return MachineInvite(link: "agentkeyring://join?invite=" + (try invite.serializedData()).base64URLEncoded,
+            expires: Date(timeIntervalSince1970: TimeInterval(invite.expiresUnixSeconds)), secret: invite.secret)
+    }
+
+    /// A join this Mac has heard, as the Add sheets show it.
+    public struct JoinSummary: Equatable, Sendable {
+        public enum Joiner: Equatable, Sendable { case device(Agentkeyring_V2_DeviceKind), computer }
+        public let id: String
+        public let label: String
+        public let joiner: Joiner
+        /// Waiting past its ten minutes counts as expired.
+        public let state: Agentkeyring_V2_JoinState
+        public let asked: Date
+        /// The invitation it proved.
+        public let secret: Data
+    }
+
+    /// Every join heard since the app started, newest first.
+    public var joinHistory: [JoinSummary] {
+        joinRecords.compactMap { id, join -> JoinSummary? in
+            let joiner: JoinSummary.Joiner
+            let label: String
+            switch join.request.joining {
+            case let .device(device)?: joiner = .device(device.kind); label = device.label
+            case let .machine(machine)?: joiner = .computer; label = machine.label
+            case nil: return nil
+            }
+            let ranOut = join.state == .waiting && join.asked.addingTimeInterval(Self.joinLasts) <= .now
+            return JoinSummary(id: id, label: label, joiner: joiner, state: ranOut ? .expired : join.state, asked: join.asked, secret: join.secret)
+        }.sorted { $0.asked > $1.asked }
     }
 
     private func invitation(lasting seconds: TimeInterval) throws -> Agentkeyring_V2_JoinInvite {
@@ -313,7 +354,9 @@ extension MacDevice {
             return
         }
         try await publishMembers(next, context: context)
-        if catalogue == nil { try await publish(context: context) }
+        // A new device is filled from this Mac's copies as they are now, so the
+        // catalogue is signed again with them, changes from Passwords included.
+        if catalogue == nil || newDevice != nil { try await publish(context: context) }
         joinRecords[id]?.state = .approved
         if case let .machine(machine)? = join.request.joining {
             joinRecords[id]?.pushCredential = sealedPushCredential(for: machine)

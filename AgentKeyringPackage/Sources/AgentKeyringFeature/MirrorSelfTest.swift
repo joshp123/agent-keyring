@@ -2,7 +2,7 @@
 //
 // First run's practice request, from the Paper board "First run": it appears
 // after Get Started, and one click and one touch prove that Touch ID, this
-// Mac's chip keys and its sealing all work. Josh sees only the practice
+// Mac's Secure Enclave keys and its sealing all work. Josh sees only the practice
 // request. No real password is used.
 
 import AgentKeyringProtocol
@@ -37,7 +37,6 @@ extension MirrorAppModel {
             let now = Date()
             settings.set(now, forKey: Self.testedAtKey)
             testedAt = now
-            send(.practicePassed)
             selfTestLogger.notice("Self-test passed: Touch ID, the opening key and the signing key all work.")
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw error

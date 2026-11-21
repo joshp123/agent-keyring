@@ -17,6 +17,8 @@ public enum AccessRequestCopy {
         agent == "an agent" ? replyPlaceholderShort : "What should \(agent) do instead?"
     }
     public static let replyPlaceholderShort = "What should it do instead?"
+    /// The practice request's agent, in "You told the agent: …".
+    public static let theAgent = "the agent"
     /// In place of the green button while the lid is shut.
     public static let openTheLid = "Open the lid to approve"
     public static let approveElsewhere = "Approve on your Apple Watch or iPhone"
@@ -89,8 +91,6 @@ public enum MenuBarCopy {
     public static let open = "Open Agent Keyring"
     public static let quit = "Quit Agent Keyring"
     public static let more = "More"
-    /// When the computer that stays on has no name this Mac knows.
-    public static let relayComputer = "The computer that stays on"
     public static func offline(_ computer: String) -> String { "\(computer) is offline, so requests can’t get to your iPhone or Apple Watch." }
     public static let paused = "Agents are paused on this Mac. Agent Keyring can’t read its record of what agents are using. Reset it to let them ask again. Your passwords and rules stay."
     public static let reset = "Reset…"

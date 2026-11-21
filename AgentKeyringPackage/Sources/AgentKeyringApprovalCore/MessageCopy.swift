@@ -11,6 +11,8 @@ import Foundation
 public enum MessageCopy {
     /// For an error with no sentence of its own.
     public static let somethingWentWrong = "Something went wrong. Try again."
+    /// An agent that gave no name.
+    public static let anAgent = "An agent"
 
     // MARK: macOS's dialog, after "Agent Keyring is trying to"
 
