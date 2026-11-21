@@ -15,7 +15,8 @@ public struct KeyringApprovalCard: View {
     let explanation: String?
     let reply: Binding<String>?
     let replyPrompt: String
-    let approve: KeyringAction
+    let approve: KeyringAction?
+    let inPlaceOfApprove: String?
     let deny: KeyringAction
     let explain: KeyringAction?
     let footer: String?
@@ -30,9 +31,10 @@ public struct KeyringApprovalCard: View {
     ///   - reply: the Mac's reply box, sent with Deny.
     ///   - explain: Deny and Explain, on iPhone and Watch.
     ///   - header: the app's name above the card, on the Mac.
+    ///   - approve: none when approving is not possible here (the lid is shut); `inPlaceOfApprove` then says why, where the button would be.
     public init(lead: String, subject: String, detail: String? = nil, reason: String? = nil, explanation: String? = nil,
-                reply: Binding<String>? = nil, replyPrompt: String = "", approve: KeyringAction, deny: KeyringAction,
-                explain: KeyringAction? = nil, footer: String? = nil, header: String? = nil) {
+                reply: Binding<String>? = nil, replyPrompt: String = "", approve: KeyringAction?, inPlaceOfApprove: String? = nil,
+                deny: KeyringAction, explain: KeyringAction? = nil, footer: String? = nil, header: String? = nil) {
         self.lead = lead
         self.subject = subject
         self.detail = detail
@@ -41,6 +43,7 @@ public struct KeyringApprovalCard: View {
         self.reply = reply
         self.replyPrompt = replyPrompt
         self.approve = approve
+        self.inPlaceOfApprove = inPlaceOfApprove
         self.deny = deny
         self.explain = explain
         self.footer = footer
@@ -73,6 +76,15 @@ public struct KeyringApprovalCard: View {
         .environment(\.keyringButtonsFill, true)
     }
 
+    /// Approve, or the line that says why it cannot be done here.
+    @ViewBuilder private var approveSlot: some View {
+        if let approve {
+            KeyringButton(approve)
+        } else if let inPlaceOfApprove {
+            KeyringText(inPlaceOfApprove, as: .meta).frame(maxWidth: .infinity)
+        }
+    }
+
     @ViewBuilder private var buttons: some View {
         #if os(macOS)
         if let reply {
@@ -90,24 +102,29 @@ public struct KeyringApprovalCard: View {
                     .background(KeyringPalette.fill, in: .capsule)
                 KeyringButton(deny).environment(\.keyringButtonsFill, false)
             }
-            KeyringButton(approve)
+            approveSlot
         } else {
-            KeyringButton(approve)
+            approveSlot
             KeyringButton(deny)
         }
         #else
         VStack(spacing: KeyringSpace.s2) {
             // Side by side while both labels fit on one line; else Approve above Deny.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: KeyringSpace.s2) {
-                    KeyringButton(deny)
-                    KeyringButton(approve)
+            if let approve {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: KeyringSpace.s2) {
+                        KeyringButton(deny)
+                        KeyringButton(approve)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    VStack(spacing: KeyringSpace.s2) {
+                        KeyringButton(approve)
+                        KeyringButton(deny)
+                    }
                 }
-                .fixedSize(horizontal: false, vertical: true)
-                VStack(spacing: KeyringSpace.s2) {
-                    KeyringButton(approve)
-                    KeyringButton(deny)
-                }
+            } else {
+                approveSlot
+                KeyringButton(deny)
             }
             if let explain { KeyringButton(explain) }
         }
