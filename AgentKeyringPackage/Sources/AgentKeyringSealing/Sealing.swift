@@ -281,6 +281,37 @@ public enum Sealing {
         return answer
     }
 
+    /// What a push shows, sealed to one device's notice key by the computer that asks.
+    public static func sealNotice(_ work: Agentkeyring_V2_Work, to noticeKey: P256.KeyAgreement.PublicKey,
+        deviceKeyID: String) throws -> Agentkeyring_V2_Notice {
+        var sender = try HPKE.Sender(recipientKey: noticeKey, ciphersuite: suite, info: noticeInfo)
+        var notice = Agentkeyring_V2_Notice()
+        notice.ciphertext = try sender.seal(work.serializedData(), authenticating: Data(deviceKeyID.utf8))
+        notice.encapsulatedKey = sender.encapsulatedKey
+        return notice
+    }
+
+    static let pushCredentialInfo = Data("agentkeyring.push-credential.v2".utf8)
+
+    /// Apple's push credential, sealed to a computer's receiving key as it joins.
+    public static func sealPushCredential(_ credential: Agentkeyring_V2_PushCredential, to receivingKey: P256.KeyAgreement.PublicKey,
+        machineID: String) throws -> Agentkeyring_V2_SealedPushCredential {
+        var sender = try HPKE.Sender(recipientKey: receivingKey, ciphersuite: suite, info: pushCredentialInfo)
+        var sealed = Agentkeyring_V2_SealedPushCredential()
+        sealed.openerID = machineID
+        sealed.ciphertext = try sender.seal(credential.serializedData(), authenticating: Data(machineID.utf8))
+        sealed.encapsulatedKey = sender.encapsulatedKey
+        return sealed
+    }
+
+    public static func openPushCredential<Key: HPKEDiffieHellmanPrivateKey>(_ sealed: Agentkeyring_V2_SealedPushCredential,
+        with key: Key) throws -> Agentkeyring_V2_PushCredential {
+        var recipient = try HPKE.Recipient(privateKey: key, ciphersuite: suite, info: pushCredentialInfo,
+            encapsulatedKey: sealed.encapsulatedKey)
+        return try Agentkeyring_V2_PushCredential(serializedBytes: recipient.open(sealed.ciphertext,
+            authenticating: Data(sealed.openerID.utf8)))
+    }
+
     /// What a push shows, opened with this device's notice key.
     public static func openNotice<Key: HPKEDiffieHellmanPrivateKey>(_ notice: Agentkeyring_V2_Notice, deviceKeyID: String,
         with key: Key) throws -> Agentkeyring_V2_Work {

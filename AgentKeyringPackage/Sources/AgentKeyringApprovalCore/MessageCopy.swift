@@ -78,23 +78,21 @@ public enum MessageCopy {
     public static let exportInstruction = "File → Export All Items to App → Agent Keyring"
     public static let updateFromPasswords = "Update from Passwords"
 
-    // MARK: Devices and the computer that stays on
+    // MARK: Devices and computers
 
     public static let noKeysYet = "This Mac has no keys yet."
-    public static let notConnected = "This Mac is not connected to a relay."
-    public static let noIPhoneOrWatch = "This Mac is not connected to your iPhone or Apple Watch."
-    public static func alreadyConnected(to host: String) -> String { "This Mac is already connected to the computer at \(host)." }
-    public static func nothingAnswered(_ host: String, _ port: UInt16) -> String {
-        "Nothing answered at \(host):\(port). Check that the computer is on and its relay is running."
-    }
-    public static func notTheAnnouncedOne(_ host: String) -> String { "The computer at \(host) is not the one that announced itself." }
-    public static let relayHasOtherDevices = "That relay is already set up with other devices."
-    public static let noneAnnounced = "No computer that stays on has announced itself. Open Agent Keyring on it, signed in to the same Apple Account."
-    public static let enterAddress = "Enter the computer's address and the relay's port, such as mac-mini:17445."
+    public static let noIPhoneOrWatch = "This Mac has no iPhone or Apple Watch added yet."
     public static let enterHostAndPort = "Enter the relay's host name and port."
-    public static let noLongerWaiting = "This request is no longer waiting."
-    public static let askerNotYours = "The computer that asked is not one of yours."
     public static let nothingJoining = "Nothing is waiting to join with that name."
+    /// This Mac has no Tailscale address: Tailscale is not installed, not running, or signed out.
+    public static let noTailscale = "Tailscale is off on this Mac, so your iPhone, Apple Watch and other computers can't reach it. Turn on Tailscale, then try again."
+    /// Said when a device or computer is added: both ends need Tailscale.
+    public static func bothNeedTailscale(_ name: String) -> String { "This Mac and \(name) both need Tailscale turned on to reach each other." }
+    public static func doorClosed(_ reason: String) -> String { "This Mac couldn't open its door for your devices: \(reason)" }
+    public static let noPushKey = "This Mac can't notify your iPhone or Apple Watch yet: it has no push key. An agent adds it with agent-keyring push-key."
+    public static func noPushAddress(_ name: String) -> String { "\(name) hasn't given this Mac its notification address yet. Open Agent Keyring on it." }
+    public static let joinRanOut = "This request to join ran out after ten minutes. Ask again from the other device."
+    public static let invalidPushKey = "That is not a P-256 push key from Apple (a .p8 file)."
 
     // MARK: The connection to the relay
 

@@ -38,6 +38,7 @@ public final class MacKeys {
     public let replyPublicKey: P256.Signing.PublicKey
 
     public init(service: String = (Bundle.main.bundleIdentifier ?? "com.agentkeyring") + ".keys.v2") throws {
+        label = Host.current().localizedName ?? "MacBook"
         #if DEBUG
         standIn = StandInKey.isOn
         if standIn {
@@ -96,6 +97,25 @@ public final class MacKeys {
         return control
     }
 
+    #if DEBUG
+    /// Software keys and a TLS identity held only in memory, for tests: nothing
+    /// touches the keychain or the disk, and Touch ID answers at once.
+    init(testing tls: RelayTLSIdentity, label: String) {
+        standIn = true
+        saved = Saved(signing: P256.Signing.PrivateKey().rawRepresentation, opening: P256.KeyAgreement.PrivateKey().rawRepresentation,
+            reply: P256.Signing.PrivateKey().rawRepresentation, receiving: P256.KeyAgreement.PrivateKey().rawRepresentation)
+        self.tls = tls
+        self.label = label
+        receiving = try! P256.KeyAgreement.PrivateKey(rawRepresentation: saved.receiving)
+        signingPublicKey = try! P256.Signing.PrivateKey(rawRepresentation: saved.signing).publicKey
+        openingPublicKey = try! P256.KeyAgreement.PrivateKey(rawRepresentation: saved.opening).publicKey
+        replyPublicKey = try! P256.Signing.PrivateKey(rawRepresentation: saved.reply).publicKey
+    }
+    #endif
+
+    /// This Mac as he named it, which every device shows.
+    public let label: String
+
     public var deviceKeyID: String { Sealing.keyID(signingPublicKey.x963Representation) }
     public var machineID: String { Sealing.keyID(tls.publicKeySPKI) }
 
@@ -103,7 +123,7 @@ public final class MacKeys {
         var device = Agentkeyring_V2_Device()
         device.keyID = deviceKeyID
         device.kind = .mac
-        device.label = Host.current().localizedName ?? "MacBook"
+        device.label = label
         device.signingPublicKey = signingPublicKey.x963Representation
         device.openingPublicKey = openingPublicKey.x963Representation
         device.tlsPublicKey = tls.publicKeySPKI
@@ -117,7 +137,7 @@ public final class MacKeys {
     public var machine: Agentkeyring_V2_Machine {
         var machine = Agentkeyring_V2_Machine()
         machine.machineID = machineID
-        machine.label = Host.current().localizedName ?? "MacBook"
+        machine.label = label
         machine.tlsPublicKey = tls.publicKeySPKI
         machine.receivingPublicKey = receiving.publicKey.x963Representation
         return machine
