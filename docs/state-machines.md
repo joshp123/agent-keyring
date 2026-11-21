@@ -208,7 +208,7 @@ There is no relay. The iPhone joins the Mac at the Mac's door (HTTPS on its Tail
 | `cantReachMac(name)` | The Mac's door could not be reached, with Try Again and Cancel. |
 | `expired(name)` | Ten minutes with no answer from the Mac, with Ask Again and Cancel. |
 | `receivingPasswords` | This iPhone's copies arriving from the Mac, with how many of how many. |
-| `notifications` | "Turn on notifications", with Continue. |
+| `notifications` | "Turn on notifications" with the checklist, ticked from what iOS allows: Turn On Notifications until iOS has asked, then Continue, with Open Settings while a box is unticked. |
 | `askingNotifications` | iOS's own question, over the same screen. |
 | `notificationsOff` | Notifications are off, with Open Settings and Continue Without Notifications. |
 | `practiceOffer` | Send Practice Request, Skip for Now. |
@@ -251,7 +251,8 @@ There is no relay. The iPhone joins the Mac at the Mac's door (HTTPS on its Tail
 | `waitingForMac` | `joined` | `receivingPasswords` |
 | `receivingPasswords` | `passwordsReceived` | `notifications` |
 | `notifications` | `continueTapped` | `askingNotifications` |
-| `notifications`, `askingNotifications`, `notificationsOff` | `notificationsAnswered(true)` | `practiceOffer` |
+| `askingNotifications`, `notificationsOff` | `notificationsAnswered(true)` | `notifications` (the checklist stays) |
+| `notifications` | `notificationsDone` (Continue) | `practiceOffer` |
 | `notifications`, `askingNotifications` | `notificationsAnswered(false)` | `notificationsOff` |
 | `notificationsOff` | `continueWithoutNotifications` | `practiceOffer` |
 | `practiceOffer`, `practiceResult`, `practiceNotArrived`, `practiceMacUnreachable` | `sendPractice(id)` | `practiceWaiting(id, false)` |
