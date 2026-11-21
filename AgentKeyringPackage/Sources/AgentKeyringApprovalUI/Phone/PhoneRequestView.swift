@@ -31,11 +31,6 @@ struct PhoneRequestView: View {
                 replyBox
                 if dictation.isListening { KeyringText(PhoneCopy.speakHint, as: .caption) }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button(PhoneCopy.cancel) { model.shownRequestID = nil } }
-                ToolbarItem(placement: .topBarTrailing) { KeyringText(PhoneCopy.askedAgo(request.askedAt), as: .caption) }
-            }
-            .navigationBarTitleDisplayMode(.inline)
         .alert(PhoneCopy.answerFailed, isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sensoryFeedback(.selection, trigger: model.answering)
         .onChange(of: dictation.heard) { _, heard in if dictation.isListening { model.replyDraft = spokenAfter + heard } }

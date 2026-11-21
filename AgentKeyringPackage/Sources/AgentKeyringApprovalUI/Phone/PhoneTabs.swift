@@ -34,14 +34,20 @@ public struct PhoneRootView: View {
         .alert(model.failure ?? "", isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sheet(item: shownRequest) { request in
             // The sheet's top bar (Cancel, and how long ago it was asked) is the system's.
-            NavigationStack { PhoneRequestView(model: model, request: request, practice: request.isPractice) }
+            NavigationStack { PhoneRequestView(model: model, request: request, practice: request.isPractice).toolbar { requestBar(request) } }
         }
         .sheet(item: practiceShown) { request in
-            NavigationStack { PhoneRequestView(model: model, request: request, practice: true) }.interactiveDismissDisabled()
+            NavigationStack { PhoneRequestView(model: model, request: request, practice: true).toolbar { requestBar(request) } }
+                .interactiveDismissDisabled()
         }
         .sheet(isPresented: addWatchShown) {
             PhoneAddWatchView(flow: model.snapshot.addWatch, model: model).interactiveDismissDisabled()
         }
+    }
+
+    @ToolbarContentBuilder private func requestBar(_ request: AccessRequest) -> some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) { Button(PhoneCopy.cancel) { model.shownRequestID = nil } }
+        ToolbarItem(placement: .topBarTrailing) { KeyringText(PhoneCopy.askedAgo(request.askedAt), as: .caption) }
     }
 
     private var failureShown: Binding<Bool> {

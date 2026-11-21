@@ -63,7 +63,8 @@ public struct WatchRequestCard: View {
     }
 
     private func ended(_ request: WatchRequest, _ line: String, approved: Bool) -> some View {
-        KeyringPage(title: request.site, alignment: .centre) {
+        KeyringPage(alignment: .centre) {
+            KeyringText(request.site, as: .site, fit: .siteName)
             KeyringConfirmation(line, tone: approved ? .approved : .denied)
         }
     }
@@ -136,7 +137,7 @@ public struct WatchInUsePage: View {
         KeyringPage(title: WatchCopy.inUse, status: failed.map { _ in .problem(WatchCopy.stopFailed) }) {
             ForEach(items) { item in
                 VStack(alignment: .leading, spacing: KeyringSpace.s1) {
-                    KeyringText(item.site, as: .heading)
+                    KeyringText(item.site, as: .site, fit: .siteName)
                     KeyringText("\(item.who) · \(WatchCopy.until(item.until))", as: .meta)
                     KeyringButton(.plain(WatchCopy.stop, isEnabled: stopping == nil) {
                         stopping = item.id
