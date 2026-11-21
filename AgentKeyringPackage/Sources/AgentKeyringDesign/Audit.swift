@@ -24,7 +24,7 @@ public final class KeyringAudit: Sendable {
     private struct State {
         var frames: [UUID: (Element, CGRect)] = [:]
         /// Per text, its words and how its latest drawing went.
-        var drawn: [UUID: (label: String, truncated: Bool, brokenWord: Bool)] = [:]
+        var drawn: [UUID: (label: String, truncated: Bool, brokenWord: Bool, wrappedLabel: Bool)] = [:]
     }
 
     private let state = Mutex(State())
@@ -35,8 +35,8 @@ public final class KeyringAudit: Sendable {
         state.withLock { $0.frames[element.id] = (element, frame) }
     }
 
-    func drew(_ id: UUID, _ label: String, truncated: Bool, brokenWord: Bool) {
-        state.withLock { $0.drawn[id] = (label, truncated, brokenWord) }
+    func drew(_ id: UUID, _ label: String, truncated: Bool, brokenWord: Bool, wrappedLabel: Bool) {
+        state.withLock { $0.drawn[id] = (label, truncated, brokenWord, wrappedLabel) }
     }
 
     /// What was wrong with the screen just drawn in `bounds`.
@@ -47,6 +47,7 @@ public final class KeyringAudit: Sendable {
         for (_, drawing) in snapshot.drawn.sorted(by: { $0.value.label < $1.value.label }) {
             if drawing.truncated { found.append(.truncated(drawing.label)) }
             if drawing.brokenWord { found.append(.brokenWord(drawing.label)) }
+            if drawing.wrappedLabel { found.append(.wrappedLabel(drawing.label)) }
         }
         for (element, frame) in placed {
             if element.kind == .text, snapshot.drawn[element.id] == nil {
@@ -67,6 +68,11 @@ public final class KeyringAudit: Sendable {
         return found
     }
 
+    /// The lowest edge of anything placed: how long a scrolling screen really is.
+    var lowestEdge: CGFloat {
+        state.withLock { $0.frames.values.map(\.1.maxY).max() ?? 0 }
+    }
+
     /// Every text drawn, top to bottom: the screen's words, for reading in one go.
     public var words: [String] {
         state.withLock { state in
@@ -83,6 +89,8 @@ public enum KeyringFinding: Sendable, Hashable, CustomStringConvertible {
     case truncated(String)
     /// A word split across two lines ("Ap-prove"): its space is narrower than the word.
     case brokenWord(String)
+    /// A button's label on more than one line in a button that shares its row: it should move, not wrap.
+    case wrappedLabel(String)
     /// Laid out but never drawn: hidden behind the window's edge or clipped away.
     case notDrawn(String)
     /// Placed partly or wholly outside the screen.
@@ -94,6 +102,7 @@ public enum KeyringFinding: Sendable, Hashable, CustomStringConvertible {
         switch self {
         case let .truncated(label): "cut off: “\(label)”"
         case let .brokenWord(label): "a word split across lines: “\(label)”"
+        case let .wrappedLabel(label): "a button label wrapped beside other things: “\(label)”"
         case let .notDrawn(label): "not drawn: “\(label)”"
         case let .outside(label, frame): "outside the screen at \(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))×\(Int(frame.height)): “\(label)”"
         case let .overlapping(a, b): "overlapping: “\(a)” and “\(b)”"
@@ -116,28 +125,29 @@ struct TruncationReporter: TextRenderer {
     let label: String
     /// The characters as shown, to find a line break inside a word.
     let shown: [Character]
+    /// A button's label in a button that does not take the whole width: it must stay on one line.
+    let mustStayOnOneLine: Bool
     let audit: KeyringAudit
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
-        audit.drew(id, label, truncated: layout.isTruncated, brokenWord: breaksAWord(layout))
+        audit.drew(id, label, truncated: layout.isTruncated, brokenWord: breaksAWord(layout),
+                   wrappedLabel: mustStayOnOneLine && layout.count > 1)
         for line in layout { context.draw(line) }
     }
 
-    /// True if a line ends on a letter or digit and the next line starts with
-    /// the very next character, also a letter or digit: SwiftUI split a word
-    /// because the space is narrower than the word.
+    /// True if a line starts between two letters or digits: SwiftUI split a
+    /// word because the space is narrower than the word. (A hyphen it adds
+    /// maps to a neighbouring character, so only where each line starts is used.)
     private func breaksAWord(_ layout: Text.Layout) -> Bool {
-        let lines = layout.map { line in line.flatMap(\.characterIndices) }.filter { !$0.isEmpty }
-        guard lines.count > 1, let base = lines.joined().min() else { return false }
+        let starts = layout.compactMap { line in line.flatMap(\.characterIndices).min() }
+        guard starts.count > 1, let base = starts.min() else { return false }
         func isWordCharacter(_ offset: Int) -> Bool {
             shown.indices.contains(offset) && (shown[offset].isLetter || shown[offset].isNumber)
         }
-        for (line, next) in zip(lines, lines.dropFirst()) {
-            guard let end = line.max(), let start = next.min() else { continue }
-            let last = base.distance(to: end), first = base.distance(to: start)
-            if first == last + 1, isWordCharacter(last), isWordCharacter(first) { return true }
+        return starts.dropFirst().contains { start in
+            let first = base.distance(to: start)
+            return first > 0 && isWordCharacter(first - 1) && isWordCharacter(first)
         }
-        return false
     }
 }
 

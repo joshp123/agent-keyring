@@ -13,7 +13,6 @@ public struct KeyringReplyBox<Trailing: View>: View {
     let note: KeyringStatus?
     let noteAction: KeyringAction?
     let trailing: Trailing
-    @Environment(\.dynamicTypeSize) private var textSize
 
     /// - Parameters:
     ///   - prompt: shown in the empty box, such as "What should the agent do instead?".
@@ -31,9 +30,7 @@ public struct KeyringReplyBox<Trailing: View>: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-            // At accessibility text sizes the microphone goes under the words, so neither is squeezed.
-            let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .trailing, spacing: KeyringSpace.s2)) : AnyLayout(HStackLayout(alignment: .bottom, spacing: KeyringSpace.s2))
-            layout {
+            TrailingOrBelow(spacing: KeyringSpace.s2, belowAlignment: .trailing, besideAtBottom: true) {
                 // The prompt sits under the field, in the layout, so a long one makes the box taller.
                 ZStack(alignment: .topLeading) {
                     KeyringPrompt(prompt, showing: text.wrappedValue.isEmpty)

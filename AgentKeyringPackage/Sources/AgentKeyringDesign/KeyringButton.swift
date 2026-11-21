@@ -18,6 +18,10 @@ public struct KeyringAction {
         case plain
         /// Text only: a way out or a help link (Having trouble?, Skip for Now).
         case link
+        /// Green text: a quiet way to approve (Approve Instead, under Deny and Send).
+        case approveLink
+        /// Red text: a quiet way to deny (Deny and Explain, under Deny and Approve).
+        case denyLink
     }
 
     public let title: String
@@ -57,6 +61,8 @@ public struct KeyringAction {
     public static func deny(_ title: String, isEnabled: Bool = true, perform: @escaping () -> Void) -> Self { .init(title, .deny, isEnabled: isEnabled, perform: perform) }
     public static func plain(_ title: String, isEnabled: Bool = true, perform: @escaping () -> Void) -> Self { .init(title, .plain, isEnabled: isEnabled, perform: perform) }
     public static func link(_ title: String, isEnabled: Bool = true, perform: @escaping () -> Void) -> Self { .init(title, .link, isEnabled: isEnabled, perform: perform) }
+    public static func approveLink(_ title: String, isEnabled: Bool = true, perform: @escaping () -> Void) -> Self { .init(title, .approveLink, isEnabled: isEnabled, perform: perform) }
+    public static func denyLink(_ title: String, isEnabled: Bool = true, perform: @escaping () -> Void) -> Self { .init(title, .denyLink, isEnabled: isEnabled, perform: perform) }
 }
 
 extension EnvironmentValues {
@@ -104,7 +110,7 @@ public struct KeyringButton: View {
     private var label: some View {
         KeyringText(action.title, as: .label)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: fills && action.kind != .link ? .infinity : nil)
+            .frame(maxWidth: fills && !isTextOnly ? .infinity : nil)
             .environment(\.keyringAuditOwner, id)
     }
 
@@ -114,13 +120,18 @@ public struct KeyringButton: View {
         case .approve: prominent(button, KeyringPalette.approve)
         case .deny: prominent(button, KeyringPalette.deny)
         case .plain: button.buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(Self.size)
-        case .link:
-            #if os(watchOS)
-            button.buttonStyle(.plain).foregroundStyle(KeyringPalette.brand)
-            #else
-            button.buttonStyle(.borderless).tint(KeyringPalette.brand).controlSize(Self.size)
-            #endif
+        case .link: textOnly(button, KeyringPalette.brand)
+        case .approveLink: textOnly(button, KeyringPalette.approve)
+        case .denyLink: textOnly(button, KeyringPalette.deny)
         }
+    }
+
+    @ViewBuilder private func textOnly(_ button: Button<some View>, _ colour: Color) -> some View {
+        #if os(watchOS)
+        button.buttonStyle(.plain).foregroundStyle(colour)
+        #else
+        button.buttonStyle(.borderless).tint(colour).controlSize(Self.size)
+        #endif
     }
 
     private func prominent(_ button: Button<some View>, _ colour: Color) -> some View {
@@ -132,6 +143,8 @@ public struct KeyringButton: View {
             .environment(\.controlActiveState, .key)
         #endif
     }
+
+    private var isTextOnly: Bool { [.link, .approveLink, .denyLink].contains(action.kind) }
 
     private static var size: ControlSize {
         #if os(watchOS)

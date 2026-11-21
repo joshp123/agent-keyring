@@ -9,7 +9,7 @@
 // Set KEYRING_RENDER_DIR to also write each screen as a PNG, with its words
 // beside it in a .txt file.
 
-import AgentKeyringDesign
+@testable import AgentKeyringDesign
 #if canImport(AgentKeyringApprovalUI)
 import AgentKeyringApprovalUI
 #endif
@@ -54,6 +54,35 @@ import UniformTypeIdentifiers
         #expect(result.findings.contains(.brokenWord("Approve")), "\(result.findings)")
     }
 
+    #if os(iOS)
+    /// The approval card's old side-by-side pair at accessibility size 3,
+    /// where "Approve" split as "Ap-prove" in a render that the check passed.
+    @Test func theCheckCatchesTheOldSideBySideApprove() {
+        let pair = HStack(spacing: KeyringSpace.s2) {
+            KeyringButton(.deny("Deny") {})
+            KeyringButton(.approve("Approve") {})
+        }
+        .environment(\.keyringButtonsFill, true)
+        .padding(KeyringSpace.s6)
+        let result = ScreenCheck.run(pair, on: KeyringScreen("largest-text", size: KeyringSize.phone, scrolls: true, dynamicTypeSize: .accessibility3))
+        #expect(result.findings.contains(.brokenWord("Approve")), "\(result.findings)")
+    }
+    #endif
+
+    /// A button squeezed beside words until its label stacks ("Send / Practice /
+    /// Request") must be reported: it should move under the words instead.
+    @Test func theCheckCatchesAButtonLabelWrappedBesideWords() {
+        let row = HStack(spacing: KeyringSpace.s3) {
+            KeyringText("Research Team MacBook Pro, approves with Touch ID", as: .heading)
+            KeyringButton(.plain("Send Practice Request") {})
+        }
+        .frame(width: 260)
+        let result = ScreenCheck.run(row, on: KeyringScreen("light", size: CGSize(width: 260, height: 0), scrolls: true))
+        // iPhone wraps a squeezed label; the Mac cuts it off. Either must be reported.
+        #expect(result.findings.contains(.wrappedLabel("Send Practice Request")) || result.findings.contains(.truncated("Send Practice Request")),
+                "\(result.findings)")
+    }
+
     /// Text pushed past the bottom of the Mac window must be reported too.
     @Test func theCheckCatchesAPageTooTallForTheWindow() {
         let tooTall = VStack(alignment: .leading, spacing: 40) {
@@ -69,16 +98,22 @@ import UniformTypeIdentifiers
 func checkAll(_ entries: [KeyringGalleryEntry]) throws {
     let folder = ProcessInfo.processInfo.environment["KEYRING_RENDER_DIR"].map { URL(fileURLWithPath: $0) }
     if let folder { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
-    for entry in entries {
-        for screen in KeyringScreen.all(for: entry.kind) {
+    // KEYRING_GALLERY_PART=2/4 checks every 4th entry starting with the 2nd, for a
+    // simulator short of memory: run 1/4 to 4/4 one after another.
+    let part = ProcessInfo.processInfo.environment["KEYRING_GALLERY_PART"].flatMap { value -> (Int, Int)? in
+        let numbers = value.split(separator: "/").compactMap { Int($0) }
+        return numbers.count == 2 && (1...numbers[1]).contains(numbers[0]) ? (numbers[0], numbers[1]) : nil
+    } ?? (1, 1)
+    for (index, entry) in entries.enumerated() where index % part.1 == part.0 - 1 {
+        for screen in KeyringScreen.all(for: entry.kind) { try autoreleasepool {
             let result = ScreenCheck.run(entry.view, on: screen)
             #expect(result.findings.isEmpty, "\(entry.id) (\(screen.name)):\n  \(result.findings.map(\.description).joined(separator: "\n  "))")
             #expect(!result.words.isEmpty, "\(entry.id) (\(screen.name)) reported no words: is it built from the parts?")
-            guard let folder else { continue }
+            guard let folder else { return }
             let name = "\(platform)-\(entry.id)-\(screen.name)"
             if let image = result.image { try png(image, to: folder.appendingPathComponent(name + ".png")) }
             try (result.words.joined(separator: "\n") + "\n").write(to: folder.appendingPathComponent(name + ".txt"), atomically: true, encoding: .utf8)
-        }
+        } }
     }
 }
 
