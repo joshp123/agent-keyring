@@ -32,28 +32,17 @@ extension MirrorAppModel {
                 var result = Agentkeyring_V1_SetupResponse()
                 switch setup.action {
                 case .startRelay:
-                    guard !setup.host.isEmpty, let port = UInt16(exactly: setup.port), port > 0 else {
-                        throw LeaseFailure(.invalidArgument, "Give a relay host and port.")
-                    }
-                    _ = try macKeys()
-                    result.invite = try await device!.beginSetup(try RelayEndpoint(host: setup.host, port: port),
-                        agent: AgentRequester.from(peer: peer).name, reason: setup.reason)
+                    throw LeaseFailure(.invalidArgument, "There is no relay any more. Run 'agent-keyring invite' on this Mac and enrol the other computer with its link.")
                 case .invite:
                     _ = try macKeys()
                     result.invite = try device!.inviteMachine()
                 case .relayStatus:
                     _ = try macKeys()
-                    result.relayStatus = device!.connection == .connected ? "connected"
-                        : device!.isJoined || device!.setup != nil ? "waiting" : "not-started"
+                    result.relayStatus = device!.door.address != nil ? "connected" : "waiting"
                 case .logs:
-                    var lines = DiagnosticLog.recent(since: setup.sinceUnixSeconds, request: setup.requestID)
-                    if let device, device.isJoined {
-                        do { lines += try await device.relayLogs(since: setup.sinceUnixSeconds, request: setup.requestID) } catch {
-                            lines.append("\(Date.now.formatted(.iso8601)) mac logs relay-unreachable reason=\"\(error)\"")
-                        }
-                    }
-                    result.logLines = Array(Set(lines)).sorted()
-                default: throw LeaseFailure(.invalidArgument, "Choose a setup action: start-relay or relay-status.")
+                    result.logLines = device?.logLines(since: setup.sinceUnixSeconds, request: setup.requestID)
+                        ?? DiagnosticLog.recent(since: setup.sinceUnixSeconds, request: setup.requestID)
+                default: throw LeaseFailure(.invalidArgument, "Choose a setup action: invite, relay-status or logs.")
                 }
                 response.setup = result
             case let .findLogins(query):
@@ -92,8 +81,8 @@ extension MirrorAppModel {
                     requester: CredentialLeaseRequester(requester, project: incoming.project))
                 DiagnosticLog.record("lease", "requested", ["lease": response.lease.leaseID, "login": incoming.loginID,
                     "state": "\(response.lease.state)", "agent": requester.name])
-                if login != nil, response.lease.state == .pending, device?.isJoined == true {
-                    askDevices(for: response.lease, request: incoming, agent: requester.name)
+                if login != nil, response.lease.state == .pending, leaseStore.pushedRequests[response.lease.leaseID] == nil {
+                    device?.ask(for: response.lease, agent: requester.name, project: incoming.project)
                 }
             case let .getLease(reference):
                 try await refreshLeasePolicy()
@@ -116,13 +105,44 @@ extension MirrorAppModel {
                 return
             case let .endLease(reference):
                 response.lease = try leaseStore.end(reference.leaseID)
-                await device?.stopAsking(reference.leaseID)
             case let .deliver(operation):
                 try await refreshLeasePolicy()
                 let lease = try leaseStore.get(operation.leaseID)
                 let values = try await values(for: lease, fields: operation.fields)
                 // No suspension between this final check of the lease and returning the values.
                 response.delivery = try leaseStore.deliver(operation) { _, _ in values }
+            case let .pushKey(key):
+                _ = try macKeys()
+                try device!.setPushCredential(keyID: key.keyID, teamID: key.teamID, privateKey: key.privateKey)
+                response.setup = Agentkeyring_V1_SetupResponse()
+            case let .complain(complain):
+                _ = try macKeys()
+                var complaint = Agentkeyring_V2_Complaint()
+                complaint.domain = "agentkeyring.complaint.v2"
+                complaint.atUnixSeconds = complain.complaint.atUnixSeconds
+                complaint.computer = Host.current().localizedName ?? "Mac"
+                complaint.version = complain.complaint.version
+                complaint.command = complain.complaint.command
+                complaint.thread = complain.complaint.thread
+                complaint.summary = complain.complaint.summary
+                complaint.detail = complain.complaint.detail
+                try device!.keep(complaint)
+                response.setup = Agentkeyring_V1_SetupResponse()
+            case let .complaints(asked):
+                _ = try macKeys()
+                var result = Agentkeyring_V1_ComplaintsResponse()
+                result.complaints = device!.complaints(since: asked.sinceUnixSeconds).complaints.map { kept in
+                    var complaint = Agentkeyring_V1_Complaint()
+                    complaint.atUnixSeconds = kept.atUnixSeconds
+                    complaint.computer = kept.computer
+                    complaint.version = kept.version
+                    complaint.command = kept.command
+                    complaint.thread = kept.thread
+                    complaint.summary = kept.summary
+                    complaint.detail = kept.detail
+                    return complaint
+                }
+                response.complaints = result
             case .fill:
                 throw LeaseFailure(.invalidArgument, "Fill runs in the agent-keyring command. Use Deliver on the authority socket.")
             case nil: throw LeaseFailure(.invalidArgument, "Select an authority method.")
@@ -140,62 +160,6 @@ extension MirrorAppModel {
             response.error.message = failure.message
             response.endOfStream = true
             reply(response)
-        }
-    }
-
-    /// The request also goes to the iPhone and Watch through the relay, and the
-    /// lease follows the first answer. With `alsoHere` (a login set to Ask) this
-    /// Mac shows it too and never depends on the relay: an answer here stops the
-    /// request on the devices, and a relay that can't be reached changes nothing.
-    /// Without it (Ask on iPhone or Watch) only the devices can answer.
-    /// Every Ask request from an agent on this Mac, when it is connected to the
-    /// relay: shown here as always, and also offered to the iPhone and Watch.
-    /// The first answer wins; the others clear. This Mac never waits on them.
-    func askDevices(for lease: Agentkeyring_V1_Lease, request: Agentkeyring_V1_RequestLeaseRequest, agent: String) {
-        let leaseID = lease.leaseID
-        // The iPhone and Watch follow what happens here: an answer on this
-        // Mac shows there as answered on the Mac, and Stop there ends it here.
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.device?.forget(leaseID) }
-            var stage = Agentkeyring_V1_LeaseState.pending
-            for await leases in self.leaseStore.changes() {
-                guard let current = leases.first(where: { $0.leaseID == leaseID }), current.state != stage else { continue }
-                let byThisMac = current.approvedBy == .mac || current.approvedBy == .unspecified
-                switch (stage, current.state) {
-                case (.pending, .active) where byThisMac:
-                    stage = .active
-                    await self.device?.stopAsking(leaseID, answeredHere: "approved")
-                case (.pending, .denied) where byThisMac:
-                    await self.device?.stopAsking(leaseID, answeredHere: "denied")
-                    return
-                case (.pending, .active):
-                    stage = .active // Answered on a device: the relay already knows, but not when it is released here.
-                case (.active, _):
-                    await self.device?.stopAsking(leaseID) // Released or out of time.
-                    return
-                default:
-                    if current.approvedBy == .mac || current.state != .denied { await self.device?.stopAsking(leaseID) }
-                    return
-                }
-            }
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let device = self.device else { return }
-                let answer = try await device.askDevices(leaseID: leaseID, loginID: lease.loginID, reason: lease.reason, agent: agent,
-                    project: request.project, task: lease.taskRef)
-                guard (try? self.leaseStore.get(leaseID))?.state == .pending else { return }
-                switch answer {
-                case let .approved(contents): try self.leaseStore.approveFromDevices(leaseID, contents: contents)
-                case let .denied(reply): _ = try self.leaseStore.deny(leaseID, reply: reply, approvedBy: .iphone)
-                case .unanswered, .cancelled: break
-                }
-            } catch {
-                leaseLogger.notice("This request is shown only on this Mac: \(String(describing: error), privacy: .public)")
-                DiagnosticLog.record("devices", "not-asked", ["lease": leaseID, "reason": "\(error)"])
-            }
         }
     }
 

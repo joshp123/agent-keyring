@@ -1969,12 +1969,19 @@ func (x *Work) GetLogin() *Login {
 //	aps.interruption-level  "time-sensitive"
 //	aps.mutable-content  1
 //	aps.thread-id        the request id
+//	aps.sound            "default"
 //	akr                  base64 of a serialized Notice
 //
 // with the header apns-collapse-id set to the request id, so the push for the
 // outcome replaces the one for the request. The app's notification service
 // extension opens the Notice with the device's notice key and writes the
-// alert from the Work in it; one push goes to each device.
+// alert from the Work in it; one push goes to each device. The top level also
+// carries "id": the request id. Headers: apns-push-type alert, priority 10,
+// apns-expiration the request's answer_by.
+// Every outcome (answered, stopped, released, cancelled, no answer) is a silent
+// push to the same devices: apns-push-type background, priority 5, the same
+// collapse id, aps only {"content-available": 1, "thread-id": id}, with "id"
+// and "akr", whose Work has its outcome set.
 // info = "agentkeyring.notice.v2"; aad = the device's Device.key_id UTF-8
 // plaintext = serialized Work.
 type Notice struct {
@@ -3631,13 +3638,18 @@ func (x *SealedLogins) GetWithdrawnLoginIds() []string {
 // tries to bind it once a second, so another takes over within a second when
 // the holder exits. A device whose POST cannot connect retries for 30 seconds.
 //
-// On every door, for that computer's own requests:
+// On every door, for that computer's own requests, with no client certificate:
 //
 //	POST /v2/answer, POST /v2/arrived: below.
 //	POST /v2/end      body: Signed EndRequest (Stop). Replies 200 with the Lease.
 //
-// On the Mac's door only. These need a TLS client certificate: a member's TLS
-// key, or for /v2/join the key the JoinRequest names.
+// The Mac also serves its members' door, on port 17447 of the same address
+// with the same key: the port JoinInvite.door_port names. Never assume 17446
+// for it. macOS's TLS can either require a client certificate or ask for none,
+// so the routes below, which need one, are on their own door, and the answer
+// door stays open to the Apple Watch and a locked iPhone, which have none.
+// On the members' door only. These need a TLS client certificate: a member's
+// TLS key, or for /v2/join the key the JoinRequest names.
 //
 //	POST /v2/join              body: JoinRequest. Replies 200 with JoinStatus at
 //	                           once if decided, else after up to 25 seconds
@@ -3660,7 +3672,13 @@ func (x *SealedLogins) GetWithdrawnLoginIds() []string {
 //	POST /v2/complaint         body: Complaint, from a computer. Replies 200.
 //	GET  /v2/complaints?since=SECONDS  Replies Complaints.
 //
-// The Mac tells the iPhone something changed with a silent push:
+// Every door speaks HTTP/1.1 over TLS 1.3: a body is sent with Content-Length
+// (no chunked bodies), and the door closes the connection after its reply.
+// 400 means the body could not be read, 403 that it was refused, 404 an
+// unknown route; each with a sentence in the body.
+//
+// The Mac tells the iPhone something changed with a silent push
+// (apns-push-type background, priority 5, apns-collapse-id "rev"):
 //
 //	{"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
 //
@@ -4482,7 +4500,7 @@ type JoinInvite struct {
 	// The inviting Mac's door, joined directly. The item in iCloud Keychain
 	// holds all of these, with a secret, whenever the Mac app runs.
 	DoorHost         string `protobuf:"bytes,8,opt,name=door_host,json=doorHost,proto3" json:"door_host,omitempty"`                              // The Mac's Tailscale IP address, read from Tailscale when written: never a name.
-	DoorPort         uint32 `protobuf:"varint,9,opt,name=door_port,json=doorPort,proto3" json:"door_port,omitempty"`                             // 17446.
+	DoorPort         uint32 `protobuf:"varint,9,opt,name=door_port,json=doorPort,proto3" json:"door_port,omitempty"`                             // The Mac's members' door: 17447, not its answer door.
 	DoorTlsPublicKey []byte `protobuf:"bytes,10,opt,name=door_tls_public_key,json=doorTlsPublicKey,proto3" json:"door_tls_public_key,omitempty"` // The Mac's Machine.tls_public_key, SPKI DER: pin it.
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache

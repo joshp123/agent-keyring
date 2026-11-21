@@ -46,6 +46,8 @@ const help = `Agent Keyring: use a saved login for one task.
   enrol --name NAME --invite LINK
                             Join this computer, with a link from 'invite' on the Mac
   invite                    On the Mac: print a one-time link for one computer to join
+  push-key --key-id ID --team-id ID < AuthKey_ID.p8
+                            On the Mac: give the app Apple's push key
   logs [--since 30m] [--request ID]
                             What this computer, the Mac, the iPhone and the Apple
                             Watch did and why, in time order; no secrets
@@ -99,7 +101,8 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "invite", "browser-profile", "summary", "command", "thread":
+		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "invite", "browser-profile",
+			"key-id", "team-id", "summary", "command", "thread":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -226,6 +229,9 @@ func run(ctx context.Context, args []string) (int, error) {
 			return 1, e
 		}
 		return 0, nil
+	}
+	if code, handled, e := onMac(ctx, command, a); handled {
+		return code, e
 	}
 	if command == "complain" {
 		return complain(ctx, a)

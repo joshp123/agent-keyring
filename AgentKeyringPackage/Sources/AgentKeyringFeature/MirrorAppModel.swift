@@ -24,11 +24,13 @@ public final class MirrorAppModel {
     public let leaseStore: CredentialLeaseStore
     /// How often each password was asked for, approved and denied.
     public let usage = PasswordUsageLog()
-    /// This Mac on the relay, once its keys exist. Nil when the Mac has no Secure Enclave.
+    /// This Mac as the place the lists live and its door, once its keys exist. Nil when the Mac has no Secure Enclave.
     public private(set) var device: MacDevice?
     @ObservationIgnored private var keys: MacKeys?
     /// A new import changed the logins the other devices hold; Josh hasn't yet allowed sending them.
     public internal(set) var importedLoginsAwaitApproval = false
+    /// A password became Automatic on the iPhone, and a computer allowed Automatic passwords has no copy of it yet.
+    public internal(set) var automaticCopiesMissing = false
     var isApprovingLease = false
     public internal(set) var leaseLogins: [CredentialCandidate] = []
     let bridge: AgentBridgeDirectory
@@ -42,8 +44,8 @@ public final class MirrorAppModel {
         didSet { if passwordsCopy != oldValue { DiagnosticLog.record("copy", "moved", ["to": passwordsCopy.map { "\($0)" } ?? "closed"]) } }
     }
     @ObservationIgnored var exportTimeout: Task<Void, Never>?
-    /// This Mac's Automatic switch while it is not joined to a relay; once
-    /// joined, its entry in the members list decides.
+    /// This Mac's Automatic switch while nothing has joined it; after that,
+    /// its entry in the members list decides.
     var savedAutomaticOnThisMac: Bool {
         didSet { settings.set(savedAutomaticOnThisMac, forKey: Self.automaticOnThisMacKey) }
     }
@@ -93,7 +95,7 @@ public final class MirrorAppModel {
     public static func forgetPreviousInstall(settings: UserDefaults = .standard) {
         guard !settings.bool(forKey: installedKey) else { return }
         let app = Bundle.main.bundleIdentifier ?? "com.agentkeyring"
-        for service in [app + ".relay.v2", app + ".rules.v2"] {
+        for service in [app + ".relay.v2", app + ".lists.v2", app + ".rules.v2"] {
             SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                 kSecUseDataProtectionKeychain as String: true] as CFDictionary)
         }
@@ -109,6 +111,8 @@ public final class MirrorAppModel {
     /// saved this way, or whose saved state a later build cannot read, is never stuck.
     static func savedFirstRun(_ settings: UserDefaults) -> FirstRun {
         if let data = settings.data(forKey: firstRunKey), let saved = try? JSONDecoder().decode(FirstRun.self, from: data) {
+            // An earlier build saved the page for a computer that stays on, which nothing needs now.
+            if case let .journey(devices, .stayingOn) = saved { return FirstRun.journey(devices, .stayingOn).after(.connected, facts: .init(alwaysOn: true)) }
             return saved
         }
         return settings.bool(forKey: firstRunFinishedKey) || settings.object(forKey: testedAtKey) != nil ? .finished : .welcome
@@ -126,21 +130,19 @@ public final class MirrorAppModel {
         if !NSApplication.shared.isActive, [.deviceDone, .connected].contains(event) || { if case .imported = event { true } else { false } }() {
             NSApplication.shared.requestUserAttention(.informationalRequest)
         }
-        Task { await reportStatus() }
-        if firstRun.devices?.iPhone == true { device?.leaveNameForIPhone() }
     }
 
     /// What the world says is already done, for the journey to pass over.
     var firstRunFacts: FirstRun.Facts {
         let devices = device?.members?.devices ?? []
-        let report = devices.first { $0.kind == .iphone }.flatMap { device?.reports[$0.keyID] }
-        return FirstRun.Facts(alwaysOn: device?.isJoined == true,
-            iPhoneDone: report?.finished == true,
-            // Apple Watch reports through the iPhone: adding it is the iPhone's WATCH step.
-            watchDone: devices.contains { $0.kind == .watch } || report?.step == .ready)
+        let filling = device?.filling?.deviceKeyID
+        // No computer needs to stay on: this Mac's own door does that work.
+        return FirstRun.Facts(alwaysOn: true,
+            iPhoneDone: devices.contains { $0.kind == .iphone && $0.keyID != filling },
+            watchDone: devices.contains { $0.kind == .watch })
     }
 
-    /// The iPhone finished its first run, or the Apple Watch joined: the Mac's window for it moves on.
+    /// The iPhone or the Apple Watch joined: the Mac's window for it moves on.
     func noteDevicesChanged() {
         send(.deviceDone)
     }
@@ -217,11 +219,20 @@ public final class MirrorAppModel {
             throw error
         }
         keys = made
-        device = MacDevice(keys: made, store: store) { [weak self] in try await self?.catalogueLogins() ?? [] }
+        #if DEBUG
+        let storage = MacStorage.app(standIn: made.standIn)
+        #else
+        let storage = MacStorage.app(standIn: false)
+        #endif
+        device = MacDevice(keys: made, store: store, leaseStore: leaseStore, environment: MacDevice.Environment(storage: storage)) { [weak self] in
+            try await self?.catalogueLogins() ?? []
+        }
         device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
-        device?.onStoppedOnDevice = { [weak self] leaseID in _ = try? self?.leaseStore.revoke(leaseID) }
         device?.onDevicesChanged = { [weak self] in self?.noteDevicesChanged() }
-        device?.onOtherComputersRequest = { [weak self] id, login, event in self?.usage.note(event, request: id, login: login) }
+        device?.onPracticeHere = { [weak self] in
+            guard let self else { return }
+            Task { await self.sendPractice(to: self.thisMacDeviceKey) }
+        }
         return made
     }
 
@@ -238,10 +249,7 @@ public final class MirrorAppModel {
             return
         }
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
-        if (try? macKeys()) != nil {
-            device?.start()
-            if firstRun.devices?.iPhone == true { device?.leaveNameForIPhone() }
-        }
+        if (try? macKeys()) != nil { device?.start() }
     }
 
 }

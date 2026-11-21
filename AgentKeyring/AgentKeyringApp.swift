@@ -148,8 +148,6 @@ private struct HomeWindow: View {
 private struct FirstRunHome: View {
     let model: MirrorAppModel
     let presentation: AgentKeyringPresentation
-    /// Connect on the window for a computer that stays on: waiting for Touch ID, or why it failed.
-    @State private var connect: ConnectFlow?
     /// "Add other computers": the one-time command, made when that window opens.
     @State private var command: String?
 
@@ -172,7 +170,7 @@ private struct FirstRunHome: View {
             case let .practiceDenied(reply): .practiceDenied(reply: reply)
             case .copyPasswords: copyScreen(model.passwordsCopy ?? .steps, model: model, offerSample: true)
             case let .tellAgents(copied): SetupScreens.tellAgents(model, copied: copied)
-            case .stayingOn: (connect ?? ConnectFlow(model: model)).screen
+            case .stayingOn: .stayingOn(failure: nil, offered: nil) // Passed over: no computer needs to stay on.
             case .addPhone: SetupScreens.addPhone(model)
             case .addWatch: SetupScreens.addWatch(model)
             case .addComputers: SetupScreens.addComputers(model, command: command)
@@ -195,16 +193,6 @@ private struct FirstRunHome: View {
         actions.continueOn = { model.send(.continueOn) }
         actions.skip = { model.send(.skip) }
         actions.useThisMacAlone = { model.send(.useThisMacAlone) }
-        actions.connect = { address in
-            let flow = connect ?? ConnectFlow(model: model)
-            connect = flow
-            flow.connect(address) { model.send(.connected) }
-        }
-        actions.connectOffered = {
-            let flow = connect ?? ConnectFlow(model: model)
-            connect = flow
-            flow.connectOffered { model.send(.connected) }
-        }
         actions.sendPractice = { key in Task { await model.sendPractice(to: key) } }
         // He lands on the main window, in the same window: Passwords and Devices.
         actions.done = {
