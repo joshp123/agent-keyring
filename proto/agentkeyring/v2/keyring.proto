@@ -534,13 +534,15 @@ message SealedLogins {
 //                              was first asked, connected or not.
 //   POST /v2/join/withdraw     body: JoinRequest, from the same key. Replies 200.
 //   GET  /v2/rev               Replies Revisions.
-//   GET  /v2/bundle            Replies Bundle for the caller.
+//   GET  /v2/bundle?members=N  Replies Bundle for the caller; N is the newest
+//                              Members revision the caller holds (0 for none).
 //   POST /v2/push-registration body: Signed PushRegistration.
 //   POST /v2/copies            body: SealedLogins: the Apple Watch's copies,
 //                              made by its iPhone.
 //   POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
 //   POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-//                              practice request's id; the Mac pushes it.
+//                              practice request's id as plain text (the id
+//                              the device chose); the Mac pushes it.
 //   POST /v2/log               body: Signed DeviceLog.
 //   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
 //   POST /v2/complaint         body: Complaint, from a computer. Replies 200.
@@ -638,6 +640,10 @@ message Bundle {
   // its own copies of the passwords Automatic for it.
   repeated SealedLogin copies = 4;
   Revisions revisions = 5;
+  // Every Members revision after the one the caller holds, oldest first, so
+  // each is checked against the one before (one may be signed by a device
+  // the caller has not seen yet). members is the last of them.
+  repeated Signed members_since = 6;
 }
 
 message JoinRequest {

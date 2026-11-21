@@ -3646,13 +3646,15 @@ func (x *SealedLogins) GetWithdrawnLoginIds() []string {
 //	                           was first asked, connected or not.
 //	POST /v2/join/withdraw     body: JoinRequest, from the same key. Replies 200.
 //	GET  /v2/rev               Replies Revisions.
-//	GET  /v2/bundle            Replies Bundle for the caller.
+//	GET  /v2/bundle?members=N  Replies Bundle for the caller; N is the newest
+//	                           Members revision the caller holds (0 for none).
 //	POST /v2/push-registration body: Signed PushRegistration.
 //	POST /v2/copies            body: SealedLogins: the Apple Watch's copies,
 //	                           made by its iPhone.
 //	POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
 //	POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-//	                           practice request's id; the Mac pushes it.
+//	                           practice request's id as plain text (the id
+//	                           the device chose); the Mac pushes it.
 //	POST /v2/log               body: Signed DeviceLog.
 //	GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
 //	POST /v2/complaint         body: Complaint, from a computer. Replies 200.
@@ -4187,8 +4189,12 @@ type Bundle struct {
 	// To the iPhone: its own copy of every password that is not Blocked.
 	// To a computer: the Apple Watch's copies, which it puts in its pushes, and
 	// its own copies of the passwords Automatic for it.
-	Copies        []*SealedLogin `protobuf:"bytes,4,rep,name=copies,proto3" json:"copies,omitempty"`
-	Revisions     *Revisions     `protobuf:"bytes,5,opt,name=revisions,proto3" json:"revisions,omitempty"`
+	Copies    []*SealedLogin `protobuf:"bytes,4,rep,name=copies,proto3" json:"copies,omitempty"`
+	Revisions *Revisions     `protobuf:"bytes,5,opt,name=revisions,proto3" json:"revisions,omitempty"`
+	// Every Members revision after the one the caller holds, oldest first, so
+	// each is checked against the one before (one may be signed by a device
+	// the caller has not seen yet). members is the last of them.
+	MembersSince  []*Signed `protobuf:"bytes,6,rep,name=members_since,json=membersSince,proto3" json:"members_since,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4254,6 +4260,13 @@ func (x *Bundle) GetCopies() []*SealedLogin {
 func (x *Bundle) GetRevisions() *Revisions {
 	if x != nil {
 		return x.Revisions
+	}
+	return nil
+}
+
+func (x *Bundle) GetMembersSince() []*Signed {
+	if x != nil {
+		return x.MembersSince
 	}
 	return nil
 }
@@ -5429,13 +5442,14 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\tRevisions\x12\x18\n" +
 	"\amembers\x18\x01 \x01(\x04R\amembers\x12\x1c\n" +
 	"\tcatalogue\x18\x02 \x01(\x04R\tcatalogue\x12\x16\n" +
-	"\x06copies\x18\x03 \x01(\x04R\x06copies\"\xaa\x02\n" +
+	"\x06copies\x18\x03 \x01(\x04R\x06copies\"\xe8\x02\n" +
 	"\x06Bundle\x121\n" +
 	"\amembers\x18\x01 \x01(\v2\x17.agentkeyring.v2.SignedR\amembers\x125\n" +
 	"\tcatalogue\x18\x02 \x01(\v2\x17.agentkeyring.v2.SignedR\tcatalogue\x12F\n" +
 	"\x12push_registrations\x18\x03 \x03(\v2\x17.agentkeyring.v2.SignedR\x11pushRegistrations\x124\n" +
 	"\x06copies\x18\x04 \x03(\v2\x1c.agentkeyring.v2.SealedLoginR\x06copies\x128\n" +
-	"\trevisions\x18\x05 \x01(\v2\x1a.agentkeyring.v2.RevisionsR\trevisions\"\xc5\x01\n" +
+	"\trevisions\x18\x05 \x01(\v2\x1a.agentkeyring.v2.RevisionsR\trevisions\x12<\n" +
+	"\rmembers_since\x18\x06 \x03(\v2\x17.agentkeyring.v2.SignedR\fmembersSince\"\xc5\x01\n" +
 	"\vJoinRequest\x124\n" +
 	"\amachine\x18\x01 \x01(\v2\x18.agentkeyring.v2.MachineH\x00R\amachine\x121\n" +
 	"\x06device\x18\x02 \x01(\v2\x17.agentkeyring.v2.DeviceH\x00R\x06device\x12\x14\n" +
@@ -5695,26 +5709,27 @@ var file_agentkeyring_v2_keyring_proto_depIdxs = []int32{
 	7,  // 61: agentkeyring.v2.Bundle.push_registrations:type_name -> agentkeyring.v2.Signed
 	13, // 62: agentkeyring.v2.Bundle.copies:type_name -> agentkeyring.v2.SealedLogin
 	46, // 63: agentkeyring.v2.Bundle.revisions:type_name -> agentkeyring.v2.Revisions
-	10, // 64: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
-	9,  // 65: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
-	52, // 66: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck
-	4,  // 67: agentkeyring.v2.SelfTestReport.journey:type_name -> agentkeyring.v2.JourneyStep
-	4,  // 68: agentkeyring.v2.SelfTestReport.step:type_name -> agentkeyring.v2.JourneyStep
-	7,  // 69: agentkeyring.v2.MembersChain.revisions:type_name -> agentkeyring.v2.Signed
-	7,  // 70: agentkeyring.v2.SelfTests.reports:type_name -> agentkeyring.v2.Signed
-	5,  // 71: agentkeyring.v2.JoinStatus.state:type_name -> agentkeyring.v2.JoinState
-	7,  // 72: agentkeyring.v2.JoinStatus.members:type_name -> agentkeyring.v2.Signed
-	49, // 73: agentkeyring.v2.JoinStatus.refusal:type_name -> agentkeyring.v2.JoinRefusal
-	30, // 74: agentkeyring.v2.JoinStatus.push_credential:type_name -> agentkeyring.v2.SealedPushCredential
-	58, // 75: agentkeyring.v2.PendingJoins.joins:type_name -> agentkeyring.v2.PendingJoin
-	58, // 76: agentkeyring.v2.Changes.pending_joins:type_name -> agentkeyring.v2.PendingJoin
-	48, // 77: agentkeyring.v2.PendingJoin.request:type_name -> agentkeyring.v2.JoinRequest
-	6,  // 78: agentkeyring.v2.Error.code:type_name -> agentkeyring.v2.ErrorCode
-	79, // [79:79] is the sub-list for method output_type
-	79, // [79:79] is the sub-list for method input_type
-	79, // [79:79] is the sub-list for extension type_name
-	79, // [79:79] is the sub-list for extension extendee
-	0,  // [0:79] is the sub-list for field type_name
+	7,  // 64: agentkeyring.v2.Bundle.members_since:type_name -> agentkeyring.v2.Signed
+	10, // 65: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
+	9,  // 66: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
+	52, // 67: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck
+	4,  // 68: agentkeyring.v2.SelfTestReport.journey:type_name -> agentkeyring.v2.JourneyStep
+	4,  // 69: agentkeyring.v2.SelfTestReport.step:type_name -> agentkeyring.v2.JourneyStep
+	7,  // 70: agentkeyring.v2.MembersChain.revisions:type_name -> agentkeyring.v2.Signed
+	7,  // 71: agentkeyring.v2.SelfTests.reports:type_name -> agentkeyring.v2.Signed
+	5,  // 72: agentkeyring.v2.JoinStatus.state:type_name -> agentkeyring.v2.JoinState
+	7,  // 73: agentkeyring.v2.JoinStatus.members:type_name -> agentkeyring.v2.Signed
+	49, // 74: agentkeyring.v2.JoinStatus.refusal:type_name -> agentkeyring.v2.JoinRefusal
+	30, // 75: agentkeyring.v2.JoinStatus.push_credential:type_name -> agentkeyring.v2.SealedPushCredential
+	58, // 76: agentkeyring.v2.PendingJoins.joins:type_name -> agentkeyring.v2.PendingJoin
+	58, // 77: agentkeyring.v2.Changes.pending_joins:type_name -> agentkeyring.v2.PendingJoin
+	48, // 78: agentkeyring.v2.PendingJoin.request:type_name -> agentkeyring.v2.JoinRequest
+	6,  // 79: agentkeyring.v2.Error.code:type_name -> agentkeyring.v2.ErrorCode
+	80, // [80:80] is the sub-list for method output_type
+	80, // [80:80] is the sub-list for method input_type
+	80, // [80:80] is the sub-list for extension type_name
+	80, // [80:80] is the sub-list for extension extendee
+	0,  // [0:80] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v2_keyring_proto_init() }
