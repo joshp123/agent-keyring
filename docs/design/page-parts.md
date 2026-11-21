@@ -78,7 +78,7 @@ TEST_RUNNER_KEYRING_RENDER_DIR=/full/path/to/renders/watch \
 swift run PanelRender /full/path/to/renders/mac
 ```
 
-The `AgentKeyringDesignChecks` scheme builds only the parts, `AgentKeyringApprovalUI` and these tests, because `AgentKeyringFeature` does not build for iOS. No window opens on screen.
+The `AgentKeyringDesignChecks` scheme builds only the parts, `AgentKeyringApprovalUI` and these tests, because `AgentKeyringFeature` does not build for iOS. No window opens on screen. The Watch run also boots the iPhone simulator paired with it and leaves it running: shut it down with `xcrun simctl shutdown <its id>` when done.
 
 ## The copy check
 
