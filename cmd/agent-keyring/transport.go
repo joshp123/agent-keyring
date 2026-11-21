@@ -53,9 +53,6 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 		return authority.Client{}, err
 	}
 	local := authority.Client{State: store}
-	if os.Getenv("AGENT_KEYRING_SOCKET") != "" && os.Getenv("AGENT_KEYRING_RELAY") != "" {
-		return authority.Client{}, errors.New("Choose one connection override: AGENT_KEYRING_SOCKET or AGENT_KEYRING_RELAY, not both.")
-	}
 	if os.Getenv("AGENT_KEYRING_SOCKET") != "" {
 		local.Socket = os.Getenv("AGENT_KEYRING_SOCKET")
 		return local, nil
@@ -64,13 +61,9 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 	if err != nil {
 		return authority.Client{}, err
 	}
-	if address := os.Getenv("AGENT_KEYRING_RELAY"); address != "" && address != state.RelayAddress {
-		return authority.Client{}, errors.New("This relay address is not enrolled. Run enrol for this relay before using it.")
-	}
-
 	// Signed enrolment is the selected authority, including for bundled helpers
 	// on a Mac that also has a local app. Never fall back when it is unavailable.
-	if state.RecipientId != "" || os.Getenv("AGENT_KEYRING_RELAY") != "" {
+	if state.RecipientId != "" || state.RelayAddress != "" {
 		client, err := remote.Load(ctx, store)
 		if err != nil {
 			return authority.Client{}, err
@@ -97,7 +90,7 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 		if _, err := os.Stat(filepath.Join(contents, "MacOS/AgentKeyring")); contents != "" && err == nil {
 			id := bundleID(contents)
 			if id == "" {
-				return authority.Client{}, errors.New("Cannot read the local Agent Keyring app's bundle identity. Reinstall the app or enrol this machine with its relay.")
+				return authority.Client{}, errors.New("Cannot read the local Agent Keyring app's bundle identity. Reinstall the app.")
 			}
 			err = store.Update(ctx, func(current *clientstate.State) error {
 				if current.RecipientId == "" && current.LocalAuthority == nil {
@@ -124,8 +117,8 @@ func chooseAuthority(ctx context.Context) (authority.Client, error) {
 	return authority.Client{}, errors.New("No authority is selected. Install the Mac app here, or run 'agent-keyring enrol --name NAME --invite LINK' with a link from 'agent-keyring invite' on the Mac.")
 }
 
-// gatherLogs asks the Mac app on this Mac, which adds the relay's and the
-// devices' lines when it is joined; on another computer, the relay itself.
+// gatherLogs asks the Mac app on this Mac, which adds the devices' lines; on
+// another computer, its own lines with the Mac's.
 func gatherLogs(ctx context.Context, since int64, requestID string) ([]string, error) {
 	if local, err := localSetupAuthority(ctx); err == nil {
 		result, err := local.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_Setup{Setup: &pb.SetupRequest{
@@ -143,7 +136,7 @@ func gatherLogs(ctx context.Context, since int64, requestID string) ([]string, e
 	}
 	client, err := remote.Load(ctx, store)
 	if err != nil {
-		return nil, errors.New("Neither the Mac app nor a relay is set up on this computer.")
+		return nil, err
 	}
 	return client.Logs(ctx, since, requestID)
 }

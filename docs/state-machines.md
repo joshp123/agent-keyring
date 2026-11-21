@@ -92,7 +92,9 @@ Found and fixed (tests in `FirstRunTests`, and `TestABlockedLoginHasNoCopyOnTheR
 
 ## The lease, across the Mac, the relay and the command
 
-Code: `internal/relay/requests.go` (the relay's record), `internal/remote/exchange.go` (the command on another computer), `AgentKeyringFeature/CredentialLeaseStore.swift` with `MirrorAgentRequests.swift` (an agent on the Mac), `cmd/agent-keyring/main.go` `leaseState` (the word `status` prints).
+The relay is how the installed apps work until Josh's test of the direct design; the command no longer uses it (next section). This section goes when the relay does.
+
+Code: `internal/relay/requests.go` (the relay's record), `AgentKeyringFeature/CredentialLeaseStore.swift` with `MirrorAgentRequests.swift` (an agent on the Mac), `cmd/agent-keyring/main.go` `leaseState` (the word `status` prints).
 
 The relay's record of one request:
 
@@ -138,6 +140,54 @@ Found and fixed on 20 November, from Josh's run on his own devices (tests in `in
 - **Thirty minutes after any denial** was too long for "not yet, fix this first".
 - **A password with no website** (a server's, an app's) was ended the moment an agent asked, and the agent was told Josh had stopped it: the Mac narrowed the lease to the password's websites and found none (`DenialHoldTests.aPasswordWithNoWebsiteWaitsForJosh`).
 - **A request cancelled at once could leave its alert behind**, when the push for "waiting" reached Apple after the silent one for "cancelled". One request's pushes now go one at a time, each with the state as it is when sent.
+
+## A request from a computer without the app, with no relay
+
+Written by AI on 2026.11.21 by model claude opus 5.5. Code: `internal/remote/exchange.go` (asking, settling, release, opening), `internal/remote/answers.go` (what the door takes), `internal/remote/push.go`, `internal/door/door.go` (holding the door). Tests: `TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch` and `TestJoiningTheMacGoesWrong` in `e2e/e2e_test.go`.
+
+The computer an agent asks from owns its request. The record is one `agentkeyring.v2.Lease` for each request (`ExpectedRequest.lease` in the command's state file, `internal/clientstate/state.proto`), changed only under the state file's lock, by whichever of the computer's command processes sees the event.
+
+| State | Reached by | Who moves it on | `status` |
+|---|---|---|---|
+| WAITING | `lease`: the request is signed with this computer's door (`answer_address`, its Tailscale IP and port 17446) and TLS key, saved, then pushed to each device with a push address | a device's answer at the door; `release`; `answer_by` passing | pending |
+| APPROVED | a device's signed approval that checks against the newest Members held and opens with this computer's receiving key; or, Automatic, at once: the catalogue says Automatic, Members allows this computer, and its own copy checks | `release`; Stop at the door; 30 minutes | active |
+| DENIED | a signed denial (his words kept only as signed), or a plain denial naming the request id | nothing | denied |
+| UNANSWERED | `answer_by` passed while it waited | nothing | unanswered |
+| CANCELLED | `release` while it waited | nothing | cancelled |
+| ENDED | `release`; Stop (`ended_by` set); 30 minutes | nothing | released, stopped by Josh, or expired |
+
+While it waits, `pushed_unix_seconds` is set when Apple first takes a visible push, and `arrived_unix_seconds` and `arrived_on` on the first `POST /v2/arrived`.
+
+What must always be true:
+
+- **Whoever moves a request on tells the devices, once.** The door's holder for an answer or a Stop; the process that notices `answer_by` or the 30 minutes pass; `release` for the agent. Each sends the silent outcome push to every device. An Automatic use gets a silent push when it starts, so the devices can show it in use and stop it.
+- **The first answer wins.** Answers are taken under the state file's lock. A later one gets 200 with the Lease that already ended the request.
+- **A device Josh removed cannot answer.** Before checking an answer or a Stop, the door asks the Mac for newer lists, for half a second; with no reply it checks against what it holds. A removed device gets 403 with a sentence.
+- **One task, one request.** The same request id, or the same task asking for the same password while its request waits or its approval lasts, rejoins that request; nothing is pushed again.
+- **A denial holds the password off for this computer**, as on the relay: 1 minute, then 5, then 15 in a row; an approval, or an hour with no denial, starts again (`State.holds`).
+- **A shut Mac never holds an agent up.** Every contact with the Mac's door before asking waits at most 500 ms, then uses what this computer holds. An Automatic copy used that way is logged as `automatic used without the Mac`.
+- **Only Tailscale.** Every connection goes to a Tailscale IP; a name, or an address off the tailnet, is refused with a sentence. A computer with no Tailscale address says so when it enrols or asks.
+
+## The door, shared by a computer's command processes
+
+Written by AI on 2026.11.21 by model claude opus 5.5. Code: `door.Hold` in `internal/door/door.go`, started once per process by `remote.Client.holdDoor` and let go by `remote.Close`.
+
+Each command process that runs for a request (`lease`, `status`, `read`, `release`, `fill`) is in one of these states:
+
+| State | Event | Next |
+|---|---|---|
+| trying | binding this computer's Tailscale IP, port 17446, succeeds | holding |
+| trying | another process holds the port, or Tailscale has no address | trying, again a second later |
+| holding | an answer, arrival or Stop arrives, for any request of this computer | holding: it is written to the state file |
+| trying or holding | the process's work is done | letting go: no new connections; answers being taken are saved and their outcome pushed |
+| letting go | done | gone; a trying process binds within a second |
+
+Each waiting process reads its own request's state from the state file every 200 ms, so it sees an answer whichever process took it. A device whose post cannot connect retries for 30 seconds, so an answer during a hand-over reaches the next holder (tested: two waiting `lease` processes, the holder's request approved and the process gone, the other then answered).
+
+Known and left alone:
+
+- **No process, no door.** After `lease` prints its id, or with `lease --no-wait`, nothing holds the door until another command runs for a request. A device's answer or Stop then fails after 30 seconds; for Stop, the device says the access ends by itself at its time. The approval itself still ends at its 30 minutes.
+- **A list signed by a device this computer has never seen** checks only through `Bundle.members_since`, every revision since the one it holds, each against the one before.
 
 ## The Mac's approval panel
 

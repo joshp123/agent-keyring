@@ -1,4 +1,4 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5; the saved approval on 2026.11.19.
+// Written by AI on 2026.11.18 by model claude opus 5.5; the saved approval on 2026.11.19; direct, with no relay, on 2026.11.21.
 package remote
 
 import (
@@ -9,25 +9,50 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	v1 "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
 	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/joshp123/agent-keyring/internal/clientstate"
+	"github.com/joshp123/agent-keyring/internal/door"
 	"github.com/joshp123/agent-keyring/internal/keyring"
 	"google.golang.org/protobuf/proto"
 )
 
-// exchange answers the command's local requests through the relay.
+// automaticLimit is how long a command waits for the Mac's revisions before
+// it uses what it holds. A shut MacBook must never hold up an agent.
+const automaticLimit = 500 * time.Millisecond
+
+// answerWithin is how long a request waits for Josh: 10 minutes, shorter
+// only in a loopback test.
+func answerWithin() time.Duration {
+	if text := os.Getenv("AGENT_KEYRING_TEST_ANSWER_WITHIN"); text != "" && door.Testing() {
+		if duration, err := time.ParseDuration(text); err == nil && duration > 0 {
+			return duration
+		}
+	}
+	return 10 * time.Minute
+}
+
+// exchange answers the command's local requests on this computer.
 func (c *Client) exchange(ctx context.Context, request *v1.WireRequest, receive func(*v1.WireResponse) bool) error {
 	switch r := request.Request.(type) {
 	case *v1.WireRequest_FindLogins:
-		response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Find{Find: &pb.FindRequest{Query: r.FindLogins.Query}}})
+		current, err := c.refresh(ctx, automaticLimit)
 		if err != nil {
 			return err
 		}
 		result := &v1.FindLoginsResponse{}
-		for _, login := range response.GetFind().GetLogins() {
+		words := strings.Fields(strings.ToLower(r.FindLogins.Query))
+		for _, login := range current.catalogue.GetLogins() {
+			text := strings.ToLower(login.Title + " " + login.Account + " " + strings.Join(login.Sites, " ") + " " + login.LoginId)
+			if slices.ContainsFunc(words, func(word string) bool { return !strings.Contains(text, word) }) {
+				continue
+			}
 			result.Logins = append(result.Logins, &v1.Login{LoginId: login.LoginId, Title: login.Title, Sites: login.Sites,
 				Account: login.Account, HasOneTimeCode: login.HasOneTimeCode, Rule: v1.AccessRule(login.Rule)})
 		}
@@ -56,7 +81,7 @@ func (c *Client) exchange(ctx context.Context, request *v1.WireRequest, receive 
 		receive(&v1.WireResponse{Response: &v1.WireResponse_Delivery{Delivery: &v1.Delivery{Result: &v1.Delivery_Sealed{Sealed: &v1.OpenedHere{}}}}, EndOfStream: true})
 		return nil
 	}
-	return errors.New("This command is not available through the relay.")
+	return errors.New("This command is not available on a computer without the Mac app.")
 }
 
 func leaseResponse(lease *v1.Lease) *v1.WireResponse {
@@ -72,12 +97,57 @@ func expected(state *clientstate.State, leaseID string) *clientstate.ExpectedReq
 	return nil
 }
 
-// ask writes and signs the request, saves it, then sends it, so a retry sends
-// the same bytes. An Automatic login this machine holds a copy of is asked
-// for as such, and the relay grants it at once.
+func ongoing(lease *pb.Lease, now int64) bool {
+	return (lease.GetState() == pb.LeaseState_LEASE_STATE_WAITING && now < lease.AnswerByUnixSeconds) ||
+		(lease.GetState() == pb.LeaseState_LEASE_STATE_APPROVED && now < lease.NotAfterUnixSeconds)
+}
+
+// ask writes, signs and saves a request, then pushes it to Josh's devices.
+// The same request id again, or the same task asking for the same login
+// while its request waits or its approval lasts, rejoins that request. A
+// login Automatic for this computer, whose copy it holds, is granted at once.
 func (c *Client) ask(ctx context.Context, scope *v1.RequestLeaseRequest) (*v1.Lease, error) {
+	switch {
+	case strings.TrimSpace(scope.Reason) == "":
+		return nil, errors.New("Give a reason: it is shown to Josh when he decides.")
+	case len(scope.Reason) > 400 || len(scope.AgentLabel) > 100 || len(scope.Project) > 100 || len(scope.TaskRef) > 100:
+		return nil, errors.New("The reason must be at most 400 bytes, and the agent, project and task at most 100.")
+	}
+	answerAddress, err := door.Address()
+	if err != nil {
+		return nil, err
+	}
+	current, err := c.refresh(ctx, automaticLimit)
+	if err != nil {
+		return nil, err
+	}
+	login := current.login(scope.LoginId)
+	if login == nil {
+		return nil, errors.New("No such password. Use 'agent-keyring find' for its login ID.")
+	}
+	if login.Rule == pb.Rule_RULE_BLOCKED {
+		return nil, errors.New("This password is blocked for agents.")
+	}
+	state, err := c.Store.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var automatic *pb.SealedLogin
+	if login.Rule == pb.Rule_RULE_AUTOMATIC && allowsAutomatic(current.members, state.RecipientId) {
+		if sealed := current.copyFor(state.RecipientId, login.LoginId); sealed != nil && keyring.CheckSealed(sealed, current.members, login) == nil {
+			automatic = sealed
+		}
+	}
+	if automatic == nil {
+		if err := c.canPush(state, current); err != nil {
+			return nil, err
+		}
+	}
+	spki := c.certificateSPKI()
 	var saved *clientstate.ExpectedRequest
-	err := c.Store.Update(ctx, func(state *clientstate.State) error {
+	fresh := false
+	now := time.Now()
+	err = c.Store.Update(ctx, func(state *clientstate.State) error {
 		scope.RecipientId = state.RecipientId
 		for _, existing := range state.Requests {
 			if existing.Scope.RequestId == scope.RequestId {
@@ -88,50 +158,65 @@ func (c *Client) ask(ctx context.Context, scope *v1.RequestLeaseRequest) (*v1.Le
 				return nil
 			}
 		}
-		saved = &clientstate.ExpectedRequest{Scope: proto.Clone(scope).(*v1.RequestLeaseRequest)}
+		for _, existing := range state.Requests {
+			if existing.Scope.LoginId == scope.LoginId && existing.Scope.TaskRef == scope.TaskRef && ongoing(existing.Lease, now.Unix()) {
+				saved = existing // The same task again: the request it already has.
+				return nil
+			}
+		}
+		if h := hold(state, scope.LoginId); h != nil && h.UntilUnixSeconds > now.Unix() && automatic == nil {
+			return errors.New(heldOffMessage(h, now))
+		}
+		id := make([]byte, 16)
+		rand.Read(id)
+		request := &pb.Request{Domain: keyring.RequestDomain, RequestId: hex.EncodeToString(id), LoginId: scope.LoginId,
+			MachineId: scope.RecipientId, Reason: scope.Reason, Agent: scope.AgentLabel, Project: scope.Project, Task: scope.TaskRef,
+			AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: now.Add(answerWithin()).Unix(), Automatic: automatic != nil,
+			AnswerAddress: answerAddress, AnswerTlsPublicKey: spki}
+		signed, err := keyring.SignRequest(request, c.sign)
+		if err != nil {
+			return err
+		}
+		raw, _ := proto.Marshal(signed)
+		lease := &pb.Lease{RequestId: request.RequestId, LoginId: request.LoginId, State: pb.LeaseState_LEASE_STATE_WAITING,
+			AnswerByUnixSeconds: request.AnswerByUnixSeconds}
+		if automatic != nil {
+			lease.State, lease.Automatic, lease.NotAfterUnixSeconds = pb.LeaseState_LEASE_STATE_APPROVED, true, now.Unix()+keyring.ApprovalSeconds
+		}
+		saved = &clientstate.ExpectedRequest{Scope: proto.Clone(scope).(*v1.RequestLeaseRequest), LeaseId: request.RequestId, Request: raw, Lease: lease}
 		state.Requests = append(state.Requests, saved)
+		fresh = true
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if saved.LeaseId != "" {
+	if !fresh {
 		return c.lease(ctx, saved.LeaseId)
 	}
-	if len(saved.Request) == 0 {
-		sealed, _ := c.automaticCopy(ctx, scope.LoginId)
-		id := make([]byte, 16)
-		rand.Read(id)
-		now := time.Now()
-		signed, err := keyring.SignRequest(&pb.Request{Domain: keyring.RequestDomain, RequestId: hex.EncodeToString(id), LoginId: scope.LoginId,
-			MachineId: scope.RecipientId, Reason: scope.Reason, Agent: scope.AgentLabel, Project: scope.Project, Task: scope.TaskRef,
-			AskedUnixSeconds: now.Unix(), AnswerByUnixSeconds: now.Add(10 * time.Minute).Unix(), Automatic: sealed != nil}, c.sign)
-		if err != nil {
-			return nil, err
+	c.holdDoor() // Before the push, so a quick answer finds the door open.
+	if automatic != nil {
+		if !current.reached {
+			c.log("automatic used without the Mac id=" + saved.LeaseId + " login=" + scope.LoginId + " reason=" + strconv.Quote("the Mac did not answer within 500 ms; used this computer's own copy"))
 		}
-		raw, _ := proto.Marshal(signed)
-		if err := c.save(ctx, scope.RequestId, func(e *clientstate.ExpectedRequest) { e.Request, e.Automatic = raw, sealed != nil }); err != nil {
-			return nil, err
-		}
-		saved.Request, saved.Automatic = raw, sealed != nil
+		c.log("automatic id=" + saved.LeaseId + " login=" + scope.LoginId)
+	} else {
+		c.log("request id=" + saved.LeaseId + " login=" + scope.LoginId + " answer_address=" + answerAddress)
 	}
-	signed := &pb.Signed{}
-	if err := proto.Unmarshal(saved.Request, signed); err != nil {
-		return nil, errors.New("This machine's saved request is unreadable. Ask again with a new request ID.")
-	}
-	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_AskSigned{AskSigned: signed}})
-	if err != nil {
+	if err := c.pushAll(ctx, saved.LeaseId); err != nil && automatic == nil {
+		c.end(ctx, saved.LeaseId)
 		return nil, err
 	}
-	remote := response.GetLease()
-	if remote == nil || remote.RequestId == "" {
-		return nil, errors.New("The relay did not return a request.")
+	return c.lease(ctx, saved.LeaseId)
+}
+
+func allowsAutomatic(members *pb.Members, machineID string) bool {
+	for _, m := range members.GetMachines() {
+		if m.MachineId == machineID {
+			return m.AutomaticAllowed
+		}
 	}
-	if err := c.save(ctx, scope.RequestId, func(e *clientstate.ExpectedRequest) { e.LeaseId = remote.RequestId }); err != nil {
-		return nil, err
-	}
-	saved.LeaseId = remote.RequestId
-	return c.translate(ctx, saved, remote)
+	return false
 }
 
 // sign signs with this machine's TLS key, which Members lists as the machine.
@@ -143,65 +228,6 @@ func (c *Client) sign(payload []byte) ([]byte, error) {
 	return signer.Sign(rand.Reader, keyring.SHA256(payload), crypto.SHA256)
 }
 
-func (c *Client) save(ctx context.Context, requestID string, change func(*clientstate.ExpectedRequest)) error {
-	return c.Store.Update(ctx, func(state *clientstate.State) error {
-		for _, e := range state.Requests {
-			if e.Scope.RequestId == requestID {
-				change(e)
-				return nil
-			}
-		}
-		return errors.New("The saved request is missing.")
-	})
-}
-
-// automaticCopy is this machine's sealed copy of an Automatic login and the
-// login as the signed catalogue lists it, if the catalogue says Automatic and
-// a device in Members sealed it here.
-func (c *Client) automaticCopy(ctx context.Context, loginID string) (*pb.SealedLogin, *pb.Login) {
-	members, err := c.members(ctx)
-	if err != nil {
-		return nil, nil
-	}
-	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Catalogue{Catalogue: &pb.Empty{}}})
-	if err != nil || response.GetSigned() == nil {
-		return nil, nil
-	}
-	catalogue, err := keyring.VerifiedCatalogue(response.GetSigned(), members, nil)
-	if err != nil {
-		return nil, nil
-	}
-	stale := false
-	if err := c.Store.Update(ctx, func(state *clientstate.State) error {
-		stale = catalogue.Revision < state.CatalogueRevision
-		if !stale {
-			state.CatalogueRevision = catalogue.Revision
-		}
-		return nil
-	}); err != nil || stale {
-		return nil, nil
-	}
-	var listed *pb.Login
-	for _, login := range catalogue.Logins {
-		if login.LoginId == loginID && login.Rule == pb.Rule_RULE_AUTOMATIC {
-			listed = login
-		}
-	}
-	if listed == nil {
-		return nil, nil
-	}
-	response, err = c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_AutomaticLogins{AutomaticLogins: &pb.Empty{}}})
-	if err != nil {
-		return nil, nil
-	}
-	for _, sealed := range response.GetSealedLogins().GetLogins() {
-		if sealed.LoginId == loginID && keyring.CheckSealed(sealed, members, listed) == nil {
-			return sealed, listed
-		}
-	}
-	return nil, nil
-}
-
 // lease is the current state of a request, as the command shows it.
 func (c *Client) lease(ctx context.Context, leaseID string) (*v1.Lease, error) {
 	var result *v1.Lease
@@ -210,133 +236,100 @@ func (c *Client) lease(ctx context.Context, leaseID string) (*v1.Lease, error) {
 }
 
 // follow reports the request's state, then each change while it waits.
+// While it runs this process tries to hold the door, so an answer reaches
+// this computer whichever of its processes holds it. The answer is in the
+// state file; each follower reads it there.
 func (c *Client) follow(ctx context.Context, leaseID string, receive func(*v1.Lease) bool) error {
+	c.holdDoor()
+	var last *v1.Lease
+	for {
+		saved, err := c.settle(ctx, leaseID)
+		if err != nil {
+			return err
+		}
+		lease := translate(saved)
+		if last == nil || !proto.Equal(last, lease) {
+			if !receive(lease) || lease.State != v1.LeaseState_LEASE_STATE_PENDING {
+				return nil
+			}
+			last = lease
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// settle returns the saved request, first moving it on if its time has
+// passed: unanswered after answer_by, ended after its approval's window.
+// Whoever moves it pushes the outcome.
+func (c *Client) settle(ctx context.Context, leaseID string) (*clientstate.ExpectedRequest, error) {
+	due := func(lease *pb.Lease, now int64) bool {
+		return (lease.State == pb.LeaseState_LEASE_STATE_WAITING && now >= lease.AnswerByUnixSeconds) ||
+			(lease.State == pb.LeaseState_LEASE_STATE_APPROVED && now >= lease.NotAfterUnixSeconds)
+	}
+	// Read only: a waiting process looks five times a second, and the state
+	// file is rewritten only when something moves.
 	state, err := c.Store.Load(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	saved := expected(state, leaseID)
-	if saved == nil {
-		return errors.New("This machine has no request with that ID.")
+	if saved == nil || saved.Lease == nil {
+		return nil, errors.New("This computer has no request with that ID.")
 	}
-	if saved.Ended {
-		lease := scoped(saved.Scope, leaseID)
-		lease.State, lease.NotAfterUnixSeconds = v1.LeaseState_LEASE_STATE_RELEASED, saved.ApprovalNotAfterUnixSeconds
-		receive(lease)
-		return nil
+	if !due(saved.Lease, time.Now().Unix()) {
+		return saved, nil
 	}
-	var translateError error
-	answered := false
-	err = c.relay(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Watch{Watch: &pb.RequestReference{RequestId: leaseID}}}, func(response *pb.RelayResponse) bool {
-		lease, err := c.translate(ctx, saved, response.GetLease())
-		if err != nil {
-			translateError = err
-			return false
+	moved := false
+	err = c.Store.Update(ctx, func(state *clientstate.State) error {
+		saved = expected(state, leaseID)
+		if saved == nil || saved.Lease == nil {
+			return errors.New("This computer has no request with that ID.")
 		}
-		answered = true
-		c.keepApproval(ctx, state, saved, lease.State)
-		return receive(lease)
-	})
-	if translateError != nil {
-		return translateError
-	}
-	if err != nil && !answered && saved.ApprovalNotAfterUnixSeconds > 0 {
-		// The relay is unreachable or has lost the request, but a device's
-		// approval is saved here: its window decides.
-		lease := scoped(saved.Scope, leaseID)
-		lease.State, lease.NotAfterUnixSeconds = v1.LeaseState_LEASE_STATE_ACTIVE, saved.ApprovalNotAfterUnixSeconds
-		if time.Now().Unix() >= saved.ApprovalNotAfterUnixSeconds {
-			lease.State = v1.LeaseState_LEASE_STATE_EXPIRED
-		}
-		receive(lease)
-		return nil
-	}
-	return err
-}
-
-// keepApproval saves a device's approval the first time the relay says it was
-// given, so it works for its window even if the relay cannot be reached, and
-// deletes it once the relay says the request has ended (a device can stop an
-// approval early).
-func (c *Client) keepApproval(ctx context.Context, state *clientstate.State, saved *clientstate.ExpectedRequest, current v1.LeaseState) {
-	switch {
-	case current == v1.LeaseState_LEASE_STATE_ACTIVE && len(saved.Approval) == 0 && !saved.Automatic:
-		members, err := c.members(ctx)
-		if err != nil {
-			return
-		}
-		response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Collect{Collect: &pb.RequestReference{RequestId: saved.LeaseId}}})
-		if err != nil {
-			return
-		}
-		approval := response.GetApproval()
-		if _, err := c.approved(approval, state, saved, members, time.Now()); err != nil {
-			return
-		}
-		answer, _, _ := keyring.VerifiedAnswer(approval, members)
-		raw, _ := proto.Marshal(approval)
-		c.save(ctx, saved.Scope.RequestId, func(e *clientstate.ExpectedRequest) {
-			if !e.Ended { // A release may have run meanwhile.
-				e.Approval, e.ApprovalNotAfterUnixSeconds = raw, answer.NotAfterUnixSeconds
+		if lease := saved.Lease; due(lease, time.Now().Unix()) {
+			moved = true
+			if lease.State == pb.LeaseState_LEASE_STATE_WAITING {
+				lease.State = pb.LeaseState_LEASE_STATE_UNANSWERED
+			} else {
+				lease.State, saved.Approval = pb.LeaseState_LEASE_STATE_ENDED, nil
 			}
-		})
-		saved.Approval, saved.ApprovalNotAfterUnixSeconds = raw, answer.NotAfterUnixSeconds
-	case current != v1.LeaseState_LEASE_STATE_ACTIVE && current != v1.LeaseState_LEASE_STATE_PENDING && len(saved.Approval) > 0:
-		c.save(ctx, saved.Scope.RequestId, func(e *clientstate.ExpectedRequest) { e.Approval = nil })
-		saved.Approval = nil
+		}
+		saved = proto.Clone(saved).(*clientstate.ExpectedRequest)
+		return nil
+	})
+	if moved {
+		c.log("ended id=" + leaseID + " state=" + saved.Lease.State.String())
+		c.pushAll(ctx, leaseID)
 	}
+	return saved, err
 }
 
-// ownRequest is true if the relay returned exactly the request this machine signed.
-func ownRequest(approval *pb.Approval, saved *clientstate.ExpectedRequest) bool {
-	signed := &pb.Signed{}
-	return len(saved.Request) > 0 && proto.Unmarshal(saved.Request, signed) == nil && bytes.Equal(approval.GetRequest(), signed.Payload)
-}
-
-// approved checks a device's approval for this machine's saved request, as
-// on every use, and opens it with this machine's receiving key.
-func (c *Client) approved(approval *pb.Approval, state *clientstate.State, saved *clientstate.ExpectedRequest, members *pb.Members, now time.Time) (*pb.DeliveryContents, error) {
-	if !ownRequest(approval, saved) {
-		return nil, errors.New("The relay returned an approval for a different request.")
-	}
-	contents, err := keyring.OpenApproval(approval, members, c.receiving, now)
-	if err != nil {
-		return nil, fmt.Errorf("This approval could not be checked or opened: %w", err)
-	}
-	return contents, nil
-}
-
-func scoped(scope *v1.RequestLeaseRequest, leaseID string) *v1.Lease {
-	return &v1.Lease{LeaseId: leaseID, LoginId: scope.LoginId, TaskRef: scope.TaskRef,
-		Reason: scope.Reason, Recipient: &v1.Recipient{RecipientId: scope.RecipientId}}
-}
-
-// translate maps the relay's state onto the command's, keeping the scope this
-// machine saved and showing a reply only once its signature is checked.
-func (c *Client) translate(ctx context.Context, saved *clientstate.ExpectedRequest, remote *pb.Lease) (*v1.Lease, error) {
-	if remote == nil {
-		return nil, errors.New("The relay returned no request state.")
-	}
-	scope := saved.Scope
-	if remote.LoginId != scope.LoginId {
-		return nil, errors.New("The relay changed the login of this request.")
-	}
-	lease := scoped(scope, remote.RequestId)
-	lease.PendingUntilUnixSeconds, lease.NotAfterUnixSeconds = remote.AnswerByUnixSeconds, remote.NotAfterUnixSeconds
-	lease.RetryNotBeforeUnixSeconds = remote.RetryNotBeforeUnixSeconds
+// translate maps the request's state onto the command's, showing a reply
+// only once its signature has been checked (it is saved only then).
+func translate(saved *clientstate.ExpectedRequest) *v1.Lease {
+	remote, scope := saved.Lease, saved.Scope
+	lease := &v1.Lease{LeaseId: saved.LeaseId, LoginId: scope.LoginId, TaskRef: scope.TaskRef, Reason: scope.Reason,
+		Recipient: &v1.Recipient{RecipientId: scope.RecipientId}, PendingUntilUnixSeconds: remote.AnswerByUnixSeconds,
+		NotAfterUnixSeconds: remote.NotAfterUnixSeconds, RetryNotBeforeUnixSeconds: remote.RetryNotBeforeUnixSeconds}
 	switch remote.State {
 	case pb.LeaseState_LEASE_STATE_WAITING:
 		lease.State = v1.LeaseState_LEASE_STATE_PENDING
+		switch {
+		case remote.ArrivedUnixSeconds > 0:
+			lease.StatusLines = []string{"It reached " + printable(remote.ArrivedOn) + "."}
+		case remote.PushedUnixSeconds > 0:
+			lease.StatusLines = []string{"Apple took the notification for Josh's iPhone and Apple Watch."}
+		}
 	case pb.LeaseState_LEASE_STATE_APPROVED:
 		lease.State = v1.LeaseState_LEASE_STATE_ACTIVE
 		if remote.Automatic {
 			lease.ApprovedBy = v1.ApprovedBy_APPROVED_BY_AUTOMATIC_RULE
 		}
 	case pb.LeaseState_LEASE_STATE_DENIED:
-		lease.State = v1.LeaseState_LEASE_STATE_DENIED
-		if remote.Reply != "" {
-			lease.Reply = c.signedReply(ctx, saved)
-		}
+		lease.State, lease.Reply = v1.LeaseState_LEASE_STATE_DENIED, remote.Reply
 	case pb.LeaseState_LEASE_STATE_UNANSWERED:
 		lease.State = v1.LeaseState_LEASE_STATE_UNANSWERED
 	case pb.LeaseState_LEASE_STATE_CANCELLED:
@@ -345,112 +338,105 @@ func (c *Client) translate(ctx context.Context, saved *clientstate.ExpectedReque
 		lease.State = v1.LeaseState_LEASE_STATE_RELEASED
 		if remote.EndedBy != "" {
 			lease.State = v1.LeaseState_LEASE_STATE_REVOKED
-			lease.StatusLines = []string{"Josh stopped it on " + remote.EndedBy + "."}
-		} else if remote.NotAfterUnixSeconds > 0 && time.Now().Unix() >= remote.NotAfterUnixSeconds {
+			lease.StatusLines = []string{"Josh stopped it on " + printable(remote.EndedBy) + "."}
+		} else if time.Now().Unix() >= remote.NotAfterUnixSeconds {
 			lease.State = v1.LeaseState_LEASE_STATE_EXPIRED
 		}
-	default:
-		return nil, errors.New("The relay returned an unknown request state.")
 	}
-	return lease, nil
+	return lease
 }
 
-// signedReply is the denial's words if a device signed them over this
-// machine's own request, else nothing.
-func (c *Client) signedReply(ctx context.Context, saved *clientstate.ExpectedRequest) string {
-	members, err := c.members(ctx)
-	if err != nil {
-		return ""
-	}
-	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Collect{Collect: &pb.RequestReference{RequestId: saved.LeaseId}}})
-	if err != nil || !ownRequest(response.GetApproval(), saved) {
-		return ""
-	}
-	answer, _, err := keyring.VerifiedAnswer(response.GetApproval(), members)
-	if err != nil || answer.Choice != pb.Choice_CHOICE_DENY {
-		return ""
-	}
-	return answer.Reply
-}
-
+// end is the agent done with a request: an approval ends, a waiting request
+// is cancelled. This computer stops using it at once, and the devices are told.
 func (c *Client) end(ctx context.Context, leaseID string) (*v1.Lease, error) {
-	state, err := c.Store.Load(ctx)
+	var saved *clientstate.ExpectedRequest
+	moved := false
+	err := c.Store.Update(ctx, func(state *clientstate.State) error {
+		saved = expected(state, leaseID)
+		if saved == nil || saved.Lease == nil {
+			return errors.New("This computer has no request with that ID.")
+		}
+		switch saved.Lease.State {
+		case pb.LeaseState_LEASE_STATE_WAITING:
+			saved.Lease.State, moved = pb.LeaseState_LEASE_STATE_CANCELLED, true
+		case pb.LeaseState_LEASE_STATE_APPROVED:
+			saved.Lease.State, moved = pb.LeaseState_LEASE_STATE_ENDED, true
+		}
+		saved.Approval = nil
+		saved = proto.Clone(saved).(*clientstate.ExpectedRequest)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	saved := expected(state, leaseID)
-	if saved == nil {
-		return nil, errors.New("This machine has no request with that ID.")
+	if moved {
+		c.log("ended id=" + leaseID + " state=" + saved.Lease.State.String() + " by=agent")
+		c.pushAll(ctx, leaseID)
 	}
-	// This machine stops using the approval first, whether or not the relay hears.
-	if err := c.save(ctx, saved.Scope.RequestId, func(e *clientstate.ExpectedRequest) { e.Ended, e.Approval = true, nil }); err != nil {
-		return nil, err
-	}
-	response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_End{End: &pb.RequestReference{RequestId: leaseID}}})
-	if err != nil {
-		return nil, fmt.Errorf("Released on this machine, which will not use the login again. The relay could not be told, so Josh's devices show it as approved until it ends; run release again when the relay is back. %w", err)
-	}
-	return c.translate(ctx, saved, response.GetLease())
+	return translate(saved), nil
 }
 
-// openValues opens the login for an approved request on this machine: the
-// device's delivery, checked against the pinned devices, or this machine's
-// own copy of an Automatic login.
+// openValues opens the password for an approved request on this computer:
+// the device's delivery, checked against the newest Members held, or this
+// computer's own copy of an Automatic password.
 func (c *Client) openValues(ctx context.Context, lease *v1.Lease, _ *v1.Delivery) (*v1.CredentialValues, []string, error) {
 	now := time.Now()
-	state, err := c.Store.Load(ctx)
+	saved, err := c.settle(ctx, lease.LeaseId)
 	if err != nil {
 		return nil, nil, err
 	}
-	saved := expected(state, lease.LeaseId)
-	if saved == nil {
-		return nil, nil, errors.New("This machine has no request with that ID.")
+	switch current := translate(saved); current.State {
+	case v1.LeaseState_LEASE_STATE_ACTIVE:
+	case v1.LeaseState_LEASE_STATE_RELEASED:
+		return nil, nil, errors.New("This lease was released. Lease again if the task still needs the password.")
+	case v1.LeaseState_LEASE_STATE_REVOKED:
+		return nil, nil, fmt.Errorf("This lease has ended: %s Lease again only if the task still needs the password.", current.StatusLines[0])
+	default:
+		return nil, nil, errors.New("This lease is not approved. Check it with 'agent-keyring status'.")
 	}
 	var username, password string
 	var sites []string
 	var codes []*pb.TimedCode
-	if saved.Ended {
-		return nil, nil, errors.New("This lease was released. Lease again if the task still needs the login.")
-	}
-	if saved.Automatic {
-		// The relay records the use: a device's Stop or the 30 minutes end it.
-		if current, err := c.lease(ctx, lease.LeaseId); err != nil || current.State != v1.LeaseState_LEASE_STATE_ACTIVE {
-			return nil, nil, errors.New("This use of the Automatic login has ended. Ask again if the task still needs it.")
+	if saved.Lease.Automatic {
+		current, err := c.refresh(ctx, automaticLimit)
+		if err != nil {
+			return nil, nil, err
 		}
-		sealed, listed := c.automaticCopy(ctx, saved.Scope.LoginId)
-		if sealed == nil {
-			return nil, nil, errors.New("This login is no longer Automatic for this machine. Ask again.")
+		if !current.reached {
+			c.log("automatic used without the Mac id=" + saved.LeaseId + " reason=" + strconv.Quote("the Mac did not answer within 500 ms; used this computer's own copy"))
+		}
+		listed := current.login(saved.Scope.LoginId)
+		var sealed *pb.SealedLogin
+		if listed != nil && listed.Rule == pb.Rule_RULE_AUTOMATIC && allowsAutomatic(current.members, saved.Scope.RecipientId) {
+			sealed = current.copyFor(saved.Scope.RecipientId, listed.LoginId)
+		}
+		if sealed == nil || keyring.CheckSealed(sealed, current.members, listed) != nil {
+			return nil, nil, errors.New("This password is no longer Automatic for this computer. Ask again.")
 		}
 		secret, err := keyring.OpenLogin(sealed, c.receiving)
 		if err != nil || keyring.CheckBound(secret, listed) != nil {
-			return nil, nil, errors.New("This machine could not open its copy of the login.")
+			return nil, nil, errors.New("This computer could not open its copy of the password.")
 		}
-		automaticSites := listed.Sites
-		username, password = secret.Username, secret.Password
+		username, password, sites = secret.Username, secret.Password, listed.Sites
 		if codes, err = keyring.OneTimeCodes(secret, now.Unix(), now.Unix()+1); err != nil {
 			return nil, nil, err
 		}
-		sites = automaticSites
 	} else {
-		members, err := c.members(ctx)
+		state, err := c.Store.Load(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		members, err := parseMembers(state.Members)
 		if err != nil {
 			return nil, nil, err
 		}
 		approval := &pb.Approval{}
-		if len(saved.Approval) > 0 {
-			if err := proto.Unmarshal(saved.Approval, approval); err != nil {
-				return nil, nil, errors.New("This machine's saved approval is unreadable. Lease again.")
-			}
-		} else {
-			response, err := c.call(ctx, &pb.RelayRequest{Method: &pb.RelayRequest_Collect{Collect: &pb.RequestReference{RequestId: lease.LeaseId}}})
-			if err != nil {
-				return nil, nil, err
-			}
-			approval = response.GetApproval()
+		if proto.Unmarshal(saved.Approval, approval) != nil || !ownRequest(approval, saved) {
+			return nil, nil, errors.New("This computer's saved approval is unreadable. Lease again.")
 		}
-		contents, err := c.approved(approval, state, saved, members, now)
+		contents, err := keyring.OpenApproval(approval, members, c.receiving, now)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("This approval could not be checked or opened: %w", err)
 		}
 		username, password, sites, codes = contents.Username, contents.Password, contents.Sites, contents.OneTimeCodes
 	}
@@ -461,4 +447,65 @@ func (c *Client) openValues(ctx context.Context, lease *v1.Lease, _ *v1.Delivery
 		}
 	}
 	return values, sites, nil
+}
+
+// ownRequest is true if the approval is over exactly the request this computer signed.
+func ownRequest(approval *pb.Approval, saved *clientstate.ExpectedRequest) bool {
+	signed := &pb.Signed{}
+	return len(saved.Request) > 0 && proto.Unmarshal(saved.Request, signed) == nil && bytes.Equal(approval.GetRequest(), signed.Payload)
+}
+
+// ---- The hold after a denial ---------------------------------------------------
+
+// A denial keeps this computer from asking for that password again straight
+// away: a minute after the first denial, five after a second in a row,
+// fifteen after more. An approval, or an hour with no denial, starts again.
+func holdFor(inARow int32) time.Duration {
+	switch inARow {
+	case 1:
+		return time.Minute
+	case 2:
+		return 5 * time.Minute
+	default:
+		return 15 * time.Minute
+	}
+}
+
+func hold(state *clientstate.State, loginID string) *clientstate.Hold {
+	for _, h := range state.Holds {
+		if h.LoginId == loginID {
+			return h
+		}
+	}
+	return nil
+}
+
+// holdOff records a denial and returns when this computer may ask again.
+func holdOff(state *clientstate.State, loginID, reply string, now time.Time) int64 {
+	h := hold(state, loginID)
+	if h == nil {
+		h = &clientstate.Hold{LoginId: loginID}
+		state.Holds = append(state.Holds, h)
+	}
+	if now.Unix()-h.UntilUnixSeconds > 3600 {
+		h.InARow = 0
+	}
+	h.InARow++
+	h.UntilUnixSeconds, h.Reply = now.Add(holdFor(h.InARow)).Unix(), reply
+	return h.UntilUnixSeconds
+}
+
+func releaseHold(state *clientstate.State, loginID string) {
+	state.Holds = slices.DeleteFunc(state.Holds, func(h *clientstate.Hold) bool { return h.LoginId == loginID })
+}
+
+// heldOffMessage tells the agent when it may ask again, and his words.
+func heldOffMessage(h *clientstate.Hold, now time.Time) string {
+	wait := time.Duration(h.UntilUnixSeconds-now.Unix()) * time.Second
+	message := "Josh denied this password for this computer. Ask again after " + time.Unix(h.UntilUnixSeconds, 0).Format("15:04:05") +
+		" (in " + wait.Round(time.Second).String() + ")."
+	if h.Reply != "" {
+		message += " His reply, word for word: \"" + printable(h.Reply) + "\""
+	}
+	return message
 }

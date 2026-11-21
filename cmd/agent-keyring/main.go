@@ -5,10 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -39,17 +37,18 @@ const help = `Agent Keyring: use a saved login for one task.
   install --undo            Put back the links an earlier version's install replaced
   install --browser-profile DIRECTORY
                             Register a helper only in this browser user-data directory
+  complain --summary LINE [--command COMMAND] [--thread ID]
+                            Tell whoever builds Agent Keyring it was annoying,
+                            confusing or broken; more detail on standard input.
+                            Never include a password or secret
+  complaints [--since 24h]  Read agents' complaints, from the Mac
   machines                  List the computers on this Tailscale network
   enrol --name NAME --invite LINK
                             Join this computer, with a link from 'invite' on the Mac
   invite                    On the Mac: print a one-time link for one computer to join
-  setup-relay --relay HOST:PORT [--reason WHY]
-                            Start connecting this Mac to the relay on the computer
-                            that stays on; prints the link that computer enrols with
-  relay-status              Check whether this Mac has connected to the relay
   logs [--since 30m] [--request ID]
-                            What the Mac, the relay, the iPhone and the Apple Watch
-                            did and why, in time order; no secrets
+                            What this computer, the Mac, the iPhone and the Apple
+                            Watch did and why, in time order; no secrets
 
 A lease ends on release or 30 minutes after approval. It covers fill and read
 for that login; reuse it through retries and two-factor steps. Automatic
@@ -70,7 +69,6 @@ Find, tabs and fields print tables. Status without --wait prints readable state.
 Exit status: 0 succeeded; 1 refused or unavailable; 2 incorrect usage;
              3 browser fill uncertain (inspect the page; do not retry blindly).
 Environment: AGENT_KEYRING_SOCKET overrides the local authority socket.
-             AGENT_KEYRING_RELAY selects the enrolled relay (and supplies enrol's address).
              AGENT_KEYRING_STATE_DIR overrides this machine's private state directory.
 Run any command with --help for this guide.
 `
@@ -101,7 +99,7 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "relay", "invite", "browser-profile":
+		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "invite", "browser-profile", "summary", "command", "thread":
 			if _, exists := result.options[name]; exists {
 				return result, fmt.Errorf("Use --%s only once.", name)
 			}
@@ -229,6 +227,12 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, nil
 	}
+	if command == "complain" {
+		return complain(ctx, a)
+	}
+	if command == "complaints" {
+		return listComplaints(ctx, a)
+	}
 	if command == "tabs" || command == "fields" {
 		return inspectBrowser(ctx, command, a)
 	}
@@ -252,62 +256,29 @@ func run(ctx context.Context, args []string) (int, error) {
 		}
 		return 0, remote.Enrol(ctx, store, invite, a.options["name"], os.Stderr)
 	}
-	if command == "setup-relay" || command == "relay-status" || command == "invite" {
-		if len(a.positionals) != 0 || len(a.extra) != 0 {
-			return 2, errors.New("Setup commands take options only.")
-		}
-		setup := &pb.SetupRequest{}
-		if command == "setup-relay" {
-			if err = a.check("relay reason", ""); err != nil {
-				return 2, err
-			}
-			host, portText, e := net.SplitHostPort(a.options["relay"])
-			if e != nil || host == "" {
-				return 2, errors.New("Supply --relay HOST:PORT.")
-			}
-			port, e := strconv.ParseUint(portText, 10, 16)
-			if e != nil || port == 0 {
-				return 2, errors.New("Supply a valid relay port.")
-			}
-			setup.Action, setup.Host, setup.Port, setup.Reason = pb.SetupRequest_START_RELAY, host, uint32(port), a.options["reason"]
-		} else {
-			if err = a.check("", ""); err != nil {
-				return 2, err
-			}
-			setup.Action = pb.SetupRequest_RELAY_STATUS
-			if command == "invite" {
-				setup.Action = pb.SetupRequest_INVITE
-			}
+	if command == "invite" {
+		if len(args) != 1 {
+			return 2, errors.New("invite takes nothing else.")
 		}
 		local, e := localSetupAuthority(ctx)
 		if e != nil {
 			return 1, e
 		}
-		result, e := local.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_Setup{Setup: setup}})
+		result, e := local.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_Setup{Setup: &pb.SetupRequest{Action: pb.SetupRequest_INVITE}}})
 		if e != nil {
 			return 1, e
 		}
 		if result.GetSetup() == nil {
 			return 1, errors.New("Agent Keyring did not confirm setup.")
 		}
-		if command == "relay-status" {
-			status := result.GetSetup().GetRelayStatus()
-			if status != "connected" && status != "waiting" && status != "not-started" {
-				return 1, errors.New("Agent Keyring returned an unknown relay status.")
-			}
-			fmt.Println(status)
-		} else if command == "invite" {
-			fmt.Println(result.GetSetup().GetInvite())
-		} else {
-			fmt.Println(result.GetSetup().GetInvite())
-			fmt.Fprintln(os.Stderr, "On the computer that stays on, run: agent-keyring enrol --name NAME --invite LINK, with the link above. Josh then approves one request on this Mac; check with relay-status.")
-		}
+		fmt.Println(result.GetSetup().GetInvite())
 		return 0, nil
 	}
 	if !strings.Contains(" find lease status release read ", " "+command+" ") {
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 	}
 	client, connectionError := chooseAuthority(ctx)
+	defer remote.Close() // Lets this computer's door go once any answer being taken is saved.
 	if connectionError != nil {
 		// Usage errors remain useful on machines that have not enrolled yet.
 		client.Exchange = func(context.Context, *pb.WireRequest, func(*pb.WireResponse) bool) error { return connectionError }

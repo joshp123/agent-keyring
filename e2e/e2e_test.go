@@ -1,22 +1,17 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5.
+// Written by AI on 2026.11.18 by model claude opus 5.5; the direct design (no relay) on 2026.11.21.
 //
-// The whole path an agent and Josh take, with the real relay, the real
-// command, and a stand-in device whose software keys take the place of the
-// iPhone's chip. Two machines join; on them agents ask, and get the login
-// once, a denial with Josh's words, a plain denial, no answer, or an
-// Automatic login with no question; an approval keeps working while the relay
-// is down, until it is released. Every program runs as its own process.
-//
-// By default everything runs here on loopback. To run it across real machines,
-// see developer/e2e/run.sh, which uses the same steps.
+// The whole path an agent and Josh take, with the real command and
+// stand-ins for Josh's Mac, iPhone and Apple Watch and for Apple's push
+// service, whose software keys take the place of the devices' chips
+// (developer/test-device). A computer joins the Mac's door; agents there
+// ask; the command pushes each request to the iPhone and Apple Watch itself
+// and takes their answers at its own door. Every program runs as its own
+// process, on loopback, with made-up passwords and a made-up push key.
 package e2e
 
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -24,55 +19,35 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
-
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/keyring"
-	"google.golang.org/protobuf/proto"
 )
 
-type programs struct{ relay, command, device string }
+type programs struct{ command, device string }
 
-func build(t *testing.T) programs {
-	t.Helper()
-	dir := t.TempDir()
-	p := programs{filepath.Join(dir, "agent-keyring-relay"), filepath.Join(dir, "agent-keyring"), filepath.Join(dir, "test-device")}
-	for output, source := range map[string]string{p.relay: "./cmd/agent-keyring-relay", p.command: "./cmd/agent-keyring", p.device: "./developer/test-device"} {
+// bin is the command and the stand-ins, built once for every test.
+var bin programs
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "akr-e2e-bin-")
+	if err != nil {
+		panic(err)
+	}
+	bin = programs{filepath.Join(dir, "agent-keyring"), filepath.Join(dir, "test-device")}
+	for output, source := range map[string]string{bin.command: "./cmd/agent-keyring", bin.device: "./developer/test-device"} {
 		command := exec.Command("go", "build", "-o", output, source)
 		command.Dir = ".."
 		if out, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("build %s: %v\n%s", source, err, out)
+			os.RemoveAll(dir)
+			fmt.Fprintf(os.Stderr, "build %s: %v\n%s", source, err, out)
+			os.Exit(1)
 		}
 	}
-	return p
-}
-
-type run struct {
-	t           *testing.T
-	programs    programs
-	relay       string
-	deviceState string
-}
-
-// machine is one asking machine's private state directory.
-type machine struct {
-	run   *run
-	state string
-}
-
-func (r *run) newMachine() *machine {
-	state := r.t.TempDir()
-	os.Chmod(state, 0o700) // The command refuses state others could read.
-	return &machine{r, state}
-}
-
-func (m *machine) command(args ...string) *exec.Cmd {
-	command := exec.Command(m.run.programs.command, args...)
-	command.Env = append(os.Environ(), "AGENT_KEYRING_STATE_DIR="+m.state, "AGENT_KEYRING_SOCKET=", "AGENT_KEYRING_RELAY=")
-	return command
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 type result struct {
@@ -92,21 +67,12 @@ func start(command *exec.Cmd) chan result {
 	return done
 }
 
-func (r *run) device(args ...string) string {
-	r.t.Helper()
-	out, err := exec.Command(r.programs.device, append(args[:1:1], append([]string{"--state", r.deviceState}, args[1:]...)...)...).CombinedOutput()
-	if err != nil {
-		r.t.Fatalf("test-device %v: %v\n%s", args, err, out)
-	}
-	return string(out)
-}
-
 func wait(t *testing.T, done chan result, label string) result {
 	t.Helper()
 	select {
 	case r := <-done:
 		return r
-	case <-time.After(30 * time.Second):
+	case <-time.After(45 * time.Second):
 		t.Fatalf("%s did not finish", label)
 		return result{}
 	}
@@ -121,387 +87,520 @@ func freePort(t *testing.T) string {
 	return listener.Addr().String()
 }
 
-// startRelay runs the relay until stop is called, and shows its log if the
-// test failed.
-func startRelay(t *testing.T, p programs, address, state string) (stop func()) {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	relay := exec.CommandContext(ctx, p.relay, "--listen", address, "--state", state, "--loopback-test", "--answer-within", "4s")
-	relayLog := &bytes.Buffer{}
-	relay.Stderr = relayLog
-	if err := relay.Start(); err != nil {
-		t.Fatal(err)
-	}
-	stop = func() {
-		cancel()
-		relay.Wait()
-		if t.Failed() {
-			t.Logf("relay log:\n%s", relayLog)
-		}
-	}
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(relayLog.String(), "listening"); time.Sleep(50 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			stop()
-			t.Fatal("relay did not start")
-		}
-	}
-	return stop
+// lockedBuffer is a background program's output, read while it runs.
+type lockedBuffer struct {
+	mu  chan struct{}
+	buf bytes.Buffer
 }
 
-func TestAnAgentAsksAndJoshAnswers(t *testing.T) {
-	p := build(t)
-	address, relayState := freePort(t), t.TempDir()
-	stopRelay := startRelay(t, p, address, relayState)
-	defer func() { stopRelay() }()
-	r := &run{t: t, programs: p, relay: address, deviceState: t.TempDir()}
-	r.device("init", "--relay", address)
+func newBuffer() *lockedBuffer { return &lockedBuffer{mu: make(chan struct{}, 1)} }
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu <- struct{}{}
+	defer func() { <-b.mu }()
+	return b.buf.Write(p)
+}
+func (b *lockedBuffer) String() string {
+	b.mu <- struct{}{}
+	defer func() { <-b.mu }()
+	return b.buf.String()
+}
 
-	// Two machines ask to join; Josh approves both on his device.
-	linux, mini := r.newMachine(), r.newMachine()
-	joiningLinux := start(linux.command("enrol", "--name", "Linux server", "--invite", strings.TrimSpace(r.device("invite"))))
-	joiningMini := start(mini.command("enrol", "--name", "Mac mini", "--invite", strings.TrimSpace(r.device("invite"))))
-	pending := map[string]chan result{"Linux server": joiningLinux, "Mac mini": joiningMini}
-	for deadline := time.Now().Add(20 * time.Second); len(pending) > 0; time.Sleep(300 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatalf("machines still waiting to join: %v", pending)
+// world is Josh's devices: the Mac's door and Apple, each its own process.
+type world struct {
+	t       *testing.T
+	devices string // The stand-ins' state.
+	apple   string
+	macLog  *lockedBuffer
+	stopMac func()
+}
+
+func newWorld(t *testing.T, macFlags ...string) *world {
+	w := &world{t: t, devices: t.TempDir(), apple: freePort(t)}
+	w.device("init", "--door", freePort(t))
+	w.background("apple", "--listen", w.apple)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(w.devices, "apple-ca.pem")); err == nil {
+			break
 		}
-		exec.Command(p.device, "approve-joins", "--state", r.deviceState).Run()
-		for label, joining := range pending {
-			select {
-			case got := <-joining:
-				if got.err != nil || !strings.Contains(got.stderr, "Joined") {
-					t.Fatalf("%s did not join: %v\n%s", label, got.err, got.stderr)
-				}
-				delete(pending, label)
-			default:
-			}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in for Apple did not start")
 		}
 	}
+	w.macLog, w.stopMac = w.background(append([]string{"mac"}, macFlags...)...)
+	return w
+}
 
-	t.Run("an agent finds the login", func(t *testing.T) {
-		got := wait(t, start(linux.command("find", "example.com")), "find")
+// background runs a stand-in until the test ends, or until stop.
+func (w *world) background(args ...string) (*lockedBuffer, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	command := exec.CommandContext(ctx, bin.device, append(args[:1:1], append([]string{"--state", w.devices}, args[1:]...)...)...)
+	output := newBuffer()
+	command.Stdout, command.Stderr = output, output
+	if err := command.Start(); err != nil {
+		w.t.Fatal(err)
+	}
+	stopped := false
+	stop := func() {
+		if !stopped {
+			stopped = true
+			cancel()
+			command.Wait()
+		}
+	}
+	w.t.Cleanup(func() {
+		stop()
+		if w.t.Failed() {
+			w.t.Logf("test-device %s:\n%s", args[0], output)
+		}
+	})
+	return output, stop
+}
+
+func (w *world) device(args ...string) string {
+	w.t.Helper()
+	out, err := w.tryDevice(args...)
+	if err != nil {
+		w.t.Fatalf("test-device %v: %v\n%s", args, err, out)
+	}
+	return out
+}
+
+func (w *world) tryDevice(args ...string) (string, error) {
+	out, err := exec.Command(bin.device, append(args[:1:1], append([]string{"--state", w.devices}, args[1:]...)...)...).CombinedOutput()
+	return string(out), err
+}
+
+// computer is one computer without the Mac app: its private state and the
+// loopback address that stands in for its Tailscale IP.
+type computer struct {
+	w           *world
+	state, door string
+	env         []string
+}
+
+func (w *world) newComputer() *computer {
+	state := w.t.TempDir()
+	os.Chmod(state, 0o700) // The command refuses state others could read.
+	c := &computer{w: w, state: state, door: freePort(w.t)}
+	c.env = []string{"AGENT_KEYRING_STATE_DIR=" + state, "AGENT_KEYRING_SOCKET=", "AGENT_KEYRING_TEST_DOOR=" + c.door,
+		"AGENT_KEYRING_TEST_APNS_GATEWAY=https://" + w.apple, "AGENT_KEYRING_TEST_APNS_CA=" + filepath.Join(w.devices, "apple-ca.pem"),
+		"AGENT_KEYRING_TEST_ANSWER_WITHIN=8s"}
+	return c
+}
+
+func (c *computer) command(args ...string) *exec.Cmd {
+	command := exec.Command(bin.command, args...)
+	command.Env = append(os.Environ(), c.env...)
+	return command
+}
+
+func (c *computer) run(args ...string) result {
+	c.w.t.Helper()
+	return wait(c.w.t, start(c.command(args...)), strings.Join(args, " "))
+}
+
+// enrol joins the computer to the Mac's door, Josh approving on the Mac.
+func (c *computer) enrol(name string) {
+	t := c.w.t
+	t.Helper()
+	joining := start(c.command("enrol", "--name", name, "--invite", strings.TrimSpace(c.w.device("invite"))))
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+		c.w.tryDevice("approve-joins")
+		select {
+		case got := <-joining:
+			if got.err != nil || !strings.Contains(got.stderr, "Joined") {
+				t.Fatalf("%s did not join: %v\n%s", name, got.err, got.stderr)
+			}
+			return
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s is still waiting to join", name)
+		}
+	}
+}
+
+// visiblePushes is how many requests Apple delivered to a device to be shown.
+func (w *world) visiblePushes(device string) int {
+	entries, _ := os.ReadDir(filepath.Join(w.devices, "pushes", device))
+	count := 0
+	for _, entry := range entries {
+		if raw, err := os.ReadFile(filepath.Join(w.devices, "pushes", device, entry.Name())); err == nil && strings.HasSuffix(entry.Name(), ".json") &&
+			bytes.Contains(raw, []byte(`"visible":true`)) {
+			count++
+		}
+	}
+	return count
+}
+
+// waitForPushes waits until a device has had n requests to show.
+func (w *world) waitForPushes(device string, n int) {
+	w.t.Helper()
+	for deadline := time.Now().Add(15 * time.Second); w.visiblePushes(device) < n; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			w.t.Fatalf("the %s has %d requests to show, not %d", device, w.visiblePushes(device), n)
+		}
+	}
+}
+
+var requestLine = regexp.MustCompile(`Request ([0-9a-f]{32}):`)
+
+// answer has a device answer the next request pushed to it, and returns the
+// request's id.
+func (w *world) answer(args ...string) string {
+	w.t.Helper()
+	out := w.device(append([]string{"answer"}, args...)...)
+	match := requestLine.FindStringSubmatch(out)
+	if match == nil {
+		w.t.Fatalf("test-device answer %v said %q", args, out)
+	}
+	return match[1]
+}
+
+// doorHolds is how many times a process of this computer has taken its door.
+func (c *computer) doorHolds() int {
+	raw, _ := os.ReadFile(filepath.Join(c.state, "agent-keyring.log"))
+	return strings.Count(string(raw), " command door held ")
+}
+
+// doorHeld is true once something accepts connections at the computer's door.
+func (c *computer) doorHeld() bool {
+	conn, err := net.DialTimeout("tcp", c.door, 200*time.Millisecond)
+	if err == nil {
+		conn.Close()
+	}
+	return err == nil
+}
+
+func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
+	w := newWorld(t)
+	linux := w.newComputer()
+	linux.enrol("Linux server")
+	ask := func(login, task string, extra ...string) *exec.Cmd {
+		return linux.command(append([]string{"lease", login, "--task", task, "--reason", "You asked me to download October's invoice.", "--agent", "Codex"}, extra...)...)
+	}
+
+	t.Run("an agent finds the password", func(t *testing.T) {
+		got := linux.run("find", "example.com")
 		if got.err != nil || !strings.Contains(got.stdout, "login-ask") || !strings.Contains(got.stdout, "agent@example.com") {
 			t.Fatalf("find: %v\n%s%s", got.err, got.stdout, got.stderr)
 		}
 	})
 
-	t.Run("approved, a program gets the password through a pipe", func(t *testing.T) {
-		output := filepath.Join(t.TempDir(), "received")
-		// As the skill tells an agent to ask, its own name included.
-		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "You asked me to download October's invoice.",
-			"--agent", "Codex"))
-		r.device("answer", "--approve")
+	t.Run("approved on the iPhone, a program gets the password through a pipe, and a stopped lease rejoins its request", func(t *testing.T) {
+		before := w.visiblePushes("iphone")
+		first := ask("login-ask", "invoice")
+		asking := start(first)
+		w.waitForPushes("iphone", before+1)
+		first.Process.Signal(os.Interrupt) // The agent's tool stops the command early.
+		wait(t, asking, "lease")
+		asking = start(ask("login-ask", "invoice")) // The same task asks again: it rejoins.
+		id := w.answer("--device", "iphone", "--approve")
 		got := wait(t, asking, "lease")
-		if got.err != nil {
-			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		if got.err != nil || strings.TrimSpace(got.stdout) != id {
+			t.Fatalf("lease: %v %q, want the request %s\n%s", got.err, got.stdout, id, got.stderr)
 		}
-		lease := strings.TrimSpace(got.stdout)
-		piped := linux.command("read", lease, "--field", "password")
-		piped.Path, piped.Args = "/bin/sh", []string{"/bin/sh", "-c", `"$0" read "$1" --field password | cat > "$2"`, p.command, lease, output}
+		if pushed := w.visiblePushes("iphone") - before; pushed != 1 {
+			t.Fatalf("the iPhone was asked %d times for one task", pushed)
+		}
+		// The locked iPhone's unsigned arrival note, by its push address.
+		if logs := linux.run("logs", "--request", id); !strings.Contains(logs.stdout, "arrived id="+id+` device="Test iPhone"`) {
+			t.Fatalf("the iPhone's arrival was not taken: %v\n%s%s", logs.err, logs.stdout, logs.stderr)
+		}
+		output := filepath.Join(t.TempDir(), "received")
+		piped := linux.command("read", id, "--field", "password")
+		piped.Path, piped.Args = "/bin/sh", []string{"/bin/sh", "-c", `"$0" read "$1" --field password | cat > "$2"`, bin.command, id, output}
 		if used := wait(t, start(piped), "read | program"); used.err != nil {
 			t.Fatalf("read | program: %v\n%s", used.err, used.stderr)
 		}
 		if received, _ := os.ReadFile(output); string(received) != "example-ask-password" {
 			t.Fatalf("the program received %d bytes, not the password", len(received))
 		}
+		if released := linux.run("release", id); released.err != nil || !strings.Contains(released.stderr, "Lease released.") {
+			t.Fatalf("release: %v\n%s", released.err, released.stderr)
+		}
+		if read := linux.run("read", id, "--field", "password"); read.err == nil || !strings.Contains(read.stderr, "This lease was released.") {
+			t.Fatalf("after release, read: %v\n%s", read.err, read.stderr)
+		}
 	})
 
-	t.Run("a relay that sends a request on as another computer's is refused", func(t *testing.T) {
-		got := wait(t, start(linux.command("lease", "login-ask", "--task", "redirect", "--reason", "You asked me to download October's invoice.", "--no-wait")), "lease")
-		if got.err != nil {
-			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
-		}
-		id := strings.TrimSpace(got.stdout)
-		stopRelay()
-		genuine := t.TempDir()
-		copyDir(t, relayState, genuine)
-		redirectRequest(t, filepath.Join(relayState, "relay.json"), id)
-		stopRelay = startRelay(t, p, address, relayState)
-		out, err := exec.Command(p.device, "answer", "--state", r.deviceState, "--approve").CombinedOutput()
-		if err == nil || !strings.Contains(string(out), "refused: the request was not signed by the machine it names") {
-			t.Fatalf("the device approved a request the relay sent on as another computer's: %v\n%s", err, out)
-		}
-		stopRelay()
-		os.RemoveAll(relayState)
-		copyDir(t, genuine, relayState)
-		stopRelay = startRelay(t, p, address, relayState)
-		wait(t, start(linux.command("release", id)), "release")
-	})
-
-	t.Run("an approval keeps working while the relay is down, until it is released", func(t *testing.T) {
-		asking := start(linux.command("lease", "login-ask", "--task", "offline", "--reason", "You asked me to download November's invoice."))
-		r.device("answer", "--approve")
+	t.Run("approved on the Apple Watch with the copy in its push", func(t *testing.T) {
+		asking := start(ask("login-ask", "watch"))
+		id := w.answer("--device", "watch", "--approve")
 		got := wait(t, asking, "lease")
-		if got.err != nil {
+		if got.err != nil || strings.TrimSpace(got.stdout) != id {
 			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
 		}
-		lease := strings.TrimSpace(got.stdout)
-
-		stopRelay()
-		restarted := false
-		defer func() {
-			if !restarted { // The later steps need the relay.
-				stopRelay = startRelay(t, p, address, relayState)
-			}
-		}()
-		read := wait(t, start(linux.command("read", lease, "--field", "password")), "read")
-		if read.err != nil || read.stdout != "example-ask-password" {
-			t.Fatalf("with the relay down, read: %v, %d bytes\n%s", read.err, len(read.stdout), read.stderr)
-		}
-		released := wait(t, start(linux.command("release", lease)), "release")
-		if released.err == nil || !strings.Contains(released.stderr, "Released on this machine") {
-			t.Fatalf("with the relay down, release: %v\n%s", released.err, released.stderr)
-		}
-
-		// The relay comes back still thinking the approval stands; this machine does not.
-		stopRelay, restarted = startRelay(t, p, address, relayState), true
-		read = wait(t, start(linux.command("read", lease, "--field", "password")), "read")
-		if read.err == nil || read.stdout != "" || !strings.Contains(read.stderr, "This lease was released.") {
-			t.Fatalf("after release, read: %v, %d bytes\n%s", read.err, len(read.stdout), read.stderr)
-		}
-		released = wait(t, start(linux.command("release", lease)), "release")
-		if released.err != nil || !strings.Contains(released.stderr, "Lease released.") {
-			t.Fatalf("release with the relay back: %v\n%s", released.err, released.stderr)
-		}
-	})
-
-	t.Run("devices added after the machines joined approve for them", func(t *testing.T) {
-		second := t.TempDir()
-		joining := start(exec.Command(p.device, "join", "--state", second, "--invite", strings.TrimSpace(r.device("invite"))))
-		for joined := false; !joined; {
-			exec.Command(p.device, "approve-joins", "--state", r.deviceState).Run()
-			select {
-			case got := <-joining:
-				if got.err != nil {
-					t.Fatalf("the second device did not join: %v\n%s", got.err, got.stderr)
-				}
-				joined = true
-			case <-time.After(300 * time.Millisecond):
-			}
-		}
-		// A third device, added by the second, which the machines never saw sign anything.
-		third := t.TempDir()
-		invite, err := exec.Command(p.device, "invite", "--state", second).Output()
-		if err != nil {
-			t.Fatal(err)
-		}
-		joining = start(exec.Command(p.device, "join", "--state", third, "--invite", strings.TrimSpace(string(invite))))
-		for joined := false; !joined; {
-			exec.Command(p.device, "approve-joins", "--state", second).Run()
-			select {
-			case got := <-joining:
-				if got.err != nil {
-					t.Fatalf("the third device did not join: %v\n%s", got.err, got.stderr)
-				}
-				joined = true
-			case <-time.After(300 * time.Millisecond):
-			}
-		}
-		asking := start(linux.command("lease", "login-ask", "--task", "second", "--reason", "Second device."))
-		if out, err := exec.Command(p.device, "answer", "--state", third, "--approve").CombinedOutput(); err != nil {
-			t.Fatalf("the second device could not answer: %v\n%s", err, out)
-		}
-		got := wait(t, asking, "lease")
-		if got.err != nil {
-			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
-		}
-		read := wait(t, start(linux.command("read", strings.TrimSpace(got.stdout), "--field", "password")), "read")
-		if read.err != nil || read.stdout != "example-ask-password" {
+		if read := linux.run("read", id, "--field", "password"); read.err != nil || read.stdout != "example-ask-password" {
 			t.Fatalf("read: %v\n%s", read.err, read.stderr)
 		}
+		// The Apple Watch's arrival note, signed with its reply key.
+		if logs := linux.run("logs", "--request", id); !strings.Contains(logs.stdout, "arrived id="+id+` device="Test Apple Watch"`) {
+			t.Fatalf("the Apple Watch's arrival was not taken: %v\n%s%s", logs.err, logs.stdout, logs.stderr)
+		}
+		linux.run("release", id)
 	})
 
-	t.Run("Stop on a device ends the approval, and the agent is told so", func(t *testing.T) {
-		asking := start(linux.command("lease", "login-ask", "--task", "stop", "--reason", "You asked me to check the invoice."))
-		r.device("answer", "--approve")
-		got := wait(t, asking, "lease")
-		if got.err != nil {
+	t.Run("both devices answer: the first wins, and the other is told how it ended", func(t *testing.T) {
+		before := w.visiblePushes("iphone")
+		asking := start(ask("login-ask", "first-wins"))
+		w.waitForPushes("iphone", before+1)
+		keeper := start(ask("login-other", "keeps-the-door")) // Another agent here, still waiting.
+		id := w.answer("--device", "iphone", "--approve")
+		if got := wait(t, asking, "lease"); got.err != nil {
 			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
 		}
-		lease := strings.TrimSpace(got.stdout)
-		r.device("stop", "--request", lease)
-		status := wait(t, start(linux.command("status", lease)), "status")
-		if !strings.Contains(status.stdout, lease+": ended: Josh stopped it on ") {
+		out := w.device("answer", "--device", "watch", "--request", id, "--deny", "No.")
+		if !strings.Contains(out, "The door says: LEASE_STATE_APPROVED by Test iPhone") {
+			t.Fatalf("the second answer was not told the first won: %s", out)
+		}
+		if out := w.device("outcome", "--device", "watch", "--request", id); !strings.Contains(out, "Outcome: LEASE_STATE_APPROVED by Test iPhone") {
+			t.Fatalf("the Apple Watch was not told the outcome: %s", out)
+		}
+		if read := linux.run("read", id, "--field", "password"); read.err != nil || read.stdout != "example-ask-password" {
+			t.Fatalf("read after a late denial: %v\n%s", read.err, read.stderr)
+		}
+		linux.run("release", linux.waiting(t, "login-other", "keeps-the-door"))
+		wait(t, keeper, "the other lease")
+		linux.run("release", id)
+	})
+
+	t.Run("Stop on the iPhone ends an approved lease, and the agent is told so", func(t *testing.T) {
+		asking := start(ask("login-ask", "stop"))
+		id := w.answer("--device", "iphone", "--approve")
+		if got := wait(t, asking, "lease"); got.err != nil {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		keeper := start(ask("login-other", "keeps-the-door-for-stop"))
+		if out := w.device("stop", "--device", "iphone", "--request", id); !strings.Contains(out, "Stopped: LEASE_STATE_ENDED by Test iPhone") {
+			t.Fatalf("stop: %s", out)
+		}
+		if status := linux.run("status", id); !strings.Contains(status.stdout, id+": ended: Josh stopped it on Test iPhone") {
 			t.Fatalf("want Josh's Stop, got %q %v", status.stdout, status.err)
 		}
-		if read := wait(t, start(linux.command("read", lease, "--field", "password")), "read"); read.err == nil {
-			t.Fatalf("a stopped approval still delivered")
+		if read := linux.run("read", id, "--field", "password"); read.err == nil || !strings.Contains(read.stderr, "Josh stopped it on Test iPhone") {
+			t.Fatalf("a stopped approval still delivered: %v\n%s", read.err, read.stderr)
 		}
+		linux.run("release", linux.waiting(t, "login-other", "keeps-the-door-for-stop"))
+		wait(t, keeper, "the other lease")
+	})
+
+	t.Run("two agents wait on one computer; the door's holder is answered and exits, and the other is still answered", func(t *testing.T) {
+		before := w.visiblePushes("iphone")
+		first := start(ask("login-ask", "two-a"))
+		for deadline := time.Now().Add(10 * time.Second); !linux.doorHeld(); time.Sleep(50 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("the first lease never held the door")
+			}
+		}
+		w.waitForPushes("iphone", before+1)
+		second := start(ask("login-other", "two-b"))
+		w.waitForPushes("iphone", before+2)
+		a := w.answer("--device", "iphone", "--approve")
+		if got := wait(t, first, "the door's holder"); got.err != nil || strings.TrimSpace(got.stdout) != a {
+			t.Fatalf("first lease: %v %q\n%s", got.err, got.stdout, got.stderr)
+		}
+		held := linux.doorHolds()
+		b := w.answer("--device", "iphone", "--approve") // The second process takes the door within a second.
+		got := wait(t, second, "the other lease")
+		if got.err != nil || strings.TrimSpace(got.stdout) != b {
+			t.Fatalf("second lease: %v %q\n%s", got.err, got.stdout, got.stderr)
+		}
+		if linux.doorHolds() <= held {
+			t.Fatalf("the second lease was answered without taking the door over")
+		}
+		if read := linux.run("read", b, "--field", "password"); read.err != nil || read.stdout != "example-other-password" {
+			t.Fatalf("read: %v\n%s", read.err, read.stderr)
+		}
+		linux.run("release", a)
+		linux.run("release", b)
 	})
 
 	t.Run("nobody answers", func(t *testing.T) {
-		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Second try."))
-		r.device("answer", "--ignore")
+		asking := start(ask("login-ask", "silence"))
+		id := w.answer("--device", "iphone", "--ignore")
+		// While it waits, the lease reads its state and does not rewrite it.
+		info, _ := os.Stat(filepath.Join(linux.state, "state.pb"))
+		time.Sleep(2 * time.Second)
+		if later, _ := os.Stat(filepath.Join(linux.state, "state.pb")); !later.ModTime().Equal(info.ModTime()) {
+			t.Fatal("a waiting lease rewrote the state file")
+		}
 		got := wait(t, asking, "lease")
 		if got.err == nil || !strings.Contains(got.stderr, "No answer. Nobody answered within 10 minutes. This is not a refusal.") {
 			t.Fatalf("want no answer, got %v\n%s", got.err, got.stderr)
 		}
+		if out := w.device("outcome", "--device", "iphone", "--request", id); !strings.Contains(out, "Outcome: LEASE_STATE_UNANSWERED") {
+			t.Fatalf("the iPhone was not told: %s", out)
+		}
 	})
 
-	t.Run("denied with Josh's words", func(t *testing.T) {
-		asking := start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Third try."))
-		r.device("answer", "--deny", "The invoice is in my email. Use that.")
+	t.Run("Automatic, with no question, and with the Mac shut", func(t *testing.T) {
+		got := linux.run("lease", "login-automatic", "--task", "report", "--reason", "Nightly report.")
+		if got.err != nil {
+			t.Fatalf("Automatic lease: %v\n%s", got.err, got.stderr)
+		}
+		if read := linux.run("read", strings.TrimSpace(got.stdout), "--field", "password"); read.err != nil || read.stdout != "example-automatic-password" {
+			t.Fatalf("read: %v\n%s", read.err, read.stderr)
+		}
+		w.stopMac()
+		got = linux.run("lease", "login-automatic", "--task", "report-mac-shut", "--reason", "Nightly report.")
+		if got.err != nil {
+			t.Fatalf("Automatic lease with the Mac shut: %v\n%s", got.err, got.stderr)
+		}
+		id := strings.TrimSpace(got.stdout)
+		if read := linux.run("read", id, "--field", "password"); read.err != nil || read.stdout != "example-automatic-password" {
+			t.Fatalf("read with the Mac shut: %v\n%s", read.err, read.stderr)
+		}
+		logs := linux.run("logs", "--request", id)
+		if logs.err != nil || !strings.Contains(logs.stdout, "automatic used without the Mac id="+id) {
+			t.Fatalf("logs: %v\n%s%s", logs.err, logs.stdout, logs.stderr)
+		}
+		// An agent's complaint while the Mac is shut waits here, and goes at the next contact.
+		complaining := linux.command("complain", "--summary", "The lease hung.", "--command", "lease login-ask", "--thread", "thread-1")
+		complaining.Stdin = strings.NewReader("It waited and printed nothing.\n")
+		if got := wait(t, start(complaining), "complain"); got.err != nil || !strings.Contains(got.stderr, "kept here and goes to the Mac at the next contact") {
+			t.Fatalf("complain with the Mac shut: %v\n%s", got.err, got.stderr)
+		}
+		w.macLog, w.stopMac = w.background("mac")
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+			linux.run("find", "example.com") // A contact with the Mac.
+			got := linux.run("complaints")
+			if got.err == nil && strings.Contains(got.stdout, "Linux server") && strings.Contains(got.stdout, "The lease hung.") &&
+				strings.Contains(got.stdout, "thread: thread-1") && strings.Contains(got.stdout, "It waited and printed nothing.") {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the Mac never got the complaint: %v\n%s%s", got.err, got.stdout, got.stderr)
+			}
+		}
+	})
+
+	t.Run("an answer from a device Josh removed is refused", func(t *testing.T) {
+		before := w.visiblePushes("watch")
+		asking := start(ask("login-ask", "removed"))
+		w.waitForPushes("watch", before+1)
+		w.device("remove", "--device", "watch")
+		var id string
+		for _, line := range strings.Split(w.device("answer", "--device", "iphone", "--ignore"), "\n") {
+			if match := requestLine.FindStringSubmatch(line); match != nil {
+				id = match[1]
+			}
+		}
+		out, err := w.tryDevice("answer", "--device", "watch", "--request", id, "--approve")
+		if err == nil || !strings.Contains(out, "the door refused (403): This answer is not signed by a device in Josh's list of devices") {
+			t.Fatalf("a removed Apple Watch's approval was taken: %v\n%s", err, out)
+		}
+		w.device("answer", "--device", "iphone", "--request", id, "--approve")
+		if got := wait(t, asking, "lease"); got.err != nil || strings.TrimSpace(got.stdout) != id {
+			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
+		}
+		linux.run("release", id)
+	})
+
+	// Last: a denial holds this password off for this computer.
+	t.Run("denied with Josh's words, and the next ask is held off with them", func(t *testing.T) {
+		asking := start(ask("login-ask", "denied"))
+		w.answer("--device", "iphone", "--deny", "The invoice is in my email. Use that.")
 		got := wait(t, asking, "lease")
 		if got.err == nil || !strings.Contains(got.stderr, "denied. Reply: The invoice is in my email. Use that.") {
 			t.Fatalf("want a denial with words, got %v\n%s", got.err, got.stderr)
 		}
-		again := wait(t, start(linux.command("lease", "login-ask", "--task", "invoice", "--reason", "Fourth try.")), "lease")
+		again := wait(t, start(ask("login-ask", "denied-again")), "lease")
 		if again.err == nil || !strings.Contains(again.stderr, "Josh denied this password for this computer. Ask again after") ||
-			!strings.Contains(again.stderr, "(in 1m0s). His reply, word for word: \"The invoice is in my email. Use that.\"") {
+			!regexp.MustCompile(`\(in (59s|1m0s)\)\. His reply, word for word: "The invoice is in my email\. Use that\."`).MatchString(again.stderr) {
 			t.Fatalf("a denial holds the password off for a minute and says why; got %v\n%s", again.err, again.stderr)
-		}
-	})
-
-	t.Run("denied with no words", func(t *testing.T) {
-		asking := start(mini.command("lease", "login-ask", "--task", "invoice", "--reason", "From the mini."))
-		r.device("answer", "--deny-plain")
-		got := wait(t, asking, "lease")
-		if got.err == nil || !strings.Contains(got.stderr, "This lease is denied.") || strings.Contains(got.stderr, "Reply:") {
-			t.Fatalf("want a plain denial, got %v\n%s", got.err, got.stderr)
-		}
-	})
-
-	t.Run("an agent reads what happened, as the help says", func(t *testing.T) {
-		got := wait(t, start(linux.command("logs", "--since", "15m")), "logs --since")
-		if got.err != nil || !strings.Contains(got.stdout, " relay request id=") {
-			t.Fatalf("logs --since 15m: %v\n%s%s", got.err, got.stdout, got.stderr)
-		}
-		id := regexp.MustCompile(`relay request id=([0-9a-f]{32})`).FindStringSubmatch(got.stdout)[1]
-		one := wait(t, start(linux.command("logs", "--request", id)), "logs --request")
-		lines := strings.Split(strings.TrimSpace(one.stdout), "\n")
-		if one.err != nil || len(lines) == 0 || slices.ContainsFunc(lines, func(line string) bool { return !strings.Contains(line, id) }) {
-			t.Fatalf("logs --request %s: %v\n%s%s", id, one.err, one.stdout, one.stderr)
-		}
-		if both := wait(t, start(linux.command("logs", "--since", "1h", "--request", id)), "logs --since --request"); both.err != nil || both.stdout != one.stdout {
-			t.Fatalf("logs --since 1h --request: %v\n%s%s", both.err, both.stdout, both.stderr)
-		}
-	})
-
-	t.Run("a device answers its practice request at first run", func(t *testing.T) {
-		out := r.device("self-test")
-		if !strings.Contains(out, `Agent Keyring (Practice) wants example.com, you@example.com: "You asked me to download October’s invoice."`) ||
-			!strings.Contains(out, "Practice request: LEASE_STATE_APPROVED") {
-			t.Fatalf("self-test said %q", out)
-		}
-	})
-	t.Run("Automatic, with no question", func(t *testing.T) {
-		got := wait(t, start(mini.command("lease", "login-automatic", "--task", "report", "--reason", "Nightly report.")), "lease")
-		if got.err != nil {
-			t.Fatalf("Automatic lease: %v\n%s", got.err, got.stderr)
-		}
-		lease := strings.TrimSpace(got.stdout)
-		read := wait(t, start(mini.command("read", lease, "--field", "password")), "read")
-		if read.err != nil || read.stdout != "example-automatic-password" {
-			t.Fatalf("read: %v, %d bytes\n%s", read.err, len(read.stdout), read.stderr)
-		}
-		// It is an ordinary use, shown on the devices: Stop there ends it.
-		r.device("stop", "--request", lease)
-		if read := wait(t, start(mini.command("read", lease, "--field", "password")), "read"); read.err == nil {
-			t.Fatalf("a stopped Automatic use still delivered")
-		}
-	})
-
-	t.Run("a relay that forges a sealed copy cannot hand a computer its own password", func(t *testing.T) {
-		stopRelay()
-		genuine := t.TempDir()
-		copyDir(t, relayState, genuine)
-		forgeAutomaticCopy(t, filepath.Join(relayState, "relay.json"), "login-automatic", "forged-by-the-relay")
-		stopRelay = startRelay(t, p, address, relayState)
-		got := wait(t, start(mini.command("lease", "login-automatic", "--task", "forged", "--reason", "Nightly report.", "--no-wait")), "lease")
-		if got.err != nil {
-			t.Fatalf("lease: %v\n%s", got.err, got.stderr)
-		}
-		id := strings.TrimSpace(got.stdout)
-		if status := wait(t, start(mini.command("status", id)), "status"); !strings.Contains(status.stdout, ": pending") {
-			read := wait(t, start(mini.command("read", id, "--field", "password")), "read")
-			t.Fatalf("the computer took a copy no device sealed (%q); read gave %d bytes", status.stdout, len(read.stdout))
-		}
-		wait(t, start(mini.command("release", id)), "release")
-		stopRelay()
-		os.RemoveAll(relayState)
-		copyDir(t, genuine, relayState)
-		stopRelay = startRelay(t, p, address, relayState)
-	})
-
-	t.Run("a relay that replays the past cannot make a login Automatic again", func(t *testing.T) {
-		past := t.TempDir()
-		copyDir(t, relayState, past) // The relay's state while the login was Automatic.
-		r.device("withdraw-automatic")
-		asks := func(label string) string {
-			got := wait(t, start(mini.command("lease", "login-automatic", "--task", label, "--reason", "Nightly report.", "--no-wait")), "lease")
-			if got.err != nil {
-				t.Fatalf("lease: %v\n%s", got.err, got.stderr)
-			}
-			id := strings.TrimSpace(got.stdout)
-			status := wait(t, start(mini.command("status", id)), "status")
-			wait(t, start(mini.command("release", id)), "release")
-			return status.stdout
-		}
-		if now := asks("after-withdrawal"); !strings.Contains(now, ": pending") {
-			t.Fatalf("after the login went back to Ask, the machine still got it without asking: %q", now)
-		}
-		stopRelay()
-		os.RemoveAll(relayState)
-		copyDir(t, past, relayState)
-		stopRelay = startRelay(t, p, address, relayState)
-		if replayed := asks("replayed"); !strings.Contains(replayed, ": pending") {
-			t.Fatalf("a relay serving the old catalogue gave the machine the login without asking: %q", replayed)
 		}
 	})
 }
 
-// Josh denies adding a computer, with words, first the computer that stays on
-// while the relay has no members yet, then a later one. The agent waiting on
-// enrol hears at once; a stranger on the tailnet cannot deny for him.
-func TestJoshDeniesAComputer(t *testing.T) {
-	p := build(t)
-	address := freePort(t)
-	stopRelay := startRelay(t, p, address, t.TempDir())
-	defer stopRelay()
-	r := &run{t: t, programs: p, relay: address, deviceState: t.TempDir()}
-	r.device("init", "--relay", address, "--keys-only") // As the Mac when setup-relay starts.
-	stranger := t.TempDir()
-	if out, err := exec.Command(p.device, "init", "--state", stranger, "--relay", address, "--keys-only").CombinedOutput(); err != nil {
-		t.Fatalf("stranger: %v\n%s", err, out)
+// waiting is the id of the request a task already has waiting: asking again
+// for the same task rejoins it, and --no-wait prints its id.
+func (c *computer) waiting(t *testing.T, login, task string) string {
+	t.Helper()
+	got := c.run("lease", login, "--task", task, "--reason", "You asked me to download October's invoice.", "--no-wait")
+	if got.err != nil {
+		t.Fatalf("lease --no-wait: %v\n%s", got.err, got.stderr)
 	}
-	// refuse runs refuse-joins until a join is waiting, and returns what it said.
-	refuse := func(state string, args ...string) (string, error) {
-		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(200 * time.Millisecond) {
-			out, err := exec.Command(p.device, append([]string{"refuse-joins", "--state", state}, args...)...).CombinedOutput()
-			if !strings.Contains(string(out), "nothing is waiting to join") || time.Now().After(deadline) {
-				return string(out), err
+	return strings.TrimSpace(got.stdout)
+}
+
+// Joining the Mac goes wrong the ways a person would hit: an invitation
+// that names the Mac by a name or an address off the tailnet, Josh denying
+// it, the agent stopping, nobody answering, and no Tailscale here at all.
+func TestJoiningTheMacGoesWrong(t *testing.T) {
+	w := newWorld(t, "--join-within", "3s")
+
+	t.Run("an invitation naming the Mac by a name is refused", func(t *testing.T) {
+		c := w.newComputer()
+		got := c.run("enrol", "--name", "Linux server", "--invite", strings.TrimSpace(w.device("invite", "--host", "mac.example.ts.net")))
+		if got.err == nil || !strings.Contains(got.stderr, `"mac.example.ts.net" is a name, not a Tailscale IP address.`) {
+			t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
+		}
+	})
+
+	t.Run("an invitation naming an address off the tailnet is refused", func(t *testing.T) {
+		c := w.newComputer()
+		got := c.run("enrol", "--name", "Linux server", "--invite", strings.TrimSpace(w.device("invite", "--host", "192.168.1.20")))
+		if got.err == nil || !strings.Contains(got.stderr, "192.168.1.20 is not a Tailscale address.") {
+			t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
+		}
+	})
+
+	t.Run("a computer without Tailscale says so", func(t *testing.T) {
+		c := w.newComputer()
+		c.env = append(c.env, "AGENT_KEYRING_TEST_DOOR=none")
+		got := c.run("enrol", "--name", "Linux server", "--invite", strings.TrimSpace(w.device("invite")))
+		if got.err == nil || !strings.Contains(got.stderr, "This computer has no Tailscale address: Tailscale is not installed, not running, or signed out.") {
+			t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
+		}
+	})
+
+	t.Run("Josh denies it with words", func(t *testing.T) {
+		c := w.newComputer()
+		joining := start(c.command("enrol", "--name", "Mac mini", "--invite", strings.TrimSpace(w.device("invite"))))
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+			if _, err := w.tryDevice("refuse-joins", "--reply", "Not the mini. Use the Linux server."); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("no join to refuse")
 			}
 		}
-	}
+		got := wait(t, joining, "enrol")
+		if got.err == nil || !strings.Contains(got.stderr, "Josh denied adding this computer. Reply: Not the mini. Use the Linux server.") {
+			t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
+		}
+	})
 
-	mini := r.newMachine()
-	joining := start(mini.command("enrol", "--name", "Mac mini", "--invite", strings.TrimSpace(r.device("invite"))))
-	if out, err := refuse(stranger, "--reply", "Run this instead."); err == nil || !strings.Contains(out, "Only the device that invited this computer can refuse it.") {
-		t.Fatalf("a stranger refused the join: %v\n%s", err, out)
-	}
-	select {
-	case got := <-joining:
-		t.Fatalf("enrol stopped after the stranger's refusal: %v\n%s", got.err, got.stderr)
-	default:
-	}
-	if out, err := refuse(r.deviceState, "--reply", "Not the mini. Use the Linux server."); err != nil {
-		t.Fatalf("refuse-joins: %v\n%s", err, out)
-	}
-	got := wait(t, joining, "enrol")
-	if got.err == nil || !strings.Contains(got.stderr, "Josh denied adding this computer. Reply: Not the mini. Use the Linux server.") {
-		t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
-	}
+	t.Run("the agent stops waiting, and the join is withdrawn", func(t *testing.T) {
+		c := w.newComputer()
+		enrol := c.command("enrol", "--name", "Mac mini", "--invite", strings.TrimSpace(w.device("invite")))
+		var stderr lockedBuffer
+		stderr.mu = make(chan struct{}, 1)
+		enrol.Stderr = &stderr
+		if err := enrol.Start(); err != nil {
+			t.Fatal(err)
+		}
+		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "Waiting for Josh to approve"); time.Sleep(50 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("enrol never waited: %s", stderr.String())
+			}
+		}
+		enrol.Process.Signal(syscall.SIGINT)
+		err := enrol.Wait()
+		if err == nil || !strings.Contains(stderr.String(), "Stopped asking to join. The request on the Mac was withdrawn.") ||
+			!strings.Contains(w.macLog.String(), `"Mac mini" withdrew its join.`) {
+			t.Fatalf("enrol: %v\n%s\nMac: %s", err, stderr.String(), w.macLog)
+		}
+	})
 
-	r.device("init", "--relay", address) // The relay now has members: a later computer.
-	linux := r.newMachine()
-	joining = start(linux.command("enrol", "--name", "Linux server", "--invite", strings.TrimSpace(r.device("invite"))))
-	if out, err := refuse(r.deviceState); err != nil {
-		t.Fatalf("refuse-joins: %v\n%s", err, out)
-	}
-	got = wait(t, joining, "enrol")
-	if got.err == nil || !strings.Contains(got.stderr, "Josh denied adding this computer.") || strings.Contains(got.stderr, "Reply:") {
-		t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
-	}
+	t.Run("nobody answers", func(t *testing.T) {
+		c := w.newComputer()
+		got := c.run("enrol", "--name", "Mac mini", "--invite", strings.TrimSpace(w.device("invite")))
+		if got.err == nil || !strings.Contains(got.stderr, "Nobody approved this computer within 10 minutes.") {
+			t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
+		}
+	})
 }
 
 // Josh's Mac as the first run of 20 November left it: an earlier install
@@ -510,7 +609,7 @@ func TestJoshDeniesAComputer(t *testing.T) {
 // 0.2.5's instructions are told to reread them, or reach their earlier
 // buffer; install --undo still puts every link back exactly.
 func TestLinksAnEarlierInstallChangedStayHisToPutBack(t *testing.T) {
-	p := build(t)
+	p := bin
 	scratch := t.TempDir()
 	home := filepath.Join(scratch, "home")
 	app := filepath.Join(scratch, "Applications/Agent Keyring.app/Contents")
@@ -641,7 +740,7 @@ func TestLinksAnEarlierInstallChangedStayHisToPutBack(t *testing.T) {
 // An agent lists the computers on the tailnet to ask which ones to set up.
 // A stand-in tailscale command prints what Tailscale's own prints.
 func TestMachinesListsTheTailnet(t *testing.T) {
-	p := build(t)
+	p := bin
 	bin := t.TempDir()
 	status := `{"Self": {"HostName": "Example’s MacBook Pro", "DNSName": "laptop.example.ts.net.", "OS": "macOS", "Online": true},
 	  "Peer": {
@@ -661,97 +760,5 @@ server                  linux   no      server.example.ts.net
 `
 	if err != nil || string(out) != want {
 		t.Fatalf("machines: %v\n%s", err, out)
-	}
-}
-
-// redirectRequest plays a relay that lies: it hands a waiting request, with
-// the asking computer's signature, to the other computer, so an approval
-// would be sealed to that one.
-func redirectRequest(t *testing.T, statePath, id string) {
-	t.Helper()
-	raw, err := os.ReadFile(statePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := map[string]json.RawMessage{}
-	requests := map[string]map[string]json.RawMessage{}
-	var signedMembers []byte
-	json.Unmarshal(raw, &state)
-	json.Unmarshal(state["requests"], &requests)
-	json.Unmarshal(state["members"], &signedMembers)
-	signed, members := &pb.Signed{}, &pb.Members{}
-	if proto.Unmarshal(signedMembers, signed) != nil || proto.Unmarshal(signed.Payload, members) != nil || requests[id] == nil {
-		t.Fatal("cannot read the relay's request")
-	}
-	var requestBytes []byte
-	json.Unmarshal(requests[id]["request"], &requestBytes)
-	request := &pb.Request{}
-	proto.Unmarshal(requestBytes, request)
-	for _, m := range members.Machines {
-		if m.MachineId != request.MachineId {
-			request.MachineId = m.MachineId
-			break
-		}
-	}
-	requestBytes, _ = proto.Marshal(request)
-	requests[id]["request"], _ = json.Marshal(requestBytes)
-	requests[id]["machine_id"], _ = json.Marshal(request.MachineId)
-	state["requests"], _ = json.Marshal(requests)
-	raw, _ = json.Marshal(state)
-	if err := os.WriteFile(statePath, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func copyDir(t *testing.T, from, to string) {
-	t.Helper()
-	if out, err := exec.Command("cp", "-R", from+"/.", to).CombinedOutput(); err != nil {
-		t.Fatalf("copy %s: %v %s", from, err, out)
-	}
-}
-
-// forgeAutomaticCopy plays a relay that lies: it replaces every computer's copy
-// of loginID with one it sealed itself, to the computer's public key, with a
-// password of its choosing, signed by a key no device has.
-func forgeAutomaticCopy(t *testing.T, statePath, loginID, password string) {
-	t.Helper()
-	raw, err := os.ReadFile(statePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := map[string]json.RawMessage{}
-	if err := json.Unmarshal(raw, &state); err != nil {
-		t.Fatal(err)
-	}
-	var signedMembers []byte
-	sealed := map[string]map[string][]byte{}
-	json.Unmarshal(state["members"], &signedMembers)
-	json.Unmarshal(state["sealed"], &sealed)
-	signed, members := &pb.Signed{}, &pb.Members{}
-	if proto.Unmarshal(signedMembers, signed) != nil || proto.Unmarshal(signed.Payload, members) != nil {
-		t.Fatal("cannot read the relay's members")
-	}
-	attacker, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	forged := 0
-	for _, machine := range members.Machines {
-		if sealed[machine.MachineId][loginID] == nil {
-			continue
-		}
-		copy, err := keyring.SealLogin(&pb.LoginSecret{LoginId: loginID, Username: "agent@automatic.example", Password: password,
-			Title: "Automatic example", Sites: []string{"https://automatic.example"}}, 1763500000000000000, machine.ReceivingPublicKey, machine.MachineId,
-			"the-relay", keyring.SoftwareSigner(attacker))
-		if err != nil {
-			t.Fatal(err)
-		}
-		sealed[machine.MachineId][loginID], _ = proto.Marshal(copy)
-		forged++
-	}
-	if forged == 0 {
-		t.Fatal("no computer holds a copy to forge")
-	}
-	state["sealed"], _ = json.Marshal(sealed)
-	raw, _ = json.Marshal(state)
-	if err := os.WriteFile(statePath, raw, 0o600); err != nil {
-		t.Fatal(err)
 	}
 }

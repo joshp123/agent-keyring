@@ -42,6 +42,8 @@ const (
 	SetupDomain     = "agentkeyring.setup.v2"
 	AnswerDomain    = "agentkeyring.answer.v2"
 	SealedDomain    = "agentkeyring.sealed.v2"
+	PushDomain      = "agentkeyring.push.v2"
+	EndDomain       = "agentkeyring.end.v2"
 	ApprovalSeconds = 1800
 )
 

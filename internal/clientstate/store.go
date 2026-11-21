@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -166,14 +167,18 @@ func (s Store) Update(ctx context.Context, change func(*State) error) error {
 	return s.write("state.pb", state)
 }
 
-// pruneApprovals deletes each saved approval whose window has ended.
+// pruneApprovals deletes each saved approval whose window has ended, and
+// forgets requests a day after they were asked, as the devices' history does.
 func pruneApprovals(state *State) {
 	now := time.Now().Unix()
 	for _, request := range state.Requests {
-		if len(request.Approval) > 0 && now >= request.ApprovalNotAfterUnixSeconds {
+		if notAfter := request.GetLease().GetNotAfterUnixSeconds(); len(request.Approval) > 0 && notAfter > 0 && now >= notAfter {
 			request.Approval = nil
 		}
 	}
+	state.Requests = slices.DeleteFunc(state.Requests, func(request *ExpectedRequest) bool {
+		return now-request.GetLease().GetAnswerByUnixSeconds() > 86400 && now >= request.GetLease().GetNotAfterUnixSeconds()
+	})
 }
 func (s Store) Load(ctx context.Context) (*State, error) {
 	unlock, err := s.lock(ctx)
@@ -207,7 +212,7 @@ func (s Store) Keys(ctx context.Context, create func() (*PrivateKeys, error)) (*
 		return nil, fmt.Errorf("Cannot load this machine's Agent Keyring keys: %w", err)
 	}
 	if create == nil {
-		return nil, errors.New("This machine is not enrolled. Run 'agent-keyring enrol --name NAME --relay HOST:PORT'.")
+		return nil, errors.New("This machine is not enrolled. Run 'agent-keyring enrol --name NAME --invite LINK' with a link from 'agent-keyring invite' on the Mac.")
 	}
 	keys, err := create()
 	if err != nil {
