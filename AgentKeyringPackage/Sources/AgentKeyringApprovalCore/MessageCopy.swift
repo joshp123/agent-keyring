@@ -98,4 +98,12 @@ public enum MessageCopy {
     public static let messageTooLarge = "That message is too large to send."
     public static let unreadableReply = "The other device sent something Agent Keyring couldn't read. Try again."
     public static let unacceptedKey = "The other device's key isn't one Agent Keyring accepts."
+
+    // MARK: Answering another computer's request
+
+    public static let noCopyOnThisMac = "This Mac has no copy of this password. Copy your passwords again from Passwords."
+    public static func answerNotDelivered(_ computer: String) -> String {
+        "Your answer didn't reach \(computer). Check that it's awake and on Tailscale, then try again, or answer on your iPhone."
+    }
+    public static func answerRefused(_ computer: String, _ words: String) -> String { "\(computer) didn't take your answer: \(words)" }
 }
