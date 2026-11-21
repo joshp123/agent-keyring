@@ -88,6 +88,7 @@ public struct KeyringApprovalCard: View {
             HStack(spacing: KeyringSpace.s2) {
                 TextField("", text: reply, prompt: Text(replyPrompt), axis: .vertical)
                     .textFieldStyle(.plain)
+                    .multilineTextAlignment(.leading)
                     .font(KeyringTextRole.body.font)
                     .padding(.horizontal, KeyringSpace.s4).padding(.vertical, KeyringSpace.s2)
                     .frame(minHeight: 36)
@@ -101,9 +102,17 @@ public struct KeyringApprovalCard: View {
         }
         #else
         VStack(spacing: KeyringSpace.s2) {
-            HStack(spacing: KeyringSpace.s2) {
-                KeyringButton(deny)
-                KeyringButton(approve)
+            // Side by side while both labels fit on one line; else Approve above Deny.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: KeyringSpace.s2) {
+                    KeyringButton(deny)
+                    KeyringButton(approve)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                VStack(spacing: KeyringSpace.s2) {
+                    KeyringButton(approve)
+                    KeyringButton(deny)
+                }
             }
             if let explain { KeyringButton(explain) }
         }

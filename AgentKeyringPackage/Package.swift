@@ -38,6 +38,8 @@ let package = Package(
         .target(name: "AgentKeyringScreenBackends", dependencies: ["AgentKeyringApprovalUI", "AgentKeyringFeature", "AgentKeyringProtocol", "AgentKeyringSealing"]),
         .target(name: "AgentKeyringFeature", dependencies: ["AgentKeyringRelaySupport", "AgentKeyringProtocol", "AgentKeyringSealing", "AgentKeyringApprovalCore", "AgentKeyringCredentialImport"]),
         .target(name: "AgentKeyringTestSupport", dependencies: ["AgentKeyringFeature"], path: "TestSupport"),
+        .testTarget(name: "AgentKeyringDesignTests", dependencies: ["AgentKeyringDesign",
+            .target(name: "AgentKeyringApprovalUI", condition: .when(platforms: [.macOS, .iOS]))]),
         .testTarget(name: "AgentKeyringSealingTests", dependencies: ["AgentKeyringSealing", "AgentKeyringProtocol", "AgentKeyringWatchCore"]),
         .testTarget(name: "AgentKeyringFeatureTests", dependencies: ["AgentKeyringTestSupport", "AgentKeyringFeature", "AgentKeyringApprovalCore", "AgentKeyringApprovalUI", "AgentKeyringPhoneApprover"]),
     ]
