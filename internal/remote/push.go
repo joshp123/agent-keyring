@@ -82,7 +82,9 @@ func (c *Client) sender(state *clientstate.State) (*apns.Sender, error) {
 // it is now: a visible one while it waits (the Apple Watch's carrying its
 // sealed copy), and a silent one for every outcome, so the devices take the
 // notification away. An Automatic use is silent from the start, so the
-// devices show it in use and can stop it.
+// devices show it in use and can stop it. Beside the pushes, the Mac hears of
+// every request that asks and of how it ended (tellMac). It fails only if
+// neither Apple nor the Mac took a waiting request.
 func (c *Client) pushAll(ctx context.Context, leaseID string) error {
 	state, err := c.Store.Load(ctx)
 	if err != nil {
@@ -114,6 +116,11 @@ func (c *Client) pushAll(ctx context.Context, leaseID string) error {
 	}
 	results := make(chan sent, len(current.registrations))
 	var wg sync.WaitGroup
+	macTook := false
+	if !saved.Lease.Automatic {
+		wg.Add(1)
+		go func() { defer wg.Done(); macTook = c.tellMac(ctx, signed, saved.Lease, waiting) }()
+	}
 	for _, t := range targets(current) {
 		work := &pb.Work{Request: signed.Payload, RequestSignature: signed.Signature, Login: current.login(request.GetLoginId())}
 		if waiting && t.device.Kind == pb.DeviceKind_DEVICE_KIND_WATCH {
@@ -167,10 +174,33 @@ func (c *Client) pushAll(ctx context.Context, leaseID string) error {
 			return nil
 		})
 	}
-	if !accepted && len(failures) > 0 {
+	if !accepted && !macTook && len(failures) > 0 {
 		return fmt.Errorf("The request could not reach Josh's devices: %v", failures)
 	}
 	return nil
+}
+
+// tellLimit is how long the Mac's door may take to hear of a request or its
+// outcome. It runs beside the pushes, so a shut Mac costs an agent at most this.
+const tellLimit = 2 * time.Second
+
+// tellMac shows a waiting request on the Mac too (POST /v2/ask), where Josh
+// answers it with Touch ID at this computer's door like any device, or tells
+// the Mac how it ended (POST /v2/outcome), so its panel shows that and closes.
+// True if the Mac took it.
+func (c *Client) tellMac(ctx context.Context, signed *pb.Signed, lease *pb.Lease, waiting bool) bool {
+	ctx, cancel := context.WithTimeout(ctx, tellLimit)
+	defer cancel()
+	path, body := "/v2/outcome", proto.Message(lease)
+	if waiting {
+		path, body = "/v2/ask", signed
+	}
+	if err := c.mac(ctx, "POST", path, body, nil); err != nil {
+		c.log("mac not told id=" + lease.RequestId + " route=" + path + " error=" + strconv.Quote(err.Error()))
+		return false
+	}
+	c.log("mac told id=" + lease.RequestId + " route=" + path)
+	return true
 }
 
 // pushPayload is what Apple carries: nothing readable about the request.

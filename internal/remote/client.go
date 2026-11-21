@@ -149,13 +149,21 @@ func macDo(ctx context.Context, client *http.Client, method, address, path strin
 		return fmt.Errorf("The Mac's reply was cut off: %w", err)
 	}
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("The Mac refused: %s", printable(strings.TrimSpace(string(raw))))
+		return macRefused{response.StatusCode, printable(strings.TrimSpace(string(raw)))}
 	}
 	if reply != nil && proto.Unmarshal(raw, reply) != nil {
 		return errors.New("The Mac's reply is unreadable. Update the Mac app and the command together.")
 	}
 	return nil
 }
+
+// macRefused is the Mac's door answering with anything but 200, in its own words.
+type macRefused struct {
+	status int
+	words  string
+}
+
+func (r macRefused) Error() string { return "The Mac refused: " + r.words }
 
 func (c *Client) mac(ctx context.Context, method, path string, body, reply proto.Message) error {
 	state, err := c.Store.Load(ctx)
