@@ -122,7 +122,9 @@ struct PhoneHomeView: View {
                 Section {
                     ForEach(model.inUse) { request in
                         if case let .approved(_, until) = request.state {
-                            KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until), nameFit: .siteName) {
+                            // Stop under the words, so a long site and who asks keep the row's width.
+                            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
+                                KeyringDeviceRow(symbol: "key.fill", name: request.login.site, detail: PhoneCopy.inUseDetail(request, until: until), nameFit: .siteName)
                                 KeyringButton(.plain(PhoneCopy.stop) { Task { await model.stop(request.id) } })
                             }
                         }
