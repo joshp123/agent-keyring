@@ -29,7 +29,7 @@ message State {
   // The newest Catalogue revision this machine has seen; an older one is the
   // Mac's door replaying the past (a login no longer Automatic, still served).
   uint64 catalogue_revision = 17;
-  // The Mac's door, "IP:17446" with its Tailscale IP, and its TLS key (SPKI
+  // The Mac's members' door, "IP:PORT" as the invitation named it (its Tailscale IP, port 17447), and its TLS key (SPKI
   // DER), pinned from the invitation this computer joined with.
   string mac_door = 18;
   bytes mac_tls_public_key = 19;

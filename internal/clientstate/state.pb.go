@@ -105,7 +105,7 @@ type State struct {
 	// The newest Catalogue revision this machine has seen; an older one is the
 	// Mac's door replaying the past (a login no longer Automatic, still served).
 	CatalogueRevision uint64 `protobuf:"varint,17,opt,name=catalogue_revision,json=catalogueRevision,proto3" json:"catalogue_revision,omitempty"`
-	// The Mac's door, "IP:17446" with its Tailscale IP, and its TLS key (SPKI
+	// The Mac's members' door, "IP:PORT" as the invitation named it (its Tailscale IP, port 17447), and its TLS key (SPKI
 	// DER), pinned from the invitation this computer joined with.
 	MacDoor         string `protobuf:"bytes,18,opt,name=mac_door,json=macDoor,proto3" json:"mac_door,omitempty"`
 	MacTlsPublicKey []byte `protobuf:"bytes,19,opt,name=mac_tls_public_key,json=macTlsPublicKey,proto3" json:"mac_tls_public_key,omitempty"`
