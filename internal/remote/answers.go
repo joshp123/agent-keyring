@@ -241,24 +241,12 @@ func (c *Client) takeEnd(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusServiceUnavailable, "This computer could not read its own state. Try again.")
 		return
 	}
-	device, err := keyring.Verify(signed, members, true)
-	if err != nil || signed.SignerKeyId != device.ReplyKeyId || end.DeviceKeyId != device.KeyId {
+	device, err := checkEnd(signed, members)
+	if err != nil {
 		refuse(w, http.StatusForbidden, "Stop is signed by the reply key of a device in Josh's list of devices.")
 		return
 	}
-	var lease *pb.Lease
-	stopped := false
-	err = c.Store.Update(r.Context(), func(state *clientstate.State) error {
-		saved := expected(state, end.RequestId)
-		if saved == nil {
-			return refused{http.StatusForbidden, "No request of this computer has that id."}
-		}
-		if saved.Lease.State == pb.LeaseState_LEASE_STATE_APPROVED {
-			saved.Lease.State, saved.Lease.EndedBy, saved.Approval, stopped = pb.LeaseState_LEASE_STATE_ENDED, device.Label, nil, true
-		}
-		lease = proto.Clone(saved.Lease).(*pb.Lease)
-		return nil
-	})
+	lease, stopped, err := c.endByStop(r.Context(), end.RequestId, device, "door")
 	var no refused
 	if errors.As(err, &no) {
 		refuse(w, no.status, no.sentence)
@@ -270,7 +258,50 @@ func (c *Client) takeEnd(w http.ResponseWriter, r *http.Request) {
 	}
 	replyLease(w, lease)
 	if stopped {
-		c.log("stopped id=" + end.RequestId + " by=" + strconv.Quote(device.Label))
 		c.pushAll(context.WithoutCancel(r.Context()), end.RequestId)
 	}
+}
+
+// checkEnd accepts a Stop signed by the reply key of a device in members,
+// naming that device.
+func checkEnd(signed *pb.Signed, members *pb.Members) (*pb.Device, error) {
+	end := &pb.EndRequest{}
+	if proto.Unmarshal(signed.GetPayload(), end) != nil || end.Domain != keyring.EndDomain {
+		return nil, keyring.ErrWrongDomain
+	}
+	device, err := keyring.Verify(signed, members, true)
+	if err != nil {
+		return nil, err
+	}
+	if signed.SignerKeyId != device.ReplyKeyId || end.DeviceKeyId != device.KeyId {
+		return nil, keyring.ErrNotAllowed
+	}
+	return device, nil
+}
+
+// endByStop ends an approved request at once, as Josh's Stop on device.
+// Anything else is left as it is. `via` says in the log how the Stop came: at
+// the door, or left at the Mac. Returns the request's Lease, and whether it
+// moved, in which case the caller tells the devices (pushAll).
+func (c *Client) endByStop(ctx context.Context, requestID string, device *pb.Device, via string) (*pb.Lease, bool, error) {
+	var lease *pb.Lease
+	stopped := false
+	err := c.Store.Update(ctx, func(state *clientstate.State) error {
+		saved := expected(state, requestID)
+		if saved == nil {
+			return refused{http.StatusForbidden, "No request of this computer has that id."}
+		}
+		if saved.Lease.State == pb.LeaseState_LEASE_STATE_APPROVED {
+			saved.Lease.State, saved.Lease.EndedBy, saved.Approval, stopped = pb.LeaseState_LEASE_STATE_ENDED, device.Label, nil, true
+		}
+		lease = proto.Clone(saved.Lease).(*pb.Lease)
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if stopped {
+		c.log("stopped id=" + requestID + " by=" + strconv.Quote(device.Label) + " via=" + via)
+	}
+	return lease, stopped, nil
 }

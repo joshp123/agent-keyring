@@ -14,7 +14,7 @@ import Testing
 struct LyingRelayTests {
     func login(_ id: String, _ site: String, _ rule: Agentkeyring_V2_Rule = .ask) -> Agentkeyring_V2_Login {
         var login = Agentkeyring_V2_Login()
-        login.loginID = id; login.title = site; login.sites = ["https://\(site)"]; login.account = "josh@\(site)"; login.rule = rule
+        login.loginID = id; login.title = site; login.sites = ["https://\(site)"]; login.account = "you@\(site)"; login.rule = rule
         return login
     }
 
@@ -38,7 +38,7 @@ struct LyingRelayTests {
         work.login = login("example", "example.com")  // the lie
         let named = try Sealing.signedLogin(for: Sealing.parseRequest(work.request), in: catalogue)
         #expect(named.sites == ["https://bank.example"])
-        #expect(named.account == "josh@bank.example")
+        #expect(named.account == "you@bank.example")
     }
 
     @Test func aBlockedPasswordCanNotBeApproved() {

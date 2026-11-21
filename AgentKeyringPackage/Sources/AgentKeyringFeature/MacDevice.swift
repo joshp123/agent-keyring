@@ -9,6 +9,8 @@
 // lists; and port 17446, the answer door every asking computer has, with no
 // client certificate. Its own agents' requests go to the iPhone and Apple Watch
 // as pushes this Mac sends to Apple, and come back to the answer door (MacAsks.swift).
+// Agents' requests on other computers are shown here too, and answered at
+// their own doors; a Stop a device could not take there waits here (MacRemoteAsks.swift).
 
 import AgentKeyringProtocol
 import AgentKeyringRelaySupport
@@ -61,6 +63,8 @@ public final class MacDevice {
         public var invitationItem: InvitationItem = .iCloud
         public var joinWait: Duration = .seconds(25)
         public var complaints: URL = URL.applicationSupportDirectory.appending(path: "AgentKeyring/complaints.pb")
+        /// The clock for how long a Stop left here is kept.
+        public var now: @MainActor () -> Date = { .now }
         public init(storage: MacStorage) { self.storage = storage }
     }
 
@@ -100,6 +104,10 @@ public final class MacDevice {
     let askSignal = Signal()
     @ObservationIgnored var pushChains: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var leaseFollowing: Task<Void, Never>?
+
+    // Other computers' requests, and Stops left here (MacRemoteAsks.swift).
+    public internal(set) var remoteAsks: [String: RemoteAsk] = [:]
+    @ObservationIgnored var stops: [String: KeptStop] = [:]
 
     init(keys: MacKeys, store: LoginStore, leaseStore: CredentialLeaseStore, environment: Environment,
         catalogueLogins: @escaping @MainActor () async throws -> [Agentkeyring_V2_Login]) {
@@ -248,6 +256,10 @@ public final class MacDevice {
         case ("POST", "/v2/members"): return device == nil ? onlyDevices : await takeMembers(request.body)
         case ("POST", "/v2/practice"): return device == nil ? onlyDevices : takePracticeAsk(request.body)
         case ("POST", "/v2/log"): return device == nil ? onlyDevices : takeLog(request.body)
+        case ("POST", "/v2/ask"): return takeRemoteAsk(request.body, from: caller)
+        case ("POST", "/v2/outcome"): return takeRemoteOutcome(request.body, from: caller)
+        case ("POST", "/v2/stop"): return device == nil ? onlyDevices : takeStop(request.body)
+        case ("GET", "/v2/stops"): return stop(for: request.query["request"] ?? "", from: caller)
         default: return .refused(404, "There is no \(request.method) \(request.path) on this Mac.")
         }
     }

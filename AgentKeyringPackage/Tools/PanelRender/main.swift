@@ -14,7 +14,7 @@ import SwiftUI
 _ = NSApplication.shared
 let out = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/tmp/panel-render")
 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-let request = AccessRequest(id: "r", login: RequestedLogin(site: "example.com", account: "josh@example.com"),
+let request = AccessRequest(id: "r", login: RequestedLogin(site: "example.com", account: "you@example.com"),
     agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: "100.64.0.2", folder: "~/code/bookkeeping", project: "bookkeeping"),
     access: .login, agentReason: "You asked me to download October’s invoice.", askedAt: .now,
     state: .waitingForYou(until: .now.addingTimeInterval(600)))
@@ -49,7 +49,7 @@ let invited = AccessRequest(id: "i", login: RequestedLogin(site: "Mac mini", acc
 var longName = request; longName.agent.name = "Research Assistant for Bookkeeping"
 func at(_ hour: Int, _ minute: Int) -> Date { Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: .now)! }
 func row(_ site: String, _ agent: String, _ computer: String?, _ hour: Int, _ minute: Int, _ state: AccessRequestState, project: String? = nil, automatic: Bool = false) -> AccessRequest {
-    AccessRequest(id: site + agent + "\(hour)", login: RequestedLogin(site: site, account: "josh@example.com"),
+    AccessRequest(id: site + agent + "\(hour)", login: RequestedLogin(site: site, account: "you@example.com"),
         agent: RequestingAgent(name: agent, machine: computer ?? "", address: "", project: project, isLocal: computer == nil),
         access: .login, agentReason: "", askedAt: at(hour, minute), state: state, byAutomaticRule: automatic)
 }
@@ -100,7 +100,7 @@ let plainRows = [
     PracticeRow(id: "d3", name: "Apple Watch", symbol: "applewatch", detail: MainWindowCopy.watchAnswers, tone: .plain, canSend: true),
 ]
 let logins = [("example.com", LoginRule.ask), ("news.example", .ask), ("forum.example", .automatic), ("old.example", .blocked)]
-    .map { LoginRow(id: UUID(), site: $0.0, account: "josh@example.com", rule: $0.1) }
+    .map { LoginRow(id: UUID(), site: $0.0, account: "you@example.com", rule: $0.1) }
 let alone = MainSnapshot(logins: logins, importedAt: .now, devices: [DeviceRow(practice: plainRows[0], isThisMac: true)],
     machines: [MachineRow(id: "m1", name: "MacBook Pro", isThisMac: true)])
 let everything = MainSnapshot(logins: logins, importedAt: .now,
