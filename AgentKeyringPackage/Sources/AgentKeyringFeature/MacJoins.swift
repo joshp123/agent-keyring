@@ -21,11 +21,11 @@ import Security
 
 /// The invitation for a new iPhone in iCloud Keychain, where only Agent
 /// Keyring's own apps on Josh's devices can read it; nothing in tests.
-public struct InvitationItem {
-    let read: @MainActor () -> Agentkeyring_V2_JoinInvite?
-    let write: @MainActor (Agentkeyring_V2_JoinInvite) -> Void
+public struct InvitationItem: Sendable {
+    let read: @MainActor @Sendable () -> Agentkeyring_V2_JoinInvite?
+    let write: @MainActor @Sendable (Agentkeyring_V2_JoinInvite) -> Void
 
-    private static var query: [String: Any] {
+    private static var itemQuery: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecUseDataProtectionKeychain as String: true,
          kSecAttrSynchronizable as String: true,
          kSecAttrAccessGroup as String: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringSharedKeychainGroup") as? String ?? "",
@@ -33,15 +33,15 @@ public struct InvitationItem {
     }
 
     public static let iCloud = InvitationItem(read: {
-        var query = query
+        var query = itemQuery
         query[kSecReturnData as String] = true
         var found: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let bytes = found as? Data else { return nil }
         return try? Agentkeyring_V2_JoinInvite(serializedBytes: bytes)
     }, write: { invite in
         guard let value = try? invite.serializedData() else { return }
-        SecItemDelete(query as CFDictionary)
-        var item = query
+        SecItemDelete(itemQuery as CFDictionary)
+        var item = itemQuery
         item[kSecValueData as String] = value
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(item as CFDictionary, nil)
@@ -109,7 +109,7 @@ extension MacDevice {
     }
 
     private func invitation(lasting seconds: TimeInterval) throws -> Agentkeyring_V2_JoinInvite {
-        guard case let .open(host, port) = door else {
+        guard case let .open(host, _, port) = door else {
             throw RelayFailure(.unavailable, door == .noTailscale ? MessageCopy.noTailscale : MessageCopy.doorClosed("\(door)"))
         }
         var secret = Data(count: 32)
@@ -138,7 +138,7 @@ extension MacDevice {
     /// withdrawn. With no Tailscale address the item names this Mac only.
     func leaveInvitation(replacing: Bool = false) {
         let item = environment.invitationItem
-        guard case let .open(host, port) = door else {
+        guard case let .open(host, _, port) = door else {
             if item.read()?.inviterKeyID != keys.deviceKeyID || item.read()?.doorHost.isEmpty == false { item.write(nameOnly) }
             return
         }

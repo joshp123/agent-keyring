@@ -2,12 +2,13 @@
 // by the same model for the direct design, with no relay.
 //
 // The Mac as the one place Josh's lists live. It keeps the signed members list
-// and catalogue, every sealed copy (LoginStore), each device's push address
-// and status report, and serves them at its door: HTTPS on its Tailscale
-// address, port 17446, with its machine TLS key (keyring.proto, "Direct: no
-// relay"). Devices and computers join it there (MacJoins.swift). Its own
-// agents' requests go to the iPhone and Apple Watch as pushes this Mac sends
-// to Apple, and their answers come back to the same door (MacAsks.swift).
+// and catalogue, every sealed copy (LoginStore) and each device's push
+// address, and serves them on its Tailscale address with its machine TLS key
+// (keyring.proto, "Direct: no relay"), through two doors: port 17447, which
+// requires a member's client certificate, for joining (MacJoins.swift) and the
+// lists; and port 17446, the answer door every asking computer has, with no
+// client certificate. Its own agents' requests go to the iPhone and Apple Watch
+// as pushes this Mac sends to Apple, and come back to the answer door (MacAsks.swift).
 
 import AgentKeyringProtocol
 import AgentKeyringRelaySupport
@@ -25,34 +26,35 @@ let deviceLogger = Logger(subsystem: "com.agentkeyring.app", category: "Door")
 
 @MainActor @Observable
 public final class MacDevice {
-    /// The door, which everything else depends on.
+    /// The doors, which everything else depends on: both open, or neither.
     public enum Door: Equatable, Sendable {
         case opening
         /// This Mac has no Tailscale address: Tailscale is not installed, not
         /// running, or signed out. Nothing can reach this Mac, and it reaches nothing.
         case noTailscale
-        case open(host: String, port: UInt16)
-        /// The port could not be opened, such as when another program holds it.
+        /// `answers`: the answer door; `members`: the members' door, named in invitations.
+        case open(host: String, answers: UInt16, members: UInt16)
+        /// A port could not be opened, such as when another program holds it.
         case failed(String)
 
-        public var address: String? { if case let .open(host, port) = self { Tailnet.join(host, port) } else { nil } }
+        public var address: String? { if case let .open(host, port, _) = self { Tailnet.join(host, port) } else { nil } }
     }
 
     /// What the Mac keeps between launches, beside the sealed copies in LoginStore.
     struct Saved: Codable {
-        var members: Data?          // Signed Members.
+        var members: Data?               // Signed Members.
+        var membersHistory: [Data] = []  // Every Signed Members since the first, oldest first.
         var catalogue: Data?        // Signed Catalogue: the one served.
         var catalogueRevision: UInt64 = 0
         var copiesRevision: UInt64 = 0
-        var reportsRevision: UInt64 = 0
         var registrations: [String: Data] = [:]  // Device key ID: Signed PushRegistration.
-        var reports: [String: Data] = [:]        // Device key ID: Signed SelfTestReport.
     }
 
     /// What differs between the app and a test: where the door listens, where pushes go, where things are kept.
     public struct Environment {
         public var address: @MainActor () -> String? = { Tailnet.address() }
-        public var port: UInt16 = 17446
+        public var answerPort: UInt16 = 17446
+        public var membersPort: UInt16 = 17447
         public var gateway = ApplePush.Gateway.apple
         public var storage: MacStorage
         /// The invitation left in iCloud Keychain for a new iPhone.
@@ -66,12 +68,10 @@ public final class MacDevice {
     public private(set) var members: Agentkeyring_V2_Members?
     /// The catalogue as last signed: what devices and computers are given.
     public private(set) var catalogue: Agentkeyring_V2_Catalogue?
-    /// Each device's latest status report, by device key.
-    public private(set) var reports: [String: Agentkeyring_V2_SelfTestReport] = [:]
     var saved: Saved
     @ObservationIgnored var deviceLogs: [String: [String]] = [:]
     @ObservationIgnored var push: ApplePush?
-    @ObservationIgnored var server: DoorServer?
+    @ObservationIgnored var servers: [DoorServer] = []
     @ObservationIgnored private var doorWork: Task<Void, Never>?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var revPush: Task<Void, Never>?
@@ -84,7 +84,7 @@ public final class MacDevice {
     let catalogueLogins: @MainActor () async throws -> [Agentkeyring_V2_Login]
     /// A newer catalogue the iPhone signed (a rule changed there), with this Mac's own Automatic copies as it now holds them.
     @ObservationIgnored var onCatalogue: (@MainActor (Agentkeyring_V2_Catalogue, [Agentkeyring_V2_SealedLogin]) async -> Void)?
-    /// A device joined, or one's status report changed: first run's windows may move on.
+    /// A device or computer joined or left: first run's windows may move on.
     @ObservationIgnored var onDevicesChanged: (@MainActor () async -> Void)?
     /// A device asked for a practice request on this Mac itself.
     @ObservationIgnored var onPracticeHere: (@MainActor () -> Void)?
@@ -108,17 +108,12 @@ public final class MacDevice {
         self.leaseStore = leaseStore
         self.environment = environment
         self.catalogueLogins = catalogueLogins
-        saved = environment.storage.read("saved").flatMap { try? PropertyListDecoder().decode(Saved.self, from: $0) }
-            ?? environment.storage.legacyMembers().map { Saved(members: $0.members, catalogueRevision: $0.catalogueRevision) }
-            ?? Saved()
+        saved = environment.storage.read("saved").flatMap { try? PropertyListDecoder().decode(Saved.self, from: $0) } ?? Saved()
         members = saved.members.flatMap { try? Agentkeyring_V2_Signed(serializedBytes: $0) }
             .flatMap { try? Agentkeyring_V2_Members(serializedBytes: $0.payload) }
         if let members {
             catalogue = saved.catalogue.flatMap { try? Agentkeyring_V2_Signed(serializedBytes: $0) }
                 .flatMap { try? Sealing.verifiedCatalogue($0, members: members, current: nil) }
-            for (id, bytes) in saved.reports {
-                if let report = Self.report(bytes, members: members), report.deviceKeyID == id { reports[id] = report }
-            }
         }
         if let bytes = environment.storage.read("push"), let credential = try? Agentkeyring_V2_PushCredential(serializedBytes: bytes) {
             push = try? ApplePush(credential: credential, gateway: environment.gateway)
@@ -166,16 +161,20 @@ public final class MacDevice {
             closeDoor(.noTailscale)
             return
         }
-        if case let .open(open, _) = door, open == host { return }
+        if case let .open(open, _, _) = door, open == host { return }
         closeDoor(.opening)
         do {
-            let server = try DoorServer(identity: keys.tls, host: host, port: environment.port) { [weak self] request in
-                await self?.route(request) ?? .refused(503, "Agent Keyring is closing.")
+            let answers = try DoorServer(identity: keys.tls, host: host, port: environment.answerPort) { [weak self] request in
+                await self?.routeAnswers(request) ?? .refused(503, "Agent Keyring is closing.")
             }
-            let port = try await server.start()
-            self.server = server
-            door = .open(host: host, port: port)
-            DiagnosticLog.record("door", "open", ["address": Tailnet.join(host, port)])
+            let members = try DoorServer(identity: keys.tls, host: host, port: environment.membersPort, requireClientCertificate: true) { [weak self] request in
+                await self?.routeMembers(request) ?? .refused(503, "Agent Keyring is closing.")
+            }
+            servers = [answers, members]
+            let answerPort = try await answers.start()
+            let membersPort = try await members.start()
+            door = .open(host: host, answers: answerPort, members: membersPort)
+            DiagnosticLog.record("door", "open", ["answers": Tailnet.join(host, answerPort), "members": Tailnet.join(host, membersPort)])
             leaveInvitation()
         } catch {
             closeDoor(.failed("\(error)"))
@@ -187,8 +186,8 @@ public final class MacDevice {
     }
 
     private func closeDoor(_ next: Door) {
-        server?.stop()
-        server = nil
+        for server in servers { server.stop() }
+        servers = []
         if door != next {
             DiagnosticLog.record("door", "closed", ["state": "\(next)"])
             door = next
@@ -215,11 +214,19 @@ public final class MacDevice {
         return members.machines.first { $0.tlsPublicKey == spki }.map(Caller.machine)
     }
 
-    func route(_ request: DoorRequest) async -> DoorReply {
+    /// The answer door: answers, arrival notes and Stop for this Mac's own requests, from anyone; each carries its own proof.
+    func routeAnswers(_ request: DoorRequest) async -> DoorReply {
         switch (request.method, request.path) {
         case ("POST", "/v2/answer"): return await takeAnswer(request.body)
         case ("POST", "/v2/arrived"): return takeArrival(request.body)
         case ("POST", "/v2/end"): return takeEnd(request.body)
+        default: return .refused(404, "This is the Mac's answer door. Joining and the lists are on its members' door, the one its invitation names.")
+        }
+    }
+
+    /// The members' door: joining, and the lists for a device or computer that has joined.
+    func routeMembers(_ request: DoorRequest) async -> DoorReply {
+        switch (request.method, request.path) {
         case ("POST", "/v2/join"): return await takeJoin(request)
         case ("POST", "/v2/join/withdraw"): return takeWithdrawal(request)
         default: break
@@ -231,7 +238,7 @@ public final class MacDevice {
         let onlyDevices = DoorReply.refused(403, "Only an iPhone or Apple Watch of Josh's may do this.")
         switch (request.method, request.path) {
         case ("GET", "/v2/rev"): return .ok(message(revisions))
-        case ("GET", "/v2/bundle"): return .ok(message(await bundle(for: caller)))
+        case ("GET", "/v2/bundle"): return .ok(message(await bundle(for: caller, holding: UInt64(request.query["members"] ?? "") ?? 0)))
         case ("GET", "/v2/logs"): return .ok(message(logs(since: Int64(request.query["since"] ?? "") ?? 0)))
         case ("POST", "/v2/complaint"): return takeComplaint(request.body, from: caller)
         case ("GET", "/v2/complaints"): return .ok(message(complaints(since: Int64(request.query["since"] ?? "") ?? 0)))
@@ -240,7 +247,6 @@ public final class MacDevice {
         case ("POST", "/v2/catalogue"): return device == nil ? onlyDevices : await takeCatalogue(request.body)
         case ("POST", "/v2/members"): return device == nil ? onlyDevices : await takeMembers(request.body)
         case ("POST", "/v2/practice"): return device == nil ? onlyDevices : takePracticeAsk(request.body)
-        case ("POST", "/v2/report"): return device == nil ? onlyDevices : await takeReport(request.body)
         case ("POST", "/v2/log"): return device == nil ? onlyDevices : takeLog(request.body)
         default: return .refused(404, "There is no \(request.method) \(request.path) on this Mac.")
         }
@@ -255,20 +261,22 @@ public final class MacDevice {
         revisions.members = members?.revision ?? 0
         revisions.catalogue = catalogue?.revision ?? 0
         revisions.copies = saved.copiesRevision
-        revisions.reports = saved.reportsRevision
         return revisions
     }
 
-    /// Everything one caller keeps: the lists, the push addresses, the status
-    /// reports, and its own copies. Only copies of the signed catalogue's
+    /// Everything one caller keeps: the lists, every members revision it lacks,
+    /// the push addresses, and its own copies. Only copies of the signed catalogue's
     /// current version are given, never a Blocked one: an import Josh has not
     /// yet approved sending stays here.
-    func bundle(for caller: Caller) async -> Agentkeyring_V2_Bundle {
+    /// `holding`: the newest members revision the caller has; every later one comes too, oldest first.
+    func bundle(for caller: Caller, holding: UInt64) async -> Agentkeyring_V2_Bundle {
         var bundle = Agentkeyring_V2_Bundle()
         if let bytes = saved.members, let signed = try? Agentkeyring_V2_Signed(serializedBytes: bytes) { bundle.members = signed }
+        bundle.membersSince = saved.membersHistory.compactMap { try? Agentkeyring_V2_Signed(serializedBytes: $0) }.filter { signed in
+            ((try? Agentkeyring_V2_Members(serializedBytes: signed.payload))?.revision ?? 0) > holding
+        }
         if let bytes = saved.catalogue, let signed = try? Agentkeyring_V2_Signed(serializedBytes: bytes) { bundle.catalogue = signed }
         bundle.pushRegistrations = saved.registrations.keys.sorted().compactMap { saved.registrations[$0].flatMap { try? Agentkeyring_V2_Signed(serializedBytes: $0) } }
-        bundle.reports = saved.reports.keys.sorted().compactMap { saved.reports[$0].flatMap { try? Agentkeyring_V2_Signed(serializedBytes: $0) } }
         bundle.revisions = revisions
         guard let catalogue, let members else { return bundle }
         let listed = Dictionary(catalogue.logins.map { ($0.loginID, $0) }, uniquingKeysWith: { first, _ in first })
@@ -285,10 +293,9 @@ public final class MacDevice {
         return bundle
     }
 
-    /// The lists, a copy or a report changed: the iPhone hears it from a silent push, a second later.
-    func listsChanged(copies: Bool = false, reports: Bool = false) {
+    /// The lists or a copy changed: the iPhone hears it from a silent push, a second later.
+    func listsChanged(copies: Bool = false) {
         if copies { saved.copiesRevision += 1 }
-        if reports { saved.reportsRevision += 1 }
         persist()
         revPush?.cancel()
         revPush = Task { [weak self] in
@@ -364,9 +371,8 @@ public final class MacDevice {
         let known = Set(next.devices.map(\.keyID) + next.machines.map(\.machineID))
         members = next
         saved.members = signed
+        saved.membersHistory.append(signed)
         saved.registrations = saved.registrations.filter { known.contains($0.key) }
-        saved.reports = saved.reports.filter { known.contains($0.key) }
-        reports = reports.filter { known.contains($0.key) }
         if let sealed = try? await store.sealed(), sealed.contains(where: { !known.contains($0.openerID) && $0.openerID != keys.deviceKeyID }) {
             try? await store.replaceSealed(sealed.filter { known.contains($0.openerID) || $0.openerID == keys.deviceKeyID })
         }
@@ -422,26 +428,6 @@ public final class MacDevice {
         do { try await store.replaceSealed(sealed + kept) } catch { return .refused(503, "The Mac could not save the copies. Try again.") }
         listsChanged(copies: true)
         return .ok()
-    }
-
-    func takeReport(_ body: Data) async -> DoorReply {
-        guard let (_, signer) = fromDevice(body), let members, let report = Self.report(body, members: members),
-            report.deviceKeyID == signer.keyID else {
-            return .refused(403, "A status report is signed by the device it describes.")
-        }
-        reports[signer.keyID] = report
-        saved.reports[signer.keyID] = body
-        listsChanged(reports: true)
-        await onDevicesChanged?()
-        return .ok()
-    }
-
-    static func report(_ bytes: Data, members: Agentkeyring_V2_Members) -> Agentkeyring_V2_SelfTestReport? {
-        guard let document = try? Agentkeyring_V2_Signed(serializedBytes: bytes),
-            let signer = try? Sealing.verify(document, members: members, allowReplyKey: true),
-            let report = try? Agentkeyring_V2_SelfTestReport(serializedBytes: document.payload),
-            report.domain == "agentkeyring.selftest.v2", report.deviceKeyID == signer.keyID else { return nil }
-        return report
     }
 
     func takeLog(_ body: Data) -> DoorReply {
@@ -597,30 +583,6 @@ public final class MacDevice {
         }
     }
 
-    /// This Mac's status report, signed by its reply key: where it is in the
-    /// journey, the journey's steps, and its practice result. Kept with the
-    /// devices' reports and given in every bundle.
-    func reportStatus(_ firstRun: FirstRun, practice: (passed: Bool, error: String)?) {
-        var report = Agentkeyring_V2_SelfTestReport()
-        report.domain = "agentkeyring.selftest.v2"
-        report.deviceKeyID = keys.deviceKeyID
-        report.testedUnixSeconds = Int64(Date().timeIntervalSince1970)
-        if let practice {
-            var check = Agentkeyring_V2_SelfTestCheck()
-            check.name = "practice"
-            check.passed = practice.passed
-            check.error = practice.error
-            report.checks = [check]
-        }
-        report.journey = firstRun.journey.map(\.wire)
-        report.step = firstRun.step.wire
-        report.finished = firstRun == .finished
-        guard let signed = try? Sealing.signed(report.serializedData(), by: keys.replyKeyID, sign: { try keys.signReply($0) }),
-            let bytes = try? signed.serializedData() else { return }
-        reports[keys.deviceKeyID] = report
-        saved.reports[keys.deviceKeyID] = bytes
-        listsChanged(reports: true)
-    }
 }
 
 
@@ -630,11 +592,8 @@ public final class MacDevice {
 public struct MacStorage {
     let read: @MainActor (String) -> Data?
     let write: @MainActor (Data, String) throws -> Void
-    /// The members list an earlier build kept beside its relay, so devices already added stay added.
-    let legacyMembers: @MainActor () -> (members: Data, catalogueRevision: UInt64)?
 
     static let service = (Bundle.main.bundleIdentifier ?? "com.agentkeyring") + ".lists.v2"
-    static let legacyService = (Bundle.main.bundleIdentifier ?? "com.agentkeyring") + ".relay.v2"
 
     @MainActor public static func app(standIn: Bool) -> MacStorage {
         #if DEBUG
@@ -643,22 +602,17 @@ public struct MacStorage {
             return MacStorage(read: { try? Data(contentsOf: folder.appending(path: $0)) }, write: { bytes, account in
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 try bytes.write(to: folder.appending(path: account), options: .atomic)
-            }, legacyMembers: { nil })
+            })
         }
         #endif
         let keychain = RelayKeychain(service: service, accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
-        return MacStorage(read: { try? keychain.read($0) }, write: { try keychain.write($0, account: $1) }, legacyMembers: {
-            struct Legacy: Decodable { var members: Data; var catalogueRevision: UInt64 }
-            guard let bytes = try? RelayKeychain(service: legacyService).read("saved"),
-                let legacy = try? PropertyListDecoder().decode(Legacy.self, from: bytes) else { return nil }
-            return (legacy.members, legacy.catalogueRevision)
-        })
+        return MacStorage(read: { try? keychain.read($0) }, write: { try keychain.write($0, account: $1) })
     }
 
-    public static func memory() -> MacStorage {
-        final class Box { var items: [String: Data] = [:] }
+    @MainActor public static func memory() -> MacStorage {
+        final class Box: @unchecked Sendable { var items: [String: Data] = [:] } // Touched only on the main actor.
         let box = Box()
-        return MacStorage(read: { box.items[$0] }, write: { box.items[$1] = $0 }, legacyMembers: { nil })
+        return MacStorage(read: { box.items[$0] }, write: { box.items[$1] = $0 })
     }
 }
 

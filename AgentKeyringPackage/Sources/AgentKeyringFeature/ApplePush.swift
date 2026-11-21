@@ -6,10 +6,25 @@
 // "The push", as the relay sent them.
 
 import AgentKeyringProtocol
-import AgentKeyringSealing
+import AgentKeyringRelaySupport
 import CryptoKit
 import Foundation
 import Synchronization
+
+/// Trusts a stand-in for Apple's service only by its exact key, in tests. Apple's own is checked as any public site is.
+private final class StandInPin: NSObject, URLSessionDelegate, Sendable {
+    let spki: Data
+    init(spki: Data) { self.spki = spki }
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
+        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+            let trust = challenge.protectionSpace.serverTrust,
+            let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first,
+            (try? RelayTLSIdentity.spki(certificate: leaf)) == spki else { return (.cancelAuthenticationChallenge, nil) }
+        return (.useCredential, URLCredential(trust: trust))
+    }
+}
 
 public final class ApplePush: Sendable {
     /// Where pushes go: Apple's two services, or a stand-in pinned to its key in tests.
@@ -44,7 +59,7 @@ public final class ApplePush: Sendable {
         self.credential = credential
         key = try P256.Signing.PrivateKey(derRepresentation: credential.privateKey)
         self.gateway = gateway
-        session = URLSession(configuration: .ephemeral, delegate: gateway.pin.map { RelayHTTPS.Pin(spki: $0) }, delegateQueue: nil)
+        session = URLSession(configuration: .ephemeral, delegate: gateway.pin.map { StandInPin(spki: $0) }, delegateQueue: nil)
     }
 
     deinit { session.finishTasksAndInvalidate() }
@@ -104,7 +119,7 @@ public enum PushPayload {
     /// The silent push that tells the iPhone the Mac's lists changed.
     public static func revisions(_ revisions: Agentkeyring_V2_Revisions) -> Data {
         json(["aps": ["content-available": 1], "rev": ["members": revisions.members, "catalogue": revisions.catalogue,
-            "copies": revisions.copies, "reports": revisions.reports]])
+            "copies": revisions.copies]])
     }
 
     private static func json(_ object: [String: Any]) -> Data {

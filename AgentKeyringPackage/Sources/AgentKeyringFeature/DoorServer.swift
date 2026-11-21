@@ -1,11 +1,13 @@
 // Written by AI on 2026.11.21 by model claude opus 5.5.
 //
 // A door: HTTPS with this computer's TLS key, HTTP/1.1 over TLS 1.3, one
-// request per connection (keyring.proto, "Direct: no relay"). A client
-// certificate is asked for but not required: the routes that need one check
-// the key themselves, and the Apple Watch and a locked iPhone have none.
+// request per connection (keyring.proto, "Direct: no relay"). A door either
+// requires a client certificate or asks for none: macOS's TLS cannot ask for
+// one and go on without it, so the Mac keeps two doors, its answer door for
+// the Apple Watch and a locked iPhone, which have none, and its members' door.
 
 import AgentKeyringRelaySupport
+import AgentKeyringSealing
 import Darwin
 import Foundation
 import Network
@@ -15,6 +17,8 @@ public struct DoorRequest: Sendable {
     public let method: String
     public let path: String
     public let query: [String: String]
+    /// By lowercase name.
+    public let headers: [String: String]
     public let body: Data
     /// The client certificate's SubjectPublicKeyInfo, if one was sent.
     public let peerSPKI: Data?
@@ -39,18 +43,21 @@ public final class DoorServer: @unchecked Sendable {
     private static let largestBody = 4 * 1024 * 1024
     private static let largestHead = 16 * 1024
 
-    public init(identity: RelayTLSIdentity, host: String, port: UInt16, handle: @escaping Handler) throws {
+    public init(identity: RelayTLSIdentity, host: String, port: UInt16, requireClientCertificate: Bool = false,
+        handle: @escaping Handler) throws {
         let tls = NWProtocolTLS.Options()
         let options = tls.securityProtocolOptions
         sec_protocol_options_set_min_tls_protocol_version(options, .TLSv13)
         sec_protocol_options_set_local_identity(options, sec_identity_create(identity.identity)!)
-        sec_protocol_options_set_peer_authentication_optional(options, true)
-        sec_protocol_options_set_verify_block(options, { _, trust, complete in
-            // Any one P-256 certificate: each route checks the key it needs.
-            let trust = sec_trust_copy_ref(trust).takeRetainedValue()
-            let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []
-            complete(chain.count == 1 && (try? RelayTLSIdentity.spki(certificate: chain[0])) != nil)
-        }, queue)
+        if requireClientCertificate {
+            sec_protocol_options_set_peer_authentication_required(options, true)
+            sec_protocol_options_set_verify_block(options, { _, trust, complete in
+                // Any one P-256 certificate: each route checks the key it needs.
+                let trust = sec_trust_copy_ref(trust).takeRetainedValue()
+                let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []
+                complete(chain.count == 1 && (try? RelayTLSIdentity.spki(certificate: chain[0])) != nil)
+            }, queue)
+        }
         let parameters = NWParameters(tls: tls)
         parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: port == 0 ? .any : NWEndpoint.Port(rawValue: port)!)
         parameters.allowLocalEndpointReuse = true
@@ -103,8 +110,9 @@ public final class DoorServer: @unchecked Sendable {
                 self.read(connection, buffer)
             case let .malformed(words):
                 self.send(.refused(400, words), on: connection)
-            case let .complete(method, path, query, body):
-                let request = DoorRequest(method: method, path: path, query: query, body: body, peerSPKI: Self.peerSPKI(connection))
+            case let .complete(method, path, query, headers, body):
+                let request = DoorRequest(method: method, path: path, query: query, headers: headers, body: body,
+                    peerSPKI: Self.peerSPKI(connection))
                 let handle = self.handle
                 Task {
                     let reply = await handle(request)
@@ -117,7 +125,7 @@ public final class DoorServer: @unchecked Sendable {
     enum Parsed: Equatable {
         case incomplete
         case malformed(String)
-        case complete(method: String, path: String, query: [String: String], body: Data)
+        case complete(method: String, path: String, query: [String: String], headers: [String: String], body: Data)
     }
 
     static func parse(_ buffer: Data) -> Parsed {
@@ -130,11 +138,13 @@ public final class DoorServer: @unchecked Sendable {
         let parts = lines[0].split(separator: " ")
         guard parts.count == 3, parts[2].hasPrefix("HTTP/1.") else { return .malformed("Only HTTP/1.1 is spoken here.") }
         var length = 0
+        var headers: [String: String] = [:]
         for line in lines.dropFirst() {
             let pair = line.split(separator: ":", maxSplits: 1)
             guard pair.count == 2 else { continue }
             let name = pair[0].trimmingCharacters(in: .whitespaces).lowercased()
             let value = pair[1].trimmingCharacters(in: .whitespaces)
+            headers[name] = value
             if name == "transfer-encoding" { return .malformed("Send the body with Content-Length; chunked bodies are not read here.") }
             if name == "content-length" {
                 guard let count = Int(value), count >= 0, count <= largestBody else { return .malformed("The body is too large, or its length is not a number.") }
@@ -144,7 +154,7 @@ public final class DoorServer: @unchecked Sendable {
         guard buffer.count - end.upperBound >= length else { return .incomplete }
         let target = URLComponents(string: String(parts[1]))
         let query = Dictionary((target?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
-        return .complete(method: String(parts[0]), path: target?.path ?? String(parts[1]), query: query,
+        return .complete(method: String(parts[0]), path: target?.path ?? String(parts[1]), query: query, headers: headers,
             body: Data(buffer[end.upperBound..<(end.upperBound + length)]))
     }
 
@@ -180,7 +190,7 @@ final class Once: @unchecked Sendable {
 }
 
 /// This computer's Tailscale address, read from its interfaces each time: 100.64.0.0/10 first, else fd7a:115c:a1e0::/48.
-public enum Tailnet {
+extension Tailnet {
     public static func address() -> String? {
         var list: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&list) == 0, let first = list else { return nil }
