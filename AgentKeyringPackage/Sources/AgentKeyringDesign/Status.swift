@@ -8,6 +8,8 @@ import SwiftUI
 public enum KeyringStatus: Sendable, Equatable {
     /// A spinner and what we are waiting for.
     case waiting(String)
+    /// The microphone is on: what it is doing.
+    case listening(String)
     /// The same wait gone on too long: what to check, in the stalled colour.
     case takingLong(String)
     /// A green tick and what happened.
@@ -18,15 +20,40 @@ public enum KeyringStatus: Sendable, Equatable {
 
 public struct KeyringStatusLine: View {
     let status: KeyringStatus
+    let action: KeyringAction?
 
-    public init(_ status: KeyringStatus) { self.status = status }
+    /// `action`: one way to fix it, such as Open Settings, shown after the words.
+    public init(_ status: KeyringStatus, action: KeyringAction? = nil) {
+        self.status = status
+        self.action = action
+    }
 
     public var body: some View {
+        VStack(alignment: .leading, spacing: KeyringSpace.s1) {
+            line
+            if let action { KeyringButton(action) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var spinner: some View {
+        #if os(watchOS)
+        // The Watch's spinner is as wide as the screen unless given a size.
+        ProgressView().frame(width: 18, height: 18)
+        #else
+        ProgressView().controlSize(.small)
+        #endif
+    }
+
+    private var line: some View {
         HStack(alignment: .firstTextBaseline, spacing: KeyringSpace.s2) {
             switch status {
             case let .waiting(words):
-                ProgressView().controlSize(.small).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                spinner.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 KeyringText(words, as: .meta)
+            case let .listening(words):
+                Image(systemName: "waveform").foregroundStyle(KeyringPalette.deny)
+                KeyringText(words, as: .meta, colour: KeyringPalette.deny)
             case let .takingLong(words):
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(KeyringPalette.stalled)
                 KeyringText(words, as: .meta, colour: KeyringPalette.stalled)

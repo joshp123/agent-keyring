@@ -120,6 +120,7 @@ public struct KeyringDeviceRow<Trailing: View>: View {
     let detail: String?
     let tone: Tone
     let trailing: Trailing
+    @Environment(\.dynamicTypeSize) private var textSize
 
     public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, @ViewBuilder trailing: () -> Trailing) {
         self.symbol = symbol
@@ -130,17 +131,21 @@ public struct KeyringDeviceRow<Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: KeyringSpace.s3) {
-            Image(systemName: symbol)
-                .font(KeyringTextRole.heading.font)
-                .foregroundStyle(KeyringPalette.ink)
-                .frame(width: KeyringSpace.s6)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                KeyringText(name, as: .heading)
-                if let detail { KeyringText(detail, as: .meta, colour: detailColour) }
+        // At accessibility text sizes the button goes under the words, as Apple's own lists do.
+        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: KeyringSpace.s2)) : AnyLayout(HStackLayout(spacing: KeyringSpace.s3))
+        layout {
+            HStack(alignment: .firstTextBaseline, spacing: KeyringSpace.s3) {
+                Image(systemName: symbol)
+                    .font(KeyringTextRole.heading.font)
+                    .foregroundStyle(KeyringPalette.ink)
+                    .frame(width: KeyringSpace.s6)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    KeyringText(name, as: .heading)
+                    if let detail { KeyringText(detail, as: .meta, colour: detailColour) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }
         .padding(.vertical, KeyringSpace.s2)

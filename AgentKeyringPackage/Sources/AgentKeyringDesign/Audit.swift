@@ -23,8 +23,8 @@ public final class KeyringAudit: Sendable {
 
     private struct State {
         var frames: [UUID: (Element, CGRect)] = [:]
-        /// Per text, its latest drawing: true if SwiftUI dropped words to fit.
-        var truncated: [UUID: Bool] = [:]
+        /// Per text, its words and how its latest drawing went.
+        var drawn: [UUID: (label: String, truncated: Bool, brokenWord: Bool)] = [:]
     }
 
     private let state = Mutex(State())
@@ -35,8 +35,8 @@ public final class KeyringAudit: Sendable {
         state.withLock { $0.frames[element.id] = (element, frame) }
     }
 
-    func drew(_ id: UUID, truncated: Bool) {
-        state.withLock { $0.truncated[id] = truncated }
+    func drew(_ id: UUID, _ label: String, truncated: Bool, brokenWord: Bool) {
+        state.withLock { $0.drawn[id] = (label, truncated, brokenWord) }
     }
 
     /// What was wrong with the screen just drawn in `bounds`.
@@ -44,13 +44,13 @@ public final class KeyringAudit: Sendable {
         let snapshot = state.withLock { $0 }
         var found: [KeyringFinding] = []
         let placed = snapshot.frames.values.sorted { ($0.1.minY, $0.1.minX) < ($1.1.minY, $1.1.minX) }
+        for (_, drawing) in snapshot.drawn.sorted(by: { $0.value.label < $1.value.label }) {
+            if drawing.truncated { found.append(.truncated(drawing.label)) }
+            if drawing.brokenWord { found.append(.brokenWord(drawing.label)) }
+        }
         for (element, frame) in placed {
-            if element.kind == .text {
-                switch snapshot.truncated[element.id] {
-                case true?: found.append(.truncated(element.label))
-                case nil: found.append(.notDrawn(element.label))
-                case false?: break
-                }
+            if element.kind == .text, snapshot.drawn[element.id] == nil {
+                found.append(.notDrawn(element.label))
             }
             if !bounds.insetBy(dx: -0.5, dy: -0.5).contains(frame) {
                 found.append(.outside(element.label, frame: frame))
@@ -69,14 +69,20 @@ public final class KeyringAudit: Sendable {
 
     /// Every text drawn, top to bottom: the screen's words, for reading in one go.
     public var words: [String] {
-        state.withLock { $0.frames.values.filter { $0.0.kind == .text }
-            .sorted { ($0.1.minY, $0.1.minX) < ($1.1.minY, $1.1.minX) }.map(\.0.label) }
+        state.withLock { state in
+            let placed = state.frames.values.filter { $0.0.kind == .text }
+                .sorted { ($0.1.minY, $0.1.minX) < ($1.1.minY, $1.1.minX) }.map(\.0)
+            let unplaced = state.drawn.filter { state.frames[$0.key] == nil }.map(\.value.label).sorted()
+            return placed.map(\.label) + unplaced
+        }
     }
 }
 
 public enum KeyringFinding: Sendable, Hashable, CustomStringConvertible {
     /// SwiftUI dropped words (an ellipsis or a cut line) to fit the text in its space.
     case truncated(String)
+    /// A word split across two lines ("Ap-prove"): its space is narrower than the word.
+    case brokenWord(String)
     /// Laid out but never drawn: hidden behind the window's edge or clipped away.
     case notDrawn(String)
     /// Placed partly or wholly outside the screen.
@@ -87,6 +93,7 @@ public enum KeyringFinding: Sendable, Hashable, CustomStringConvertible {
     public var description: String {
         switch self {
         case let .truncated(label): "cut off: “\(label)”"
+        case let .brokenWord(label): "a word split across lines: “\(label)”"
         case let .notDrawn(label): "not drawn: “\(label)”"
         case let .outside(label, frame): "outside the screen at \(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))×\(Int(frame.height)): “\(label)”"
         case let .overlapping(a, b): "overlapping: “\(a)” and “\(b)”"
@@ -106,11 +113,31 @@ extension EnvironmentValues {
 /// Draws the text as SwiftUI laid it out, and tells the audit whether words were dropped.
 struct TruncationReporter: TextRenderer {
     let id: UUID
+    let label: String
+    /// The characters as shown, to find a line break inside a word.
+    let shown: [Character]
     let audit: KeyringAudit
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
-        audit.drew(id, truncated: layout.isTruncated)
+        audit.drew(id, label, truncated: layout.isTruncated, brokenWord: breaksAWord(layout))
         for line in layout { context.draw(line) }
+    }
+
+    /// True if a line ends on a letter or digit and the next line starts with
+    /// the very next character, also a letter or digit: SwiftUI split a word
+    /// because the space is narrower than the word.
+    private func breaksAWord(_ layout: Text.Layout) -> Bool {
+        let lines = layout.map { line in line.flatMap(\.characterIndices) }.filter { !$0.isEmpty }
+        guard lines.count > 1, let base = lines.joined().min() else { return false }
+        func isWordCharacter(_ offset: Int) -> Bool {
+            shown.indices.contains(offset) && (shown[offset].isLetter || shown[offset].isNumber)
+        }
+        for (line, next) in zip(lines, lines.dropFirst()) {
+            guard let end = line.max(), let start = next.min() else { continue }
+            let last = base.distance(to: end), first = base.distance(to: start)
+            if first == last + 1, isWordCharacter(last), isWordCharacter(first) { return true }
+        }
+        return false
     }
 }
 
