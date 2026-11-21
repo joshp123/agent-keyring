@@ -32,9 +32,9 @@ public enum MessageCopy {
     public static let approvalInterrupted = "Approval was interrupted. Try again."
     public static let approvalNotConfirmed = "Approval didn't confirm. Try again."
     public static let expired = "The request expired with no answer."
-    public static func approvalFailed(domain: String, code: Int) -> String { "Password approval failed (\(domain) \(code)). Nothing was released." }
+    public static let approvalFailed = "Couldn't approve the password. Nothing was shared."
     public static let alreadyApproving = "An approval is already in progress on this Mac."
-    public static let practiceKeysFailed = "This Mac's chip keys did not open or sign correctly."
+    public static let practiceKeysFailed = "Couldn't verify this Mac's Secure Enclave key. Try again."
 
     // MARK: Rules
 
@@ -50,8 +50,6 @@ public enum MessageCopy {
 
     public static let passwordGone = "The password is no longer available."
     public static let passwordBlocked = "This password is now blocked for agents."
-    public static let blockedForAgents = "This password is blocked for agents."
-    public static let noCopyHere = "This Mac has no copy of this password. Copy your passwords again from Passwords."
     public static let copyUnreadable = "Agent Keyring's copy of your passwords could not be opened. Passwords was not changed."
     public static let passwordsWontOpen = "Passwords could not be opened."
     public static let exportSentNothing = "Passwords opened Agent Keyring without sending your passwords. Try the export again."
@@ -67,20 +65,20 @@ public enum MessageCopy {
     public static func notLockedAway(hadEarlierCopy: Bool) -> String {
         "Passwords sent your passwords, but Agent Keyring could not lock them away." + (hadEarlierCopy ? " Your earlier copy was not changed." : "")
     }
-    public static let leasesNotEnded = "The leases could not be ended."
+    public static let leasesNotEnded = "Couldn't stop active access. Try again."
     public static let endsByItself = "Access on another computer ends by itself 30 minutes after approval."
 
     // MARK: The reminder to copy again
 
     public static func copyIsOld(days: Int) -> String { "Agent Keyring's copy of your passwords is \(days) days old." }
-    public static let exportInstruction = "File → Export All Items to App → Agent Keyring"
+    public static let exportInstruction = "File > Export All Items to App"
     public static let updateFromPasswords = "Update from Passwords"
 
     // MARK: Devices and computers
 
     public static let noKeysYet = "This Mac has no keys yet."
     public static let noIPhoneOrWatch = "This Mac has no iPhone or Apple Watch added yet."
-    public static let enterHostAndPort = "Enter the relay's host name and port."
+    public static let notATailscaleAddress = "That address isn't on Tailscale. Check that Tailscale is on for both devices."
     public static let nothingJoining = "Nothing is waiting to join with that name."
     /// This Mac has no Tailscale address: Tailscale is not installed, not running, or signed out.
     public static let noTailscale = "Tailscale is off on this Mac, so your iPhone, Apple Watch and other computers can't reach it. Turn on Tailscale, then try again."
@@ -90,15 +88,14 @@ public enum MessageCopy {
     public static let noPushKey = "This Mac can't notify your iPhone or Apple Watch yet: it has no push key. An agent adds it with agent-keyring push-key."
     public static func noPushAddress(_ name: String) -> String { "\(name) hasn't given this Mac its notification address yet. Open Agent Keyring on it." }
     public static let joinRanOut = "This request to join ran out after ten minutes. Ask again from the other device."
-    public static let invalidPushKey = "That is not a P-256 push key from Apple (a .p8 file)."
+    public static let invalidPushKey = "That isn't Apple's push key (a .p8 file)."
 
-    // MARK: The connection to the relay
+    // MARK: Reaching another device or computer
 
-    public static let relayUnreachable = "The relay could not be reached."
-    public static let relayDidNotAnswer = "The relay did not answer."
-    public static let relayConnectionEnded = "The relay connection ended."
-    public static let relayOverTailscale = "The relay must connect over Tailscale."
-    public static let relayRequestTooLarge = "The relay request is too large."
-    public static let relayBadFrame = "The relay sent an invalid frame."
-    public static let relayBadIdentity = "The relay must use a P-256 TLS identity."
+    public static let unreachable = "Couldn't reach the other device. Check that Tailscale is on for both and that it's awake."
+    public static let connectionEnded = "The connection to the other device ended. Try again."
+    public static let notOnTailscale = "That device isn't on Tailscale. Check that Tailscale is on for both devices."
+    public static let messageTooLarge = "That message is too large to send."
+    public static let unreadableReply = "The other device sent something Agent Keyring couldn't read. Try again."
+    public static let unacceptedKey = "The other device's key isn't one Agent Keyring accepts."
 }

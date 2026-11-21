@@ -98,7 +98,7 @@ public struct RelayTLSIdentity: @unchecked Sendable {
         guard let key = SecCertificateCopyKey(certificate),
             let bytes = SecKeyCopyExternalRepresentation(key, nil) as? Data,
             (try? P256.Signing.PublicKey(x963Representation: bytes)) != nil else {
-            throw RelayFailure(.unauthenticated, MessageCopy.relayBadIdentity)
+            throw RelayFailure(.unauthenticated, MessageCopy.unacceptedKey)
         }
         return spkiPrefix + bytes
     }

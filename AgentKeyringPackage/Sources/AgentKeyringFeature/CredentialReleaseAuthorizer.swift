@@ -24,8 +24,8 @@ public enum CredentialReleaseAuthorizationError: Error, LocalizedError, Sendable
         case .interrupted: MessageCopy.approvalInterrupted
         case .notVerified: MessageCopy.approvalNotConfirmed
         case .expired: MessageCopy.expired
-        case let .systemFailure(domain, code):
-            MessageCopy.approvalFailed(domain: domain == LAError.errorDomain ? "LocalAuthentication" : domain, code: code)
+        case .systemFailure:
+            MessageCopy.approvalFailed
         }
     }
 

@@ -287,7 +287,7 @@ Known and left alone: requests from agents on other computers no longer reach th
 
 Code: `PhoneFirstRun` in `AgentKeyringPackage/Sources/AgentKeyringApprovalUI/Phone/PhoneFirstRun.swift`. `PhoneKeyring` sends it events and does what each state asks. Tests: `PhoneFirstRunTests`.
 
-There is no relay. The iPhone joins the Mac at the Mac's door (HTTPS on its Tailscale IP, port 17446, pinned to its key, with the iPhone's TLS client certificate), and the Mac's join card in iCloud Keychain says where that door is. Each state is one screen; the pages themselves are built from the shared page parts.
+There is no relay. The iPhone joins the Mac at the Mac's members' door (HTTPS on its Tailscale IP, port 17447, pinned to its key, with the iPhone's TLS client certificate), and the Mac's join card in iCloud Keychain says where that door is. Each state is one screen; the pages themselves are built from the shared page parts.
 
 ### States
 
