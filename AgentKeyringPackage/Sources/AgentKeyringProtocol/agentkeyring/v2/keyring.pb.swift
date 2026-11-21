@@ -1788,6 +1788,22 @@ public nonisolated struct Agentkeyring_V2_SealedLogins: Sendable {
 ///                              the device chose); the Mac pushes it.
 ///   POST /v2/log               body: Signed DeviceLog.
 ///   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
+///   POST /v2/ask               body: Signed Request, from the computer that
+///                              signed it, as it pushes the same request to the
+///                              devices. The Mac shows it in its own panel and
+///                              answers at the request's answer door like any
+///                              device: first answer wins. Replies 200.
+///   POST /v2/outcome           body: Lease, from that computer, when its
+///                              request ends any other way; the Mac's panel
+///                              shows the outcome and closes. Replies 200.
+///   POST /v2/stop              body: Signed EndRequest, from a device whose
+///                              Stop could not reach the asking computer's
+///                              door. The Mac keeps it for an hour. Replies 200.
+///   GET  /v2/stops?request=ID  From the computer that asked: replies the
+///                              Signed EndRequest left for that request, or
+///                              404. Asked before every use of an approval; if
+///                              the Mac cannot be reached, the use goes ahead
+///                              and is logged.
 ///   POST /v2/complaint         body: Complaint, from a computer. Replies 200.
 ///   GET  /v2/complaints?since=SECONDS  Replies Complaints.
 ///
