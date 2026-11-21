@@ -97,6 +97,14 @@ The `AgentKeyringDesignChecks` scheme builds only the parts, `AgentKeyringApprov
 
 `KEYRING_COPY_OUT=/path/to/copy.md swift test --filter AgentKeyringCopyTests` writes every string, grouped by table and section, so the whole app reads in one go. Each rendered screen's `.txt` gives the same words in place on that screen.
 
+## What the pictures do not show
+
+The checks are right about where every text and button sits, and the words in the `.txt` files are exact. But each picture is taken a different way on each device, and some system controls look wrong in it:
+
+- **iPhone.** A package test has no app and so no window scene, so the screen is drawn with `layer.render(in:)`. That does not draw iOS's glass and blur materials. Tab bars, toolbar buttons, search fields and anything else made of Liquid Glass come out as white shapes, often with white icons and text on a pale ground. Proven side by side in a scratch app: the same screen drawn with `drawHierarchy` in a real scene shows them correctly. Trust their place in the picture, not their look.
+- **Watch.** SwiftUI's `ImageRenderer` cannot draw some system controls. A `ProgressView`, for example, appears as a yellow box with a crossed circle, at its real size.
+- **Mac.** The window is drawn with `cacheDisplay`. Buttons and lists look as macOS draws them, but always as in a window that is not in front.
+
 ## What the check cannot see
 
 - **Words handed to native APIs as plain strings.** These include `navigationTitle`, toolbar items, alerts, `Picker` segments and `Section` headers given as strings. (The reply boxes draw their own prompts for this reason: a text field's placeholder was cut off at large text and the check could not see it.) Pass a `KeyringText` where the API takes a view; otherwise keep the words short.
