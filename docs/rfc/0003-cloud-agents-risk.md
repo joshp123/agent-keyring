@@ -26,10 +26,10 @@ The rule should be: the first option that works for the site. The password goes 
 | --- | --- | --- |
 | A prompt-injected cloud agent asks for logins it should not have | Every cloud request needs your iPhone approval. "Allow automatically" applies to local agents only. | Approval fatigue: you approve what you are shown. Showing the agent, site, account and reason, and throttling repeat requests, are not designed yet. |
 | Someone impersonates your agent | Each cloud agent is paired once with its own key and signs every request; the phone and the agent's chat show the same short code. | No paired-agent registry exists yet. Today an agent's identity is just a process name. |
-| A stolen approval is replayed | Decisions are signed by your iPhone's Secure Enclave, bound to one request, single-use and short-lived. This is already built for local requests. | — |
+| A stolen approval is replayed | Decisions are signed by your iPhone's Secure Enclave, bound to one request, single-use and short-lived. This is already built for local requests. | None |
 | The relay or channel is read | End-to-end encryption, with a relay that cannot read traffic, following Bitwarden Agent Access. | No relay exists. Your iCloud database is yours alone, so cloud agents cannot use it. This is a new service. |
 | A cloud host keeps a password it was sent | Option 3 is used only when nothing safer works; the release is single-use and logged. | Irreducible for option 3. The only full answer is never sending passwords: prefer sessions and relays. |
-| Your Mac is off or asleep | — | Everything is released from your Mac, so nothing works while it is off. Accept that, or plan an always-on home for the keyring. |
+| Your Mac is off or asleep | None | Everything is released from your Mac, so nothing works while it is off. Accept that, or plan an always-on home for the keyring. |
 | Your phone is lost | Removing a phone needs Touch ID on the Mac, and approvals need Face ID on the phone. | Revoking a cloud agent from the phone is designed, not built. |
 
 ## Decisions needed before building
