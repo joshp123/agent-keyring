@@ -257,6 +257,12 @@ func (w *world) answer(args ...string) string {
 	return match[1]
 }
 
+// doorHolds is how many times a process of this computer has taken its door.
+func (c *computer) doorHolds() int {
+	raw, _ := os.ReadFile(filepath.Join(c.state, "agent-keyring.log"))
+	return strings.Count(string(raw), " command door held ")
+}
+
 // doorHeld is true once something accepts connections at the computer's door.
 func (c *computer) doorHeld() bool {
 	conn, err := net.DialTimeout("tcp", c.door, 200*time.Millisecond)
@@ -297,6 +303,10 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 		if pushed := w.visiblePushes("iphone") - before; pushed != 1 {
 			t.Fatalf("the iPhone was asked %d times for one task", pushed)
 		}
+		// The locked iPhone's unsigned arrival note, by its push address.
+		if logs := linux.run("logs", "--request", id); !strings.Contains(logs.stdout, "arrived id="+id+` device="Test iPhone"`) {
+			t.Fatalf("the iPhone's arrival was not taken: %v\n%s%s", logs.err, logs.stdout, logs.stderr)
+		}
 		output := filepath.Join(t.TempDir(), "received")
 		piped := linux.command("read", id, "--field", "password")
 		piped.Path, piped.Args = "/bin/sh", []string{"/bin/sh", "-c", `"$0" read "$1" --field password | cat > "$2"`, bin.command, id, output}
@@ -323,6 +333,10 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 		}
 		if read := linux.run("read", id, "--field", "password"); read.err != nil || read.stdout != "example-ask-password" {
 			t.Fatalf("read: %v\n%s", read.err, read.stderr)
+		}
+		// The Apple Watch's arrival note, signed with its reply key.
+		if logs := linux.run("logs", "--request", id); !strings.Contains(logs.stdout, "arrived id="+id+` device="Test Apple Watch"`) {
+			t.Fatalf("the Apple Watch's arrival was not taken: %v\n%s%s", logs.err, logs.stdout, logs.stderr)
 		}
 		linux.run("release", id)
 	})
@@ -386,10 +400,14 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 		if got := wait(t, first, "the door's holder"); got.err != nil || strings.TrimSpace(got.stdout) != a {
 			t.Fatalf("first lease: %v %q\n%s", got.err, got.stdout, got.stderr)
 		}
+		held := linux.doorHolds()
 		b := w.answer("--device", "iphone", "--approve") // The second process takes the door within a second.
 		got := wait(t, second, "the other lease")
 		if got.err != nil || strings.TrimSpace(got.stdout) != b {
 			t.Fatalf("second lease: %v %q\n%s", got.err, got.stdout, got.stderr)
+		}
+		if linux.doorHolds() <= held {
+			t.Fatalf("the second lease was answered without taking the door over")
 		}
 		if read := linux.run("read", b, "--field", "password"); read.err != nil || read.stdout != "example-other-password" {
 			t.Fatalf("read: %v\n%s", read.err, read.stderr)
@@ -540,7 +558,7 @@ func TestJoiningTheMacGoesWrong(t *testing.T) {
 		if err := enrol.Start(); err != nil {
 			t.Fatal(err)
 		}
-		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "Waiting for Josh"); time.Sleep(50 * time.Millisecond) {
+		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "Waiting for Josh to approve"); time.Sleep(50 * time.Millisecond) {
 			if time.Now().After(deadline) {
 				t.Fatalf("enrol never waited: %s", stderr.String())
 			}

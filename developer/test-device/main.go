@@ -103,7 +103,8 @@ type saved struct {
 	MacTLSKey      []byte           `json:"mac_tls_key"`
 	Devices        map[string]*keys `json:"devices"` // "mac", "iphone", "watch".
 	PushKey        []byte           `json:"push_key"` // PKCS#8: made up, never Apple's.
-	Members        []byte           `json:"members"`  // Signed.
+	Members        []byte           `json:"members"`  // Signed: the newest.
+	MembersHistory [][]byte         `json:"members_history"` // Every revision, oldest first.
 	Catalogue      []byte           `json:"catalogue"`
 	Copies         [][]byte         `json:"copies"`        // SealedLogin.
 	Registrations  [][]byte         `json:"registrations"` // Signed PushRegistration.
@@ -281,6 +282,7 @@ func (s *saved) publishMembers(members *pb.Members) {
 	members.Domain, members.Revision = keyring.MembersDomain, s.Revisions[0]
 	payload, _ := proto.Marshal(members)
 	s.Members = s.signAsMac(payload)
+	s.MembersHistory = append(s.MembersHistory, s.Members)
 }
 
 // seal seals the made-up passwords to one opener, sealed by the Mac's reply key.
@@ -391,7 +393,8 @@ func (d *devices) serveMac(joinWithin time.Duration) error {
 	})
 	mux.HandleFunc("GET /v2/bundle", func(w http.ResponseWriter, r *http.Request) {
 		if s, machine := d.member(w, r); machine != nil {
-			reply(w, s.bundle(machine))
+			since, _ := strconv.ParseUint(r.URL.Query().Get("members"), 10, 64)
+			reply(w, s.bundle(machine, since))
 		}
 	})
 	mux.HandleFunc("GET /v2/logs", func(w http.ResponseWriter, r *http.Request) {
@@ -435,11 +438,18 @@ func (d *devices) member(w http.ResponseWriter, r *http.Request) (*saved, *pb.Ma
 
 // bundle is what one computer keeps: the lists, the push addresses, the
 // Apple Watch's copies and its own Automatic copies.
-func (s *saved) bundle(machine *pb.Machine) *pb.Bundle {
+func (s *saved) bundle(machine *pb.Machine, since uint64) *pb.Bundle {
 	members, catalogue := &pb.Signed{}, &pb.Signed{}
 	proto.Unmarshal(s.Members, members)
 	proto.Unmarshal(s.Catalogue, catalogue)
 	b := &pb.Bundle{Members: members, Catalogue: catalogue, Revisions: &pb.Revisions{Members: s.Revisions[0], Catalogue: s.Revisions[1], Copies: s.Revisions[2]}}
+	for i, raw := range s.MembersHistory {
+		if uint64(i+1) > since { // Revision i+1.
+			revision := &pb.Signed{}
+			proto.Unmarshal(raw, revision)
+			b.MembersSince = append(b.MembersSince, revision)
+		}
+	}
 	for _, raw := range s.Registrations {
 		signed := &pb.Signed{}
 		proto.Unmarshal(raw, signed)
@@ -861,6 +871,19 @@ func (d *devices) answer(ctx context.Context, name, requestID string, approve bo
 	fmt.Printf("Request %s: %s wants %s: %q\n", request.RequestId, request.Agent, request.LoginId, request.Reason)
 	self := s.device(name)
 	k := s.Devices[name]
+	// It arrived: the Apple Watch signs the note with its reply key; a locked
+	// iPhone's notification extension cannot, and names its push address.
+	arrival, _ := proto.Marshal(&pb.Arrival{Domain: keyring.ArrivalDomain, RequestId: request.RequestId, DeviceKeyId: self.KeyId,
+		ArrivedUnixSeconds: time.Now().Unix(), PushTokenSha256: keyring.SHA256(k.Token)})
+	note := &pb.Signed{Payload: arrival}
+	if name == "watch" {
+		if note, err = keyring.Sign(arrival, self.ReplyKeyId, keyring.SoftwareSigner(ecdsaKey(k.Reply))); err != nil {
+			return err
+		}
+	}
+	if status, text, err := toDoor(ctx, request, "/v2/arrived", note); err != nil || status != http.StatusOK {
+		fmt.Printf("The arrival was not taken (%d %s): %v\n", status, text, err) // A timing note: the answer goes on.
+	}
 	var upload *pb.AnswerUpload
 	switch {
 	case ignore:

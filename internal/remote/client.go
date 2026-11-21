@@ -264,7 +264,7 @@ func (c *Client) refresh(ctx context.Context, limit time.Duration) (*view, error
 		return current, nil
 	}
 	bundle := &pb.Bundle{}
-	if err := c.mac(ctx, http.MethodGet, "/v2/bundle", nil, bundle); err != nil {
+	if err := c.mac(ctx, http.MethodGet, "/v2/bundle?members="+strconv.FormatUint(current.members.Revision, 10), nil, bundle); err != nil {
 		c.log("bundle not fetched error=" + strconv.Quote(err.Error()))
 		return current, nil
 	}
@@ -295,14 +295,23 @@ func (c *Client) keepBundle(ctx context.Context, bundle *pb.Bundle) error {
 		old := &pb.Bundle{}
 		proto.Unmarshal(state.Bundle, old)
 		kept := &pb.Bundle{Revisions: bundle.Revisions, Catalogue: old.Catalogue}
-		if bundle.Members != nil {
-			if next, err := keyring.VerifiedMembers(bundle.Members, members); err == nil {
-				members = next
-				state.Members, _ = proto.Marshal(bundle.Members)
-				c.log(fmt.Sprintf("members taken revision=%d", next.Revision))
-			} else if !errors.Is(err, keyring.ErrStale) {
-				c.log("members refused error=" + strconv.Quote(err.Error()))
+		// Each revision since the one held is checked against the one before
+		// it, so a list signed by a device added since still checks.
+		for _, document := range append(bundle.MembersSince, bundle.Members) {
+			if document == nil {
+				continue
 			}
+			next, err := keyring.VerifiedMembers(document, members)
+			if errors.Is(err, keyring.ErrStale) {
+				continue
+			}
+			if err != nil {
+				c.log("members refused error=" + strconv.Quote(err.Error()))
+				break
+			}
+			members = next
+			state.Members, _ = proto.Marshal(document)
+			c.log(fmt.Sprintf("members taken revision=%d", next.Revision))
 		}
 		catalogue := &pb.Catalogue{}
 		if old.Catalogue != nil {

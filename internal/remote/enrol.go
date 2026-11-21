@@ -167,7 +167,8 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 // would have expired.
 func waitForJoin(ctx context.Context, mac *http.Client, address string, join *pb.JoinRequest, name string, output io.Writer) (*pb.JoinStatus, error) {
 	started := time.Now()
-	told, reached := false, false
+	reached := false
+	fmt.Fprintf(output, "Asked the Mac to add this computer. Waiting for Josh to approve %q on his Mac, for up to 10 minutes.\n", name)
 	for {
 		status := &pb.JoinStatus{}
 		postCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
@@ -193,10 +194,6 @@ func waitForJoin(ctx context.Context, mac *http.Client, address string, join *pb
 		reached = true
 		if status.State != pb.JoinState_JOIN_STATE_WAITING {
 			return status, nil
-		}
-		if !told {
-			fmt.Fprintf(output, "Waiting for Josh to approve %q on his Mac.\n", name)
-			told = true
 		}
 	}
 }
