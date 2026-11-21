@@ -113,7 +113,7 @@ public enum FirstRunCopy {
     /// Markdown: the menu items and buttons are in bold.
     public static let guide = [
         "In Passwords, choose **File > Export All Items to App…**",
-        "Click **Continue** on Apple’s notice about passkeys, then **Continue** on **Export Passwords**.",
+        "If Passwords says some items will not be exported, click **Continue**, then click **Continue** on **Export Passwords**.",
         "Unlock with Touch ID or your Mac password.",
         "In **Select a Destination**, choose **Agent Keyring** (blue keyhole), then click **Continue**.",
         "Click **Continue** in “Agent Keyring” on the final confirmation sheet.",

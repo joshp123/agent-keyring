@@ -28,7 +28,7 @@ public enum SetupScreens {
     }
 
     /// His own passwords are in the list, not only the test password.
-    static func copiedCount(_ model: MirrorAppModel) -> Int? {
+    public static func copiedCount(_ model: MirrorAppModel) -> Int? {
         guard let status = model.status, status.sampleOnly != true else { return nil }
         // The list always holds the one test password beside his own.
         return max(status.credentialItemCount - 1, 0)

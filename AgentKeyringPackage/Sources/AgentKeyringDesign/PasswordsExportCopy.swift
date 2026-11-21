@@ -26,10 +26,10 @@ public enum PasswordsExportCopy {
     public static let agentKeyring = "Agent Keyring"
     public static let earlierVersion = "AgentKeyring"
 
-    public static func confirmTitle(_ count: Int) -> String { "Export \(count) items to “Agent Keyring”?" }
+    public static func confirmTitle(_ count: Int) -> String { "Export \(count.formatted()) items to “Agent Keyring”?" }
     public static func confirmBody(_ count: Int) -> String {
         let more = max(count - 2, 0)
-        return "“Agent Keyring” will receive your login information for “example.com”, “mail.example” and \(more) more. This app will be able to use the items you export to access your accounts."
+        return "“Agent Keyring” will receive your login information for “example.com”, “mail.example” and \(more.formatted()) more. This app will be able to use the items you export to access your accounts."
     }
     public static let continueInAgentKeyring = "Continue in “Agent Keyring”"
 

@@ -145,7 +145,8 @@ private struct CopyPasswordsPage: View {
         actions.continueOn = { model.send(.continueOn) }
         actions.cancel = model.closePasswordsCopy
         return MacCopyPage(SetupScreens.copy(model, inFirstRun: inFirstRun), guideStep: model.copyGuideStep,
-                           earlierVersion: MirrorAppModel.earlierVersionInstalled, inFirstRun: inFirstRun, actions: actions)
+                           earlierVersion: MirrorAppModel.earlierVersionInstalled, inFirstRun: inFirstRun,
+                           items: SetupScreens.copiedCount(model), actions: actions)
             .sheet(isPresented: Binding(get: { model.passwordsCopy == .allowExport }, set: { if !$0 { model.closeAllowExport() } })) {
                 MacAllowExportSheet(openSettings: model.openAutoFillSettings, cancel: model.closeAllowExport)
             }

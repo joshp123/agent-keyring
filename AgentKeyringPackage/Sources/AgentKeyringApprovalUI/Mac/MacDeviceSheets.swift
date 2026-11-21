@@ -129,9 +129,8 @@ public struct MacAddComputerSheet: View {
                     primary: primary, secondary: secondary) {
             switch state {
             case let .invite(command, until):
-                // The command itself is not shown: its invite is one unbroken
-                // word of about 250 characters, which no part can wrap without
-                // splitting it (see the report of 21 November).
+                // Shown in full, never cut: code text breaks between any two characters.
+                KeyringText(command, as: .code)
                 HStack(spacing: KeyringSpace.s2) {
                     KeyringButton(.advance(DeviceSheetCopy.copyPrompt) { Self.copy(DeviceSheetCopy.enrolPrompt(command)) })
                     KeyringButton(.plain(DeviceSheetCopy.copyCommand) { Self.copy(command) })

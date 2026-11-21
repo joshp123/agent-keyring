@@ -21,7 +21,7 @@ enum MacGallery {
     private static let command = DeviceSheetCopy.enrolCommand("agentkeyring://join?invite=CiBhNWYzZTk4YzQxN2IyMGQ2ZjE5ODBhN2M1ZTNiMjQxMBIRUmVzZWFyY2ggVGVhbSBNYWMaCjEwMC42NC4wLjI")
 
     static var entries: [KeyringGalleryEntry] {
-        firstRun + sheets + cards
+        firstRun + guideSteps + sheets + cards
     }
 
     // MARK: First run
@@ -30,8 +30,20 @@ enum MacGallery {
         MacPracticePage(state, approver: approver, actions: .init())
     }
 
-    private static func copy(_ state: MacCopyPage.State, step: Int = 1, earlier: Bool = false, inFirstRun: Bool = true) -> MacCopyPage {
-        MacCopyPage(state, guideStep: step, earlierVersion: earlier, inFirstRun: inFirstRun, actions: .init())
+    private static func copy(_ state: MacCopyPage.State, step: Int = 1, earlier: Bool = false, inFirstRun: Bool = true,
+                             items: Int? = nil) -> MacCopyPage {
+        MacCopyPage(state, guideStep: step, earlierVersion: earlier, inFirstRun: inFirstRun, items: items, actions: .init())
+    }
+
+    /// Each of the guide's five steps, with and without the earlier version on this Mac.
+    private static var guideSteps: [KeyringGalleryEntry] {
+        (1...FirstRunCopy.guide.count).flatMap { step in
+            [false, true].map { earlier in
+                KeyringGalleryEntry("first-run-copy-guide-step-\(step)\(earlier ? "-earlier-version" : "")", .macWindow) {
+                    copy(.waiting, step: step, earlier: earlier)
+                }
+            }
+        }
     }
 
     private static let agentNote = FirstRunCopy.agentNote(appPath: "/Applications/Agent Keyring.app")
@@ -46,15 +58,15 @@ enum MacGallery {
         .init("first-run-practice-lid-closed", .macWindow) { practice(.notSent, .lidClosed) },
         .init("first-run-practice-needs-fingerprint", .macWindow) { practice(.notSent, .needsFingerprint) },
         .init("first-run-copy-guide", .macWindow) { copy(.guide) },
-        .init("first-run-copy-guide-step-4-earlier-version", .macWindow) { copy(.waiting, step: 4, earlier: true) },
         .init("first-run-copy-taking-long", .macWindow) { copy(.noneArrived, step: 4) },
+        .init("first-run-copy-taking-long-step-2", .macWindow) { copy(.noneArrived, step: 2, earlier: true) },
         .init("first-run-copy-copying", .macWindow) { copy(.copying, step: 5) },
         .init("first-run-copy-copied", .macWindow) { copy(.copied(count: 1_547), step: 5) },
         .init("first-run-copy-failed", .macWindow) {
             copy(.failed("Passwords could not finish sending your passwords. Start the export again in Passwords. Your earlier copy was not changed."), step: 2)
         },
         .init("copy-from-main-window", .macPanel(width: KeyringSize.macWindow.width - KeyringSize.macSidebar)) {
-            copy(.waiting, step: 3, inFirstRun: false)
+            copy(.waiting, step: 5, inFirstRun: false, items: 1_547)
         },
         .init("allow-export-sheet", .macPanel(width: MacAllowExportSheet.width)) { MacAllowExportSheet(openSettings: {}, cancel: {}) },
         .init("first-run-connect-agent", .macWindow) { MacConnectAgentPage(.notTried, agentNote: agentNote, actions: .init()) },

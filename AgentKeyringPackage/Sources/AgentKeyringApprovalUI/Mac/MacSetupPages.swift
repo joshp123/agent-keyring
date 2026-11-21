@@ -153,6 +153,8 @@ public struct MacCopyPage: View {
     let earlierVersion: Bool
     /// In first run: step 2 of 4, with Back and Use Test Password Only. Otherwise Cancel.
     let inFirstRun: Bool
+    /// His own passwords' count once they have arrived, for Apple's last sheet in the picture; nil before.
+    let items: Int?
     let actions: Actions
 
     public struct Actions {
@@ -166,11 +168,12 @@ public struct MacCopyPage: View {
         public init() {}
     }
 
-    public init(_ state: State, guideStep: Int, earlierVersion: Bool, inFirstRun: Bool, actions: Actions) {
+    public init(_ state: State, guideStep: Int, earlierVersion: Bool, inFirstRun: Bool, items: Int? = nil, actions: Actions) {
         self.state = state
         self.guideStep = min(max(guideStep, 1), FirstRunCopy.guide.count)
         self.earlierVersion = earlierVersion
         self.inFirstRun = inFirstRun
+        self.items = items
         self.actions = actions
     }
 
@@ -198,8 +201,13 @@ public struct MacCopyPage: View {
                 KeyringText(FirstRunCopy.guideStep(guideStep), as: .stepMarker)
                 KeyringStepRow(guideStep, FirstRunCopy.guide[guideStep - 1]) {
                     if guideStep == 4, earlierVersion { KeyringText(FirstRunCopy.earlierVersion, as: .meta) }
+                    // What the Passwords app shows at this step, with the thing to click ringed.
+                    if let items {
+                        PasswordsExportPicture(guideStep: guideStep, earlierVersion: earlierVersion, items: items)
+                    } else {
+                        PasswordsExportPicture(guideStep: guideStep, earlierVersion: earlierVersion)
+                    }
                 }
-                MacGuidePicture(step: guideStep)
                 HStack(spacing: KeyringSpace.s2) {
                     KeyringButton(.plain(FirstRunCopy.previous, isEnabled: guideStep > 1) { actions.showGuideStep(guideStep - 1) })
                     KeyringButton(.plain(FirstRunCopy.next, isEnabled: guideStep < FirstRunCopy.guide.count) { actions.showGuideStep(guideStep + 1) })
@@ -216,17 +224,6 @@ public struct MacCopyPage: View {
         } else {
             page.frame(width: KeyringSize.macWindow.width - KeyringSize.macSidebar, height: KeyringSize.macWindow.height)
         }
-    }
-}
-
-/// The picture of Passwords' own screen for one guide step, under the step's
-/// words. Empty until the parts engineer's pictures exist (each is a part in
-/// AgentKeyringDesign); this page draws none of Apple's screens itself.
-struct MacGuidePicture: View {
-    let step: Int
-
-    var body: some View {
-        EmptyView()
     }
 }
 
