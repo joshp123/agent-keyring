@@ -157,7 +157,8 @@ public final class PhoneKeyring: PhoneBackend {
     private func refresh() async -> Bool {
         guard let door = state.mac else { return false }
         do {
-            let reply = try await macDoor(door).get("/v2/bundle")
+            // Every revision of the list of devices since the one held, so each checks against the one before.
+            let reply = try await macDoor(door).get("/v2/bundle", query: [URLQueryItem(name: "members", value: "\(members?.revision ?? 0)")])
             try accept(bundle: Agentkeyring_V2_Bundle(serializedBytes: reply))
             if macUnreachable { macUnreachable = false; publish() }
             return true
@@ -172,7 +173,8 @@ public final class PhoneKeyring: PhoneBackend {
 
     /// Takes a bundle: each part checked on its own, the lists by their signatures, the copies by their signers.
     func accept(bundle: Agentkeyring_V2_Bundle) throws {
-        if bundle.hasMembers { try accept(members: bundle.members) }
+        if bundle.membersSince.isEmpty, bundle.hasMembers { try accept(members: bundle.members) }
+        for revision in bundle.membersSince where state.deviceKeyID != nil { try accept(members: revision) }
         guard state.deviceKeyID != nil else { return }
         if bundle.hasCatalogue { try accept(catalogue: bundle.catalogue) }
         guard let members, let catalogue else { return }
