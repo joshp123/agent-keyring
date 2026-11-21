@@ -107,7 +107,9 @@ public struct WatchInUse: Codable, Sendable, Equatable, Identifiable {
 
 public struct WatchStore: Sendable {
     let accessGroup: String?
-    static let account = "saved.v2"
+    /// v3 is the direct protocol: a Watch updated from a relay-era build starts with nothing, never with a
+    /// list of devices signed by an iPhone and Mac that no longer exist, which no new list could follow.
+    static let account = "saved.v3"
 
     public init(accessGroup: String?) { self.accessGroup = accessGroup }
     public init() { self.init(accessGroup: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String) }
