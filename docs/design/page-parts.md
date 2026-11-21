@@ -72,19 +72,30 @@ Run these from `AgentKeyringPackage`. Given the full path to a folder, each one 
 ```sh
 # Mac
 KEYRING_RENDER_DIR=/full/path/to/renders/mac swift test --filter AgentKeyringDesignTests
-# iPhone, on one simulator, which xcodebuild boots and shuts down
+# iPhone, on your own simulator, by its UDID (see the rules below)
 TEST_RUNNER_KEYRING_RENDER_DIR=/full/path/to/renders/iphone \
-  xcodebuild test -scheme AgentKeyringDesignChecks -destination 'platform=iOS Simulator,name=iPhone 17e'
+  xcodebuild test -scheme AgentKeyringDesignChecks -parallel-testing-enabled NO -destination 'platform=iOS Simulator,id=<your iPhone UDID>'
 # Watch
 TEST_RUNNER_KEYRING_RENDER_DIR=/full/path/to/renders/watch \
-  xcodebuild test -scheme AgentKeyringDesignChecks -destination 'platform=watchOS Simulator,name=Apple Watch SE 3 (40mm)'
+  xcodebuild test -scheme AgentKeyringDesignChecks -parallel-testing-enabled NO -destination 'platform=watchOS Simulator,id=<your Watch UDID>'
 # Every Mac part and page through the same check, plus the older panel renders
 swift run PanelRender /full/path/to/renders/mac
 ```
 
 When the simulator runs short of memory, set `KEYRING_GALLERY_PART=1/4` (then 2/4, 3/4 and 4/4; with xcodebuild, `TEST_RUNNER_KEYRING_GALLERY_PART`) to check every fourth entry per run.
 
-The `AgentKeyringDesignChecks` scheme builds only the parts, `AgentKeyringApprovalUI` and these tests, because `AgentKeyringFeature` does not build for iOS. No window opens on screen. The Watch run also boots the iPhone simulator paired with it and leaves it running: shut it down with `xcrun simctl shutdown <its id>` when done.
+The `AgentKeyringDesignChecks` scheme builds only the parts, `AgentKeyringApprovalUI` and these tests, because `AgentKeyringFeature` does not build for iOS. No window opens on screen.
+
+### Simulators
+
+Every boot and shutdown of a simulator leaves crash reports from Apple's own services on the owner's screen (249 in one night), and other agents share this Mac. So:
+
+1. Create your simulators once for the work: one iPhone, and one Watch paired with it only if you need it. Note their UDIDs in a file in your worktree and reuse them for every run.
+2. Address them by UDID, never by name or as "booted".
+3. Leave them booted between runs. Never shut down, delete or create simulators between runs. A Watch run keeps its paired iPhone booted for the next run too.
+4. Reset state between runs with `xcrun simctl uninstall <udid> <bundle id>` and, if needed, `xcrun simctl privacy <udid> reset all`. Use `simctl erase` only when a run really needs a factory-fresh device.
+5. Pass `-parallel-testing-enabled NO` to `xcodebuild test`: parallel testing creates and throws away clones on each run. Run one `xcodebuild test` at a time.
+6. When your whole task is finished, shut your simulators down once and delete them.
 
 ## The copy check
 

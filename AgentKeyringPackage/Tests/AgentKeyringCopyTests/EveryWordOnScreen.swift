@@ -26,7 +26,9 @@ import Testing
         var found: [String] = []
         for table in try CopyTable.all() {
             for string in table.strings {
-                for rule in Rule.all where string.words.range(of: rule.pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+                // Only the words: code inside an interpolation ("\(count - 2)") is not copy.
+                let words = string.words.replacingOccurrences(of: #"\\\([^)]*\)+"#, with: "…", options: .regularExpression)
+                for rule in Rule.all where words.range(of: rule.pattern, options: [.regularExpression, .caseInsensitive]) != nil {
                     found.append("\(table.file):\(string.line): \(rule.why): “\(string.words)”")
                 }
             }
