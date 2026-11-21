@@ -477,7 +477,8 @@ func (d *devices) serveMac(joinWithin time.Duration) error {
 			return
 		}
 		request, asking, err := keyring.CheckRequest(signed.Payload, signed.Signature, s.members())
-		if err != nil || asking.MachineId != machine.MachineId || !bytes.Equal(request.AnswerTlsPublicKey, machine.TlsPublicKey) {
+		if err != nil || asking.MachineId != machine.MachineId || signed.SignerKeyId != machine.MachineId ||
+			!bytes.Equal(request.AnswerTlsPublicKey, machine.TlsPublicKey) {
 			http.Error(w, "A computer shows the Mac only a request it signed itself, naming its own door.", http.StatusForbidden)
 			return
 		}

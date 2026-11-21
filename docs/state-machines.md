@@ -297,7 +297,7 @@ A Mac cannot be pushed to, so the computer an agent asks from shows its request 
 
 What must always be true:
 
-- **It is shown in the usual panel, the same way as this Mac's own agents' requests**, oldest first among them, with the computer's name ("Codex on Linux server wants"). Its panel always says it can also be answered on the iPhone and Apple Watch, because the computer pushed it there.
+- **It is shown in the usual panel, the same way as this Mac's own agents' requests**, oldest first among them, with the computer's name ("Codex on Linux server wants"). With the lid shut, its panel says to answer on the iPhone or Apple Watch, because the computer pushed it there.
 - **The first answer wins, at the asking computer's door.** A late Touch ID or Deny here is told the outcome by the door, and the panel shows that outcome: approved on the iPhone, denied, no answer. A request already ended here sends nothing.
 - **ended is final.** The first of the door's reply, the computer's outcome and `answer_by` moves it; the others change nothing. It stays a minute so the panel can show how it ended.
 - **The hold after a denial is the asking computer's.** Nothing here holds the password off, and "Let it ask again" lifts nothing.
