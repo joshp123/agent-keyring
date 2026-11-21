@@ -543,6 +543,8 @@ message SealedLogins {
 //                              practice request's id; the Mac pushes it.
 //   POST /v2/log               body: Signed DeviceLog.
 //   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
+//   POST /v2/complaint         body: Complaint, from a computer. Replies 200.
+//   GET  /v2/complaints?since=SECONDS  Replies Complaints.
 //
 // The Mac tells the iPhone something changed with a silent push:
 //   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
@@ -596,6 +598,25 @@ message PracticeAsk {
   string domain = 1;               // "agentkeyring.practice.v2"
   string for_device_key_id = 2;
   string request_id = 3;           // Chosen by the device and saved: the same id rejoins.
+}
+
+// An agent's report that Agent Keyring was annoying, confusing or broken
+// (`agent-keyring complain`). Never a password or any secret. Kept on the
+// Mac for whoever builds the product; shown on no screen. A computer that
+// cannot reach the Mac keeps it and sends it at the next contact.
+message Complaint {
+  string domain = 1;               // "agentkeyring.complaint.v2"
+  int64 at_unix_seconds = 2;
+  string computer = 3;             // The computer's label in Members.
+  string version = 4;              // The command's or app's version.
+  string command = 5;              // What the agent was running, as it typed it.
+  string thread = 6;               // The agent's thread or session, if it has one.
+  string summary = 7;              // One line.
+  string detail = 8;               // Anything more, from standard input.
+}
+
+message Complaints {
+  repeated Complaint complaints = 1;  // Oldest first.
 }
 
 // How new a computer's lists are, to fetch only what changed.
