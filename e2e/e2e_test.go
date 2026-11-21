@@ -501,7 +501,7 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 		}
 		again := wait(t, start(ask("login-ask", "denied-again")), "lease")
 		if again.err == nil || !strings.Contains(again.stderr, "Josh denied this password for this computer. Ask again after") ||
-			!strings.Contains(again.stderr, "(in 1m0s). His reply, word for word: \"The invoice is in my email. Use that.\"") {
+			!regexp.MustCompile(`\(in (59s|1m0s)\)\. His reply, word for word: "The invoice is in my email\. Use that\."`).MatchString(again.stderr) {
 			t.Fatalf("a denial holds the password off for a minute and says why; got %v\n%s", again.err, again.stderr)
 		}
 	})

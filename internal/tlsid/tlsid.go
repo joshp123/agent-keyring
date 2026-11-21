@@ -8,7 +8,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -52,24 +51,6 @@ func SPKI(certificate tls.Certificate) ([]byte, error) {
 		return nil, err
 	}
 	return parsed.RawSubjectPublicKeyInfo, nil
-}
-
-// PinnedByHash accepts only a relay whose key has this SHA-256, as an
-// invitation names it, and reports the key itself.
-func PinnedByHash(certificate tls.Certificate, sha []byte, observed *[]byte) *tls.Config {
-	config := Client(certificate, nil, observed)
-	config.VerifyConnection = func(state tls.ConnectionState) error {
-		if len(state.PeerCertificates) != 1 {
-			return errors.New("expected one relay certificate")
-		}
-		seen := state.PeerCertificates[0].RawSubjectPublicKeyInfo
-		if sum := sha256.Sum256(seen); !bytes.Equal(sum[:], sha) {
-			return errors.New("this is not the relay the invitation names; refusing to connect")
-		}
-		*observed = bytes.Clone(seen)
-		return nil
-	}
-	return config
 }
 
 // Client trusts exactly the pinned relay key. With no pin (the first
