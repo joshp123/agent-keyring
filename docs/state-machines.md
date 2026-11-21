@@ -145,7 +145,7 @@ The computer an agent asks from owns its request. The record is one `agentkeyrin
 | State | Reached by | Who moves it on | `status` |
 |---|---|---|---|
 | WAITING | `lease`: the request is signed with this computer's door (`answer_address`, its Tailscale IP and port 17446) and TLS key, saved, then pushed to each device with a push address | a device's answer at the door; `release`; `answer_by` passing | pending |
-| APPROVED | a device's signed approval that checks against the newest Members held and opens with this computer's receiving key; or, Automatic, at once: the catalogue says Automatic, Members allows this computer, and its own copy checks | `release`; Stop at the door; 30 minutes | active |
+| APPROVED | a device's signed approval (the Mac's too: it answers at the door like any device) that checks against the newest Members held and opens with this computer's receiving key; or, Automatic, at once: the catalogue says Automatic, Members allows this computer, and its own copy checks | `release`; Stop at the door; a Stop left at the Mac, found before a use ("A Stop left at the Mac", below); 30 minutes | active |
 | DENIED | a signed denial (his words kept only as signed), or a plain denial naming the request id | nothing | denied |
 | UNANSWERED | `answer_by` passed while it waited | nothing | unanswered |
 | CANCELLED | `release` while it waited | nothing | cancelled |
@@ -155,7 +155,8 @@ While it waits, `pushed_unix_seconds` is set when Apple first takes a visible pu
 
 What must always be true:
 
-- **Whoever moves a request on tells the devices, once.** The door's holder for an answer or a Stop; the process that notices `answer_by` or the 30 minutes pass; `release` for the agent. Each sends the silent outcome push to every device. An Automatic use gets a silent push when it starts, so the devices can show it in use and stop it.
+- **Whoever moves a request on tells the devices, once.** The door's holder for an answer or a Stop; the process that notices `answer_by` or the 30 minutes pass, or finds a Stop left at the Mac; `release` for the agent. Each sends the silent outcome push to every device. An Automatic use gets a silent push when it starts, so the devices can show it in use and stop it.
+- **The Mac is told as the devices are** (`tellMac` in `push.go`, beside the pushes, at most 2 seconds). A request that waits for Josh goes to its members' door as POST /v2/ask, and each outcome as POST /v2/outcome; an Automatic use does not. A waiting request fails to ask only if neither Apple nor the Mac took it.
 - **The first answer wins.** Answers are taken under the state file's lock. A later one gets 200 with the Lease that already ended the request.
 - **A device Josh removed cannot answer.** Before checking an answer or a Stop, the door asks the Mac for newer lists, for half a second; with no reply it checks against what it holds. A removed device gets 403 with a sentence.
 - **One task, one request.** The same request id, or the same task asking for the same password while its request waits or its approval lasts, rejoins that request; nothing is pushed again.
@@ -181,7 +182,7 @@ Each waiting process reads its own request's state from the state file every 200
 
 Known and left alone:
 
-- **No process, no door.** After `lease` prints its id, or with `lease --no-wait`, nothing holds the door until another command runs for a request. A device's answer or Stop then fails after 30 seconds; for Stop, the device says the access ends by itself at its time. The approval itself still ends at its 30 minutes.
+- **No process, no door.** After `lease` prints its id, or with `lease --no-wait`, nothing holds the door until another command runs for a request. A device's answer then fails after 30 seconds, and so does the Mac's. A Stop is then left at the Mac and found before the approval's next use ("A Stop left at the Mac", below).
 - **A list signed by a device this computer has never seen** checks only through `Bundle.members_since`, every revision since the one it holds, each against the one before.
 
 ## The Mac's approval panel
@@ -216,7 +217,7 @@ Written by AI on 2026.11.21 by model claude opus 5.5. Code: `AgentKeyringFeature
 The Mac serves two doors on its Tailscale address, with its machine TLS key:
 
 - the answer door, port 17446: POST /v2/answer, /v2/arrived and /v2/end, with no client certificate, so the Apple Watch and a locked iPhone can reach it;
-- the members' door, port 17447: joining and the lists. A client certificate is required, and each route checks it is a member's, or for a join the joiner's own.
+- the members' door, port 17447: joining, the lists, other computers' requests and outcomes (POST /v2/ask, /v2/outcome), and Stops left here (POST /v2/stop, GET /v2/stops). A client certificate is required, and each route checks it is a member's, or for a join the joiner's own.
 
 macOS's TLS can require a client certificate or ask for none, never ask and go on without one, so one port cannot serve both. Every door speaks HTTP/1.1, one request per connection, with Content-Length bodies.
 
@@ -280,7 +281,56 @@ Each change is one silent push per device, in order with the request's other pus
 
 A practice request is the same with no lease. It has its own state (waiting, then approved, denied, or unanswered after ten minutes); only the device it names may answer it; an approval needs no delivery; and its outcome also goes to the device that asked for it.
 
-Known and left alone: requests from agents on other computers no longer reach this Mac, which cannot be pushed to. Those computers push to the iPhone and Apple Watch themselves.
+## Another computer's request on the Mac
+
+Written by AI on 2026.11.21 by model claude opus 5.5. Code: `AgentKeyringFeature/MacRemoteAsks.swift` (the record), `AgentKeyringScreenBackends/RemoteRequestBackend.swift` and `AgentKeyring/ApprovalPresenter.swift` (the panel). Tests: `MacDoorTests.anotherComputersRequestIsShownApprovedHereAndItsStopKept`, and the Mac's cases in `TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch`.
+
+A Mac cannot be pushed to, so the computer an agent asks from shows its request here itself, as it pushes it to the iPhone and Apple Watch. The asking computer owns the request: the record here only follows it. One value per request id, `MacDevice.remoteAsks`, not saved:
+
+| State | Reached by | Next |
+|---|---|---|
+| (none) | POST /v2/ask from a computer in the members list: the request is signed by that computer's TLS key, names its own door and key, names a password in the signed catalogue that is not Blocked, and is neither Automatic nor a practice request | waiting |
+| waiting | Touch ID in the panel: this Mac opens its own copy, seals it to the computer's receiving key for 30 minutes, signs the answer with its signing key and posts the AnswerUpload to the request's door; Deny, with or without words: an answer signed with the reply key, posted the same way | ended(the door's reply: this answer's Lease, or the one that ended the request first) |
+| waiting | POST /v2/outcome from the same computer | ended(that Lease) |
+| waiting | `answer_by` passes | ended(unanswered) |
+| ended | a minute passes | (none) |
+
+What must always be true:
+
+- **It is shown in the usual panel, the same way as this Mac's own agents' requests**, oldest first among them, with the computer's name ("Codex on Linux server wants"). With the lid shut, its panel says to answer on the iPhone or Apple Watch, because the computer pushed it there.
+- **The first answer wins, at the asking computer's door.** A late Touch ID or Deny here is told the outcome by the door, and the panel shows that outcome: approved on the iPhone, denied, no answer. A request already ended here sends nothing.
+- **ended is final.** The first of the door's reply, the computer's outcome and `answer_by` moves it; the others change nothing. It stays a minute so the panel can show how it ended.
+- **The hold after a denial is the asking computer's.** Nothing here holds the password off, and "Let it ask again" lifts nothing.
+- **An answer that cannot reach the door is not an answer.** The post retries for 30 seconds, as a device's does; then the panel says the computer was not reached, and the request still waits for Touch ID again or an answer on the iPhone.
+
+Known and left alone: an approval by the Apple Watch shows as "Approved", not "Approved on your Apple Watch": the panel's values have no Apple Watch, and the panel is being redrawn.
+
+## A Stop left at the Mac
+
+Written by AI on 2026.11.21 by model claude opus 5.5. Code: `MacRemoteAsks.swift` (`takeStop`, `stop(for:)`), `internal/remote/stops.go` (`checkStopAtMac`), `PhoneKeyring.stop`. Tests: `MacDoorTests` (both the stand-in's and the iPhone app's own Stop), and the Stop and Mac-shut cases in `TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch`.
+
+On the Linux server or the Mac mini, nobody holds the door once `lease` has exited, so a device's Stop to the door fails after its 30-second retry. The device then leaves the Stop at the Mac. What the screens say is true: Stop reaches that computer the next time one of its agents uses Agent Keyring.
+
+On the Mac, one entry per request id, kept in memory:
+
+| State | Reached by | Next |
+|---|---|---|
+| (none) | POST /v2/stop over a member device's connection: an EndRequest signed by the reply key of a device in the members list, naming that device (the iPhone may carry its Apple Watch's) | kept(at) |
+| kept | the same request's Stop again | kept(now) |
+| kept | an hour after `at`, by the Mac's clock (`Environment.now`) | (none) |
+
+GET /v2/stops?request=ID from any computer in the members list replies the kept Stop, or 404. Any computer may ask, because an Automatic use never came to the Mac as a request; the id is the request's own 16 random bytes. A Stop for one of this Mac's own requests also ends it here at once, as POST /v2/end would.
+
+On the asking computer, before every use of an approval (`read`, `fill`, `read` into a pipe), only while it is APPROVED:
+
+| The Mac's reply, within 500 ms | Then |
+|---|---|
+| 404 | the use goes ahead |
+| a Stop for this request id, signed by the reply key of a device in this computer's Members, naming that device | ENDED with `ended_by` that device, the devices and the Mac told; the use is refused with "Josh stopped it on <device>" |
+| a Stop that does not check | the use goes ahead; logged `stop at the Mac refused` |
+| anything else, or nothing in time | the use goes ahead; logged `used without asking the Mac for a Stop` with the request id |
+
+Known and left alone: a restart of the Mac app forgets the Stops it keeps; `status` alone does not ask the Mac, so it says active until the next use.
 
 
 ## iPhone: first run

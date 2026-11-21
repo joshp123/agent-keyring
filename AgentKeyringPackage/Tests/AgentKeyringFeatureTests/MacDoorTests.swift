@@ -433,9 +433,186 @@ struct MacDoorTests {
         mac.servers.first?.stop() // The answer door: [answers, members].
         AnswerDoor.retryFor = 1
         defer { AnswerDoor.retryFor = 30 }
-        await withKnownIssue("The Mac's door has no POST /v2/stop yet (c37d5dc names it; the door behind it is the core engineer's)") {
-            await #expect(throws: PhoneStopWaitsWithMac.self) { try await phone.stop(secondRequest.id) }
+        await #expect(throws: PhoneStopWaitsWithMac.self) { try await phone.stop(secondRequest.id) }
+        #expect(try leases.get(second.leaseID).state == .revoked) // The Stop was for this Mac's own request: it ends here at once.
+    }
+
+    /// An agent on another computer asks: the computer shows its signed request on this Mac's members' door,
+    /// Josh approves it here with Touch ID, and the approval reaches the computer's own door, where it opens
+    /// with that computer's receiving key. An outcome from the computer ends a request here. A Stop the
+    /// iPhone could not take to the computer's door is kept here an hour, for the computer to ask for.
+    @Test func anotherComputersRequestIsShownApprovedHereAndItsStopKept() async throws {
+        UserDefaults.standard.register(defaults: ["StandInKey": true])
+        Tailnet.acceptsLoopbackForTests = true
+        defer { Tailnet.acceptsLoopbackForTests = false }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "remote-ask-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        // The Mac, with one password and a clock it can be moved on by.
+        final class Clock: @unchecked Sendable { var now = Date() }
+        let clock = Clock()
+        let keys = MacKeys(testing: try RelayTLSIdentity.ephemeral(), label: "Test Mac")
+        let store = LoginStore(directory: folder.appending(path: "logins"))
+        let leases = CredentialLeaseStore(persistence: LeasePersistence(directory: folder.appending(path: "leases")))
+        let loginID = UUID()
+        var secret = Agentkeyring_V2_LoginSecret()
+        secret.loginID = loginID.uuidString
+        secret.username = "you@example.com"
+        secret.password = "correct horse"
+        secret.title = "example.com"
+        secret.sites = ["https://example.com"]
+        try await store.replaceSealed([try Sealing.seal(secret, version: 7, to: keys.openingPublicKey, openerID: keys.deviceKeyID, signer: keys.signer)])
+        var login = Agentkeyring_V2_Login()
+        login.loginID = loginID.uuidString
+        login.title = "example.com"
+        login.sites = ["https://example.com"]
+        login.account = "you@example.com"
+        login.rule = .ask
+        login.version = 7
+        final class Left: @unchecked Sendable { var invite: Agentkeyring_V2_JoinInvite? }
+        let left = Left()
+        var environment = MacDevice.Environment(storage: .memory())
+        environment.address = { "127.0.0.1" }
+        environment.answerPort = 0
+        environment.membersPort = 0
+        environment.invitationItem = InvitationItem(read: { left.invite }, write: { left.invite = $0 })
+        environment.joinWait = .seconds(5)
+        environment.complaints = folder.appending(path: "complaints.pb")
+        environment.now = { clock.now }
+        let mac = MacDevice(keys: keys, store: store, leaseStore: leases, environment: environment) { [login] in [login] }
+        await mac.reconcileDoor()
+        guard case let .open(_, _, port) = mac.door else { Issue.record("The door did not open: \(mac.door)"); return }
+        defer { for server in mac.servers { server.stop() } }
+        let macKey = keys.tls.publicKeySPKI
+
+        // His iPhone joins, then the other computer, each with the invitation the Mac leaves.
+        let phone = try StandInDevice(kind: .iphone, label: "Test iPhone")
+        let phoneDoor = Client(pin: macKey, identity: phone.tls)
+        var phoneJoin = Agentkeyring_V2_JoinRequest()
+        phoneJoin.device = phone.device
+        phoneJoin.proof = Sealing.joinProof(secret: try #require(left.invite).secret, joining: phoneJoin)
+        let phoneJoinBody = try phoneJoin.serializedData()
+        let phoneJoined = Task { try await phoneDoor.call("POST", port: port, "/v2/join", phoneJoinBody) }
+        try await eventually("the iPhone's join") { !mac.joins.isEmpty }
+        try await mac.approveJoin(phone.keyID, thisMacAutomatic: false, context: LAContext(), onAuthenticated: {})
+        #expect(try await phoneJoined.value.status == 200)
+        try await eventually("the iPhone's copies") { mac.filling == nil }
+
+        let computerTLS = try RelayTLSIdentity.ephemeral()
+        let receiving = P256.KeyAgreement.PrivateKey()
+        var machine = Agentkeyring_V2_Machine()
+        machine.machineID = Sealing.keyID(computerTLS.publicKeySPKI)
+        machine.label = "Test server"
+        machine.tlsPublicKey = computerTLS.publicKeySPKI
+        machine.receivingPublicKey = receiving.publicKey.x963Representation
+        let computer = Client(pin: macKey, identity: computerTLS)
+        var computerJoin = Agentkeyring_V2_JoinRequest()
+        computerJoin.machine = machine
+        computerJoin.proof = Sealing.joinProof(secret: try #require(left.invite).secret, joining: computerJoin)
+        let computerJoinBody = try computerJoin.serializedData()
+        let computerJoined = Task { try await computer.call("POST", port: port, "/v2/join", computerJoinBody) }
+        try await eventually("the computer's join") { mac.joins.contains { MacDevice.joinID($0) == machine.machineID } }
+        try await mac.approveJoin(machine.machineID, thisMacAutomatic: false, context: LAContext(), onAuthenticated: {})
+        #expect(try await computerJoined.value.status == 200)
+        let members = try #require(mac.members)
+
+        // The computer's own door, where answers to its requests arrive: it opens each approval with its receiving key.
+        final class Opened: @unchecked Sendable {
+            let lock = NSLock()
+            var passwords: [String] = []
+            var requests: [String: Data] = [:]
         }
+        let opened = Opened()
+        let computerDoor = try DoorServer(identity: computerTLS, host: "127.0.0.1", port: 0) { door in
+            guard door.path == "/v2/answer", let upload = try? Agentkeyring_V2_AnswerUpload(serializedBytes: door.body),
+                let answer = try? Agentkeyring_V2_Answer(serializedBytes: upload.answer.payload) else { return .refused(400, "Not an answer.") }
+            guard let request = opened.lock.withLock({ opened.requests.values.first { Sealing.sha256($0) == answer.requestSha256 } }) else {
+                return .refused(403, "No request of this computer has these exact bytes.")
+            }
+            var approval = Agentkeyring_V2_Approval()
+            approval.request = request
+            approval.answer = upload.answer
+            approval.delivery = upload.delivery
+            guard let contents = try? Sealing.openDelivery(approval, members: members, with: receiving) else {
+                return .refused(403, "This approval does not open for this computer.")
+            }
+            opened.lock.withLock { opened.passwords.append(contents.password) }
+            var lease = Agentkeyring_V2_Lease()
+            lease.requestID = contents.requestID
+            lease.state = .approved
+            lease.notAfterUnixSeconds = contents.notAfterUnixSeconds
+            lease.answeredBy = (try? Sealing.verify(upload.answer, members: members))?.label ?? ""
+            return .ok((try? lease.serializedData()) ?? Data())
+        }
+        let computerPort = try await computerDoor.start()
+        defer { computerDoor.stop() }
+
+        func ask() throws -> (id: String, body: Data) {
+            var request = Agentkeyring_V2_Request()
+            request.domain = "agentkeyring.request.v2"
+            request.requestID = MacDevice.newID()
+            request.loginID = loginID.uuidString
+            request.machineID = machine.machineID
+            request.reason = "You asked me to download October's invoice."
+            request.agent = "Codex"
+            request.project = "invoices"
+            request.task = "invoice"
+            request.askedUnixSeconds = Int64(Date().timeIntervalSince1970)
+            request.answerByUnixSeconds = request.askedUnixSeconds + 600
+            request.answerAddress = "127.0.0.1:\(computerPort)"
+            request.answerTlsPublicKey = computerTLS.publicKeySPKI
+            let payload = try request.serializedData()
+            opened.lock.withLock { opened.requests[request.requestID] = payload }
+            return (request.requestID, try Sealing.signed(payload, by: machine.machineID) { try computerTLS.sign($0) }.serializedData())
+        }
+
+        // POST /v2/ask: the request is shown, waiting for Josh. Only the computer that signed it may show it.
+        let first = try ask()
+        _ = try? await phoneDoor.call("POST", port: port, "/v2/ask", first.body) // Refused: it is not the iPhone's request.
+        #expect(mac.remoteAsks.isEmpty)
+        #expect(try await computer.call("POST", port: port, "/v2/ask", first.body).status == 200)
+        let shown = try #require(mac.remoteAsks[first.id])
+        #expect(shown.state == .waiting && shown.computer.label == "Test server" && shown.login.account == "you@example.com")
+        #expect(mac.waitingRemoteAsks.map(\.id) == [first.id])
+
+        // Touch ID: the approval goes to the computer's door and opens there to the password.
+        let approved = try await mac.approveRemote(first.id, context: LAContext(), onAuthenticated: {})
+        #expect(approved.state == .approved && approved.answeredBy == "Test Mac")
+        #expect(opened.lock.withLock { opened.passwords } == ["correct horse"])
+        #expect(mac.remoteAsks[first.id]?.state == .ended(approved) && mac.waitingRemoteAsks.isEmpty)
+
+        // POST /v2/outcome: answered on the iPhone first, so the request here ends and the panel closes.
+        let second = try ask()
+        #expect(try await computer.call("POST", port: port, "/v2/ask", second.body).status == 200)
+        #expect(mac.waitingRemoteAsks.map(\.id) == [second.id])
+        var outcome = Agentkeyring_V2_Lease()
+        outcome.requestID = second.id
+        outcome.state = .approved
+        outcome.answeredBy = "Test iPhone"
+        #expect(try await computer.call("POST", port: port, "/v2/outcome", try outcome.serializedData()).status == 200)
+        #expect(mac.waitingRemoteAsks.isEmpty && mac.remoteAsks[second.id]?.state == .ended(outcome))
+        // A late Touch ID here is told how it ended, and nothing is sent.
+        #expect(try await mac.approveRemote(second.id, context: LAContext(), onAuthenticated: {}) == outcome)
+        #expect(opened.lock.withLock { opened.passwords }.count == 1)
+
+        // POST /v2/stop from the iPhone, then GET /v2/stops from the computer: the signed Stop, for an hour.
+        var end = Agentkeyring_V2_EndRequest()
+        end.domain = "agentkeyring.end.v2"
+        end.requestID = first.id
+        end.deviceKeyID = phone.keyID
+        end.endedUnixSeconds = Int64(Date().timeIntervalSince1970)
+        let stop = try phone.signReply(end.serializedData()).serializedData()
+        // Only a device leaves one. (URLSession reports a 403 from a door that asked for a client certificate as an error.)
+        _ = try? await computer.call("POST", port: port, "/v2/stop", stop)
+        #expect(try await computer.call("GET", port: port, "/v2/stops?request=\(first.id)").status == 404)
+        #expect(try await phoneDoor.call("POST", port: port, "/v2/stop", stop).status == 200)
+        #expect(try await computer.call("GET", port: port, "/v2/stops?request=\(second.id)").status == 404)
+        let kept = try await computer.call("GET", port: port, "/v2/stops?request=\(first.id)")
+        #expect(kept.status == 200 && kept.body == stop)
+        clock.now = clock.now.addingTimeInterval(59 * 60)
+        #expect(try await computer.call("GET", port: port, "/v2/stops?request=\(first.id)").status == 200)
+        clock.now = clock.now.addingTimeInterval(2 * 60)
+        #expect(try await computer.call("GET", port: port, "/v2/stops?request=\(first.id)").status == 404)
     }
 
     static func leaseRequest(_ loginID: UUID) -> Agentkeyring_V1_RequestLeaseRequest {

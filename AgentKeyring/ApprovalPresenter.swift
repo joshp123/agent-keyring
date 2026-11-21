@@ -2,8 +2,8 @@
 //
 // Shows the floating panel for everything that waits for Josh, one at a
 // time (RFC 0007 U2 and U4): devices joining first, because someone is at
-// the other device waiting, then requests from this Mac's agents, oldest
-// first. Replaces the transitional system Touch ID prompt.
+// the other device waiting, then agents' requests, from this Mac and from
+// Josh's other computers, oldest first. Replaces the transitional system Touch ID prompt.
 
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
@@ -19,6 +19,8 @@ import SwiftUI
 final class ApprovalPresenter {
     private enum Item: Hashable {
         case local(String)
+        /// An agent's request on another computer, shown here as that computer pushes it to the devices.
+        case remote(String)
         case joining(String)
         case sendImported
         case automaticCopies
@@ -26,7 +28,7 @@ final class ApprovalPresenter {
 
         var isRequest: Bool {
             switch self {
-            case .local: true
+            case .local, .remote: true
             case .joining, .sendImported, .automaticCopies, .selfTest: false
             }
         }
@@ -61,6 +63,7 @@ final class ApprovalPresenter {
 
     private let model: MirrorAppModel
     private let localBackend: LeaseApprovalBackend
+    private let remoteBackend: RemoteRequestBackend
     private let additionBackend: AdditionBackend
     private let selfTestBackend: SelfTestBackend
     private let panel = MacApprovalPanelController()
@@ -70,6 +73,7 @@ final class ApprovalPresenter {
     init(model: MirrorAppModel) {
         self.model = model
         self.localBackend = LeaseApprovalBackend(model: model)
+        self.remoteBackend = RemoteRequestBackend(model: model)
         self.additionBackend = AdditionBackend(model: model)
         self.selfTestBackend = SelfTestBackend(model: model)
     }
@@ -85,14 +89,16 @@ final class ApprovalPresenter {
 
     /// With the lid shut the panel says where the request can still be
     /// answered: on the iPhone and Apple Watch, when this Mac can push to them.
+    /// Another computer's request is always on them too: that computer pushes it.
     private func approvesElsewhere(_ item: Item) -> Bool {
+        if case .remote = item { return true }
         guard case .local = item, let device = model.device else { return false }
         return device.devicesUnreachable == nil
     }
 
     /// Brings a waiting request forward, from the menu bar's Review.
     func present(requestID: String) {
-        if let item = waiting.first(where: { $0 == .local(requestID) }) { show(first: [item]) }
+        if let item = waiting.first(where: { $0 == .local(requestID) || $0 == .remote(requestID) }) { show(first: [item]) }
     }
 
     /// Brings a joining device forward, from the menu bar or Machines window.
@@ -105,6 +111,7 @@ final class ApprovalPresenter {
         // A device being given its copies stays up, showing how far, until it is done.
         let joining = (device?.joins.map { Item.joining(MacDevice.joinID($0)) } ?? []) + (device?.filling.map { [Item.joining($0.deviceKeyID)] } ?? [])
         let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
+            + (device?.waitingRemoteAsks.map { (Item.remote($0.id), $0.request.askedUnixSeconds) } ?? [])
         let sendImported: [Item] = (model.importedLoginsAwaitApproval ? [.sendImported] : [])
             + (model.automaticCopiesMissing ? [.automaticCopies] : [])
         // The window says "Open the lid" or "Add a fingerprint" in its place.
@@ -163,6 +170,8 @@ final class ApprovalPresenter {
         case .selfTest: return request(selfTestBackend.request, selfTestBackend)
         case let .local(id):
             return request(model.leaseStore.waitingRequests.first { $0.leaseID == id }.map(model.accessRequest(for:)), localBackend)
+        case let .remote(id):
+            return request(remoteBackend.request(id), remoteBackend)
         case let .joining(id): return request(additionBackend.request(id), additionBackend)
         case .sendImported:
             let model = model
