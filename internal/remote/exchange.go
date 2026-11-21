@@ -266,20 +266,36 @@ func (c *Client) follow(ctx context.Context, leaseID string, receive func(*v1.Le
 // passed: unanswered after answer_by, ended after its approval's window.
 // Whoever moves it pushes the outcome.
 func (c *Client) settle(ctx context.Context, leaseID string) (*clientstate.ExpectedRequest, error) {
-	var saved *clientstate.ExpectedRequest
+	due := func(lease *pb.Lease, now int64) bool {
+		return (lease.State == pb.LeaseState_LEASE_STATE_WAITING && now >= lease.AnswerByUnixSeconds) ||
+			(lease.State == pb.LeaseState_LEASE_STATE_APPROVED && now >= lease.NotAfterUnixSeconds)
+	}
+	// Read only: a waiting process looks five times a second, and the state
+	// file is rewritten only when something moves.
+	state, err := c.Store.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	saved := expected(state, leaseID)
+	if saved == nil || saved.Lease == nil {
+		return nil, errors.New("This computer has no request with that ID.")
+	}
+	if !due(saved.Lease, time.Now().Unix()) {
+		return saved, nil
+	}
 	moved := false
-	err := c.Store.Update(ctx, func(state *clientstate.State) error {
+	err = c.Store.Update(ctx, func(state *clientstate.State) error {
 		saved = expected(state, leaseID)
 		if saved == nil || saved.Lease == nil {
 			return errors.New("This computer has no request with that ID.")
 		}
-		now := time.Now().Unix()
-		switch lease := saved.Lease; {
-		case lease.State == pb.LeaseState_LEASE_STATE_WAITING && now >= lease.AnswerByUnixSeconds:
-			lease.State, moved = pb.LeaseState_LEASE_STATE_UNANSWERED, true
-		case lease.State == pb.LeaseState_LEASE_STATE_APPROVED && now >= lease.NotAfterUnixSeconds:
-			lease.State, moved = pb.LeaseState_LEASE_STATE_ENDED, true
-			saved.Approval = nil
+		if lease := saved.Lease; due(lease, time.Now().Unix()) {
+			moved = true
+			if lease.State == pb.LeaseState_LEASE_STATE_WAITING {
+				lease.State = pb.LeaseState_LEASE_STATE_UNANSWERED
+			} else {
+				lease.State, saved.Approval = pb.LeaseState_LEASE_STATE_ENDED, nil
+			}
 		}
 		saved = proto.Clone(saved).(*clientstate.ExpectedRequest)
 		return nil

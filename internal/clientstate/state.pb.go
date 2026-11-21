@@ -120,9 +120,14 @@ type State struct {
 	Holds []*Hold `protobuf:"bytes,22,rep,name=holds,proto3" json:"holds,omitempty"`
 	// Agents' complaints the Mac has not taken yet (agentkeyring.v2.Complaint),
 	// sent at the next contact with the Mac's door.
-	Complaints    [][]byte `protobuf:"bytes,23,rep,name=complaints,proto3" json:"complaints,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Complaints [][]byte `protobuf:"bytes,23,rep,name=complaints,proto3" json:"complaints,omitempty"`
+	// The token Apple's push service was last given, and when it was made:
+	// Apple refuses a new one more often than every 20 minutes, so every
+	// process on this computer uses the same one for 30.
+	ApnsToken                  string `protobuf:"bytes,24,opt,name=apns_token,json=apnsToken,proto3" json:"apns_token,omitempty"`
+	ApnsTokenIssuedUnixSeconds int64  `protobuf:"varint,25,opt,name=apns_token_issued_unix_seconds,json=apnsTokenIssuedUnixSeconds,proto3" json:"apns_token_issued_unix_seconds,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *State) Reset() {
@@ -258,6 +263,20 @@ func (x *State) GetComplaints() [][]byte {
 		return x.Complaints
 	}
 	return nil
+}
+
+func (x *State) GetApnsToken() string {
+	if x != nil {
+		return x.ApnsToken
+	}
+	return ""
+}
+
+func (x *State) GetApnsTokenIssuedUnixSeconds() int64 {
+	if x != nil {
+		return x.ApnsTokenIssuedUnixSeconds
+	}
+	return 0
 }
 
 type LocalAuthority struct {
@@ -587,7 +606,7 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\vPrivateKeys\x12'\n" +
 	"\x0fcertificate_pem\x18\x01 \x01(\fR\x0ecertificatePem\x12\x1e\n" +
 	"\vtls_key_pem\x18\x02 \x01(\fR\ttlsKeyPem\x120\n" +
-	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xd1\x05\n" +
+	"\x14receiver_private_key\x18\x03 \x01(\fR\x12receiverPrivateKey\"\xb4\x06\n" +
 	"\x05State\x12#\n" +
 	"\rrelay_address\x18\x01 \x01(\tR\frelayAddress\x12\x1d\n" +
 	"\n" +
@@ -608,7 +627,10 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\x05holds\x18\x16 \x03(\v2\x1e.agentkeyring.clientstate.HoldR\x05holds\x12\x1e\n" +
 	"\n" +
 	"complaints\x18\x17 \x03(\fR\n" +
-	"complaintsJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
+	"complaints\x12\x1d\n" +
+	"\n" +
+	"apns_token\x18\x18 \x01(\tR\tapnsToken\x12B\n" +
+	"\x1eapns_token_issued_unix_seconds\x18\x19 \x01(\x03R\x1aapnsTokenIssuedUnixSecondsJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
 	"J\x04\b\n" +
 	"\x10\vJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10\"`\n" +
 	"\x0eLocalAuthority\x121\n" +

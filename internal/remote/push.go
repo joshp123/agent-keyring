@@ -97,6 +97,9 @@ func (c *Client) pushAll(ctx context.Context, leaseID string) error {
 	if err != nil {
 		return err
 	}
+	if state.ApnsToken != "" {
+		sender.UseToken(state.ApnsToken, time.Unix(state.ApnsTokenIssuedUnixSeconds, 0))
+	}
 	signed := &pb.Signed{}
 	proto.Unmarshal(saved.Request, signed)
 	request, _ := keyring.ParseRequest(signed.Payload)
@@ -152,10 +155,14 @@ func (c *Client) pushAll(ctx context.Context, leaseID string) error {
 		accepted = true
 		c.log("push accepted by Apple id=" + leaseID + " device=" + strconv.Quote(r.label) + " visible=" + strconv.FormatBool(waiting))
 	}
-	if accepted && waiting {
+	token, issued := sender.Token()
+	if (accepted && waiting) || token != state.ApnsToken {
 		c.Store.Update(ctx, func(state *clientstate.State) error {
-			if s := expected(state, leaseID); s != nil && s.Lease.PushedUnixSeconds == 0 {
+			if s := expected(state, leaseID); s != nil && s.Lease.PushedUnixSeconds == 0 && accepted && waiting {
 				s.Lease.PushedUnixSeconds = time.Now().Unix()
+			}
+			if token != "" && issued.Unix() > state.ApnsTokenIssuedUnixSeconds {
+				state.ApnsToken, state.ApnsTokenIssuedUnixSeconds = token, issued.Unix()
 			}
 			return nil
 		})

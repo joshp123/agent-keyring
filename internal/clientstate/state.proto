@@ -45,6 +45,11 @@ message State {
   // Agents' complaints the Mac has not taken yet (agentkeyring.v2.Complaint),
   // sent at the next contact with the Mac's door.
   repeated bytes complaints = 23;
+  // The token Apple's push service was last given, and when it was made:
+  // Apple refuses a new one more often than every 20 minutes, so every
+  // process on this computer uses the same one for 30.
+  string apns_token = 24;
+  int64 apns_token_issued_unix_seconds = 25;
 }
 message LocalAuthority {
   string application_contents = 1;

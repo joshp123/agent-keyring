@@ -238,9 +238,10 @@ func held(state *clientstate.State) (*view, error) {
 	return v, nil
 }
 
-// refresh asks the Mac for its revisions, within limit, and fetches and
-// checks its bundle if it has newer lists. If the Mac does not answer in
-// time it returns what this computer holds, with reached false.
+// refresh asks the Mac for its revisions, within limit, and if it has newer
+// lists fetches and checks its bundle, which may take longer (bundleLimit).
+// If the Mac does not answer in time it returns what this computer holds,
+// with reached false. Complaints waiting here go at the same contact.
 func (c *Client) refresh(ctx context.Context, limit time.Duration) (*view, error) {
 	state, err := c.Store.Load(ctx)
 	if err != nil {
@@ -250,24 +251,31 @@ func (c *Client) refresh(ctx context.Context, limit time.Duration) (*view, error
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
 	revisions := &pb.Revisions{}
-	if err := c.mac(ctx, http.MethodGet, "/v2/rev", nil, revisions); err != nil {
+	revCtx, cancel := context.WithTimeout(ctx, limit)
+	err = c.mac(revCtx, http.MethodGet, "/v2/rev", nil, revisions)
+	cancel()
+	if err != nil {
 		c.log("mac unreachable error=" + strconv.Quote(err.Error()))
 		return current, nil
 	}
-	if len(state.Complaints) > 0 { // The next contact with the Mac takes what waits here.
-		c.sendComplaints(ctx)
+	current.reached = true
+	if len(state.Complaints) > 0 {
+		defer func() {
+			complaintsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			c.sendComplaints(complaintsCtx)
+		}()
 	}
 	have := current.revisions
 	if have != nil && revisions.Members <= have.Members && revisions.Catalogue <= have.Catalogue && revisions.Copies <= have.Copies &&
 		revisions.Members <= current.members.Revision {
-		current.reached = true
 		return current, nil
 	}
 	bundle := &pb.Bundle{}
-	if err := c.mac(ctx, http.MethodGet, "/v2/bundle?members="+strconv.FormatUint(current.members.Revision, 10), nil, bundle); err != nil {
+	bundleCtx, cancel := context.WithTimeout(ctx, bundleLimit)
+	defer cancel()
+	if err := c.mac(bundleCtx, http.MethodGet, "/v2/bundle?members="+strconv.FormatUint(current.members.Revision, 10), nil, bundle); err != nil {
 		c.log("bundle not fetched error=" + strconv.Quote(err.Error()))
 		return current, nil
 	}
@@ -284,6 +292,10 @@ func (c *Client) refresh(ctx context.Context, limit time.Duration) (*view, error
 	current.reached = true
 	return current, nil
 }
+
+// bundleLimit is how long a bundle the Mac has said is newer may take to
+// arrive: it can be hundreds of kilobytes, over a relayed tailnet path.
+const bundleLimit = 5 * time.Second
 
 // keepBundle checks each part of a bundle on its own and saves the parts that
 // check: the lists by their signatures and revisions, each copy by its signer

@@ -127,6 +127,9 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 		listed = listed || (m.MachineId == joining.MachineId && bytes.Equal(m.TlsPublicKey, spki) && bytes.Equal(m.ReceivingPublicKey, joining.ReceivingPublicKey))
 		macListed = macListed || bytes.Equal(m.TlsPublicKey, invite.DoorTlsPublicKey)
 	}
+	for _, d := range members.Devices {
+		macListed = macListed || (d.Kind == pb.DeviceKind_DEVICE_KIND_MAC && bytes.Equal(d.TlsPublicKey, invite.DoorTlsPublicKey))
+	}
 	if !listed || !macListed {
 		return errors.New("The approval does not list this computer's keys beside the Mac's. Nothing was saved.")
 	}
@@ -145,6 +148,7 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 		state.RelayAddress, state.RelaySpki = "", nil
 		state.MacDoor, state.MacTlsPublicKey, state.RecipientId, state.MachineLabel, state.Members = address, invite.DoorTlsPublicKey, joining.MachineId, name, raw
 		state.PushCredential, state.Bundle, state.LocalAuthority = credential, nil, nil
+		state.ApnsToken, state.ApnsTokenIssuedUnixSeconds = "", 0
 		return nil
 	}); err != nil {
 		return err

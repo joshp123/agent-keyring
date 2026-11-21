@@ -53,6 +53,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -705,11 +706,27 @@ func (d *devices) serveApple(listen string) error {
 	if err != nil {
 		return err
 	}
+	var tokenLock sync.Mutex
+	var lastToken string
+	var lastTokenAt time.Time
 	server := &http.Server{TLSConfig: &tls.Config{Certificates: []tls.Certificate{certificate}, NextProtos: []string{"h2"}},
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.ProtoMajor != 2 || !validToken(strings.TrimPrefix(r.Header.Get("authorization"), "bearer "), pushPublic) {
 				w.WriteHeader(http.StatusForbidden)
 				io.WriteString(w, `{"reason":"InvalidProviderToken"}`)
+				return
+			}
+			// As Apple does: a new provider token within 20 minutes of the last is refused.
+			providerToken := r.Header.Get("authorization")
+			tokenLock.Lock()
+			tooSoon := lastToken != "" && providerToken != lastToken && time.Since(lastTokenAt) < 20*time.Minute
+			if !tooSoon && providerToken != lastToken {
+				lastToken, lastTokenAt = providerToken, time.Now()
+			}
+			tokenLock.Unlock()
+			if tooSoon {
+				w.WriteHeader(http.StatusTooManyRequests)
+				io.WriteString(w, `{"reason":"TooManyProviderTokenUpdates"}`)
 				return
 			}
 			token := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]

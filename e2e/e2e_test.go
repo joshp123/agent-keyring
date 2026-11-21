@@ -419,6 +419,12 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 	t.Run("nobody answers", func(t *testing.T) {
 		asking := start(ask("login-ask", "silence"))
 		id := w.answer("--device", "iphone", "--ignore")
+		// While it waits, the lease reads its state and does not rewrite it.
+		info, _ := os.Stat(filepath.Join(linux.state, "state.pb"))
+		time.Sleep(2 * time.Second)
+		if later, _ := os.Stat(filepath.Join(linux.state, "state.pb")); !later.ModTime().Equal(info.ModTime()) {
+			t.Fatal("a waiting lease rewrote the state file")
+		}
 		got := wait(t, asking, "lease")
 		if got.err == nil || !strings.Contains(got.stderr, "No answer. Nobody answered within 10 minutes. This is not a refusal.") {
 			t.Fatalf("want no answer, got %v\n%s", got.err, got.stderr)
