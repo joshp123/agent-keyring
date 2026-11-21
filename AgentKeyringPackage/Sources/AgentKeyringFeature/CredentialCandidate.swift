@@ -8,6 +8,8 @@ public struct CredentialCandidate: Codable, Equatable, Sendable {
     public let availableFields: [AgentCredentialField]
     public let possiblyStale: Bool?
     public var isPossiblyStale: Bool { possiblyStale == true }
+    /// When Passwords last changed it, if it said: how a later copy tells what changed.
+    public let lastModifiedAt: Date?
 
     public init(
         id: UUID,
@@ -15,7 +17,8 @@ public struct CredentialCandidate: Codable, Equatable, Sendable {
         username: String?,
         origins: [String],
         availableFields: [AgentCredentialField],
-        possiblyStale: Bool? = nil
+        possiblyStale: Bool? = nil,
+        lastModifiedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -23,6 +26,7 @@ public struct CredentialCandidate: Codable, Equatable, Sendable {
         self.origins = origins
         self.availableFields = availableFields
         self.possiblyStale = possiblyStale
+        self.lastModifiedAt = lastModifiedAt
     }
 }
 
@@ -35,6 +39,7 @@ extension MirrorItem {
         if let accountName, !accountName.isEmpty { fields.append(.username) }
         if passwords.count == 1 { fields.append(.password) }
         if codes.count == 1 { fields.append(.totp) }
-        return CredentialCandidate(id: id, title: title, username: accountName, origins: origins, availableFields: fields)
+        return CredentialCandidate(id: id, title: title, username: accountName, origins: origins, availableFields: fields,
+            lastModifiedAt: lastModifiedAt)
     }
 }

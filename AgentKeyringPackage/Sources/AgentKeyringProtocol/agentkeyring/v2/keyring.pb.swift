@@ -259,82 +259,6 @@ public nonisolated enum Agentkeyring_V2_LeaseState: SwiftProtobuf.Enum, Swift.Ca
 
 }
 
-/// The one journey of first run, the same list on every device. The Mac picks
-/// the steps from the devices he chose; each device reports where it is.
-public nonisolated enum Agentkeyring_V2_JourneyStep: SwiftProtobuf.Enum, Swift.CaseIterable {
-  public typealias RawValue = Int
-  case unspecified // = 0
-  case welcome // = 1
-  case chooseDevices // = 2
-  case practice // = 3
-  case passwords // = 4
-  case agents // = 5
-  case alwaysOn // = 6
-  case iphone // = 7
-  case watch // = 8
-  case computers // = 9
-  case tryDevices // = 10
-  case ready // = 11
-  case UNRECOGNIZED(Int)
-
-  public init() {
-    self = .unspecified
-  }
-
-  public init?(rawValue: Int) {
-    switch rawValue {
-    case 0: self = .unspecified
-    case 1: self = .welcome
-    case 2: self = .chooseDevices
-    case 3: self = .practice
-    case 4: self = .passwords
-    case 5: self = .agents
-    case 6: self = .alwaysOn
-    case 7: self = .iphone
-    case 8: self = .watch
-    case 9: self = .computers
-    case 10: self = .tryDevices
-    case 11: self = .ready
-    default: self = .UNRECOGNIZED(rawValue)
-    }
-  }
-
-  public var rawValue: Int {
-    switch self {
-    case .unspecified: return 0
-    case .welcome: return 1
-    case .chooseDevices: return 2
-    case .practice: return 3
-    case .passwords: return 4
-    case .agents: return 5
-    case .alwaysOn: return 6
-    case .iphone: return 7
-    case .watch: return 8
-    case .computers: return 9
-    case .tryDevices: return 10
-    case .ready: return 11
-    case .UNRECOGNIZED(let i): return i
-    }
-  }
-
-  // The compiler won't synthesize support with the UNRECOGNIZED case.
-  public static let allCases: [Agentkeyring_V2_JourneyStep] = [
-    .unspecified,
-    .welcome,
-    .chooseDevices,
-    .practice,
-    .passwords,
-    .agents,
-    .alwaysOn,
-    .iphone,
-    .watch,
-    .computers,
-    .tryDevices,
-    .ready,
-  ]
-
-}
-
 public nonisolated enum Agentkeyring_V2_JoinState: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unspecified // = 0
@@ -2211,15 +2135,6 @@ public nonisolated struct Agentkeyring_V2_SelfTestReport: Sendable {
   /// Also the device's setup checklist, ticked from what it can see.
   public var checks: [Agentkeyring_V2_SelfTestCheck] = []
 
-  /// From the Mac only: the steps for the devices he chose, in order.
-  public var journey: [Agentkeyring_V2_JourneyStep] = []
-
-  /// Where this device is in its first run.
-  public var step: Agentkeyring_V2_JourneyStep = .unspecified
-
-  /// This device's first run is done.
-  public var finished: Bool = false
-
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -2413,10 +2328,6 @@ nonisolated extension Agentkeyring_V2_Choice: SwiftProtobuf._ProtoNameProviding 
 
 nonisolated extension Agentkeyring_V2_LeaseState: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0LEASE_STATE_UNSPECIFIED\0\u{1}LEASE_STATE_WAITING\0\u{1}LEASE_STATE_APPROVED\0\u{1}LEASE_STATE_DENIED\0\u{1}LEASE_STATE_UNANSWERED\0\u{1}LEASE_STATE_ENDED\0\u{1}LEASE_STATE_CANCELLED\0")
-}
-
-nonisolated extension Agentkeyring_V2_JourneyStep: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0JOURNEY_STEP_UNSPECIFIED\0\u{1}JOURNEY_STEP_WELCOME\0\u{1}JOURNEY_STEP_CHOOSE_DEVICES\0\u{1}JOURNEY_STEP_PRACTICE\0\u{1}JOURNEY_STEP_PASSWORDS\0\u{1}JOURNEY_STEP_AGENTS\0\u{1}JOURNEY_STEP_ALWAYS_ON\0\u{1}JOURNEY_STEP_IPHONE\0\u{1}JOURNEY_STEP_WATCH\0\u{1}JOURNEY_STEP_COMPUTERS\0\u{1}JOURNEY_STEP_TRY_DEVICES\0\u{1}JOURNEY_STEP_READY\0")
 }
 
 nonisolated extension Agentkeyring_V2_JoinState: SwiftProtobuf._ProtoNameProviding {
@@ -5308,7 +5219,7 @@ nonisolated extension Agentkeyring_V2_JoinInvite: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Agentkeyring_V2_SelfTestReport: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SelfTestReport"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}device_key_id\0\u{3}tested_unix_seconds\0\u{1}checks\0\u{1}journey\0\u{1}step\0\u{1}finished\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}domain\0\u{3}device_key_id\0\u{3}tested_unix_seconds\0\u{1}checks\0\u{b}journey\0\u{b}step\0\u{b}finished\0\u{c}\u{5}\u{1}\u{c}\u{6}\u{1}\u{c}\u{7}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -5320,9 +5231,6 @@ nonisolated extension Agentkeyring_V2_SelfTestReport: SwiftProtobuf.Message, Swi
       case 2: try { try decoder.decodeSingularStringField(value: &self.deviceKeyID) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.testedUnixSeconds) }()
       case 4: try { try decoder.decodeRepeatedMessageField(value: &self.checks) }()
-      case 5: try { try decoder.decodeRepeatedEnumField(value: &self.journey) }()
-      case 6: try { try decoder.decodeSingularEnumField(value: &self.step) }()
-      case 7: try { try decoder.decodeSingularBoolField(value: &self.finished) }()
       default: break
       }
     }
@@ -5341,15 +5249,6 @@ nonisolated extension Agentkeyring_V2_SelfTestReport: SwiftProtobuf.Message, Swi
     if !self.checks.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.checks, fieldNumber: 4)
     }
-    if !self.journey.isEmpty {
-      try visitor.visitPackedEnumField(value: self.journey, fieldNumber: 5)
-    }
-    if self.step != .unspecified {
-      try visitor.visitSingularEnumField(value: self.step, fieldNumber: 6)
-    }
-    if self.finished != false {
-      try visitor.visitSingularBoolField(value: self.finished, fieldNumber: 7)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -5358,9 +5257,6 @@ nonisolated extension Agentkeyring_V2_SelfTestReport: SwiftProtobuf.Message, Swi
     if lhs.deviceKeyID != rhs.deviceKeyID {return false}
     if lhs.testedUnixSeconds != rhs.testedUnixSeconds {return false}
     if lhs.checks != rhs.checks {return false}
-    if lhs.journey != rhs.journey {return false}
-    if lhs.step != rhs.step {return false}
-    if lhs.finished != rhs.finished {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

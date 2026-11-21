@@ -65,6 +65,11 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
 
     }
 
+    /// Back from System Settings: if Agent Keyring is now on in AutoFill, the AutoFill sheet closes.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        model.recheckAutoFill()
+    }
+
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
@@ -92,7 +97,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
 
 }
 
-/// First run until Josh clicks its Done, then the Passwords and Devices tabs.
+/// First run until Josh clicks Show Passwords, then the Passwords and Devices tabs.
 private struct HomeWindow: View {
     let model: MirrorAppModel
     let presentation: AgentKeyringPresentation
@@ -100,15 +105,13 @@ private struct HomeWindow: View {
 
     var body: some View {
         Group {
-            if model.firstRunFinished, let copy = model.passwordsCopy {
-                // Copy from Passwords: the same "Copy your passwords" as first run.
-                MacFirstRunView(screen: copyScreen(copy, model: model, offerSample: false),
-                    problem: model.problem,
-                    actions: copyActions(model))
+            if model.firstRunFinished, model.passwordsCopy != nil {
+                // Copy Again: the same "Copy your passwords" as first run, with Cancel.
+                CopyPasswordsPage(model: model, inFirstRun: false)
             } else if model.firstRunFinished {
                 if let main {
                     // Add Device opens the add sheets through this one closure.
-                    MacMainWindowView(model: main) { sheet, close in AnyView(SetupSheet(sheet, model: model, close: close)) }
+                    MacMainWindowView(model: main) { sheet, close in sheet == .addIPhone ? AnyView(AddIPhoneSheet(model: model, close: close)) : AnyView(AddComputerSheet(model: model, close: close)) }
                         .frame(minWidth: 760, idealWidth: 860, minHeight: 560, idealHeight: 640)
                 } else { ProgressView().padding(40) }
             } else {
@@ -127,96 +130,103 @@ private struct HomeWindow: View {
     }
 }
 
-/// "Copy your passwords" as either window shows it.
-@MainActor private func copyScreen(_ copy: PasswordsCopy, model: MirrorAppModel, offerSample: Bool) -> FirstRunScreen {
-    switch copy {
-    case .copying: .copying
-    case let .allowExport(asking): .allowExport(asking: asking)
-    case .steps, .waiting, .noneArrived:
-        .copyPasswords(waiting: copy != .steps, noneArrived: copy == .noneArrived, offerSample: offerSample,
-            earlierVersion: MirrorAppModel.earlierVersionInstalled)
+/// "Copy your passwords", with the AutoFill sheet over it while it is open.
+private struct CopyPasswordsPage: View {
+    let model: MirrorAppModel
+    let inFirstRun: Bool
+
+    var body: some View {
+        var actions = MacCopyPage.Actions()
+        actions.openPasswords = model.openPasswordsExport
+        actions.showGuideStep = { model.copyGuideStep = $0 }
+        actions.notInList = model.explainAllowExport
+        actions.useTestPasswordOnly = { Task { await model.useTestPassword() } }
+        actions.back = { model.send(.back) }
+        actions.continueOn = { model.send(.continueOn) }
+        actions.cancel = model.closePasswordsCopy
+        return MacCopyPage(SetupScreens.copy(model, inFirstRun: inFirstRun), guideStep: model.copyGuideStep,
+                           earlierVersion: MirrorAppModel.earlierVersionInstalled, inFirstRun: inFirstRun, actions: actions)
+            .sheet(isPresented: Binding(get: { model.passwordsCopy == .allowExport }, set: { if !$0 { model.closeAllowExport() } })) {
+                MacAllowExportSheet(openSettings: model.openAutoFillSettings, cancel: model.closeAllowExport)
+            }
     }
 }
 
-@MainActor private func copyActions(_ model: MirrorAppModel) -> FirstRunActions {
-    var actions = FirstRunActions()
-    actions.openPasswords = model.openPasswordsExport
-    actions.cancelCopy = model.closePasswordsCopy
-    actions.notInList = model.explainAllowExport
-    actions.allowExport = model.askToAllowExport
-    return actions
+/// Which device sheet Ready has open: one value, and nil when none is.
+private enum ReadySheet: String, Identifiable {
+    case iPhone, computer
+    var id: String { rawValue }
 }
 
+/// The window is first run's saved state, with the facts beside it: Touch ID,
+/// the passwords, a copy in progress and the devices that have joined.
 private struct FirstRunHome: View {
     let model: MirrorAppModel
     let presentation: AgentKeyringPresentation
-    /// "Add other computers": the one-time command, made when that window opens.
-    @State private var command: String?
-
-    /// The window is first run's state, with the facts beside it: Touch ID,
-    /// the passwords, the devices and computers that have joined, the leases
-    /// and the last practice results.
-    private var screen: FirstRunScreen? {
-        switch model.firstRun {
-        case .welcome: .welcome
-        case .chooseDevices: .chooseDevices
-        case .finished: nil
-        case let .journey(_, page):
-            switch page {
-            case .practice:
-                switch MacApprover.shared.state {
-                case .ready: .practice
-                case .lidClosed: .lidClosed
-                case .needsFingerprint: .needsFingerprint
-                }
-            case let .practiceDenied(reply): .practiceDenied(reply: reply)
-            case .copyPasswords: copyScreen(model.passwordsCopy ?? .steps, model: model, offerSample: true)
-            case let .tellAgents(copied): SetupScreens.tellAgents(model, copied: copied)
-            case .stayingOn: .stayingOn(failure: nil, offered: nil) // Passed over: no computer needs to stay on.
-            case .addPhone: SetupScreens.addPhone(model)
-            case .addWatch: SetupScreens.addWatch(model)
-            case .addComputers: SetupScreens.addComputers(model, command: command)
-            case .tryDevices: .tryDevices(SetupScreens.practiceRows(model))
-            case .ready: SetupScreens.ready(model)
-            }
-        }
-    }
-
-    private var actions: FirstRunActions {
-        var actions = copyActions(model)
-        actions.getStarted = { model.send(.getStarted) }
-        actions.chooseDevices = { iPhone, watch, computers in
-            model.send(.chose(FirstRun.Devices(iPhone: iPhone, watch: watch, computers: computers)))
-        }
-        actions.tryAgain = { model.send(.tryAgain) }
-        actions.openTouchIDSettings = { NSWorkspace.shared.open(MacApprover.touchIDSettings) }
-        actions.useSample = { Task { await model.useTestPassword() } }
-        actions.copyOwn = { model.send(.copyOwn) }
-        actions.continueOn = { model.send(.continueOn) }
-        actions.skip = { model.send(.skip) }
-        actions.useThisMacAlone = { model.send(.useThisMacAlone) }
-        actions.sendPractice = { key in Task { await model.sendPractice(to: key) } }
-        // He lands on the main window, in the same window: Passwords and Devices.
-        actions.done = {
-            model.finishFirstRun()
-            presentation.showMenuBarTip()
-        }
-        return actions
-    }
+    @State private var sheet: ReadySheet?
 
     var body: some View {
         Group {
             if model.isLoading {
                 ProgressView().padding(40)
-            } else if let screen {
-                MacFirstRunView(screen: screen, problem: model.problem, actions: actions)
+            } else {
+                page
             }
         }
         .task { await model.loadStatus() }
-        .onChange(of: model.firstRun.step == .computers, initial: true) { _, now in
-            if now, command == nil { command = SetupScreens.enrolCommand(model) }
-        }
         .onContinueUserActivity(ASCredentialExchangeActivity) { model.receive($0) }
+        // The first click on a button works even while another app is in front.
+        .allowsWindowActivationEvents(true)
+    }
+
+    @ViewBuilder private var page: some View {
+        switch model.firstRun.step {
+        case .welcome:
+            MacWelcomePage { model.send(.getStarted) }
+        case .practice:
+            MacPracticePage(SetupScreens.practice(model.firstRun.practice), approver: MacApprover.shared.state, actions: practiceActions)
+        case .copy:
+            CopyPasswordsPage(model: model, inFirstRun: true)
+        case let .connectAgent(outcome):
+            MacConnectAgentPage(SetupScreens.connectAgent(outcome), actions: connectActions)
+        case .ready, .finished:
+            MacReadyPage(copied: SetupScreens.readyCopied(model), devices: SetupScreens.readyDevices(model), actions: readyActions)
+                .sheet(item: $sheet) { which in
+                    switch which {
+                    case .iPhone: AddIPhoneSheet(model: model) { sheet = nil }
+                    case .computer: AddComputerSheet(model: model) { sheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var practiceActions: MacPracticePage.Actions {
+        var actions = MacPracticePage.Actions()
+        actions.send = model.sendFirstRunPractice
+        actions.openTouchIDSettings = { NSWorkspace.shared.open(MacApprover.touchIDSettings) }
+        actions.back = { model.send(.back) }
+        actions.continueOn = { model.send(.continueOn) }
+        return actions
+    }
+
+    private var connectActions: MacConnectAgentPage.Actions {
+        var actions = MacConnectAgentPage.Actions()
+        actions.skipTest = { model.send(.skipTest) }
+        actions.back = { model.send(.back) }
+        actions.continueOn = { model.send(.continueOn) }
+        return actions
+    }
+
+    private var readyActions: MacReadyPage.Actions {
+        var actions = MacReadyPage.Actions()
+        actions.addIPhone = { sheet = .iPhone }
+        actions.addComputer = { sheet = .computer }
+        // The same window becomes Passwords and Devices.
+        actions.showPasswords = {
+            model.send(.showPasswords)
+            presentation.showMenuBarTip()
+        }
+        return actions
     }
 }
 

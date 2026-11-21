@@ -32,8 +32,8 @@ public final class AdditionBackend: MacApprovalBackend {
             if let filling = model.device?.filling, filling.deviceKeyID == id,
                case let .setUp(lead, detail, footer, denied, replies, _) = last.access {
                 request.access = .setUp(lead: lead, detail: detail, footer: footer, denied: denied, replies: replies,
-                    approved: filling.failure.map { SetupCopy.fillingStopped(filling.label, reason: $0) }
-                        ?? SetupCopy.filling(filling.label, done: filling.done, total: filling.total))
+                    approved: filling.failure.map { SetupCopy.stoppedCopying(done: filling.done, total: filling.total, reason: $0) }
+                        ?? SetupCopy.copyingTo(done: filling.done, total: filling.total))
             }
             return request
         }
@@ -45,17 +45,15 @@ public final class AdditionBackend: MacApprovalBackend {
             case let .device(joining)?:
                 request = AccessRequest(id: id, login: RequestedLogin(site: joining.label, account: ""),
                     agent: RequestingAgent(name: joining.label, machine: joining.label, address: "", isLocal: false),
-                    access: .setUp(lead: SetupCopy.addingDeviceLead,
-                        detail: SetupCopy.addingDeviceDetail(watch: joining.kind == .watch),
-                        footer: SetupCopy.addingDeviceFooter(watch: joining.kind == .watch), denied: SetupCopy.notAdded(joining.label),
-                        replies: false),
+                    access: .setUp(lead: joining.kind == .watch ? SetupCopy.addWatchLead : SetupCopy.addIPhoneLead,
+                        detail: joining.kind == .watch ? SetupCopy.addWatchBody : SetupCopy.addIPhoneBody,
+                        footer: "", denied: SetupCopy.notAdded(joining.label), replies: false),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case let .machine(machine)?:
                 request = AccessRequest(id: id, login: RequestedLogin(site: machine.label, account: ""),
                     agent: RequestingAgent(name: "An agent", machine: machine.label, address: "", isLocal: false),
-                    access: .setUp(lead: SetupCopy.addingLead, detail: "",
-                        footer: SetupCopy.addingComputerFooter(machine.label, staysOn: false), denied: SetupCopy.notAdded(machine.label),
-                        replies: !join.request.refusalKeySha256.isEmpty),
+                    access: .setUp(lead: SetupCopy.addComputerLead, detail: SetupCopy.addComputerBody,
+                        footer: "", denied: SetupCopy.notAdded(machine.label), replies: !join.request.refusalKeySha256.isEmpty),
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case nil: request = nil
             }

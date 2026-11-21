@@ -1,7 +1,7 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5; first run and the
 // practice request added on 2026.11.19 by model claude opus 5.5.
-// Draws the request panel and the first-run windows off screen, light and
-// dark, for a design check against Paper. Nothing appears on screen.
+// Draws the request panel, the menu bar and the main window off screen, light and
+// dark, for a design check against Paper. First run is drawn by the galleries (2026.11.21). Nothing appears on screen.
 // Since 2026.11.21 (claude opus 5.5) it also draws every Mac part and page
 // in the galleries through the cut-off check, and prints what it found.
 import AgentKeyringApprovalUI
@@ -24,28 +24,22 @@ var approved = request; approved.state = .approved(by: .mac, until: .now.addingT
 var denied = request; denied.state = .denied(by: .mac, reply: "The invoice is in my email. Use that.", askAgainAfter: nil)
 let practice = AccessRequest.practice(id: "practice", state: .waitingForYou(until: .distantFuture))
 let practiceApproved = AccessRequest.practice(id: "practice", state: .approved(by: .mac, until: .now))
-let agentLine = FirstRunCopy.agentNote(appPath: "/Applications/Agent Keyring.app")
 var cancelled = request; cancelled.state = .cancelled
 let addComputer = AccessRequest(id: "c", login: RequestedLogin(site: "Mac mini", account: ""),
     agent: RequestingAgent(name: "Claude Code", machine: "", address: "", isLocal: true),
-    access: .setUp(lead: SetupCopy.addingComputerLead(agent: "Claude Code"), detail: "",
-        footer: SetupCopy.addingComputerFooter("Mac mini", staysOn: true), denied: SetupCopy.notAdded("Mac mini"), replies: true),
+    access: .setUp(lead: SetupCopy.addComputerLead, detail: SetupCopy.addComputerBody,
+        footer: "", denied: SetupCopy.notAdded("Mac mini"), replies: true),
     agentReason: "You asked me to set up Agent Keyring on Mac mini.", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
-let addPhone = AccessRequest(id: "p", login: RequestedLogin(site: "iPhone 17 Pro", account: ""),
-    agent: RequestingAgent(name: "iPhone 17 Pro", machine: "iPhone 17 Pro", address: ""),
-    access: .setUp(lead: SetupCopy.addingDeviceLead, detail: SetupCopy.addingDeviceDetail(watch: false),
-        footer: SetupCopy.addingDeviceFooter(watch: false), denied: SetupCopy.notAdded("iPhone 17 Pro"), replies: false),
+let addPhone = AccessRequest(id: "p", login: RequestedLogin(site: "iPhone", account: ""),
+    agent: RequestingAgent(name: "iPhone", machine: "iPhone", address: ""),
+    access: .setUp(lead: SetupCopy.addIPhoneLead, detail: SetupCopy.addIPhoneBody,
+        footer: "", denied: SetupCopy.notAdded("iPhone"), replies: false),
     agentReason: "", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
-let practiceRows = [
-    PracticeRow(id: "d1", name: "This Mac", symbol: "laptopcomputer", detail: FirstRunCopy.practiceApprovedAt("14:02", touchID: true), tone: .approved, canSend: true),
-    PracticeRow(id: "d2", name: "iPhone 17 Pro", symbol: "iphone", detail: FirstRunCopy.practiceDeniedAt("14:03", reply: "Use the work account instead."), tone: .denied, canSend: true),
-    PracticeRow(id: "d3", name: "Apple Watch Ultra 3", symbol: "applewatch", detail: FirstRunCopy.practiceOnWrist("14:03"), tone: .plain, canSend: false),
-]
 var computerDenied = addComputer; computerDenied.state = .denied(by: .mac, reply: nil, askAgainAfter: nil)
 let invited = AccessRequest(id: "i", login: RequestedLogin(site: "Mac mini", account: ""),
     agent: RequestingAgent(name: "An agent", machine: "Mac mini", address: ""),
-    access: .setUp(lead: SetupCopy.addingLead, detail: "",
-        footer: SetupCopy.addingComputerFooter("Mac mini", staysOn: false), denied: SetupCopy.notAdded("Mac mini"), replies: false),
+    access: .setUp(lead: SetupCopy.addComputerLead, detail: SetupCopy.addComputerBody,
+        footer: "", denied: SetupCopy.notAdded("Mac mini"), replies: false),
     agentReason: "", askedAt: .now, state: .waitingForYou(until: .now.addingTimeInterval(600)))
 var longName = request; longName.agent.name = "Research Assistant for Bookkeeping"
 let cases: [(String, AnyView)] = [
@@ -67,32 +61,6 @@ let cases: [(String, AnyView)] = [
     ("practice", AnyView(ReviewRendering.panel(practice))),
     ("practice-after-click", AnyView(ReviewRendering.panel(practice, waiting: true))),
     ("practice-approved", AnyView(ReviewRendering.panel(practiceApproved))),
-    ("first-run-1-welcome", AnyView(MacFirstRunView(screen: .welcome))),
-    ("first-run-2-practice", AnyView(MacFirstRunView(screen: .practice))),
-    ("first-run-2-practice-denied", AnyView(MacFirstRunView(screen: .practiceDenied(reply: "Use the invoice in my Downloads folder instead.")))),
-    ("first-run-2-needs-fingerprint", AnyView(MacFirstRunView(screen: .needsFingerprint))),
-    ("first-run-2-lid-closed", AnyView(MacFirstRunView(screen: .lidClosed))),
-    ("first-run-3-copy", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: false, noneArrived: false, offerSample: true, earlierVersion: true)))),
-    ("first-run-3-copy-waiting", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: false, offerSample: true, earlierVersion: false)))),
-    ("first-run-3-copy-none-arrived", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: true, offerSample: true, earlierVersion: false)))),
-    ("first-run-3-copy-from-main-window", AnyView(MacFirstRunView(screen: .copyPasswords(waiting: true, noneArrived: false, offerSample: false, earlierVersion: true)))),
-    ("first-run-3-allow-export", AnyView(MacFirstRunView(screen: .allowExport(asking: false)))),
-    ("first-run-3-copying", AnyView(MacFirstRunView(screen: .copying))),
-    ("first-run-4-tell-agents", AnyView(MacFirstRunView(screen: .tellAgents(header: CopiedHeader(title: FirstRunCopy.copied(542),
-        detail: FirstRunCopy.mustAskAny, sample: false), approved: nil)))),
-    ("first-run-4-tell-agents-sample-tried", AnyView(MacFirstRunView(screen: .tellAgents(header: CopiedHeader(title: FirstRunCopy.sampleAdded,
-        detail: FirstRunCopy.sampleDetail, sample: true), approved: FirstRunCopy.approvedRequest(agent: "Claude Code", site: "example.com"))))),
-    ("first-run-4-tell-agents-from-devices", AnyView(MacFirstRunView(screen: .tellAgents(header: nil, approved: nil)))),
-    ("first-run-5-staying-on", AnyView(MacFirstRunView(screen: .stayingOn(failure: nil)))),
-    ("first-run-5-staying-on-failed", AnyView(MacFirstRunView(screen: .stayingOn(failure: "Nothing answered at mac-mini:17445. Check that the computer is on and its relay is running.")))),
-    ("first-run-5-connecting", AnyView(MacFirstRunView(screen: .connecting(name: "mac-mini")))),
-    ("first-run-6-add-phone", AnyView(MacFirstRunView(screen: .addPhone(added: nil)))),
-    ("first-run-6-add-phone-added", AnyView(MacFirstRunView(screen: .addPhone(added: "iPhone")))),
-    ("first-run-7-add-watch", AnyView(MacFirstRunView(screen: .addWatch(added: nil)))),
-    ("first-run-8-add-computers", AnyView(MacFirstRunView(screen: .addComputers(command: FirstRunCopy.enrolCommand("agentkeyring://join?invite=7Q2xNw…"), joined: ["Linux server"])))),
-    ("first-run-9-try-devices", AnyView(MacFirstRunView(screen: .tryDevices(practiceRows)))),
-    ("first-run-10-ready", AnyView(MacFirstRunView(screen: .ready(alone: false, sampleOnly: false)))),
-    ("first-run-10-ready-sample-alone", AnyView(MacFirstRunView(screen: .ready(alone: true, sampleOnly: true)))),
     ("menu-bar-tip", AnyView(MenuBarTipView())),
 ]
 final class StubBackend: MainWindowBackend {

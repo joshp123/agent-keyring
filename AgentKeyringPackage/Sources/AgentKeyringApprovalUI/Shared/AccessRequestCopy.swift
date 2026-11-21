@@ -17,6 +17,8 @@ public enum AccessRequestCopy {
         agent == "an agent" ? replyPlaceholderShort : "What should \(agent) do instead?"
     }
     public static let replyPlaceholderShort = "What should it do instead?"
+    /// The practice request's agent, in "You told the agent: …".
+    public static let theAgent = "the agent"
     /// In place of the green button while the lid is shut.
     public static let openTheLid = "Open the lid to approve"
     public static let approveElsewhere = "Approve on your Apple Watch or iPhone"

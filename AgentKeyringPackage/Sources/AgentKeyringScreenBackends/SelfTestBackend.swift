@@ -1,7 +1,7 @@
 // Written by AI on 2026.11.18 by model claude opus 5.5.
 //
-// First run's practice request in the request panel, laid out as a real one
-// (Paper, "First run", "When the passwords arrive").
+// The practice request in the card beside the window, laid out as a real one:
+// first run's step 1, or one sent to this Mac from Devices.
 
 #if os(macOS)
 import AgentKeyringApprovalUI
@@ -22,11 +22,16 @@ public final class SelfTestBackend: MacApprovalBackend {
     }
 
     public var request: AccessRequest {
-        // First run's own practice, or one sent from Devices or "Try a request on each device".
-        let state: AccessRequestState = switch (model.firstRun, model.practiceResults[model.thisMacDeviceKey]) {
-        case (.journey(_, .practice), _), (_, .sent?): .waitingForYou(until: .distantFuture)
-        case let (.journey(_, .practiceDenied(reply)), _), let (_, .denied(_, reply)?): .denied(by: .mac, reply: reply.isEmpty ? nil : reply, askAgainAfter: nil)
-        default: .approved(by: .mac, until: model.testedAt ?? .now)
+        // First run's own practice, or one sent from Devices.
+        let state: AccessRequestState = switch (model.firstRun.waitingPractice, model.practiceResults[model.thisMacDeviceKey]) {
+        case (.some, _), (_, .sent?): .waitingForYou(until: .distantFuture)
+        case let (_, .denied(_, reply)?): .denied(by: .mac, reply: reply.isEmpty ? nil : reply, askAgainAfter: nil)
+        default:
+            if case let .denied(reply) = model.firstRun.practice {
+                .denied(by: .mac, reply: reply.isEmpty ? nil : reply, askAgainAfter: nil)
+            } else {
+                .approved(by: .mac, until: model.testedAt ?? .now)
+            }
         }
         return .practice(id: Self.requestID, state: state)
     }
@@ -36,11 +41,14 @@ public final class SelfTestBackend: MacApprovalBackend {
     }
 
     public func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
+        // The request he clicked on: a late Touch ID answers only that one.
+        let practice = model.firstRun.waitingPractice
         let context = LAContext()
         self.context = context
         defer { if self.context === context { self.context = nil } }
         do {
             try await model.runSelfTest(reason: MessageCopy.practiceInDialog, context: context, onAuthenticated: onAuthenticated)
+            if let practice { model.send(.practiceApproved(id: practice)) }
             model.notePracticeHere(.approved(at: .now))
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw CancellationError()
@@ -55,7 +63,7 @@ public final class SelfTestBackend: MacApprovalBackend {
 
     public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
         cancelAuthentication(requestID: requestID)
-        model.send(.practiceDenied(reply: reply ?? ""))
+        if let practice = model.firstRun.waitingPractice { model.send(.practiceDenied(id: practice, reply: reply ?? "")) }
         model.notePracticeHere(.denied(at: .now, reply: reply ?? ""))
         return request.state
     }

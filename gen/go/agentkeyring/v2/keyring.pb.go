@@ -279,84 +279,6 @@ func (LeaseState) EnumDescriptor() ([]byte, []int) {
 	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{3}
 }
 
-// The one journey of first run, the same list on every device. The Mac picks
-// the steps from the devices he chose; each device reports where it is.
-type JourneyStep int32
-
-const (
-	JourneyStep_JOURNEY_STEP_UNSPECIFIED    JourneyStep = 0
-	JourneyStep_JOURNEY_STEP_WELCOME        JourneyStep = 1
-	JourneyStep_JOURNEY_STEP_CHOOSE_DEVICES JourneyStep = 2
-	JourneyStep_JOURNEY_STEP_PRACTICE       JourneyStep = 3
-	JourneyStep_JOURNEY_STEP_PASSWORDS      JourneyStep = 4
-	JourneyStep_JOURNEY_STEP_AGENTS         JourneyStep = 5
-	JourneyStep_JOURNEY_STEP_ALWAYS_ON      JourneyStep = 6
-	JourneyStep_JOURNEY_STEP_IPHONE         JourneyStep = 7
-	JourneyStep_JOURNEY_STEP_WATCH          JourneyStep = 8
-	JourneyStep_JOURNEY_STEP_COMPUTERS      JourneyStep = 9
-	JourneyStep_JOURNEY_STEP_TRY_DEVICES    JourneyStep = 10
-	JourneyStep_JOURNEY_STEP_READY          JourneyStep = 11
-)
-
-// Enum value maps for JourneyStep.
-var (
-	JourneyStep_name = map[int32]string{
-		0:  "JOURNEY_STEP_UNSPECIFIED",
-		1:  "JOURNEY_STEP_WELCOME",
-		2:  "JOURNEY_STEP_CHOOSE_DEVICES",
-		3:  "JOURNEY_STEP_PRACTICE",
-		4:  "JOURNEY_STEP_PASSWORDS",
-		5:  "JOURNEY_STEP_AGENTS",
-		6:  "JOURNEY_STEP_ALWAYS_ON",
-		7:  "JOURNEY_STEP_IPHONE",
-		8:  "JOURNEY_STEP_WATCH",
-		9:  "JOURNEY_STEP_COMPUTERS",
-		10: "JOURNEY_STEP_TRY_DEVICES",
-		11: "JOURNEY_STEP_READY",
-	}
-	JourneyStep_value = map[string]int32{
-		"JOURNEY_STEP_UNSPECIFIED":    0,
-		"JOURNEY_STEP_WELCOME":        1,
-		"JOURNEY_STEP_CHOOSE_DEVICES": 2,
-		"JOURNEY_STEP_PRACTICE":       3,
-		"JOURNEY_STEP_PASSWORDS":      4,
-		"JOURNEY_STEP_AGENTS":         5,
-		"JOURNEY_STEP_ALWAYS_ON":      6,
-		"JOURNEY_STEP_IPHONE":         7,
-		"JOURNEY_STEP_WATCH":          8,
-		"JOURNEY_STEP_COMPUTERS":      9,
-		"JOURNEY_STEP_TRY_DEVICES":    10,
-		"JOURNEY_STEP_READY":          11,
-	}
-)
-
-func (x JourneyStep) Enum() *JourneyStep {
-	p := new(JourneyStep)
-	*p = x
-	return p
-}
-
-func (x JourneyStep) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (JourneyStep) Descriptor() protoreflect.EnumDescriptor {
-	return file_agentkeyring_v2_keyring_proto_enumTypes[4].Descriptor()
-}
-
-func (JourneyStep) Type() protoreflect.EnumType {
-	return &file_agentkeyring_v2_keyring_proto_enumTypes[4]
-}
-
-func (x JourneyStep) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use JourneyStep.Descriptor instead.
-func (JourneyStep) EnumDescriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{4}
-}
-
 type JoinState int32
 
 const (
@@ -399,11 +321,11 @@ func (x JoinState) String() string {
 }
 
 func (JoinState) Descriptor() protoreflect.EnumDescriptor {
-	return file_agentkeyring_v2_keyring_proto_enumTypes[5].Descriptor()
+	return file_agentkeyring_v2_keyring_proto_enumTypes[4].Descriptor()
 }
 
 func (JoinState) Type() protoreflect.EnumType {
-	return &file_agentkeyring_v2_keyring_proto_enumTypes[5]
+	return &file_agentkeyring_v2_keyring_proto_enumTypes[4]
 }
 
 func (x JoinState) Number() protoreflect.EnumNumber {
@@ -412,7 +334,7 @@ func (x JoinState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JoinState.Descriptor instead.
 func (JoinState) EnumDescriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{5}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{4}
 }
 
 type ErrorCode int32
@@ -460,11 +382,11 @@ func (x ErrorCode) String() string {
 }
 
 func (ErrorCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_agentkeyring_v2_keyring_proto_enumTypes[6].Descriptor()
+	return file_agentkeyring_v2_keyring_proto_enumTypes[5].Descriptor()
 }
 
 func (ErrorCode) Type() protoreflect.EnumType {
-	return &file_agentkeyring_v2_keyring_proto_enumTypes[6]
+	return &file_agentkeyring_v2_keyring_proto_enumTypes[5]
 }
 
 func (x ErrorCode) Number() protoreflect.EnumNumber {
@@ -473,7 +395,7 @@ func (x ErrorCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ErrorCode.Descriptor instead.
 func (ErrorCode) EnumDescriptor() ([]byte, []int) {
-	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{6}
+	return file_agentkeyring_v2_keyring_proto_rawDescGZIP(), []int{5}
 }
 
 // The one envelope for everything signed. The payload's own domain field says
@@ -4629,10 +4551,7 @@ type SelfTestReport struct {
 	Domain            string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"` // "agentkeyring.selftest.v2"
 	DeviceKeyId       string                 `protobuf:"bytes,2,opt,name=device_key_id,json=deviceKeyId,proto3" json:"device_key_id,omitempty"`
 	TestedUnixSeconds int64                  `protobuf:"varint,3,opt,name=tested_unix_seconds,json=testedUnixSeconds,proto3" json:"tested_unix_seconds,omitempty"`
-	Checks            []*SelfTestCheck       `protobuf:"bytes,4,rep,name=checks,proto3" json:"checks,omitempty"`                                            // Also the device's setup checklist, ticked from what it can see.
-	Journey           []JourneyStep          `protobuf:"varint,5,rep,packed,name=journey,proto3,enum=agentkeyring.v2.JourneyStep" json:"journey,omitempty"` // From the Mac only: the steps for the devices he chose, in order.
-	Step              JourneyStep            `protobuf:"varint,6,opt,name=step,proto3,enum=agentkeyring.v2.JourneyStep" json:"step,omitempty"`              // Where this device is in its first run.
-	Finished          bool                   `protobuf:"varint,7,opt,name=finished,proto3" json:"finished,omitempty"`                                       // This device's first run is done.
+	Checks            []*SelfTestCheck       `protobuf:"bytes,4,rep,name=checks,proto3" json:"checks,omitempty"` // Also the device's setup checklist, ticked from what it can see.
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -4693,27 +4612,6 @@ func (x *SelfTestReport) GetChecks() []*SelfTestCheck {
 		return x.Checks
 	}
 	return nil
-}
-
-func (x *SelfTestReport) GetJourney() []JourneyStep {
-	if x != nil {
-		return x.Journey
-	}
-	return nil
-}
-
-func (x *SelfTestReport) GetStep() JourneyStep {
-	if x != nil {
-		return x.Step
-	}
-	return JourneyStep_JOURNEY_STEP_UNSPECIFIED
-}
-
-func (x *SelfTestReport) GetFinished() bool {
-	if x != nil {
-		return x.Finished
-	}
-	return false
 }
 
 type SelfTestCheck struct {
@@ -5510,15 +5408,12 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\tdoor_host\x18\b \x01(\tR\bdoorHost\x12\x1b\n" +
 	"\tdoor_port\x18\t \x01(\rR\bdoorPort\x12-\n" +
 	"\x13door_tls_public_key\x18\n" +
-	" \x01(\fR\x10doorTlsPublicKey\"\xba\x02\n" +
+	" \x01(\fR\x10doorTlsPublicKey\"\xdf\x01\n" +
 	"\x0eSelfTestReport\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\"\n" +
 	"\rdevice_key_id\x18\x02 \x01(\tR\vdeviceKeyId\x12.\n" +
 	"\x13tested_unix_seconds\x18\x03 \x01(\x03R\x11testedUnixSeconds\x126\n" +
-	"\x06checks\x18\x04 \x03(\v2\x1e.agentkeyring.v2.SelfTestCheckR\x06checks\x126\n" +
-	"\ajourney\x18\x05 \x03(\x0e2\x1c.agentkeyring.v2.JourneyStepR\ajourney\x120\n" +
-	"\x04step\x18\x06 \x01(\x0e2\x1c.agentkeyring.v2.JourneyStepR\x04step\x12\x1a\n" +
-	"\bfinished\x18\a \x01(\bR\bfinished\"Q\n" +
+	"\x06checks\x18\x04 \x03(\v2\x1e.agentkeyring.v2.SelfTestCheckR\x06checksJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\ajourneyR\x04stepR\bfinished\"Q\n" +
 	"\rSelfTestCheck\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06passed\x18\x02 \x01(\bR\x06passed\x12\x14\n" +
@@ -5571,21 +5466,7 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x12LEASE_STATE_DENIED\x10\x03\x12\x1a\n" +
 	"\x16LEASE_STATE_UNANSWERED\x10\x04\x12\x15\n" +
 	"\x11LEASE_STATE_ENDED\x10\x05\x12\x19\n" +
-	"\x15LEASE_STATE_CANCELLED\x10\x06*\xd5\x02\n" +
-	"\vJourneyStep\x12\x1c\n" +
-	"\x18JOURNEY_STEP_UNSPECIFIED\x10\x00\x12\x18\n" +
-	"\x14JOURNEY_STEP_WELCOME\x10\x01\x12\x1f\n" +
-	"\x1bJOURNEY_STEP_CHOOSE_DEVICES\x10\x02\x12\x19\n" +
-	"\x15JOURNEY_STEP_PRACTICE\x10\x03\x12\x1a\n" +
-	"\x16JOURNEY_STEP_PASSWORDS\x10\x04\x12\x17\n" +
-	"\x13JOURNEY_STEP_AGENTS\x10\x05\x12\x1a\n" +
-	"\x16JOURNEY_STEP_ALWAYS_ON\x10\x06\x12\x17\n" +
-	"\x13JOURNEY_STEP_IPHONE\x10\a\x12\x16\n" +
-	"\x12JOURNEY_STEP_WATCH\x10\b\x12\x1a\n" +
-	"\x16JOURNEY_STEP_COMPUTERS\x10\t\x12\x1c\n" +
-	"\x18JOURNEY_STEP_TRY_DEVICES\x10\n" +
-	"\x12\x16\n" +
-	"\x12JOURNEY_STEP_READY\x10\v*\xa2\x01\n" +
+	"\x15LEASE_STATE_CANCELLED\x10\x06*\xa2\x01\n" +
 	"\tJoinState\x12\x1a\n" +
 	"\x16JOIN_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOIN_STATE_WAITING\x10\x01\x12\x17\n" +
@@ -5614,156 +5495,153 @@ func file_agentkeyring_v2_keyring_proto_rawDescGZIP() []byte {
 	return file_agentkeyring_v2_keyring_proto_rawDescData
 }
 
-var file_agentkeyring_v2_keyring_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_agentkeyring_v2_keyring_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
 var file_agentkeyring_v2_keyring_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_agentkeyring_v2_keyring_proto_goTypes = []any{
 	(DeviceKind)(0),              // 0: agentkeyring.v2.DeviceKind
 	(Rule)(0),                    // 1: agentkeyring.v2.Rule
 	(Choice)(0),                  // 2: agentkeyring.v2.Choice
 	(LeaseState)(0),              // 3: agentkeyring.v2.LeaseState
-	(JourneyStep)(0),             // 4: agentkeyring.v2.JourneyStep
-	(JoinState)(0),               // 5: agentkeyring.v2.JoinState
-	(ErrorCode)(0),               // 6: agentkeyring.v2.ErrorCode
-	(*Signed)(nil),               // 7: agentkeyring.v2.Signed
-	(*Members)(nil),              // 8: agentkeyring.v2.Members
-	(*Device)(nil),               // 9: agentkeyring.v2.Device
-	(*Machine)(nil),              // 10: agentkeyring.v2.Machine
-	(*Catalogue)(nil),            // 11: agentkeyring.v2.Catalogue
-	(*Login)(nil),                // 12: agentkeyring.v2.Login
-	(*SealedLogin)(nil),          // 13: agentkeyring.v2.SealedLogin
-	(*LoginSecret)(nil),          // 14: agentkeyring.v2.LoginSecret
-	(*Request)(nil),              // 15: agentkeyring.v2.Request
-	(*Answer)(nil),               // 16: agentkeyring.v2.Answer
-	(*Delivery)(nil),             // 17: agentkeyring.v2.Delivery
-	(*DeliveryContents)(nil),     // 18: agentkeyring.v2.DeliveryContents
-	(*TimedCode)(nil),            // 19: agentkeyring.v2.TimedCode
-	(*Lease)(nil),                // 20: agentkeyring.v2.Lease
-	(*Approval)(nil),             // 21: agentkeyring.v2.Approval
-	(*Work)(nil),                 // 22: agentkeyring.v2.Work
-	(*Notice)(nil),               // 23: agentkeyring.v2.Notice
-	(*RelayRequest)(nil),         // 24: agentkeyring.v2.RelayRequest
-	(*DeviceLog)(nil),            // 25: agentkeyring.v2.DeviceLog
-	(*Arrival)(nil),              // 26: agentkeyring.v2.Arrival
-	(*SetupOffer)(nil),           // 27: agentkeyring.v2.SetupOffer
-	(*RelayOffer)(nil),           // 28: agentkeyring.v2.RelayOffer
-	(*PushCredential)(nil),       // 29: agentkeyring.v2.PushCredential
-	(*SealedPushCredential)(nil), // 30: agentkeyring.v2.SealedPushCredential
-	(*LogsRequest)(nil),          // 31: agentkeyring.v2.LogsRequest
-	(*Logs)(nil),                 // 32: agentkeyring.v2.Logs
-	(*RelayResponse)(nil),        // 33: agentkeyring.v2.RelayResponse
-	(*Empty)(nil),                // 34: agentkeyring.v2.Empty
-	(*TestRequest)(nil),          // 35: agentkeyring.v2.TestRequest
-	(*RequestReference)(nil),     // 36: agentkeyring.v2.RequestReference
-	(*FindRequest)(nil),          // 37: agentkeyring.v2.FindRequest
-	(*FindResult)(nil),           // 38: agentkeyring.v2.FindResult
-	(*SealedLogins)(nil),         // 39: agentkeyring.v2.SealedLogins
-	(*AnswerUpload)(nil),         // 40: agentkeyring.v2.AnswerUpload
-	(*PushRegistration)(nil),     // 41: agentkeyring.v2.PushRegistration
-	(*EndRequest)(nil),           // 42: agentkeyring.v2.EndRequest
-	(*PracticeAsk)(nil),          // 43: agentkeyring.v2.PracticeAsk
-	(*Complaint)(nil),            // 44: agentkeyring.v2.Complaint
-	(*Complaints)(nil),           // 45: agentkeyring.v2.Complaints
-	(*Revisions)(nil),            // 46: agentkeyring.v2.Revisions
-	(*Bundle)(nil),               // 47: agentkeyring.v2.Bundle
-	(*JoinRequest)(nil),          // 48: agentkeyring.v2.JoinRequest
-	(*JoinRefusal)(nil),          // 49: agentkeyring.v2.JoinRefusal
-	(*JoinInvite)(nil),           // 50: agentkeyring.v2.JoinInvite
-	(*SelfTestReport)(nil),       // 51: agentkeyring.v2.SelfTestReport
-	(*SelfTestCheck)(nil),        // 52: agentkeyring.v2.SelfTestCheck
-	(*MembersChain)(nil),         // 53: agentkeyring.v2.MembersChain
-	(*SelfTests)(nil),            // 54: agentkeyring.v2.SelfTests
-	(*JoinStatus)(nil),           // 55: agentkeyring.v2.JoinStatus
-	(*PendingJoins)(nil),         // 56: agentkeyring.v2.PendingJoins
-	(*Changes)(nil),              // 57: agentkeyring.v2.Changes
-	(*PendingJoin)(nil),          // 58: agentkeyring.v2.PendingJoin
-	(*Error)(nil),                // 59: agentkeyring.v2.Error
+	(JoinState)(0),               // 4: agentkeyring.v2.JoinState
+	(ErrorCode)(0),               // 5: agentkeyring.v2.ErrorCode
+	(*Signed)(nil),               // 6: agentkeyring.v2.Signed
+	(*Members)(nil),              // 7: agentkeyring.v2.Members
+	(*Device)(nil),               // 8: agentkeyring.v2.Device
+	(*Machine)(nil),              // 9: agentkeyring.v2.Machine
+	(*Catalogue)(nil),            // 10: agentkeyring.v2.Catalogue
+	(*Login)(nil),                // 11: agentkeyring.v2.Login
+	(*SealedLogin)(nil),          // 12: agentkeyring.v2.SealedLogin
+	(*LoginSecret)(nil),          // 13: agentkeyring.v2.LoginSecret
+	(*Request)(nil),              // 14: agentkeyring.v2.Request
+	(*Answer)(nil),               // 15: agentkeyring.v2.Answer
+	(*Delivery)(nil),             // 16: agentkeyring.v2.Delivery
+	(*DeliveryContents)(nil),     // 17: agentkeyring.v2.DeliveryContents
+	(*TimedCode)(nil),            // 18: agentkeyring.v2.TimedCode
+	(*Lease)(nil),                // 19: agentkeyring.v2.Lease
+	(*Approval)(nil),             // 20: agentkeyring.v2.Approval
+	(*Work)(nil),                 // 21: agentkeyring.v2.Work
+	(*Notice)(nil),               // 22: agentkeyring.v2.Notice
+	(*RelayRequest)(nil),         // 23: agentkeyring.v2.RelayRequest
+	(*DeviceLog)(nil),            // 24: agentkeyring.v2.DeviceLog
+	(*Arrival)(nil),              // 25: agentkeyring.v2.Arrival
+	(*SetupOffer)(nil),           // 26: agentkeyring.v2.SetupOffer
+	(*RelayOffer)(nil),           // 27: agentkeyring.v2.RelayOffer
+	(*PushCredential)(nil),       // 28: agentkeyring.v2.PushCredential
+	(*SealedPushCredential)(nil), // 29: agentkeyring.v2.SealedPushCredential
+	(*LogsRequest)(nil),          // 30: agentkeyring.v2.LogsRequest
+	(*Logs)(nil),                 // 31: agentkeyring.v2.Logs
+	(*RelayResponse)(nil),        // 32: agentkeyring.v2.RelayResponse
+	(*Empty)(nil),                // 33: agentkeyring.v2.Empty
+	(*TestRequest)(nil),          // 34: agentkeyring.v2.TestRequest
+	(*RequestReference)(nil),     // 35: agentkeyring.v2.RequestReference
+	(*FindRequest)(nil),          // 36: agentkeyring.v2.FindRequest
+	(*FindResult)(nil),           // 37: agentkeyring.v2.FindResult
+	(*SealedLogins)(nil),         // 38: agentkeyring.v2.SealedLogins
+	(*AnswerUpload)(nil),         // 39: agentkeyring.v2.AnswerUpload
+	(*PushRegistration)(nil),     // 40: agentkeyring.v2.PushRegistration
+	(*EndRequest)(nil),           // 41: agentkeyring.v2.EndRequest
+	(*PracticeAsk)(nil),          // 42: agentkeyring.v2.PracticeAsk
+	(*Complaint)(nil),            // 43: agentkeyring.v2.Complaint
+	(*Complaints)(nil),           // 44: agentkeyring.v2.Complaints
+	(*Revisions)(nil),            // 45: agentkeyring.v2.Revisions
+	(*Bundle)(nil),               // 46: agentkeyring.v2.Bundle
+	(*JoinRequest)(nil),          // 47: agentkeyring.v2.JoinRequest
+	(*JoinRefusal)(nil),          // 48: agentkeyring.v2.JoinRefusal
+	(*JoinInvite)(nil),           // 49: agentkeyring.v2.JoinInvite
+	(*SelfTestReport)(nil),       // 50: agentkeyring.v2.SelfTestReport
+	(*SelfTestCheck)(nil),        // 51: agentkeyring.v2.SelfTestCheck
+	(*MembersChain)(nil),         // 52: agentkeyring.v2.MembersChain
+	(*SelfTests)(nil),            // 53: agentkeyring.v2.SelfTests
+	(*JoinStatus)(nil),           // 54: agentkeyring.v2.JoinStatus
+	(*PendingJoins)(nil),         // 55: agentkeyring.v2.PendingJoins
+	(*Changes)(nil),              // 56: agentkeyring.v2.Changes
+	(*PendingJoin)(nil),          // 57: agentkeyring.v2.PendingJoin
+	(*Error)(nil),                // 58: agentkeyring.v2.Error
 }
 var file_agentkeyring_v2_keyring_proto_depIdxs = []int32{
-	9,  // 0: agentkeyring.v2.Members.devices:type_name -> agentkeyring.v2.Device
-	10, // 1: agentkeyring.v2.Members.machines:type_name -> agentkeyring.v2.Machine
+	8,  // 0: agentkeyring.v2.Members.devices:type_name -> agentkeyring.v2.Device
+	9,  // 1: agentkeyring.v2.Members.machines:type_name -> agentkeyring.v2.Machine
 	0,  // 2: agentkeyring.v2.Device.kind:type_name -> agentkeyring.v2.DeviceKind
-	12, // 3: agentkeyring.v2.Catalogue.logins:type_name -> agentkeyring.v2.Login
+	11, // 3: agentkeyring.v2.Catalogue.logins:type_name -> agentkeyring.v2.Login
 	1,  // 4: agentkeyring.v2.Login.rule:type_name -> agentkeyring.v2.Rule
 	2,  // 5: agentkeyring.v2.Answer.choice:type_name -> agentkeyring.v2.Choice
-	19, // 6: agentkeyring.v2.DeliveryContents.one_time_codes:type_name -> agentkeyring.v2.TimedCode
+	18, // 6: agentkeyring.v2.DeliveryContents.one_time_codes:type_name -> agentkeyring.v2.TimedCode
 	3,  // 7: agentkeyring.v2.Lease.state:type_name -> agentkeyring.v2.LeaseState
-	7,  // 8: agentkeyring.v2.Approval.answer:type_name -> agentkeyring.v2.Signed
-	17, // 9: agentkeyring.v2.Approval.delivery:type_name -> agentkeyring.v2.Delivery
-	13, // 10: agentkeyring.v2.Work.sealed_login:type_name -> agentkeyring.v2.SealedLogin
-	20, // 11: agentkeyring.v2.Work.outcome:type_name -> agentkeyring.v2.Lease
-	12, // 12: agentkeyring.v2.Work.login:type_name -> agentkeyring.v2.Login
-	7,  // 13: agentkeyring.v2.RelayRequest.ask_signed:type_name -> agentkeyring.v2.Signed
-	36, // 14: agentkeyring.v2.RelayRequest.watch:type_name -> agentkeyring.v2.RequestReference
-	36, // 15: agentkeyring.v2.RelayRequest.collect:type_name -> agentkeyring.v2.RequestReference
-	36, // 16: agentkeyring.v2.RelayRequest.end:type_name -> agentkeyring.v2.RequestReference
-	37, // 17: agentkeyring.v2.RelayRequest.find:type_name -> agentkeyring.v2.FindRequest
-	34, // 18: agentkeyring.v2.RelayRequest.automatic_logins:type_name -> agentkeyring.v2.Empty
-	34, // 19: agentkeyring.v2.RelayRequest.members:type_name -> agentkeyring.v2.Empty
-	34, // 20: agentkeyring.v2.RelayRequest.catalogue:type_name -> agentkeyring.v2.Empty
-	34, // 21: agentkeyring.v2.RelayRequest.watch_work:type_name -> agentkeyring.v2.Empty
-	36, // 22: agentkeyring.v2.RelayRequest.get_work:type_name -> agentkeyring.v2.RequestReference
-	40, // 23: agentkeyring.v2.RelayRequest.answer:type_name -> agentkeyring.v2.AnswerUpload
-	41, // 24: agentkeyring.v2.RelayRequest.register_push:type_name -> agentkeyring.v2.PushRegistration
-	7,  // 25: agentkeyring.v2.RelayRequest.publish_members:type_name -> agentkeyring.v2.Signed
-	7,  // 26: agentkeyring.v2.RelayRequest.publish_catalogue:type_name -> agentkeyring.v2.Signed
-	39, // 27: agentkeyring.v2.RelayRequest.publish_sealed_logins:type_name -> agentkeyring.v2.SealedLogins
-	34, // 28: agentkeyring.v2.RelayRequest.sealed_logins:type_name -> agentkeyring.v2.Empty
-	48, // 29: agentkeyring.v2.RelayRequest.join:type_name -> agentkeyring.v2.JoinRequest
-	34, // 30: agentkeyring.v2.RelayRequest.pending_joins:type_name -> agentkeyring.v2.Empty
-	35, // 31: agentkeyring.v2.RelayRequest.test_request:type_name -> agentkeyring.v2.TestRequest
-	7,  // 32: agentkeyring.v2.RelayRequest.report_self_test:type_name -> agentkeyring.v2.Signed
-	34, // 33: agentkeyring.v2.RelayRequest.self_tests:type_name -> agentkeyring.v2.Empty
-	49, // 34: agentkeyring.v2.RelayRequest.refuse_join:type_name -> agentkeyring.v2.JoinRefusal
-	7,  // 35: agentkeyring.v2.RelayRequest.report_log:type_name -> agentkeyring.v2.Signed
-	31, // 36: agentkeyring.v2.RelayRequest.logs:type_name -> agentkeyring.v2.LogsRequest
-	7,  // 37: agentkeyring.v2.RelayRequest.arrived:type_name -> agentkeyring.v2.Signed
-	34, // 38: agentkeyring.v2.RelayRequest.setup_offer:type_name -> agentkeyring.v2.Empty
-	20, // 39: agentkeyring.v2.RelayResponse.lease:type_name -> agentkeyring.v2.Lease
-	21, // 40: agentkeyring.v2.RelayResponse.approval:type_name -> agentkeyring.v2.Approval
-	38, // 41: agentkeyring.v2.RelayResponse.find:type_name -> agentkeyring.v2.FindResult
-	39, // 42: agentkeyring.v2.RelayResponse.sealed_logins:type_name -> agentkeyring.v2.SealedLogins
-	7,  // 43: agentkeyring.v2.RelayResponse.signed:type_name -> agentkeyring.v2.Signed
-	22, // 44: agentkeyring.v2.RelayResponse.work:type_name -> agentkeyring.v2.Work
-	55, // 45: agentkeyring.v2.RelayResponse.join:type_name -> agentkeyring.v2.JoinStatus
-	56, // 46: agentkeyring.v2.RelayResponse.pending_joins:type_name -> agentkeyring.v2.PendingJoins
-	34, // 47: agentkeyring.v2.RelayResponse.done:type_name -> agentkeyring.v2.Empty
-	59, // 48: agentkeyring.v2.RelayResponse.error:type_name -> agentkeyring.v2.Error
-	54, // 49: agentkeyring.v2.RelayResponse.self_tests:type_name -> agentkeyring.v2.SelfTests
-	53, // 50: agentkeyring.v2.RelayResponse.members_chain:type_name -> agentkeyring.v2.MembersChain
-	57, // 51: agentkeyring.v2.RelayResponse.changes:type_name -> agentkeyring.v2.Changes
-	32, // 52: agentkeyring.v2.RelayResponse.logs:type_name -> agentkeyring.v2.Logs
-	27, // 53: agentkeyring.v2.RelayResponse.setup_offer:type_name -> agentkeyring.v2.SetupOffer
-	12, // 54: agentkeyring.v2.FindResult.logins:type_name -> agentkeyring.v2.Login
-	13, // 55: agentkeyring.v2.SealedLogins.logins:type_name -> agentkeyring.v2.SealedLogin
-	7,  // 56: agentkeyring.v2.AnswerUpload.answer:type_name -> agentkeyring.v2.Signed
-	17, // 57: agentkeyring.v2.AnswerUpload.delivery:type_name -> agentkeyring.v2.Delivery
-	44, // 58: agentkeyring.v2.Complaints.complaints:type_name -> agentkeyring.v2.Complaint
-	7,  // 59: agentkeyring.v2.Bundle.members:type_name -> agentkeyring.v2.Signed
-	7,  // 60: agentkeyring.v2.Bundle.catalogue:type_name -> agentkeyring.v2.Signed
-	7,  // 61: agentkeyring.v2.Bundle.push_registrations:type_name -> agentkeyring.v2.Signed
-	13, // 62: agentkeyring.v2.Bundle.copies:type_name -> agentkeyring.v2.SealedLogin
-	46, // 63: agentkeyring.v2.Bundle.revisions:type_name -> agentkeyring.v2.Revisions
-	7,  // 64: agentkeyring.v2.Bundle.members_since:type_name -> agentkeyring.v2.Signed
-	10, // 65: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
-	9,  // 66: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
-	52, // 67: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck
-	4,  // 68: agentkeyring.v2.SelfTestReport.journey:type_name -> agentkeyring.v2.JourneyStep
-	4,  // 69: agentkeyring.v2.SelfTestReport.step:type_name -> agentkeyring.v2.JourneyStep
-	7,  // 70: agentkeyring.v2.MembersChain.revisions:type_name -> agentkeyring.v2.Signed
-	7,  // 71: agentkeyring.v2.SelfTests.reports:type_name -> agentkeyring.v2.Signed
-	5,  // 72: agentkeyring.v2.JoinStatus.state:type_name -> agentkeyring.v2.JoinState
-	7,  // 73: agentkeyring.v2.JoinStatus.members:type_name -> agentkeyring.v2.Signed
-	49, // 74: agentkeyring.v2.JoinStatus.refusal:type_name -> agentkeyring.v2.JoinRefusal
-	30, // 75: agentkeyring.v2.JoinStatus.push_credential:type_name -> agentkeyring.v2.SealedPushCredential
-	58, // 76: agentkeyring.v2.PendingJoins.joins:type_name -> agentkeyring.v2.PendingJoin
-	58, // 77: agentkeyring.v2.Changes.pending_joins:type_name -> agentkeyring.v2.PendingJoin
-	48, // 78: agentkeyring.v2.PendingJoin.request:type_name -> agentkeyring.v2.JoinRequest
-	6,  // 79: agentkeyring.v2.Error.code:type_name -> agentkeyring.v2.ErrorCode
-	80, // [80:80] is the sub-list for method output_type
-	80, // [80:80] is the sub-list for method input_type
-	80, // [80:80] is the sub-list for extension type_name
-	80, // [80:80] is the sub-list for extension extendee
-	0,  // [0:80] is the sub-list for field type_name
+	6,  // 8: agentkeyring.v2.Approval.answer:type_name -> agentkeyring.v2.Signed
+	16, // 9: agentkeyring.v2.Approval.delivery:type_name -> agentkeyring.v2.Delivery
+	12, // 10: agentkeyring.v2.Work.sealed_login:type_name -> agentkeyring.v2.SealedLogin
+	19, // 11: agentkeyring.v2.Work.outcome:type_name -> agentkeyring.v2.Lease
+	11, // 12: agentkeyring.v2.Work.login:type_name -> agentkeyring.v2.Login
+	6,  // 13: agentkeyring.v2.RelayRequest.ask_signed:type_name -> agentkeyring.v2.Signed
+	35, // 14: agentkeyring.v2.RelayRequest.watch:type_name -> agentkeyring.v2.RequestReference
+	35, // 15: agentkeyring.v2.RelayRequest.collect:type_name -> agentkeyring.v2.RequestReference
+	35, // 16: agentkeyring.v2.RelayRequest.end:type_name -> agentkeyring.v2.RequestReference
+	36, // 17: agentkeyring.v2.RelayRequest.find:type_name -> agentkeyring.v2.FindRequest
+	33, // 18: agentkeyring.v2.RelayRequest.automatic_logins:type_name -> agentkeyring.v2.Empty
+	33, // 19: agentkeyring.v2.RelayRequest.members:type_name -> agentkeyring.v2.Empty
+	33, // 20: agentkeyring.v2.RelayRequest.catalogue:type_name -> agentkeyring.v2.Empty
+	33, // 21: agentkeyring.v2.RelayRequest.watch_work:type_name -> agentkeyring.v2.Empty
+	35, // 22: agentkeyring.v2.RelayRequest.get_work:type_name -> agentkeyring.v2.RequestReference
+	39, // 23: agentkeyring.v2.RelayRequest.answer:type_name -> agentkeyring.v2.AnswerUpload
+	40, // 24: agentkeyring.v2.RelayRequest.register_push:type_name -> agentkeyring.v2.PushRegistration
+	6,  // 25: agentkeyring.v2.RelayRequest.publish_members:type_name -> agentkeyring.v2.Signed
+	6,  // 26: agentkeyring.v2.RelayRequest.publish_catalogue:type_name -> agentkeyring.v2.Signed
+	38, // 27: agentkeyring.v2.RelayRequest.publish_sealed_logins:type_name -> agentkeyring.v2.SealedLogins
+	33, // 28: agentkeyring.v2.RelayRequest.sealed_logins:type_name -> agentkeyring.v2.Empty
+	47, // 29: agentkeyring.v2.RelayRequest.join:type_name -> agentkeyring.v2.JoinRequest
+	33, // 30: agentkeyring.v2.RelayRequest.pending_joins:type_name -> agentkeyring.v2.Empty
+	34, // 31: agentkeyring.v2.RelayRequest.test_request:type_name -> agentkeyring.v2.TestRequest
+	6,  // 32: agentkeyring.v2.RelayRequest.report_self_test:type_name -> agentkeyring.v2.Signed
+	33, // 33: agentkeyring.v2.RelayRequest.self_tests:type_name -> agentkeyring.v2.Empty
+	48, // 34: agentkeyring.v2.RelayRequest.refuse_join:type_name -> agentkeyring.v2.JoinRefusal
+	6,  // 35: agentkeyring.v2.RelayRequest.report_log:type_name -> agentkeyring.v2.Signed
+	30, // 36: agentkeyring.v2.RelayRequest.logs:type_name -> agentkeyring.v2.LogsRequest
+	6,  // 37: agentkeyring.v2.RelayRequest.arrived:type_name -> agentkeyring.v2.Signed
+	33, // 38: agentkeyring.v2.RelayRequest.setup_offer:type_name -> agentkeyring.v2.Empty
+	19, // 39: agentkeyring.v2.RelayResponse.lease:type_name -> agentkeyring.v2.Lease
+	20, // 40: agentkeyring.v2.RelayResponse.approval:type_name -> agentkeyring.v2.Approval
+	37, // 41: agentkeyring.v2.RelayResponse.find:type_name -> agentkeyring.v2.FindResult
+	38, // 42: agentkeyring.v2.RelayResponse.sealed_logins:type_name -> agentkeyring.v2.SealedLogins
+	6,  // 43: agentkeyring.v2.RelayResponse.signed:type_name -> agentkeyring.v2.Signed
+	21, // 44: agentkeyring.v2.RelayResponse.work:type_name -> agentkeyring.v2.Work
+	54, // 45: agentkeyring.v2.RelayResponse.join:type_name -> agentkeyring.v2.JoinStatus
+	55, // 46: agentkeyring.v2.RelayResponse.pending_joins:type_name -> agentkeyring.v2.PendingJoins
+	33, // 47: agentkeyring.v2.RelayResponse.done:type_name -> agentkeyring.v2.Empty
+	58, // 48: agentkeyring.v2.RelayResponse.error:type_name -> agentkeyring.v2.Error
+	53, // 49: agentkeyring.v2.RelayResponse.self_tests:type_name -> agentkeyring.v2.SelfTests
+	52, // 50: agentkeyring.v2.RelayResponse.members_chain:type_name -> agentkeyring.v2.MembersChain
+	56, // 51: agentkeyring.v2.RelayResponse.changes:type_name -> agentkeyring.v2.Changes
+	31, // 52: agentkeyring.v2.RelayResponse.logs:type_name -> agentkeyring.v2.Logs
+	26, // 53: agentkeyring.v2.RelayResponse.setup_offer:type_name -> agentkeyring.v2.SetupOffer
+	11, // 54: agentkeyring.v2.FindResult.logins:type_name -> agentkeyring.v2.Login
+	12, // 55: agentkeyring.v2.SealedLogins.logins:type_name -> agentkeyring.v2.SealedLogin
+	6,  // 56: agentkeyring.v2.AnswerUpload.answer:type_name -> agentkeyring.v2.Signed
+	16, // 57: agentkeyring.v2.AnswerUpload.delivery:type_name -> agentkeyring.v2.Delivery
+	43, // 58: agentkeyring.v2.Complaints.complaints:type_name -> agentkeyring.v2.Complaint
+	6,  // 59: agentkeyring.v2.Bundle.members:type_name -> agentkeyring.v2.Signed
+	6,  // 60: agentkeyring.v2.Bundle.catalogue:type_name -> agentkeyring.v2.Signed
+	6,  // 61: agentkeyring.v2.Bundle.push_registrations:type_name -> agentkeyring.v2.Signed
+	12, // 62: agentkeyring.v2.Bundle.copies:type_name -> agentkeyring.v2.SealedLogin
+	45, // 63: agentkeyring.v2.Bundle.revisions:type_name -> agentkeyring.v2.Revisions
+	6,  // 64: agentkeyring.v2.Bundle.members_since:type_name -> agentkeyring.v2.Signed
+	9,  // 65: agentkeyring.v2.JoinRequest.machine:type_name -> agentkeyring.v2.Machine
+	8,  // 66: agentkeyring.v2.JoinRequest.device:type_name -> agentkeyring.v2.Device
+	51, // 67: agentkeyring.v2.SelfTestReport.checks:type_name -> agentkeyring.v2.SelfTestCheck
+	6,  // 68: agentkeyring.v2.MembersChain.revisions:type_name -> agentkeyring.v2.Signed
+	6,  // 69: agentkeyring.v2.SelfTests.reports:type_name -> agentkeyring.v2.Signed
+	4,  // 70: agentkeyring.v2.JoinStatus.state:type_name -> agentkeyring.v2.JoinState
+	6,  // 71: agentkeyring.v2.JoinStatus.members:type_name -> agentkeyring.v2.Signed
+	48, // 72: agentkeyring.v2.JoinStatus.refusal:type_name -> agentkeyring.v2.JoinRefusal
+	29, // 73: agentkeyring.v2.JoinStatus.push_credential:type_name -> agentkeyring.v2.SealedPushCredential
+	57, // 74: agentkeyring.v2.PendingJoins.joins:type_name -> agentkeyring.v2.PendingJoin
+	57, // 75: agentkeyring.v2.Changes.pending_joins:type_name -> agentkeyring.v2.PendingJoin
+	47, // 76: agentkeyring.v2.PendingJoin.request:type_name -> agentkeyring.v2.JoinRequest
+	5,  // 77: agentkeyring.v2.Error.code:type_name -> agentkeyring.v2.ErrorCode
+	78, // [78:78] is the sub-list for method output_type
+	78, // [78:78] is the sub-list for method input_type
+	78, // [78:78] is the sub-list for extension type_name
+	78, // [78:78] is the sub-list for extension extendee
+	0,  // [0:78] is the sub-list for field type_name
 }
 
 func init() { file_agentkeyring_v2_keyring_proto_init() }
@@ -5826,7 +5704,7 @@ func file_agentkeyring_v2_keyring_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentkeyring_v2_keyring_proto_rawDesc), len(file_agentkeyring_v2_keyring_proto_rawDesc)),
-			NumEnums:      7,
+			NumEnums:      6,
 			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   0,

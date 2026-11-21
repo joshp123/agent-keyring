@@ -10,83 +10,112 @@ What this file does not claim: that no other state exists. The sections below ar
 
 ## Mac first run
 
-Code: `AgentKeyringFeature/FirstRun.swift` (states and transitions, pure), `MirrorAppModel.send` (saves each move, bounces the Dock icon), `AgentKeyring/AgentKeyringApp.swift` `FirstRunHome` and `AgentKeyringScreenBackends/SetupScreens.swift` (draw it). One journey, the same list of steps on every device; its pages wait for the designer's drawing, so the windows today are interim.
+Rewritten by AI on 2026.11.21 by model claude opus 5.5, for the four local steps. Code: `AgentKeyringFeature/FirstRun.swift` (states and transitions, pure), `MirrorAppModel.send` (saves each move), `AgentKeyring/AgentKeyringApp.swift` `FirstRunHome` and `AgentKeyringScreenBackends/SetupScreens.swift` (map the state and the facts to the pages), `AgentKeyringApprovalUI/Mac/MacSetupPages.swift` (draw them). Tests: `FirstRunTests`.
 
-One value, `FirstRun`, is saved in the app's settings: welcome, chooseDevices, `journey(devices, page)`, or finished. `devices` is what he chose (iPhone, Apple Watch, other computers), and the journey's pages are built from it (`FirstRun.pages(for:)`): practice, passwords, agents, then a computer that stays on if he chose any device (always passed over since 21 November: no computer needs to stay on), his iPhone, his Apple Watch, other computers, as chosen, then trying a request on each device, then Ready. Facts the world owns are read beside it and never copied into it:
+One value, `FirstRun`, is saved in the app's settings: the window he is on (`step`) and the practice request on step 1 (`practice`), kept when he moves on so Back finds his answer. First run asks nothing of any other device. Facts the world owns are read beside it and never copied into it:
 
-- Touch ID can be used: `MacApprover.shared.state`.
-- The passwords, and whether the only one is the test password.
-- The first request from an agent on this Mac that he approved ("Try it now"): read from the leases.
-- Which devices and computers have joined: the members list. The iPhone counts as done once it is listed and its copies are made (`MacDevice.filling` no longer names it); Apple Watch once it is listed. Devices send no status report any more.
-- The last practice request on each device (`MirrorAppModel.practiceResults`): sent, with Apple, arrived, approved, denied with his words, no answer, or failed. Not saved.
+- Touch ID can be used: `MacApprover.shared.state` (ready, lid closed, no fingerprint).
+- His passwords: copied (the list holds more than the test password) or the test password only.
+- How far a copy from Passwords has got: `MirrorAppModel.passwordsCopy` (below).
+- Which devices and computers have joined: the members list, read each time Ready is drawn.
 
-| State | Event | Next |
-|---|---|---|
-| welcome | Get Started | chooseDevices |
-| chooseDevices | Continue with his choice | journey(choice, practice) |
-| journey(practice) | approved with Touch ID | passwords (copyPasswords) |
-| journey(practice) | Deny, with or without words | practiceDenied(reply); Try Again goes back |
-| journey(copyPasswords) | his passwords arrive / Use the Test Password Only | tellAgents(passwords(n) / sample) |
-| journey(tellAgents(sample)), journey(ready) | Copy Your Own Passwords | copyPasswords |
-| journey(any page with Continue or Skip) | Continue / Skip | the next page of his journey, passing over what is done: the computer that stays on (always), the iPhone once it is added and filled, the Apple Watch once it is added |
-| journey(stayingOn), saved by an earlier build | the app starts | the page after it |
-| journey(addPhone) | the iPhone is added and its copies made | the next page |
-| journey(addWatch) | the Apple Watch is added | the next page |
-| journey(ready) | Done | finished: the same window becomes Passwords and Devices |
+| Step | Practice | Event | Next |
+|---|---|---|---|
+| welcome | | Get Started | practice |
+| practice | notSent, approved, denied | Send Practice Request (a new id) | practice, waiting(id): the card appears beside the window |
+| practice | waiting(id) | approved for id / denied for id, with his words | practice, approved / denied(reply) |
+| practice | approved, denied | Continue | copy |
+| practice | any | Back | welcome, with practice notSent |
+| copy | | Back | practice, answer kept |
+| copy | | Continue (shown only once his passwords are copied) / Use Test Password Only | connectAgent(notTried) |
+| connectAgent(notTried) | | the first request from an agent on this Mac is approved or denied, on any device | connectAgent(worked(agent) / denied(agent)) |
+| connectAgent(notTried) | | Skip the Test | ready |
+| connectAgent(worked, denied) | | Continue | ready |
+| connectAgent | | Back | copy |
+| ready | | Show Passwords | finished: the same window becomes Passwords and Devices |
 
-An event with no row leaves the state as it is. A step that finishes while he is in another app (his passwords arriving, a device done) bounces the Dock icon once; no window is ever pushed in front.
+An event with no row leaves the state as it is. The device sheets opened from Ready (below) change nothing here; closing one leaves him on Ready.
 
-Devices opens the same windows in a sheet.
+What must always be true:
 
-### Adding a device
+- **Exactly one window.** The window is `FirstRun` and the facts above; nothing else chooses it.
+- **The practice card appears only after Send Practice Request**, and answers only the request it was opened for: the card's backend takes the id when he clicks, so a Touch ID that lands late cannot answer a newer request. When the lid is closed or Touch ID has no fingerprint, step 1 says so and Send Practice Request is off.
+- **Connect an agent has no waiting line.** The app cannot know that he pasted the note anywhere. The page says what to expect, and then shows the outcome of the first real request.
+- **Only Show Passwords finishes first run.** Quitting on Ready opens on Ready.
+- **A restart never strands him.** Every state resumes as saved, except that a practice request left waiting becomes notSent, so nothing appears beside the window by itself. An earlier build saved first run as one enum: its finished opens as finished, and anything else (its journey of chosen devices) starts first run again at Welcome. A Mac that finished first run before it was saved at all opens as finished.
+- **The request card never covers the window that explains it.** It goes to the right of Agent Keyring's window, else to its left, else the window moves to the screen's left edge (`RequestPanel.frame`).
+- **A fresh container is a new install.** On its first launch the app deletes what an earlier install left in the keychain and keeps this Mac's keys (`MirrorAppModel.forgetPreviousInstall`).
+- **There is always exactly one test password**, and a copy from Passwords replaces the list one entry for one entry (`SnapshotMerger`), keeping each entry's id and so its rule.
 
-`MacDevice.approveJoin`: after his Touch ID the device is in the members list at once, so it moves on in seconds. A new iPhone or Apple Watch then needs a copy of every password: this Mac opens its own copies with the same approval and seals them again for the device in batches of 50, off the main thread (`Resealer`), saving each batch; the iPhone hears from a silent push that its copies changed and fetches its bundle. `MacDevice.filling` (the device, how many done, of how many) is set while that runs; the request panel stays up showing "<device> added. Copying your passwords to it: n of 547." and closes when it ends. If the app quits mid-way, the device has the batches already saved; adding the rest needs his Touch ID again (known and left alone). Joining itself is "Joining the Mac", below.
+Deleted with the journey on 21 November: the device choice (`Devices`, `chooseDevices`), the pages built from it (`pages(for:)`), `Facts`, `.deviceDone`, `firstRunFacts`, the page for a computer that stays on, `JourneyStepKind`, and `SelfTestReport.journey`, `step` and `finished` with the `JourneyStep` enum in the protocol (numbers 5 to 7 reserved).
+
+### Adding an iPhone or a computer
+
+Code: `MacAddIPhoneSheet` and `MacAddComputerSheet` in `AgentKeyringApprovalUI/Mac/MacDeviceSheets.swift`, worked out by `SetupScreens.addIPhone` and `addComputer` from `MacDevice.door`, `filling`, the members list and `joinHistory`. The same sheets open from Ready and from Devices. Each holds only what it was opened with: the iPhone sheet, when it opened and which iPhones were already listed; the computer sheet, the invitation it made.
+
+Add your iPhone, in order of what wins:
+
+| State | When |
+|---|---|
+| noTailscale / doorProblem | the door is not open: no Tailscale address, or a port would not open. Check Again reads the address now. |
+| copying(name, done, total) | an iPhone (not an Apple Watch) not listed when the sheet opened is being given its copies |
+| stopped(name, done, total, reason) | its copies stopped; `filling` keeps the reason for 30 seconds, then the iPhone shows as added. Adding the rest needs it removed and added again. |
+| added(name) | an iPhone not listed when the sheet opened is in the members list |
+| joinAsked(name) | an iPhone's join is waiting: the card is beside the window |
+| waiting(notAdded) | otherwise; `notAdded` names an iPhone refused, withdrawn or run out since the sheet opened |
+
+Add another computer: noTailscale or doorProblem as above; starting while its invitation is not made yet (the door is still opening); otherwise the sheet's invitation (`MacDevice.machineInvite`, ten minutes, one joiner) decides: withdrawn if two computers proved it; then the join it admitted, as joinAsked, added, notAdded (refused) or expired; with no join, expired once its time passes (the sheet is drawn again at that moment) and otherwise the invite with its time. Create New Invite makes a new invitation. The command is not shown, only copied (Copy Prompt for Agent, Copy Command): its invitation is one word of about 250 characters, which the page parts cannot wrap without splitting it.
+
+### Adding a device, after Touch ID
+
+`MacDevice.approveJoin`: after his Touch ID the device is in the members list at once. A new iPhone or Apple Watch also signs the catalogue again, so the list it is filled from is the one the devices are told about, changes from a copy included. It then needs a copy of every password: this Mac opens its own copies with the same approval and seals them again for the device in batches of 50, off the main thread (`Resealer`); `MacDevice.filling` (the device, how many done, of how many) is set while that runs, and the card beside the window says "Copying your passwords to it: n of 547." If the app quits mid-way, the device has the batches already saved; adding the rest needs his Touch ID again (known and left alone). Joining itself is "Joining the Mac", below.
 
 ### Practice requests from the Mac
 
-Send Practice Request on another device makes a practice request for that device and pushes it (`MacDevice.practice(on:)`; "The Mac's own requests", below). The row shows each step: sending, with Apple (Apple accepted the push), on the device (it said the request arrived), then the answer. While one waits for a device, a second is never made. A device may ask the Mac for one itself (POST /v2/practice); one for this Mac shows the practice panel here. On this Mac the request panel shows the same practice request first run uses.
+Send Practice Request on another device, in Devices, makes a practice request for that device and pushes it (`MacDevice.practice(on:)`; "The Mac's own requests", below). The row shows each step: sending, with Apple (Apple accepted the push), on the device (it said the request arrived), then the answer. While one waits for a device, a second is never made. A device may ask the Mac for one itself (POST /v2/practice); one for this Mac shows the practice card here.
 
 ### The test password
 
-`MirrorItem.testPassword`: example.com, you@example.com, password "hello". The first copy brings it (`MirrorAppModel.importBatch`) and every later copy keeps it, as it keeps any password missing from an export; "Use the Test Password Only" is a copy of nothing. It is an ordinary Ask password: in his list and the catalogue like any other, so an agent on any of his computers can try the whole route with a secret that does not matter.
+`MirrorItem.testPassword`: example.com, you@example.com, password "hello". The first copy brings it (`MirrorAppModel.importBatch`) and every later copy keeps it, as it keeps any password missing from an export; "Use Test Password Only" is a copy of nothing. It is an ordinary Ask password: in his list and the catalogue like any other, so an agent on any of his computers can try the whole route with a secret that does not matter.
 
 ### Copying from the Passwords app
 
-Code: `PasswordsCopy` in `FirstRun.swift`, `MirrorCredentialImport.swift`. First run's "Copy your passwords" and the main window's Copy from Passwords are the same screens and the same value, `MirrorAppModel.passwordsCopy`. It is nil when no copy is open; first run draws nil as the three steps, and the main window shows its list. It is not saved.
+Code: `PasswordsCopy` in `FirstRun.swift`, `MirrorCredentialImport.swift`. First run's "Copy your passwords" and the main window's Copy Again are the same page (`MacCopyPage`) and the same value, `MirrorAppModel.passwordsCopy`. It is nil when no copy is open; first run draws nil as the guide, and the main window shows its list. It is not saved. Beside it, `copyGuideStep` (1 to 5) is which step of the guide he is reading; only Previous and Next move it.
 
 | State | Event | Next |
 |---|---|---|
 | nil or steps | Open Passwords (Copy Again in the main window) | waiting |
 | waiting | five minutes with nothing | noneArrived |
-| steps, waiting or noneArrived | "Agent Keyring isn't in the list?" | allowExport(asking: false) |
-| allowExport(false) | Continue: macOS asks to turn on AutoFill | allowExport(true) |
-| allowExport(true) | Turn On | steps |
-| allowExport(true) | Not Now, then macOS's 10 seconds | allowExport(false) |
+| steps, waiting or noneArrived | "Agent Keyring isn't in the list?" | allowExport: the AutoFill sheet |
+| allowExport | Open AutoFill Settings | allowExport: System Settings opens at AutoFill |
+| allowExport | the app comes to the front and Agent Keyring is on in AutoFill | steps: he starts the export again |
+| allowExport | Cancel | steps |
 | any | the export starts arriving | copying |
-| copying | sealed and saved | nil |
-| copying | failed | steps, with the error |
-| any | Use the Test Password Only, or Cancel in the main window | nil |
+| copying | sealed and saved | nil; first run shows "n passwords copied" and Continue |
+| copying | failed | steps, with the reason under the guide |
+| any | Use Test Password Only, or Cancel in the main window | nil |
 
-What must always be true:
+Found and fixed (tests in `FirstRunTests`):
 
-- **Exactly one screen.** The window is `FirstRun`, `passwordsCopy` and the facts above; nothing else chooses it.
-- **The practice request exists only in `practice`, and only while Touch ID is ready.** When the lid is closed or no fingerprint is enrolled, the window says "Open the lid" or "Add a fingerprint" in its place.
-- **The request panel never covers the window that explains it.** It goes to the right of Agent Keyring's window, else to its left, else the window moves to the screen's left edge (`RequestPanel.frame`, tested on 1728- and 1280-point screens).
-- **A restart never strands him.** Every state resumes as saved, and a copy starts again from the steps. If a later build cannot read the saved state, first run starts at welcome. A Mac that finished first run before this state was saved opens as finished.
-- **A fresh container is a new install.** On its first launch the app deletes what an earlier install left in the keychain (its lists, members and push registrations, its rules, the invitation it left for the iPhone in iCloud Keychain) and keeps this Mac's keys (`MirrorAppModel.forgetPreviousInstall`).
-- **There is always exactly one test password.** A copy from Passwords keeps it; nothing removes it.
-- **A copy from Passwords replaces the list, one entry for one entry** (`SnapshotMerger`). The Passwords app gives every item new ids on each export, so an entry is matched by those ids first and then by its sites, account names and title, one to one, keeping the earlier entry's id and so its rule. When two earlier entries fit one, the one with a rule he set is kept. An entry the copy leaves out goes from the list, and the next Touch ID that signs the catalogue takes its copies out of every bundle; the test password stays.
-
-Found and fixed (tests in `FirstRunTests`, and `TestABlockedLoginHasNoCopyOnTheRelay` in `internal/relay`):
-
-- **A second copy from Passwords doubled the list** (20 Nov): every item arrived with new ids, so nothing matched and the earlier entries were all kept. The next copy goes back to one of each, keeping the entries his rules are on (`SnapshotMergerTests`).
+- **A second copy from Passwords doubled the list** (20 Nov): the next copy goes back to one of each, keeping the entries his rules are on (`SnapshotMergerTests`).
 - **A late timer.** The five-minute timer moves the copy on only from `waiting`, so it cannot fire after the passwords arrived.
-- **Adding his iPhone froze the Mac for about two minutes** (20 Nov): about four Secure Enclave operations for each of 547 passwords ran on the main thread before the iPhone was even added, and the iPhone gave up and asked again. The iPhone is now added first and its copies follow off the main thread, with progress.
-- **"Add your Apple Watch" showed its steps after the Watch had joined from the iPhone**, and the Mac stood still while the iPhone finished: first run moved only on his buttons. Joins and other devices' finishes are now events, and the journey passes over what is done (`FirstRunTests`).
-- **Done left him on nothing.** It closed the window; now the same window becomes Passwords and Devices.
-- **A practice request was made again each time iOS cut the connection** (four for one iPhone on 20 Nov). It now has one id, is rejoined, and there is at most one waiting per device (`TestAPracticeRequestIsRejoinedNotMadeAgain`). The join connection has a heartbeat, so a waiting iPhone never times out.
-- **"Set Up Agents on This Mac" changed his folders.** The button and `install`'s link switching are gone; the app gives him a note for his agents and changes nothing.
-- **The ten flags first run replaced** (`isImporting`, `awaitingExport`, `exportTimedOut`, `showsAutoFillHelp`, `providerState`, `canAskAgain`, `selfTest`, `firstRunFinished`, the window's own `lidClosed` and `needsFingerprint`). Choosing the test password only also closes an open copy, so the main window never opens later on a copy he abandoned.
+- **Adding his iPhone froze the Mac for about two minutes** (20 Nov): the iPhone is now added first and its copies follow off the main thread, with progress.
+- **A practice approval moved first run by itself** from inside the Touch ID check; a late touch could answer a newer request. Now the card's backend sends the answer for the id it was opened with (`lateAnswer`).
+- **"Not Now" took the iPhone's copies away** (found 21 Nov, reading the code). A copy from Passwords deleted the other devices' copies of every password it brought, while the signed catalogue still named their old versions, and the iPhone replaces its copies with what its bundle holds. Now the other devices' copies of the versions the signed catalogue names are kept until the catalogue is signed again, and pruned then (`MacDevice.publish`). This Mac's own copies, and its own Automatic ones, are always the newest (`theIPhoneKeepsItsCopiesUntilTheChangesAreSent`).
+
+### Sending changes to the other devices
+
+Code: `MirrorResync.swift`, `ApprovalPresenter` (`.sendChanges`), `MacQuestionPanelView`. Test: `changesSinceTheListLastSent`.
+
+`MirrorAppModel.sentList` is the list the other devices last received, by password id and last-changed date, saved in the app's settings. It is written each time the catalogue is signed (`MacDevice.onPublished`): a device joining, a rule change, or Touch ID on this panel. A Mac whose devices joined before it was kept starts from the signed catalogue's ids, with no dates. What is unsent is always the current list against it (`unsentChanges`: added, changed by last-changed date, removed), so it survives a quit; it is nothing while no other device or computer holds the list.
+
+| State | Event | Next |
+|---|---|---|
+| not asked | a copy from Passwords finishes, and something is unsent | asked: the panel beside the window, "Send n password changes to your other devices?" |
+| asked | Touch ID | not asked: the catalogue is signed, the record follows, nothing is unsent |
+| asked | Not Now | not asked: the other devices keep their list; the changes stay unsent |
+
+`resyncAsked` is not saved: after a quit the panel does not come back by itself. Known and left for later: Devices shows no "Send Updates…" banner for unsent changes, and the Passwords footer says nothing when a copy changed nothing.
 
 ## The lease, across the Mac, the relay and the command
 
@@ -206,7 +235,9 @@ What must always be true:
 - **A Deny clicked while the dialog is up wins.** The dialog's own end changes `Local` only while it is still `authenticating` or `sending(approve)`.
 - **A touch that lands after another device answered releases nothing.** The lease store approves only a pending lease.
 
-The presenter puts up one panel at a time, as one value: idle, showing an item, or closing an item (the outcome stays 2.5 seconds, a denial 10; the practice request goes at once, since first run's window says what happened). It always shows the first waiting item it can build; one whose request has gone is skipped, never left half-shown.
+Since 21 November the card is the page parts' `KeyringApprovalCard` (`MacApprovalPanelView`, written by AI with claude opus 5.5): an agent's request, the practice request, a request from another computer, an iPhone or Apple Watch asking to join (Deny as red words under the green button, with no reply box), a computer asking to join (with "Optional note if you deny" beside a red Deny). The green button takes the card's full width and reads "Click to approve with Touch ID" (or Apple Watch); while macOS's dialog is up it reads "Use Touch ID to approve" and is off. With the lid shut it is off and says where the request can still be answered, with the reason under the card.
+
+The presenter puts up one panel at a time, as one value: idle, showing an item, or closing an item (the outcome stays 2.5 seconds, a denial 10; the practice request goes at once, since first run's window says what happened). The practice item is shown only while first run's practice waits (`FirstRun.waitingPractice`) or Devices sent one to this Mac. It always shows the first waiting item it can build; one whose request has gone is skipped, never left half-shown.
 
 Found and fixed: the panel used to write "sending" into the request's own state, so an update arriving mid-send had to be skipped by hand, and the presenter kept six fields (`shownItem`, `shownRequest`, `question`, `showing`, `closingAfterAnswer`, `needsFingerprint`); a request that vanished between being chosen and being shown left the presenter pointing at the previous one. Test: `anUpdateWhileHisDenialIsSentDoesNotUndoIt`.
 

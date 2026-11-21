@@ -6,11 +6,13 @@
 // comes only after Josh's click and gives the keyboard back when it closes.
 
 #if os(macOS)
+import AgentKeyringDesign
 import AppKit
 import LocalAuthentication
 import SwiftUI
 
-/// The design's tokens, light and dark.
+/// The design's tokens, light and dark, for the menu bar window and the main
+/// window, which do not use the page parts yet.
 enum RequestToken {
     static let surface = Color(light: 0xFFFFFF, dark: 0x1C1C1E)
     static let ink = Color(light: 0x0B0B0C, dark: 0xFFFFFF)
@@ -24,124 +26,57 @@ enum RequestToken {
     /// A finished request that was neither approved nor denied, in lists.
     static let idle = Color(light: 0xB4B4BC, dark: 0x6E6E76)
     static let onAnswer = Color.white
-    static let width: CGFloat = 420
-    static let radius: CGFloat = 18
 }
 
+/// The card beside the window, built from the parts: an agent's request, the
+/// practice request, or a device or computer asking to join (Paper page
+/// "Agent Keyring (Holistic)", board 2). Rebuilt on 2026.11.21 by model claude opus 5.5.
 struct MacApprovalPanelView: View {
     @Bindable var model: MacApprovalModel
+
+    /// The card's width with the panel's margin round it.
+    static let width = KeyringSize.macCard + 2 * KeyringSpace.s5
 
     private var request: AccessRequest { model.request }
     private var agent: String { request.agent.name }
     private var isPractice: Bool { request.access == .practice }
 
-    public var body: some View {
+    var body: some View {
         Group {
             switch request.state {
             case .waitingForYou, .sendingAnswer: asking
             default: answered
             }
         }
-        .frame(width: RequestToken.width)
-        .background(RequestToken.surface, in: .rect(cornerRadius: RequestToken.radius, style: .continuous))
+        .padding(KeyringSpace.s5)
+        .frame(width: Self.width)
+        .background(KeyringPalette.surface, in: .rect(cornerRadius: KeyringRadius.panel, style: .continuous))
         .task { await model.followUpdates() }
         .onDisappear { model.cancelApproval() }
     }
 
-    private var asking: some View {
-        VStack(spacing: 14) {
-            header
-            if let setUp { setUpBody(setUp) } else { requestBody }
-            if let setUp, !setUp.replies {
-                wideDenyButton
-            } else {
-                replyRow
-            }
-            approveLine
-            if let failure = model.failure, !ReviewRendering.isOn {
-                Text(failure).font(.system(size: 13)).foregroundStyle(RequestToken.deny)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            }
-            RequestToken.line.frame(height: 1)
-            Text(footer)
-                .font(.system(size: 12)).foregroundStyle(RequestToken.ink2)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+    private struct Words {
+        var lead: String
+        var detail: String?
+        var reason: String?
+        var explanation: String?
+        var replies: Bool
+        var replyPrompt: String
+        var footer: String?
+    }
+
+    private var words: Words {
+        switch request.access {
+        case .login:
+            Words(lead: AccessRequestCopy.wants(request.agent), detail: request.login.account, reason: request.agentReason, replies: true,
+                  replyPrompt: AccessRequestCopy.replyPlaceholder(agent), footer: AccessRequestCopy.footer(agent))
+        case .practice:
+            Words(lead: FirstRunCopy.practiceWants, detail: request.login.account, reason: request.agentReason, replies: true,
+                  replyPrompt: FirstRunCopy.practiceReplyPrompt, footer: FirstRunCopy.practiceFooter)
+        case let .setUp(lead, detail, footer, _, replies, _):
+            Words(lead: lead, explanation: detail.isEmpty ? nil : detail, replies: replies, replyPrompt: SetupCopy.denyNotePrompt,
+                  footer: footer.isEmpty ? nil : footer)
         }
-        .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
-    }
-
-    private var setUp: (lead: String, detail: String, footer: String, denied: String, replies: Bool)? {
-        if case let .setUp(lead, detail, footer, denied, replies, _) = request.access { return (lead, detail, footer, denied, replies) }
-        return nil
-    }
-
-    private func setUpBody(_ setUp: (lead: String, detail: String, footer: String, denied: String, replies: Bool)) -> some View {
-        VStack(spacing: 10) {
-            VStack(spacing: 1) {
-                Text(setUp.lead).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
-                Text(request.login.site)
-                    .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
-                    .foregroundStyle(RequestToken.ink).lineLimit(1).minimumScaleFactor(0.6).frame(height: 38)
-                if !setUp.detail.isEmpty { Text(setUp.detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2) }
-            }
-            if !request.agentReason.isEmpty {
-                Text("“\(request.agentReason)”")
-                    .font(.system(size: 15)).foregroundStyle(RequestToken.ink)
-                    .multilineTextAlignment(.center).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.top, 6).padding(.bottom, 2)
-    }
-
-    private var requestBody: some View {
-            VStack(spacing: 10) {
-                VStack(spacing: 1) {
-                    Text(isPractice ? FirstRunCopy.practiceWants : AccessRequestCopy.wants(request.agent))
-                        .font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
-                    Text(request.login.site)
-                        .font(.system(size: 32, weight: .bold)).tracking(-0.022 * 32)
-                        .foregroundStyle(RequestToken.ink).lineLimit(1).minimumScaleFactor(0.6)
-                        .frame(height: 38)
-                    Text(request.login.account)
-                        .font(.system(size: 13)).foregroundStyle(RequestToken.ink2).lineLimit(1)
-                }
-                Text("“\(request.agentReason)”")
-                    .font(.system(size: 15)).foregroundStyle(RequestToken.ink)
-                    .multilineTextAlignment(.center).lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.top, 6).padding(.bottom, 2)
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                AppMark().frame(width: 18, height: 18)
-                Text(SetupCopy.appName).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink2)
-            }
-            Spacer(minLength: 0)
-            if !isPractice, let place {
-                HStack(spacing: 5) {
-                    Text(place.kind).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
-                    Text(Self.shortened(place.name)).font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                }
-                .lineLimit(1)
-            }
-        }
-    }
-
-    /// "Project agent-keyring" in a Git repository, else "Folder" and the
-    /// folder's name.
-    private var place: (kind: String, name: String)? {
-        if let project = request.agent.project { return ("Project", project) }
-        guard let folder = request.agent.folder else { return nil }
-        if folder == "~" { return ("Folder", "Home") }
-        let name = URL(fileURLWithPath: folder).lastPathComponent
-        return name.isEmpty ? nil : ("Folder", name)
-    }
-
-    static func shortened(_ name: String) -> String {
-        name.count <= 24 ? name : name.prefix(11) + "…" + name.suffix(12)
     }
 
     private var sending: AnswerChoice? {
@@ -149,54 +84,21 @@ struct MacApprovalPanelView: View {
         return nil
     }
 
-    /// Return and Escape do nothing here: only the Deny button answers.
-    private var replyRow: some View {
-        HStack(spacing: 8) {
-            // ImageRenderer cannot draw a text field; the off-screen check shows its placeholder.
-            Group {
-                if ReviewRendering.isOn && model.replyDraft.isEmpty {
-                    Text(placeholder).foregroundStyle(RequestToken.ink2).lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    TextField(placeholder, text: $model.replyDraft).textFieldStyle(.plain)
-                }
-            }
-                .font(.system(size: 14)).foregroundStyle(RequestToken.ink)
-                .padding(.horizontal, 16)
-                .frame(height: 36)
-                .background(RequestToken.fill, in: Capsule())
-                .disabled(sending != nil)
-            denyButton
+    private var asking: some View {
+        let words = words
+        return VStack(spacing: KeyringSpace.s3) {
+            KeyringApprovalCard(lead: words.lead, subject: request.login.site, detail: words.detail,
+                                reason: words.reason.flatMap { $0.isEmpty ? nil : $0 }, explanation: words.explanation,
+                                reply: words.replies ? $model.replyDraft : nil, replyPrompt: words.replyPrompt,
+                                approve: approve,
+                                deny: KeyringAction(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny,
+                                                    words.replies ? .deny : .denyLink, isEnabled: sending == nil) {
+                                    Task { await model.deny() }
+                                },
+                                footer: words.footer, header: SetupCopy.appName)
+            if model.lidClosed { KeyringStatusLine(.problem(AccessRequestCopy.lidClosed)) }
+            if let failure = model.failure { KeyringStatusLine(.problem(failure)) }
         }
-    }
-
-    /// Adding a device: nobody to reply to, so Deny takes the whole width.
-    private var wideDenyButton: some View {
-        Button { Task { await model.deny() } } label: {
-            Text(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny)
-                .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.deny)
-                .frame(maxWidth: .infinity).frame(height: 44)
-                .background(RequestToken.fill, in: Capsule())
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(sending != nil)
-    }
-
-    private var denyButton: some View {
-        Button { Task { await model.deny() } } label: {
-            Text(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny)
-                .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.onAnswer)
-                .padding(.horizontal, 18).frame(height: 36)
-                .background(RequestToken.deny, in: Capsule())
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(sending != nil)
-    }
-
-    private var touchIDAvailable: Bool {
-        canAsk(LAContext(), .deviceOwnerAuthenticationWithBiometrics)
     }
 
     private enum Approver { case touchID, watch, none }
@@ -207,99 +109,41 @@ struct MacApprovalPanelView: View {
         return canAsk(context, .deviceOwnerAuthenticationWithCompanion) ? .watch : .none
     }
 
-    /// One green button. Clicking it opens macOS's Touch ID or Apple Watch
-    /// dialog; while that is up, the button is outlined and says what to do.
-    /// "What should Codex do instead?", or "What should it do instead?" when
-    /// the agent's name would not fit beside Deny.
-    private var placeholder: String {
-        let full = AccessRequestCopy.replyPlaceholder(isPractice ? "the agent" : agent)
-        let deny = (AccessRequestCopy.deny as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold)]).width + 36
-        let room = RequestToken.width - 40 - 8 - deny - 32
-        let needed = (full as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
-        return needed <= room ? full : AccessRequestCopy.replyPlaceholderShort
-    }
-
-    @ViewBuilder private var approveLine: some View {
+    /// One green button, the card's full width. Clicking it opens macOS's
+    /// Touch ID or Apple Watch dialog; while that is up, it says what to do.
+    private var approve: KeyringAction {
         if model.lidClosed {
-            VStack(spacing: 1) {
-                Text(model.approvesElsewhere ? AccessRequestCopy.approveElsewhere : AccessRequestCopy.openTheLid)
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(RequestToken.ink)
-                Text(AccessRequestCopy.lidClosed).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
-            }
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-        } else {
-            greenButton
+            return .approve(model.approvesElsewhere ? AccessRequestCopy.approveElsewhere : AccessRequestCopy.openTheLid, isEnabled: false) {}
         }
-    }
-
-    private var greenButton: some View {
-        Button { model.approve() } label: {
-            Text(approveText)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(isBusy ? RequestToken.approve : RequestToken.onAnswer)
-                .lineLimit(1)
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity).frame(height: 44)
-                .background(isBusy ? RequestToken.surface : RequestToken.approve, in: Capsule())
-                .overlay { if isBusy { Capsule().strokeBorder(RequestToken.approve, lineWidth: 1.5) } }
-                .contentShape(Capsule())
+        if sending == .approve { return .approve(AccessRequestCopy.approving, isEnabled: false) {} }
+        let waiting = model.isWaitingForTouch
+        let title = switch approver {
+        case .touchID: waiting ? AccessRequestCopy.useTouchID : AccessRequestCopy.clickForTouchID
+        case .watch: waiting ? AccessRequestCopy.useWatch : AccessRequestCopy.clickForWatch
+        case .none: AccessRequestCopy.noApprover
         }
-        .buttonStyle(.plain)
-        .allowsHitTesting(!isBusy && approver != .none)
-    }
-
-    private var isBusy: Bool { model.isWaitingForTouch || sending == .approve }
-
-    private var approveText: String {
-        if sending == .approve { return AccessRequestCopy.approving }
-        switch approver {
-        case .touchID: return model.isWaitingForTouch ? AccessRequestCopy.useTouchID : AccessRequestCopy.clickForTouchID
-        case .watch: return model.isWaitingForTouch ? AccessRequestCopy.useWatch : AccessRequestCopy.clickForWatch
-        case .none: return AccessRequestCopy.noApprover
-        }
-    }
-
-    private var footer: String {
-        if let setUp { return setUp.footer }
-        return isPractice ? FirstRunCopy.practiceFooter : AccessRequestCopy.footer(agent)
+        return .approve(title, isEnabled: !waiting && sending == nil && approver != .none) { model.approve() }
     }
 
     @ViewBuilder private var answered: some View {
-        HStack(spacing: 12) {
-            Circle().fill(outcomeColour).frame(width: 28, height: 28).overlay {
-                Image(systemName: outcomeSymbol).font(.system(size: 13, weight: .heavy)).foregroundStyle(RequestToken.onAnswer)
-            }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(outcomeTitle).font(.system(size: 15, weight: .bold)).foregroundStyle(RequestToken.ink)
-                if let detail = outcomeDetail {
-                    Text(detail).font(.system(size: 13)).foregroundStyle(RequestToken.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20).padding(.vertical, 14)
-    }
-
-    private var outcomeSymbol: String {
         switch request.state {
-        case .approved: "checkmark"
-        case .denied, .blockedByRule: "xmark"
-        default: "clock"
+        case .approved:
+            KeyringConfirmation(outcomeTitle, detail: outcomeDetail)
+        case .denied, .blockedByRule:
+            KeyringConfirmation(outcomeTitle, detail: outcomeDetail, tone: .denied)
+        default:
+            KeyringHint(symbol: "clock", title: outcomeTitle, outcomeDetail ?? AccessRequestCopy.outcomeWord(request.state), tone: .plain)
         }
     }
 
-    private var outcomeColour: Color {
-        switch request.state {
-        case .approved: RequestToken.approve
-        case .denied, .blockedByRule: RequestToken.deny
-        default: RequestToken.ink2
-        }
+    private var setUp: (denied: String, approved: String)? {
+        if case let .setUp(_, _, _, denied, _, approved) = request.access { return (denied, approved) }
+        return nil
     }
 
     private var outcomeTitle: String {
         switch request.state {
+        case .approved where setUp != nil: SetupCopy.added(request.login.site)
         case let .approved(surface, _): surface == .iPhone ? AccessRequestCopy.approvedOnPhone : AccessRequestCopy.approved
         case .denied: AccessRequestCopy.denied
         case .unanswered: AccessRequestCopy.noAnswer
@@ -311,11 +155,10 @@ struct MacApprovalPanelView: View {
     private var outcomeDetail: String? {
         switch request.state {
         case .approved where isPractice: FirstRunCopy.practiceApproved
-        case .approved where setUp != nil:
-            if case let .setUp(_, _, _, _, _, approved) = request.access, !approved.isEmpty { approved } else { AccessRequestCopy.added(request.login.site) }
+        case .approved where setUp != nil: setUp.flatMap { $0.approved.isEmpty ? nil : $0.approved }
         case let .approved(_, until): AccessRequestCopy.canUseUntil(agent, AccessRequestCopy.clock(until))
-        case let .denied(_, reply?, _): AccessRequestCopy.youTold(agent, reply)
         case .denied where setUp != nil: setUp?.denied
+        case let .denied(_, reply?, _): AccessRequestCopy.youTold(isPractice ? AccessRequestCopy.theAgent : agent, reply)
         case .denied where isPractice: nil
         case .denied: AccessRequestCopy.wasTold(agent)
         case .unanswered: AccessRequestCopy.ended(agent)
@@ -355,32 +198,6 @@ public enum ReviewRendering {
     }
 }
 
-/// The app's mark from the design: a blue tile with a white keyhole figure.
-struct AppMark: View {
-    var body: some View {
-        Canvas { context, size in
-            let s = size.width / 100
-            let tile = Path(roundedRect: CGRect(x: 0, y: 0, width: 100 * s, height: 100 * s), cornerRadius: 22.5 * s)
-            context.fill(tile, with: .linearGradient(Gradient(colors: [Color(light: 0x2F62F5, dark: 0x2F62F5), Color(light: 0x1040D8, dark: 0x1040D8)]),
-                startPoint: .zero, endPoint: CGPoint(x: 0, y: 100 * s)))
-            context.fill(Path(ellipseIn: CGRect(x: (50 - 21.5) * s, y: (38.5 - 21.5) * s, width: 43 * s, height: 43 * s)), with: .color(.white))
-            var body = Path()
-            body.move(to: CGPoint(x: 40.2 * s, y: 51.5 * s))
-            body.addLine(to: CGPoint(x: 59.8 * s, y: 51.5 * s))
-            body.addLine(to: CGPoint(x: 67.2 * s, y: 81.9 * s))
-            body.addLine(to: CGPoint(x: 64.1 * s, y: 85.9 * s))
-            body.addLine(to: CGPoint(x: 35.9 * s, y: 85.9 * s))
-            body.addLine(to: CGPoint(x: 32.8 * s, y: 81.9 * s))
-            body.closeSubpath()
-            context.fill(body, with: .color(.white))
-            let eye = Color(light: 0x0B1B4D, dark: 0x0B1B4D)
-            for x in [46.3, 60.0] {
-                context.fill(Path(ellipseIn: CGRect(x: (x - 4.9) * s, y: (37.5 - 4.9) * s, width: 9.8 * s, height: 9.8 * s)), with: .color(eye))
-            }
-        }
-    }
-}
-
 /// A borderless panel beside the pointer. Showing it never activates Agent
 /// Keyring, and neither does a click in it. Clicks in its first half second
 /// are ignored, so a click already on its way cannot land on Deny.
@@ -394,7 +211,7 @@ final class RequestPanel: NSPanel {
     private var clickMonitor: Any?
 
     init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: RequestToken.width, height: 200),
+        super.init(contentRect: NSRect(x: 0, y: 0, width: MacApprovalPanelView.width, height: 200),
             styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
         backgroundColor = .clear
         isOpaque = false
@@ -568,7 +385,7 @@ final class RequestPanelHost {
 
     func show() {
         hosting.layoutSubtreeIfNeeded()
-        let size = CGSize(width: RequestToken.width, height: max(hosting.intrinsicContentSize.height, 100).rounded(.up))
+        let size = CGSize(width: MacApprovalPanelView.width, height: max(hosting.intrinsicContentSize.height, 100).rounded(.up))
         let screens = NSScreen.screens.map(\.visibleFrame)
         // Agent Keyring's own window on screen (first run, or the main window) is where he is looking.
         if let own = NSApp.windows.first(where: { $0.isVisible && !($0 is NSPanel) && $0.level == .normal && $0.frame.width > 300 }) {

@@ -749,26 +749,8 @@ message SelfTestReport {
   string device_key_id = 2;
   int64 tested_unix_seconds = 3;
   repeated SelfTestCheck checks = 4;   // Also the device's setup checklist, ticked from what it can see.
-  repeated JourneyStep journey = 5;    // From the Mac only: the steps for the devices he chose, in order.
-  JourneyStep step = 6;                // Where this device is in its first run.
-  bool finished = 7;                   // This device's first run is done.
-}
-
-// The one journey of first run, the same list on every device. The Mac picks
-// the steps from the devices he chose; each device reports where it is.
-enum JourneyStep {
-  JOURNEY_STEP_UNSPECIFIED = 0;
-  JOURNEY_STEP_WELCOME = 1;
-  JOURNEY_STEP_CHOOSE_DEVICES = 2;
-  JOURNEY_STEP_PRACTICE = 3;
-  JOURNEY_STEP_PASSWORDS = 4;
-  JOURNEY_STEP_AGENTS = 5;
-  JOURNEY_STEP_ALWAYS_ON = 6;
-  JOURNEY_STEP_IPHONE = 7;
-  JOURNEY_STEP_WATCH = 8;
-  JOURNEY_STEP_COMPUTERS = 9;
-  JOURNEY_STEP_TRY_DEVICES = 10;
-  JOURNEY_STEP_READY = 11;
+  reserved 5, 6, 7;                    // First run's journey, cut: each device's first run is its own.
+  reserved "journey", "step", "finished";
 }
 
 message SelfTestCheck {

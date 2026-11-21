@@ -1,221 +1,131 @@
-// Written by AI on 2026.11.19 by model claude opus 5.5; rebuilt on 2026.11.20
-// from the Paper board "Mac", ten steps, one window each.
+// Written by AI on 2026.11.19 by model claude opus 5.5; rebuilt on 2026.11.21
+// by the same model for the four local steps, with no journey and no device choice.
 //
-// First run on the Mac: one journey, its steps built from the devices he
-// chose, each window a state and each button a transition
-// (docs/state-machines.md, "Mac first run"). The state holds only
-// which window he is on and what he did there; facts the world owns (the
-// passwords, whether Touch ID can be used, how far a copy from Passwords has
-// got, which devices and computers have joined, the last practice result on
-// each device) stay where they live and are read alongside it.
+// First run on the Mac: one saved value, each window a state and each button
+// a transition (docs/state-machines.md, "Mac first run"). Facts the world owns
+// (the passwords, whether Touch ID can be used, how far a copy from Passwords
+// has got, which devices have joined) stay where they live and are read beside it.
 
-import AgentKeyringProtocol
 import Foundation
 
-public enum FirstRun: Codable, Equatable, Sendable {
-    case welcome
-    /// "Which devices do you want to use?": the journey's steps are built from his answer.
-    case chooseDevices
-    /// One window of the journey, for the devices he chose.
-    case journey(Devices, Page)
-    case finished
+public struct FirstRun: Codable, Equatable, Sendable {
+    /// The window he is on.
+    public var step: Step
+    /// The practice request on step 1. Kept when he moves on, so Back finds his answer.
+    public var practice: Practice
 
-    /// The devices he chose to use beside this Mac.
-    public struct Devices: Codable, Equatable, Sendable {
-        public var iPhone: Bool
-        public var watch: Bool
-        public var computers: Bool
-        public init(iPhone: Bool, watch: Bool, computers: Bool) {
-            self.iPhone = iPhone
-            self.watch = watch
-            self.computers = computers
-        }
-        public static let thisMacAlone = Devices(iPhone: false, watch: false, computers: false)
-        /// Any of them needs a computer that stays on.
-        var needsAlwaysOn: Bool { iPhone || watch || computers }
-    }
-
-    public enum Page: Codable, Equatable, Sendable {
-        /// The practice request is beside the window.
+    public enum Step: Codable, Equatable, Sendable {
+        case welcome
+        /// Step 1 of 4: Try a password request.
         case practice
-        /// He denied it, with these words (empty if none); Try Again sends another.
-        case practiceDenied(reply: String)
-        /// "Copy your passwords": how far the copy has got is `PasswordsCopy`, shared with the main window.
-        case copyPasswords
-        /// "Tell your agents about Agent Keyring": the note he gives them, and "Try it now".
-        case tellAgents(copied: Copied)
-        /// A computer of his that stays on, which the iPhone, Apple Watch and other computers need.
-        case stayingOn
-        case addPhone
-        case addWatch
-        case addComputers
-        /// "Try a request on each device".
-        case tryDevices
+        /// Step 2 of 4: Copy your passwords. How far a copy has got is `PasswordsCopy`.
+        case copy
+        /// Step 3 of 4: Connect an agent.
+        case connectAgent(ConnectAgent)
+        /// Step 4 of 4: Ready, with the other devices to add.
         case ready
+        /// He clicked Show Passwords: the window is Passwords and Devices.
+        case finished
     }
 
-    public enum Copied: Codable, Equatable, Sendable {
-        case passwords(Int)
-        case sample
+    public enum Practice: Codable, Equatable, Sendable {
+        case notSent
+        /// The practice panel is beside the window, for this request only.
+        case waiting(id: UUID)
+        case approved
+        /// His words, empty if none.
+        case denied(reply: String)
+
+        public var isAnswered: Bool {
+            switch self {
+            case .approved, .denied: true
+            case .notSent, .waiting: false
+            }
+        }
+    }
+
+    /// The outcome of the first request from an agent on this Mac, after he reached this step.
+    public enum ConnectAgent: Codable, Equatable, Sendable {
+        case notTried
+        case worked(agent: String)
+        case denied(agent: String)
     }
 
     public enum Event: Equatable, Sendable {
         case getStarted
-        case chose(Devices)
-        case practicePassed
-        case practiceDenied(reply: String)
-        case tryAgain
-        case imported(count: Int)
-        case useSample
-        /// From the sample, back to "Copy your passwords".
-        case copyOwn
+        case back
         case continueOn
-        /// Touch ID approved the computer that stays on.
-        case connected
-        /// "Use This Mac Alone": no iPhone, Apple Watch or other computers for now.
-        case useThisMacAlone
-        case skip
-        /// The iPhone finished its own first run, or the Apple Watch joined: the
-        /// Mac's window for it moves on, as he did the step there.
-        case deviceDone
-        case done
+        case sendPractice(id: UUID)
+        case practiceApproved(id: UUID)
+        case practiceDenied(id: UUID, reply: String)
+        case useTestPasswordOnly
+        /// An agent on this Mac had its request answered.
+        case agentAnswered(agent: String, approved: Bool)
+        case skipTest
+        case showPasswords
     }
 
-    /// What the world says is already done, so the journey passes over it.
-    public struct Facts: Equatable, Sendable {
-        public var alwaysOn = false
-        public var iPhoneDone = false
-        /// Apple Watch is added, or the iPhone has moved past adding it (he skipped it there, or none is paired).
-        public var watchDone = false
-        public init(alwaysOn: Bool = false, iPhoneDone: Bool = false, watchDone: Bool = false) {
-            self.alwaysOn = alwaysOn
-            self.iPhoneDone = iPhoneDone
-            self.watchDone = watchDone
-        }
+    public init(step: Step, practice: Practice = .notSent) {
+        self.step = step
+        self.practice = practice
     }
 
-    /// The journey's windows for these devices, in order: the same list on every device.
-    public static func pages(for devices: Devices) -> [Page] {
-        var pages: [Page] = [.practice, .copyPasswords, .tellAgents(copied: .sample)]
-        if devices.needsAlwaysOn { pages.append(.stayingOn) }
-        if devices.iPhone { pages.append(.addPhone) }
-        if devices.watch { pages.append(.addWatch) }
-        if devices.computers { pages.append(.addComputers) }
-        return pages + [.tryDevices, .ready]
-    }
+    public static let welcome = FirstRun(step: .welcome)
+    public static let finished = FirstRun(step: .finished)
 
     /// The next state; an event with no arrow leaves it as it is.
-    public func after(_ event: Event, facts: Facts = Facts()) -> FirstRun {
-        switch (self, event) {
-        case (.welcome, .getStarted): return .chooseDevices
-        case let (.chooseDevices, .chose(devices)): return .journey(devices, .practice)
-        case (.journey(_, .ready), .done): return .finished
-        case let (.journey(devices, page), _):
-            guard let next = Self.next(page, event, devices: devices, facts: facts) else { return self }
-            return .journey(next.devices, next.page)
-        default: return self
+    /// Continue on Copy is offered only once his passwords are copied; the window checks that fact.
+    public func after(_ event: Event) -> FirstRun {
+        var next = self
+        switch (step, event) {
+        case (.welcome, .getStarted):
+            next.step = .practice
+        case (.practice, .back):
+            next = .welcome
+        case let (.practice, .sendPractice(id)) where !isWaiting:
+            next.practice = .waiting(id: id)
+        case let (.practice, .practiceApproved(id)) where practice == .waiting(id: id):
+            next.practice = .approved
+        case let (.practice, .practiceDenied(id, reply)) where practice == .waiting(id: id):
+            next.practice = .denied(reply: reply)
+        case (.practice, .continueOn) where practice.isAnswered:
+            next.step = .copy
+        case (.copy, .back):
+            next.step = .practice
+        case (.copy, .continueOn), (.copy, .useTestPasswordOnly):
+            next.step = .connectAgent(.notTried)
+        case let (.connectAgent(.notTried), .agentAnswered(agent, approved)):
+            next.step = .connectAgent(approved ? .worked(agent: agent) : .denied(agent: agent))
+        case (.connectAgent, .back):
+            next.step = .copy
+        case (.connectAgent(.notTried), .skipTest), (.connectAgent(.worked), .continueOn), (.connectAgent(.denied), .continueOn):
+            next.step = .ready
+        case (.ready, .back):
+            next.step = .connectAgent(.notTried)
+        case (.ready, .showPasswords):
+            next.step = .finished
+        default:
+            break
         }
+        return next
     }
 
-    private static func next(_ page: Page, _ event: Event, devices: Devices, facts: Facts) -> (devices: Devices, page: Page)? {
-        switch (page, event) {
-        case (.practice, .practicePassed): return (devices, .copyPasswords)
-        case let (.practice, .practiceDenied(reply)): return (devices, .practiceDenied(reply: reply))
-        case (.practiceDenied, .tryAgain): return (devices, .practice)
-        case let (.copyPasswords, .imported(count)): return (devices, .tellAgents(copied: .passwords(count)))
-        case (.copyPasswords, .useSample): return (devices, .tellAgents(copied: .sample))
-        // His own passwords replace the sample.
-        case let (.tellAgents, .imported(count)): return (devices, .tellAgents(copied: .passwords(count)))
-        case (.tellAgents, .copyOwn), (.ready, .copyOwn): return (devices, .copyPasswords)
-        case (.stayingOn, .useThisMacAlone): return (.thisMacAlone, .tryDevices)
-        case (.stayingOn, .connected): return (devices, following(.stayingOn, devices, facts))
-        case (.addPhone, .deviceDone) where facts.iPhoneDone: return (devices, following(page, devices, facts))
-        case (.addWatch, .deviceDone) where facts.watchDone: return (devices, following(page, devices, facts))
-        case (.addPhone, .skip), (.addWatch, .skip), (.addComputers, .skip),
-             (.tellAgents, .continueOn), (.addPhone, .continueOn), (.addWatch, .continueOn),
-             (.addComputers, .continueOn), (.tryDevices, .continueOn):
-            return (devices, following(page, devices, facts))
-        default: return nil
-        }
+    private var isWaiting: Bool { if case .waiting = practice { true } else { false } }
+
+    /// The practice request waiting beside the window, if any.
+    public var waitingPractice: UUID? {
+        guard step == .practice, case let .waiting(id) = practice else { return nil }
+        return id
     }
 
-    /// The page after this one in his journey, passing over what is already done.
-    private static func following(_ page: Page, _ devices: Devices, _ facts: Facts) -> Page {
-        let pages = pages(for: devices)
-        let here = pages.firstIndex { $0.kind == page.kind } ?? 0
-        for next in pages.dropFirst(here + 1) {
-            switch next {
-            case .stayingOn where facts.alwaysOn, .addPhone where facts.iPhoneDone, .addWatch where facts.watchDone: continue
-            default: return next
-            }
-        }
-        return .ready
-    }
-
-    /// Where this is in the one journey, as every device reports it.
-    public var step: JourneyStepKind {
-        switch self {
-        case .welcome: .welcome
-        case .chooseDevices: .chooseDevices
-        case let .journey(_, page): page.kind
-        case .finished: .ready
-        }
-    }
-
-    /// The devices he chose, once he has.
-    public var devices: Devices? { if case let .journey(devices, _) = self { devices } else { nil } }
-
-    /// On the practice request's window, where the practice panel shows.
-    public var isPractice: Bool { if case .journey(_, .practice) = self { true } else { false } }
-
-    /// The steps of his journey, for the status report and the step list.
-    public var journey: [JourneyStepKind] {
-        guard case let .journey(devices, _) = self else { return [.welcome, .chooseDevices] }
-        return [.welcome, .chooseDevices] + Self.pages(for: devices).map(\.kind)
+    /// As saved, resumed after a restart: a practice request left waiting is not sent again by itself.
+    var restored: FirstRun {
+        guard case .waiting = practice else { return self }
+        return FirstRun(step: step, practice: .notSent)
     }
 }
 
-/// The journey's steps by kind, as the status report names them.
-public enum JourneyStepKind: Equatable, Sendable {
-    case welcome, chooseDevices, practice, passwords, agents, alwaysOn, iPhone, watch, computers, tryDevices, ready
-}
-
-extension JourneyStepKind {
-    var wire: Agentkeyring_V2_JourneyStep {
-        switch self {
-        case .welcome: .welcome
-        case .chooseDevices: .chooseDevices
-        case .practice: .practice
-        case .passwords: .passwords
-        case .agents: .agents
-        case .alwaysOn: .alwaysOn
-        case .iPhone: .iphone
-        case .watch: .watch
-        case .computers: .computers
-        case .tryDevices: .tryDevices
-        case .ready: .ready
-        }
-    }
-}
-
-extension FirstRun.Page {
-    var kind: JourneyStepKind {
-        switch self {
-        case .practice, .practiceDenied: .practice
-        case .copyPasswords: .passwords
-        case .tellAgents: .agents
-        case .stayingOn: .alwaysOn
-        case .addPhone: .iPhone
-        case .addWatch: .watch
-        case .addComputers: .computers
-        case .tryDevices: .tryDevices
-        case .ready: .ready
-        }
-    }
-}
-
-/// The last practice request sent to one device: shown on "Try a request on
-/// each device" and in Devices, by device key. Not saved.
+/// The last practice request sent to one device: shown in Devices, by device key. Not saved.
 public enum PracticeResult: Equatable, Sendable {
     /// Asked for; not yet with Apple.
     case sent
@@ -229,21 +139,46 @@ public enum PracticeResult: Equatable, Sendable {
     case failed(String)
 }
 
-/// "Copy your passwords", one for first run and the main window's Copy from
-/// Passwords alike. The app holds it as an optional: nil when no copy is open,
-/// which first run draws as the three steps. Not saved: after a restart the
-/// copy starts again.
+/// "Copy your passwords", one for first run and the main window's Copy Again
+/// alike. The app holds it as an optional: nil when no copy is open, which
+/// first run draws as the guide. Not saved: after a restart the copy starts again.
 public enum PasswordsCopy: Equatable, Sendable {
-    /// The three steps, before Open Passwords.
+    /// The guide, before Open Passwords.
     case steps
     /// After Open Passwords.
     case waiting
     /// Five minutes after Open Passwords, nothing has arrived.
     case noneArrived
-    /// "Agent Keyring isn't in the list?": macOS's AutoFill setting decides
-    /// which apps Passwords can export to. `asking`: macOS's dialog is up, or
-    /// was in the last 10 seconds, when it would ignore another request.
-    case allowExport(asking: Bool)
+    /// "Agent Keyring isn't in the list?": the sheet that sends him to AutoFill
+    /// settings. It checks again each time the app comes to the front, and
+    /// closes by itself once Agent Keyring is turned on there.
+    case allowExport
     /// The passwords are arriving and being sealed.
     case copying
+}
+
+/// What a copy from Passwords changed since the list the other devices last
+/// received: added, changed (its last-changed date moved) and removed.
+public struct PasswordChanges: Equatable, Sendable {
+    public var added: Int
+    public var changed: Int
+    public var removed: Int
+    public var total: Int { added + changed + removed }
+
+    public init(added: Int = 0, changed: Int = 0, removed: Int = 0) {
+        self.added = added
+        self.changed = changed
+        self.removed = removed
+    }
+
+    /// `sent` and `now`: each password's id and its last-changed date. A date
+    /// unknown in the record (it was made before dates were kept) never counts as changed.
+    public init(sent: [String: Date?], now: [String: Date?]) {
+        added = now.keys.filter { sent[$0] == nil }.count
+        removed = sent.keys.filter { now[$0] == nil }.count
+        changed = now.filter { id, date in
+            guard let recorded = sent[id], let recorded else { return false }
+            return date != recorded
+        }.count
+    }
 }
