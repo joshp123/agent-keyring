@@ -32,8 +32,9 @@ public struct KeyringCopyBlock: View {
                 Spacer(minLength: 0)
                 if more.isEmpty { copyButton }
             }
+            // No text selection: selectable text is drawn by AppKit, out of the
+            // audit's sight, and the Copy button already copies all of it.
             KeyringText(text, as: monospaced ? .code : .body)
-                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !more.isEmpty {
                 HStack(spacing: KeyringSpace.s2) {

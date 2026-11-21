@@ -12,6 +12,17 @@ import SwiftUI
 @MainActor
 public enum PageGallery {
     public static var entries: [KeyringGalleryEntry] {
+        #if os(macOS)
+        [
+            // The panel whose green button was cut off at "Click here, then touch the sen…".
+            .init("question-panel-send-copied-passwords", .macPanel(width: 380)) {
+                MacQuestionPanelView(title: SetupCopy.sendImportedTitle, message: SetupCopy.sendImportedBody,
+                    approval: OwnerApproval(action: SetupCopy.sendImportedReason, reason: SetupCopy.sendImportedReason,
+                        perform: { _ in }, finish: { _ in }))
+            },
+        ]
+        #else
         []
+        #endif
     }
 }

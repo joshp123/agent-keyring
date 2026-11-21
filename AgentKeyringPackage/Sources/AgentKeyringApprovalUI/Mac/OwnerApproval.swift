@@ -7,6 +7,7 @@
 
 #if os(macOS)
 import AgentKeyringApprovalCore
+import AgentKeyringDesign
 import LocalAuthentication
 import Observation
 import SwiftUI
@@ -167,9 +168,10 @@ public struct OwnerApprovalBar: View {
         .onDisappear { approval.cancel() }
     }
 
+    // One above the other: side by side, the green button was cut off at "Click here, then touch the sen…".
     @ViewBuilder private var controls: some View {
         if approval.context != nil {
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
                 TouchIDButton(action: approval.action, isWaiting: approval.isWaiting) { approval.begin() }
                 cancelButton
             }
@@ -181,18 +183,15 @@ public struct OwnerApprovalBar: View {
                 .font(.callout)
                 .foregroundStyle(KeyringColour.denyText)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                Button { approval.retry() } label: { Label(SetupCopy.tryAgain, systemImage: ownerApprovalSymbol()) }
-                    .buttonStyle(DecisionButtonStyle(colour: KeyringColour.approve, height: 32))
+            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
+                KeyringButton(.approve(SetupCopy.tryAgain) { approval.retry() })
                 cancelButton
             }
         }
     }
 
     private var cancelButton: some View {
-        Button(cancelTitle) { approval.cancel() }
-            .buttonStyle(.quiet(height: 32))
-            .frame(maxWidth: 110)
+        KeyringButton(.plain(cancelTitle) { approval.cancel() })
     }
 }
 
@@ -215,8 +214,8 @@ public struct MacQuestionPanelView: View {
                 Image(systemName: "key.horizontal.fill").foregroundStyle(KeyringColour.signal)
                 Text(SetupCopy.appName).font(.subheadline.weight(.semibold))
             }
-            Text(title).font(.title3.weight(.bold)).fixedSize(horizontal: false, vertical: true)
-            Text(message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            KeyringText(title, as: .heading)
+            KeyringText(message, as: .meta)
             OwnerApprovalBar(approval: approval, cancelTitle: SetupCopy.notNow)
         }
         .padding(18)
