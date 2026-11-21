@@ -79,6 +79,8 @@ public enum WatchCard: Sendable, Equatable {
 public struct WatchRequestCard: View {
     let card: WatchCard
     let respond: (_ approve: Bool, _ words: String) -> Void
+    /// Set by the cut-off check, which lays a scrolling page out at full length.
+    @Environment(\.keyringUnrollsScrolling) private var unrolls
 
     public init(card: WatchCard, respond: @escaping (_ approve: Bool, _ words: String) -> Void) {
         self.card = card
@@ -97,8 +99,7 @@ public struct WatchRequestCard: View {
 
     private func open(_ request: WatchRequest) -> some View {
         let sending = card == .sending(request)
-        return ScrollView {
-            KeyringApprovalCard(
+        let content = KeyringApprovalCard(
                 lead: request.isPractice ? WatchCopy.practiceLead : request.wants,
                 subject: request.site, detail: request.account.isEmpty ? nil : request.account,
                 reason: request.reason.isEmpty ? nil : request.reason,
@@ -108,7 +109,7 @@ public struct WatchRequestCard: View {
                     let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty { respond(false, trimmed) }
                 })
-        }
+        return Group { if unrolls { content } else { ScrollView { content } } }
     }
 
     private func ended(_ request: WatchRequest, _ line: String, approved: Bool) -> some View {
