@@ -32,8 +32,9 @@ public struct KeyringCopyBlock: View {
                 Spacer(minLength: 0)
                 if more.isEmpty { copyButton }
             }
+            // No text selection: selectable text is drawn by AppKit, out of the
+            // audit's sight, and the Copy button already copies all of it.
             KeyringText(text, as: monospaced ? .code : .body)
-                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !more.isEmpty {
                 HStack(spacing: KeyringSpace.s2) {
@@ -114,13 +115,13 @@ public struct KeyringQRCode: View {
 
 /// One device: its symbol, name, what it does, and what can be done with it.
 public struct KeyringDeviceRow<Trailing: View>: View {
-    public enum Tone: Sendable { case plain, approved, denied, waiting }
+    /// Colours the symbol and the detail: green done, red refused, blue waiting, orange needs doing.
+    public enum Tone: Sendable { case plain, approved, denied, waiting, needsDoing }
     let symbol: String
     let name: String
     let detail: String?
     let tone: Tone
     let trailing: Trailing
-    @Environment(\.dynamicTypeSize) private var textSize
 
     public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain, @ViewBuilder trailing: () -> Trailing) {
         self.symbol = symbol
@@ -131,13 +132,11 @@ public struct KeyringDeviceRow<Trailing: View>: View {
     }
 
     public var body: some View {
-        // At accessibility text sizes the button goes under the words, as Apple's own lists do.
-        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: KeyringSpace.s2)) : AnyLayout(HStackLayout(spacing: KeyringSpace.s3))
-        layout {
+        TrailingOrBelow {
             HStack(alignment: .firstTextBaseline, spacing: KeyringSpace.s3) {
                 Image(systemName: symbol)
                     .font(KeyringTextRole.heading.font)
-                    .foregroundStyle(KeyringPalette.ink)
+                    .foregroundStyle(tone == .plain ? KeyringPalette.ink : detailColour)
                     .frame(width: KeyringSpace.s6)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
@@ -157,6 +156,7 @@ public struct KeyringDeviceRow<Trailing: View>: View {
         case .approved: KeyringPalette.approve
         case .denied: KeyringPalette.deny
         case .waiting: KeyringPalette.brand
+        case .needsDoing: KeyringPalette.stalled
         }
     }
 }
@@ -164,6 +164,25 @@ public struct KeyringDeviceRow<Trailing: View>: View {
 extension KeyringDeviceRow where Trailing == EmptyView {
     public init(symbol: String, name: String, detail: String? = nil, tone: Tone = .plain) {
         self.init(symbol: symbol, name: name, detail: detail, tone: tone) { EmptyView() }
+    }
+}
+
+/// One line of a checklist (Notifications allowed, Time Sensitive): a green
+/// tick when it is done, else an orange mark and what to do about it.
+public struct KeyringCheckRow: View {
+    let title: String
+    let isDone: Bool
+    let toDo: String?
+
+    public init(_ title: String, isDone: Bool, toDo: String? = nil) {
+        self.title = title
+        self.isDone = isDone
+        self.toDo = toDo
+    }
+
+    public var body: some View {
+        KeyringDeviceRow(symbol: isDone ? "checkmark.circle.fill" : "exclamationmark.circle.fill", name: title,
+                         detail: isDone ? nil : toDo, tone: isDone ? .approved : .needsDoing)
     }
 }
 

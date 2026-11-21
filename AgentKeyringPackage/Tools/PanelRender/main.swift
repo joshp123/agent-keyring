@@ -2,8 +2,12 @@
 // practice request added on 2026.11.19 by model claude opus 5.5.
 // Draws the request panel and the first-run windows off screen, light and
 // dark, for a design check against Paper. Nothing appears on screen.
+// Since 2026.11.21 (claude opus 5.5) it also draws every Mac part and page
+// in the galleries through the cut-off check, and prints what it found.
 import AgentKeyringApprovalUI
+import AgentKeyringDesign
 import AppKit
+import UniformTypeIdentifiers
 import LocalAuthentication
 import SwiftUI
 
@@ -175,6 +179,23 @@ MainActor.assumeIsolated {
                   let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { continue }
             try? png.write(to: out.appendingPathComponent("\(name)-\(label).png"))
             print(name, label, Int(image.size.width), "x", Int(image.size.height))
+        }
+    }
+}
+
+// The parts and pages, drawn exactly as the cut-off check hosts them.
+MainActor.assumeIsolated {
+    for entry in KeyringGallery.parts + PageGallery.entries {
+        for screen in KeyringScreen.all(for: entry.kind) {
+            let result = ScreenCheck.run(entry.view, on: screen)
+            let name = "gallery-\(entry.id)-\(screen.name)"
+            if let image = result.image, let destination = CGImageDestinationCreateWithURL(
+                out.appendingPathComponent(name + ".png") as CFURL, UTType.png.identifier as CFString, 1, nil) {
+                CGImageDestinationAddImage(destination, image, nil)
+                CGImageDestinationFinalize(destination)
+            }
+            try? (result.words.joined(separator: "\n") + "\n").write(to: out.appendingPathComponent(name + ".txt"), atomically: true, encoding: .utf8)
+            print(name, result.findings.isEmpty ? "fits" : result.findings.map(\.description).joined(separator: "; "))
         }
     }
 }

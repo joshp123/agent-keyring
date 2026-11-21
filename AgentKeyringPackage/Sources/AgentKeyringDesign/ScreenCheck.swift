@@ -58,16 +58,20 @@ public enum ScreenCheck {
                 .environment(\.colorScheme, screen.colorScheme)
                 .environment(\.dynamicTypeSize, screen.dynamicTypeSize)
         }
-        let audit = KeyringAudit()
-        #if os(watchOS)
-        // ImageRenderer sizes a scrolling screen itself: as tall as its words, at least the Watch's height.
-        let (image, size) = draw(prepared(audit), screen.size, scrolls: screen.scrolls)
-        #else
         var size = screen.size
         // Measured with no audit, so only the drawing that is checked reports.
         if screen.scrolls { size.height = max(size.height, height(prepared(nil), width: size.width).rounded(.up)) }
-        let image = draw(prepared(audit), size, screen.colorScheme)
-        #endif
+        var audit = KeyringAudit()
+        var image: CGImage?
+        // A scrolling screen is drawn as long as its content: a system List
+        // fills whatever height it is given and lays out only the rows that
+        // show, so it is drawn again, taller, until nothing lies below the end.
+        for _ in 0..<8 {
+            audit = KeyringAudit()
+            image = draw(prepared(audit), size, screen.colorScheme)
+            guard screen.scrolls, audit.lowestEdge > size.height + 0.5, size.height < 12_000 else { break }
+            size.height = (audit.lowestEdge + screen.size.height).rounded(.up)
+        }
         return KeyringCheckResult(findings: audit.findings(in: CGRect(origin: .zero, size: size)), words: audit.words, image: image)
     }
 
@@ -101,6 +105,8 @@ public enum ScreenCheck {
 
     private static func draw(_ root: some View, _ size: CGSize, _ scheme: ColorScheme) -> CGImage? {
         let controller = UIHostingController(rootView: root.frame(width: size.width, height: size.height).background(KeyringPalette.surface))
+        // No safe area: the checked layout must not depend on which simulator runs it.
+        controller.safeAreaRegions = []
         let window = UIWindow(frame: CGRect(origin: .zero, size: size))
         window.overrideUserInterfaceStyle = scheme == .dark ? .dark : .light
         window.rootViewController = controller
@@ -122,13 +128,18 @@ public enum ScreenCheck {
         return image
     }
     #else
-    private static func draw(_ root: some View, _ size: CGSize, scrolls: Bool) -> (CGImage?, CGSize) {
-        let content = root.frame(width: size.width).frame(minHeight: size.height, alignment: .top).background(Color.black)
-        let renderer = ImageRenderer(content: content)
-        renderer.proposedSize = ProposedViewSize(width: size.width, height: scrolls ? nil : size.height)
+    /// ImageRenderer cannot measure without drawing, so the sizing pass draws too (with no audit).
+    private static func height(_ root: some View, width: CGFloat) -> CGFloat {
+        let renderer = ImageRenderer(content: root.frame(width: width).fixedSize(horizontal: false, vertical: true))
+        renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+        return renderer.cgImage.map { CGFloat($0.height) / renderer.scale } ?? 0
+    }
+
+    private static func draw(_ root: some View, _ size: CGSize, _ scheme: ColorScheme) -> CGImage? {
+        let renderer = ImageRenderer(content: root.frame(width: size.width, height: size.height, alignment: .top).background(Color.black))
+        renderer.proposedSize = ProposedViewSize(size)
         renderer.scale = 2
-        guard let image = renderer.cgImage else { return (nil, size) }
-        return (image, CGSize(width: CGFloat(image.width) / 2, height: CGFloat(image.height) / 2))
+        return renderer.cgImage
     }
     #endif
 }
