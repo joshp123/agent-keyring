@@ -21,8 +21,7 @@ struct PhoneRequestView: View {
 
     var body: some View {
         let busy = model.answering != nil
-        NavigationStack {
-            KeyringPage(step: nil, title: request.login.site, sentence: PhoneCopy.wants(request.agent), alignment: .centre, status: status,
+        KeyringPage(step: nil, title: request.login.site, sentence: PhoneCopy.wants(request.agent), alignment: .centre, status: status,
                         primary: .deny(PhoneCopy.denyAndSend, isEnabled: !busy) { deny() },
                         secondary: .link(PhoneCopy.approveInstead, isEnabled: !busy) { approve() }) {
                 if !request.login.account.isEmpty { KeyringText(request.login.account, as: .meta) }
@@ -36,7 +35,6 @@ struct PhoneRequestView: View {
                 ToolbarItem(placement: .topBarTrailing) { KeyringText(PhoneCopy.askedAgo(request.askedAt), as: .caption) }
             }
             .navigationBarTitleDisplayMode(.inline)
-        }
         .alert(PhoneCopy.answerFailed, isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sensoryFeedback(.selection, trigger: model.answering)
         .onChange(of: dictation.heard) { _, heard in if dictation.isListening { model.replyDraft = spokenAfter + heard } }

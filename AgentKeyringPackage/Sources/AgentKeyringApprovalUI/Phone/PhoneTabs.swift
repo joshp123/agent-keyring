@@ -33,10 +33,11 @@ public struct PhoneRootView: View {
         .task { await model.followUpdates() }
         .alert(model.failure ?? "", isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sheet(item: shownRequest) { request in
-            PhoneRequestView(model: model, request: request, practice: request.isPractice)
+            // The sheet's top bar (Cancel, and how long ago it was asked) is the system's.
+            NavigationStack { PhoneRequestView(model: model, request: request, practice: request.isPractice) }
         }
         .sheet(item: practiceShown) { request in
-            PhoneRequestView(model: model, request: request, practice: true).interactiveDismissDisabled()
+            NavigationStack { PhoneRequestView(model: model, request: request, practice: true) }.interactiveDismissDisabled()
         }
         .sheet(isPresented: addWatchShown) {
             PhoneAddWatchView(flow: model.snapshot.addWatch, model: model).interactiveDismissDisabled()
