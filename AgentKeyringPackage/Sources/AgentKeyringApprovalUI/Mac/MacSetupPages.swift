@@ -197,10 +197,13 @@ public struct MacCopyPage: View {
                     primary: primary,
                     secondary: inFirstRun ? .plain(FirstRunCopy.back, perform: actions.back) : .plain(FirstRunCopy.cancel, perform: actions.cancel),
                     aside: inFirstRun ? .link(FirstRunCopy.useTestPasswordOnly, perform: actions.useTestPasswordOnly) : nil) {
-            VStack(alignment: .leading, spacing: KeyringSpace.s3) {
+            // s2 between the guide's parts: the worst case (step 4, the earlier version, the taking-long line) fits 560 points with it.
+            VStack(alignment: .leading, spacing: KeyringSpace.s2) {
                 KeyringText(FirstRunCopy.guideStep(guideStep), as: .stepMarker)
                 KeyringStepRow(guideStep, FirstRunCopy.guide[guideStep - 1]) {
-                    if guideStep == 4, earlierVersion { KeyringText(FirstRunCopy.earlierVersion, as: .meta) }
+                    // With a status line under the guide there is no room for this note at 760 by 560;
+                    // the taking-long line names the earlier version itself, and the picture shows it dimmed.
+                    if guideStep == 4, earlierVersion, status == nil { KeyringText(FirstRunCopy.earlierVersion, as: .meta) }
                     // What the Passwords app shows at this step, with the thing to click ringed.
                     if let items {
                         PasswordsExportPicture(guideStep: guideStep, earlierVersion: earlierVersion, items: items)

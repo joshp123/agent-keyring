@@ -60,6 +60,11 @@ enum MacGallery {
         .init("first-run-copy-guide", .macWindow) { copy(.guide) },
         .init("first-run-copy-taking-long", .macWindow) { copy(.noneArrived, step: 4) },
         .init("first-run-copy-taking-long-step-2", .macWindow) { copy(.noneArrived, step: 2, earlier: true) },
+        .init("first-run-copy-taking-long-step-4-earlier-version", .macWindow) { copy(.noneArrived, step: 4, earlier: true) },
+        .init("first-run-copy-failed-step-4-earlier-version", .macWindow) {
+            copy(.failed("Passwords could not finish sending your passwords. Start the export again in Passwords. Your earlier copy was not changed."),
+                 step: 4, earlier: true)
+        },
         .init("first-run-copy-copying", .macWindow) { copy(.copying, step: 5) },
         .init("first-run-copy-copied", .macWindow) { copy(.copied(count: 1_547), step: 5) },
         .init("first-run-copy-failed", .macWindow) {
@@ -75,7 +80,7 @@ enum MacGallery {
         .init("first-run-ready", .macWindow) { MacReadyPage(copied: .passwords(1_547), devices: .init(), actions: .init()) },
         .init("first-run-ready-test-password-only", .macWindow) { MacReadyPage(copied: .testPasswordOnly, devices: .init(), actions: .init()) },
         .init("first-run-ready-all-added", .macWindow) {
-            MacReadyPage(copied: .passwords(1), devices: .init(iPhone: phone, watch: "Research Team Apple Watch Ultra 3",
+            MacReadyPage(copied: .passwords(1), devices: .init(iPhone: phone, watch: "Apple Watch",
                                                                computers: [computer, "Research Team Mac mini"]), actions: .init())
         },
         .init("agent-note-sheet", .macPanel(width: MacDeviceSheet.width)) { MacAgentNoteSheet(agentNote: agentNote) {} },
@@ -158,7 +163,7 @@ enum MacGallery {
                                            approved: SetupCopy.copyingTo(done: 1_250, total: 1_547), state: .approved(by: .mac, until: .now)))
             },
             .init("card-add-watch", width) {
-                ReviewRendering.panel(join(SetupCopy.addWatchLead, "Research Team Apple Watch Ultra 3", SetupCopy.addWatchBody, replies: false))
+                ReviewRendering.panel(join(SetupCopy.addWatchLead, "Apple Watch", SetupCopy.addWatchBody, replies: false))
             },
             .init("card-add-computer", width) { ReviewRendering.panel(join(SetupCopy.addComputerLead, computer, SetupCopy.addComputerBody, replies: true)) },
             .init("card-add-computer-denied", width) {

@@ -257,9 +257,10 @@ final class KeyringPanel: NSPanel {
     /// A borderless, rounded, opaque panel above other windows that
     /// grows and shrinks with its SwiftUI content. Not yet on screen.
     static func floating(_ content: some View) -> KeyringPanel {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        // The same ground and corner as the request card's panel.
+        let shape = RoundedRectangle(cornerRadius: KeyringRadius.panel, style: .continuous)
         let controller = NSHostingController(rootView: content
-            .background(KeyringColour.surface)
+            .background(KeyringPalette.surface)
             .clipShape(shape)
             .overlay(shape.strokeBorder(.separator, lineWidth: 0.5)))
         controller.sizingOptions = [.preferredContentSize]
