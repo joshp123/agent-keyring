@@ -13,11 +13,19 @@ import WatchKit
 final class RequestModel {
     private(set) var card = WatchCard.opening
     var dismiss: () -> Void = {}
+    /// Monotonic token incremented whenever a new notification opens or closes so an in-flight
+    /// answer retry or dismiss sleep from request A can never overwrite or dismiss request B.
+    private var generation: UInt64 = 0
     /// Reads the request again while the list comes from the iPhone; replaced by the next notification.
     private var reading: Task<Void, Never>?
+    /// Tracks the active answer/dismiss task so close() or a replacement notification cancels it cleanly.
+    private var responding: Task<Void, Never>?
 
     func show(_ userInfo: [AnyHashable: Any]) {
+        generation &+= 1
+        let token = generation
         reading?.cancel()
+        responding?.cancel()
         #if DEBUG
         if userInfo["akrSample"] != nil { card = .showing(.sample); return }
         #endif
@@ -33,10 +41,16 @@ final class RequestModel {
         // The Watch may not have the latest list of devices: ask its iPhone, then read it again.
         let copy = WatchUserInfo(userInfo)
         reading = Task {
+            let promptTimer = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(800))
+                guard !Task.isCancelled, self.generation == token, self.card == .opening else { return }
+                self.card = .unreadable
+            }
+            defer { promptTimer.cancel() }
             _ = await WatchLink.shared.askForMembers()
             // The list may also come the slow way, once the iPhone app next runs.
             for attempt in 0..<10 {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.generation == token else { return }
                 if let opened = try? WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) {
                     card = .showing(opened)
                     watchLog.note("card", "shown", ["request": opened.id, "after": "\(attempt) s"])
@@ -45,23 +59,32 @@ final class RequestModel {
                 if attempt == 0 { card = .unreadable }
                 try? await Task.sleep(for: .seconds(1))
             }
+            guard !Task.isCancelled, self.generation == token else { return }
             do { _ = try WatchRequest.from(userInfo: copy.value, keys: WatchKeys(), saved: WatchStore().read()) }
             catch { WatchLink.shared.report(problem: "The Watch could not read a request: \(error)") }
         }
     }
 
-    func close() { reading?.cancel() }
+    func close() {
+        generation &+= 1
+        reading?.cancel()
+        responding?.cancel()
+    }
 
     var isSending: Bool { if case .sending = card { true } else { false } }
 
     /// Approve, Deny, or Deny with his words: sent once, the line shown, then the card closes.
     func respond(approve: Bool, words: String = "") {
         guard case let .showing(request) = card else { return }
+        let token = generation
         card = .sending(request)
-        Task {
+        responding?.cancel()
+        responding = Task {
             let result = await WatchDelegate.answer(request, approve: approve, words: words)
+            guard !Task.isCancelled, self.generation == token else { return }
             card = .answered(request, WatchCopy.answered(approve: approve, result))
             try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled, self.generation == token else { return }
             dismiss()
         }
     }

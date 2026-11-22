@@ -19,6 +19,10 @@ struct PhoneRequestView: View {
     @State private var dictation = PhoneDictation()
     /// What was in the box before speaking; what is heard follows it.
     @State private var spokenAfter = ""
+    /// Scopes live speech updates to the exact request that started recording so switching
+    /// requests during teardown can never drain Request A's speech into Request B's draft.
+    @State private var dictationRequestID: String?
+    @State private var stoppingDictation = false
 
     var body: some View {
         Group {
@@ -28,13 +32,16 @@ struct PhoneRequestView: View {
             case .explain: explainPage
             }
         }
-        .alert(PhoneCopy.answerFailed, isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
+        .alert(model.failure ?? PhoneCopy.answerFailed, isPresented: failureShown) { Button(PhoneCopy.ok) { model.dismissFailure() } }
         .sensoryFeedback(.selection, trigger: model.answering)
         .onChange(of: dictation.heard) { _, heard in
-            if dictation.isListening { model.setDraft(spokenAfter + heard, for: request.id) }
+            if dictation.isListening, dictationRequestID == request.id {
+                model.setDraft(spokenAfter + heard, for: request.id)
+            }
         }
         .onChange(of: request.id) { _, _ in
-            // Switching requests inside the single sheet must stop dictation immediately and reset prefix.
+            // Switching requests inside the single sheet must immediately detach dictation ownership.
+            dictationRequestID = nil
             replyFocused = (mode == .explain)
             spokenAfter = ""
             Task { await dictation.stop() }
@@ -43,16 +50,20 @@ struct PhoneRequestView: View {
             if next == .explain {
                 replyFocused = true
             } else {
+                dictationRequestID = nil
                 replyFocused = false
                 spokenAfter = ""
                 Task { await dictation.stop() }
             }
         }
-        .onDisappear { Task { await dictation.stop() } }
+        .onDisappear {
+            dictationRequestID = nil
+            Task { await dictation.stop() }
+        }
         .onAppear { if mode == .explain { replyFocused = true } }
     }
 
-    private var busy: Bool { model.answering != nil || mode == .approving }
+    private var busy: Bool { model.answering != nil || mode == .approving || stoppingDictation }
 
     /// Normal notification tap: balanced Approve with Face ID, Deny, and Deny and Explain.
     private var decidePage: some View {
@@ -125,12 +136,18 @@ struct PhoneRequestView: View {
         KeyringReplyBox(text: draftBinding, prompt: PhoneCopy.replyPrompt, note: note, noteAction: openSettings, focus: $replyFocused) {
             Button {
                 let current = model.draft(for: request.id)
-                if !dictation.isListening { spokenAfter = current.isEmpty ? "" : current + " " }
+                if !dictation.isListening {
+                    spokenAfter = current.isEmpty ? "" : current + " "
+                    dictationRequestID = request.id
+                } else {
+                    dictationRequestID = nil
+                }
                 replyFocused = false
                 Task { await dictation.toggle() }
             } label: {
                 Image(systemName: dictation.isListening ? "stop.circle.fill" : "mic.fill")
             }
+            .disabled(busy)
             .accessibilityLabel(dictation.isListening ? PhoneCopy.stopSpeaking : PhoneCopy.speakReply)
         }
     }
@@ -143,24 +160,34 @@ struct PhoneRequestView: View {
     }
 
     private func deny(withDraft: Bool) {
+        guard !busy else { return }
         let targetID = request.id
         let prefix = spokenAfter
-        let wasListening = dictation.isListening
+        let wasListening = dictation.isListening && dictationRequestID == targetID
+        dictationRequestID = nil
         replyFocused = false
+        stoppingDictation = true
         Task {
             if wasListening {
                 let spoken = await dictation.stop()
                 if !spoken.isEmpty { model.setDraft(prefix + spoken, for: targetID) }
+            } else if dictation.isListening {
+                await dictation.stop()
             }
+            stoppingDictation = false
             await model.deny(targetID, withDraft: withDraft)
         }
     }
 
     private func approve() {
+        guard !busy else { return }
         let targetID = request.id
+        dictationRequestID = nil
         replyFocused = false
+        stoppingDictation = true
         Task {
             if dictation.isListening { await dictation.stop() }
+            stoppingDictation = false
             await model.approve(targetID)
         }
     }

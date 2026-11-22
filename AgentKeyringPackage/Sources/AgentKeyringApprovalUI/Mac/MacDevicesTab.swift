@@ -76,20 +76,29 @@ public struct MacDevicesTab: View {
         }
         .formStyle(.grouped)
         .alert(MainWindowCopy.renameTitle,
-               isPresented: Binding(get: { model.renaming != nil }, set: { if !$0 { model.renaming = nil } })) {
+               isPresented: Binding(get: { if case .rename = model.deviceDialog { true } else { false } },
+                                    set: { if !$0, case .rename = model.deviceDialog { model.dismissDeviceDialog() } })) {
             TextField(MainWindowCopy.renameField, text: $model.renameDraft)
             Button(MainWindowCopy.save) { model.commitRename() }
-            Button(MainWindowCopy.cancel, role: .cancel) { model.renaming = nil }
+            Button(MainWindowCopy.cancel, role: .cancel) { model.dismissDeviceDialog() }
         }
-        .confirmationDialog(MainWindowCopy.removeTitle(model.removing?.name ?? ""),
-            isPresented: Binding(get: { model.removing != nil }, set: { if !$0 { model.removing = nil } })) {
-            Button(MainWindowCopy.removeConfirm, role: .destructive) { if let id = model.removing?.id { model.remove(id) } }
-            Button(MainWindowCopy.cancel, role: .cancel) { model.removing = nil }
+        .confirmationDialog(removeTitle,
+            isPresented: Binding(get: { if case .remove = model.deviceDialog { true } else { false } },
+                                 set: { if !$0, case .remove = model.deviceDialog { model.dismissDeviceDialog() } })) {
+            Button(MainWindowCopy.removeConfirm, role: .destructive) {
+                if case let .remove(id, _, _) = model.deviceDialog { model.remove(id) }
+            }
+            Button(MainWindowCopy.cancel, role: .cancel) { model.dismissDeviceDialog() }
         } message: {
-            if let removing = model.removing {
-                Text(removing.isComputer ? MainWindowCopy.removeComputer(removing.name) : MainWindowCopy.removeDevice(removing.name))
+            if case let .remove(_, name, isComputer) = model.deviceDialog {
+                Text(isComputer ? MainWindowCopy.removeComputer(name) : MainWindowCopy.removeDevice(name))
             }
         }
+    }
+
+    private var removeTitle: String {
+        if case let .remove(_, name, _) = model.deviceDialog { return MainWindowCopy.removeTitle(name) }
+        return MainWindowCopy.removeTitle("")
     }
 
     static func words(_ notice: DoorNotice) -> String {

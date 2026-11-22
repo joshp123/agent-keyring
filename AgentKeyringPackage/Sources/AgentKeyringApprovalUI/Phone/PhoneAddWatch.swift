@@ -69,7 +69,7 @@ public enum PhoneAddWatch: Hashable, Sendable {
         case let (.watchNeedsPasscode(until), .tryAgain(now)): until > now ? .waitingForWatch(until: until) : .faceIDExpired
         case let (.waitingForWatch, .watchAsked(total)): .encrypting(done: 0, total: total)
         case let (.encrypting, .encrypted(done, total)): .encrypting(done: done, total: total)
-        case (.encrypting, .copiesSent): .added
+        case (.encrypting, .copiesSent), (.faceIDExpired, .copiesSent), (.faceIDFirst, .copiesSent), (.waitingForWatch, .copiesSent): .added
         case let (.encrypting, .copiesFailed(reason)): .copiesFailed(reason: reason)
         case let (.copiesFailed, .watchAsked(total)): .encrypting(done: 0, total: total)
         case (.copiesFailed, .confirmationLapsed), (.encrypting, .confirmationLapsed): .faceIDExpired

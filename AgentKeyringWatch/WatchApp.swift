@@ -47,7 +47,7 @@ final class WatchModel {
             return [WatchInUse(id: "u1", site: "example.com", who: "Codex on Linux server", until: .now.addingTimeInterval(1500))]
         }
         #endif
-        return WatchStore().read().currentInUse
+        return WatchStore().readInUse()
     }()
     var setup: WatchSetup = {
         #if DEBUG
@@ -60,7 +60,21 @@ final class WatchModel {
         if let name = UserDefaults.standard.string(forKey: "SampleSetup"), let sample = samples[name] { return sample }
         #endif
         let saved = WatchStore().read()
-        return saved.lists((try? WatchKeys().keyID()) ?? "") ? .ready : saved.signedMembers != nil ? .startOnIPhone : .setUpIPhone
+        var error: NSError?
+        let passcode = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
+        let listed = saved.lists((try? WatchKeys().keyID()) ?? "")
+        let addOffered = saved.addUntil.map { $0 > .now } ?? false
+        return WatchSetup(passcode: passcode,
+                          phoneJoined: saved.signedMembers != nil,
+                          listed: listed,
+                          addOffered: addOffered,
+                          addTapped: saved.isAddTappedForCurrentOffer,
+                          copiesPending: saved.copiesPending == true,
+                          copyingToWatch: saved.copyingToWatch == true,
+                          notifications: .allowed,
+                          pushAddress: WatchLink.shared.pushToken != nil || saved.practiceOfferDone == true,
+                          practiceAsked: saved.practiceAnswered == true ? nil : saved.practiceAsked,
+                          practiceOfferDone: saved.practiceOfferDone == true)
     }()
 }
 
@@ -105,7 +119,7 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         center.removeDeliveredNotifications(withIdentifiers: same)
         let store = WatchStore()
         if let request = try? WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: store.read()) {
-            store.write(store.read().noting(request))
+            store.noteOutcome(request)
             await WatchLink.shared.refreshSetup()
         }
         return .newData
@@ -131,7 +145,7 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
     }
 
     /// Sends the answer from the request's card. The reply is the request's Lease: if another device's
-    /// answer ended it first, that is the outcome.
+    /// answer ended it first, or it timed out/cancelled before our reply arrived, that is the outcome.
     static func answer(_ request: WatchRequest, approve: Bool, words: String) async -> WatchAnswerResult {
         watchLog.note("answer", "started", ["request": request.id, "choice": approve ? "approve" : words.isEmpty ? "deny" : "deny-with-words"])
         let saved = WatchStore().read()
@@ -140,34 +154,48 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
             let lease: Agentkeyring_V2_Lease
             if approve {
                 lease = try await WatchAnswers().approve(request)
-                // In use on this Apple Watch until the approval ends.
-                if lease.state == .approved, lease.notAfterUnixSeconds > 0, !request.isPractice {
-                    let store = WatchStore()
-                    store.write(store.read().addingInUse(WatchInUse(id: request.id, site: request.site, who: request.who,
-                                                                    until: Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds)))))
-                }
             } else {
                 lease = try await WatchAnswers().deny(request, words: words)
             }
-            if let mine, !lease.answeredBy.isEmpty, lease.answeredBy != mine {
-                watchLog.note("answer", "already answered", ["request": request.id, "by": lease.answeredBy])
+            await removeDeliveredNotification(id: request.id)
+            let answeredByOther = mine != nil && !lease.answeredBy.isEmpty && lease.answeredBy != mine
+            let expectedState: Agentkeyring_V2_LeaseState = approve ? .approved : .denied
+            let alreadySettled = answeredByOther || lease.state != expectedState
+            if !request.isPractice {
+                let store = WatchStore()
+                if lease.state == .approved, lease.notAfterUnixSeconds > 0 {
+                    store.addInUse(WatchInUse(id: request.id, site: request.site, who: request.who,
+                                              until: Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds))))
+                } else {
+                    store.removeInUse(request.id)
+                }
+            }
+            if alreadySettled {
+                watchLog.note("answer", "already answered", ["request": request.id, "state": "\(lease.state)", "by": lease.answeredBy])
+                await WatchLink.shared.refreshSetup()
                 return .alreadyAnswered
             }
             watchLog.note("answer", "sent", ["request": request.id])
             if request.isPractice, WatchStore().read().practiceAnswered != true {
-                let store = WatchStore()
-                var saved = store.read()
-                saved.practiceAnswered = true
-                saved.practiceOfferDone = true
-                store.write(saved)
+                WatchStore().update {
+                    $0.practiceAnswered = true
+                    $0.practiceOfferDone = true
+                }
                 await WatchLink.shared.sendHandOver()
-                await WatchLink.shared.refreshSetup()
             }
+            await WatchLink.shared.refreshSetup()
             return .sent
         } catch {
             WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") was not delivered: \(error)")
             return .failed
         }
+    }
+
+    private static func removeDeliveredNotification(id: String) async {
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [id])
+        let same = await center.deliveredNotifications().filter { $0.request.content.threadIdentifier == id }.map(\.request.identifier)
+        if !same.isEmpty { center.removeDeliveredNotifications(withIdentifiers: same) }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,

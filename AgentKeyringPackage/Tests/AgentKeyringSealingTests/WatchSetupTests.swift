@@ -10,8 +10,10 @@ import Testing
 
 struct WatchSetupTests {
     func setup(listed: Bool = false, addOffered: Bool = false, addTapped: Bool = false,
+               copiesPending: Bool = false, copyingToWatch: Bool = false,
                notifications: WatchSetup.Notifications = .allowed, practiceAsked: Date? = nil, done: Bool = false) -> WatchSetup {
         WatchSetup(passcode: true, phoneJoined: true, listed: listed, addOffered: addOffered, addTapped: addTapped,
+                   copiesPending: copiesPending, copyingToWatch: copyingToWatch,
                    notifications: notifications, pushAddress: true, practiceAsked: practiceAsked, practiceOfferDone: done,
                    now: Date(timeIntervalSince1970: 1000))
     }
@@ -19,7 +21,15 @@ struct WatchSetupTests {
     @Test func addIsOfferedOnlyWhileTheIPhoneWaits() {
         #expect(setup() == .startOnIPhone)
         #expect(setup(addOffered: true) == .readyToAdd)
-        #expect(setup(addTapped: true) == .preparing)
+        #expect(setup(addOffered: true, addTapped: true) == .preparing)
+        // Once the iPhone's Face ID confirmation expires, Watch must not stay trapped in Preparing forever.
+        #expect(setup(addOffered: false, addTapped: true) == .startOnIPhone)
+    }
+
+    @Test func watchNeverFinishesSetupWhileCopiesArePending() {
+        #expect(setup(listed: true, copiesPending: true, copyingToWatch: true) == .preparing)
+        #expect(setup(listed: true, copiesPending: true, copyingToWatch: false) == .startOnIPhone)
+        #expect(setup(listed: true, copiesPending: false, copyingToWatch: false) == .addedOfferPractice)
     }
 
     @Test func notificationsComeOnlyAfterTheIPhoneAddsIt() {

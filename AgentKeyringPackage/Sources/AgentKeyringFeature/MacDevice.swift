@@ -88,7 +88,7 @@ public final class MacDevice {
     /// The logins and their rules as the catalogue, from the app's import and rules.
     let catalogueLogins: @MainActor () async throws -> [Agentkeyring_V2_Login]
     /// A newer catalogue the iPhone signed (a rule changed there), with this Mac's own Automatic copies as it now holds them.
-    @ObservationIgnored var onCatalogue: (@MainActor (Agentkeyring_V2_Catalogue, [Agentkeyring_V2_SealedLogin]) async -> Void)?
+    @ObservationIgnored var onCatalogue: (@MainActor (Agentkeyring_V2_Catalogue) async -> Void)?
     /// The catalogue was signed and sent: the other devices now hold this Mac's list as it is.
     @ObservationIgnored var onPublished: (@MainActor () -> Void)?
     /// A device asked for a practice request on this Mac itself.
@@ -241,6 +241,11 @@ public final class MacDevice {
         default: break
         }
         guard let caller = caller(request.peerSPKI) else {
+            // A device or computer removed from Members may still fetch the signed Members chain
+            // proving its removal (with zero catalogue, copies, or push data) so it can safely reset.
+            if request.method == "GET", request.path == "/v2/bundle", wasPreviouslyMember(request.peerSPKI) {
+                return .ok(message(removalBundle(holding: UInt64(request.query["members"] ?? "") ?? 0)))
+            }
             return .refused(403, "Only a device or computer that has joined this Mac may use this. Join with an invitation from the Mac.")
         }
         let device: Agentkeyring_V2_Device? = if case let .device(device) = caller { device } else { nil }
@@ -252,7 +257,8 @@ public final class MacDevice {
         case ("POST", "/v2/complaint"): return takeComplaint(request.body, from: caller)
         case ("GET", "/v2/complaints"): return .ok(message(complaints(since: Int64(request.query["since"] ?? "") ?? 0)))
         case ("POST", "/v2/push-registration"): return device == nil ? onlyDevices : takeRegistration(request.body)
-        case ("POST", "/v2/copies"): return device == nil ? onlyDevices : await takeCopies(request.body)
+        case ("GET", "/v2/copies"): return device == nil ? onlyDevices : await checkCopiesComplete(for: request.query["complete_for"] ?? "")
+        case ("POST", "/v2/copies"): return device == nil ? onlyDevices : await takeCopies(request.body, completeFor: request.query["complete_for"])
         case ("POST", "/v2/catalogue"): return device == nil ? onlyDevices : await takeCatalogue(request.body)
         case ("POST", "/v2/members"): return device == nil ? onlyDevices : await takeMembers(request.body)
         case ("POST", "/v2/practice"): return device == nil ? onlyDevices : takePracticeAsk(request.body)
@@ -303,6 +309,28 @@ public final class MacDevice {
                 return watches.contains(copy.openerID)
             }
         }
+        return bundle
+    }
+
+    /// True if `spki` belonged to a device or computer in an earlier signed Members revision.
+    private func wasPreviouslyMember(_ spki: Data?) -> Bool {
+        guard let spki, !spki.isEmpty else { return false }
+        return saved.membersHistory.contains { bytes in
+            guard let signed = try? Agentkeyring_V2_Signed(serializedBytes: bytes),
+                  let past = try? Agentkeyring_V2_Members(serializedBytes: signed.payload) else { return false }
+            return past.devices.contains(where: { $0.tlsPublicKey == spki })
+                || past.machines.contains(where: { $0.tlsPublicKey == spki })
+        }
+    }
+
+    /// Signed Members proof only (no catalogue, copies, or push registrations) for a removed peer.
+    private func removalBundle(holding: UInt64) -> Agentkeyring_V2_Bundle {
+        var bundle = Agentkeyring_V2_Bundle()
+        if let bytes = saved.members, let signed = try? Agentkeyring_V2_Signed(serializedBytes: bytes) { bundle.members = signed }
+        bundle.membersSince = saved.membersHistory.compactMap { try? Agentkeyring_V2_Signed(serializedBytes: $0) }.filter { signed in
+            ((try? Agentkeyring_V2_Members(serializedBytes: signed.payload))?.revision ?? 0) > holding
+        }
+        bundle.revisions = revisions
         return bundle
     }
 
@@ -386,35 +414,41 @@ public final class MacDevice {
         saved.members = signed
         saved.membersHistory.append(signed)
         saved.registrations = saved.registrations.filter { known.contains($0.key) }
-        if let sealed = try? await store.sealed(), sealed.contains(where: { !known.contains($0.openerID) && $0.openerID != keys.deviceKeyID }) {
-            try? await store.replaceSealed(sealed.filter { known.contains($0.openerID) || $0.openerID == keys.deviceKeyID })
+        let ownDeviceKeyID = keys.deviceKeyID
+        _ = try? await store.updateSealed { current in
+            guard current.contains(where: { !known.contains($0.openerID) && $0.openerID != ownDeviceKeyID }) else { return current }
+            return current.filter { known.contains($0.openerID) || $0.openerID == ownDeviceKeyID }
         }
         DiagnosticLog.record("members", "changed", ["revision": "\(next.revision)", "devices": "\(next.devices.count)", "computers": "\(next.machines.count)"])
         listsChanged(copies: true)
     }
 
     func takeCatalogue(_ body: Data) async -> DoorReply {
-        guard let members, let document = try? Agentkeyring_V2_Signed(serializedBytes: body) else {
+        guard let document = try? Agentkeyring_V2_Signed(serializedBytes: body) else {
             return .refused(400, "The body must be a signed catalogue.")
         }
-        let next: Agentkeyring_V2_Catalogue
-        do { next = try Sealing.verifiedCatalogue(document, members: members, current: catalogue) } catch {
-            return .refused(403, "This catalogue was refused: \(error).")
+        return await withSerializedCatalogue { [self] in
+            guard let members else {
+                return .refused(400, "The body must be a signed catalogue.")
+            }
+            let next: Agentkeyring_V2_Catalogue
+            do { next = try Sealing.verifiedCatalogue(document, members: members, current: catalogue) } catch {
+                return .refused(403, "This catalogue was refused: \(error).")
+            }
+            catalogue = next
+            saved.catalogue = body
+            saved.catalogueRevision = next.revision
+            await onCatalogue?(next)
+            listsChanged(copies: true)
+            DiagnosticLog.record("catalogue", "changed", ["revision": "\(next.revision)"])
+            return .ok()
         }
-        catalogue = next
-        saved.catalogue = body
-        saved.catalogueRevision = next.revision
-        let mine = ((try? await store.sealed()) ?? []).filter { $0.openerID == keys.machineID }
-        await onCatalogue?(next, mine)
-        listsChanged(copies: true)
-        DiagnosticLog.record("catalogue", "changed", ["revision": "\(next.revision)"])
-        return .ok()
     }
 
     /// Copies made on the iPhone (its Apple Watch's, or a computer's Automatic
     /// ones), each checked against its signer and the catalogue's version. This
     /// Mac's own copies come only from its own import.
-    func takeCopies(_ body: Data) async -> DoorReply {
+    func takeCopies(_ body: Data, completeFor: String? = nil) async -> DoorReply {
         guard let members, let catalogue, let batch = try? Agentkeyring_V2_SealedLogins(serializedBytes: body) else {
             return .refused(400, "The body must be sealed copies, sent once the Mac has a catalogue.")
         }
@@ -430,15 +464,49 @@ public final class MacDevice {
             }
             kept.append(copy)
         }
-        var sealed = (try? await store.sealed()) ?? []
         let cleared = Set(batch.clearedOpeners).intersection(openers)
         let machines = Set(members.machines.map(\.machineID))
         let withdrawn = Set(batch.withdrawnLoginIds)
-        sealed.removeAll { cleared.contains($0.openerID) || (withdrawn.contains($0.loginID) && machines.contains($0.openerID)) }
         let replaced = Set(kept.map { $0.openerID + "/" + $0.loginID })
-        sealed.removeAll { replaced.contains($0.openerID + "/" + $0.loginID) }
-        do { try await store.replaceSealed(sealed + kept) } catch { return .refused(503, "The Mac could not save the copies. Try again.") }
+        let incoming = kept
+        let stored: [Agentkeyring_V2_SealedLogin]
+        do {
+            stored = try await store.updateSealed { current in
+                var next = current
+                next.removeAll { cleared.contains($0.openerID) || (withdrawn.contains($0.loginID) && machines.contains($0.openerID)) }
+                next.removeAll { replaced.contains($0.openerID + "/" + $0.loginID) }
+                return next + incoming
+            }
+        } catch { return .refused(503, "The Mac could not save the copies. Try again.") }
         listsChanged(copies: true)
+        if let completeFor, !completeFor.isEmpty {
+            return verifyWatchCoverage(completeFor, stored: stored)
+        }
+        return .ok()
+    }
+
+    /// Confirms whether a listed Apple Watch currently has matching-version copies for every
+    /// non-Blocked login in this Mac's current catalogue (used on upgrade reconciliation and upload completion).
+    func checkCopiesComplete(for watchKeyID: String) async -> DoorReply {
+        guard !watchKeyID.isEmpty else { return .refused(400, "Specify complete_for.") }
+        let stored = (try? await store.sealed()) ?? []
+        return verifyWatchCoverage(watchKeyID, stored: stored)
+    }
+
+    private func verifyWatchCoverage(_ watchKeyID: String, stored: [Agentkeyring_V2_SealedLogin]) -> DoorReply {
+        guard let liveMembers = self.members,
+              liveMembers.devices.contains(where: { $0.kind == .watch && $0.keyID == watchKeyID }),
+              let liveCatalogue = self.catalogue else {
+            return .refused(409, "Apple Watch is no longer listed or the catalogue changed.")
+        }
+        let byLogin = Dictionary(stored.filter { $0.openerID == watchKeyID }.map { ($0.loginID, $0.version) },
+                                 uniquingKeysWith: { _, latest in latest })
+        let complete = liveCatalogue.logins.allSatisfy { login in
+            login.rule == .blocked || byLogin[login.loginID] == login.version
+        }
+        guard complete else {
+            return .refused(409, "Some passwords in this Mac's current catalogue are not copied for Apple Watch yet.")
+        }
         return .ok()
     }
 
@@ -538,27 +606,68 @@ public final class MacDevice {
         await adoptMembers(next, signed: try signed.serializedData())
     }
 
+    private var catalogueOperation: (id: UUID, task: Task<Void, Never>)?
+
+    /// Runs `body` exclusively across both local `publish(context:)` and incoming `takeCatalogue(_:)`,
+    /// so local publications never read half-applied rules or reuse a signed revision.
+    private func withSerializedCatalogue<T: Sendable>(_ body: @MainActor @escaping () async throws -> T) async throws -> T {
+        while let inFlight = catalogueOperation?.task {
+            await inFlight.value
+        }
+        let runID = UUID()
+        var outcome: Result<T, Error>?
+        let task = Task { @MainActor in
+            defer { if self.catalogueOperation?.id == runID { self.catalogueOperation = nil } }
+            do { outcome = .success(try await body()) }
+            catch { outcome = .failure(error) }
+        }
+        catalogueOperation = (runID, task)
+        await task.value
+        return try outcome!.get()
+    }
+
+    private func withSerializedCatalogue<T: Sendable>(_ body: @MainActor @escaping () async -> T) async -> T {
+        while let inFlight = catalogueOperation?.task {
+            await inFlight.value
+        }
+        let runID = UUID()
+        var outcome: T?
+        let task = Task { @MainActor in
+            defer { if self.catalogueOperation?.id == runID { self.catalogueOperation = nil } }
+            outcome = await body()
+        }
+        catalogueOperation = (runID, task)
+        await task.value
+        return outcome!
+    }
+
     /// Signs the catalogue with Touch ID: the devices and computers take its
     /// rules, and the copies of its versions, from the next bundle.
+    /// Serialized with incoming catalogue adoption so publications never undo an iPhone rule change or reuse a revision.
     public func publish(context: LAContext) async throws {
-        guard members != nil else { return }
-        var next = Agentkeyring_V2_Catalogue()
-        next.domain = "agentkeyring.catalogue.v2"
-        next.revision = max(saved.catalogueRevision, catalogue?.revision ?? 0) + 1
-        next.logins = try await catalogueLogins()
-        next.importedUnixSeconds = Int64(Date().timeIntervalSince1970)
-        let signed = try Sealing.signed(next.serializedData(), by: keys.deviceKeyID) { try keys.sign($0, context: context) }
-        catalogue = next
-        saved.catalogue = try signed.serializedData()
-        saved.catalogueRevision = next.revision
-        // The other devices' copies of versions this catalogue no longer names were kept for them until now.
-        let versions = Dictionary(next.logins.map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
-        let sealed = try await store.sealed()
-        let current = sealed.filter { versions[$0.loginID] == $0.version || $0.openerID == keys.deviceKeyID }
-        if current.count != sealed.count { try await store.replaceSealed(current) }
-        listsChanged(copies: true)
-        DiagnosticLog.record("catalogue", "signed", ["revision": "\(next.revision)", "passwords": "\(next.logins.count)"])
-        onPublished?()
+        try await withSerializedCatalogue {
+            guard self.members != nil else { return }
+            var next = Agentkeyring_V2_Catalogue()
+            next.domain = "agentkeyring.catalogue.v2"
+            next.logins = try await self.catalogueLogins()
+            // Allocate revision synchronously AFTER awaiting catalogueLogins so no concurrent
+            // catalogue update can take the same revision number.
+            next.revision = max(self.saved.catalogueRevision, self.catalogue?.revision ?? 0) + 1
+            next.importedUnixSeconds = Int64(Date().timeIntervalSince1970)
+            let signed = try Sealing.signed(next.serializedData(), by: self.keys.deviceKeyID) { try self.keys.sign($0, context: context) }
+            self.catalogue = next
+            self.saved.catalogue = try signed.serializedData()
+            self.saved.catalogueRevision = next.revision
+            // The other devices' copies of versions this catalogue no longer names were kept for them until now.
+            let versions = Dictionary(next.logins.map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
+            let ownDeviceKeyID = self.keys.deviceKeyID
+            _ = try await self.store.updateSealed { sealed in
+                sealed.filter { versions[$0.loginID] == $0.version || $0.openerID == ownDeviceKeyID }
+            }
+            self.listsChanged(copies: true)
+            DiagnosticLog.record("catalogue", "signed", ["revision": "\(next.revision)", "passwords": "\(next.logins.count)"])
+            self.onPublished?()
+        }
     }
 
     /// Check Again: reads this Mac's Tailscale address now, as a change of network would.
@@ -585,21 +694,28 @@ public final class MacDevice {
 
     /// Removes a computer or another device, after Josh's Touch ID; the system dialog is the confirmation.
     public func removeConfirmed(_ id: String, context: LAContext) async throws {
-        guard var next = members else { return }
-        let label = next.machines.first { $0.machineID == id }?.label ?? next.devices.first { $0.keyID == id }?.label ?? "it"
+        guard let initial = members else { return }
+        let label = initial.machines.first { $0.machineID == id }?.label ?? initial.devices.first { $0.keyID == id }?.label ?? "it"
         try await confirm(context, reason: MessageCopy.remove(label))
+        // Re-read current Members after Touch ID so a concurrent removal by another device is never undone.
+        guard var next = members else { return }
+        let beforeDevices = next.devices.count
+        let beforeMachines = next.machines.count
         next.machines.removeAll { $0.machineID == id }
         next.devices.removeAll { $0.keyID == id && $0.keyID != keys.deviceKeyID }
+        guard next.devices.count != beforeDevices || next.machines.count != beforeMachines else { return }
         try await publishMembers(next, context: context)
     }
 
     /// Renames a device or another computer in Members, after owner confirmation, so every device shows the new name.
     public func renameConfirmed(_ id: String, to newName: String, context: LAContext) async throws {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, var next = members else { return }
-        let current = next.machines.first { $0.machineID == id }?.label ?? next.devices.first { $0.keyID == id }?.label ?? "it"
+        guard !trimmed.isEmpty, let initial = members else { return }
+        let current = initial.machines.first { $0.machineID == id }?.label ?? initial.devices.first { $0.keyID == id }?.label ?? "it"
         guard trimmed != current else { return }
         try await confirm(context, reason: MessageCopy.rename(current, to: trimmed))
+        // Re-read current Members after Touch ID so a member removed during the prompt is never resurrected.
+        guard var next = members else { return }
         if let idx = next.devices.firstIndex(where: { $0.keyID == id }) {
             next.devices[idx].label = trimmed
         } else if let idx = next.machines.firstIndex(where: { $0.machineID == id }) {

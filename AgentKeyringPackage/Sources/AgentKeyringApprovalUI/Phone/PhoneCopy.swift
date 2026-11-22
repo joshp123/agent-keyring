@@ -130,8 +130,13 @@ public enum PhoneCopy {
     ]
     public static let continueWithFaceID = "Continue with Face ID"
     public static func confirmedUntil(_ until: Date) -> String { "Confirmed with Face ID · ready until \(clock(until))" }
-    public static let tapAddOnWatch = "Now tap Add on your Apple Watch"
-    public static let tapAddOnWatchDetail = "Open Agent Keyring on your Apple Watch and tap Add. This iPhone will encrypt your passwords for your Watch."
+    public static let tapAddOnWatch = "Open Agent Keyring on your Apple Watch"
+    public static let tapAddOnWatchDetail = "Keep this iPhone open while you add your Watch."
+    public static let tapAddOnWatchSteps = [
+        "Open the Agent Keyring app on your Apple Watch.",
+        "Tap Add on your Watch.",
+        "Stay nearby while this iPhone encrypts your passwords for your Watch.",
+    ]
     public static let watchNotShowingTitle = "Not showing up on your Watch?"
     public static let watchNotShowing = "Check that your Watch is unlocked, has a passcode, and Bluetooth is on. You can cancel and start again any time."
     public static let faceIDExpired = "Face ID confirmation expired. Confirm again to add your Apple Watch."

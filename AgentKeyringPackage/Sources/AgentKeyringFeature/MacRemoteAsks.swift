@@ -132,15 +132,52 @@ extension MacDevice {
         }) else { throw RelayFailure(.notFound, MessageCopy.noCopyOnThisMac) }
         try keys.check(copy, members: members, listed: ask.login)
         let receiving = try P256.KeyAgreement.PublicKey(x963Representation: ask.computer.receivingPublicKey)
-        try await confirm(context, reason: MessageCopy.useYourPassword(site: ask.login.sites.first ?? ask.login.title,
-            account: ask.login.account, agent: ask.request.agent, computer: ask.computer.label),
+        let shownSignedRequest = ask.signed
+        let shownLoginID = ask.login.loginID
+        let shownVersion = ask.login.version
+        let shownTitle = ask.login.title
+        let shownSites = ask.login.sites
+        let shownAccount = ask.login.account
+        let shownMachineID = ask.computer.machineID
+        let shownReceivingKey = ask.computer.receivingPublicKey
+        try await confirm(context, reason: MessageCopy.useYourPassword(site: shownSites.first ?? shownTitle,
+            account: shownAccount, agent: ask.request.agent, computer: ask.computer.label),
             until: Date(timeIntervalSince1970: TimeInterval(ask.request.answerByUnixSeconds)))
-        let secret = try keys.open(copy, context: context)
-        try Sealing.checkBound(secret, title: ask.login.title, sites: ask.login.sites, account: ask.login.account)
+        // Fetch sealed copies BEFORE the final synchronous check so no await can interleave
+        // between verifying live request/membership/login/version/key and opening the secret.
+        let sealedCopies = try await store.sealed()
+        guard let liveAsk = remoteAsks[id], liveAsk.signed == shownSignedRequest else {
+            throw RelayFailure(.notFound, MessageCopy.somethingWentWrong)
+        }
+        if case let .ended(lease) = liveAsk.state { return lease }
+        guard Date(timeIntervalSince1970: TimeInterval(liveAsk.request.answerByUnixSeconds)) > .now else {
+            var expired = Agentkeyring_V2_Lease()
+            expired.requestID = id
+            expired.loginID = liveAsk.request.loginID
+            expired.state = .unanswered
+            expired.answerByUnixSeconds = liveAsk.request.answerByUnixSeconds
+            endRemote(id, expired)
+            return expired
+        }
+        guard let freshMembers = members,
+              let freshMachine = freshMembers.machines.first(where: { $0.machineID == shownMachineID }),
+              freshMachine.receivingPublicKey == shownReceivingKey,
+              let freshLogin = catalogue?.logins.first(where: { $0.loginID == shownLoginID }),
+              freshLogin.rule != .blocked,
+              freshLogin.version == shownVersion,
+              freshLogin.title == shownTitle, freshLogin.sites == shownSites, freshLogin.account == shownAccount else {
+            throw RelayFailure(.permissionDenied, MessageCopy.somethingWentWrong)
+        }
+        guard let freshCopy = sealedCopies.first(where: {
+            $0.openerID == keys.deviceKeyID && $0.loginID == shownLoginID && $0.version == shownVersion
+        }) else { throw RelayFailure(.notFound, MessageCopy.noCopyOnThisMac) }
+        try keys.check(freshCopy, members: freshMembers, listed: freshLogin)
+        let secret = try keys.open(freshCopy, context: context)
+        try Sealing.checkBound(secret, title: shownTitle, sites: shownSites, account: shownAccount)
         onAuthenticated()
-        let upload = try Sealing.approve(request: ask.signed.payload, secret: secret, sites: ask.login.sites, receivingKey: receiving,
+        let upload = try Sealing.approve(request: liveAsk.signed.payload, secret: secret, sites: shownSites, receivingKey: receiving,
             signerKeyID: keys.deviceKeyID) { try keys.sign($0, context: context) }
-        return try await answerRemote(ask, upload)
+        return try await answerRemote(liveAsk, upload)
     }
 
     /// Josh denies another computer's request, with his words or none, signed

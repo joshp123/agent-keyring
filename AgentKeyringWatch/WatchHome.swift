@@ -11,6 +11,7 @@ import UserNotifications
 struct WatchHome: View {
     let model: WatchModel
     @State private var practiceFailed = false
+    @State private var addFailed = false
 
     var body: some View {
         #if DEBUG
@@ -28,14 +29,24 @@ struct WatchHome: View {
             if model.setup == .ready && !inUse.isEmpty {
                 WatchInUsePage(items: inUse) { await WatchLink.shared.stop($0) }
             } else {
-                WatchSetupPage(setup: model.setup, practiceFailed: practiceFailed) { await act($0) }
+                WatchSetupPage(setup: model.setup, practiceFailed: practiceFailed, addFailed: addFailed) { await act($0) }
             }
+        }
+        .onChange(of: model.setup) { _, next in
+            if next != .addedOfferPractice { practiceFailed = false }
+            if next != .readyToAdd { addFailed = false }
         }
     }
 
     private func act(_ action: WatchSetupAction) async {
         switch action {
-        case .add: await WatchLink.shared.add()
+        case .add:
+            addFailed = false
+            let started = await WatchLink.shared.add()
+            addFailed = !started
+        case .cancelAdd:
+            addFailed = false
+            await WatchLink.shared.cancelAdd()
         case .allowNotifications:
             // watchOS's own question, only once the iPhone has added this Apple Watch.
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
@@ -43,8 +54,12 @@ struct WatchHome: View {
             await WatchLink.shared.sendHandOver()
         case .checkAgain: await WatchLink.shared.refreshSetup()
         case .tryPractice: practiceFailed = !(await WatchLink.shared.askForPractice())
-        case .cancelPractice: await WatchLink.shared.cancelPractice()
-        case .done: await WatchLink.shared.practiceOfferDone()
+        case .cancelPractice:
+            practiceFailed = false
+            await WatchLink.shared.cancelPractice()
+        case .done:
+            practiceFailed = false
+            await WatchLink.shared.practiceOfferDone()
         }
     }
 }

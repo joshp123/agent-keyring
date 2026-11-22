@@ -28,8 +28,8 @@ struct PhoneMacDoor: @unchecked Sendable {
         }
     }
 
-    func post(_ path: String, _ body: Data, timeout: TimeInterval = 15) async throws -> Data {
-        try await refusals { try await DoorHTTPS.send("POST", body, host: host, port: port, path: path, pinned: key, client: client, timeout: timeout) }
+    func post(_ path: String, _ body: Data, query: [URLQueryItem] = [], timeout: TimeInterval = 15) async throws -> Data {
+        try await refusals { try await DoorHTTPS.send("POST", body, host: host, port: port, path: path, query: query, pinned: key, client: client, timeout: timeout) }
     }
 
     func get(_ path: String, query: [URLQueryItem] = []) async throws -> Data {

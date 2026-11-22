@@ -105,7 +105,7 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
     public func on(_ event: Event) -> PhoneFirstRun {
         switch (self, event) {
         case (_, .removed): .start
-        case let (.searching, .macFound(name)), let (.trouble, .macFound(name)): .foundMac(name: name)
+        case let (.searching, .macFound(name)): .foundMac(name: name)
         case (.searching(false), .lookedLong), (.searching, .havingTrouble), (.foundMac, .havingTrouble): .trouble
         case (.trouble, .tryAgain), (.trouble, .cancel), (.foundMac, .macGone): .start
         case let (.foundMac(name), .connect): .waitingForMac(name: name)
@@ -172,10 +172,10 @@ public enum PhoneFirstRun: Hashable, Sendable, Codable {
         if case .waitingForMac = self { true } else { false }
     }
 
-    /// The look for the Mac's join card runs before Connect, and while a refusal or expiry is on screen.
+    /// The look for the Mac's join card runs before Connect (not while on the manual Trouble checklist).
     public var looksForMac: Bool {
         switch self {
-        case .searching, .trouble, .foundMac, .waitingForMac: true
+        case .searching, .foundMac, .waitingForMac: true
         default: false
         }
     }

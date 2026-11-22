@@ -31,15 +31,15 @@ func AllowedOrigin(origin string, sites []string) bool {
 		if err != nil || saved.Hostname() == "" || saved.User != nil {
 			continue
 		}
-		host := strings.ToLower(actual.Hostname())
-		savedHost := strings.ToLower(saved.Hostname())
+		host := strings.TrimSuffix(strings.ToLower(actual.Hostname()), ".")
+		savedHost := strings.TrimSuffix(strings.ToLower(saved.Hostname()), ".")
 		if loopback {
 			if saved.Scheme == actual.Scheme && saved.Host == actual.Host {
 				return true
 			}
 			continue
 		}
-		if saved.Scheme == "https" && (host == savedHost || strings.HasSuffix(host, "."+savedHost)) && actual.Port() == saved.Port() {
+		if saved.Scheme == "https" && actual.Port() == saved.Port() && matchesHost(host, savedHost) {
 			return true
 		}
 	}

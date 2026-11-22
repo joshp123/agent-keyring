@@ -408,7 +408,9 @@ struct PhoneSheetTests {
             await backend.firstRun(.practiceTapped)
             return backend.current
         }
-        try? await Task.sleep(for: .milliseconds(30))
+        for _ in 0..<100 where model.snapshot.firstRun != .practiceResult(.approved) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
         #expect(model.snapshot.firstRun == .practiceResult(.approved))
         #expect(model.sheet.presentation == .none)
@@ -476,5 +478,42 @@ struct PhoneSheetTests {
         await model.handleNotification(id: "rEnded", action: "DEFAULT") { backend.snapshot }
         #expect(model.sheet.presentation == .none)
         #expect(model.sheet.staleNotice == PhoneCopy.staleRequestNote(endedReq.state))
+    }
+
+    @MainActor
+    @Test("Interrupting Add Apple Watch with a notification cancels addWatch cleanly so Add Apple Watch can reopen")
+    func addWatchInterruptedByNotificationCanReopen() async {
+        var snap = PhoneSnapshot(firstRun: .finished, requests: [makeWaitingRequest(id: "r1")])
+        snap.revision = 1
+        snap.addWatch = .faceIDFirst
+        let backend = ControlledPhoneBackend(initial: snap)
+        let model = PhoneModel(backend: backend, initial: snap)
+        #expect(model.sheet.presentation == .addWatch)
+
+        // Notification arrives while Add Apple Watch is open: must replace sheet cleanly.
+        await model.handleNotification(id: "r1", action: "DEFAULT") { backend.snapshot }
+        #expect(model.sheet.presentation == .request(id: "r1", mode: .decide, canReturnToDecide: false))
+
+        // Dismiss the notification sheet, then tap Add Apple Watch again: must reopen instead of no-op.
+        model.dismissSheet(expectedItem: .request(id: "r1"))
+        #expect(model.sheet.presentation == .none)
+        await model.addWatch(.open)
+        #expect(model.sheet.presentation == .addWatch)
+    }
+
+    @MainActor
+    @Test("Device removal closes lingering Settings or Add Watch sheets")
+    func deviceRemovalClosesLingeringPostFirstRunSheet() {
+        var snap = PhoneSnapshot(firstRun: .finished)
+        snap.revision = 1
+        let backend = ControlledPhoneBackend(initial: snap)
+        let model = PhoneModel(backend: backend, initial: snap)
+        model.openSettings()
+        #expect(model.sheet.presentation == .settings)
+
+        var removed = PhoneSnapshot(firstRun: .start)
+        removed.revision = 2
+        model.applySnapshot(removed)
+        #expect(model.sheet.presentation == .none)
     }
 }

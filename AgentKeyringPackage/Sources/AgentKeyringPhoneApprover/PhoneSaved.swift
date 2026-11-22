@@ -52,6 +52,8 @@ struct PhoneSavedState: Codable {
     var pushTokenSHA256: Data?
     /// Reply sent with the last denied practice request, kept across relaunches for the result screen.
     @Lenient var lastPracticeReply: String?
+    /// Watch key ID that is listed in Members whose encrypted password copies have not yet been acknowledged by the Mac.
+    @Lenient var watchCopiesPending: String?
 }
 
 /// A saved value that reads as nil when its form has changed, so the rest of the saved state still reads.

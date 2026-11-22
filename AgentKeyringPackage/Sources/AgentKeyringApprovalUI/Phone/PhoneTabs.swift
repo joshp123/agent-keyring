@@ -161,7 +161,9 @@ struct PhoneHomeView: View {
                 Section {
                     ForEach(model.inUse) { request in
                         if case let .approved(_, until) = request.state {
-                            let stop = KeyringButton(.plain(PhoneCopy.stop) { Task { await model.stop(request.id) } })
+                            let stop = KeyringButton(.plain(PhoneCopy.stop, isEnabled: !model.stoppingIDs.contains(request.id)) {
+                                Task { await model.stop(request.id) }
+                            })
                             if textSize.isAccessibilitySize {
                                 // Under the words at large text sizes, so a long site and who asks keep the row's width.
                                 VStack(alignment: .leading, spacing: KeyringSpace.s2) {
@@ -269,6 +271,7 @@ struct PhoneLoginsView: View {
                         } label: {
                             KeyringText(PhoneCopy.rule(login.rule), as: .meta, colour: KeyringPalette.brand)
                         }
+                        .disabled(model.isChangingRuleOrDevice)
                     }
                 }
             } footer: { KeyringText(PhoneCopy.sortWithAI, as: .caption) }
@@ -310,6 +313,12 @@ struct PhoneDevicesView: View {
             Button(PhoneCopy.remove, role: .destructive) { Task { await model.remove(device: device.id) } }
             Button(PhoneCopy.cancel, role: .cancel) {}
         } message: { device in Text(PhoneCopy.removeDetail(device, alsoAsks: alsoAsks(device))) }
+        .onChange(of: model.tab) { _, tab in
+            if tab != .devices { removing = nil }
+        }
+        .onChange(of: model.sheet.item) { _, item in
+            if item != nil { removing = nil }
+        }
     }
 
     /// Send Practice Request on the row; Remove by swiping it to the left, out of the way.
@@ -323,7 +332,7 @@ struct PhoneDevicesView: View {
             }
         }
         .swipeActions(edge: .trailing) {
-            if device.canRemove && !device.isThisIPhone {
+            if device.canRemove && !device.isThisIPhone && !model.isChangingRuleOrDevice {
                 Button(PhoneCopy.remove, role: .destructive) { removing = device }
             }
         }

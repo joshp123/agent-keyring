@@ -25,22 +25,13 @@ public final class AdditionBackend: MacApprovalBackend {
 
     /// The join waiting under this id, as the panel shows it.
     public func request(_ id: String) -> AccessRequest? {
-        if let state = answered[id], let last = lastShown[id] {
-            var request = last
-            request.state = state
-            // A new device is being given its copies: the panel says how far, and stays until it is done.
-            if let filling = model.device?.filling, filling.deviceKeyID == id,
-               case let .setUp(lead, detail, footer, denied, replies, _) = last.access {
-                request.access = .setUp(lead: lead, detail: detail, footer: footer, denied: denied, replies: replies,
-                    approved: filling.failure.map { SetupCopy.stoppedCopying(done: filling.done, total: filling.total, reason: $0) }
-                        ?? SetupCopy.copyingTo(done: filling.done, total: filling.total))
-            }
-            return request
-        }
         guard let device = model.device else { return nil }
-        let request: AccessRequest?
+        // Check active waiting joins FIRST so a device that was previously denied or removed
+        // and joins again in the same app session is never masked by a stale cached answer.
         if let join = device.joins.first(where: { MacDevice.joinID($0) == id }) {
+            answered.removeValue(forKey: id)
             let asked = Date(timeIntervalSince1970: TimeInterval(join.askedUnixSeconds))
+            let request: AccessRequest?
             switch join.request.joining {
             case let .device(joining)?:
                 request = AccessRequest(id: id, login: RequestedLogin(site: joining.label, account: ""),
@@ -57,11 +48,22 @@ public final class AdditionBackend: MacApprovalBackend {
                     agentReason: "", askedAt: asked, state: .waitingForYou(until: asked.addingTimeInterval(600)))
             case nil: request = nil
             }
-        } else {
-            request = nil
+            if let request { lastShown[id] = request }
+            return request
         }
-        if let request { lastShown[id] = request }
-        return request
+        if let state = answered[id], let last = lastShown[id] {
+            var request = last
+            request.state = state
+            // A new device is being given its copies: the panel says how far, and stays until it is done.
+            if let filling = model.device?.filling, filling.deviceKeyID == id,
+               case let .setUp(lead, detail, footer, denied, replies, _) = last.access {
+                request.access = .setUp(lead: lead, detail: detail, footer: footer, denied: denied, replies: replies,
+                    approved: filling.failure.map { SetupCopy.stoppedCopying(done: filling.done, total: filling.total, reason: $0) }
+                        ?? SetupCopy.copyingTo(done: filling.done, total: filling.total))
+            }
+            return request
+        }
+        return nil
     }
 
     private var lastShown: [String: AccessRequest] = [:]

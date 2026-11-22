@@ -13,9 +13,13 @@ import SwiftUI
 
 public struct MacPasswordsTab: View {
     @Bindable var model: MacMainModel
-    @State private var sorting = false
+    private let openSortWithAI: (() -> Void)?
+    @State private var localSorting = false
 
-    public init(model: MacMainModel) { self.model = model }
+    public init(model: MacMainModel, openSortWithAI: (() -> Void)? = nil) {
+        self.model = model
+        self.openSortWithAI = openSortWithAI
+    }
 
     public var body: some View {
         KeyringPane {
@@ -25,7 +29,9 @@ public struct MacPasswordsTab: View {
                     ForEach(MainWindowCopy.rulesExplained, id: \.self) { KeyringText($0, as: .meta) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                KeyringButton(.plain(MainWindowCopy.sortWithAI) { sorting = true })
+                KeyringButton(.plain(MainWindowCopy.sortWithAI) {
+                    if let openSortWithAI { openSortWithAI() } else { localSorting = true }
+                })
             }
             Picker(MainWindowCopy.all, selection: $model.filter) {
                 Text(MainWindowCopy.filter(MainWindowCopy.all, model.count(nil))).tag(LoginRule?.none)
@@ -38,8 +44,8 @@ public struct MacPasswordsTab: View {
             footer
         }
         .searchable(text: $model.search, placement: .toolbar, prompt: Text(MainWindowCopy.search(model.snapshot.logins.count)))
-        .sheet(isPresented: $sorting) {
-            SortWithAISheet(model: model) { sorting = false }
+        .sheet(isPresented: $localSorting) {
+            SortWithAISheet(model: model) { localSorting = false }
                 .frame(width: KeyringSize.measure + 2 * KeyringSpace.s10)
         }
     }

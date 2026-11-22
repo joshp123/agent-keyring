@@ -1,23 +1,12 @@
 // Written by AI on 2026.11.01 by model gpt-6.1-sol.
+importScripts('psl.js');
 const HOST = 'com.agentkeyring.browser';
 let profile, port;
 const token = (tab, top, frame) => btoa(JSON.stringify({profile, tab: tab.id,
   frame: frame.frameId, document: frame.documentId, top: top.documentId})).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 const decode = value => JSON.parse(atob(value.replaceAll('-', '+').replaceAll('_', '/')));
 const page = url => /^https?:\/\//.test(url || '');
-const matches = (url, sites) => {
-  let actual;
-  try { actual = new URL(url); } catch { return false; }
-  const local = ['127.0.0.1', '[::1]', 'localhost'].includes(actual.hostname);
-  if (actual.username || actual.password || (actual.protocol !== 'https:' && !(local && actual.protocol === 'http:'))) return false;
-  return sites.some(site => {
-    try {
-      const saved = new URL(site.includes('://') ? site : 'https://' + site);
-      return local ? saved.origin === actual.origin : saved.protocol === 'https:' && saved.port === actual.port &&
-        (actual.hostname === saved.hostname || actual.hostname.endsWith('.' + saved.hostname));
-    } catch { return false; }
-  });
-};
+const matches = (url, sites) => globalThis.agentKeyringMatchesSite(url, sites);
 async function target(value) {
   const t = decode(value);
   if (t.profile !== profile || !Number.isInteger(t.tab) || !Number.isInteger(t.frame)) throw Error();
@@ -31,7 +20,7 @@ async function target(value) {
 const metadata = (tab, top, frame) => ({target: token(tab, top, frame), url: frame.url,
   title: tab.title || '', browser: 'Chromium', profile});
 const attach = (tab, document) => chrome.scripting.executeScript({
-  target: {tabId: tab.id, documentIds: [document.documentId]}, files: ['page.js'], world: 'ISOLATED'
+  target: {tabId: tab.id, documentIds: [document.documentId]}, files: ['psl.js', 'page.js'], world: 'ISOLATED'
 });
 async function tabs() {
   const result = [];
@@ -71,7 +60,7 @@ async function handle(command) {
     await attach(tab, frame);
     const result = await chrome.tabs.sendMessage(tab.id, {action: command.action === 'ACTION_FILL' ? 'fill' : 'prepare',
       fields: command.fields || [], submit: command.submit, values: command.values,
-      origin: new URL(frame.url).origin}, {documentId: frame.documentId});
+      sites: command.sites || [], origin: new URL(frame.url).origin}, {documentId: frame.documentId});
     if (result.error) return {error: result.error};
     if (command.action === 'ACTION_PREPARE') {
       await target(command.target);

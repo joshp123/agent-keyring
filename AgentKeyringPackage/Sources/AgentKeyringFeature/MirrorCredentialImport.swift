@@ -193,15 +193,17 @@ extension MirrorAppModel {
             let keys = try macKeys()
             let own: Set<String> = [keys.deviceKeyID, keys.machineID] // This Mac's own copies, and its Automatic ones.
             let signed = Dictionary((device?.catalogue?.logins ?? []).map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
-            var sealed = try await store.sealed().filter { copy in
-                kept.contains(copy.loginID) || (!own.contains(copy.openerID) && signed[copy.loginID] == copy.version)
-            }
             let version = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
-            for item in fresh {
+            let incoming = try fresh.flatMap { item in
                 let policy = accessControl.policy(for: item.id)
-                sealed += try sealCopies(of: item.secret, version: version, automatic: policy == .allowAutomatically, blocked: policy == .block)
+                return try sealCopies(of: item.secret, version: version, automatic: policy == .allowAutomatically, blocked: policy == .block)
             }
-            try await store.save(generation, sealed: sealed)
+            try await store.save(generation) { existing in
+                let preserved = existing.filter { copy in
+                    kept.contains(copy.loginID) || (!own.contains(copy.openerID) && signed[copy.loginID] == copy.version)
+                }
+                return preserved + incoming
+            }
         } catch {
             credentialExchangeLogger.error("Sealing the import failed: \(String(describing: error), privacy: .public)")
             problem = MessageCopy.notLockedAway(hadEarlierCopy: hadExistingMirror)

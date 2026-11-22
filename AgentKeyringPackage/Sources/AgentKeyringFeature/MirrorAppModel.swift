@@ -156,6 +156,7 @@ public final class MirrorAppModel {
 
     /// The last practice request on each device he answers on, by device key.
     public internal(set) var practiceResults: [String: PracticeResult] = [:]
+    @ObservationIgnored private var practiceTokens: [String: UInt64] = [:]
 
     /// This Mac's key in `practiceResults`.
     public var thisMacDeviceKey: String { device?.ownDeviceID ?? "this-mac" }
@@ -164,21 +165,25 @@ public final class MirrorAppModel {
     /// the window; on another device it arrives like a real request, and the
     /// row shows how it was answered.
     public func sendPractice(to deviceKey: String) async {
+        let token = (practiceTokens[deviceKey] ?? 0) &+ 1
+        practiceTokens[deviceKey] = token
         practiceResults[deviceKey] = .sent
         guard let device, deviceKey != thisMacDeviceKey else { return }
         do {
             let lease = try await device.practice(on: deviceKey) { [weak self] lease in
-                guard lease.state == .waiting else { return }
-                self?.practiceResults[deviceKey] = lease.arrivedUnixSeconds > 0
+                guard let self, self.practiceTokens[deviceKey] == token, lease.state == .waiting else { return }
+                self.practiceResults[deviceKey] = lease.arrivedUnixSeconds > 0
                     ? .arrived(at: Date(timeIntervalSince1970: TimeInterval(lease.arrivedUnixSeconds)), on: lease.arrivedOn)
                     : lease.pushedUnixSeconds > 0 ? .withApple(at: Date(timeIntervalSince1970: TimeInterval(lease.pushedUnixSeconds))) : .sent
             }
+            guard practiceTokens[deviceKey] == token else { return }
             practiceResults[deviceKey] = switch lease.state {
             case .approved, .ended: .approved(at: .now)
             case .denied: .denied(at: .now, reply: lease.reply)
             default: .unanswered
             }
         } catch {
+            guard practiceTokens[deviceKey] == token else { return }
             practiceResults[deviceKey] = .failed((error as? LocalizedError)?.errorDescription ?? MessageCopy.somethingWentWrong)
         }
     }
@@ -219,7 +224,7 @@ public final class MirrorAppModel {
         device = MacDevice(keys: made, store: store, leaseStore: leaseStore, environment: MacDevice.Environment(storage: storage)) { [weak self] in
             try await self?.catalogueLogins() ?? []
         }
-        device?.onCatalogue = { [weak self] catalogue, mine in await self?.adoptCatalogue(catalogue, ownCopies: mine) }
+        device?.onCatalogue = { [weak self] catalogue in await self?.adoptCatalogue(catalogue) }
         device?.onPublished = { [weak self] in self?.recordSentList() }
         device?.onPracticeHere = { [weak self] in
             guard let self else { return }

@@ -118,8 +118,13 @@ public final class PhoneKeyring: PhoneBackend {
         save(saved)
         if next.looksForMac { lookForMac() }
         if next.mayJoin, !previous.mayJoin { joinMac() }
-        if case .waitingForMac = previous, event == .cancel { Task { await withdrawJoin() } }
-        if next == .receivingPasswords { Task { await receivePasswords() } }
+        if case .waitingForMac = previous, event == .cancel {
+            joiningGeneration &+= 1
+            joining?.cancel(); joining = nil
+            withdrawing?.cancel()
+            withdrawing = Task { await withdrawJoin() }
+        }
+        if next == .receivingPasswords { startReceivingPasswords() }
         // A new practice request: the 30-second timer starts, and it is asked for once Apple has given a push address.
         if case let .practiceWaiting(id, false) = next, previous.practiceID != id { beginPractice(id) }
         if event == .practiceDismissed { practiceTimer?.cancel(); practiceTimer = nil }
@@ -143,9 +148,16 @@ public final class PhoneKeyring: PhoneBackend {
         Task { await refresh() }
         Task { await readDeliveredNotifications() }
         if let id = firstRun.practiceID, practiceTask == nil {
-            if firstRun == .practiceWaiting(id: id, arrived: false), practiceTimer == nil { beginPractice(id) } else { askForPractice(id) }
+            switch firstRun {
+            case .practiceWaiting(id: _, arrived: false):
+                if practiceTimer == nil { beginPractice(id) } else { askForPractice(id) }
+            case .settingUpNotifications:
+                askForPractice(id)
+            default:
+                break
+            }
         }
-        if firstRun == .receivingPasswords { Task { await receivePasswords() } }
+        if firstRun == .receivingPasswords { startReceivingPasswords() }
         if firstRun == .addWatch, addWatchFlow == nil { openAddWatch() }
         uploading?.cancel()
         uploading = Task { [weak self] in
@@ -179,6 +191,7 @@ public final class PhoneKeyring: PhoneBackend {
                 for work in queued { receive(work, allowRefresh: false) }
             }
             if macUnreachable { macUnreachable = false; publish() }
+            await reconcileExistingWatchCoverage()
             return true
         } catch {
             PhoneDiagnostics.log.note("mac", "bundle not fetched", ["error": "\(error)"])
@@ -188,6 +201,57 @@ public final class PhoneKeyring: PhoneBackend {
     }
 
     private var macUnreachable = false
+    private var reconciledWatchID: String?
+    private var checkingWatchCoverage = false
+    private var watchCoverageCheckGeneration: UInt64 = 0
+
+    /// On upgrade, a Watch listed by an earlier build may lack copies on the Mac without
+    /// `state.watchCopiesPending` set locally. Check once with the Mac so Devices offers retry.
+    private func reconcileExistingWatchCoverage() async {
+        guard let watch = members?.devices.first(where: { $0.kind == .watch }) else {
+            reconciledWatchID = nil
+            watchCoverageCheckGeneration &+= 1
+            if state.watchCopiesPending != nil {
+                var cleared = state
+                cleared.watchCopiesPending = nil
+                save(cleared)
+            }
+            return
+        }
+        let watchID = watch.keyID
+        if let pending = state.watchCopiesPending, pending != watchID {
+            var cleared = state
+            cleared.watchCopiesPending = nil
+            save(cleared)
+        }
+        guard !checkingWatchCoverage, reconciledWatchID != watchID, state.watchCopiesPending == nil, addingWatch == nil else { return }
+        checkingWatchCoverage = true
+        defer { checkingWatchCoverage = false }
+        watchCoverageCheckGeneration &+= 1
+        let checkGeneration = watchCoverageCheckGeneration
+        do {
+            _ = try await mac().get("/v2/copies", query: [URLQueryItem(name: "complete_for", value: watchID)])
+            guard watchCoverageCheckGeneration == checkGeneration, addingWatch == nil,
+                  members?.devices.first(where: { $0.kind == .watch })?.keyID == watchID else { return }
+            reconciledWatchID = watchID
+        } catch let failure as DoorHTTPS.Failure where failure.status == 409 {
+            guard watchCoverageCheckGeneration == checkGeneration, addingWatch == nil,
+                  members?.devices.first(where: { $0.kind == .watch })?.keyID == watchID else { return }
+            var mark = state
+            mark.watchCopiesPending = watchID
+            save(mark)
+            reconciledWatchID = watchID
+            onListsChanged?()
+            publish()
+        } catch let failure as DoorHTTPS.Failure where failure.status == 404 {
+            guard watchCoverageCheckGeneration == checkGeneration, addingWatch == nil,
+                  members?.devices.first(where: { $0.kind == .watch })?.keyID == watchID else { return }
+            // Older Mac without GET /v2/copies: do not retry on every refresh.
+            reconciledWatchID = watchID
+        } catch {
+            // Transient network error: retry on the next refresh.
+        }
+    }
 
     /// Takes a bundle: each part checked on its own, the lists by their signatures, the copies by their signers.
     func accept(bundle: Agentkeyring_V2_Bundle) throws {
@@ -222,15 +286,33 @@ public final class PhoneKeyring: PhoneBackend {
         if let current = state.members, let saved = try? SignedDocument(serializedBytes: current), saved.payload == signed.payload { return }
         let verified = try Sealing.verifiedMembers(signed, current: members)
         guard verified.devices.contains(where: { $0.keyID == state.deviceKeyID }) else {
-            // This iPhone was removed: forget everything it held, and look for a Mac again.
-            save(PhoneSavedState())
+            // This iPhone was removed: forget everything it held, stop active flows/timers, and look for a Mac again.
             practiceTask?.cancel(); practiceTask = nil
             practiceTimer?.cancel(); practiceTimer = nil
+            addingWatchGeneration &+= 1
+            addingWatch?.cancel(); addingWatch = nil
+            uploadingWatchCopies = false
+            receivingTask?.cancel(); receivingTask = nil
+            releaseHold()
+            addWatchFlow = nil
+            activeWatchOfferID = nil
+            onWatchMayAsk?(nil, nil)
+            pushRegistered = false
+            macUnreachable = false
+            reconciledWatchID = nil
+            undelivered.removeAll()
+            pendingUnverifiedWork.removeAll()
+            copiesHeld = 0
+            copiesExpected = nil
+            save(PhoneSavedState())
             apply(.removed)
             return
         }
         var next = state
         next.members = try signed.serializedData()
+        if let pending = next.watchCopiesPending, !verified.devices.contains(where: { $0.kind == .watch && $0.keyID == pending }) {
+            next.watchCopiesPending = nil
+        }
         save(next)
         onListsChanged?()
     }
@@ -549,7 +631,7 @@ public final class PhoneKeyring: PhoneBackend {
     /// Changes a login's rule from the Passwords tab, after one Face ID. The Mac makes and withdraws the
     /// copies the new rule needs.
     public func setRule(_ rule: PhoneLogin.Rule, forLogin loginID: String) async throws {
-        guard var next = catalogue, let index = next.logins.firstIndex(where: { $0.loginID == loginID }) else { return }
+        guard let next = catalogue, let index = next.logins.firstIndex(where: { $0.loginID == loginID }) else { return }
         let old = next.logins[index]
         let wanted: Agentkeyring_V2_Rule = switch rule {
         case .ask: .ask
@@ -564,9 +646,12 @@ public final class PhoneKeyring: PhoneBackend {
             ? PhoneCopy.automaticReason(site: Self.site(old), from: Self.rule(old), computers: computers)
             : PhoneCopy.faceIDSetRule(site: Self.site(old), rule: rule)
         try await keys.authorize(context, reason: reason)
-        next.logins[index].rule = wanted
-        next.revision += 1
-        let signed = try Sealing.signed(next.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
+        // Re-read latest catalogue after Face ID so a concurrent refresh cannot cause a stale revision.
+        guard var latest = catalogue, let latestIndex = latest.logins.firstIndex(where: { $0.loginID == loginID }) else { return }
+        guard latest.logins[latestIndex].rule != wanted else { return }
+        latest.logins[latestIndex].rule = wanted
+        latest.revision += 1
+        let signed = try Sealing.signed(latest.serializedData(), by: Sealing.keyID(keys.signingPublicKey())) { try keys.sign($0, context: context) }
         _ = try await mac().post("/v2/catalogue", signed.serializedData())
         try accept(catalogue: signed)
     }
@@ -677,18 +762,26 @@ public final class PhoneKeyring: PhoneBackend {
     /// be reached at all is said so; one that stops answering after it said "waiting" is tried for 30 seconds.
     private func joinMac() {
         guard joining == nil, state.deviceKeyID == nil else { return }
+        joiningGeneration &+= 1
+        let generation = joiningGeneration
         joining = Task { [weak self] in
-            defer { self?.joining = nil }
-            guard let self, let card = self.foundMac ?? self.joinCard(), Self.joinable(card) else {
-                self?.apply(.macUnreachable); return
+            defer {
+                if self?.joiningGeneration == generation { self?.joining = nil }
+            }
+            await self?.withdrawing?.value
+            guard !Task.isCancelled, let self, self.joiningGeneration == generation, self.firstRun.mayJoin,
+                  let card = self.foundMac ?? self.joinCard(), Self.joinable(card) else {
+                if let self, !Task.isCancelled, self.joiningGeneration == generation, self.firstRun.mayJoin { self.apply(.macUnreachable) }
+                return
             }
             let door = MacDoor(host: card.doorHost, port: UInt16(card.doorPort), key: card.doorTlsPublicKey,
                                name: card.inviterLabel.isEmpty ? "Mac" : card.inviterLabel)
             var lastHeard: Date?
-            while !Task.isCancelled, self.firstRun.mayJoin {
+            while !Task.isCancelled, self.joiningGeneration == generation, self.firstRun.mayJoin {
                 do {
                     let joining = try self.joinRequest(card)
                     let reply = try await self.macDoor(door).post("/v2/join", joining.serializedData(), timeout: 35)
+                    guard !Task.isCancelled, self.joiningGeneration == generation else { return }
                     let status = try Agentkeyring_V2_JoinStatus(serializedBytes: reply)
                     lastHeard = Date()
                     switch status.state {
@@ -696,14 +789,16 @@ public final class PhoneKeyring: PhoneBackend {
                     case .approved: return try self.joined(status, card: card, door: door, device: joining.device)
                     case .refused: return self.apply(.joinRefused)
                     case .expired: return self.apply(.joinExpired)
-                    default: return  // withdrawn: Cancel already moved first run
+                    case .withdrawn: return self.apply(.cancel)
+                    default: return
                     }
                 } catch is CancellationError { return }
                 catch PhoneMacDoor.Failure.refusedByMac {
+                    guard !Task.isCancelled, self.joiningGeneration == generation else { return }
                     PhoneDiagnostics.log.note("join", "refused by the Mac's door", [:])
                     return self.apply(.joinRefused)
                 } catch {
-                    if Task.isCancelled { return }
+                    guard !Task.isCancelled, self.joiningGeneration == generation else { return }
                     PhoneDiagnostics.log.note("join", "not answered", ["error": "\(error)"])
                     guard let heard = lastHeard, Date().timeIntervalSince(heard) < AnswerDoor.retryFor else { return self.apply(.macUnreachable) }
                     try? await Task.sleep(for: .seconds(2))
@@ -713,6 +808,17 @@ public final class PhoneKeyring: PhoneBackend {
     }
 
     private var joining: Task<Void, Never>?
+    private var joiningGeneration: UInt64 = 0
+    private var withdrawing: Task<Void, Never>?
+    private var receivingTask: Task<Void, Never>?
+
+    private func startReceivingPasswords() {
+        guard receivingTask == nil else { return }
+        receivingTask = Task { [weak self] in
+            defer { self?.receivingTask = nil }
+            await self?.receivePasswords()
+        }
+    }
 
     private func joined(_ status: Agentkeyring_V2_JoinStatus, card: Agentkeyring_V2_JoinInvite, door: MacDoor,
                         device: Agentkeyring_V2_Device) throws {
@@ -732,8 +838,8 @@ public final class PhoneKeyring: PhoneBackend {
     }
 
     /// Cancel while waiting: the Mac drops the request at once.
+    /// `joining` is already cancelled synchronously in `apply(.cancel)` so an immediate reconnect starts cleanly.
     private func withdrawJoin() async {
-        joining?.cancel(); joining = nil
         guard let card = foundMac ?? joinCard(), Self.joinable(card) else { return }
         let door = MacDoor(host: card.doorHost, port: UInt16(card.doorPort), key: card.doorTlsPublicKey, name: card.inviterLabel)
         do { _ = try await macDoor(door).post("/v2/join/withdraw", joinRequest(card).serializedData()) }
@@ -977,7 +1083,9 @@ public final class PhoneKeyring: PhoneBackend {
         var facts = PhoneWatchFacts()
         facts.paired = watchPaired
         facts.installed = watchInstalled
-        facts.added = members.devices.contains { $0.kind == .watch }
+        let listedWatch = members.devices.first { $0.kind == .watch }
+        facts.added = listedWatch != nil
+        facts.copiesPending = listedWatch != nil && state.watchCopiesPending == listedWatch?.keyID
         facts.opened = facts.added || state.watchDevice != nil || state.watchSelfTest != nil
         facts.notificationsAllowed = test["notificationsAllowed"] as? Bool == true
         facts.pushAddress = test["pushAddress"] as? Bool == true
@@ -1002,9 +1110,36 @@ public final class PhoneKeyring: PhoneBackend {
     /// The Face ID confirmation held for Apple Watch to ask, and when it ends.
     private var held: (context: LAContext, until: Date)?
     private var holdTimer: Task<Void, Never>?
+    private var authorizingWatch = false
+    /// Unique identifier for the currently active Face ID Add Watch offer, kept alive through
+    /// encryption and retries until completion or cancellation so the Watch can always cancel it.
+    public private(set) var activeWatchOfferID: String?
 
-    /// The Watch offers Add only while this is set: the end of the held confirmation.
-    public var onWatchMayAsk: ((Date?) -> Void)?
+    /// True while this iPhone is actively waiting for or processing an Apple Watch Add tap
+    /// (or the Watch is already listed in Members with copies complete).
+    public var isAcceptingWatchAdd: Bool {
+        if members?.devices.contains(where: { $0.kind == .watch }) == true, !watchCopiesPending { return true }
+        switch addWatchFlow {
+        case .waitingForWatch?, .encrypting?, .added?: return true
+        default: return false
+        }
+    }
+
+    /// True when the Watch is listed in Members but the Mac has not yet acknowledged its encrypted copies.
+    public var watchCopiesPending: Bool {
+        guard let pending = state.watchCopiesPending else { return false }
+        return members?.devices.contains(where: { $0.kind == .watch && $0.keyID == pending }) == true
+    }
+
+    /// True while this iPhone is actively encrypting/uploading copies for Apple Watch.
+    public var isCopyingToWatch: Bool {
+        if uploadingWatchCopies { return true }
+        if case .encrypting = addWatchFlow { return true }
+        return false
+    }
+
+    /// The Watch offers Add only while this is set: the end of the held confirmation and its offer id.
+    public var onWatchMayAsk: ((Date?, String?) -> Void)?
 
     private func applyAddWatch(_ event: PhoneAddWatch.Event) {
         guard let flow = addWatchFlow else { return }
@@ -1012,13 +1147,32 @@ public final class PhoneKeyring: PhoneBackend {
         guard next != flow else { return }
         PhoneDiagnostics.log.note("addwatch", "moved", ["from": "\(flow)", "to": "\(next)", "by": "\(event)"])
         addWatchFlow = next == .closed ? nil : next
-        if !next.watchMayAsk, flow.watchMayAsk || next == .closed { onWatchMayAsk?(nil) }
-        if case let .waitingForWatch(until) = next { onWatchMayAsk?(until) }
-        if next == .faceIDExpired || next == .closed { releaseHold() }
+        if next == .faceIDExpired || next == .closed || next == .added {
+            if next != .added {
+                // Once the final copy upload is already in flight, let it finish committing
+                // (or confirming via recovery GET) even if the sheet closes or Face ID expires.
+                if !uploadingWatchCopies {
+                    addingWatchGeneration &+= 1
+                    addingWatch?.cancel(); addingWatch = nil
+                    if state.watchDevice != nil {
+                        var cleared = state
+                        cleared.watchDevice = nil
+                        save(cleared)
+                    }
+                }
+                releaseHold()
+            }
+            activeWatchOfferID = nil
+        }
+        if !next.watchMayAsk, flow.watchMayAsk || next == .closed { onWatchMayAsk?(nil, activeWatchOfferID) }
+        if case let .waitingForWatch(until) = next { onWatchMayAsk?(until, activeWatchOfferID) }
+        if case .encrypting = next, case .encrypting = flow {} else if case .encrypting = next { onListsChanged?() }
+        if case .copiesFailed = next { onListsChanged?() }
+        if next == .added { onListsChanged?() }
         if next == .closed, firstRun == .addWatch { apply(.done) }
         publish()
-        // Apple Watch already asked, or is listed but lacks its copies: carry on at once.
-        if case .waitingForWatch = next, state.watchDevice != nil || watchLacksCopies { addWatchNow() }
+        // Resume copying immediately only when Watch is already listed and still lacks acknowledged copies.
+        if case .waitingForWatch = next, watchLacksCopies { addWatchNow() }
     }
 
     private func openAddWatch() {
@@ -1042,12 +1196,20 @@ public final class PhoneKeyring: PhoneBackend {
     /// Face ID first, with its reason; the confirmation is then held until its shown end, and nothing is
     /// decrypted until Apple Watch asks.
     private func confirmForWatch() async {
+        guard !authorizingWatch else { return }
+        authorizingWatch = true
+        defer { authorizingWatch = false }
         let context = LAContext()
         do { try await keys.authorize(context, reason: PhoneCopy.faceIDAddWatch) }
         catch { context.invalidate(); PhoneDiagnostics.log.note("addwatch", "face id not given", ["error": "\(error)"]); return }
+        guard addWatchFlow == .faceIDFirst || addWatchFlow == .faceIDExpired else {
+            context.invalidate()
+            return
+        }
         releaseHold()
         let until = Date().addingTimeInterval(PhoneAddWatch.hold)
         held = (context, until)
+        activeWatchOfferID = UUID().uuidString
         holdTimer = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(PhoneAddWatch.hold)) } catch { return }
             self?.applyAddWatch(.confirmationLapsed)
@@ -1060,93 +1222,210 @@ public final class PhoneKeyring: PhoneBackend {
         held?.context.invalidate(); held = nil
     }
 
-    /// Apple Watch is listed but the Mac holds none of its copies.
+    /// Apple Watch is listed but the Mac has not yet acknowledged its encrypted copies.
     private var watchLacksCopies: Bool {
         if case .copiesFailed = addWatchFlow { return true }
-        return false
+        return watchCopiesPending
     }
 
-    /// The Watch's app sent its keys after Add, its push address, or both. The keys are kept until the
-    /// iPhone is waiting with a held confirmation; the push address goes to the Mac once the Watch is listed.
-    public func watchOffered(device: Data?, push: Data?) {
+    /// Apple Watch tapped Cancel while preparing for `offerID`: stop the in-flight Add if it matches this offer.
+    /// Returns true only when an active matching offer was cancelled (refused once the final copy upload has started).
+    @discardableResult
+    public func cancelWatchOffer(offerID: String?) -> Bool {
+        guard !uploadingWatchCopies, let active = activeWatchOfferID, let offerID, offerID == active else { return false }
+        switch addWatchFlow {
+        case .waitingForWatch?, .watchNeedsPasscode?, .encrypting?, .copiesFailed?:
+            applyAddWatch(.cancel)
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The Watch's app sent its keys after Add, its push address, or both. Keys are ONLY accepted
+    /// while this iPhone is actively waiting on the matching Face ID offer; late Watch Add payloads
+    /// after Cancel or expiry are discarded so a cancelled Watch can never enrol on a later Face ID.
+    @discardableResult
+    public func watchOffered(device: Data?, push: Data?, offerID: String? = nil) -> Bool {
         let parsed = device.flatMap { try? Agentkeyring_V2_Device(serializedBytes: $0) }
         let pushRegistration = push.flatMap { try? Agentkeyring_V2_PushRegistration(serializedBytes: $0) }
         let listed = members?.devices.first { $0.kind == .watch && $0.keyID == (parsed?.keyID ?? pushRegistration?.deviceKeyID) }
+        if let push {
+            var next = state
+            next.watchPush = push
+            save(next)
+        }
         if listed != nil {
-            if let pushRegistration { Task { await registerWatchPush(pushRegistration) } }
-            return
+            if let pushRegistration, let push { Task { await registerWatchPush(pushRegistration, raw: push) } }
+            if !watchCopiesPending { return true }
+            if let active = activeWatchOfferID, let offerID, offerID == active, isCopyingToWatch { return true }
+            return false
+        }
+        guard let parsed, parsed.kind == .watch, let device else { return false }
+        // A duplicate Add arriving via live message after applicationContext already started
+        // encryption for this exact offer should report progress, not failure.
+        if let active = activeWatchOfferID, let offerID, offerID == active {
+            switch addWatchFlow {
+            case .encrypting?, .added?: return true
+            default: break
+            }
+        }
+        guard case .waitingForWatch = addWatchFlow else {
+            PhoneDiagnostics.log.note("addwatch", "discarded late watch offer", ["reason": "not waiting"])
+            return false
+        }
+        if let active = activeWatchOfferID, let offerID, offerID != active {
+            PhoneDiagnostics.log.note("addwatch", "discarded stale watch offer", ["reason": "offer mismatch"])
+            return false
         }
         var next = state
-        if let parsed, parsed.kind == .watch, let device { next.watchDevice = device }
-        if let push { next.watchPush = push }
+        next.watchDevice = device
         save(next)
-        if parsed != nil, case .waitingForWatch = addWatchFlow { addWatchNow() }
+        addWatchNow()
+        return true
     }
 
-    private func registerWatchPush(_ registration: Agentkeyring_V2_PushRegistration) async {
+    private func registerWatchPush(_ registration: Agentkeyring_V2_PushRegistration, raw: Data) async {
         do {
             try await post(registration)
             var done = state
-            done.watchPush = nil
-            save(done)
+            if done.watchPush == raw {
+                done.watchPush = nil
+                save(done)
+            }
         } catch { PhoneDiagnostics.log.note("watch", "push address not registered", ["error": "\(error)"]) }
     }
 
-    /// With the held confirmation: lists Apple Watch, encrypts a copy of each password for it, and sends
-    /// them to the Mac, which gives them to the computers that put them in the Watch's pushes. If the copies
-    /// do not reach the Mac, the Watch stays listed and Try Again sends only the copies.
+    /// With the held confirmation: lists Apple Watch, encrypts a copy of every eligible password for it,
+    /// and sends them to the Mac. Refuses to acknowledge an incomplete batch when this iPhone does not yet
+    /// hold current copies for every non-Blocked login in the Catalogue.
     private func addWatchNow() {
         guard addingWatch == nil else { return }
+        watchCoverageCheckGeneration &+= 1
+        addingWatchGeneration &+= 1
+        let generation = addingWatchGeneration
         addingWatch = Task { [weak self] in
             guard let self else { return }
-            defer { self.addingWatch = nil }
+            defer {
+                if self.addingWatchGeneration == generation {
+                    self.addingWatch = nil
+                    self.uploadingWatchCopies = false
+                }
+            }
+            guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
             guard let (context, until) = self.held, until > Date() else { return self.applyAddWatch(.confirmationLapsed) }
-            let copies = self.ownCopies
-            self.applyAddWatch(.watchAsked(total: copies.count))
+            let initialTotal = self.catalogue?.logins.filter { $0.rule != .blocked }.count ?? self.ownCopies.count
+            self.applyAddWatch(.watchAsked(total: initialTotal))
+            var uploadedWatchID: String?
             do {
+                // Always refresh from the Mac before sealing so newly added Mac logins are never missed.
+                guard await self.refresh() else {
+                    throw PhoneMacDoor.Failure.notAllowed("Could not refresh the Mac's catalogue.")
+                }
+                guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
                 guard var members = self.members, let catalogue = self.catalogue else { throw PhoneMacDoor.Failure.notJoined }
+                let eligible = catalogue.logins.filter { $0.rule != .blocked }
+                let copies = self.ownCopies
+                var verifiedCopies: [SealedLogin] = []
+                verifiedCopies.reserveCapacity(eligible.count)
+                for login in eligible {
+                    guard let copy = copies[login.loginID], copy.version == login.version else {
+                        throw PhoneMacDoor.Failure.notAllowed("Some passwords are not on this iPhone yet.")
+                    }
+                    try Sealing.checkSealed(copy, members: members, listed: login)
+                    verifiedCopies.append(copy)
+                }
                 let watch: Agentkeyring_V2_Device
                 if let listed = members.devices.first(where: { $0.kind == .watch && $0.keyID == self.pendingWatch?.keyID }) {
                     watch = listed
+                    if self.state.watchCopiesPending != watch.keyID {
+                        var mark = self.state
+                        mark.watchCopiesPending = watch.keyID
+                        self.save(mark)
+                    }
                 } else if let pending = self.pendingWatch {
                     watch = pending
+                    var mark = self.state
+                    mark.watchCopiesPending = watch.keyID
+                    self.save(mark)
                     members.revision += 1
                     members.devices.append(watch)
                     let signed = try Sealing.signed(members.serializedData(), by: Sealing.keyID(self.keys.signingPublicKey())) {
                         try self.keys.sign($0, context: context)
                     }
                     _ = try await self.mac().post("/v2/members", signed.serializedData())
+                    guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
                     try self.accept(members: signed)
                 } else { throw PhoneMacDoor.Failure.notAllowed("Apple Watch has not asked.") }
                 let watchKey = try P256.KeyAgreement.PublicKey(x963Representation: watch.openingPublicKey)
-                let listed = Dictionary(catalogue.logins.map { ($0.loginID, $0) }, uniquingKeysWith: { first, _ in first })
                 var forWatch = Agentkeyring_V2_SealedLogins()
-                for (index, copy) in copies.values.enumerated() {
-                    guard let login = listed[copy.loginID], login.rule != .blocked else { continue }
-                    try Sealing.checkSealed(copy, members: members, listed: login)
+                let total = verifiedCopies.count
+                for (index, copy) in verifiedCopies.enumerated() {
+                    guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
                     forWatch.logins.append(try Sealing.seal(self.keys.open(copy, context: context), version: copy.version,
                                                             to: watchKey, openerID: watch.keyID, signer: self.sealSigner))
-                    if index % 25 == 0 { self.applyAddWatch(.encrypted(done: index, total: copies.count)) }
+                    if index % 20 == 0 || index == total - 1 {
+                        self.applyAddWatch(.encrypted(done: index + 1, total: total))
+                        await Task.yield()
+                    }
                 }
-                _ = try await self.mac().post("/v2/copies", forWatch.serializedData())
+                guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
+                guard forWatch.logins.count == eligible.count else {
+                    throw PhoneMacDoor.Failure.notAllowed("Incomplete Watch password batch.")
+                }
+                // Once the final copy upload leaves the phone, keep `uploadingWatchCopies` active
+                // through any recovery check so neither Watch Cancel nor sheet close can discard a Mac commit.
+                self.uploadingWatchCopies = true
+                uploadedWatchID = watch.keyID
+                _ = try await self.mac().post("/v2/copies", forWatch.serializedData(),
+                                              query: [URLQueryItem(name: "complete_for", value: watch.keyID)])
+                guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
                 PhoneDiagnostics.log.note("addwatch", "copies sent", ["count": "\(forWatch.logins.count)"])
-                var done = self.state
-                done.watchDevice = nil
-                self.save(done)
-                if let push = self.state.watchPush.flatMap({ try? Agentkeyring_V2_PushRegistration(serializedBytes: $0) }) {
-                    await self.registerWatchPush(push)
-                }
-                self.applyAddWatch(.copiesSent)
+                self.uploadingWatchCopies = false
+                self.finishWatchEnrollment()
             } catch {
+                guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
+                // If the upload reply was lost after the Mac committed all copies, confirm before reporting failure.
+                if let watchID = uploadedWatchID,
+                   (try? await self.mac().get("/v2/copies", query: [URLQueryItem(name: "complete_for", value: watchID)])) != nil {
+                    guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
+                    PhoneDiagnostics.log.note("addwatch", "copies confirmed after reply error", [:])
+                    self.uploadingWatchCopies = false
+                    self.finishWatchEnrollment()
+                    return
+                }
+                guard !Task.isCancelled, self.addingWatchGeneration == generation else { return }
+                self.uploadingWatchCopies = false
                 PhoneDiagnostics.log.note("addwatch", "copies failed", ["error": "\(error)"])
                 // His words only; the raw error stays in the log.
                 let refused = (error as? PhoneMacDoor.Failure).map { if case .refusedByMac = $0 { true } else { false } } ?? false
                 self.applyAddWatch(.copiesFailed(reason: refused ? PhoneCopy.macRefused : PhoneCopy.macNotReached))
+                // Always broadcast copyingToWatch = false even if the sheet closed or Face ID expired while uploading.
+                self.onListsChanged?()
+                self.publish()
             }
         }
     }
 
+    private func finishWatchEnrollment() {
+        var done = state
+        done.watchDevice = nil
+        done.watchCopiesPending = nil
+        save(done)
+        reconciledWatchID = members?.devices.first(where: { $0.kind == .watch })?.keyID
+        // Mark the offer complete immediately once the Mac acknowledges the copies, and run push
+        // registration independently so tapping Done on the sheet never cancels push registration.
+        applyAddWatch(.copiesSent)
+        onListsChanged?()
+        publish()
+        if let rawPush = state.watchPush, let push = try? Agentkeyring_V2_PushRegistration(serializedBytes: rawPush) {
+            Task { [weak self] in await self?.registerWatchPush(push, raw: rawPush) }
+        }
+    }
+
     private var addingWatch: Task<Void, Never>?
+    private var addingWatchGeneration: UInt64 = 0
+    private var uploadingWatchCopies = false
     private var pendingWatch: Agentkeyring_V2_Device? {
         state.watchDevice.flatMap { try? Agentkeyring_V2_Device(serializedBytes: $0) }
             ?? members?.devices.first { $0.kind == .watch }

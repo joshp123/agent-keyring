@@ -58,28 +58,32 @@ extension MirrorAppModel {
             if !off.isEmpty { try await setAutomatic(Dictionary(uniqueKeysWithValues: off.map { ($0, true) }), context: context) }
         }
         let machines = Set(automaticComputers.map(\.id))
-        var sealed = try await store.sealed()
-        var withdrawn = Set<String>()
-        for id in changed where new[id] == .block {
-            sealed.removeAll { $0.loginID == id.uuidString && $0.openerID != keys.deviceKeyID }
-        }
+        let blockedIDs = Set(changed.filter { new[$0] == .block }.map(\.uuidString))
+        let automaticChangedIDs = Set(changed.filter { (old[$0] == .allowAutomatically) != (new[$0] == .allowAutomatically) }.map(\.uuidString))
+        var added: [Agentkeyring_V2_SealedLogin] = []
         for id in changed where old[id] == .block {
             let copy = try await macCopy(of: id.uuidString)
             let secret = try keys.open(copy, context: context)
-            sealed += try (device?.otherOpeners(automatic: false) ?? []).map {
+            added += try (device?.otherOpeners(automatic: false) ?? []).map {
                 try Sealing.seal(secret, version: copy.version, to: $0.key, openerID: $0.id, signer: keys.signer)
             }
         }
-        for id in changed where (old[id] == .allowAutomatically) != (new[id] == .allowAutomatically) {
+        for id in changed where (old[id] == .allowAutomatically) != (new[id] == .allowAutomatically) && new[id] == .allowAutomatically {
             let loginID = id.uuidString
-            sealed.removeAll { $0.loginID == loginID && machines.contains($0.openerID) }
-            guard new[id] == .allowAutomatically else { withdrawn.insert(loginID); continue }
             let copy = try await macCopy(of: loginID)
             let secret = try keys.open(copy, context: context)
-            sealed += try sealCopies(of: secret, version: copy.version, automatic: true).filter { machines.contains($0.openerID) }
+            added += try sealCopies(of: secret, version: copy.version, automatic: true).filter { machines.contains($0.openerID) }
         }
-        try await store.replaceSealed(sealed)
-        _ = withdrawn // The computers' copies are gone from the store above; the next bundle leaves them out.
+        let ownDeviceKeyID = keys.deviceKeyID
+        let addedKeys = Set(added.map { $0.openerID + "/" + $0.loginID })
+        let addedCopies = added
+        try await store.updateSealed { current in
+            var next = current
+            next.removeAll { blockedIDs.contains($0.loginID) && $0.openerID != ownDeviceKeyID }
+            next.removeAll { automaticChangedIDs.contains($0.loginID) && machines.contains($0.openerID) }
+            next.removeAll { addedKeys.contains($0.openerID + "/" + $0.loginID) }
+            return next + addedCopies
+        }
         try await device?.publish(context: context)
     }
 
@@ -114,15 +118,19 @@ extension MirrorAppModel {
             guard let machine = device?.members?.machines.first(where: { $0.machineID == id }) else { continue }
             receivers.append((id, try P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)))
         }
-        var sealed = try await store.sealed().filter { changes[$0.openerID] == nil }
+        var added: [Agentkeyring_V2_SealedLogin] = []
         if !receivers.isEmpty {
             for login in leaseLogins where accessControl.policy(for: login.id) == .allowAutomatically {
                 let copy = try await macCopy(of: login.id.uuidString)
                 let secret = try keys.open(copy, context: context)
-                sealed += try receivers.map { try Sealing.seal(secret, version: copy.version, to: $0.key, openerID: $0.id, signer: keys.signer) }
+                added += try receivers.map { try Sealing.seal(secret, version: copy.version, to: $0.key, openerID: $0.id, signer: keys.signer) }
             }
         }
-        try await store.replaceSealed(sealed)
+        let changedOpeners = Set(changes.keys)
+        let addedCopies = added
+        try await store.updateSealed { current in
+            current.filter { !changedOpeners.contains($0.openerID) } + addedCopies
+        }
         device?.sendCopies(for: Set(changes.keys).subtracting([keys.machineID]))
         try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
     }
@@ -131,7 +139,7 @@ extension MirrorAppModel {
     /// rules here, and every computer's copies of a password no longer
     /// Automatic withdrawn. Copies for a password newly Automatic need this
     /// Mac's Touch ID to make (`automaticCopiesMissing`).
-    func adoptCatalogue(_ catalogue: Agentkeyring_V2_Catalogue, ownCopies: [Agentkeyring_V2_SealedLogin]) async {
+    func adoptCatalogue(_ catalogue: Agentkeyring_V2_Catalogue) async {
         guard let keys = try? macKeys() else { return }
         var next: [UUID: CredentialAccessPolicy] = [:]
         for login in catalogue.logins {
@@ -143,17 +151,32 @@ extension MirrorAppModel {
             }
         }
         let automatic = Set(next.filter { $0.value == .allowAutomatically }.keys.map(\.uuidString))
-        if var sealed = try? await store.sealed() {
-            sealed.removeAll { $0.openerID == keys.machineID }
-            let blocked = Set(next.filter { $0.value == .block }.keys.map(\.uuidString))
-            sealed.removeAll { $0.openerID != keys.deviceKeyID && blocked.contains($0.loginID) }
-            let computers = Set((device?.members?.machines ?? []).map(\.machineID))
-            sealed.removeAll { computers.contains($0.openerID) && !automatic.contains($0.loginID) }
-            let listed = Dictionary(catalogue.logins.map { ($0.loginID, $0) }, uniquingKeysWith: { first, _ in first })
-            sealed += ownCopies.filter { automatic.contains($0.loginID) && (try? keys.check($0, members: device?.members, listed: listed[$0.loginID])) != nil }
-            try? await store.replaceSealed(sealed)
-        }
+        let blocked = Set(next.filter { $0.value == .block }.keys.map(\.uuidString))
+        let currentMembers = device?.members
+        let computers = Set((currentMembers?.machines ?? []).map(\.machineID))
+        let listed = Dictionary(catalogue.logins.map { ($0.loginID, $0) }, uniquingKeysWith: { first, _ in first })
+        let ownMachineID = keys.machineID
+        let ownDeviceKeyID = keys.deviceKeyID
+        let replyKeyID = keys.replyKeyID
+        let replyPublicKey = keys.replyPublicKey
         accessControl.adopt(next)
+        _ = try? await store.updateSealed { current in
+            current.filter { copy in
+                if copy.openerID != ownDeviceKeyID && blocked.contains(copy.loginID) { return false }
+                if computers.contains(copy.openerID) && !automatic.contains(copy.loginID) { return false }
+                if copy.openerID == ownMachineID {
+                    guard automatic.contains(copy.loginID), let login = listed[copy.loginID],
+                          login.loginID == copy.loginID, login.version == copy.version else { return false }
+                    if copy.signerKeyID == replyKeyID {
+                        return (try? Sealing.checkSealed(copy, by: replyKeyID, publicKey: replyPublicKey)) != nil
+                    } else if let currentMembers {
+                        return (try? Sealing.checkSealed(copy, members: currentMembers, listed: login)) != nil
+                    }
+                    return false
+                }
+                return true
+            }
+        }
         await noteMissingAutomaticCopies()
     }
 
@@ -181,13 +204,17 @@ extension MirrorAppModel {
     /// Makes the missing Automatic copies, with a context Josh has just approved: each password opened once.
     public func sealAutomaticCopies(context: LAContext) async throws {
         let keys = try macKeys()
-        var sealed = try await store.sealed()
+        var added: [Agentkeyring_V2_SealedLogin] = []
         for (loginID, receivers) in await missingAutomaticCopies() {
             let copy = try await macCopy(of: loginID)
             let secret = try keys.open(copy, context: context)
-            sealed += try receivers.map { try Sealing.seal(secret, version: copy.version, to: $0.key, openerID: $0.id, signer: keys.signer) }
+            added += try receivers.map { try Sealing.seal(secret, version: copy.version, to: $0.key, openerID: $0.id, signer: keys.signer) }
         }
-        try await store.replaceSealed(sealed)
+        let addedKeys = Set(added.map { $0.openerID + "/" + $0.loginID })
+        let addedCopies = added
+        try await store.updateSealed { current in
+            current.filter { !addedKeys.contains($0.openerID + "/" + $0.loginID) } + addedCopies
+        }
         device?.sendCopies(for: Set((device?.members?.machines ?? []).map(\.machineID)))
         await noteMissingAutomaticCopies()
     }
@@ -226,11 +253,16 @@ extension MirrorAppModel {
             secret = opened
         } else if leaseStore.isAutomatic(lease.leaseID) {
             let keys = try macKeys()
+            guard let login = leaseLogins.first(where: { $0.id.uuidString == lease.loginID }) else {
+                throw LeaseFailure(.notFound, "The selected login is no longer available.")
+            }
             guard let copy = try await store.sealed().first(where: { $0.loginID == lease.loginID && $0.openerID == keys.machineID }) else {
                 throw LeaseFailure(.permissionDenied, "This login is not set up to be used without asking on this Mac. Ask Josh to set it to Automatic again, or to switch on Automatic passwords for this Mac in Devices.")
             }
             try keys.check(copy, members: device?.members)
-            secret = try Sealing.open(copy, with: keys.receiving)
+            let opened = try Sealing.open(copy, with: keys.receiving)
+            try checkShown(opened, as: login)
+            secret = opened
         } else {
             throw LeaseFailure(.permissionDenied, "Agent Keyring restarted since this was approved. Ask again.")
         }

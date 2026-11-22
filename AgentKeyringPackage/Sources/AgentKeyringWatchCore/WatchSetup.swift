@@ -43,10 +43,12 @@ public enum WatchSetup: Equatable, Sendable {
     ///   - practiceAsked: when Try Practice asked for one, if it has not been answered.
     ///   - practiceOfferDone: Done, or a practice answered.
     public init(passcode: Bool, phoneJoined: Bool, listed: Bool, addOffered: Bool, addTapped: Bool,
+                copiesPending: Bool = false, copyingToWatch: Bool = false,
                 notifications: Notifications, pushAddress: Bool, practiceAsked: Date?, practiceOfferDone: Bool, now: Date = .now) {
         self = !passcode ? .noPasscode
             : !phoneJoined ? .setUpIPhone
-            : !listed ? (addTapped ? .preparing : addOffered ? .readyToAdd : .startOnIPhone)
+            : !listed ? ((addTapped && (addOffered || copyingToWatch)) ? .preparing : addOffered ? .readyToAdd : .startOnIPhone)
+            : copiesPending ? (copyingToWatch ? .preparing : .startOnIPhone)
             : notifications == .notAsked ? .notifications
             : notifications == .denied ? .notificationsOff
             : !pushAddress ? .settingUpNotifications

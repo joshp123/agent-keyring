@@ -91,6 +91,8 @@ public struct PhoneWatchFacts: Hashable, Sendable {
     public var opened = false
     /// It is in the list of devices.
     public var added = false
+    /// It is listed in Members, but its encrypted password copies have not yet been acknowledged by the Mac.
+    public var copiesPending = false
     public var notificationsAllowed = false
     /// Apple has given it a push address.
     public var pushAddress = false
@@ -99,9 +101,9 @@ public struct PhoneWatchFacts: Hashable, Sendable {
 
     public init() {}
 
-    /// Paired, with the app, and not yet added: first run offers the Apple Watch step.
-    /// Paired and not added: the flow then helps install the Watch app if it is missing.
-    public var toAdd: Bool { paired && !added }
+    /// Paired and either not added or still missing its encrypted password copies:
+    /// keeps the Add Apple Watch flow reachable until copying completes.
+    public var toAdd: Bool { paired && (!added || copiesPending) }
 }
 
 /// What iOS lets the app see of its notification settings: the facts the notifications checklist ticks.
@@ -215,6 +217,11 @@ public final class PhoneModel {
     /// The specific request ID currently authenticating or sending an answer.
     public private(set) var answeringID: String?
     public private(set) var failure: String?
+    /// In-flight guards for non-request actions so double taps never overlap Face ID or 30s retries.
+    public private(set) var isAskingNotifications = false
+    public private(set) var isAuthorizingWatch = false
+    public private(set) var stoppingIDs: Set<String> = []
+    public private(set) var isChangingRuleOrDevice = false
 
     private let backend: any PhoneBackend
     /// Request ID whose notification notice is currently being decoded/refreshed.
@@ -268,10 +275,15 @@ public final class PhoneModel {
         }
 
         if next.firstRun == .finished {
-            if next.addWatch != nil, previous.addWatch == nil, answeringID == nil, loadingNotificationID == nil {
+            if next.addWatch != nil, previous.addWatch == nil, answeringID == nil, loadingNotificationID == nil, sheet.presentation == .none {
                 sheet.apply(.openAddWatch)
             } else if next.addWatch == nil, sheet.presentation == .addWatch {
                 sheet.apply(.addWatchClosed)
+            }
+        } else if previous.firstRun == .finished {
+            // Device was removed and returned to first run: close any lingering post-first-run sheet.
+            if sheet.presentation == .settings || sheet.presentation == .addWatch {
+                sheet.apply(.dismiss(expectedItem: sheet.item))
             }
         }
     }
@@ -290,23 +302,30 @@ public final class PhoneModel {
 
     public func openDecide(_ id: String) {
         guard answeringID == nil else { return }
+        let replacingAddWatch = sheet.presentation == .addWatch
         if snapshot.firstRun == .finished { tab = .home }
         notificationToken &+= 1
         loadingNotificationID = nil
         sheet.apply(.openDecide(id: id))
+        if replacingAddWatch { Task { await backend.addWatch(.cancel) } }
     }
 
     public func explain(_ id: String) {
         guard answeringID == nil else { return }
+        let replacingAddWatch = sheet.presentation == .addWatch
         if snapshot.firstRun == .finished { tab = .home }
         notificationToken &+= 1
         loadingNotificationID = nil
         sheet.apply(.openExplain(id: id))
+        if replacingAddWatch { Task { await backend.addWatch(.cancel) } }
     }
 
     public func openSettings() {
-        guard answeringID == nil else { return }
+        guard answeringID == nil, loadingNotificationID == nil else { return }
+        let replacingAddWatch = sheet.presentation == .addWatch
+        notificationToken &+= 1
         sheet.apply(.openSettings)
+        if replacingAddWatch { Task { await backend.addWatch(.cancel) } }
     }
 
     public func backToDecide() {
@@ -359,11 +378,12 @@ public final class PhoneModel {
                 if answeringID != id { enqueueNotification(id: id, action: action, loadNotice: loadNotice) }
                 return
             }
-            if let current = request(id: id), !current.state.isWaitingForYou { return }
+            guard let current = request(id: id), current.state.isWaitingForYou else { return }
             await answer(id, choice: .deny) { try await backend.deny(id, reply: nil) }
             return
         }
 
+        let replacingAddWatch = sheet.presentation == .addWatch
         if snapshot.firstRun == .finished { tab = .home }
 
         notificationToken &+= 1
@@ -380,6 +400,7 @@ public final class PhoneModel {
         default:
             sheet.apply(.notificationTapped(id: id, isWaiting: true, endedNote: nil))
         }
+        if replacingAddWatch { Task { await backend.addWatch(.cancel) } }
 
         let refreshed = await loadNotice()
         // Keep `loadingNotificationID == id` during `applySnapshot` so a returned snapshot containing
@@ -451,6 +472,9 @@ public final class PhoneModel {
     }
 
     public func stop(_ id: String) async {
+        guard !stoppingIDs.contains(id) else { return }
+        stoppingIDs.insert(id)
+        defer { stoppingIDs.remove(id) }
         do { try await backend.stop(id) } catch is PhoneStopWaitsWithMac {
             failure = PhoneCopy.stopLeftWithMac
         } catch {
@@ -461,12 +485,18 @@ public final class PhoneModel {
     }
 
     public func setRule(_ rule: PhoneLogin.Rule, forLogin id: String) async {
+        guard !isChangingRuleOrDevice else { return }
+        isChangingRuleOrDevice = true
+        defer { isChangingRuleOrDevice = false }
         do { try await backend.setRule(rule, forLogin: id) }
         catch is CancellationError {}
         catch { failure = PhoneCopy.changeFailed }
     }
 
     public func remove(device id: String) async {
+        guard !isChangingRuleOrDevice else { return }
+        isChangingRuleOrDevice = true
+        defer { isChangingRuleOrDevice = false }
         do { try await backend.remove(device: id) }
         catch is CancellationError {}
         catch { failure = PhoneCopy.changeFailed }
@@ -479,6 +509,7 @@ public final class PhoneModel {
     /// What iOS now allows, read again each time the app comes to the front: he may
     /// have turned notifications on in Settings, and first run then carries on by itself.
     public func recheckNotifications() async {
+        guard !isAskingNotifications else { return }
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         await backend.notificationFacts(PhoneNotificationFacts(settings))
         guard settings.authorizationStatus != .notDetermined else { return }
@@ -487,7 +518,9 @@ public final class PhoneModel {
 
     /// iOS's own question, raised by Continue on the screen that says why.
     public func askAboutNotifications() async {
-        guard snapshot.firstRun == .notifications else { return }
+        guard snapshot.firstRun == .notifications, !isAskingNotifications else { return }
+        isAskingNotifications = true
+        defer { isAskingNotifications = false }
         await backend.firstRun(.continueTapped)
         let allowed = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         await backend.notificationFacts(PhoneNotificationFacts(await UNUserNotificationCenter.current().notificationSettings()))
@@ -505,7 +538,20 @@ public final class PhoneModel {
     public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
     public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
 
-    public func addWatch(_ tap: PhoneAddWatchTap) async { await backend.addWatch(tap) }
+    public func addWatch(_ tap: PhoneAddWatchTap) async {
+        if tap == .continueWithFaceID {
+            guard !isAuthorizingWatch else { return }
+            isAuthorizingWatch = true
+            defer { isAuthorizingWatch = false }
+            await backend.addWatch(tap)
+            return
+        }
+        await backend.addWatch(tap)
+        if tap == .open, snapshot.firstRun == .finished, snapshot.addWatch != nil,
+           sheet.presentation == .none, answeringID == nil, loadingNotificationID == nil {
+            sheet.apply(.openAddWatch)
+        }
+    }
 
     public func dismissFailure() { failure = nil }
 

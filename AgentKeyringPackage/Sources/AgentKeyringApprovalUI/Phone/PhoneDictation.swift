@@ -103,6 +103,8 @@ final class PhoneDictation {
     private var analyzer: SpeechAnalyzer?
     private var input: AsyncStream<AnalyzerInput>.Continuation?
     private var reading: Task<Void, Never>?
+    /// Single in-flight stop task so concurrent stop() calls share teardown instead of double-stopping AVAudioEngine.
+    private var stoppingTask: Task<String, Never>?
     /// Process-wide owner of the shared AVAudioSession so an older PhoneDictation instance finishing
     /// shutdown can never deactivate audio after a newer PhoneDictation instance has started recording.
     private static var activeAudioOwner: UUID?
@@ -124,6 +126,7 @@ final class PhoneDictation {
     }
 
     func start() async {
+        if let stoppingTask { _ = await stoppingTask.value }
         if isListening { return }
         let token = UUID()
         sessionToken = token
@@ -220,6 +223,7 @@ final class PhoneDictation {
     /// Stops listening, drains final speech results before invalidating the token, and returns final text.
     @discardableResult
     func stop() async -> String {
+        if let existing = stoppingTask { return await existing.value }
         let activeToken = sessionToken
         let wasActive = isListening || engine != nil || analyzer != nil || (activeToken != nil && Self.activeAudioOwner == activeToken)
         // If we are still awaiting startup (no engine yet), invalidate immediately so startup aborts.
@@ -229,20 +233,29 @@ final class PhoneDictation {
             state = .idle
             return ""
         }
-        // Stop feeding audio and drain final transcription results BEFORE invalidating sessionToken,
-        // so the owning reader commits the final words into `state`.
-        engine?.inputNode.removeTap(onBus: 0)
-        engine?.stop()
-        input?.finish()
-        try? await analyzer?.finalizeAndFinishThroughEndOfInput()
-        await reading?.value
-        let finalText = heard
-        sessionToken = nil
+        let currentEngine = engine
+        let currentAnalyzer = analyzer
+        let currentInput = input
+        let currentReading = reading
         engine = nil; analyzer = nil; input = nil; reading = nil
-        if let activeToken { Self.releaseAudioIfOwned(by: activeToken) }
-        if wasActive { log("stopped", [:]) }
-        state = .idle
-        return finalText
+        let task = Task<String, Never> { @MainActor in
+            // Stop feeding audio and drain final transcription results BEFORE invalidating sessionToken,
+            // so the owning reader commits the final words into `state`.
+            currentEngine?.inputNode.removeTap(onBus: 0)
+            currentEngine?.stop()
+            currentInput?.finish()
+            try? await currentAnalyzer?.finalizeAndFinishThroughEndOfInput()
+            await currentReading?.value
+            let finalText = heard
+            sessionToken = nil
+            if let activeToken { Self.releaseAudioIfOwned(by: activeToken) }
+            if wasActive { log("stopped", [:]) }
+            state = .idle
+            stoppingTask = nil
+            return finalText
+        }
+        stoppingTask = task
+        return await task.value
     }
 
     private static func releaseAudioIfOwned(by token: UUID) {

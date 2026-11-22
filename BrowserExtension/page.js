@@ -45,6 +45,32 @@
         [...e.labels || []].map(text).join(' ') || (e.localName === 'button' ? text(e) : ''),
       autocomplete: e.getAttribute('autocomplete') || ''
     }));
+  const allowedAction = (rawAction, sites) => {
+    let dest;
+    try { dest = new URL(rawAction, location.href); } catch { return false; }
+    if (dest.username || dest.password) return false;
+    const local = ['127.0.0.1', '[::1]', 'localhost'].includes(dest.hostname);
+    if (dest.protocol !== 'https:' && !(local && dest.protocol === 'http:')) return false;
+    if (dest.origin === location.origin) return true;
+    if (!Array.isArray(sites) || !sites.length) return false;
+    return typeof globalThis.agentKeyringMatchesSite === 'function'
+      ? globalThis.agentKeyringMatchesSite(dest.href, sites)
+      : false;
+  };
+  const checkFormAction = (submit, fields, sites, enforceDestination) => {
+    const form = submit.form || fields.find(e => e.form)?.form || null;
+    const explicitSubmitAction = submit.type === 'submit' ? submit.getAttribute('formaction') : null;
+    if (explicitSubmitAction != null) {
+      if (enforceDestination) return allowedAction(submit.formAction, sites);
+      return !/^\s*(javascript|data|vbscript):/i.test(explicitSubmitAction);
+    }
+    const explicitFormAction = form?.getAttribute('action');
+    if (explicitFormAction != null) {
+      if (enforceDestination) return allowedAction(form.action, sites);
+      return !/^\s*(javascript|data|vbscript):/i.test(explicitFormAction);
+    }
+    return true;
+  };
   const prepare = message => {
     const query = s => {
       let root = document, element;
@@ -71,9 +97,14 @@
       return e;
     });
     if (new Set(fields).size !== fields.length || new Set(message.fields.map(b => b.field)).size !== fields.length) throw Error();
+    // Prepare runs before the native host fetches the login's saved sites; enforce full
+    // destination matching on Fill (before writing any field) or whenever sites are supplied.
+    const enforceDestination = message.action === 'fill' || (Array.isArray(message.sites) && message.sites.length > 0);
+    if (!checkFormAction(submit, fields, message.sites, enforceDestination)) throw Error();
     const types = fields.map(e => e.type);
     return {fields, submit, valid: () => location.origin === message.origin &&
       query(message.submit) === submit && visible(submit) &&
+      checkFormAction(submit, fields, message.sites, enforceDestination) &&
       fields.every((e, i) => query(message.fields[i].selector) === e && visible(e) && !e.matches(':disabled') && !e.readOnly && e.type === types[i] && (!e.form || !submit.form || e.form === submit.form))};
   };
   const fill = async (message, prepared, respond) => {

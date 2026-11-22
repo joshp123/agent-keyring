@@ -158,12 +158,15 @@ public final class MacMainModel {
     public var sortOrder = [KeyPathComparator(\LoginRow.asked, order: .reverse)]
     /// Rule changes not yet saved, by login.
     public private(set) var pending: [UUID: LoginRule] = [:]
+    /// Single explicit dialog state on Devices so Rename and Remove can never stack or overlap.
+    public enum DeviceDialog: Equatable, Sendable {
+        case rename(id: String, name: String)
+        case remove(id: String, name: String, isComputer: Bool)
+    }
+
     public private(set) var isWorking = false
     public private(set) var failure: String?
-    /// Remove…: the device or computer whose confirmation is showing.
-    public var removing: (id: String, name: String, isComputer: Bool)?
-    /// Rename…: the device or computer whose rename dialog is showing.
-    public var renaming: (id: String, name: String)?
+    public var deviceDialog: DeviceDialog?
     public var renameDraft = ""
     private let backend: any MainWindowBackend
     private var context: LAContext?
@@ -254,25 +257,31 @@ public final class MacMainModel {
 
     // MARK: Devices
 
-    public func askToRemove(_ id: String, name: String, isComputer: Bool) { removing = (id, name, isComputer) }
+    public func askToRemove(_ id: String, name: String, isComputer: Bool) {
+        guard !isWorking else { return }
+        deviceDialog = .remove(id: id, name: name, isComputer: isComputer)
+    }
 
     public func remove(_ id: String) {
-        removing = nil
+        deviceDialog = nil
         run { [backend] context in try await backend.remove(id: id, context: context) }
     }
 
     public func askToRename(_ id: String, name: String) {
+        guard !isWorking else { return }
         renameDraft = name
-        renaming = (id, name)
+        deviceDialog = .rename(id: id, name: name)
     }
 
     public func commitRename() {
-        guard let target = renaming else { return }
+        guard case let .rename(id, oldName) = deviceDialog else { return }
         let next = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        renaming = nil
-        guard !next.isEmpty, next != target.name else { return }
-        run { [backend] context in try await backend.rename(id: target.id, to: next, context: context) }
+        deviceDialog = nil
+        guard !next.isEmpty, next != oldName else { return }
+        run { [backend] context in try await backend.rename(id: id, to: next, context: context) }
     }
+
+    public func dismissDeviceDialog() { deviceDialog = nil }
 
     public func importAgain() { backend.importAgain() }
 
@@ -300,10 +309,15 @@ public final class MacMainModel {
 /// The window: Passwords | Devices in the toolbar's centre, Search on
 /// Passwords, Add Device on Devices. Its size is the app's to set.
 public struct MacMainWindowView: View {
+    private enum WindowSheet: String, Identifiable {
+        case addIPhone, addComputer, sortWithAI
+        var id: String { rawValue }
+    }
+
     @Bindable var model: MacMainModel
     /// The sheets Add Device opens, drawn by the app.
     let sheetContent: (DevicesSheet, @escaping () -> Void) -> AnyView
-    @State private var sheet: DevicesSheet?
+    @State private var sheet: WindowSheet?
 
     public init(model: MacMainModel, sheet: @escaping (DevicesSheet, @escaping () -> Void) -> AnyView) {
         self.model = model
@@ -313,7 +327,7 @@ public struct MacMainWindowView: View {
     public var body: some View {
         Group {
             switch model.tab {
-            case .logins: MacPasswordsTab(model: model)
+            case .logins: MacPasswordsTab(model: model, openSortWithAI: { sheet = .sortWithAI })
             case .devices: MacDevicesTab(model: model)
             }
         }
@@ -338,9 +352,18 @@ public struct MacMainWindowView: View {
             }
         }
         .toolbar(removing: .title)
-        .sheet(item: $sheet) { which in sheetContent(which) { sheet = nil } }
+        .onChange(of: model.tab) { _, _ in model.dismissDeviceDialog() }
+        .sheet(item: $sheet) { which in
+            switch which {
+            case .addIPhone: sheetContent(.addIPhone) { sheet = nil }
+            case .addComputer: sheetContent(.addComputer) { sheet = nil }
+            case .sortWithAI:
+                SortWithAISheet(model: model) { sheet = nil }
+                    .frame(width: KeyringSize.measure + 2 * KeyringSpace.s10)
+            }
+        }
         .task { await model.followUpdates() }
-        .alert(MenuBarCopy.appName, isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.dismissFailure() } })) {
+        .alert(MenuBarCopy.appName, isPresented: Binding(get: { model.failure != nil && model.deviceDialog == nil }, set: { if !$0 { model.dismissFailure() } })) {
             Button(SetupCopy.ok) { model.dismissFailure() }
         } message: { Text(model.failure ?? "") }
     }

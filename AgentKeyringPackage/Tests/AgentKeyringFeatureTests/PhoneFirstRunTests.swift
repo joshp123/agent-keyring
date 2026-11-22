@@ -62,6 +62,15 @@ struct PhoneFirstRunTests {
         #expect(open.on(.practiceDismissed) == .practiceWaiting(id: "p1", arrived: true))
         #expect(PhoneCopy.practiceResult(.denied, reply: "Use the file in Downloads") == "Practice denied: “Use the file in Downloads”")
     }
+
+    @Test("Having trouble stays on the checklist until Try Again is tapped")
+    func troubleDoesNotBounceBackToFoundMac() {
+        let trouble = PhoneFirstRun.foundMac(name: "MacBook Pro").on(.havingTrouble)
+        #expect(trouble == .trouble)
+        #expect(!trouble.looksForMac)
+        #expect(trouble.on(.macFound(name: "MacBook Pro")) == .trouble)
+        #expect(trouble.on(.tryAgain) == .start)
+    }
 }
 
 @Suite("Adding Apple Watch")

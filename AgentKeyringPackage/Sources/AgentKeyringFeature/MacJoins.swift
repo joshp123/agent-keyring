@@ -56,6 +56,8 @@ public struct InvitationItem: Sendable {
 extension MacDevice {
     /// One join this Mac has heard, by joiner: a computer's machine ID or a device's key ID.
     struct Join {
+        /// Unique per waiting attempt so Touch ID for a cancelled attempt cannot approve a replacement.
+        let attemptID = UUID()
         let request: Agentkeyring_V2_JoinRequest
         /// The invitation it proved.
         let secret: Data
@@ -207,7 +209,13 @@ extension MacDevice {
         if let refusal = keysRefusal(request, peer: door.peerSPKI) { return refusal }
         if isMember(request) { return .ok(message(status(.approved, for: request))) }
         let now = Date.now
-        if let existing = joinRecords[id], existing.state == .waiting || existing.request == request {
+        if let existing = joinRecords[id], existing.state == .refused, existing.request == request {
+            // Preserve terminal refusal (and owner explanation) when a computer retries after missing the reply.
+            var reply = status(.refused, for: request)
+            if let refusal = existing.refusal { reply.refusal = refusal }
+            return .ok(message(reply))
+        }
+        if let existing = joinRecords[id], existing.state == .waiting {
             guard existing.request == request else { return .refused(403, "Another request to join with these keys is waiting.") }
         } else {
             invitations = invitations.filter { $0.value > now }
@@ -228,20 +236,21 @@ extension MacDevice {
             joinSignal.fire()
         }
         // Wait for Josh, up to the long poll's limit or the join's ten minutes.
+        let attemptID = joinRecords[id]!.attemptID
         let asked = joinRecords[id]!.asked
         let lastsFor = asked.addingTimeInterval(Self.joinLasts).timeIntervalSinceNow
         let deadline = ContinuousClock.now + min(environment.joinWait, .seconds(max(0, lastsFor)))
-        while joinRecords[id]?.state == .waiting, ContinuousClock.now < deadline, !Task.isCancelled {
+        while joinRecords[id]?.attemptID == attemptID, joinRecords[id]?.state == .waiting, ContinuousClock.now < deadline, !Task.isCancelled {
             await joinSignal.wait(until: deadline)
         }
-        if joinRecords[id]?.state == .waiting, asked.addingTimeInterval(Self.joinLasts) <= .now {
+        if joinRecords[id]?.attemptID == attemptID, joinRecords[id]?.state == .waiting, asked.addingTimeInterval(Self.joinLasts) <= .now {
             joinRecords[id]?.state = .expired
             joinSignal.fire()
         }
-        guard let join = joinRecords[id] else { return .refused(404, "This request to join is gone.") }
+        guard let join = joinRecords[id], join.attemptID == attemptID else { return .ok(message(status(.withdrawn, for: request))) }
         var status = status(join.state, for: request)
         if let refusal = join.refusal { status.refusal = refusal }
-        if let sealed = join.pushCredential { status.pushCredential = sealed }
+        if join.state == .approved, isMember(request), let sealed = join.pushCredential { status.pushCredential = sealed }
         return .ok(message(status))
     }
 
@@ -294,7 +303,7 @@ extension MacDevice {
     private func status(_ state: Agentkeyring_V2_JoinState, for request: Agentkeyring_V2_JoinRequest) -> Agentkeyring_V2_JoinStatus {
         var status = Agentkeyring_V2_JoinStatus()
         status.state = state
-        if state == .approved, let bytes = saved.members, let signed = try? Agentkeyring_V2_Signed(serializedBytes: bytes) {
+        if state == .approved, isMember(request), let bytes = saved.members, let signed = try? Agentkeyring_V2_Signed(serializedBytes: bytes) {
             status.members = signed
             if case let .machine(machine)? = request.joining, let sealed = sealedPushCredential(for: machine) { status.pushCredential = sealed }
         }
@@ -330,7 +339,19 @@ extension MacDevice {
             joinSignal.fire()
             throw RelayFailure(.notFound, MessageCopy.joinRanOut)
         }
+        let attemptID = join.attemptID
         try await confirm(context, reason: joinReason(id))
+        // Re-check after Touch ID against the exact waiting attempt so a cancelled-and-replaced
+        // join with identical keys/invitation can never inherit an earlier Touch ID confirmation.
+        guard let liveJoin = joinRecords[id], liveJoin.attemptID == attemptID,
+              liveJoin.state == .waiting, liveJoin.request == join.request else {
+            throw RelayFailure(.notFound, MessageCopy.nothingJoining)
+        }
+        guard liveJoin.asked.addingTimeInterval(Self.joinLasts) > .now else {
+            joinRecords[id]?.state = .expired
+            joinSignal.fire()
+            throw RelayFailure(.notFound, MessageCopy.joinRanOut)
+        }
         onAuthenticated()
         var next = members ?? {
             var first = Agentkeyring_V2_Members()
@@ -370,13 +391,16 @@ extension MacDevice {
         let blocked = Set(try await catalogueLogins().filter { $0.rule == .blocked }.map(\.loginID))
         let mine = try await store.sealed().filter { $0.openerID == keys.deviceKeyID && !blocked.contains($0.loginID) }
         filling = Filling(deviceKeyID: newDevice.keyID, label: newDevice.label, done: 0, total: mine.count)
+        let fillingID = newDevice.keyID
         Task {
             do { try await fill(newDevice, copies: mine, context: context) } catch {
                 DiagnosticLog.record("devices", "fill-failed", ["device": newDevice.label, "reason": "\(error)"])
-                filling?.failure = (error as? LocalizedError)?.errorDescription ?? MessageCopy.somethingWentWrong
+                if filling?.deviceKeyID == fillingID {
+                    filling?.failure = (error as? LocalizedError)?.errorDescription ?? MessageCopy.somethingWentWrong
+                }
                 try? await Task.sleep(for: .seconds(30)) // Long enough to read in the panel.
             }
-            filling = nil
+            if filling?.deviceKeyID == fillingID { filling = nil }
         }
     }
 
@@ -389,9 +413,8 @@ extension MacDevice {
         for start in stride(from: 0, to: mine.count, by: 50) {
             let batch = Array(mine[start..<min(start + 50, mine.count)])
             let sealed = try await Task.detached { try batch.map { try resealer.reseal($0, to: key, openerID: device.keyID) } }.value
-            let ids = Set(sealed.map(\.loginID))
-            try await store.replaceSealed(try await store.sealed().filter { $0.openerID != device.keyID || !ids.contains($0.loginID) } + sealed)
-            filling?.done = start + batch.count
+            try await store.mergeSealed(replacingOpener: device.keyID, with: sealed)
+            if filling?.deviceKeyID == device.keyID { filling?.done = start + batch.count }
             listsChanged(copies: true)
         }
         DiagnosticLog.record("devices", "filled", ["device": device.label, "passwords": "\(mine.count)",

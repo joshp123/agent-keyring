@@ -119,6 +119,8 @@ public final class CredentialAccessController {
         await setPolicies(assignments, context: context)
     }
 
+    private var policyGeneration: UInt64 = 0
+
     public func setPolicies(_ assignments: [UUID: CredentialAccessPolicy], context: LAContext) async {
         guard !assignments.isEmpty, !isSavingRules else { return }
         let knownIDs = Set(rows.map(\.id))
@@ -133,15 +135,21 @@ public final class CredentialAccessController {
         defer { isSavingRules = false }
         errorMessage = nil
         // The new rules are current while they are sealed and published, so the
-        // catalogue the other devices get says them; a failure puts the old back.
+        // catalogue the other devices get says them; a failure puts the old back
+        // unless an incoming signed catalogue adopted newer rules in the meantime.
+        let startGeneration = policyGeneration
         let previous = policies
         policies = proposed
         do {
             try await beforeSave?(previous, proposed, context)
-            try store.save(proposed)
-            updateRowPolicies()
+            if policyGeneration == startGeneration {
+                try store.save(proposed)
+                updateRowPolicies()
+            }
         } catch {
-            policies = previous
+            if policyGeneration == startGeneration {
+                policies = previous
+            }
             errorMessage = rulesFailureMessage(error)
         }
     }
@@ -151,10 +159,11 @@ public final class CredentialAccessController {
     /// Rules another device changed and signed: saved as they are, since that
     /// device has already sealed or withdrawn the copies.
     func adopt(_ next: [UUID: CredentialAccessPolicy]) {
-        guard next != policies else { return }
+        guard isSavingRules || next != policies else { return }
         do {
             try store.save(next)
             policies = next
+            policyGeneration &+= 1
             updateRowPolicies()
         } catch {
             errorMessage = rulesFailureMessage(error)

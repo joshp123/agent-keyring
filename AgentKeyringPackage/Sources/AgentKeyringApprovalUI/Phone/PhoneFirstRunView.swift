@@ -109,7 +109,7 @@ struct PhoneFirstRunView: View {
         let facts = model.snapshot.notificationFacts
         let asked = facts.allowed || stage == .notificationsOff
         let primary: KeyringAction = stage == .notificationsOff ? .advance(PhoneCopy.openSettings) { openNotificationSettings() }
-            : !asked ? .advance(PhoneCopy.turnOnNotifications) { Task { await model.askAboutNotifications() } }
+            : !asked ? .advance(PhoneCopy.turnOnNotifications, isEnabled: !model.isAskingNotifications) { Task { await model.askAboutNotifications() } }
             : .advance(PhoneCopy.continueButton) { send(.notificationsDone) }
         let allSet = facts.allowed && facts.banners && facts.lockScreen && facts.timeSensitive && !facts.inScheduledSummary
         let secondary: KeyringAction? = stage == .notificationsOff ? .link(PhoneCopy.continueWithout) { send(.continueWithoutNotifications) }
@@ -173,18 +173,19 @@ struct PhoneAddWatchView: View {
             }
         case .faceIDFirst:
             KeyringPage(step: (1, 2), title: PhoneCopy.addWatchTitle, sentence: PhoneCopy.addWatchDetail,
-                        primary: .advance(PhoneCopy.continueWithFaceID) { tap(.continueWithFaceID) },
+                        primary: .advance(PhoneCopy.continueWithFaceID, isEnabled: !model.isAuthorizingWatch) { tap(.continueWithFaceID) },
                         secondary: .link(PhoneCopy.cancel) { tap(.cancel) }) {
                 KeyringSteps(PhoneCopy.addWatchSteps)
             }
         case let .waitingForWatch(until):
             KeyringPage(step: (2, 2), title: PhoneCopy.tapAddOnWatch, sentence: PhoneCopy.tapAddOnWatchDetail, secondary: cancel) {
                 KeyringConfirmation(PhoneCopy.confirmedUntil(until))
-                KeyringHint(symbol: "exclamationmark.circle.fill", title: PhoneCopy.watchNotShowingTitle, PhoneCopy.watchNotShowing, tone: .stalled)
+                KeyringSteps(PhoneCopy.tapAddOnWatchSteps)
+                KeyringHint(symbol: "applewatch", title: PhoneCopy.watchNotShowingTitle, PhoneCopy.watchNotShowing, tone: .plain)
             }
         case .faceIDExpired:
             KeyringPage(step: (1, 2), title: PhoneCopy.addWatchTitle, status: .takingLong(PhoneCopy.faceIDExpired),
-                        primary: .advance(PhoneCopy.continueWithFaceID) { tap(.continueWithFaceID) }, secondary: cancel)
+                        primary: .advance(PhoneCopy.continueWithFaceID, isEnabled: !model.isAuthorizingWatch) { tap(.continueWithFaceID) }, secondary: cancel)
         case .watchNeedsPasscode:
             KeyringPage(step: (2, 2), title: PhoneCopy.addWatchTitle, status: .problem(PhoneCopy.watchNeedsPasscode),
                         primary: .advance(PhoneCopy.tryAgain) { tap(.tryAgain) }, secondary: cancel)

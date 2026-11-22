@@ -7,6 +7,7 @@
 // "watchPush"). Both directions use application context and user info, so it
 // works whichever app opens first.
 
+import AgentKeyringApprovalUI
 import AgentKeyringPhoneApprover
 import Foundation
 import WatchConnectivity
@@ -16,11 +17,17 @@ final class WatchLink: NSObject, WCSessionDelegate {
     private let keyring: PhoneKeyring
     /// The end of the held Face ID confirmation, while the iPhone waits for Apple Watch to ask.
     private var addUntil: Date?
+    private var addOfferID: String?
 
     init(keyring: PhoneKeyring) {
         self.keyring = keyring
         super.init()
-        keyring.onWatchMayAsk = { [weak self] until in self?.addUntil = until; self?.sendMembers() }
+        keyring.onWatchMayAsk = { [weak self] until, offerID in
+            self?.addUntil = until
+            self?.addOfferID = offerID
+            self?.sendMembers(immediate: true)
+        }
+        keyring.onListsChanged = { [weak self] in self?.sendMembers(immediate: true) }
         guard WCSession.isSupported() else { return }
         WCSession.default.delegate = self
         WCSession.default.activate()
@@ -33,17 +40,24 @@ final class WatchLink: NSObject, WCSessionDelegate {
         if let catalogue = keyring.signedCatalogue { context["catalogue"] = catalogue }
         if let settings = try? PropertyListEncoder().encode(keyring.notificationSettings) { context["settings"] = settings }
         if let addUntil { context["addUntil"] = addUntil.timeIntervalSince1970 }
+        if let offerID = keyring.activeWatchOfferID ?? addOfferID { context["addOfferID"] = offerID }
+        context["copiesPending"] = keyring.watchCopiesPending
+        context["copyingToWatch"] = keyring.isCopyingToWatch
         return context
     }
 
     /// Sends the current lists, settings and Add offer to the Watch.
-    func sendMembers() {
+    /// Uses application context (latest-state replacement, never piles up large FIFO queues)
+    /// and a direct live message when the Watch app is reachable for sub-100ms updates.
+    func sendMembers(immediate: Bool = false) {
         let session = WCSession.default
         guard WCSession.isSupported(), session.activationState == .activated, session.isPaired, session.isWatchAppInstalled else { return }
         let context = membersContext
         do { try session.updateApplicationContext(context) } catch { PhoneDiagnostics.note("Lists not sent to the Watch: \(error)") }
-        session.transferUserInfo(context)
-        PhoneDiagnostics.log.note("watch", "lists sent", ["addOffered": "\(addUntil != nil)"])
+        if immediate, session.isReachable {
+            session.sendMessage(context, replyHandler: nil, errorHandler: nil)
+        }
+        PhoneDiagnostics.log.note("watch", "lists sent", ["addOffered": "\(addUntil != nil)", "reachable": "\(session.isReachable)"])
     }
 
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
@@ -64,28 +78,62 @@ final class WatchLink: NSObject, WCSessionDelegate {
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
         let copy = Self.plain(userInfo)
         let asks = userInfo["askMembers"] != nil
+        let cancelAdd = userInfo["cancelAddWatch"] != nil
+        let offerID = userInfo["addOfferID"] as? String
         Task { @MainActor in
-            self.receive(copy)
+            if cancelAdd {
+                self.keyring.cancelWatchOffer(offerID: offerID)
+                self.sendMembers(immediate: true)
+                return
+            }
+            _ = self.receive(copy)
             if asks { PhoneDiagnostics.note("The Watch asked for Members"); self.sendMembers() }
         }
     }
 
-    /// The Watch has a request it cannot read: it asks for the current list straight away.
+    /// Live messages from Apple Watch: Add Watch pairing, Cancel Add, Stop, Try Practice, or fetching Members.
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any],
                              replyHandler: @escaping ([String: Any]) -> Void) {
         let reply = UncheckedReply(replyHandler)
         let stop = message["stop"] as? String
         let practice = message["practice"] != nil
+        let cancelAdd = message["cancelAddWatch"] != nil
+        let isAddWatch = message["addWatch"] != nil || message["watchDevice"] != nil
+        let offerID = message["addOfferID"] as? String
+        let copy = Self.plain(message)
         Task { @MainActor in
             // Stop on Apple Watch: the iPhone holds the request's door and ends the approval there.
             if let stop {
-                do { try await self.keyring.stop(stop); PhoneDiagnostics.note("Stopped from Apple Watch"); reply.call(["stopped": true]) }
-                catch { PhoneDiagnostics.note("Stop from Apple Watch failed: \(error)"); reply.call(["stopped": false]) }
+                do {
+                    try await self.keyring.stop(stop)
+                    PhoneDiagnostics.note("Stopped from Apple Watch")
+                    reply.call(["stopped": true])
+                } catch is PhoneStopWaitsWithMac {
+                    PhoneDiagnostics.note("Stop from Apple Watch left with Mac")
+                    reply.call(["stopped": true])
+                } catch {
+                    PhoneDiagnostics.note("Stop from Apple Watch failed: \(error)")
+                    reply.call(["stopped": false])
+                }
                 return
             }
             // Try Practice on Apple Watch: only an iPhone or the Mac can ask the Mac for one.
             if practice {
                 reply.call(["asked": await self.keyring.practiceForWatch()])
+                return
+            }
+            if cancelAdd {
+                let cancelled = self.keyring.cancelWatchOffer(offerID: offerID)
+                var response = self.membersContext
+                response["cancelled"] = cancelled
+                reply.call(response)
+                return
+            }
+            if isAddWatch {
+                let accepted = self.receive(copy, offerID: offerID)
+                var response = self.membersContext
+                response["accepted"] = accepted
+                reply.call(response)
                 return
             }
             reply.call(self.membersContext)
@@ -101,18 +149,28 @@ final class WatchLink: NSObject, WCSessionDelegate {
         if let test = payload["watchSelfTest"] as? [String: Any] {
             result["watchSelfTest"] = try? PropertyListSerialization.data(fromPropertyList: test, format: .binary, options: 0)
         }
+        if let offerID = payload["addOfferID"] as? String {
+            result["addOfferID"] = Data(offerID.utf8)
+        }
         return result
     }
 
-    private func receive(_ payload: [String: Data]) {
+    @discardableResult
+    private func receive(_ payload: [String: Data], offerID: String? = nil) -> Bool {
+        let resolvedOfferID = offerID ?? payload["addOfferID"].flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        var accepted = false
         if payload["watchDevice"] != nil || payload["watchPush"] != nil {
-            keyring.watchOffered(device: payload["watchDevice"], push: payload["watchPush"])
+            if payload["watchDevice"] != nil, resolvedOfferID.isEmpty, keyring.activeWatchOfferID != nil {
+                PhoneDiagnostics.note("Watch app needs to update before pairing (no offer ID sent).")
+            }
+            accepted = keyring.watchOffered(device: payload["watchDevice"], push: payload["watchPush"], offerID: resolvedOfferID)
         }
         if let test = payload["watchSelfTest"] { keyring.watchTested(test) }
         // Apple Watch's recent log lines, kept beside the iPhone's own.
         if let data = payload["log"], let lines = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] {
             PhoneDiagnostics.log.merge(lines)
         }
+        return accepted
     }
 
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {

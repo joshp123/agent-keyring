@@ -39,7 +39,7 @@ public struct WatchRequestCard: View {
 
     public var body: some View {
         switch card {
-        case .opening: EmptyView()
+        case .opening: KeyringPage(alignment: .centre, status: .waiting(WatchCopy.openingRequest))
         case .unreadable: KeyringPage(title: WatchCopy.unreadable, alignment: .centre)
         case let .showing(request), let .sending(request):
             if case let .ended(outcome) = request.state { ended(request, outcome, approved: false) } else { open(request) }
@@ -55,7 +55,7 @@ public struct WatchRequestCard: View {
                 reason: request.reason.isEmpty ? nil : request.reason,
                 approve: .approve(WatchCopy.approve, isEnabled: !sending) { respond(true, "") },
                 deny: .deny(WatchCopy.deny, isEnabled: !sending) { respond(false, "") },
-                explain: .explain(WatchCopy.denyAndExplain, prompt: WatchCopy.whatInstead) { words in
+                explain: .explain(WatchCopy.denyAndExplain, prompt: WatchCopy.whatInstead, isEnabled: !sending) { words in
                     let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty { respond(false, trimmed) }
                 })
@@ -71,26 +71,34 @@ public struct WatchRequestCard: View {
 }
 
 /// A button on a setup page.
-public enum WatchSetupAction: Sendable { case add, allowNotifications, checkAgain, tryPractice, cancelPractice, done }
+public enum WatchSetupAction: Sendable { case add, cancelAdd, allowNotifications, checkAgain, tryPractice, cancelPractice, done }
 
 /// Where Apple Watch's setup stands, one page per state.
 public struct WatchSetupPage: View {
     let setup: WatchSetup
     let practiceFailed: Bool
+    let addFailed: Bool
     let act: @MainActor (WatchSetupAction) async -> Void
-    @State private var busy = false
+    @State private var busyFor: WatchSetup?
 
-    public init(setup: WatchSetup, practiceFailed: Bool = false, act: @escaping @MainActor (WatchSetupAction) async -> Void) {
+    public init(setup: WatchSetup, practiceFailed: Bool = false, addFailed: Bool = false, act: @escaping @MainActor (WatchSetupAction) async -> Void) {
         self.setup = setup
         self.practiceFailed = practiceFailed
+        self.addFailed = addFailed
         self.act = act
     }
 
     public var body: some View {
         let page = WatchCopy.page(setup)
         KeyringPage(title: page.title, sentence: page.detail, alignment: .centre, mascot: mascot,
-                    status: practiceFailed && setup == .addedOfferPractice ? .problem(WatchCopy.practiceNotAsked) : nil,
+                    status: statusLine,
                     primary: primary, secondary: setup == .addedOfferPractice ? action(WatchCopy.done, .plain, .done) : nil)
+    }
+
+    private var statusLine: KeyringStatus? {
+        if practiceFailed && setup == .addedOfferPractice { return .problem(WatchCopy.practiceNotAsked) }
+        if addFailed && setup == .readyToAdd { return .problem(WatchCopy.addFailed) }
+        return nil
     }
 
     private var mascot: KeyringMascot.Mood {
@@ -105,6 +113,7 @@ public struct WatchSetupPage: View {
     private var primary: KeyringAction? {
         switch setup {
         case .readyToAdd: action(WatchCopy.add, .advance, .add)
+        case .preparing: action(WatchCopy.cancel, .plain, .cancelAdd)
         case .notifications: action(WatchCopy.continueButton, .advance, .allowNotifications)
         case .notificationsOff: action(WatchCopy.checkAgain, .plain, .checkAgain)
         case .addedOfferPractice: action(WatchCopy.tryPractice, .advance, .tryPractice)
@@ -114,9 +123,14 @@ public struct WatchSetupPage: View {
     }
 
     private func action(_ title: String, _ kind: KeyringAction.Kind, _ what: WatchSetupAction) -> KeyringAction {
-        KeyringAction(title, kind, isEnabled: !busy) {
-            busy = true
-            Task { await act(what); busy = false }
+        let current = setup
+        let isBusy = busyFor == current
+        return KeyringAction(title, kind, isEnabled: !isBusy) {
+            busyFor = current
+            Task {
+                await act(what)
+                if busyFor == current { busyFor = nil }
+            }
         }
     }
 }
@@ -134,7 +148,8 @@ public struct WatchInUsePage: View {
     }
 
     public var body: some View {
-        KeyringPage(title: WatchCopy.inUse, status: failed.map { _ in .problem(WatchCopy.stopFailed) }) {
+        let activeFailure = failed.flatMap { id in items.contains { $0.id == id } ? id : nil }
+        KeyringPage(title: WatchCopy.inUse, status: activeFailure.map { _ in .problem(WatchCopy.stopFailed) }) {
             ForEach(items) { item in
                 VStack(alignment: .leading, spacing: KeyringSpace.s1) {
                     KeyringText(item.site, as: .site, fit: .siteName)
@@ -149,6 +164,9 @@ public struct WatchInUsePage: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+        .onChange(of: items.map(\.id)) { _, ids in
+            if let failed, !ids.contains(failed) { self.failed = nil }
         }
     }
 }

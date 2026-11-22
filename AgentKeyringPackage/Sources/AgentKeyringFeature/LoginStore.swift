@@ -40,11 +40,39 @@ public actor LoginStore {
         try replaceSealed(sealed)
     }
 
+    /// Saves an import and atomically transforms the sealed copies in one actor turn so concurrent
+    /// uploads or device fills cannot be overwritten by an import reading an earlier snapshot.
+    public func save(_ generation: MirrorGeneration,
+                     updatingSealed transform: @Sendable ([Agentkeyring_V2_SealedLogin]) -> [Agentkeyring_V2_SealedLogin]) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try JSONEncoder().encode(generation.redacted).write(to: listURL, options: .atomic)
+        try updateSealed(transform)
+    }
+
     public func replaceSealed(_ sealed: [Agentkeyring_V2_SealedLogin]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         var all = Agentkeyring_V2_SealedLogins()
         all.logins = sealed
         try all.serializedData().write(to: sealedURL, options: .atomic)
+    }
+
+    /// Atomically transforms the sealed copy list in a single actor turn so concurrent fills
+    /// or uploads cannot read stale snapshots and overwrite each other.
+    @discardableResult
+    public func updateSealed(_ transform: @Sendable ([Agentkeyring_V2_SealedLogin]) -> [Agentkeyring_V2_SealedLogin]) throws -> [Agentkeyring_V2_SealedLogin] {
+        let existing = try sealed()
+        let updated = transform(existing)
+        try replaceSealed(updated)
+        return updated
+    }
+
+    /// Atomically merges a batch of sealed copies for one opener in a single actor turn so
+    /// concurrent device fills cannot read stale snapshots and overwrite each other's copies.
+    public func mergeSealed(replacingOpener openerID: String, with incoming: [Agentkeyring_V2_SealedLogin]) throws {
+        let ids = Set(incoming.map(\.loginID))
+        try updateSealed { existing in
+            existing.filter { $0.openerID != openerID || !ids.contains($0.loginID) } + incoming
+        }
     }
 }
 
