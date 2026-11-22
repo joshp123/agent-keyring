@@ -79,8 +79,8 @@ func (s *Server) ask(ctx context.Context, who caller, document *pb.Signed) (*pb.
 	if login.Rule == pb.Rule_RULE_BLOCKED {
 		return nil, fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "This login is blocked for agents.")
 	}
-	if parsed.Automatic && (login.Rule != pb.Rule_RULE_AUTOMATIC || !machine.AutomaticAllowed) {
-		return nil, fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "This login is not Automatic for this machine. Ask without --automatic.")
+	if parsed.Automatic && login.Rule != pb.Rule_RULE_AUTOMATIC {
+		return nil, fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "This login is not Automatic. Ask without --automatic.")
 	}
 	id := parsed.RequestId
 	var result *pb.Lease

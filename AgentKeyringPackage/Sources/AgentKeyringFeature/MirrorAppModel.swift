@@ -35,8 +35,17 @@ public final class MirrorAppModel {
     public internal(set) var sentList: [String: Date?]? {
         didSet { Self.saveSentList(sentList, in: settings) }
     }
-    /// A password became Automatic on the iPhone, and a computer allowed Automatic passwords has no copy of it yet.
+    /// A password became Automatic (or a computer was upgraded/added), and an enrolled computer lacks a current copy.
     public internal(set) var automaticCopiesMissing = false
+    /// Login IDs that currently have a valid, current-version local Automatic copy on this Mac.
+    var localAutomaticCopyIDs: Set<String> = []
+    /// Automatic login IDs whose local copy is newer than the signed catalogue and whose signed version is no longer
+    /// present on this Mac while another enrolled computer still lacks it (requires Send Changes).
+    var pendingAutomaticCatalogueLoginIDs: Set<String> = []
+    /// Snapshot of `currentList` captured synchronously when `catalogueLogins()` builds a catalogue to publish.
+    @ObservationIgnored var publishingListSnapshot: [String: Date?]?
+    @ObservationIgnored var automaticCopiesChecked = false
+    @ObservationIgnored var startupTask: Task<Void, Never>?
     var isApprovingLease = false
     public internal(set) var leaseLogins: [CredentialCandidate] = []
     let bridge: AgentBridgeDirectory
@@ -52,11 +61,6 @@ public final class MirrorAppModel {
     @ObservationIgnored var exportTimeout: Task<Void, Never>?
     /// Which of the copy guide's five steps he is reading. He moves it; nothing else does.
     public var copyGuideStep = 1
-    /// This Mac's Automatic switch while nothing has joined it; after that,
-    /// its entry in the members list decides.
-    var savedAutomaticOnThisMac: Bool {
-        didSet { settings.set(savedAutomaticOnThisMac, forKey: Self.automaticOnThisMacKey) }
-    }
     /// He clicked Show Passwords at the end of first run. Until then the window opens at launch.
     public var firstRunFinished: Bool { firstRun.step == .finished }
     let settings: UserDefaults
@@ -81,7 +85,6 @@ public final class MirrorAppModel {
         self.accessControl = accessControl
         self.settings = settings
         self.leaseStore = leaseStore
-        savedAutomaticOnThisMac = settings.bool(forKey: Self.automaticOnThisMacKey)
         testedAt = settings.object(forKey: Self.testedAtKey) as? Date
         firstRun = Self.savedFirstRun(settings)
         sentList = Self.savedSentList(settings)
@@ -200,11 +203,12 @@ public final class MirrorAppModel {
         Dictionary(uniqueKeysWithValues: leaseLogins.map { ($0.id, localPolicy(for: $0.id)) })
     }
 
-    /// The rule as it applies to agents on this Mac: Automatic asks while
-    /// this Mac is not one of the computers allowed Automatic passwords.
+    /// The rule as it applies to agents on this Mac: Automatic runs without asking only when this Mac
+    /// is still enrolled (or standalone) and already holds a current local Automatic copy.
     func localPolicy(for id: UUID) -> CredentialAccessPolicy {
         let policy = accessControl.policy(for: id)
-        return policy == .allowAutomatically && !automaticOnThisMac ? .ask : policy
+        guard policy == .allowAutomatically else { return policy }
+        return thisMacIsEnrolledMachine && localAutomaticCopyIDs.contains(id.uuidString) ? .allowAutomatically : .ask
     }
 
     /// The Mac's chip keys, made on first use.
@@ -225,10 +229,16 @@ public final class MirrorAppModel {
             try await self?.catalogueLogins() ?? []
         }
         device?.onCatalogue = { [weak self] catalogue in await self?.adoptCatalogue(catalogue) }
-        device?.onPublished = { [weak self] in self?.recordSentList() }
+        device?.onPublished = { [weak self] in
+            self?.recordSentList()
+            await self?.noteMissingAutomaticCopies()
+        }
         device?.onPracticeHere = { [weak self] in
             guard let self else { return }
             Task { await self.sendPractice(to: self.thisMacDeviceKey) }
+        }
+        device?.onAutomaticCopiesChanged = { [weak self] in
+            await self?.noteMissingAutomaticCopies()
         }
         return made
     }
@@ -245,9 +255,9 @@ public final class MirrorAppModel {
             problem = MessageCopy.copyUnreadable
             return
         }
-        try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
         if (try? macKeys()) != nil { device?.start() }
         seedSentList()
+        await noteMissingAutomaticCopies()
     }
 
 }

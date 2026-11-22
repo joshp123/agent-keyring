@@ -47,6 +47,8 @@ public enum AnswerDoor {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                if Task.isCancelled { throw CancellationError() }
+                if isPermanentTLSFailure(error) { throw NotDelivered(last: error) }
                 guard Date() < giveUp else { throw NotDelivered(last: error) }
                 if !told { told = true; waiting() }
                 try await Task.sleep(for: .seconds(retryEvery))
@@ -68,9 +70,33 @@ public enum AnswerDoor {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                if Task.isCancelled { throw CancellationError() }
+                if isPermanentTLSFailure(error) { throw NotDelivered(last: error) }
                 guard Date() < giveUp else { throw NotDelivered(last: error) }
                 try await Task.sleep(for: .seconds(retryEvery))
             }
+        }
+    }
+
+    /// Errors caused by App Transport Security, TLS handshake rejection, or a mismatched pinned key
+    /// will not clear on retry, so fail immediately instead of blocking for `retryFor`.
+    private static func isPermanentTLSFailure(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        switch nsError.code {
+        case NSURLErrorAppTransportSecurityRequiresSecureConnection,
+             NSURLErrorServerCertificateHasBadDate,
+             NSURLErrorServerCertificateUntrusted,
+             NSURLErrorServerCertificateHasUnknownRoot,
+             NSURLErrorServerCertificateNotYetValid,
+             NSURLErrorCancelled:
+            return true
+        case NSURLErrorSecureConnectionFailed:
+            let sslCode = (nsError.userInfo["_kCFStreamErrorCodeKey"] as? Int)
+                ?? ((nsError.userInfo[NSUnderlyingErrorKey] as? NSError)?.userInfo["_kCFStreamErrorCodeKey"] as? Int)
+            return sslCode == -9802 // errSSLFatalAlert
+        default:
+            return false
         }
     }
 

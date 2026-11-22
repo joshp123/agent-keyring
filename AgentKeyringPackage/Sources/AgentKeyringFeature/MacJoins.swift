@@ -331,8 +331,9 @@ extension MacDevice {
     /// join also makes the first members list and catalogue. A new device then
     /// gets a copy of every password, opened here with the same approval and
     /// sealed again for it off the main thread, in batches it can count. A
-    /// computer gets Apple's push credential and no Automatic passwords yet.
-    public func approveJoin(_ id: String, thisMacAutomatic: Bool, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
+    /// computer gets Apple's push credential and copies of every existing
+    /// Automatic password right away.
+    public func approveJoin(_ id: String, context: LAContext, onAuthenticated: @MainActor () -> Void) async throws {
         guard let join = joinRecords[id], join.state == .waiting else { throw RelayFailure(.notFound, MessageCopy.nothingJoining) }
         guard join.asked.addingTimeInterval(Self.joinLasts) > .now else {
             joinRecords[id]?.state = .expired
@@ -356,17 +357,20 @@ extension MacDevice {
         var next = members ?? {
             var first = Agentkeyring_V2_Members()
             var thisMac = keys.machine
-            thisMac.automaticAllowed = thisMacAutomatic
+            thisMac.automaticAllowed = true
             first.devices = [keys.device]
             first.machines = [thisMac]
             return first
         }()
+        for index in next.machines.indices { next.machines[index].automaticAllowed = true }
         var newDevice: Agentkeyring_V2_Device?
+        var newMachine: Agentkeyring_V2_Machine?
         switch join.request.joining {
         case var .machine(machine)?:
-            machine.automaticAllowed = false
+            machine.automaticAllowed = true
             next.machines.removeAll { $0.machineID == machine.machineID }
             next.machines.append(machine)
+            newMachine = machine
         case let .device(device)?:
             next.devices.removeAll { $0.keyID == device.keyID }
             next.devices.append(device)
@@ -375,9 +379,61 @@ extension MacDevice {
             return
         }
         try await publishMembers(next, context: context)
-        // A new device is filled from this Mac's copies as they are now, so the
-        // catalogue is signed again with them, changes from Passwords included.
-        if catalogue == nil || newDevice != nil { try await publish(context: context) }
+        // A new approving device needs a signed catalogue matching this Mac's current copies;
+        // a new computer takes its Automatic passwords from the last approved catalogue so
+        // unrelated pending Passwords imports wait for "Send Changes".
+        if catalogue == nil || newDevice != nil {
+            try await publish(context: context)
+        }
+        if let newMachine, let liveCatalogue = catalogue, let liveMembers = members {
+            let listedAutomatic = Dictionary(
+                liveCatalogue.logins.filter { $0.rule == .automatic }.map { ($0.loginID, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            if !listedAutomatic.isEmpty {
+                var savedCount = 0
+                do {
+                    let allSealed = try await store.sealed()
+                    let mine = allSealed.filter {
+                        $0.openerID == keys.deviceKeyID && listedAutomatic[$0.loginID]?.version == $0.version
+                    }
+                    let key = try P256.KeyAgreement.PublicKey(x963Representation: newMachine.receivingPublicKey)
+                    let resealer = try keys.resealer(context: context, members: liveMembers)
+                    let machineID = newMachine.machineID
+                    let batchResults = await Task.detached { () -> ([Agentkeyring_V2_SealedLogin], Int) in
+                        var sealed: [Agentkeyring_V2_SealedLogin] = []
+                        sealed.reserveCapacity(mine.count)
+                        var failures = 0
+                        for copy in mine {
+                            if let resealed = try? resealer.reseal(copy, to: key, openerID: machineID) {
+                                sealed.append(resealed)
+                            } else {
+                                failures += 1
+                            }
+                        }
+                        return (sealed, failures)
+                    }.value
+                    let sealed = batchResults.0
+                    if !sealed.isEmpty, members?.machines.contains(where: { $0.machineID == machineID }) == true {
+                        try await store.mergeSealed(replacingOpener: machineID, with: sealed)
+                        savedCount = sealed.count
+                        listsChanged(copies: true)
+                    }
+                    if batchResults.1 > 0 || savedCount != listedAutomatic.count {
+                        DiagnosticLog.record("devices", "automatic-fill-incomplete", [
+                            "computer": newMachine.label,
+                            "saved": "\(savedCount)",
+                            "expected": "\(listedAutomatic.count)",
+                        ])
+                    }
+                } catch {
+                    DiagnosticLog.record("devices", "automatic-fill-failed", ["computer": newMachine.label, "reason": "\(error)"])
+                }
+                // Always refresh after the fill completes: publishMembers ran before the fill, so a clean fill
+                // must clear automaticCopiesMissing and an incomplete/failed fill must keep it set.
+                await onAutomaticCopiesChanged?()
+            }
+        }
         joinRecords[id]?.state = .approved
         if case let .machine(machine)? = join.request.joining {
             joinRecords[id]?.pushCredential = sealedPushCredential(for: machine)
@@ -387,9 +443,10 @@ extension MacDevice {
         joinSignal.fire()
         DiagnosticLog.record("join", "approved", ["joiner": String(id.prefix(16))])
         guard let newDevice else { return }
-        // Its copies: every password not Blocked.
-        let blocked = Set(try await catalogueLogins().filter { $0.rule == .blocked }.map(\.loginID))
-        let mine = try await store.sealed().filter { $0.openerID == keys.deviceKeyID && !blocked.contains($0.loginID) }
+        // Its copies: every password not Blocked, matching the just-published catalogue version.
+        let listed = Dictionary((catalogue?.logins ?? []).filter { $0.rule != .blocked }.map { ($0.loginID, $0.version) },
+            uniquingKeysWith: { first, _ in first })
+        let mine = try await store.sealed().filter { $0.openerID == keys.deviceKeyID && listed[$0.loginID] == $0.version }
         filling = Filling(deviceKeyID: newDevice.keyID, label: newDevice.label, done: 0, total: mine.count)
         let fillingID = newDevice.keyID
         Task {

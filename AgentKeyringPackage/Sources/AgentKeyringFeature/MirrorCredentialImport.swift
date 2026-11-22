@@ -191,18 +191,27 @@ extension MirrorAppModel {
             let fresh = generation.items.filter { arrived.contains($0.sourceIdentity) }
             let kept = Set(generation.items.filter { !arrived.contains($0.sourceIdentity) }.map(\.id.uuidString))
             let keys = try macKeys()
-            let own: Set<String> = [keys.deviceKeyID, keys.machineID] // This Mac's own copies, and its Automatic ones.
-            let signed = Dictionary((device?.catalogue?.logins ?? []).map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
-            let version = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
-            let incoming = try fresh.flatMap { item in
-                let policy = accessControl.policy(for: item.id)
-                return try sealCopies(of: item.secret, version: version, automatic: policy == .allowAutomatically, blocked: policy == .block)
-            }
-            try await store.save(generation) { existing in
-                let preserved = existing.filter { copy in
-                    kept.contains(copy.loginID) || (!own.contains(copy.openerID) && signed[copy.loginID] == copy.version)
+            let ownMachineID = keys.machineID // This Mac's local Automatic copies update at import; keep its chip-key copy of the last signed version until publication.
+            let saveGeneration: @MainActor () async throws -> Void = { [self] in
+                let signed = Dictionary((self.device?.catalogue?.logins ?? []).map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
+                let version = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+                let incoming = try fresh.flatMap { item in
+                    let policy = self.accessControl.policy(for: item.id)
+                    return try self.sealCopies(of: item.secret, version: version, automatic: policy == .allowAutomatically, blocked: policy == .block)
                 }
-                return preserved + incoming
+                try await self.store.save(generation) { existing in
+                    let preserved = existing.filter { copy in
+                        kept.contains(copy.loginID) || (copy.openerID != ownMachineID && signed[copy.loginID] == copy.version)
+                    }
+                    return preserved + incoming
+                }
+                self.status = generation.safeStatus
+                self.leaseLogins = generation.metadata.candidates
+            }
+            if let device {
+                try await device.withSerializedCatalogue(saveGeneration)
+            } else {
+                try await saveGeneration()
             }
         } catch {
             credentialExchangeLogger.error("Sealing the import failed: \(String(describing: error), privacy: .public)")
@@ -211,10 +220,8 @@ extension MirrorAppModel {
         }
 
         credentialExchangeLogger.info("Saved encrypted mirror with \(generation.items.count, privacy: .public) items")
-        status = generation.safeStatus
-        leaseLogins = generation.metadata.candidates
         await accessControl.refresh(from: generation)
-        try? leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
+        await noteMissingAutomaticCopies()
         problem = nil
         return true
     }

@@ -36,13 +36,27 @@ extension MirrorAppModel {
 
     /// What the other devices have not been sent yet. Nothing when no other device holds the list.
     public var unsentChanges: PasswordChanges {
-        guard hasOtherDevices, let sentList else { return PasswordChanges() }
-        return PasswordChanges(sent: sentList, now: currentList)
+        guard hasOtherDevices else { return PasswordChanges() }
+        var base = sentList.map { PasswordChanges(sent: $0, now: currentList) } ?? PasswordChanges()
+        if !pendingAutomaticCatalogueLoginIDs.isEmpty {
+            let alreadyCounted: Set<String> = if let sentList {
+                Set(currentList.compactMap { id, date -> String? in
+                    guard let recorded = sentList[id] else { return id }
+                    if let recorded, date != recorded { return id }
+                    return nil
+                })
+            } else {
+                []
+            }
+            base.changed += pendingAutomaticCatalogueLoginIDs.subtracting(alreadyCounted).count
+        }
+        return base
     }
 
-    /// The catalogue was signed and sent: this list is what the other devices now hold.
+    /// The catalogue was signed and sent: record the exact snapshot that was signed so a concurrent import stays unsent.
     func recordSentList() {
-        sentList = currentList
+        sentList = publishingListSnapshot ?? currentList
+        publishingListSnapshot = nil
         resyncAsked = false
     }
 
@@ -59,9 +73,15 @@ extension MirrorAppModel {
         resyncAsked = unsentChanges.total > 0
     }
 
-    /// Touch ID on the panel: the catalogue is signed and sent, and the record follows (`recordSentList`).
+    /// Touch ID on the panel: the catalogue is signed and sent, and any enrolled computer lacking
+    /// the newly published Automatic copies gets them immediately under the same Touch ID confirmation.
     public func sendChanges(context: LAContext) async throws {
         try await device?.publish(context: context)
+        if !(await missingAutomaticCopies()).isEmpty {
+            try await sealAutomaticCopies(context: context)
+        } else {
+            await noteMissingAutomaticCopies()
+        }
     }
 
     /// Not Now: the other devices keep the list they hold, and the changes stay unsent.

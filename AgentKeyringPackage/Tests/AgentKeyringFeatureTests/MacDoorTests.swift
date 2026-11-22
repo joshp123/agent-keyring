@@ -164,7 +164,7 @@ struct MacDoorTests {
         let joinBody = try joining.serializedData()
         let joined = Task { try await phoneDoor.call("POST", port: port, "/v2/join", joinBody) }
         try await eventually("the join to show") { !mac.joins.isEmpty }
-        try await mac.approveJoin(phone.keyID, thisMacAutomatic: false, context: LAContext(), onAuthenticated: {})
+        try await mac.approveJoin(phone.keyID, context: LAContext(), onAuthenticated: {})
         let joinReply = try await joined.value
         #expect(joinReply.status == 200)
         let status = try Agentkeyring_V2_JoinStatus(serializedBytes: joinReply.body)
@@ -376,7 +376,7 @@ struct MacDoorTests {
         // Connect: the join shows on the Mac, he approves, and the iPhone gets its copies.
         await phone.firstRun(.connect)
         try await eventually("the join to show on the Mac") { !mac.joins.isEmpty }
-        try await mac.approveJoin(try #require(mac.joins.first).request.device.keyID, thisMacAutomatic: false, context: LAContext(), onAuthenticated: {})
+        try await mac.approveJoin(try #require(mac.joins.first).request.device.keyID, context: LAContext(), onAuthenticated: {})
         try await eventually("first run to reach notifications", within: 20) { phone.snapshot.firstRun == .notifications }
         #expect(phone.snapshot.joined && phone.snapshot.logins.map(\.site) == ["example.com"])
 
@@ -494,7 +494,7 @@ struct MacDoorTests {
         let phoneJoinBody = try phoneJoin.serializedData()
         let phoneJoined = Task { try await phoneDoor.call("POST", port: port, "/v2/join", phoneJoinBody) }
         try await eventually("the iPhone's join") { !mac.joins.isEmpty }
-        try await mac.approveJoin(phone.keyID, thisMacAutomatic: false, context: LAContext(), onAuthenticated: {})
+        try await mac.approveJoin(phone.keyID, context: LAContext(), onAuthenticated: {})
         #expect(try await phoneJoined.value.status == 200)
         try await eventually("the iPhone's copies") { mac.filling == nil }
 
@@ -512,7 +512,7 @@ struct MacDoorTests {
         let computerJoinBody = try computerJoin.serializedData()
         let computerJoined = Task { try await computer.call("POST", port: port, "/v2/join", computerJoinBody) }
         try await eventually("the computer's join") { mac.joins.contains { MacDevice.joinID($0) == machine.machineID } }
-        try await mac.approveJoin(machine.machineID, thisMacAutomatic: false, context: LAContext(), onAuthenticated: {})
+        try await mac.approveJoin(machine.machineID, context: LAContext(), onAuthenticated: {})
         #expect(try await computerJoined.value.status == 200)
         let members = try #require(mac.members)
 
@@ -724,5 +724,149 @@ extension MacDoorTests {
         let sent = await mac.bundle(for: .device(phone.device), holding: 0)
         #expect(sent.copies.map(\.version) == [8])
         #expect(try await store.sealed().filter { $0.openerID == phone.keyID }.map(\.version) == [8], "the old copy goes once the changes are sent")
+    }
+
+    @MainActor @Test func aNewlyEnrolledComputerImmediatelyReceivesExistingAutomaticPasswords() async throws {
+        UserDefaults.standard.register(defaults: ["StandInKey": true])
+        Tailnet.acceptsLoopbackForTests = true
+        defer { Tailnet.acceptsLoopbackForTests = false }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "mac-auto-join-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let keys = MacKeys(testing: try RelayTLSIdentity.ephemeral(), label: "Test Mac")
+        let store = LoginStore(directory: folder.appending(path: "logins"))
+        let leases = CredentialLeaseStore(persistence: LeasePersistence(directory: folder.appending(path: "leases")))
+        let autoID = UUID()
+        let askID = UUID()
+        var autoSecret = Agentkeyring_V2_LoginSecret()
+        autoSecret.loginID = autoID.uuidString
+        autoSecret.password = "auto-secret"
+        autoSecret.title = "auto.example.com"
+        autoSecret.sites = ["https://auto.example.com"]
+        var askSecret = Agentkeyring_V2_LoginSecret()
+        askSecret.loginID = askID.uuidString
+        askSecret.password = "ask-secret"
+        askSecret.title = "ask.example.com"
+        askSecret.sites = ["https://ask.example.com"]
+        try await store.replaceSealed([
+            try Sealing.seal(autoSecret, version: 3, to: keys.openingPublicKey, openerID: keys.deviceKeyID, signer: keys.signer),
+            try Sealing.seal(askSecret, version: 3, to: keys.openingPublicKey, openerID: keys.deviceKeyID, signer: keys.signer),
+        ])
+        var autoLogin = Agentkeyring_V2_Login()
+        autoLogin.loginID = autoID.uuidString
+        autoLogin.title = "auto.example.com"
+        autoLogin.sites = ["https://auto.example.com"]
+        autoLogin.rule = .automatic
+        autoLogin.version = 3
+        var askLogin = Agentkeyring_V2_Login()
+        askLogin.loginID = askID.uuidString
+        askLogin.title = "ask.example.com"
+        askLogin.sites = ["https://ask.example.com"]
+        askLogin.rule = .ask
+        askLogin.version = 3
+        final class Left: @unchecked Sendable { var invite: Agentkeyring_V2_JoinInvite? }
+        let left = Left()
+        var environment = MacDevice.Environment(storage: .memory())
+        environment.address = { "127.0.0.1" }
+        environment.answerPort = 0
+        environment.membersPort = 0
+        environment.invitationItem = InvitationItem(read: { left.invite }, write: { left.invite = $0 })
+        environment.joinWait = .seconds(5)
+        let mac = MacDevice(keys: keys, store: store, leaseStore: leases, environment: environment) { [autoLogin, askLogin] }
+        mac.start()
+        try await eventually("the Mac's members door to listen") { left.invite != nil }
+        defer { for server in mac.servers { server.stop() } }
+        let port = UInt16(try #require(left.invite).doorPort)
+        let macKey = keys.tls.publicKeySPKI
+
+        let computerTLS = try RelayTLSIdentity.ephemeral()
+        let receiving = P256.KeyAgreement.PrivateKey()
+        var machine = Agentkeyring_V2_Machine()
+        machine.machineID = Sealing.keyID(computerTLS.publicKeySPKI)
+        machine.label = "New Linux Box"
+        machine.tlsPublicKey = computerTLS.publicKeySPKI
+        machine.receivingPublicKey = receiving.publicKey.x963Representation
+        let computer = Client(pin: macKey, identity: computerTLS)
+        var join = Agentkeyring_V2_JoinRequest()
+        join.machine = machine
+        join.proof = Sealing.joinProof(secret: try #require(left.invite).secret, joining: join)
+        let joinBody = try join.serializedData()
+        let joined = Task { try await computer.call("POST", port: port, "/v2/join", joinBody) }
+        try await eventually("the computer join to show") { mac.joins.contains { MacDevice.joinID($0) == machine.machineID } }
+        try await mac.approveJoin(machine.machineID, context: LAContext(), onAuthenticated: {})
+        #expect(try await joined.value.status == 200)
+        let members = try #require(mac.members)
+        #expect(members.machines.allSatisfy { $0.automaticAllowed })
+
+        let bundle = try Agentkeyring_V2_Bundle(serializedBytes: try await computer.call("GET", port: port, "/v2/bundle?members=0").body)
+        #expect(bundle.copies.count == 1)
+        let sealed = try #require(bundle.copies.first)
+        #expect(sealed.loginID == autoID.uuidString && sealed.openerID == machine.machineID)
+        #expect(try Sealing.open(sealed, with: receiving).password == "auto-secret")
+    }
+
+    @Test func doorServerDeliversLargeBundlesWithoutResettingTheConnection() async throws {
+        Tailnet.acceptsLoopbackForTests = true
+        defer { Tailnet.acceptsLoopbackForTests = false }
+        let identity = try RelayTLSIdentity.ephemeral()
+        let payload = Data((0..<(1024 * 1024)).map { UInt8($0 & 0xFF) })
+        let server = try DoorServer(identity: identity, host: "127.0.0.1", port: 0) { _ in
+            .ok(payload)
+        }
+        let port = try await server.start()
+        defer { server.stop() }
+        for _ in 0..<5 {
+            let reply = try await DoorHTTPS.send("GET", host: "127.0.0.1", port: port, path: "/v2/bundle", pinned: identity.publicKeySPKI)
+            #expect(reply == payload)
+        }
+    }
+
+    @Test func answerDoorFailsFastOnPinnedKeyMismatchInsteadOfWaitingThirtySeconds() async throws {
+        Tailnet.acceptsLoopbackForTests = true
+        defer { Tailnet.acceptsLoopbackForTests = false }
+        let serverIdentity = try RelayTLSIdentity.ephemeral()
+        let wrongIdentity = try RelayTLSIdentity.ephemeral()
+        let server = try DoorServer(identity: serverIdentity, host: "127.0.0.1", port: 0) { _ in .ok() }
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let previousRetry = AnswerDoor.retryFor
+        AnswerDoor.retryFor = 30
+        defer { AnswerDoor.retryFor = previousRetry }
+
+        let start = ContinuousClock.now
+        var upload = Agentkeyring_V2_AnswerUpload()
+        upload.denyRequestID = "0123456789abcdef0123456789abcdef"
+        do {
+            _ = try await AnswerDoor.answer(upload, at: (host: "127.0.0.1", port: port, key: wrongIdentity.publicKeySPKI))
+            Issue.record("Expected AnswerDoor.answer to fail against a mismatched door key")
+        } catch is AnswerDoor.NotDelivered {
+            #expect(ContinuousClock.now - start < .seconds(5))
+        }
+    }
+
+    @Test func everyAppTargetThatUsesDoorHTTPSDisablesAppTransportSecurity() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let plists = [
+            "AgentKeyring/Info.plist",
+            "AgentKeyringPhone/Info.plist",
+            "AgentKeyringPhoneNotificationService/Info.plist",
+            "AgentKeyringWatch/Info.plist",
+            "AgentKeyringWatchNotificationService/Info.plist",
+        ]
+        for relative in plists {
+            let data = try Data(contentsOf: root.appending(path: relative))
+            let plist = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any], "Readable plist: \(relative)")
+            let ats = try #require(plist["NSAppTransportSecurity"] as? [String: Any], "Missing NSAppTransportSecurity in \(relative)")
+            #expect(ats["NSAllowsArbitraryLoads"] as? Bool == true, "Missing NSAllowsArbitraryLoads=true in \(relative)")
+        }
+    }
+
+    @Test func doorHTTPSBuildsValidURLsForTailscaleIPv4AndIPv6() {
+        #expect(DoorHTTPS.url(host: "100.125.58.12", port: 17446, path: "/v2/answer")?.absoluteString == "https://100.125.58.12:17446/v2/answer")
+        #expect(DoorHTTPS.url(host: "fd7a:115c:a1e0::1", port: 17446, path: "/v2/answer")?.absoluteString == "https://[fd7a:115c:a1e0::1]:17446/v2/answer")
     }
 }

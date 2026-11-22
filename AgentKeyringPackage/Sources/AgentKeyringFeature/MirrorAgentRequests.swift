@@ -15,7 +15,7 @@ extension MirrorAppModel {
             guard let self else { return }
             await self.handleLeaseRequest(request, peer: peer, reply: reply)
         }
-        Task { [weak self] in
+        startupTask = Task { [weak self] in
             guard let self else { return }
             await self.loadStatus()
         }
@@ -23,6 +23,7 @@ extension MirrorAppModel {
 
     private func handleLeaseRequest(_ request: Agentkeyring_V1_WireRequest, peer: AgentBridgePeer,
         reply: @escaping @Sendable (Agentkeyring_V1_WireResponse) -> Void) async {
+        await startupTask?.value
         do {
             guard peer.userID == getuid() else { throw LeaseFailure(.unauthenticated, "The socket peer is not this Mac user.") }
             var response = Agentkeyring_V1_WireResponse()
@@ -165,10 +166,15 @@ extension MirrorAppModel {
 
     @discardableResult
     func refreshLeasePolicy() async throws -> MirrorMetadata? {
+        await startupTask?.value
         let metadata = try await store.loadCurrentMetadata()
         leaseLogins = metadata?.candidates ?? []
         await accessControl.refresh(fromMetadata: metadata)
-        try leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
+        if !automaticCopiesChecked {
+            await noteMissingAutomaticCopies()
+        } else {
+            try leaseStore.reconcile(logins: leaseLogins, policies: currentPolicies)
+        }
         return metadata
     }
 }

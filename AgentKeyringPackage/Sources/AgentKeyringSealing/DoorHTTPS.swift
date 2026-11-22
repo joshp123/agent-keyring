@@ -13,14 +13,24 @@ public enum DoorHTTPS {
     /// Sends a request to a path on a door, pinned to its key, and returns the reply. `timeout` is a
     /// deadline for the whole call, not only for silence on the connection. `client`: this device's TLS
     /// identity, for the Mac's door.
+    /// Builds the door URL for a Tailscale IPv4 or IPv6 address (bracketing IPv6 literals for URLComponents).
+    public static func url(host: String, port: UInt16, path: String, query: [URLQueryItem] = []) -> URL? {
+        var parts = URLComponents()
+        parts.scheme = "https"
+        parts.host = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        parts.port = Int(port)
+        parts.path = path
+        if !query.isEmpty { parts.queryItems = query }
+        return parts.url
+    }
+
     public static func send(_ method: String = "POST", _ body: Data? = nil, host: String, port: UInt16, path: String,
                             query: [URLQueryItem] = [], pinned spki: Data, client: SecIdentity? = nil,
                             timeout: TimeInterval = 15) async throws -> Data {
         guard Tailnet.isAddress(host) else { throw Failure(status: 0, words: "\(host) is not a Tailscale address") }
-        var parts = URLComponents()
-        parts.scheme = "https"; parts.host = host; parts.port = Int(port); parts.path = path
-        if !query.isEmpty { parts.queryItems = query }
-        guard let url = parts.url, !spki.isEmpty else { throw Failure(status: 0, words: "no door address or key") }
+        guard let url = url(host: host, port: port, path: path, query: query), !spki.isEmpty else {
+            throw Failure(status: 0, words: "no door address or key")
+        }
         let request = {
             var request = URLRequest(url: url, timeoutInterval: timeout)
             request.httpMethod = method

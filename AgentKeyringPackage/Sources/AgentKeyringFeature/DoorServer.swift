@@ -40,10 +40,12 @@ public final class DoorServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "com.agentkeyring.door")
     private let handle: Handler
-    private static let largestBody = 4 * 1024 * 1024
+    private let onClosed: (@Sendable (Error) -> Void)?
+    private static let largestBody = 16 * 1024 * 1024
     private static let largestHead = 16 * 1024
 
     public init(identity: RelayTLSIdentity, host: String, port: UInt16, requireClientCertificate: Bool = false,
+        onClosed: (@Sendable (Error) -> Void)? = nil,
         handle: @escaping Handler) throws {
         let tls = NWProtocolTLS.Options()
         let options = tls.securityProtocolOptions
@@ -62,18 +64,22 @@ public final class DoorServer: @unchecked Sendable {
         parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: port == 0 ? .any : NWEndpoint.Port(rawValue: port)!)
         parameters.allowLocalEndpointReuse = true
         listener = try NWListener(using: parameters)
+        self.onClosed = onClosed
         self.handle = handle
     }
 
     /// Opens the door; returns the port it listens on.
     public func start() async throws -> UInt16 {
         let first = Once()
+        let onClosed = self.onClosed
         return try await withCheckedThrowingContinuation { continuation in
             listener.stateUpdateHandler = { [listener] state in
                 switch state {
                 case .ready: first.run { continuation.resume(returning: listener.port?.rawValue ?? 0) }
                 case let .failed(error), let .waiting(error):
-                    first.run { continuation.resume(throwing: error) }
+                    if !first.run({ continuation.resume(throwing: error) }) {
+                        onClosed?(error)
+                    }
                     listener.cancel()
                 case .cancelled: first.run { continuation.resume(throwing: CancellationError()) }
                 default: break
@@ -95,8 +101,8 @@ public final class DoorServer: @unchecked Sendable {
             }
         }
         connection.start(queue: queue)
-        // Longer than the 25-second wait for a join, shorter than for ever.
-        queue.asyncAfter(deadline: .now() + 60) { connection.cancel() }
+        // Longer than the 25-second wait for a join plus reply drain, shorter than for ever.
+        queue.asyncAfter(deadline: .now() + 90) { connection.cancel() }
     }
 
     private func read(_ connection: NWConnection, _ received: Data) {
@@ -109,14 +115,14 @@ public final class DoorServer: @unchecked Sendable {
                 if complete || error != nil { return connection.cancel() }
                 self.read(connection, buffer)
             case let .malformed(words):
-                self.send(.refused(400, words), on: connection)
+                self.send(.refused(400, words), on: connection, peerHalfClosed: complete)
             case let .complete(method, path, query, headers, body):
                 let request = DoorRequest(method: method, path: path, query: query, headers: headers, body: body,
                     peerSPKI: Self.peerSPKI(connection))
                 let handle = self.handle
                 Task {
                     let reply = await handle(request)
-                    self.send(reply, on: connection)
+                    self.send(reply, on: connection, peerHalfClosed: complete)
                 }
             }
         }
@@ -129,7 +135,7 @@ public final class DoorServer: @unchecked Sendable {
     }
 
     static func parse(_ buffer: Data) -> Parsed {
-        let buffer = Data(buffer)
+        let buffer = buffer.startIndex == 0 ? buffer : Data(buffer)
         guard let end = buffer.range(of: Data("\r\n\r\n".utf8)) else {
             return buffer.count > largestHead ? .malformed("The request's headers are too long.") : .incomplete
         }
@@ -169,13 +175,34 @@ public final class DoorServer: @unchecked Sendable {
 
     private final class Found: @unchecked Sendable { var spki: Data? }
 
-    private func send(_ reply: DoorReply, on connection: NWConnection) {
+    private func send(_ reply: DoorReply, on connection: NWConnection, peerHalfClosed: Bool) {
         let reason = [200: "OK", 400: "Bad Request", 403: "Forbidden", 404: "Not Found", 503: "Service Unavailable"][reply.status] ?? "Error"
         let head = "HTTP/1.1 \(reply.status) \(reason)\r\n"
             + "Content-Type: \(reply.isText ? "text/plain; charset=utf-8" : "application/x-protobuf")\r\n"
             + "Content-Length: \(reply.body.count)\r\nConnection: close\r\n\r\n"
+        // Send with .finalMessage so TLS sends close_notify and TCP sends FIN after the reply drains.
+        // Never call connection.cancel() directly inside .contentProcessed, which fires before the
+        // kernel send buffer drains over Tailscale and aborts large replies (such as /v2/bundle) with TCP RST.
         connection.send(content: Data(head.utf8) + reply.body, contentContext: .finalMessage, isComplete: true,
-            completion: .contentProcessed { _ in connection.cancel() })
+            completion: .contentProcessed { [weak self] error in
+                guard let self, error == nil else { return connection.cancel() }
+                if peerHalfClosed {
+                    self.queue.asyncAfter(deadline: .now() + 15) { connection.cancel() }
+                } else {
+                    self.waitForClose(connection)
+                }
+            })
+    }
+
+    /// Waits for the peer to finish reading and close its side after `.finalMessage`, then releases the socket.
+    private func waitForClose(_ connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { [weak self] _, _, complete, error in
+            if complete || error != nil {
+                connection.cancel()
+            } else {
+                self?.waitForClose(connection)
+            }
+        }
     }
 }
 
@@ -183,9 +210,11 @@ public final class DoorServer: @unchecked Sendable {
 final class Once: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
-    func run(_ action: () -> Void) {
+    @discardableResult
+    func run(_ action: () -> Void) -> Bool {
         let first = lock.withLock { if done { return false }; done = true; return true }
         if first { action() }
+        return first
     }
 }
 

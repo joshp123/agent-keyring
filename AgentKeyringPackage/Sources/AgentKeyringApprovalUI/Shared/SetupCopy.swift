@@ -50,7 +50,7 @@ public enum SetupCopy {
     public static let addComputerLead = "Add this computer to Agent Keyring?"
     public static let addIPhoneBody = "It gets its own encrypted copy of your passwords, locked in its Secure Enclave, and can approve password requests with Face ID."
     public static let addWatchBody = "It approves password requests with one tap on your wrist, and each request carries the one encrypted copy it needs."
-    public static let addComputerBody = "Agents on this computer will be able to ask you for passwords. You approve each Ask password before it is shared."
+    public static let addComputerBody = "Agents on this computer will get your Automatic passwords right away, and can ask you for Ask passwords."
     public static let denyNotePrompt = "Optional note if you deny"
     public static func copyingTo(done: Int, total: Int) -> String {
         "Copying your passwords to it: \(done.formatted()) of \(total.formatted()). You can remove it later in Devices."

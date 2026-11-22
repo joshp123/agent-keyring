@@ -214,7 +214,7 @@ func (c *Client) ask(ctx context.Context, scope *v1.RequestLeaseRequest) (*v1.Le
 func allowsAutomatic(members *pb.Members, machineID string) bool {
 	for _, m := range members.GetMachines() {
 		if m.MachineId == machineID {
-			return m.AutomaticAllowed
+			return true
 		}
 	}
 	return false

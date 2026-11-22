@@ -77,6 +77,7 @@ public final class MacDevice {
     /// Observed: the Devices tab drops its "no push key" notice when the key arrives.
     var push: ApplePush?
     @ObservationIgnored var servers: [DoorServer] = []
+    @ObservationIgnored private var doorGeneration = UUID()
     @ObservationIgnored private var doorWork: Task<Void, Never>?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var revPush: Task<Void, Never>?
@@ -90,9 +91,11 @@ public final class MacDevice {
     /// A newer catalogue the iPhone signed (a rule changed there), with this Mac's own Automatic copies as it now holds them.
     @ObservationIgnored var onCatalogue: (@MainActor (Agentkeyring_V2_Catalogue) async -> Void)?
     /// The catalogue was signed and sent: the other devices now hold this Mac's list as it is.
-    @ObservationIgnored var onPublished: (@MainActor () -> Void)?
+    @ObservationIgnored var onPublished: (@MainActor () async -> Void)?
     /// A device asked for a practice request on this Mac itself.
     @ObservationIgnored var onPracticeHere: (@MainActor () -> Void)?
+    /// Membership or computer Automatic-copy state changed, so the app should refresh local Automatic status.
+    @ObservationIgnored var onAutomaticCopiesChanged: (@MainActor () async -> Void)?
 
     // Joining (MacJoins.swift).
     var joinRecords: [String: Join] = [:]
@@ -173,15 +176,38 @@ public final class MacDevice {
         if case let .open(open, _, _) = door, open == host { return }
         closeDoor(.opening)
         do {
-            let answers = try DoorServer(identity: keys.tls, host: host, port: environment.answerPort) { [weak self] request in
+            let doorGeneration = UUID()
+            self.doorGeneration = doorGeneration
+            let onServerClosed: @Sendable (Error) -> Void = { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self, self.doorGeneration == doorGeneration else { return }
+                    DiagnosticLog.record("door", "listener-failed", ["error": "\(error)"])
+                    self.closeDoor(.failed("\(error)"))
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .seconds(2))
+                        self?.followAddress()
+                    }
+                }
+            }
+            let answers = try DoorServer(identity: keys.tls, host: host, port: environment.answerPort, onClosed: onServerClosed) { [weak self] request in
                 await self?.routeAnswers(request) ?? .refused(503, "Agent Keyring is closing.")
             }
-            let members = try DoorServer(identity: keys.tls, host: host, port: environment.membersPort, requireClientCertificate: true) { [weak self] request in
+            let members = try DoorServer(identity: keys.tls, host: host, port: environment.membersPort, requireClientCertificate: true, onClosed: onServerClosed) { [weak self] request in
                 await self?.routeMembers(request) ?? .refused(503, "Agent Keyring is closing.")
             }
             servers = [answers, members]
             let answerPort = try await answers.start()
+            guard self.doorGeneration == doorGeneration else {
+                answers.stop()
+                members.stop()
+                return
+            }
             let membersPort = try await members.start()
+            guard self.doorGeneration == doorGeneration else {
+                answers.stop()
+                members.stop()
+                return
+            }
             door = .open(host: host, answers: answerPort, members: membersPort)
             DiagnosticLog.record("door", "open", ["answers": Tailnet.join(host, answerPort), "members": Tailnet.join(host, membersPort)])
             leaveInvitation()
@@ -195,6 +221,7 @@ public final class MacDevice {
     }
 
     private func closeDoor(_ next: Door) {
+        doorGeneration = UUID()
         for server in servers { server.stop() }
         servers = []
         if door != next {
@@ -305,7 +332,7 @@ public final class MacDevice {
             switch caller {
             case let .device(device): return copy.openerID == device.keyID
             case let .machine(machine):
-                if copy.openerID == machine.machineID { return login.rule == .automatic && machine.automaticAllowed }
+                if copy.openerID == machine.machineID { return login.rule == .automatic }
                 return watches.contains(copy.openerID)
             }
         }
@@ -421,6 +448,7 @@ public final class MacDevice {
         }
         DiagnosticLog.record("members", "changed", ["revision": "\(next.revision)", "devices": "\(next.devices.count)", "computers": "\(next.machines.count)"])
         listsChanged(copies: true)
+        await onAutomaticCopiesChanged?()
     }
 
     func takeCatalogue(_ body: Data) async -> DoorReply {
@@ -608,9 +636,9 @@ public final class MacDevice {
 
     private var catalogueOperation: (id: UUID, task: Task<Void, Never>)?
 
-    /// Runs `body` exclusively across both local `publish(context:)` and incoming `takeCatalogue(_:)`,
-    /// so local publications never read half-applied rules or reuse a signed revision.
-    private func withSerializedCatalogue<T: Sendable>(_ body: @MainActor @escaping () async throws -> T) async throws -> T {
+    /// Runs `body` exclusively across local `publish(context:)`, incoming `takeCatalogue(_:)`, and imports,
+    /// so publications never read half-applied rules, reuse a signed revision, or race with an import's copy retention.
+    func withSerializedCatalogue<T: Sendable>(_ body: @MainActor @escaping () async throws -> T) async throws -> T {
         while let inFlight = catalogueOperation?.task {
             await inFlight.value
         }
@@ -658,15 +686,18 @@ public final class MacDevice {
             self.catalogue = next
             self.saved.catalogue = try signed.serializedData()
             self.saved.catalogueRevision = next.revision
-            // The other devices' copies of versions this catalogue no longer names were kept for them until now.
+            // Prune versions older than the signed catalogue while preserving any newer concurrent import.
             let versions = Dictionary(next.logins.map { ($0.loginID, $0.version) }, uniquingKeysWith: { first, _ in first })
             let ownDeviceKeyID = self.keys.deviceKeyID
             _ = try await self.store.updateSealed { sealed in
-                sealed.filter { versions[$0.loginID] == $0.version || $0.openerID == ownDeviceKeyID }
+                sealed.filter { copy in
+                    guard let published = versions[copy.loginID] else { return copy.openerID == ownDeviceKeyID }
+                    return copy.version >= published
+                }
             }
             self.listsChanged(copies: true)
             DiagnosticLog.record("catalogue", "signed", ["revision": "\(next.revision)", "passwords": "\(next.logins.count)"])
-            self.onPublished?()
+            await self.onPublished?()
         }
     }
 
@@ -675,12 +706,13 @@ public final class MacDevice {
         followAddress()
     }
 
-    /// Switches computers on or off for Automatic passwords in a new signed members list. The model seals the passwords.
-    func setAutomatic(_ changes: [String: Bool], context: LAContext) async throws {
+    /// Upgrades any legacy `automaticAllowed == false` entries in Members to `true` so older Go clients
+    /// that still inspect the field accept Automatic passwords on every enrolled computer.
+    func allowAutomaticOnAllMachines(context: LAContext) async throws {
         guard let members else { return }
         var next = members
         for index in next.machines.indices {
-            if let allowed = changes[next.machines[index].machineID] { next.machines[index].automaticAllowed = allowed }
+            next.machines[index].automaticAllowed = true
         }
         guard next != members else { return }
         try await publishMembers(next, context: context)
@@ -727,14 +759,14 @@ public final class MacDevice {
     }
 
     /// The other openers each login must be sealed to: devices' opening keys,
-    /// and machines allowed Automatic logins for those that are Automatic.
+    /// and every enrolled computer's receiving key for Automatic logins.
     public func otherOpeners(automatic: Bool) -> [(id: String, key: P256.KeyAgreement.PublicKey)] {
         guard let members else { return [] }
         let devices = members.devices.filter { $0.keyID != keys.deviceKeyID }.compactMap { device in
             (try? P256.KeyAgreement.PublicKey(x963Representation: device.openingPublicKey)).map { (device.keyID, $0) }
         }
         guard automatic else { return devices }
-        return devices + members.machines.filter { $0.automaticAllowed && $0.machineID != keys.machineID }.compactMap { machine in
+        return devices + members.machines.filter { $0.machineID != keys.machineID }.compactMap { machine in
             (try? P256.KeyAgreement.PublicKey(x963Representation: machine.receivingPublicKey)).map { (machine.machineID, $0) }
         }
     }

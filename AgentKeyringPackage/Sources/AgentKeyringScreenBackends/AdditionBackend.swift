@@ -79,8 +79,7 @@ public final class AdditionBackend: MacApprovalBackend {
         defer { if contexts[requestID] === context { contexts[requestID] = nil } }
         do {
             try await screenErrors {
-                try await device.approveJoin(requestID, thisMacAutomatic: model.automaticOnThisMac, context: context,
-                    onAuthenticated: onAuthenticated)
+                try await device.approveJoin(requestID, context: context, onAuthenticated: onAuthenticated)
             }
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw CancellationError()
