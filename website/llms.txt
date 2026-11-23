@@ -2,7 +2,7 @@
 
 > 1Password for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Agent Keyring lets AI coding agents such as Claude Code and Codex sign in to websites with the passwords the user keeps in Apple Passwords. The user approves each password on their Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap). Free and open source (MIT). No cloud vault and no account.
 
-- Status: the signed and notarised Mac app (v1.0.0) is available on GitHub Releases today and works straight away with Touch ID. The external iPhone and Apple Watch TestFlight beta opens next; join the waitlist at https://keyring.opentrawl.sh/#waitlist or build from source.
+- Status: the signed and notarised Mac app (v1.0.0) is available on GitHub Releases today and works straight away with Touch ID. The iPhone and Apple Watch apps are in public beta on TestFlight at https://testflight.apple.com/join/W5xBNeMw, or build them from source.
 - Made by: Josh Palmer (https://x.com/jjpcodes)
 - Licence: MIT
 - Source code: https://github.com/opentrawl/agent-keyring
@@ -64,7 +64,7 @@ Once `/Applications/Agent Keyring.app` is installed, run:
 Follow the bundled skill's instructions. Before scanning Tailscale (`agent-keyring machines`), probing SSH hosts, or modifying any files, tell the user what you suggest setting up next and ask for confirmation:
 - **Chrome-family browser extension** (Chrome, Chromium, Brave, Edge, Mac Arc): run `agent-keyring install --browser-profile DIRECTORY` and guide the user to Load unpacked `/Applications/Agent Keyring.app/Contents/Resources/AgentTools/BrowserExtension`.
 - **Other Macs or Linux servers:** download the standalone release binary directly from `https://github.com/opentrawl/agent-keyring/releases/latest` (`agent-keyring-linux-amd64`, `agent-keyring-linux-arm64`, or `agent-keyring-darwin-universal`; verify against `SHA256SUMS.txt`, no Nix or Go toolchain required), install to `~/.local/bin/agent-keyring`, and enrol with `agent-keyring enrol --name "Linux server" --invite 'LINK'` (allowing Tailscale port `17446`).
-- **iPhone and Apple Watch approval (optional):** join the external TestFlight waitlist at https://keyring.opentrawl.sh/#waitlist (or build the iOS and watchOS apps from source). Turn on Tailscale on the Mac and iPhone, open the iPhone app, tap Connect, and approve on the Mac with Touch ID (both devices need the same Apple Account with iCloud Keychain). Add Apple Watch from the iPhone app.
+- **iPhone and Apple Watch approval (optional):** install the iPhone app from the TestFlight beta at https://testflight.apple.com/join/W5xBNeMw (or build the iOS and watchOS apps from source). Turn on Tailscale on the Mac and iPhone, open the iPhone app, tap Connect, and approve on the Mac with Touch ID (both devices need the same Apple Account with iCloud Keychain). Add Apple Watch from the iPhone app.
 
 ## What it does
 

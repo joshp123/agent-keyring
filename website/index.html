@@ -363,7 +363,7 @@
             <span class="step-num" aria-hidden="true">3</span>
             <div>
               <h3>Let your agent wire up the rest (with your say-so)</h3>
-              <p>Your agent reads <code>agent-keyring skill</code>, tells you what it recommends, and asks before touching your Chrome-family browser extension, enrolling Linux or Mac servers, or connecting your iPhone and Apple Watch (<a href="#waitlist">join the TestFlight waitlist below</a> or build from source).</p>
+              <p>Your agent reads <code>agent-keyring skill</code>, tells you what it recommends, and asks before touching your Chrome-family browser extension, enrolling Linux or Mac servers, or connecting your iPhone and Apple Watch (<a href="https://testflight.apple.com/join/W5xBNeMw" rel="noopener">join the TestFlight beta</a> or build from source).</p>
             </div>
           </li>
         </ol>
@@ -570,31 +570,16 @@
       </div>
     </section>
 
-    <!-- Sign-up -->
+    <!-- TestFlight beta -->
     <section class="band" id="waitlist" aria-labelledby="cta-heading">
       <div class="wrap">
         <div class="cta-strip">
           <div>
             <h2 id="cta-heading">Join the iPhone and Apple Watch beta</h2>
-            <p>The signed Mac app is out on <a href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">GitHub Releases</a> today and works straight away with Touch ID. Leave your email and I&rsquo;ll send you a TestFlight invite when the external iPhone and Apple Watch beta opens.</p>
+            <p>The signed Mac app is out on <a href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">GitHub Releases</a> and works straight away with Touch ID. The iPhone and Apple Watch apps are in public beta on TestFlight. Open the link on your iPhone to install them.</p>
           </div>
 
-          <form class="waitlist-box" id="waitlist-form" data-endpoint="/api/waitlist" novalidate>
-            <div class="waitlist-row">
-              <label class="skip-link" for="waitlist-email">Email address</label>
-              <input id="waitlist-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-              <input name="company" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;">
-              <button type="submit" class="btn btn-primary">Email me</button>
-            </div>
-            <span class="device-checks-label">Which devices will you use it on?</span>
-            <div class="device-checks">
-              <label class="check-pill"><input type="checkbox" name="devices" value="Mac" checked> Mac</label>
-              <label class="check-pill"><input type="checkbox" name="devices" value="iPhone" checked> iPhone</label>
-              <label class="check-pill"><input type="checkbox" name="devices" value="Apple Watch"> Apple Watch</label>
-              <label class="check-pill"><input type="checkbox" name="devices" value="Linux server"> Linux server</label>
-            </div>
-            <div class="inline-note" id="waitlist-status" aria-live="polite"></div>
-          </form>
+          <a class="btn btn-primary" href="https://testflight.apple.com/join/W5xBNeMw" rel="noopener">Join the TestFlight beta</a>
         </div>
       </div>
     </section>

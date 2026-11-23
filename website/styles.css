@@ -1851,42 +1851,6 @@ main[data-status="blocked"] .city-tag.you::before { background: var(--fg-dim); a
 .cta-strip h2 { margin: 0; font: 700 clamp(24px, 3vw, 32px)/1.12 var(--font-display); }
 .cta-strip p { margin: 6px 0 0; color: var(--fg-muted); max-width: 46ch; }
 
-.waitlist-box { display: flex; flex-direction: column; gap: 10px; min-width: min(100%, 360px); }
-.waitlist-row { display: flex; gap: 8px; }
-.waitlist-row input {
-  flex: 1;
-  height: 42px;
-  padding: 0 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--line-strong);
-  background: var(--bg);
-  color: var(--fg);
-  font: 14.5px/1 var(--font-sans);
-}
-
-.device-checks-label {
-  font-size: 12.5px;
-  color: var(--fg-dim);
-  margin-bottom: -4px;
-}
-
-.device-checks { display: flex; flex-wrap: wrap; gap: 8px; }
-.check-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 11px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--line);
-  background: var(--bg);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.check-pill input { accent-color: var(--blue); }
-
-.inline-note { font-size: 13px; color: var(--fg-dim); min-height: 1.3em; }
-.inline-note.ok { color: var(--approve); font-weight: 500; }
-
 /* Subpages (/security/, /compare/) */
 .sub-hero { padding: 36px 0 24px; }
 .sub-hero h1 {
@@ -2126,7 +2090,6 @@ main[data-status="blocked"] .city-tag.you::before { background: var(--fg-dim); a
   .nav-bar { gap: 10px; }
   .nav-links { gap: 12px; font-size: 13.5px; }
   .hide-xs { display: none; }
-  .waitlist-row { flex-direction: column; }
   .film-controls { flex-wrap: wrap; gap: 10px; }
   .film-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));

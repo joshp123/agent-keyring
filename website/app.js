@@ -546,50 +546,7 @@
     }
   }
 
-  // ---- 4. The email sign-up form -----------------------------------------
-  const form = document.getElementById('waitlist-form');
-  const note = document.getElementById('waitlist-status');
-  if (form && note) {
-    form.addEventListener('submit', async function (e) {
-      e.preventDefault();
-      const input = document.getElementById('waitlist-email');
-      const email = input ? input.value.trim() : '';
-      if (!email || email.indexOf('@') < 1) {
-        note.className = 'inline-note';
-        note.textContent = 'Type your email address first.';
-        return;
-      }
-      const devices = Array.from(form.querySelectorAll('input[name="devices"]:checked')).map(function (c) { return c.value; });
-      const hp = form.querySelector('input[name="company"]');
-      const company = hp ? hp.value.trim() : '';
-      const isLiveHost =
-        window.location.hostname === 'keyring.opentrawl.sh' ||
-        window.location.hostname === 'agent-keyring.jjpcodes.com';
-      const endpoint = isLiveHost ? form.dataset.endpoint : '';
-      if (endpoint) {
-        try {
-          note.textContent = 'Saving...';
-          const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ email: email, devices: devices, company: company, source: window.location.hostname })
-          });
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          note.className = 'inline-note ok';
-          note.textContent = 'Saved. I\u2019ll email you when the iPhone and Apple Watch beta opens.';
-          form.reset();
-        } catch (_) {
-          note.className = 'inline-note';
-          note.textContent = 'That didn\u2019t save. Try again in a minute.';
-        }
-      } else {
-        note.className = 'inline-note';
-        note.textContent = 'This is a preview copy of the site, so it can\u2019t save your email. Sign up at keyring.opentrawl.sh.';
-      }
-    });
-  }
-
-  // ---- 5. One-click agent setup prompt copy ------------------------------
+  // ---- 4. One-click agent setup prompt copy ------------------------------
   const copyButtons = Array.from(document.querySelectorAll('.js-copy-prompt'));
   copyButtons.forEach(function (btn) {
     const defaultLabel = btn.textContent;
