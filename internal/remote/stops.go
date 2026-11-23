@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strconv"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -44,7 +44,7 @@ func (c *Client) checkStopAtMac(ctx context.Context, leaseID string) error {
 	end := &pb.EndRequest{}
 	device, err := checkEnd(signed, current.members)
 	if err != nil || proto.Unmarshal(signed.Payload, end) != nil || end.RequestId != leaseID {
-		c.log("stop at the Mac refused id=" + leaseID + " reason=" + strconv.Quote("not a Stop of this request signed by a device in Josh's list"))
+		c.log("stop at the Mac refused id=" + leaseID + " reason=" + strconv.Quote("not a Stop of this request signed by a device in the user's list"))
 		return nil
 	}
 	if _, stopped, err := c.endByStop(ctx, leaseID, device, "mac"); err != nil {

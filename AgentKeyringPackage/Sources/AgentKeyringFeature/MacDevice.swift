@@ -276,7 +276,7 @@ public final class MacDevice {
             return .refused(403, "Only a device or computer that has joined this Mac may use this. Join with an invitation from the Mac.")
         }
         let device: Agentkeyring_V2_Device? = if case let .device(device) = caller { device } else { nil }
-        let onlyDevices = DoorReply.refused(403, "Only an iPhone or Apple Watch of Josh's may do this.")
+        let onlyDevices = DoorReply.refused(403, "Only an iPhone or Apple Watch in the user's list of devices may do this.")
         switch (request.method, request.path) {
         case ("GET", "/v2/rev"): return .ok(message(revisions))
         case ("GET", "/v2/bundle"): return .ok(message(await bundle(for: caller, holding: UInt64(request.query["members"] ?? "") ?? 0)))
@@ -484,11 +484,11 @@ public final class MacDevice {
         let openers = Set(members.devices.map(\.keyID) + members.machines.map(\.machineID)).subtracting([keys.deviceKeyID])
         var kept: [Agentkeyring_V2_SealedLogin] = []
         for copy in batch.logins {
-            guard openers.contains(copy.openerID) else { return .refused(403, "A copy names an opener that is not another device or computer of Josh's.") }
+            guard openers.contains(copy.openerID) else { return .refused(403, "A copy names an opener that is not another device or computer in the user's list.") }
             guard let login = listed[copy.loginID] else { return .refused(403, "A copy is of a password the catalogue does not list.") }
             guard login.rule != .blocked else { continue }
             do { try Sealing.checkSealed(copy, members: members, listed: login) } catch {
-                return .refused(403, "A copy was not sealed by one of Josh's devices, or is of another version.")
+                return .refused(403, "A copy was not sealed by one of the user's devices, or is of another version.")
             }
             kept.append(copy)
         }

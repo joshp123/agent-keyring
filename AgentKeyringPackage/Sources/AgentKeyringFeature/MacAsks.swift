@@ -340,7 +340,7 @@ extension MacDevice {
         }
         let signer: Agentkeyring_V2_Device
         do { signer = try Sealing.verify(upload.answer, members: members, allowReplyKey: answer.choice == .deny) } catch {
-            return .refused(403, "This answer is not signed by a device in Josh's list of devices.")
+            return .refused(403, "This answer is not signed by a device in the user's list of devices.")
         }
         if !ask.request.forDeviceKeyID.isEmpty, signer.keyID != ask.request.forDeviceKeyID {
             return .refused(403, "Only the device a practice request is for may answer it.")
@@ -424,7 +424,7 @@ extension MacDevice {
     func takeEnd(_ body: Data) -> DoorReply {
         guard let (document, device) = fromDevice(body), let end = try? Agentkeyring_V2_EndRequest(serializedBytes: document.payload),
             end.domain == "agentkeyring.end.v2", end.deviceKeyID == device.keyID else {
-            return .refused(403, "Stop is signed by a device in Josh's list of devices.")
+            return .refused(403, "Stop is signed by a device in the user's list of devices.")
         }
         guard let ask = asks[end.requestID], let leaseID = ask.leaseID else { return .refused(404, "No request of this Mac's has that id.") }
         if (try? leaseStore.get(leaseID))?.state == .active {

@@ -5481,7 +5481,7 @@ const file_agentkeyring_v2_keyring_proto_rawDesc = "" +
 	"\x14ERROR_CODE_NOT_FOUND\x10\x03\x12\x17\n" +
 	"\x13ERROR_CODE_CONFLICT\x10\x04\x12\x17\n" +
 	"\x13ERROR_CODE_HELD_OFF\x10\x05\x12\x1a\n" +
-	"\x16ERROR_CODE_UNAVAILABLE\x10\x06BIZGgithub.com/joshp123/agent-keyring/gen/go/agentkeyring/v2;agentkeyringv2b\x06proto3"
+	"\x16ERROR_CODE_UNAVAILABLE\x10\x06BJZHgithub.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2;agentkeyringv2b\x06proto3"
 
 var (
 	file_agentkeyring_v2_keyring_proto_rawDescOnce sync.Once

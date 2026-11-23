@@ -2718,7 +2718,7 @@ const file_agentkeyring_v1_agentkeyring_proto_rawDesc = "" +
 	"\bEndLease\x12\x1f.agentkeyring.v1.LeaseReference\x1a\x16.agentkeyring.v1.Lease\x12E\n" +
 	"\aDeliver\x12\x1f.agentkeyring.v1.DeliverRequest\x1a\x19.agentkeyring.v1.Delivery2W\n" +
 	"\x12CredentialReceiver\x12A\n" +
-	"\x04Fill\x12\x1c.agentkeyring.v1.FillRequest\x1a\x1b.agentkeyring.v1.FillResultBIZGgithub.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1b\x06proto3"
+	"\x04Fill\x12\x1c.agentkeyring.v1.FillRequest\x1a\x1b.agentkeyring.v1.FillResultBJZHgithub.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1b\x06proto3"
 
 var (
 	file_agentkeyring_v1_agentkeyring_proto_rawDescOnce sync.Once

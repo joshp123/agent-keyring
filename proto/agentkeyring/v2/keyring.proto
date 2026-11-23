@@ -46,7 +46,7 @@ syntax = "proto3";
 
 package agentkeyring.v2;
 
-option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2;agentkeyringv2";
+option go_package = "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2;agentkeyringv2";
 
 // ---- Signed documents ----------------------------------------------------
 

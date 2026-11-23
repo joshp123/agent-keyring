@@ -26,7 +26,7 @@ struct DenialHoldTests {
     func told() {
         let line = CredentialLeaseStore.heldOff(1060, reply: "Use the work account.")
         #expect(line.contains("Ask again after"))
-        #expect(line.hasSuffix("His reply, word for word: \"Use the work account.\""))
+        #expect(line.hasSuffix("Their reply, word for word: \"Use the work account.\""))
     }
 }
 

@@ -4,7 +4,7 @@ syntax = "proto3";
 package agentkeyring.clientstate;
 import "agentkeyring/v1/agentkeyring.proto";
 import "agentkeyring/v2/keyring.proto";
-option go_package = "github.com/joshp123/agent-keyring/internal/clientstate";
+option go_package = "github.com/opentrawl/agent-keyring/internal/clientstate";
 // Local receiver storage, never a wire contract. PrivateKeys is stored
 // separately in an owner-only file on macOS and Linux.
 message PrivateKeys {

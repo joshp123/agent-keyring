@@ -25,12 +25,12 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/authority"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/door"
-	"github.com/joshp123/agent-keyring/internal/keyring"
-	"github.com/joshp123/agent-keyring/internal/tlsid"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/authority"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/door"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
+	"github.com/opentrawl/agent-keyring/internal/tlsid"
 	"google.golang.org/protobuf/proto"
 )
 

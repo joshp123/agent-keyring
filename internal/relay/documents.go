@@ -11,8 +11,8 @@ import (
 	"slices"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/keyring"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
 )
 
 // publishMembers accepts the next list of devices and machines. The very

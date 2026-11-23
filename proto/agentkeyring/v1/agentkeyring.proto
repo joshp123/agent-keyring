@@ -10,7 +10,7 @@ syntax = "proto3";
 
 package agentkeyring.v1;
 
-option go_package = "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1";
+option go_package = "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1;agentkeyringv1";
 
 // Served by the credential authority, not necessarily by the receiving machine.
 service AgentKeyring {

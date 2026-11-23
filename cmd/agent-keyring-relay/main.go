@@ -17,10 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joshp123/agent-keyring/internal/apns"
-	"github.com/joshp123/agent-keyring/internal/keyring"
-	"github.com/joshp123/agent-keyring/internal/relay"
-	"github.com/joshp123/agent-keyring/internal/tlsid"
+	"github.com/opentrawl/agent-keyring/internal/apns"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
+	"github.com/opentrawl/agent-keyring/internal/relay"
+	"github.com/opentrawl/agent-keyring/internal/tlsid"
 )
 
 func main() {

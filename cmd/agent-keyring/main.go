@@ -11,12 +11,12 @@ import (
 	"text/tabwriter"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
-	"github.com/joshp123/agent-keyring/internal/authority"
-	"github.com/joshp123/agent-keyring/internal/browserbridge"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/receiver"
-	"github.com/joshp123/agent-keyring/internal/remote"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
+	"github.com/opentrawl/agent-keyring/internal/authority"
+	"github.com/opentrawl/agent-keyring/internal/browserbridge"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/receiver"
+	"github.com/opentrawl/agent-keyring/internal/remote"
 )
 
 const help = `Agent Keyring: use a saved login for one task.
@@ -24,7 +24,7 @@ const help = `Agent Keyring: use a saved login for one task.
   find SITE                  Find login IDs (example.com is enough)
   lease LOGIN --task TASK --reason REASON [--agent NAME]
                              Ask once; print the lease ID when active. NAME is
-                             who Josh sees asking, such as Claude Code
+                             who the user sees asking, such as Claude Code
   status LEASE [--wait]      Inspect a lease, or wait for its decision
   tabs                       List tabs in profiles with the browser extension
   fields --tab TARGET        List visible fields and selectors, never values

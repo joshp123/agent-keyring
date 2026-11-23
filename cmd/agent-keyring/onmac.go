@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
 )
 
 // onMac runs push-key, complain and complaints; handled is false for any other command.

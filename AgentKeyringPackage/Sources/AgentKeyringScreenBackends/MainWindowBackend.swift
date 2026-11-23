@@ -69,15 +69,21 @@ public final class AppMainWindowBackend: MainWindowBackend {
         }
     }
 
-    /// What stops this Mac reaching his other devices, from the door and the push key as they are now.
+    /// What stops this Mac reaching its other devices or computers, shown only when other devices or computers exist.
     private func notices() -> [DoorNotice] {
         guard let device = model.device else { return [] }
-        var notices: [DoorNotice] = switch device.door {
-        case .noTailscale: [.noTailscale]
-        case .failed: [.failed]
-        case .opening, .open: []
+        let hasOtherDevices = model.hasOtherDevices
+        let hasMobileDevice = (device.members?.devices ?? []).contains { $0.kind == .iphone || $0.kind == .watch }
+        var notices: [DoorNotice] = if hasOtherDevices {
+            switch device.door {
+            case .noTailscale: [.noTailscale]
+            case .failed: [.failed]
+            case .opening, .open: []
+            }
+        } else {
+            []
         }
-        if !device.hasPushKey { notices.append(.noPushKey) }
+        if hasMobileDevice, !device.hasPushKey { notices.append(.noPushKey) }
         return notices
     }
 

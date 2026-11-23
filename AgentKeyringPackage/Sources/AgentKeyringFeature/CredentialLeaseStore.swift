@@ -56,7 +56,7 @@ public final class CredentialLeaseStore {
     /// What the agent reads while it waits: when it may ask again, and Josh's words.
     static func heldOff(_ until: Int64, reply: String) -> String {
         let time = Date(timeIntervalSince1970: TimeInterval(until)).formatted(date: .omitted, time: .standard)
-        return "Josh denied this password. Ask again after \(time)." + (reply.isEmpty ? "" : " His reply, word for word: \"\(reply)\"")
+        return "The user denied this password. Ask again after \(time)." + (reply.isEmpty ? "" : " Their reply, word for word: \"\(reply)\"")
     }
     private struct Snapshot: Codable {
         var version = 1
@@ -353,7 +353,7 @@ public final class CredentialLeaseStore {
         guard !lease.state.isTerminal else { return lease }
         lease.state = .revoked
         lease.endedAtUnixSeconds = Self.now
-        lease.statusLines = ["Josh stopped it."]
+        lease.statusLines = ["The user stopped it."]
         try saveLease(lease)
         return lease
     }
@@ -377,7 +377,7 @@ public final class CredentialLeaseStore {
             if login == nil || rule == .block || (saved.automatic && rule != .allowAutomatically) {
                 lease.state = .revoked
                 lease.statusLines = [login == nil ? "This password is no longer in Agent Keyring, so the lease ended."
-                    : "Josh changed this password's rule, so the lease ended."]
+                    : "The user changed this password's rule, so the lease ended."]
             } else if let login, !lease.sites.isEmpty {
                 // A password with no website (a server's, an app's) has no sites to narrow.
                 lease.sites = lease.sites.filter { login.origins.contains($0) }

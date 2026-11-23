@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
 	"google.golang.org/protobuf/proto"
 )
 

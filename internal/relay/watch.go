@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/keyring"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
 )
 
 // serveWatchAnswer takes one "POST /v2/answer" or "POST /v2/arrived" over

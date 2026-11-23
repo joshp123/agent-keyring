@@ -26,7 +26,7 @@ func focusHint() string {
 		return ""
 	}
 	return "Vibe coding late at night? If Sleep or Driving Focus is on, Apple holds back notifications unless Agent Keyring is allowed in that Focus. " +
-		"A Focus is on now (" + mode + "): if Josh doesn't answer, tell him that may be why."
+		"A Focus is on now (" + mode + "): if the user doesn't answer, tell them that may be why."
 }
 
 // activeFocus names the Focus in use, from Assertions.json and its name in ModeConfigurations.json.

@@ -17,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/door"
-	"github.com/joshp123/agent-keyring/internal/keyring"
-	"github.com/joshp123/agent-keyring/internal/tlsid"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/door"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
+	"github.com/opentrawl/agent-keyring/internal/tlsid"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -109,7 +109,7 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 		if !hmac.Equal(refusal.GetReplyProof(), keyring.RefusalReplyProof(invite.Secret, joining.MachineId, refusal.GetReply())) {
 			return errors.New("The Mac's door says this computer was denied, but the denial is not from the Mac that invited it.")
 		}
-		text := "Josh denied adding this computer."
+		text := "The user denied adding this computer."
 		if refusal.Reply != "" {
 			text += " Reply: " + printable(refusal.Reply)
 		}
@@ -160,7 +160,7 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 	}
 	fmt.Fprintf(output, "Joined as %q. Agents here can ask for passwords.\n", name)
 	if credential == nil {
-		fmt.Fprintln(output, "The Mac gave this computer no push credential, so its requests cannot reach Josh's iPhone or Apple Watch until the Mac has one and this computer enrols again.")
+		fmt.Fprintln(output, "The Mac gave this computer no push credential, so its requests cannot reach the user's iPhone or Apple Watch until the Mac has one and this computer enrols again.")
 	}
 	return nil
 }
@@ -172,7 +172,7 @@ func Enrol(ctx context.Context, store clientstate.Store, invite *pb.JoinInvite, 
 func waitForJoin(ctx context.Context, mac *http.Client, address string, join *pb.JoinRequest, name string, output io.Writer) (*pb.JoinStatus, error) {
 	started := time.Now()
 	reached := false
-	fmt.Fprintf(output, "Asked the Mac to add this computer. Waiting for Josh to approve %q on his Mac, for up to 10 minutes.\n", name)
+	fmt.Fprintf(output, "Asked the Mac to add this computer. Waiting for the user to approve %q on their Mac, for up to 10 minutes.\n", name)
 	for {
 		status := &pb.JoinStatus{}
 		postCtx, cancel := context.WithTimeout(ctx, 40*time.Second)

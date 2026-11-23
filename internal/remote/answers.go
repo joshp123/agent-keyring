@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/keyring"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -118,7 +118,7 @@ func (c *Client) takeAnswer(w http.ResponseWriter, r *http.Request) {
 			choice = answer.Choice
 			signer, err := keyring.Verify(upload.Answer, members, choice == pb.Choice_CHOICE_DENY)
 			if err != nil {
-				return refused{http.StatusForbidden, "This answer is not signed by a device in Josh's list of devices: the device was removed, or never added."}
+				return refused{http.StatusForbidden, "This answer is not signed by a device in the user's list of devices: the device was removed, or never added."}
 			}
 			signed := &pb.Signed{}
 			proto.Unmarshal(saved.Request, signed)
@@ -243,7 +243,7 @@ func (c *Client) takeEnd(w http.ResponseWriter, r *http.Request) {
 	}
 	device, err := checkEnd(signed, members)
 	if err != nil {
-		refuse(w, http.StatusForbidden, "Stop is signed by the reply key of a device in Josh's list of devices.")
+		refuse(w, http.StatusForbidden, "Stop is signed by the reply key of a device in the user's list of devices.")
 		return
 	}
 	lease, stopped, err := c.endByStop(r.Context(), end.RequestId, device, "door")

@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	v1 "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/door"
-	"github.com/joshp123/agent-keyring/internal/keyring"
+	v1 "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/door"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -109,7 +109,7 @@ func ongoing(lease *pb.Lease, now int64) bool {
 func (c *Client) ask(ctx context.Context, scope *v1.RequestLeaseRequest) (*v1.Lease, error) {
 	switch {
 	case strings.TrimSpace(scope.Reason) == "":
-		return nil, errors.New("Give a reason: it is shown to Josh when he decides.")
+		return nil, errors.New("Give a reason: it is shown to the user when they decide.")
 	case len(scope.Reason) > 400 || len(scope.AgentLabel) > 100 || len(scope.Project) > 100 || len(scope.TaskRef) > 100:
 		return nil, errors.New("The reason must be at most 400 bytes, and the agent, project and task at most 100.")
 	}
@@ -322,7 +322,7 @@ func translate(saved *clientstate.ExpectedRequest) *v1.Lease {
 		case remote.ArrivedUnixSeconds > 0:
 			lease.StatusLines = []string{"It reached " + printable(remote.ArrivedOn) + "."}
 		case remote.PushedUnixSeconds > 0:
-			lease.StatusLines = []string{"Apple took the notification for Josh's iPhone and Apple Watch."}
+			lease.StatusLines = []string{"Apple took the notification for the user's iPhone and Apple Watch."}
 		}
 	case pb.LeaseState_LEASE_STATE_APPROVED:
 		lease.State = v1.LeaseState_LEASE_STATE_ACTIVE
@@ -339,7 +339,7 @@ func translate(saved *clientstate.ExpectedRequest) *v1.Lease {
 		lease.State = v1.LeaseState_LEASE_STATE_RELEASED
 		if remote.EndedBy != "" {
 			lease.State = v1.LeaseState_LEASE_STATE_REVOKED
-			lease.StatusLines = []string{"Josh stopped it on " + printable(remote.EndedBy) + "."}
+			lease.StatusLines = []string{"The user stopped it on " + printable(remote.EndedBy) + "."}
 		} else if time.Now().Unix() >= remote.NotAfterUnixSeconds {
 			lease.State = v1.LeaseState_LEASE_STATE_EXPIRED
 		}
@@ -512,10 +512,10 @@ func releaseHold(state *clientstate.State, loginID string) {
 // heldOffMessage tells the agent when it may ask again, and his words.
 func heldOffMessage(h *clientstate.Hold, now time.Time) string {
 	wait := time.Duration(h.UntilUnixSeconds-now.Unix()) * time.Second
-	message := "Josh denied this password for this computer. Ask again after " + time.Unix(h.UntilUnixSeconds, 0).Format("15:04:05") +
+	message := "The user denied this password for this computer. Ask again after " + time.Unix(h.UntilUnixSeconds, 0).Format("15:04:05") +
 		" (in " + wait.Round(time.Second).String() + ")."
 	if h.Reply != "" {
-		message += " His reply, word for word: \"" + printable(h.Reply) + "\""
+		message += " Their reply, word for word: \"" + printable(h.Reply) + "\""
 	}
 	return message
 }

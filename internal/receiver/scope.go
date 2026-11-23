@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
 	"net/url"
 	"os"
 	"path/filepath"

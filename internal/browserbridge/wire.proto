@@ -1,7 +1,7 @@
 // Written by AI on 2026.11.01 by model gpt-6.1-sol.
 syntax = "proto3";
 package agentkeyring.browser;
-option go_package = "github.com/joshp123/agent-keyring/internal/browserbridge";
+option go_package = "github.com/opentrawl/agent-keyring/internal/browserbridge";
 import "agentkeyring/v1/agentkeyring.proto";
 
 enum Action {

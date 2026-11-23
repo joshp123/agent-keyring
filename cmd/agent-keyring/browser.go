@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
-	"github.com/joshp123/agent-keyring/internal/browserbridge"
-	"github.com/joshp123/agent-keyring/internal/receiver"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
+	"github.com/opentrawl/agent-keyring/internal/browserbridge"
+	"github.com/opentrawl/agent-keyring/internal/receiver"
 )
 
 func inspectBrowser(ctx context.Context, command string, a arguments) (int, error) {

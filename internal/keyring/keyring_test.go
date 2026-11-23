@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
 	"google.golang.org/protobuf/proto"
 )
 

@@ -375,10 +375,10 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 		if out := w.device("stop", "--device", "iphone", "--request", id); !strings.Contains(out, "Stopped: LEASE_STATE_ENDED by Test iPhone") {
 			t.Fatalf("stop: %s", out)
 		}
-		if status := linux.run("status", id); !strings.Contains(status.stdout, id+": ended: Josh stopped it on Test iPhone") {
+		if status := linux.run("status", id); !strings.Contains(status.stdout, id+": ended: The user stopped it on Test iPhone") {
 			t.Fatalf("want Josh's Stop, got %q %v", status.stdout, status.err)
 		}
-		if read := linux.run("read", id, "--field", "password"); read.err == nil || !strings.Contains(read.stderr, "Josh stopped it on Test iPhone") {
+		if read := linux.run("read", id, "--field", "password"); read.err == nil || !strings.Contains(read.stderr, "The user stopped it on Test iPhone") {
 			t.Fatalf("a stopped approval still delivered: %v\n%s", read.err, read.stderr)
 		}
 		linux.run("release", linux.waiting(t, "login-other", "keeps-the-door-for-stop"))
@@ -438,10 +438,10 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 		if out := w.device("stop", "--device", "iphone", "--request", id, "--door-retry", "1s"); !strings.Contains(out, "Left the Stop at the Mac.") {
 			t.Fatalf("stop: %s", out)
 		}
-		if read := linux.run("read", id, "--field", "password"); read.err == nil || read.stdout != "" || !strings.Contains(read.stderr, "Josh stopped it on Test iPhone") {
+		if read := linux.run("read", id, "--field", "password"); read.err == nil || read.stdout != "" || !strings.Contains(read.stderr, "The user stopped it on Test iPhone") {
 			t.Fatalf("a Stop left at the Mac still delivered: %v %q\n%s", read.err, read.stdout, read.stderr)
 		}
-		if status := linux.run("status", id); !strings.Contains(status.stdout, id+": ended: Josh stopped it on Test iPhone") {
+		if status := linux.run("status", id); !strings.Contains(status.stdout, id+": ended: The user stopped it on Test iPhone") {
 			t.Fatalf("want Josh's Stop, got %q %v", status.stdout, status.err)
 		}
 		if logs := linux.run("logs", "--request", id); !strings.Contains(logs.stdout, "stopped id="+id+` by="Test iPhone" via=mac`) {
@@ -568,7 +568,7 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 			}
 		}
 		out, err := w.tryDevice("answer", "--device", "watch", "--request", id, "--approve")
-		if err == nil || !strings.Contains(out, "the door refused (403): This answer is not signed by a device in Josh's list of devices") {
+		if err == nil || !strings.Contains(out, "the door refused (403): This answer is not signed by a device in the user's list of devices") {
 			t.Fatalf("a removed Apple Watch's approval was taken: %v\n%s", err, out)
 		}
 		w.device("answer", "--device", "iphone", "--request", id, "--approve")
@@ -587,8 +587,8 @@ func TestAnAgentAsksAndJoshAnswersFromHisIPhoneOrWatch(t *testing.T) {
 			t.Fatalf("want a denial with words, got %v\n%s", got.err, got.stderr)
 		}
 		again := wait(t, start(ask("login-ask", "denied-again")), "lease")
-		if again.err == nil || !strings.Contains(again.stderr, "Josh denied this password for this computer. Ask again after") ||
-			!regexp.MustCompile(`\(in (59s|1m0s)\)\. His reply, word for word: "The invoice is in my email\. Use that\."`).MatchString(again.stderr) {
+		if again.err == nil || !strings.Contains(again.stderr, "The user denied this password for this computer. Ask again after") ||
+			!regexp.MustCompile(`\(in (59s|1m0s)\)\. Their reply, word for word: "The invoice is in my email\. Use that\."`).MatchString(again.stderr) {
 			t.Fatalf("a denial holds the password off for a minute and says why; got %v\n%s", again.err, again.stderr)
 		}
 	})
@@ -648,7 +648,7 @@ func TestJoiningTheMacGoesWrong(t *testing.T) {
 			}
 		}
 		got := wait(t, joining, "enrol")
-		if got.err == nil || !strings.Contains(got.stderr, "Josh denied adding this computer. Reply: Not the mini. Use the Linux server.") {
+		if got.err == nil || !strings.Contains(got.stderr, "The user denied adding this computer. Reply: Not the mini. Use the Linux server.") {
 			t.Fatalf("enrol: %v\n%s", got.err, got.stderr)
 		}
 	})
@@ -662,7 +662,7 @@ func TestJoiningTheMacGoesWrong(t *testing.T) {
 		if err := enrol.Start(); err != nil {
 			t.Fatal(err)
 		}
-		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "Waiting for Josh to approve"); time.Sleep(50 * time.Millisecond) {
+		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(stderr.String(), "Waiting for the user to approve"); time.Sleep(50 * time.Millisecond) {
 			if time.Now().After(deadline) {
 				t.Fatalf("enrol never waited: %s", stderr.String())
 			}

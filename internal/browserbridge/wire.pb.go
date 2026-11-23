@@ -9,7 +9,7 @@
 package browserbridge
 
 import (
-	v1 "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
+	v1 "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -674,7 +674,7 @@ const file_internal_browserbridge_wire_proto_rawDesc = "" +
 	"\rACTION_FIELDS\x10\x02\x12\x0f\n" +
 	"\vACTION_FILL\x10\x03\x12\x12\n" +
 	"\x0eACTION_PREPARE\x10\x04\x12\x15\n" +
-	"\x11ACTION_CANDIDATES\x10\x05B:Z8github.com/joshp123/agent-keyring/internal/browserbridgeb\x06proto3"
+	"\x11ACTION_CANDIDATES\x10\x05B;Z9github.com/opentrawl/agent-keyring/internal/browserbridgeb\x06proto3"
 
 var (
 	file_internal_browserbridge_wire_proto_rawDescOnce sync.Once

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/keyring"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -37,10 +37,10 @@ func heldOffKey(machineID, loginID string) string { return machineID + "/" + log
 // heldOffMessage tells the agent when it may ask again, and his words.
 func heldOffMessage(h *hold, now time.Time) string {
 	wait := time.Duration(h.Until-now.Unix()) * time.Second
-	message := "Josh denied this password for this computer. Ask again after " + time.Unix(h.Until, 0).Format("15:04:05") +
+	message := "The user denied this password for this computer. Ask again after " + time.Unix(h.Until, 0).Format("15:04:05") +
 		" (in " + wait.Round(time.Second).String() + ")."
 	if h.Reply != "" {
-		message += " His reply, word for word: \"" + h.Reply + "\""
+		message += " Their reply, word for word: \"" + h.Reply + "\""
 	}
 	return message
 }
@@ -65,7 +65,7 @@ func (s *Server) ask(ctx context.Context, who caller, document *pb.Signed) (*pb.
 		return nil, fail(pb.ErrorCode_ERROR_CODE_INVALID, "The reason must be at most 400 bytes, and the agent, project and task at most 100.")
 	}
 	if strings.TrimSpace(parsed.Reason) == "" {
-		return nil, fail(pb.ErrorCode_ERROR_CODE_INVALID, "Give a reason: it is shown to Josh when he decides.")
+		return nil, fail(pb.ErrorCode_ERROR_CODE_INVALID, "Give a reason: it is shown to the user when they decide.")
 	}
 	now := s.now()
 	if skew := parsed.AskedUnixSeconds - now.Unix(); skew > 300 || skew < -300 ||
@@ -257,7 +257,7 @@ func (s *Server) testRequest(ctx context.Context, who caller, asked *pb.TestRequ
 		target = device(members, forDevice)
 		asker := who.device.Kind
 		if target == nil || (asker != pb.DeviceKind_DEVICE_KIND_MAC && asker != pb.DeviceKind_DEVICE_KIND_IPHONE) {
-			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The Mac or the iPhone may ask for a practice request for a device of Josh's.")
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "The Mac or the iPhone may ask for a practice request for one of the user's devices.")
 		}
 	}
 	id := asked.GetRequestId()

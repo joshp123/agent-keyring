@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
-	"github.com/joshp123/agent-keyring/internal/authority"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/receiver"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
+	"github.com/opentrawl/agent-keyring/internal/authority"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/receiver"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 

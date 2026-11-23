@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"runtime"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
-	"github.com/joshp123/agent-keyring/internal/authority"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/remote"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
+	"github.com/opentrawl/agent-keyring/internal/authority"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/remote"
 )
 
 // Setup is always directed to the local app, never an enrolled remote authority.

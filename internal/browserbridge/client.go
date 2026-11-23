@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joshp123/agent-keyring/internal/authority"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/authority"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
 )
 
 var profileID = regexp.MustCompile(`^[a-f0-9]{32}$`)

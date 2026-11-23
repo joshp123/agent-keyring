@@ -10,8 +10,8 @@
 package clientstate
 
 import (
-	v1 "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v1"
-	v2 "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
+	v1 "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
+	v2 "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -654,7 +654,7 @@ const file_internal_clientstate_state_proto_rawDesc = "" +
 	"\x1blease_deadline_unix_seconds\x18\x04 \x01(\x03R\x18leaseDeadlineUnixSeconds\x122\n" +
 	"\x04fill\x18\x05 \x01(\x0e2\x1c.agentkeyring.v1.FillOutcomeH\x00R\x04fill\x12'\n" +
 	"\x0eread_delivered\x18\a \x01(\bH\x00R\rreadDeliveredB\t\n" +
-	"\aoutcomeJ\x04\b\x06\x10\aJ\x04\b\b\x10\tB8Z6github.com/joshp123/agent-keyring/internal/clientstateb\x06proto3"
+	"\aoutcomeJ\x04\b\x06\x10\aJ\x04\b\b\x10\tB9Z7github.com/opentrawl/agent-keyring/internal/clientstateb\x06proto3"
 
 var (
 	file_internal_clientstate_state_proto_rawDescOnce sync.Once

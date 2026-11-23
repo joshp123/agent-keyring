@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/apns"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/door"
-	"github.com/joshp123/agent-keyring/internal/keyring"
-	"github.com/joshp123/agent-keyring/internal/tlsid"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/apns"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/door"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
+	"github.com/opentrawl/agent-keyring/internal/tlsid"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -31,10 +31,10 @@ func (c *Client) certificateSPKI() []byte {
 // Josh's iPhone or Apple Watch.
 func (c *Client) canPush(state *clientstate.State, current *view) error {
 	if len(state.PushCredential) == 0 {
-		return errors.New("This computer has no push credential from the Mac, so its requests cannot reach Josh's iPhone or Apple Watch. Give the Mac the push key, then enrol this computer again.")
+		return errors.New("This computer has no push credential from the Mac, so its requests cannot reach the user's iPhone or Apple Watch. Give the Mac the push key, then enrol this computer again.")
 	}
 	if len(targets(current)) == 0 {
-		return errors.New("No iPhone or Apple Watch in Josh's list of devices has a push address yet, so nobody can be asked. Open Agent Keyring on the iPhone, then ask again.")
+		return errors.New("No iPhone or Apple Watch in the user's list of devices has a push address yet, so nobody can be asked. Open Agent Keyring on the iPhone, then ask again.")
 	}
 	return nil
 }
@@ -175,7 +175,7 @@ func (c *Client) pushAll(ctx context.Context, leaseID string) error {
 		})
 	}
 	if !accepted && !macTook && len(failures) > 0 {
-		return fmt.Errorf("The request could not reach Josh's devices: %v", failures)
+		return fmt.Errorf("The request could not reach the user's devices: %v", failures)
 	}
 	return nil
 }

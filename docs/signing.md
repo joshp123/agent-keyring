@@ -1,28 +1,32 @@
-<!-- Written by AI on 2026.11.20 by model claude opus 5.5. -->
+<!-- Written by AI on 2026.11.20 by model claude opus 5.5; updated on 2026.11.23 by model gemini-4-neon for 0.5.0 public Mac release and external TestFlight status. -->
 
-# Signing the iPhone and Apple Watch apps
+# Signing the Mac, iPhone and Apple Watch apps
 
-The apps are signed by one person on his own Macs, and by agents working for him. Nothing for signing lives in this repository or on one Mac alone.
+Agent Keyring ships as a signed, notarised Mac app on GitHub Releases (`0.5.0`), alongside an iPhone and Apple Watch companion app currently in internal TestFlight. Nothing for signing lives in this repository.
 
-## The pieces
+## Mac app (`script/build_release.sh`)
 
-- **The App Store Connect API key.** It is used for everything Xcode asks of Apple: development profiles, uploads, and `asc`. It has the App Manager role. The key is kept encrypted in the owner's secrets store, and decrypted for one run only.
-- **The team's Apple Distribution certificate.** There is one for the whole team, shared with the owner's other apps. Its private key, as a PKCS#12 file, is kept encrypted in the same secrets store. Each run puts it in a keychain of its own and deletes that keychain afterwards. It never goes into the login keychain.
-  - The key cannot use Xcode's cloud-managed distribution certificate ("Cloud signing permission error"), so this certificate is held by the team instead.
-- **Development signing.** This is Xcode's automatic signing: Xcode makes and renews the development profiles itself.
-- **App Store profiles.** There is one for each of the five targets, kept on App Store Connect. Each is named "Agent Keyring App Store" followed by the part of the bundle identifier after `AgentKeyring.`, for example "Agent Keyring App Store Phone.watchkitapp". Each run fetches them by name and installs them, so no Mac has to be set up beforehand.
-  - When the distribution certificate is replaced, make the five profiles again against the new certificate under the same names.
+- **Certificate:** Developer ID Application (`Developer ID Application`, manual export using the Developer ID provisioning profiles for the Mac app and its Credential Provider extension).
+- **Notarisation:** `script/build_release.sh` builds the universal (`arm64` + `amd64`) `agent-keyring` helper binary, archives and exports `Agent Keyring.app`, notarises `Agent-Keyring-<VERSION>.zip` with `xcrun notarytool submit --wait` using an App Store Connect API key, staples the ticket, and verifies `codesign`, `stapler`, and `spctl`.
+- **Publishing:** `script/publish_release.sh <VERSION>` creates the GitHub Release on `opentrawl/agent-keyring` from `.build/Release-<VERSION>/out/Agent-Keyring-<VERSION>.zip` and `Distribution/ReleaseNotes.md`.
 
-## Building
+## iPhone and Apple Watch apps (`script/build_iphone.sh`)
 
-`script/build_iphone.sh` is the one way to build:
+### The pieces
 
-- `script/build_iphone.sh device` makes a Release build signed for development, for installing over a cable.
-- `script/build_iphone.sh testflight` makes the App Store build and uploads it to App Store Connect, where TestFlight offers it to internal testers once Apple has processed it. Add `AGENT_KEYRING_UPLOAD=0` to build it without uploading.
+- **The App Store Connect API key.** Used for profiles, uploads and `asc` (`AGENT_KEYRING_ASC_KEY_PATH`, `AGENT_KEYRING_ASC_KEY_ID`, `AGENT_KEYRING_ASC_ISSUER_ID`). Kept encrypted in the maintainer's secrets store and decrypted into a mode-700 temp directory for one run only.
+- **The team's Apple Distribution certificate.** Held as a PKCS#12 file (`AGENT_KEYRING_DISTRIBUTION_P12`, `AGENT_KEYRING_DISTRIBUTION_P12_PASSWORD`), imported into a temporary keychain for the build and deleted afterwards.
+- **App Store profiles.** Five profiles on App Store Connect, named `"Agent Keyring App Store <suffix>"` for `Phone`, `Phone.NotificationService`, `Phone.NotificationContent`, `Phone.watchkitapp` and `Phone.watchkitapp.NotificationService`, fetched by name each run.
 
-The script reads the same variables as `script/build_release.sh`, which builds the Mac app: `AGENT_KEYRING_ASC_KEY_PATH`, `AGENT_KEYRING_ASC_KEY_ID` and `AGENT_KEYRING_ASC_ISSUER_ID`. For `testflight` it also needs `AGENT_KEYRING_DISTRIBUTION_P12` and `AGENT_KEYRING_DISTRIBUTION_P12_PASSWORD`, and `asc` signed in with the same key. The build number is the UTC time unless `AGENT_KEYRING_BUILD_NUMBER` says otherwise, so each upload's number is new.
+### Building
 
-## Push and export compliance
+- `script/build_iphone.sh device` builds a Release app signed for development over USB.
+- `script/build_iphone.sh testflight` archives, exports and uploads to App Store Connect for internal TestFlight. Set `AGENT_KEYRING_UPLOAD=0` to export locally without uploading.
 
-- **Push environment.** A TestFlight or App Store build carries no provisioning profile, so the app registers production push addresses (`PushEnvironment.isProduction`). A development build reads `aps-environment` from its profile and registers for the sandbox. The relay picks Apple's production or sandbox gateway from each registration.
-- **Export compliance.** The app uses encryption: HPKE with AES-GCM, P-256 signatures and key agreement (in the Secure Enclave on devices), SHA-256 and TLS 1.3. All of these are standard algorithms, and the app reaches them only through Apple's frameworks (CryptoKit, Security, Network). Apple treats that use as exempt from export documentation, so `ITSAppUsesNonExemptEncryption` is `NO` in the app's Info.plist.
+The version and build number come from `script/version.sh` (`VERSION` file + commit UTC timestamp `YYYYMMDDHHMM`), so the Mac app, iPhone/Watch app and CLI share the same pair.
+
+### Push delivery and external TestFlight
+
+- **Internal builds (today):** The Mac app and enrolled computers send Apple Push Notification Service (APNs) alerts directly to Apple using the team's private APNs `.p8` key installed via `agent-keyring push-key`.
+- **External TestFlight (next):** External testers cannot be given the team's private APNs `.p8` key, so public TestFlight waits on a small stateless push-forwarding service holding the team key that relays already end-to-end-encrypted opaque push payloads to Apple (and an external TestFlight group passing Beta App Review).
+- **Export compliance:** Standard Apple framework cryptography only (CryptoKit HPKE/AES-GCM, Secure Enclave P-256, SHA-256, TLS 1.3), declared exempt via `ITSAppUsesNonExemptEncryption = NO`.

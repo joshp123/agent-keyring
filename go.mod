@@ -1,4 +1,4 @@
-module github.com/joshp123/agent-keyring
+module github.com/opentrawl/agent-keyring
 
 go 1.26.0
 

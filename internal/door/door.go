@@ -35,7 +35,7 @@ var (
 
 // noTailscale is what Josh's agents are told when this computer has no
 // Tailscale address: nothing can reach it, and it can reach nothing.
-var noTailscale = errors.New("This computer has no Tailscale address: Tailscale is not installed, not running, or signed out. Agent Keyring reaches the Mac, and Josh's iPhone and Apple Watch reach this computer, only over Tailscale. Start Tailscale and sign in, then run this again.")
+var noTailscale = errors.New("This computer has no Tailscale address: Tailscale is not installed, not running, or signed out. Agent Keyring reaches the Mac, and the user's iPhone and Apple Watch reach this computer, only over Tailscale. Start Tailscale and sign in, then run this again.")
 
 // testDoor is AGENT_KEYRING_TEST_DOOR: a loopback IP:port that end-to-end
 // tests give each stand-in computer in place of its Tailscale IP, or "none"

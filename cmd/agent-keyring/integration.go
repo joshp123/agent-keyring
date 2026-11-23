@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strings"
 
-	agentskill "github.com/joshp123/agent-keyring/AgentSkill"
+	agentskill "github.com/opentrawl/agent-keyring/AgentSkill"
 )
 
 func contentsPath() string {

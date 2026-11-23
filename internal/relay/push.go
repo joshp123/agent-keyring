@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"sync"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/keyring"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
 )
 
 // pushAll wakes every registered device for one request. Only a request that

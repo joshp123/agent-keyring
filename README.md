@@ -1,177 +1,70 @@
 # Agent Keyring
 
-Agent Keyring lets your AI agents sign in to websites with the logins you keep
-in Apple Passwords, with your approval. When it fills a browser or hands the
-password to a program, the password does not pass through the agent's chat.
+**1Password for the Agentic OS.** Let your AI agents sign in as you anywhere you work, using the passwords you already keep in Apple Passwords, with your approval.
 
-An agent asks for one login for the task it is doing. Your rule for that login
-decides: approve automatically, ask you, or refuse. If you are asked, you
-approve with Touch ID on your Mac, or on your iPhone when you are away. The
-agent then signs in through Agent Keyring and carries on.
+Part of the [OpenTrawl](https://github.com/opentrawl/opentrawl) suite alongside OpenTrawl (**Spotlight for the Agentic OS**). See [agent-keyring.jjpcodes.com](https://agent-keyring.jjpcodes.com/) for the overview, [security model](https://agent-keyring.jjpcodes.com/security/), and [comparisons](https://agent-keyring.jjpcodes.com/compare/).
 
 macOS 26 or later · MIT licence
 
-**Status.** `main` is version 0.5.0 (direct peer architecture over Tailscale, with Mac, iPhone, Apple Watch, and Linux/macOS CLI).
+**Status:** `0.5.0` is live on [Releases](https://github.com/opentrawl/agent-keyring/releases/latest) as a signed, notarised Mac app. Today, `0.5.0` works on your Mac (Touch ID approvals) and enrolled computers on your Tailscale network (Automatic passwords). The iPhone and Apple Watch approval app is in internal testing before public TestFlight; join the waitlist at [agent-keyring.jjpcodes.com](https://agent-keyring.jjpcodes.com/).
 
-## What it does today
+## Get started
 
-- **One approval per task.** An approval lets Agent Keyring deliver that login
-  for the agent's task: retries, browser filling, reading, and two-factor steps
-  included, until the agent says it is done, you tap Stop, or 30 minutes pass.
-  After that the agent must ask again. Logins set to Automatic are approved
-  without asking.
-- **What the 30 minutes means.** It is how long Agent Keyring will hand out the
-  login for that task. It does not take back a password the agent's machine
-  has already received, and it does not sign anyone out of the website.
-- **A browser extension fills the login.** You load it once in each browser
-  profile; the installer registers its helper with Chrome, Chromium, Brave,
-  Edge and, on a Mac, Arc. The shell commands list its tabs and fields, then
-  fill only the controls the agent names, submit and clear them. The extension
-  checks the document, frame, and form submission target against the saved site.
-- **Direct reading and piping.** `agent-keyring read` prints a field or pipes it
-  to another command when a workflow is not in a browser. One approval covers
-  both browser filling and reading; use the browser extension when you want to
-  keep passwords out of an agent's chat transcript.
-- **Two-factor codes** saved with a login in Apple Passwords. Codes sent by
-  SMS or email are not handled.
-- **Other machines (no relay, no always-on Mac).** Agents on another Mac, a
-  Linux server, or a cloud machine on your tailnet ask your iPhone, Apple Watch,
-  and Mac directly.
-  - **Ask logins** send a time-sensitive Apple push straight from the asking
-    computer to your iPhone and Apple Watch (and show on your Mac if awake).
-    Your iPhone and Apple Watch hold Secure Enclave-encrypted copies of your
-    passwords, so you can approve and deliver straight back to the asking
-    computer even when your MacBook is shut.
-  - **Automatic logins** are held in encrypted form by each enrolled computer
-    allowed to use them, so unattended jobs work even when your MacBook is shut.
-  - **Stopping access.** Tapping Stop on your iPhone, Apple Watch, or Mac ends
-    an active approval immediately over Tailscale (`agent-keyring hold` keeps
-    each remote computer's answer door open while an approval is active). If a
-    computer is unreachable, the signed Stop waits at your Mac.
+1. **Install Agent Keyring** on your Mac from [Releases](https://github.com/opentrawl/agent-keyring/releases/latest) (or ask your coding agent to build it from this repo using [CONTRIBUTING.md](CONTRIBUTING.md)).
+2. **Export your passwords** from Apple Passwords into Agent Keyring (`File -> Export All Items to App -> Agent Keyring`). Every password starts on **Ask**.
+3. **Hand it to your AI.** Paste this into your agent:
 
-## How direct peer delivery works
+> Set up Agent Keyring for me. Run `"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" skill` and follow its setup section.
 
-Your logins are imported in one place, your MacBook, because Apple Passwords
-only exports when you start it. Your MacBook signs the list of devices,
-computers, and rules with Touch ID, and encrypts separate copies for each
-approving device's Secure Enclave.
+Your agent inspects your setup, asks before changing anything, pairs your other computers over Tailscale, and tells you any manual step it cannot do itself (such as loading the Chrome extension or installing the CLI on a remote box).
 
-Every enrolled computer runs only the `agent-keyring` command (and, for
-browsers, the extension). When an agent asks for a password, the asking
-computer signs the request, pushes it through Apple Push Notification service
-to your iPhone and Apple Watch, and waits on its own Tailscale address (port
-17446) for the first signed approval or denial. Nothing sits in the middle and
-no always-on Mac is required.
+## What your agents can do with it
 
-## What it does not do
-
-- Fill Safari, or the browsers built into Codex, Claude and T3. The extension
-  cannot be installed in them.
-- Keep a website signed in or sign it out. That is the agent's browser.
-- Sync with Apple Passwords by itself. Apple only allows an export that you
-  start, so you export again when logins change.
-- Passkeys.
-- Isolate software running as the same OS user on the receiving machine.
-  Browser filling keeps passwords out of the agent's conversation and tool
-  output; an agent that controls the machine or browser can still read values
-  delivered there.
-
-## Who can read what
-
-| Where | What it holds | Who can read it |
-| --- | --- | --- |
-| Your MacBook's Agent Keyring | Every imported login, sealed to this Mac's Secure Enclave | Opened only with Touch ID (or macOS companion unlock) |
-| Your iPhone | Every non-Blocked login, sealed to your iPhone's Secure Enclave | Opened only after Face ID |
-| Your Apple Watch | Sealed copies embedded per push, opened by your Watch's Secure Enclave | Opened only while unlocked on your wrist |
-| An enrolled computer (Automatic) | Only logins set to Automatic, with their two-factor seeds | **Anyone who controls that computer's user account, including agents running there.** Keep sensitive logins on Ask |
-| An Ask login delivered for a task | One login, for one task (up to 30 minutes) | That computer, which can keep it |
-
-Enrolled computers can list every login's name, site, account name and rule
-without asking.
-
-Rule changes and removing a device or computer take effect on online devices
-right away, and on offline devices as soon as they reconnect. Neither takes
-back a password already delivered, and removing a lost device cannot erase a
-copy already on it. If a device may be compromised, change those passwords and
-replace their two-factor seeds.
-
-## Install
-
-There is no published build of the Mac, iPhone or Apple Watch app for this
-version yet.
-
-### The command on your other computers
-
-Agents on a computer other than your Mac, such as a Linux server or a Mac
-without the app, need only the `agent-keyring` command. It is one program, and
-the instructions agents follow are built in: `agent-keyring skill` prints them.
-Install it in one of two ways. Both work on Linux and on macOS.
-
-With [Nix](https://nixos.org), flakes enabled:
-
-```sh
-nix profile add github:joshp123/agent-keyring#agent-keyring
-```
-
-Older versions of Nix call this `nix profile install`. To run it once without
-installing, use `nix run github:joshp123/agent-keyring#agent-keyring -- --help`.
-
-With Go 1.26 or later:
-
-```sh
-git clone https://github.com/joshp123/agent-keyring.git
-cd agent-keyring
-mkdir -p ~/.local/bin
-CGO_ENABLED=0 go build -o ~/.local/bin/agent-keyring ./cmd/agent-keyring
-```
-
-Make sure `~/.local/bin` is on your `PATH`, or build into another folder that
-is.
-
-Then join the computer directly to your Mac over Tailscale. On the Mac, get a
-link that works once, for 10 minutes (or open Devices and choose Add Another
-Computer):
-
-```sh
-"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" invite
-```
-
-On the other computer, run:
-
-```sh
-agent-keyring enrol --name "Linux server" --invite 'LINK'
-```
-
-Approve the computer on your Mac. You can remove it later in Devices.
-
-## For agents
-
-`agent-keyring skill` prints the instructions agents follow, and
-`agent-keyring --help` lists every command. A sign-in looks like this:
-
-```sh
-agent-keyring find example.com
-lease=$(agent-keyring lease LOGIN_ID --task "$task" --reason "What the user asked for")
-agent-keyring tabs
-agent-keyring fields --tab "$tab"       # use the complete target printed by tabs
-agent-keyring fill "$lease" --tab "$tab" \
-  --username '#username' --password '#password' --submit 'button[type=submit]'
-agent-keyring release "$lease"
-```
+- **Sign in as you anywhere you work and get things done for you:** Your agents can log in to your real accounts (web portals, airlines, banks, SaaS tools, CLI tools) and finish the job, whether they drive Chrome, Chromium, Brave, Edge, Arc, Safari, a built-in agent browser (Codex, Claude, T3 Code), a desktop app, or a terminal. You approve once for the task; your agent handles retries and authenticator two-factor codes automatically.
+- **Keep passwords out of your chat with the browser extension:** In Chrome, Chromium, Brave, Edge, and Arc, Agent Keyring's browser extension fills your username, password, and two-factor code straight into the page, submits, and clears the fields. The password never passes through the model, the chat transcript, or your AI provider's logs, and the extension refuses to type into any site other than the one the password was saved for. In built-in agent browsers, Safari, desktop apps, and CLI tools where Chrome extensions cannot run, your agent signs in under the same approval through `agent-keyring read`. The extension does not stop an agent you already approved from reading the password another way.
+- **Run unattended jobs on other computers:** Enroll other Macs, Linux servers, or cloud VMs on your Tailscale network so agents there can sign in with Automatic passwords even while your MacBook is shut.
+- **Stop access immediately:** Tap **Stop** in Agent Keyring to cut off an active task approval right away.
+- **Coming soon: approve from your iPhone or Apple Watch.** Public TestFlight for the iPhone and Apple Watch companion app is next, so you can approve Ask requests from your phone or wrist even when your MacBook is shut.
 
 ## Rules
 
 | Rule | When an agent asks |
 | --- | --- |
-| Ask | You approve or deny, on your Mac or iPhone. New logins start here. |
-| Automatic | Approved without asking, and recorded. |
-| Blocked | Refused. You are not asked. |
+| **Ask** | You approve or deny with Touch ID on your Mac (and on iPhone or Apple Watch once public TestFlight opens). Every new password starts here; keep anything important (banking, email, cloud, work) on Ask. |
+| **Automatic** | For low-stakes sites you do not care about. Your agent signs in as you whenever it wants without asking, even while your MacBook is shut. The password is kept on every enrolled computer, and anything running there can use it. |
+| **Blocked** | Refused automatically without bothering you. |
 
-Rules are signed with a key that needs your Touch ID, so an agent cannot change
-them. You can also let an AI suggest rules: in Rules, choose Set Rules with AI.
-The prompt contains sites and current rules, never usernames or passwords; a
-login with no website appears by its title, which may include a name. You
-review every change before it applies.
+Rules are signed with Touch ID so an agent cannot alter them. In the Mac app, **Set Rules with AI** can suggest rules from your site list (never sending usernames or passwords); you review every change before it applies.
+
+## Who can read what
+
+| Where | What it holds | Who can read it |
+| --- | --- | --- |
+| Your MacBook | Every imported password, sealed to this Mac's Secure Enclave | Opened only with Touch ID (or macOS companion unlock) |
+| Your iPhone (when paired) | Every non-Blocked password, sealed to your iPhone's Secure Enclave | Opened only after Face ID |
+| Your Apple Watch (when paired) | No permanent vault; each approval push carries one copy sealed to your Watch's Secure Enclave | Opened only while unlocked on your wrist |
+| An enrolled computer (Automatic) | Only passwords set to Automatic, with their two-factor seeds | **Anyone who controls that computer's user account, including agents running there.** Keep sensitive logins on Ask. |
+| An Ask password delivered for a task | One password, for one task (up to 30 minutes) | That computer, which can keep it |
+
+Enrolled computers can list every password's name, site, account name, and rule without asking.
+
+Rule changes and device removals take effect immediately on online devices and as soon as offline devices reconnect. Neither takes back a password already delivered, and removing a lost device cannot erase copies already on it. If a device may be compromised, change those passwords and replace their two-factor seeds.
+
+## What it does not do
+
+- It does not sync automatically with Apple Passwords. Apple only allows exports you start yourself, so export again when passwords change.
+- It does not handle passkeys, or two-factor codes sent by SMS or email (only authenticator codes saved in Apple Passwords).
+- It does not keep a website signed in or sign you out. The 30-minute window only limits how long Agent Keyring will hand out the password for that task.
+- It does not isolate a delivered password from software running as the same user on the receiving computer.
+
+## The OpenTrawl suite
+
+- **Agent Keyring** (this repo): 1Password for the Agentic OS. Let your AI agents sign in as you anywhere you work, with your approval.
+- **[OpenTrawl](https://github.com/opentrawl/opentrawl)**: Spotlight for the Agentic OS. Give any AI searchable access to your messages, emails, notes, photos, calendar, contacts, finances, and X history.
+
+## Contributing and building from source
+
+Agent Keyring is open source (MIT). We keep tight architectural control and **do not accept unsolicited feature pull requests**. Read [CONTRIBUTING.md](CONTRIBUTING.md) for bug-fix rules, private security reporting, and developer build instructions.
 
 ## Licence
 

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	v2 "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/clientstate"
-	"github.com/joshp123/agent-keyring/internal/remote"
+	v2 "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/clientstate"
+	"github.com/opentrawl/agent-keyring/internal/remote"
 )
 
 // complaints is the one switch for complain and complaints: "on" in Josh's

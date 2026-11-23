@@ -61,9 +61,9 @@ import (
 	"syscall"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/keyring"
-	"github.com/joshp123/agent-keyring/internal/tlsid"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/keyring"
+	"github.com/opentrawl/agent-keyring/internal/tlsid"
 	"google.golang.org/protobuf/proto"
 )
 

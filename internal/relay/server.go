@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/joshp123/agent-keyring/gen/go/agentkeyring/v2"
-	"github.com/joshp123/agent-keyring/internal/apns"
-	"github.com/joshp123/agent-keyring/internal/wire"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
+	"github.com/opentrawl/agent-keyring/internal/apns"
+	"github.com/opentrawl/agent-keyring/internal/wire"
 )
 
 const (
@@ -287,7 +287,7 @@ func (s *Server) dispatch(ctx context.Context, who caller, request *pb.RelayRequ
 		return send(done())
 	case *pb.RelayRequest_Logs:
 		if who.machine == nil && who.device == nil {
-			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only a computer or device of Josh's may read the logs.")
+			return fail(pb.ErrorCode_ERROR_CODE_NOT_ALLOWED, "Only one of the user's computers or devices may read the logs.")
 		}
 		return send(&pb.RelayResponse{Result: &pb.RelayResponse_Logs{Logs: s.logs(method.Logs)}, EndOfStream: true})
 	case *pb.RelayRequest_ReportSelfTest:

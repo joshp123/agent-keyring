@@ -73,7 +73,7 @@ extension MacDevice {
             return .refused(403, "A computer shows the Mac only a request it signed itself, naming its own door.")
         }
         guard request.forDeviceKeyID.isEmpty, !request.automatic else {
-            return .refused(400, "Only a request that waits for Josh is shown on the Mac.")
+            return .refused(400, "Only a request that waits for the user is shown on the Mac.")
         }
         guard let login = catalogue?.logins.first(where: { $0.loginID == request.loginID }), login.rule != .blocked else {
             return .refused(403, "This Mac's list has no such password, or it is blocked.")
@@ -217,7 +217,7 @@ extension MacDevice {
         guard let (document, signer) = fromDevice(body), document.signerKeyID == signer.replyKeyID,
             let end = try? Agentkeyring_V2_EndRequest(serializedBytes: document.payload),
             end.domain == "agentkeyring.end.v2", end.deviceKeyID == signer.keyID, !end.requestID.isEmpty else {
-            return .refused(403, "Stop is signed by the reply key of a device in Josh's list of devices.")
+            return .refused(403, "Stop is signed by the reply key of a device in the user's list of devices.")
         }
         pruneStops()
         stops[end.requestID] = KeptStop(signed: body, at: environment.now())

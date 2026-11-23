@@ -1,14 +1,19 @@
 ---
-written_by: ai (Claude Opus 5.5, 2026-11-19), replacing the version of 2026-10-12; covers the sealed-password design (proto/agentkeyring/v2/keyring.proto)
+written_by: AI on 2026.11.23 by model gemini-4-neon, updating the 2026-11-19 version by Claude Opus 5.5 for the 0.5.0 direct Tailscale protocol (no relay)
 ---
 
 # Threat model: what Agent Keyring protects against
 
-Your agents need your passwords to sign in to websites for you. Agent Keyring gives one agent one password for one task, for 30 minutes at most, when you approve it on your Mac with Touch ID, on your iPhone with Face ID, or on your Apple Watch. The aim is that a tricked agent, a rogue program on one of your computers, or a broken-into Mac mini cannot get a password you did not approve, and cannot make you approve something other than what you see.
+Your agents need your passwords to sign in to websites and tools for you. Agent Keyring gives one agent one password for one task, for 30 minutes at most, when you approve it on your Mac with Touch ID (and on iPhone or Apple Watch once paired). The aim is that a tricked agent or a rogue program on one of your computers cannot get a password you did not approve, and cannot make you approve something other than what you see.
 
 ## Where your passwords are
 
-Each password is sealed separately to each device that may approve it: this Mac, your iPhone and your Apple Watch. A device opens its copy only after your finger, face or a tap on your wrist. A password set to Automatic is also sealed to each computer you allowed to use Automatic passwords. The Mac mini passes requests and answers between computers and devices; it holds sealed copies it cannot open.
+There is no cloud server and no relay. Your Mac is the home for your password list and your signed list of devices and computers. Everything travels directly between your devices over your own Tailscale network, over TLS 1.3 pinned by public key.
+
+- **Your Mac:** holds every imported password, sealed to this Mac's Secure Enclave key. Opening a password requires Touch ID (or macOS companion unlock).
+- **Your iPhone (when paired):** holds every non-Blocked password, sealed to its Secure Enclave key, opened only after Face ID.
+- **Your Apple Watch (when paired):** holds no permanent vault. Each approval notification carries one copy sealed to the Watch's Secure Enclave key, opened only while unlocked on your wrist.
+- **Enrolled computers (Automatic passwords):** a password set to Automatic is sealed to every enrolled computer's receiving key, with its two-factor seed. Anyone who controls that computer's user account can read Automatic passwords held there; keep sensitive accounts on Ask.
 
 ## What you see, and how far to trust it
 
@@ -22,19 +27,18 @@ Each password is sealed separately to each device that may approve it: this Mac,
 
 | Threat | Example | Defence | What remains |
 | --- | --- | --- | --- |
-| A trusted agent is tricked by a page or document | Claude Code reads a page that tells it to sign in to your bank | Your rules (Blocked or Ask); the request shows the real site; one approval covers one password for 30 minutes | You approve what you are shown. |
-| A program on another computer asks | A script on the Linux server runs `agent-keyring lease` | It can ask only as that computer, and you see which computer asked | It can ask like any agent there. |
-| The Mac mini is broken into | Someone controls the program that passes requests | It cannot open a sealed password. It cannot make up a request or send your approval to another computer, because the asking computer signs each request. It cannot make up, relabel or roll back a sealed password, because the device that sealed it signs it and your signed list names its version. It cannot bring back an older list of passwords or rules, because every computer and device keeps the newest it has seen. It cannot make up an answer, because your device signs it. | It can delay or drop requests, and see which password a computer asks for and when. A broken-into Mac mini can ask as the Mac mini. |
-| A rogue program on your Mac edits Agent Keyring's files | It renames your bank password to example.com, or points the app at its own relay | The relay's address and key, your devices and computers, and your rules are in the app's own keychain, which other programs cannot change. Each sealed copy carries its own name, sites and account, so if the list on disk has been changed, your touch opens nothing and no password is released. | It can ask like any agent on your Mac, and a changed list on disk can make macOS's dialog name the wrong site (your touch then releases nothing). |
-| A stolen or replayed approval | Someone re-sends yesterday's approval | Each answer is signed by your device, covers one request's exact bytes, lasts 30 minutes, and its password is sealed to the asking computer's key | None. |
-| An agent asks again and again | 20 requests in a minute | A denial holds that password off for that computer for 30 minutes; one approval covers it for 30 minutes | Fatigue is real. |
-| A lost iPhone or Apple Watch | Your iPhone is stolen | Its keys work only after Face ID, or on your wrist. Remove it in Devices on another device: the Mac mini deletes its copies. Your passwords stay in Apple Passwords. | None. |
+| A trusted agent is tricked by a page or document | An agent reads a page that tells it to sign in to your bank | Your rules (Blocked or Ask); the request shows the real site; one approval covers one password for 30 minutes | You approve what you are shown. |
+| A program on another enrolled computer asks | A script on a Linux server runs `agent-keyring lease` | It can ask only as that computer, and you see which computer asked. It cannot read Ask or Blocked passwords without your approval. | It can read Automatic passwords held on that computer, and ask like any agent there. |
+| A rogue program on your Mac edits Agent Keyring's files | It renames your bank password to `example.com` or alters rules on disk | Your rules, signed device list and keys live in the app's own keychain, which other programs cannot edit. Each sealed copy carries its own name, sites and account, so if the list on disk has been tampered with, your touch opens nothing and no password is released. | It can ask like any agent on your Mac, and a changed list on disk can make macOS's dialog name the wrong site (your touch then releases nothing). |
+| A stolen or replayed approval | Someone re-sends yesterday's approval | Each answer is signed by your approving device, covers one request's exact bytes, lasts 30 minutes, and seals the password to the asking computer's receiving key | None. |
+| An agent asks again and again | 20 requests in a minute | Denying a password holds that computer off for 1 minute, then 5 minutes, then 15 minutes; one approval covers retries for 30 minutes | Fatigue is real. |
+| A lost iPhone, Apple Watch or enrolled computer | Your iPhone or Linux server is stolen | iPhone and Watch keys require Face ID or wrist unlock. Remove any lost device or computer in Devices on your Mac to publish a new signed members list and delete its copies on your Mac. | Removing a lost device cannot erase copies already stored on it; change any Automatic passwords (and their two-factor seeds) that were on a compromised computer. |
 | Someone at your unlocked Mac | | Out of scope: anyone at your unlocked Mac is you, as far as macOS is concerned | Lock your Mac. |
 
 ## Limiting the damage
 
-- **An agent that reads a password knows it.** One approval covers filling and reading for 30 minutes; after that the agent cannot ask the password from Agent Keyring again without you.
-- **One-time codes.** The secret that makes them never leaves the approving device: the computer gets the codes for the 30 minutes only.
-- **Automatic.** Each use is an ordinary 30-minute use that is granted at once. It shows as in use like any approval, and Stop ends it. The computer holds its own sealed copy, so set to Automatic only passwords you would let that computer keep.
-- **Blocked.** Setting a password to Blocked deletes every copy except this Mac's own, so no other device or computer holds it.
-- **Your words reach the agent.** Deny with a note ("use the gh command instead") and the agent changes course.
+- **Browser extension vs `agent-keyring read`:** In Chrome, Chromium, Brave, Edge and Arc, the browser extension fills the form, submits and clears the fields without passing the password through the model, chat transcript or provider logs, and refuses to fill any site other than the one saved for that password. In Safari, built-in agent browsers, desktop apps and CLI tools where Chrome extensions cannot run, an approved agent signs in via `agent-keyring read`. The extension does not stop an agent you already approved from reading the password another way.
+- **One-time codes:** The secret that generates two-factor codes stays on the approving device for Ask logins: the asking computer receives only the codes for the 30-minute approval window. (Automatic passwords include their two-factor seed on enrolled computers so unattended jobs can sign in.)
+- **Automatic:** Each use is an ordinary 30-minute lease granted at once. It appears as active and Stop ends it. Set to Automatic only low-stakes passwords you are comfortable letting enrolled computers hold.
+- **Blocked:** Setting a password to Blocked deletes every copy except this Mac's own, so no other device or computer holds it.
+- **Your words reach the agent:** Deny with a short note ("use the gh command instead") and the agent receives your exact words.
