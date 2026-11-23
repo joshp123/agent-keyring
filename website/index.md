@@ -2,15 +2,16 @@
 
 Published: 2026-11-20
 Updated: 2026-11-23
-Status: signed Mac app available on GitHub Releases today (works with Touch ID); iPhone and Apple Watch external TestFlight waitlist open
+Status: signed Mac app (v1.0.0) available on GitHub Releases today (works with Touch ID); iPhone and Apple Watch external TestFlight waitlist open
 Made by: Josh Palmer (https://x.com/jjpcodes)
-Website: https://agent-keyring.jjpcodes.com/
+Website: https://keyring.opentrawl.sh/
 Download (Mac): https://github.com/opentrawl/agent-keyring/releases/latest
 Source code: https://github.com/opentrawl/agent-keyring
 Licence: MIT (free)
-Security: /security.md (https://agent-keyring.jjpcodes.com/security.md)
-Comparison: /compare.md (https://agent-keyring.jjpcodes.com/compare.md)
-Full context: /llms-full.txt (https://agent-keyring.jjpcodes.com/llms-full.txt)
+Security: /security.md (https://keyring.opentrawl.sh/security.md)
+Comparison: /compare.md (https://keyring.opentrawl.sh/compare.md)
+Privacy: /privacy.md (https://keyring.opentrawl.sh/privacy.md)
+Full context: /llms-full.txt (https://keyring.opentrawl.sh/llms-full.txt)
 
 Your agents ask. You tap yes.
 
@@ -27,11 +28,13 @@ The home page plays four short scenes.
 
 ## Set it up
 
-You handle the Mac app and Apple Passwords. Your agent sets up the rest itself.
+Paste one prompt into Claude Code or Codex. Your agent downloads the Mac app, tells you what it suggests next, and asks before touching anything:
 
-1. Install the Mac app and copy your passwords. Download Agent Keyring from GitHub Releases (https://github.com/opentrawl/agent-keyring/releases/latest) (macOS 26 or later) and open it. In Apple Passwords, choose File > Export All Items to App… and pick Agent Keyring. Nothing is deleted from Passwords, and every password starts on Ask.
-2. Hand your agent the setup line. Paste the one line from the Mac app into `AGENTS.md`, `CLAUDE.md`, or straight into a chat with Claude Code or Codex. Your agent tells you what it suggests setting up next and asks before checking your network or touching anything: the Chrome extension, other computers that run your agents, or your iPhone and Apple Watch.
-3. Add your iPhone and Apple Watch (optional). Join the TestFlight waitlist at https://agent-keyring.jjpcodes.com/#waitlist (or build from source) for mobile approvals. Turn on Tailscale (https://tailscale.com/) (free), open the iPhone app, tap Connect and approve on your Mac with Touch ID. Add your Apple Watch from the iPhone app. Your iPhone keeps its own encrypted copy so you can approve even when your Mac is asleep.
+> Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before scanning my network or changing anything.
+
+1. Paste the prompt (or download the Mac app). Paste the prompt above into Claude Code or Codex, or download the signed Mac app yourself from GitHub Releases (https://github.com/opentrawl/agent-keyring/releases/latest) (macOS 26 or later). Your agent verifies the checksum, installs it in `/Applications`, and asks before changing anything else.
+2. Copy your passwords from Apple Passwords. In Apple Passwords, choose File > Export All Items to App… and pick Agent Keyring. Nothing is deleted from Passwords, and every password starts on Ask so no agent gets one until you approve.
+3. Let your agent wire up the rest (with your say-so). Your agent reads `agent-keyring skill`, tells you what it recommends, and asks before touching your Chrome-family browser extension, enrolling Linux or Mac servers, or connecting your iPhone and Apple Watch (join the TestFlight waitlist at https://keyring.opentrawl.sh/#waitlist or build from source).
 
 ## Each password has a rule
 
@@ -79,4 +82,4 @@ Full comparison: /compare.md
 
 ## Join the iPhone and Apple Watch beta
 
-The signed Mac app is out on GitHub Releases today (https://github.com/opentrawl/agent-keyring/releases/latest) and works straight away with Touch ID. Leave your email at https://agent-keyring.jjpcodes.com/#waitlist and I'll send you a TestFlight invite when the external iPhone and Apple Watch beta opens. Source code: https://github.com/opentrawl/agent-keyring
+The signed Mac app is out on GitHub Releases today (https://github.com/opentrawl/agent-keyring/releases/latest) and works straight away with Touch ID. Leave your email at https://keyring.opentrawl.sh/#waitlist and I'll send you a TestFlight invite when the external iPhone and Apple Watch beta opens. Source code: https://github.com/opentrawl/agent-keyring

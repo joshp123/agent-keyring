@@ -23,5 +23,5 @@ Allow: /
 User-agent: Googlebot
 Allow: /
 
-Sitemap: https://agent-keyring.jjpcodes.com/sitemap.xml
-# LLM-friendly index: https://agent-keyring.jjpcodes.com/llms.txt
+Sitemap: https://keyring.opentrawl.sh/sitemap.xml
+# LLM-friendly index: https://keyring.opentrawl.sh/llms.txt

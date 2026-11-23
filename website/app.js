@@ -562,7 +562,9 @@
       const devices = Array.from(form.querySelectorAll('input[name="devices"]:checked')).map(function (c) { return c.value; });
       const hp = form.querySelector('input[name="company"]');
       const company = hp ? hp.value.trim() : '';
-      const isLiveHost = window.location.hostname === 'agent-keyring.jjpcodes.com';
+      const isLiveHost =
+        window.location.hostname === 'keyring.opentrawl.sh' ||
+        window.location.hostname === 'agent-keyring.jjpcodes.com';
       const endpoint = isLiveHost ? form.dataset.endpoint : '';
       if (endpoint) {
         try {
@@ -574,7 +576,7 @@
           });
           if (!res.ok) throw new Error('HTTP ' + res.status);
           note.className = 'inline-note ok';
-          note.textContent = 'Saved. I\u2019ll email you when the beta is out.';
+          note.textContent = 'Saved. I\u2019ll email you when the iPhone and Apple Watch beta opens.';
           form.reset();
         } catch (_) {
           note.className = 'inline-note';
@@ -582,8 +584,44 @@
         }
       } else {
         note.className = 'inline-note';
-        note.textContent = 'This is a preview copy of the site, so it can\u2019t save your email. Sign up at agent-keyring.jjpcodes.com.';
+        note.textContent = 'This is a preview copy of the site, so it can\u2019t save your email. Sign up at keyring.opentrawl.sh.';
       }
     });
   }
+
+  // ---- 5. One-click agent setup prompt copy ------------------------------
+  const copyButtons = Array.from(document.querySelectorAll('.js-copy-prompt'));
+  copyButtons.forEach(function (btn) {
+    const defaultLabel = btn.textContent;
+    let resetTimer = null;
+    btn.addEventListener('click', async function () {
+      const promptText = btn.getAttribute('data-prompt') || '';
+      if (!promptText) return;
+      let copied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(promptText);
+          copied = true;
+        }
+      } catch (_) {}
+      if (!copied) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = promptText;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          copied = document.execCommand('copy');
+          document.body.removeChild(ta);
+        } catch (_) {}
+      }
+      btn.textContent = copied ? 'Copied!' : 'Copy failed';
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(function () {
+        btn.textContent = defaultLabel;
+      }, 2000);
+    });
+  });
 })();

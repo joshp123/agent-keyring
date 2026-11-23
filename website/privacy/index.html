@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Keyring privacy</title>
+  <meta name="description" content="How Agent Keyring handles your passwords, push notifications, anonymous update checks, and beta waitlist emails.">
+  <link rel="canonical" href="https://keyring.opentrawl.sh/privacy/">
+  <link rel="alternate" type="text/markdown" href="/privacy.md">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap nav-bar">
+      <a class="brand" href="/">
+        <svg class="nav-mascot js-mascot" viewBox="0 0 100 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="nav-tile" x1="0.5" y1="0" x2="0.5" y2="1">
+              <stop offset="0%" stop-color="var(--mascot-tile-top)"/>
+              <stop offset="100%" stop-color="var(--mascot-tile-bottom)"/>
+            </linearGradient>
+          </defs>
+          <rect width="100" height="100" rx="22" fill="url(#nav-tile)"/>
+          <circle cx="50" cy="38.5" r="21.5" fill="var(--mascot-body)"/>
+          <path d="M40.2 51.5h19.6l7.4 30.4a3.2 3.2 0 01-3.1 4H35.9a3.2 3.2 0 01-3.1-4z" fill="var(--mascot-body)"/>
+          <g class="mascot-eyes">
+            <g class="mascot-eyes-blink">
+              <circle cx="46.3" cy="37.5" r="4.9" fill="var(--mascot-eye)"/>
+              <circle cx="47.77" cy="35.932" r="1.764" fill="#FFFFFF" fill-opacity="0.92"/>
+              <circle cx="60" cy="37.5" r="4.9" fill="var(--mascot-eye)"/>
+              <circle cx="61.47" cy="35.932" r="1.764" fill="#FFFFFF" fill-opacity="0.92"/>
+            </g>
+          </g>
+        </svg>
+        <span>Agent Keyring</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="/security/">Security</a>
+        <a href="/compare/">Compare</a>
+        <a href="https://github.com/opentrawl/agent-keyring" class="hide-xs" rel="noopener">GitHub</a>
+        <a href="https://x.com/jjpcodes" class="hide-xs" rel="noopener">Made by @jjpcodes</a>
+        <button type="button" class="theme-btn" id="theme-toggle" aria-label="Switch to light mode">Light mode</button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <canvas class="city-canvas" id="city" aria-hidden="true"></canvas>
+
+    <section class="sub-hero">
+      <div class="wrap">
+        <h1>Privacy policy</h1>
+        <p>Agent Keyring keeps your passwords on your own devices. There is no cloud vault, no account, and no ad or tracking SDK.</p>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="passwords-heading">
+      <div class="wrap">
+        <div class="prose-col">
+          <h2 id="passwords-heading">Passwords and approvals</h2>
+          <p>Your passwords stay encrypted on your own Mac and iPhone, protected by keys kept in each device&rsquo;s Secure Enclave. They are never uploaded to any OpenTrawl or Agent Keyring server. When you approve a request from your iPhone or Apple Watch, the encrypted answer goes straight back to the asking computer over your Tailscale network.</p>
+
+          <h2>Blind push notification relay</h2>
+          <p>When an agent on another computer asks your iPhone or Apple Watch to approve a sign-in, it sends an end-to-end encrypted push payload through our stateless push relay at <code>push.opentrawl.sh</code> (hosted on AWS in <code>eu-west-1</code>, Ireland). The relay signs the request with our Apple Developer push key and forwards the opaque payload straight to Apple&rsquo;s push servers.</p>
+          <p>The relay cannot read the website, account name, reason or Watch password inside the payload. It stores no raw device tokens, no IP addresses and no message contents. To prevent abuse and count daily push volume, it keeps only short-lived SHA-256 hashes of device tokens (1 hour for rate limiting, 35 days for daily counts). If you build the apps with your own Apple Developer account, you can run your own relay or push straight to Apple instead.</p>
+
+          <h2>Anonymous update check</h2>
+          <p>Once a day, Agent Keyring checks <code>https://push.opentrawl.sh/v1/version</code> to see if a newer release is available and to count active installs. That check sends a random per-install identifier, the app version, the operating system (<code>macos</code>, <code>ios</code>, <code>watchos</code> or <code>linux</code>) and CPU architecture. It never sends passwords, website names, account names or personal details, and the server does not store IP addresses. Daily and monthly install counts expire automatically after 90 days.</p>
+          <p>You can turn the update check off at any time in Agent Keyring Settings or by setting <code>AGENT_KEYRING_NO_TELEMETRY=1</code>.</p>
+
+          <h2>Beta waitlist emails</h2>
+          <p>If you submit your email address and device checkboxes on <code>keyring.opentrawl.sh</code>, we store them in AWS (<code>eu-west-1</code>) solely to send you Agent Keyring beta and TestFlight invites. We do not sell, rent or share your email address with anyone.</p>
+
+          <h2>Deleting your data or asking a question</h2>
+          <p>To delete your waitlist email or ask about privacy, email <a href="mailto:josh@jjpcodes.com">josh@jjpcodes.com</a> or message <a href="https://x.com/jjpcodes" rel="noopener">@jjpcodes</a>. Updated 23 November 2026.</p>
+
+          <div class="prose-actions">
+            <a class="btn-link" href="/security/">Read the security details &rarr;</a>
+            <a class="btn-link" href="https://github.com/opentrawl/agent-keyring" rel="noopener">Read the source code (MIT) &rarr;</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-row">
+      <div class="footer-links">
+        <a href="/">Home</a>
+        <a href="/security/">Security</a>
+        <a href="/compare/">Compare</a>
+        <a href="/privacy/" aria-current="page">Privacy</a>
+        <a href="https://github.com/opentrawl/agent-keyring" rel="noopener">Source code (MIT)</a>
+      </div>
+      <span>Built by <a href="https://x.com/jjpcodes" rel="noopener">Josh Palmer (@jjpcodes)</a>, part of the <a href="https://github.com/opentrawl" rel="noopener">OpenTrawl</a> suite. Apple Passwords, Touch ID, Face ID and Apple Watch are trademarks of Apple Inc.</span>
+    </div>
+  </footer>
+
+  <script src="/city.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

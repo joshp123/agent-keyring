@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agent Keyring: 1Password for the Agentic OS</title>
   <meta name="description" content="1Password for the Agentic OS. Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.">
-  <link rel="canonical" href="https://agent-keyring.jjpcodes.com/">
+  <link rel="canonical" href="https://keyring.opentrawl.sh/">
   <link rel="alternate" type="text/markdown" href="/index.md">
   <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Agent Keyring: 1Password for the Agentic OS">
   <meta property="og:description" content="1Password for the Agentic OS. Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.">
-  <meta property="og:url" content="https://agent-keyring.jjpcodes.com/">
+  <meta property="og:url" content="https://keyring.opentrawl.sh/">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:creator" content="@jjpcodes">
   <link rel="stylesheet" href="/styles.css">
@@ -22,7 +22,7 @@
     "name": "Agent Keyring",
     "applicationCategory": "SecurityApplication",
     "operatingSystem": "macOS 26+, iOS, watchOS, Linux (CLI)",
-    "url": "https://agent-keyring.jjpcodes.com/",
+    "url": "https://keyring.opentrawl.sh/",
     "codeRepository": "https://github.com/opentrawl/agent-keyring",
     "license": "https://opensource.org/license/MIT",
     "isAccessibleForFree": true,
@@ -133,8 +133,9 @@
           <h1>Your agents ask.<br>You tap yes.</h1>
           <p>1Password for the Agentic OS. Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.</p>
           <div class="hero-cta">
-            <a class="btn btn-primary" href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">Download for Mac</a>
-            <a class="btn-link" href="https://github.com/opentrawl/agent-keyring" rel="noopener">Get the source code (MIT) &rarr;</a>
+            <button type="button" class="btn btn-primary js-copy-prompt" data-prompt="Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before scanning my network or changing anything.">Copy agent setup prompt</button>
+            <a class="btn btn-secondary" href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">Download for Mac</a>
+            <a class="btn-link" href="https://github.com/opentrawl/agent-keyring" rel="noopener">Source (MIT) &rarr;</a>
           </div>
         </div>
 
@@ -334,30 +335,35 @@
         <div class="band-head">
           <div>
             <h2 id="setup-heading">Set it up</h2>
-            <p>You handle the Mac app and Apple Passwords. Your agent sets up the rest itself.</p>
+            <p>Paste one prompt into Claude Code or Codex. Your agent downloads the Mac app, tells you what it suggests next, and asks before touching anything.</p>
           </div>
+        </div>
+
+        <div class="prompt-card">
+          <code>Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before scanning my network or changing anything.</code>
+          <button type="button" class="btn btn-primary js-copy-prompt" data-prompt="Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before scanning my network or changing anything.">Copy prompt</button>
         </div>
 
         <ol class="setup-list">
           <li class="setup-item">
             <span class="step-num" aria-hidden="true">1</span>
             <div>
-              <h3>Install the Mac app and copy your passwords</h3>
-              <p>Download Agent Keyring from <a href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">GitHub Releases</a> (macOS 26 or later) and open it. In Apple Passwords, choose <strong>File &gt; Export All Items to App&hellip;</strong> and pick <strong>Agent Keyring</strong>. Nothing is deleted from Passwords, and every password starts on Ask.</p>
+              <h3>Paste the prompt (or download the Mac app)</h3>
+              <p>Paste the prompt above into Claude Code or Codex, or download the signed Mac app yourself from <a href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">GitHub Releases</a> (macOS 26 or later). Your agent verifies the checksum, installs it in <code>/Applications</code>, and asks before changing anything else.</p>
             </div>
           </li>
           <li class="setup-item">
             <span class="step-num" aria-hidden="true">2</span>
             <div>
-              <h3>Hand your agent the setup line</h3>
-              <p>Paste the one line from the Mac app into <code>AGENTS.md</code>, <code>CLAUDE.md</code>, or straight into a chat with Claude Code or Codex. Your agent tells you what it suggests setting up next and asks before checking your network or touching anything: the Chrome extension, other computers that run your agents, or your iPhone and Apple Watch.</p>
+              <h3>Copy your passwords from Apple Passwords</h3>
+              <p>In Apple Passwords, choose <strong>File &gt; Export All Items to App&hellip;</strong> and pick <strong>Agent Keyring</strong>. Nothing is deleted from Passwords, and every password starts on Ask so no agent gets one until you approve.</p>
             </div>
           </li>
           <li class="setup-item">
             <span class="step-num" aria-hidden="true">3</span>
             <div>
-              <h3>Add your iPhone and Apple Watch (optional)</h3>
-              <p>Join the <a href="#waitlist">TestFlight waitlist below</a> (or build from source) for mobile approvals. Turn on <a href="https://tailscale.com/" rel="noopener">Tailscale</a> (free), open the iPhone app, tap Connect and approve on your Mac with Touch ID. Add your Apple Watch from the iPhone app. Your iPhone keeps its own encrypted copy so you can approve even when your Mac is asleep.</p>
+              <h3>Let your agent wire up the rest (with your say-so)</h3>
+              <p>Your agent reads <code>agent-keyring skill</code>, tells you what it recommends, and asks before touching your Chrome-family browser extension, enrolling Linux or Mac servers, or connecting your iPhone and Apple Watch (<a href="#waitlist">join the TestFlight waitlist below</a> or build from source).</p>
             </div>
           </li>
         </ol>
@@ -600,6 +606,7 @@
         <a href="https://github.com/opentrawl/agent-keyring" rel="noopener">Source code (MIT)</a>
         <a href="/security/">Security</a>
         <a href="/compare/">Compare</a>
+        <a href="/privacy/">Privacy</a>
       </div>
       <span>Built by <a href="https://x.com/jjpcodes" rel="noopener">Josh Palmer (@jjpcodes)</a>, part of the <a href="https://github.com/opentrawl" rel="noopener">OpenTrawl</a> suite. Apple Passwords, Touch ID, Face ID and Apple Watch are trademarks of Apple Inc.</span>
     </div>

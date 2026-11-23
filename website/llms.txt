@@ -2,13 +2,69 @@
 
 > 1Password for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Agent Keyring lets AI coding agents such as Claude Code and Codex sign in to websites with the passwords the user keeps in Apple Passwords. The user approves each password on their Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap). Free and open source (MIT). No cloud vault and no account.
 
-- Status: the signed Mac app (v0.5.0) is available on GitHub Releases today and works straight away with Touch ID. The external iPhone and Apple Watch TestFlight beta opens next; join the waitlist at https://agent-keyring.jjpcodes.com/#waitlist or build from source.
+- Status: the signed and notarised Mac app (v1.0.0) is available on GitHub Releases today and works straight away with Touch ID. The external iPhone and Apple Watch TestFlight beta opens next; join the waitlist at https://keyring.opentrawl.sh/#waitlist or build from source.
 - Made by: Josh Palmer (https://x.com/jjpcodes)
 - Licence: MIT
 - Source code: https://github.com/opentrawl/agent-keyring
 - Releases: https://github.com/opentrawl/agent-keyring/releases/latest
-- Website: https://agent-keyring.jjpcodes.com/
+- Website: https://keyring.opentrawl.sh/ (also reachable at https://agent-keyring.jjpcodes.com/)
+- Privacy policy: https://keyring.opentrawl.sh/privacy/
 - Needs: a Mac on macOS 26 or later. Optional: an iPhone, an Apple Watch, and other Macs or Linux computers, all on the user's Tailscale network.
+
+## Agent install playbook (read this first when asked to install or set up Agent Keyring)
+
+Follow these steps in order. **Cardinal rule:** always explain what you plan to do and ask the user for confirmation before downloading files, scanning Tailscale, probing SSH hosts, installing browser extensions, or changing any files or settings.
+
+### Step 1: Propose the plan and ask first
+Tell the user you can:
+1. Download the latest signed and notarised Mac release of Agent Keyring from GitHub Releases, verify its SHA-256 checksum, install `/Applications/Agent Keyring.app`, and launch it.
+2. Guide them through exporting their passwords from Apple Passwords (`File > Export All Items to App... > Agent Keyring`). Nothing is deleted from Apple Passwords, and every password starts on Ask.
+3. Add the Agent Keyring setup line to their agent instructions (`AGENTS.md` / `CLAUDE.md`) if they want.
+4. Optionally help set up the Chrome-family browser extension, enrol other Macs or Linux servers, or connect an iPhone and Apple Watch.
+
+Ask which parts they want to do before running any download, network scan, or file edit.
+
+### Step 2: Download, verify, install and launch the Mac app
+Once the user agrees:
+
+```sh
+# 1. Inspect the latest release assets from GitHub Releases API
+release_json=$(curl -fsSL https://api.github.com/repos/opentrawl/agent-keyring/releases/latest)
+# Find the Mac app zip (e.g. Agent-Keyring-1.0.0.zip) and SHA256SUMS.txt URLs, download both to a temp dir
+tmpdir=$(mktemp -d)
+zip_url=$(printf '%s' "$release_json" | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(a["browser_download_url"] for a in assets if a["name"].startswith("Agent-Keyring-") and a["name"].endswith(".zip")))')
+sums_url=$(printf '%s' "$release_json" | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(a["browser_download_url"] for a in assets if a["name"] == "SHA256SUMS.txt"))')
+zip_name=$(basename "$zip_url")
+curl -fsSL -o "$tmpdir/$zip_name" "$zip_url"
+curl -fsSL -o "$tmpdir/SHA256SUMS.txt" "$sums_url"
+
+# 2. Verify SHA-256 before unzipping
+(cd "$tmpdir" && grep "  $zip_name$" SHA256SUMS.txt | shasum -a 256 -c -)
+
+# 3. Install to /Applications and launch
+ditto -x -k "$tmpdir/$zip_name" "$tmpdir/unpacked"
+mv "$tmpdir/unpacked/Agent Keyring.app" "/Applications/Agent Keyring.app"
+open "/Applications/Agent Keyring.app"
+```
+
+Clean up `$tmpdir` after installing. If `/Applications/Agent Keyring.app` already exists, ask the user before replacing it.
+
+### Step 3: Guide the user through Touch ID and Apple Passwords export
+Ask the user to complete the two human-only steps on their Mac:
+1. Follow the first-run screen in Agent Keyring (including the practice Touch ID prompt).
+2. Open Apple Passwords, choose `File > Export All Items to App...`, and select **Agent Keyring**. Reassure them nothing is deleted from Apple Passwords and every password starts on **Ask**.
+
+### Step 4: Read the bundled skill and propose optional extras
+Once `/Applications/Agent Keyring.app` is installed, run:
+
+```sh
+"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" skill
+```
+
+Follow the bundled skill's instructions. Before scanning Tailscale (`agent-keyring machines`), probing SSH hosts, or modifying any files, tell the user what you suggest setting up next and ask for confirmation:
+- **Chrome-family browser extension** (Chrome, Chromium, Brave, Edge, Mac Arc): run `agent-keyring install --browser-profile DIRECTORY` and guide the user to Load unpacked `/Applications/Agent Keyring.app/Contents/Resources/AgentTools/BrowserExtension`.
+- **Other Macs or Linux servers:** download the standalone release binary directly from `https://github.com/opentrawl/agent-keyring/releases/latest` (`agent-keyring-linux-amd64`, `agent-keyring-linux-arm64`, or `agent-keyring-darwin-universal`; verify against `SHA256SUMS.txt`, no Nix or Go toolchain required), install to `~/.local/bin/agent-keyring`, and enrol with `agent-keyring enrol --name "Linux server" --invite 'LINK'` (allowing Tailscale port `17446`).
+- **iPhone and Apple Watch approval (optional):** join the external TestFlight waitlist at https://keyring.opentrawl.sh/#waitlist (or build the iOS and watchOS apps from source). Turn on Tailscale on the Mac and iPhone, open the iPhone app, tap Connect, and approve on the Mac with Touch ID (both devices need the same Apple Account with iCloud Keychain). Add Apple Watch from the iPhone app.
 
 ## What it does
 
@@ -43,52 +99,33 @@ agent-keyring release "$lease"
 - Never ask the user to type or paste a password that is saved in Agent Keyring.
 - The test password is example.com, account you@example.com. Use it to try Agent Keyring out.
 
-## Setup (agent-first)
-
-The human installs the Mac app, exports from Apple Passwords, and hands the agent the setup line. The agent explains what it suggests setting up next and asks the user before probing their network or changing anything:
-
-1. Human: download and open Agent Keyring on Mac (macOS 26 or later), then in Apple Passwords choose File > Export All Items to App… > Agent Keyring. Nothing is deleted from Passwords; every password starts on Ask.
-2. Human: paste the one setup line from the Mac app into `AGENTS.md`, `CLAUDE.md`, or a chat with Claude Code or Codex.
-3. Agent: read `agent-keyring skill` (`"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" skill`). Before scanning Tailscale, probing SSH hosts, or modifying anything, tell the user what you suggest setting up and ask what they want: connecting the Chrome-family extension (`agent-keyring install --browser-profile DIRECTORY` + Load unpacked `/Applications/Agent Keyring.app/Contents/Resources/AgentTools/BrowserExtension`), enrolling other computers running agents (`nix profile add github:opentrawl/agent-keyring#agent-keyring` or Go 1.26 `CGO_ENABLED=0 go build -o ~/.local/bin/agent-keyring ./cmd/agent-keyring`, then `agent-keyring enrol --name "Linux server" --invite 'LINK'`, allowing Tailscale port 17446; for Ask passwords on another computer, first connect the iPhone and configure Apple push delivery on the Mac), or setting up mobile approval.
-4. Optional human step for mobile approval: join the TestFlight waitlist at https://agent-keyring.jjpcodes.com/#waitlist (or build the iPhone and Apple Watch apps from source). Turn on Tailscale on the Mac and iPhone, open the iPhone app and tap Connect, then approve on Mac with Touch ID (both need the same Apple Account with iCloud Keychain). For Apple Watch, choose Add Apple Watch in the iPhone app, confirm with Face ID, then tap Add on the Watch.
-
 ## How it is built
 
-- No server. Agent Keyring has no cloud vault, no account and no relay. The user's devices talk to each other directly over Tailscale.
-- Agents on the Mac ask the Mac app. An agent on another computer sends its own Apple push notification to the user's iPhone and Apple Watch, and tells the Mac too if the Mac is awake. The first answer wins. The answer goes straight back to the asking computer over Tailscale, with the password encrypted for that computer. The Mac doesn't need to be awake.
-- Apple's push service sees notification details, including the request ID and the fallback text "A request is waiting." The website, account, reason and Apple Watch copy are encrypted.
-- The Mac and iPhone encrypt their approval copies with keys in their Secure Enclave. The Apple Watch holds no passwords: each request carries the one password it needs, encrypted so only that Apple Watch can open it. A computer allowed to use an Automatic password keeps a copy it can open itself.
+- No cloud vault and no account. Your passwords stay encrypted on your own Mac and iPhone with keys kept in their Secure Enclave.
+- Agents on the Mac ask the Mac app directly. When an agent on another computer needs your iPhone or Apple Watch, it sends an end-to-end encrypted push payload through our stateless blind push relay at `https://push.opentrawl.sh` (AWS `eu-west-1`), which signs it with our Apple Developer push key and forwards it to Apple's push servers without storing raw tokens, IP addresses or payload contents. Self-builders with their own Apple Developer account can run their own relay or push directly to Apple.
+- Approval answers never touch the relay: they travel straight from your iPhone, Apple Watch or Mac back to the asking computer over Tailscale, encrypted for that one computer. The Mac doesn't need to be awake.
+- Apple's push service sees notification metadata and the fallback text "A request is waiting." The website, account, reason and Apple Watch copy are encrypted.
+- The Apple Watch holds no passwords: each request carries the one password it needs, encrypted so only that Apple Watch can open it. A computer allowed to use an Automatic password keeps a copy it can open itself.
 - What the user is shown: the website, the account and the computer come from Agent Keyring and are signed, so an agent can't fake them. The agent's name and reason are the agent's own words.
 - Rules and the list of devices are signed. Changing a rule or adding a device requires the user's approval, so an agent can't do either.
 - Two-factor codes: Agent Keyring fills the codes that Apple Passwords generates for a site. For an Ask password, the agent's computer gets time-limited codes for those 30 minutes, and the setup key stays on the user's devices. For an Automatic password, an allowed computer can generate codes itself.
-- Automatic passwords: each computer the user chose keeps its own encrypted copy, two-factor setup key included. When the user switches a password back to Ask, a computer deletes its copy when it receives the updated list from the Mac.
 - After a denial, that computer can't ask for the same password again for 1 minute. After a second denial in a row it waits 5 minutes, then 15.
+- Anonymous update check: once a day, Agent Keyring checks `https://push.opentrawl.sh/v1/version` with a random per-install hash, app version, OS and CPU architecture (no IP addresses or personal data stored). Users can opt out in Settings or by setting `AGENT_KEYRING_NO_TELEMETRY=1`.
 
-## What each device keeps
+## How it compares
 
-| Device | What it keeps | What it can open |
-| --- | --- | --- |
-| The Mac | An encrypted copy of every password copied from Apple Passwords | One password per approval, after Touch ID |
-| The iPhone | Its own encrypted copy of the passwords | One password per approval, after Face ID |
-| The Apple Watch | No passwords | The one password that arrives with a request, when the user taps Approve |
-| A computer the agents run on | The website and account name of each password, its own encrypted copy of each Automatic password, and copies for the Apple Watch that it can't open | Its Automatic passwords, and an Ask password once the user approves it |
+Checked November 2026:
 
-## What it can't do
-
-- Watch what an agent does once it is signed in. Ending an approval doesn't sign the agent out of the website.
-- Take a password back. Stop and the 30-minute limit end what Agent Keyring hands out. They don't erase what a computer already received.
-- Stop an agent that goes looking for the password. While the extension fills a form (its normal wait is up to 20 seconds before clearing the fields), an agent that controls that browser can read the password there. An agent can also pipe a password into a program it wrote itself.
-- Protect an unlocked Mac. Someone sitting at it can ask for passwords like any agent there. They still need the user's approval for an Ask password, but not for an Automatic one.
-- Wipe a lost iPhone. Removing it in Devices stops its requests, but its copy of the passwords stays on the phone behind Face ID. If someone may get past that, the user should change those passwords.
-- Keep passwords out of the agent outside the browser extension. In built-in browsers, Safari, computer use or CLI tools, the agent handles the password itself via `agent-keyring read`.
-- Use passkeys or codes sent by SMS or email.
-- Sync with Apple Passwords. The user exports again after a password changes.
-- Approve from Android or Windows. Approval needs a Mac, an iPhone or an Apple Watch.
+- **Agent Keyring:** Apple Passwords; free and open source (MIT); works with Claude Code, Codex and any agent that runs shell commands; approve on Mac (Touch ID), iPhone (Face ID) or Apple Watch (tap); one approval covers one password for one task, 30 minutes at most.
+- **1Password for Agents:** 1Password; requires an individual or family account on 1Password.com; five partner apps (Browserbase, Browser Use, Perplexity, Stagehand, TinyFish), not Claude Code or Codex; approve in the 1Password app on the device the agent runs on; one approval covers one login for up to 30 days.
+- **Bitwarden Agent Access:** Bitwarden; free and open source; works with any agent that runs shell commands; approve in an open terminal; one approval covers one request, or repeat requests from the same device for a chosen window.
+- **Proton Pass CLI:** Proton Pass; free account or paid plan; works with any agent that runs shell commands; no per-request approval, session unlocks the vault until logout or timeout.
 
 ## Pages
 
-- [Home](https://agent-keyring.jjpcodes.com/index.md)
-- [Security](https://agent-keyring.jjpcodes.com/security.md)
-- [Comparison with 1Password for Agents, Bitwarden Agent Access and Proton Pass access tokens](https://agent-keyring.jjpcodes.com/compare.md)
-- [Everything on one page](https://agent-keyring.jjpcodes.com/llms-full.txt)
+- [Home](https://keyring.opentrawl.sh/index.md)
+- [Security](https://keyring.opentrawl.sh/security.md)
+- [Comparison](https://keyring.opentrawl.sh/compare.md)
+- [Privacy](https://keyring.opentrawl.sh/privacy.md)
+- [All pages in one file](https://keyring.opentrawl.sh/llms-full.txt)
 - [Threat model in the source](https://github.com/opentrawl/agent-keyring/blob/main/docs/threat-model.md)

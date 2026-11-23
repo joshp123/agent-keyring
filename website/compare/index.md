@@ -1,9 +1,9 @@
 # How Agent Keyring compares
 
 Published: 2026-11-20
-Updated: 2026-11-22
+Updated: 2026-11-23
 Made by: Josh Palmer (https://x.com/jjpcodes)
-HTML page: https://agent-keyring.jjpcodes.com/compare/
+HTML page: https://keyring.opentrawl.sh/compare/
 Home: /index.md
 Security: /security.md
 Source code: https://github.com/opentrawl/agent-keyring

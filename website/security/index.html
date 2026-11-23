@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agent Keyring security</title>
   <meta name="description" content="Where Agent Keyring keeps your passwords, what your agent sees, how a request reaches you, and what it can&rsquo;t protect you from.">
-  <link rel="canonical" href="https://agent-keyring.jjpcodes.com/security/">
+  <link rel="canonical" href="https://keyring.opentrawl.sh/security/">
   <link rel="alternate" type="text/markdown" href="/security.md">
   <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
   <link rel="stylesheet" href="/styles.css">
@@ -15,9 +15,9 @@
     "@type": "TechArticle",
     "headline": "Agent Keyring security",
     "datePublished": "2026-11-21",
-    "dateModified": "2026-11-22",
+    "dateModified": "2026-11-23",
     "author": { "@type": "Person", "name": "Josh Palmer", "url": "https://jjpcodes.com" },
-    "mainEntityOfPage": "https://agent-keyring.jjpcodes.com/security/"
+    "mainEntityOfPage": "https://keyring.opentrawl.sh/security/"
   }
   </script>
 </head>
@@ -78,8 +78,12 @@
           <p>You approve once, and your agent&rsquo;s skill picks the cleanest route for whatever it&rsquo;s driving. In Chrome, Brave, Edge, Arc or Chromium with the extension loaded, the agent names the form fields and the extension checks the website, types the password, submits and clears the fields so nothing enters chat or logs.</p>
           <p>Anywhere the extension doesn&rsquo;t run (built-in agent browsers, Safari, desktop apps via computer use, or command-line tools such as <code>gh</code>), the agent passes the approved password straight into the code, app or tool through <code>agent-keyring read</code>, which refuses to print to a terminal.</p>
 
-          <h2>How a request reaches you</h2>
-          <p>Agents on your Mac ask the Mac app directly. An agent on another computer reaches your iPhone and Apple Watch with an Apple push notification, and your Mac too if it&rsquo;s awake. Your answer goes straight back to that computer over <a href="https://tailscale.com/" rel="noopener">Tailscale</a>, with the password encrypted for that one computer. There&rsquo;s no Agent Keyring server in between. Apple can see notification details, including the request ID and the fallback text &ldquo;A request is waiting.&rdquo; Your device decrypts the website, account and reason.</p>
+          <h2>How push notifications work</h2>
+          <p>Agents on your Mac ask the Mac app directly, with no network hop at all. When an agent on another computer needs your iPhone or Apple Watch, it encrypts the request (website, account, reason and Watch copy) for your devices and sends that opaque payload through our stateless blind push relay at <code>push.opentrawl.sh</code> (AWS <code>eu-west-1</code>). The relay signs the request with our Apple Developer push key and forwards it to Apple&rsquo;s push servers, without storing raw device tokens, IP addresses or message contents. Apple sees only standard notification metadata and the fallback text &ldquo;A request is waiting.&rdquo;</p>
+          <p>Your approval answer never touches the relay: it travels straight from your iPhone, Apple Watch or Mac back to the asking computer over <a href="https://tailscale.com/" rel="noopener">Tailscale</a>, encrypted for that one computer. If you build the apps with your own Apple Developer account, you can run your own push relay or push straight to Apple instead.</p>
+
+          <h2>Anonymous update check</h2>
+          <p>Once a day, Agent Keyring checks <code>https://push.opentrawl.sh/v1/version</code> with a random per-install hash, app version, OS and CPU architecture so it can notify you of new releases and let us count active installs. No IP addresses, websites, accounts or passwords are sent or stored. You can turn it off in Settings or with <code>AGENT_KEYRING_NO_TELEMETRY=1</code>. See the <a href="/privacy/">privacy policy</a> for full details.</p>
 
           <h2>What you&rsquo;re shown</h2>
           <p>Every request shows the website, the account and the computer that asked. Agent Keyring fills those in itself, so an agent can&rsquo;t fake them. The agent&rsquo;s name and its reason are the agent&rsquo;s own words, which is why the reason sits in quotation marks. An agent tricked by a web page can write anything there.</p>
@@ -167,6 +171,7 @@
       <div class="footer-links">
         <a href="/">Home</a>
         <a href="/compare/">Compare</a>
+        <a href="/privacy/">Privacy</a>
         <a href="https://github.com/opentrawl/agent-keyring" rel="noopener">Source code (MIT)</a>
       </div>
       <span>Built by <a href="https://x.com/jjpcodes" rel="noopener">Josh Palmer (@jjpcodes)</a>, part of the <a href="https://github.com/opentrawl" rel="noopener">OpenTrawl</a> suite. Apple Passwords, Touch ID, Face ID and Apple Watch are trademarks of Apple Inc.</span>

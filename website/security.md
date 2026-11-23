@@ -1,12 +1,13 @@
 # Agent Keyring security
 
 Published: 2026-11-21
-Updated: 2026-11-22
+Updated: 2026-11-23
 Made by: Josh Palmer (https://x.com/jjpcodes)
-HTML page: https://agent-keyring.jjpcodes.com/security/
+HTML page: https://keyring.opentrawl.sh/security/
 Threat model in the source: https://github.com/opentrawl/agent-keyring/blob/main/docs/threat-model.md
 Home: /index.md
 Comparison: /compare.md
+Privacy: /privacy.md
 
 There's no cloud vault and no account. Your passwords stay encrypted on your own devices, and an agent gets one only when you approve it, or when you've set that password to Automatic.
 
@@ -20,9 +21,15 @@ You approve once, and your agent's skill picks the cleanest route for whatever i
 
 Anywhere the extension doesn't run (built-in agent browsers, Safari, desktop apps via computer use, or command-line tools such as `gh`), the agent passes the approved password straight into the code, app or tool through `agent-keyring read`, which refuses to print to a terminal.
 
-## How a request reaches you
+## How push notifications work
 
-Agents on your Mac ask the Mac app directly. An agent on another computer reaches your iPhone and Apple Watch with an Apple push notification, and your Mac too if it's awake. Your answer goes straight back to that computer over Tailscale (https://tailscale.com/), with the password encrypted for that one computer. There's no Agent Keyring server in between. Apple can see notification details, including the request ID and the fallback text "A request is waiting." Your device decrypts the website, account and reason.
+Agents on your Mac ask the Mac app directly, with no network hop at all. When an agent on another computer needs your iPhone or Apple Watch, it encrypts the request (website, account, reason and Watch copy) for your devices and sends that opaque payload through our stateless blind push relay at `push.opentrawl.sh` (AWS `eu-west-1`). The relay signs the request with our Apple Developer push key and forwards it to Apple's push servers, without storing raw device tokens, IP addresses or message contents. Apple sees only standard notification metadata and the fallback text "A request is waiting."
+
+Your approval answer never touches the relay: it travels straight from your iPhone, Apple Watch or Mac back to the asking computer over Tailscale (https://tailscale.com/), encrypted for that one computer. If you build the apps with your own Apple Developer account, you can run your own push relay or push straight to Apple instead.
+
+## Anonymous update check
+
+Once a day, Agent Keyring checks `https://push.opentrawl.sh/v1/version` with a random per-install hash, app version, OS and CPU architecture so it can notify you of new releases and let us count active installs. No IP addresses, websites, accounts or passwords are sent or stored. You can turn it off in Settings or with `AGENT_KEYRING_NO_TELEMETRY=1`. See the privacy policy at /privacy.md (https://keyring.opentrawl.sh/privacy/) for full details.
 
 ## What you're shown
 
