@@ -58,7 +58,17 @@ public final class MacDevice {
         public var answerPort: UInt16 = 17446
         public var membersPort: UInt16 = 17447
         public var gateway = ApplePush.Gateway.apple
+        /// Stateless blind push relay used when no local .p8 key is installed. Nil disables relay fallback.
+        public var pushRelayURL: URL? = Self.defaultPushRelayURL()
         public var storage: MacStorage
+
+        private static func defaultPushRelayURL() -> URL? {
+            if let raw = ProcessInfo.processInfo.environment["AGENT_KEYRING_PUSH_RELAY_URL"] {
+                if raw.isEmpty || raw == "none" || raw == "off" { return nil }
+                return URL(string: raw)
+            }
+            return ApplePush.defaultRelayURL
+        }
         /// The invitation left in iCloud Keychain for a new iPhone.
         public var invitationItem: InvitationItem = .iCloud
         public var joinWait: Duration = .seconds(25)
@@ -129,6 +139,8 @@ public final class MacDevice {
         }
         if let bytes = environment.storage.read("push"), let credential = try? Agentkeyring_V2_PushCredential(serializedBytes: bytes) {
             push = try? ApplePush(credential: credential, gateway: environment.gateway)
+        } else if environment.gateway.pin == nil, let relayURL = environment.pushRelayURL {
+            push = ApplePush(relayURL: relayURL, gateway: environment.gateway)
         }
     }
 

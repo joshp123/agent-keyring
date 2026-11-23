@@ -1,18 +1,18 @@
 ---
-written_by: AI on 2026.11.23 by model gemini-4-neon for the v0.5.0 public Mac release
+written_by: AI on 2026.11.23 by model gemini-4-neon for the v1.0.0 release
 ---
 
-**1Password for the Agentic OS.** Let your AI agents sign in as you anywhere you work, using the passwords you already keep in Apple Passwords, with your Touch ID approval.
+**1Password for the Agentic OS.** Let your AI agents sign in as you anywhere you work, using the passwords you already keep in Apple Passwords, approved with Touch ID on your Mac or Face ID on your iPhone and Apple Watch.
 
-### What is in 0.5.0
+### What is in 1.0.0
 
-- **Mac app with Touch ID approvals (macOS 26+):** Export your passwords from Apple Passwords into Agent Keyring. Every password starts on **Ask**, sealed to your Mac's Secure Enclave. When an agent asks to sign in, a floating approval panel appears beside your active window showing the real site, account and the agent's reason; approve with Touch ID or deny with a note.
-- **30-minute task leases:** One approval covers username, password, authenticator two-factor codes and retries for up to 30 minutes, and you can cut access off immediately with **Stop**.
-- **Chrome-family browser extension + CLI delivery:** Load the bundled extension (`Agent Keyring.app/Contents/Resources/AgentTools/BrowserExtension`) in Chrome, Chromium, Brave, Edge or Arc so Agent Keyring fills, submits and clears sign-in forms without the password passing through the model, chat transcript or provider logs. In Safari, built-in agent browsers, desktop apps and terminals, approved agents use `agent-keyring read`.
-- **Enrolled computers over Tailscale:** Add other Macs, Linux servers or cloud VMs over Tailscale (direct TLS 1.3, pinned by public key, no relay) so unattended agents there can use **Automatic** passwords even while your MacBook is shut.
-- **Rules signed with Touch ID:** Set each password to **Ask**, **Automatic** or **Blocked**, or use **Set Rules with AI** to sort your site list (never sending usernames or passwords) and review every change before signing.
-- **Agent-driven setup:** Paste the setup prompt from the README into your agent; it runs `agent-keyring skill`, proposes what to configure and asks permission before scanning Tailscale, probing SSH hosts or changing anything.
+- **One-prompt LLM-first onboarding:** Paste one prompt into Claude Code or Codex (`https://keyring.opentrawl.sh/llms.txt`) and your agent proposes the setup plan, downloads and verifies the signed Mac app, guides your Apple Passwords export, and wires up the Chrome extension and remote computers after asking permission.
+- **Blind APNs push forwarder for iPhone and Apple Watch (`push.opentrawl.sh`):** External users get iPhone and Apple Watch push approvals out of the box without needing their own Apple Developer `.p8` key. The stateless forwarder in AWS `eu-west-1` sees only already-encrypted push blobs and device tokens, never passwords, sites, or approvals. Self-builders with their own Apple Developer key can still push directly to Apple.
+- **Standalone Linux and macOS CLI binaries:** Release assets now include `agent-keyring-linux-amd64`, `agent-keyring-linux-arm64`, `agent-keyring-darwin-universal`, and `SHA256SUMS.txt` alongside `Agent-Keyring-1.0.0.zip`, so remote servers no longer need Nix.
+- **Mac app with Touch ID approvals, 30-minute task leases, and instant Stop:** Signed, notarised, and stapled for macOS 26+, with the Chrome-family browser extension (`AgentTools/BrowserExtension`) and agent skill (`AgentTools/AgentSkill/agent-keyring/SKILL.md`) bundled inside.
+- **Zero-PII daily version check:** Checks `https://push.opentrawl.sh/v1/version` at most once per day with version, platform, architecture, and a monthly-rotated anonymous hash (no IP stored, no sites or passwords; disable via `AGENT_KEYRING_NO_TELEMETRY=1` or `defaults write com.joshpalmer.AgentKeyring.Mac disableVersionCheck -bool true`).
 
-### Coming next
+### Site & iPhone/Watch Beta
 
-- **iPhone and Apple Watch approval app:** Currently in internal testing before public TestFlight. Join the waitlist at [agent-keyring.jjpcodes.com](https://agent-keyring.jjpcodes.com/).
+- Website: [keyring.opentrawl.sh](https://keyring.opentrawl.sh/) (also live at [agent-keyring.jjpcodes.com](https://agent-keyring.jjpcodes.com/))
+- iPhone and Apple Watch TestFlight beta: submitted for Apple Beta App Review; join the waitlist on [keyring.opentrawl.sh](https://keyring.opentrawl.sh/#waitlist) for the public link as soon as Apple approves.

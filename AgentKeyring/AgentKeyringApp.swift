@@ -3,6 +3,7 @@ import OSLog
 import AuthenticationServices
 import LocalAuthentication
 import SwiftUI
+import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
 import AgentKeyringScreenBackends
@@ -56,6 +57,7 @@ final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
                 await model.loadStatus()
                 if !model.firstRunFinished { presentation.requestMainWindow() }
             }
+            Task { await VersionCheck.checkIfDue(platform: "macos") }
         }
 
         guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),

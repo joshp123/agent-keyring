@@ -27,6 +27,9 @@ private final class StandInPin: NSObject, URLSessionDelegate, Sendable {
 }
 
 public final class ApplePush: Sendable {
+    /// Default stateless blind APNs push-signing relay for users without their own Apple Developer .p8 key.
+    public static let defaultRelayURL = URL(string: "https://push.opentrawl.sh")!
+
     /// Where pushes go: Apple's two services, or a stand-in pinned to its key in tests.
     public struct Gateway: Sendable {
         public let production: URL
@@ -49,15 +52,31 @@ public final class ApplePush: Sendable {
         public var description: String { "Apple refused the push: \(status) \(reason)" }
     }
 
-    let credential: Agentkeyring_V2_PushCredential
-    private let key: P256.Signing.PrivateKey
+    private enum Mode: Sendable {
+        case direct(credential: Agentkeyring_V2_PushCredential, key: P256.Signing.PrivateKey)
+        case relay(URL)
+    }
+
+    private let mode: Mode
+    /// Present only when this Mac holds a local Apple Developer .p8 key (direct APNs mode).
+    var credential: Agentkeyring_V2_PushCredential? {
+        if case let .direct(credential, _) = mode { return credential }
+        return nil
+    }
     private let gateway: Gateway
     private let session: URLSession
     private let token = Mutex<(text: String, issued: Date)?>(nil)
 
     public init(credential: Agentkeyring_V2_PushCredential, gateway: Gateway = .apple) throws {
-        self.credential = credential
-        key = try P256.Signing.PrivateKey(derRepresentation: credential.privateKey)
+        let key = try P256.Signing.PrivateKey(derRepresentation: credential.privateKey)
+        self.mode = .direct(credential: credential, key: key)
+        self.gateway = gateway
+        session = URLSession(configuration: .ephemeral, delegate: gateway.pin.map { StandInPin(spki: $0) }, delegateQueue: nil)
+    }
+
+    /// Sends encrypted push payloads via a stateless blind APNs relay (such as https://push.opentrawl.sh).
+    public init(relayURL: URL = ApplePush.defaultRelayURL, gateway: Gateway = .apple) {
+        self.mode = .relay(relayURL)
         self.gateway = gateway
         session = URLSession(configuration: .ephemeral, delegate: gateway.pin.map { StandInPin(spki: $0) }, delegateQueue: nil)
     }
@@ -66,7 +85,8 @@ public final class ApplePush: Sendable {
 
     /// Apple's provider token: signed once, kept 30 minutes (Apple takes one up to an hour old).
     func authorization(now: Date = .now) throws -> String {
-        try token.withLock { current in
+        guard case let .direct(credential, key) = mode else { return "" }
+        return try token.withLock { current in
             if let current, now.timeIntervalSince(current.issued) < 1800 { return current.text }
             func part(_ object: [String: Any]) throws -> String {
                 try JSONSerialization.data(withJSONObject: object, options: .sortedKeys).base64URLEncoded
@@ -78,14 +98,25 @@ public final class ApplePush: Sendable {
         }
     }
 
-    /// One push to one device: `visible`, an alert he sees and hears; otherwise a silent background push.
+    /// One push to one device: `visible`, an alert the user sees and hears; otherwise a silent background push.
     public func send(_ payload: Data, to registration: Agentkeyring_V2_PushRegistration, collapseID: String, expiration: Int64,
         visible: Bool) async throws {
-        let base = registration.apnsProduction ? gateway.production : gateway.sandbox
+        let base: URL
+        switch mode {
+        case .direct:
+            base = registration.apnsProduction ? gateway.production : gateway.sandbox
+        case let .relay(relayURL):
+            base = relayURL
+        }
         var request = URLRequest(url: base.appending(path: "3/device/" + registration.apnsToken.map { String(format: "%02x", $0) }.joined()),
             timeoutInterval: 10)
         request.httpMethod = "POST"
-        request.setValue("bearer " + (try authorization()), forHTTPHeaderField: "authorization")
+        switch mode {
+        case .direct:
+            request.setValue("bearer " + (try authorization()), forHTTPHeaderField: "authorization")
+        case .relay:
+            request.setValue(registration.apnsProduction ? "production" : "sandbox", forHTTPHeaderField: "x-apns-env")
+        }
         request.setValue(registration.apnsTopic, forHTTPHeaderField: "apns-topic")
         request.setValue(visible ? "alert" : "background", forHTTPHeaderField: "apns-push-type")
         request.setValue(visible ? "10" : "5", forHTTPHeaderField: "apns-priority") // Apple requires 5 for background pushes.

@@ -3,6 +3,7 @@
 // The iPhone app: Paper's screens, and the answers given from a held
 // notification (Approve, Deny, Deny and Explain).
 
+import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
 import AgentKeyringPhoneApprover
 import AgentKeyringRelaySupport
@@ -25,6 +26,7 @@ struct AgentKeyringPhoneApp: App {
                         delegate.keyring?.start()
                         PhoneDiagnostics.log.collect()
                         Task { await delegate.model.recheckNotifications() }
+                        Task { await VersionCheck.checkIfDue(platform: "ios") }
                     } else if phase == .background { delegate.keyring?.stop() }
                 }
                 // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.

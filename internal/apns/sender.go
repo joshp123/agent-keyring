@@ -26,7 +26,13 @@ import (
 	"time"
 )
 
-type Config struct{ KeyPath, KeyID, TeamID, TestGateway, TestCA string }
+// DefaultRelayURL is the stateless blind APNs push-signing relay hosted on
+// OpenTrawl's AWS infrastructure for users who do not supply their own Apple
+// Developer .p8 push key. It receives only already-encrypted payloads and
+// forwards them to Apple.
+const DefaultRelayURL = "https://push.opentrawl.sh"
+
+type Config struct{ KeyPath, KeyID, TeamID, RelayURL, TestGateway, TestCA string }
 type Sender struct {
 	config Config
 	key    *ecdsa.PrivateKey
@@ -86,6 +92,31 @@ func NewWithKey(pkcs8 []byte, config Config) (*Sender, error) {
 	return &Sender{config: config, key: key, client: &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
+// NewRelay sends encrypted APNs payloads through a stateless blind push-signing
+// forwarder (such as https://push.opentrawl.sh) when this computer does not hold
+// its own Apple Developer .p8 key.
+func NewRelay(relayURL string, config Config) (*Sender, error) {
+	relayURL = strings.TrimSpace(relayURL)
+	if relayURL == "" {
+		return nil, errors.New("APNs relay URL is empty")
+	}
+	config.RelayURL = strings.TrimRight(relayURL, "/")
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ForceAttemptHTTP2 = true
+	if config.TestCA != "" {
+		roots := x509.NewCertPool()
+		data, err := os.ReadFile(config.TestCA)
+		if err != nil {
+			return nil, err
+		}
+		if !roots.AppendCertsFromPEM(data) {
+			return nil, errors.New("Invalid test gateway CA")
+		}
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+	}
+	return &Sender{config: config, client: &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+}
+
 // UseToken starts from a token another process made, so that a computer's
 // processes give Apple one token, not one each (Apple refuses new tokens
 // more often than every 20 minutes). Token is the one in use.
@@ -139,18 +170,25 @@ func (s *Sender) Send(ctx context.Context, token []byte, topic string, productio
 		gateway = "https://api.push.apple.com"
 		environment = "production"
 	}
-	if s.config.TestGateway != "" {
+	usingRelay := s.config.RelayURL != ""
+	if usingRelay {
+		gateway = s.config.RelayURL
+	} else if s.config.TestGateway != "" {
 		gateway = strings.TrimRight(s.config.TestGateway, "/") + "/" + environment
-	}
-	authorization, err := s.authorization()
-	if err != nil {
-		return Result{}, err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, gateway+"/3/device/"+hex.EncodeToString(token), bytes.NewReader(payload))
 	if err != nil {
 		return Result{}, err
 	}
-	request.Header.Set("authorization", "bearer "+authorization)
+	if usingRelay {
+		request.Header.Set("x-apns-env", environment)
+	} else {
+		authorization, err := s.authorization()
+		if err != nil {
+			return Result{}, err
+		}
+		request.Header.Set("authorization", "bearer "+authorization)
+	}
 	request.Header.Set("apns-topic", topic)
 	if visible {
 		request.Header.Set("apns-push-type", "alert")
@@ -168,7 +206,7 @@ func (s *Sender) Send(ctx context.Context, token []byte, topic string, productio
 	}
 	defer response.Body.Close()
 	result := Result{Status: response.StatusCode}
-	if response.ProtoMajor != 2 {
+	if !usingRelay && response.ProtoMajor != 2 {
 		return result, errors.New("APNs requires HTTP/2")
 	}
 	if response.StatusCode == 200 {

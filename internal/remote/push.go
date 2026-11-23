@@ -27,10 +27,26 @@ func (c *Client) certificateSPKI() []byte {
 	return spki
 }
 
+// pushRelayURL returns the blind APNs push-signing relay URL to use when no
+// local .p8 push credential is present. Explicit "none" disables it; loopback
+// tests keep it off unless AGENT_KEYRING_PUSH_RELAY_URL is explicitly set.
+func pushRelayURL() string {
+	if raw, ok := os.LookupEnv("AGENT_KEYRING_PUSH_RELAY_URL"); ok {
+		if raw == "" || raw == "none" || raw == "off" {
+			return ""
+		}
+		return raw
+	}
+	if door.Testing() {
+		return ""
+	}
+	return apns.DefaultRelayURL
+}
+
 // canPush says, before anything is asked, why a request could not reach
-// Josh's iPhone or Apple Watch.
+// the user's iPhone or Apple Watch.
 func (c *Client) canPush(state *clientstate.State, current *view) error {
-	if len(state.PushCredential) == 0 {
+	if len(state.PushCredential) == 0 && pushRelayURL() == "" {
 		return errors.New("This computer has no push credential from the Mac, so its requests cannot reach the user's iPhone or Apple Watch. Give the Mac the push key, then enrol this computer again.")
 	}
 	if len(targets(current)) == 0 {
@@ -55,11 +71,19 @@ func targets(current *view) []target {
 	return found
 }
 
-// sender is Apple's push service, with the credential the Mac sealed to this
-// computer. A loopback test may point it at a stand-in for Apple.
+// sender is Apple's push service when this computer holds a local .p8 push
+// credential, or the stateless blind push-signing relay (https://push.opentrawl.sh)
+// otherwise. A loopback test may point it at a stand-in for Apple.
 func (c *Client) sender(state *clientstate.State) (*apns.Sender, error) {
+	if len(state.PushCredential) == 0 {
+		relay := pushRelayURL()
+		if relay == "" {
+			return nil, errors.New("This computer has no push credential from the Mac.")
+		}
+		return apns.NewRelay(relay, apns.Config{TestCA: os.Getenv("AGENT_KEYRING_TEST_APNS_CA")})
+	}
 	sealed := &pb.SealedPushCredential{}
-	if len(state.PushCredential) == 0 || proto.Unmarshal(state.PushCredential, sealed) != nil {
+	if proto.Unmarshal(state.PushCredential, sealed) != nil {
 		return nil, errors.New("This computer has no push credential from the Mac.")
 	}
 	credential, err := keyring.OpenPushCredential(sealed, c.receiving)

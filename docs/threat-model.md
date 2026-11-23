@@ -8,7 +8,9 @@ Your agents need your passwords to sign in to websites and tools for you. Agent 
 
 ## Where your passwords are
 
-There is no cloud server and no relay. Your Mac is the home for your password list and your signed list of devices and computers. Everything travels directly between your devices over your own Tailscale network, over TLS 1.3 pinned by public key.
+There is no cloud vault. Your Mac is the home for your password list and your signed list of devices and computers. Passwords, rules, and approvals travel directly between your devices over your own Tailscale network, over TLS 1.3 pinned by public key.
+
+For waking an iPhone or Apple Watch over Apple Push Notification service (APNs), Apple requires the app developer's private `.p8` key. Public builds forward the already-encrypted push blob through a stateless blind push-signing Lambda at `https://push.opentrawl.sh` (AWS `eu-west-1`). It holds no user database and no decryption keys: it sees only opaque ciphertext, APNs device tokens, and timestamps (the same metadata Apple sees), and cannot read any site, username, or password, or forge an approval (the iPhone and Watch verify the requesting computer's signature against their signed `Members` list before showing a notification). Self-builders with their own Apple Developer `.p8` key can run `agent-keyring push-key` to push straight to Apple with no forwarder.
 
 - **Your Mac:** holds every imported password, sealed to this Mac's Secure Enclave key. Opening a password requires Touch ID (or macOS companion unlock).
 - **Your iPhone (when paired):** holds every non-Blocked password, sealed to its Secure Enclave key, opened only after Face ID.

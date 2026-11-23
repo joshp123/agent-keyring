@@ -2,21 +2,21 @@
 
 **1Password for the Agentic OS.** Let your AI agents sign in as you anywhere you work, using the passwords you already keep in Apple Passwords, with your approval.
 
-Part of the [OpenTrawl](https://github.com/opentrawl/opentrawl) suite alongside OpenTrawl (**Spotlight for the Agentic OS**). See [agent-keyring.jjpcodes.com](https://agent-keyring.jjpcodes.com/) for the overview, [security model](https://agent-keyring.jjpcodes.com/security/), and [comparisons](https://agent-keyring.jjpcodes.com/compare/).
+Part of the [OpenTrawl](https://github.com/opentrawl/opentrawl) suite alongside OpenTrawl (**Spotlight for the Agentic OS**). See [keyring.opentrawl.sh](https://keyring.opentrawl.sh/) for the overview, [security model](https://keyring.opentrawl.sh/security/), and [comparisons](https://keyring.opentrawl.sh/compare/).
 
 macOS 26 or later · MIT licence
 
-**Status:** `0.5.0` is live on [Releases](https://github.com/opentrawl/agent-keyring/releases/latest) as a signed, notarised Mac app. Today, `0.5.0` works on your Mac (Touch ID approvals) and enrolled computers on your Tailscale network (Automatic passwords). The iPhone and Apple Watch approval app is in internal testing before public TestFlight; join the waitlist at [agent-keyring.jjpcodes.com](https://agent-keyring.jjpcodes.com/).
+**Status:** `1.0.0` is live on [Releases](https://github.com/opentrawl/agent-keyring/releases/latest) with the signed, notarised Mac app and standalone Linux/macOS CLI binaries. The iPhone and Apple Watch approval app is submitted for external TestFlight Beta App Review; join the waitlist at [keyring.opentrawl.sh](https://keyring.opentrawl.sh/#waitlist) to get the public TestFlight link as soon as Apple approves.
 
-## Get started
+## Get started (one prompt)
 
-1. **Install Agent Keyring** on your Mac from [Releases](https://github.com/opentrawl/agent-keyring/releases/latest) (or ask your coding agent to build it from this repo using [CONTRIBUTING.md](CONTRIBUTING.md)).
-2. **Export your passwords** from Apple Passwords into Agent Keyring (`File -> Export All Items to App -> Agent Keyring`). Every password starts on **Ask**.
-3. **Hand it to your AI.** Paste this into your agent:
+Paste this into Claude Code, Codex, or any coding agent on your Mac:
 
-> Set up Agent Keyring for me. Run `"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" skill` and follow its setup section.
+> Install and set up Agent Keyring using `https://keyring.opentrawl.sh/llms.txt`. Tell me what you plan to do and ask before scanning my network or changing anything.
 
-Your agent inspects your setup, asks before changing anything, pairs your other computers over Tailscale, and tells you any manual step it cannot do itself (such as loading the Chrome extension or installing the CLI on a remote box).
+Your agent downloads and verifies the signed Mac app from Releases, opens it so you can do the two Apple steps yourself (Touch ID + exporting from Apple Passwords via `File -> Export All Items to App -> Agent Keyring`), and then runs `agent-keyring skill` to propose and set up the Chrome extension, remote Linux/Mac servers, and iPhone/Apple Watch pairing.
+
+Prefer to install manually? Download `Agent-Keyring-1.0.0.zip` from [Releases](https://github.com/opentrawl/agent-keyring/releases/latest), drag `Agent Keyring.app` to `/Applications`, export your passwords from Apple Passwords, and run `"/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" skill`. Every password starts on **Ask**.
 
 ## What your agents can do with it
 
@@ -24,7 +24,15 @@ Your agent inspects your setup, asks before changing anything, pairs your other 
 - **Keep passwords out of your chat with the browser extension:** In Chrome, Chromium, Brave, Edge, and Arc, Agent Keyring's browser extension fills your username, password, and two-factor code straight into the page, submits, and clears the fields. The password never passes through the model, the chat transcript, or your AI provider's logs, and the extension refuses to type into any site other than the one the password was saved for. In built-in agent browsers, Safari, desktop apps, and CLI tools where Chrome extensions cannot run, your agent signs in under the same approval through `agent-keyring read`. The extension does not stop an agent you already approved from reading the password another way.
 - **Run unattended jobs on other computers:** Enroll other Macs, Linux servers, or cloud VMs on your Tailscale network so agents there can sign in with Automatic passwords even while your MacBook is shut.
 - **Stop access immediately:** Tap **Stop** in Agent Keyring to cut off an active task approval right away.
-- **Coming soon: approve from your iPhone or Apple Watch.** Public TestFlight for the iPhone and Apple Watch companion app is next, so you can approve Ask requests from your phone or wrist even when your MacBook is shut.
+- **Approve from your iPhone or Apple Watch:** Pair your iPhone and Apple Watch over Tailscale so you can approve Ask requests with Face ID or a tap on your wrist even when your MacBook is shut.
+
+## How push notifications work
+
+Your passwords, device lists, and approvals travel directly between your own devices over your Tailscale network (TLS 1.3 pinned by public key) with no cloud vault.
+
+To wake an iPhone or Apple Watch, Apple Push Notification service (APNs) requires requests to be signed with the app developer's private `.p8` key, which cannot be shipped inside a public download. By default, Agent Keyring sends each already-encrypted push blob through a tiny, stateless blind forwarder at `https://push.opentrawl.sh` (AWS Lambda in `eu-west-1`). That forwarder signs Apple's APNs JWT and hands the opaque ciphertext straight to Apple. It holds no user accounts, no passwords, and no decryption keys: it sees only opaque ciphertext, APNs device tokens, and timestamps, the same metadata Apple sees. If you build the iOS app under your own Apple Developer account, run `agent-keyring push-key` with your own `.p8` file to push directly to Apple with zero intermediary.
+
+To check for new releases and count active installs, the Mac and iPhone apps make a single daily `GET` request to `https://push.opentrawl.sh/v1/version` carrying only the app version, platform, CPU architecture, and a monthly-rotated anonymous hash (no IP address is stored, and no sites, accounts, or passwords are ever sent). Disable it anytime with `AGENT_KEYRING_NO_TELEMETRY=1` or `defaults write com.joshpalmer.AgentKeyring.Mac disableVersionCheck -bool true`.
 
 ## Rules
 
