@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Keyring: 1Password for the Agentic OS</title>
+  <meta name="description" content="1Password for the Agentic OS. Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.">
+  <link rel="canonical" href="https://agent-keyring.jjpcodes.com/">
+  <link rel="alternate" type="text/markdown" href="/index.md">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Agent Keyring: 1Password for the Agentic OS">
+  <meta property="og:description" content="1Password for the Agentic OS. Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.">
+  <meta property="og:url" content="https://agent-keyring.jjpcodes.com/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:creator" content="@jjpcodes">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Agent Keyring",
+    "applicationCategory": "SecurityApplication",
+    "operatingSystem": "macOS 26+, iOS, watchOS, Linux (CLI)",
+    "url": "https://agent-keyring.jjpcodes.com/",
+    "codeRepository": "https://github.com/opentrawl/agent-keyring",
+    "license": "https://opensource.org/license/MIT",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "Josh Palmer", "url": "https://jjpcodes.com" },
+    "description": "1Password for the Agentic OS. Free, open-source (MIT) app for Mac, iPhone and Apple Watch, part of the OpenTrawl suite. Lets AI coding agents such as Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch for one task and 30 minutes at most. No cloud vault and no account."
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap nav-bar">
+      <a class="brand" href="/">
+        <svg class="nav-mascot js-mascot" viewBox="0 0 100 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="nav-tile" x1="0.5" y1="0" x2="0.5" y2="1">
+              <stop offset="0%" stop-color="var(--mascot-tile-top)"/>
+              <stop offset="100%" stop-color="var(--mascot-tile-bottom)"/>
+            </linearGradient>
+          </defs>
+          <rect width="100" height="100" rx="22" fill="url(#nav-tile)"/>
+          <circle cx="50" cy="38.5" r="21.5" fill="var(--mascot-body)"/>
+          <path d="M40.2 51.5h19.6l7.4 30.4a3.2 3.2 0 01-3.1 4H35.9a3.2 3.2 0 01-3.1-4z" fill="var(--mascot-body)"/>
+          <g class="mascot-eyes">
+            <g class="mascot-eyes-blink">
+              <circle cx="46.3" cy="37.5" r="4.9" fill="var(--mascot-eye)"/>
+              <circle cx="47.77" cy="35.932" r="1.764" fill="#FFFFFF" fill-opacity="0.92"/>
+              <circle cx="60" cy="37.5" r="4.9" fill="var(--mascot-eye)"/>
+              <circle cx="61.47" cy="35.932" r="1.764" fill="#FFFFFF" fill-opacity="0.92"/>
+            </g>
+          </g>
+        </svg>
+        <span>Agent Keyring</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="/security/">Security</a>
+        <a href="/compare/">Compare</a>
+        <a href="https://github.com/opentrawl/agent-keyring" class="hide-xs" rel="noopener">GitHub</a>
+        <a href="https://x.com/jjpcodes" class="hide-xs" rel="noopener">Made by @jjpcodes</a>
+        <button type="button" class="theme-btn" id="theme-toggle" aria-label="Switch to light mode">Light mode</button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <canvas class="city-canvas" id="city" aria-hidden="true"></canvas>
+    <div class="city-tag" id="tag-agent" aria-hidden="true"></div>
+    <div class="city-tag you" id="tag-you" aria-hidden="true"></div>
+
+    <section class="hero">
+      <div class="wrap">
+        <div class="hero-header">
+          <div class="hero-mascot-wrap" id="mascot-wrap" data-mood="happy">
+            <div class="sparkle-layer" id="mascot-sparkles" aria-hidden="true"></div>
+            <button type="button" class="hero-mascot-btn" id="mascot-poke" aria-label="Make the keyhole jump">
+              <svg class="hero-mascot-svg js-mascot" id="hero-mascot-svg" viewBox="0 0 100 100" role="img" aria-label="Happy blue keyhole mascot whose eyes and body react playfully to your cursor">
+                <defs>
+                  <linearGradient id="hero-tile" x1="0.5" y1="0" x2="0.5" y2="1">
+                    <stop offset="0%" stop-color="var(--mascot-tile-top)"/>
+                    <stop offset="100%" stop-color="var(--mascot-tile-bottom)"/>
+                  </linearGradient>
+                </defs>
+                <rect width="100" height="100" rx="23" fill="url(#hero-tile)"/>
+                <g class="mascot-body-rig" id="mascot-body-rig">
+                  <circle cx="50" cy="38.5" r="21.5" fill="var(--mascot-body)"/>
+                  <path d="M40.2 51.5h19.6l7.4 30.4a3.2 3.2 0 01-3.1 4H35.9a3.2 3.2 0 01-3.1-4z" fill="var(--mascot-body)"/>
+                  <g class="mascot-cheeks" opacity="0">
+                    <ellipse cx="36.2" cy="44.2" rx="4.4" ry="2.5" fill="#FF6FD8" fill-opacity="0.82"/>
+                    <ellipse cx="66.2" cy="44.2" rx="4.4" ry="2.5" fill="#FF6FD8" fill-opacity="0.82"/>
+                  </g>
+                  <g class="mascot-eyes">
+                    <g class="mascot-eyes-blink">
+                      <g class="eyes-open">
+                        <circle cx="44.6" cy="35.6" r="5.1" fill="var(--mascot-eye)"/>
+                        <circle cx="46.2" cy="33.8" r="2.05" fill="#FFFFFF"/>
+                        <circle cx="43.1" cy="37.6" r="1.05" fill="#FFFFFF" fill-opacity="0.8"/>
+                        <circle cx="58.8" cy="35.6" r="5.1" fill="var(--mascot-eye)"/>
+                        <circle cx="60.4" cy="33.8" r="2.05" fill="#FFFFFF"/>
+                        <circle cx="57.3" cy="37.6" r="1.05" fill="#FFFFFF" fill-opacity="0.8"/>
+                      </g>
+                      <g class="eyes-happy" opacity="0">
+                        <path d="M39.5 37.6 Q44.6 30.0 49.7 37.6" fill="none" stroke="var(--mascot-eye)" stroke-width="3.6" stroke-linecap="round"/>
+                        <path d="M53.7 37.6 Q58.8 30.0 63.9 37.6" fill="none" stroke="var(--mascot-eye)" stroke-width="3.6" stroke-linecap="round"/>
+                      </g>
+                      <g class="eyes-alert" opacity="0">
+                        <circle cx="44.6" cy="37.2" r="5.3" fill="var(--mascot-eye)"/>
+                        <circle cx="46.3" cy="35.2" r="2.0" fill="#FFFFFF"/>
+                        <circle cx="58.8" cy="37.2" r="5.3" fill="var(--mascot-eye)"/>
+                        <circle cx="60.5" cy="35.2" r="2.0" fill="#FFFFFF"/>
+                        <path d="M39.4 29.4 L48.8 31.6" fill="none" stroke="var(--mascot-eye)" stroke-width="2.6" stroke-linecap="round"/>
+                        <path d="M64.0 29.4 L54.6 31.6" fill="none" stroke="var(--mascot-eye)" stroke-width="2.6" stroke-linecap="round"/>
+                      </g>
+                    </g>
+                    <path class="mouth-smile" d="M44.6 44.2 Q51.7 52.6 58.8 44.2" fill="none" stroke="var(--mascot-eye)" stroke-width="3.0" stroke-linecap="round"/>
+                    <g class="mouth-grin" opacity="0">
+                      <path d="M43.2 43.4 Q51.7 55.6 60.2 43.4 Z" fill="var(--mascot-eye)"/>
+                      <ellipse cx="51.7" cy="49.4" rx="4.4" ry="2.2" fill="#FF6F9F"/>
+                    </g>
+                    <circle class="mouth-gasp" cx="51.7" cy="47.2" r="3.0" fill="var(--mascot-eye)" opacity="0"/>
+                  </g>
+                </g>
+              </svg>
+            </button>
+          </div>
+
+          <h1>Your agents ask.<br>You tap yes.</h1>
+          <p>1Password for the Agentic OS. Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.</p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">Download for Mac</a>
+            <a class="btn-link" href="https://github.com/opentrawl/agent-keyring" rel="noopener">Get the source code (MIT) &rarr;</a>
+          </div>
+        </div>
+
+        <div class="city-strip" id="city-strip" aria-hidden="true"></div>
+
+        <div class="film" id="film" data-scene="0" data-status="ask" aria-label="A looping walkthrough in four scenes: approving a password request on Apple Watch while out on a bike, approving with Touch ID on a Mac, denying by voice on iPhone, and the same task without Agent Keyring.">
+          <div class="film-stage" id="film-stage">
+
+            <div class="film-side" id="film-chat">
+              <div class="chat-head">
+                <span class="chat-dot" aria-hidden="true"></span>
+                <strong id="chat-agent">Claude Code</strong>
+                <span id="chat-where">Mac mini at home</span>
+              </div>
+              <div class="chat-body" id="chat-body">
+                <p class="msg you">Top up our OpenAI API credits by $50 and restart the eval run.</p>
+                <p class="msg agent">I need to sign in to openai.com. Asking Agent Keyring for the password.</p>
+              </div>
+              <div class="wait" id="wait" data-tone="run">
+                <span class="wait-label">You answered in</span>
+                <strong class="wait-value" id="wait-value">2 seconds</strong>
+                <span class="wait-was" id="wait-was"></span>
+              </div>
+            </div>
+
+            <div class="device" id="film-device">
+              <div class="device-head" aria-hidden="true">
+                <span class="device-dot"></span>
+                <strong>You</strong>
+                <span id="device-where">Out on your bike</span>
+                <span class="device-arrow">&rarr;</span>
+              </div>
+
+              <div class="without-banner" aria-hidden="true">
+                <span class="without-x"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 3l6 6M9 3L3 9"/></svg></span>
+                <span>Without Agent Keyring</span>
+              </div>
+              <div class="without-caption" aria-hidden="true">Your Apple Watch stays quiet. Claude Code waits.</div>
+
+              <!-- Apple Watch: its clock face while nothing reaches you, then the request (AgentKeyringWatch/RequestView.swift) -->
+              <div class="rig rig-watch" id="rig-watch" data-face="request">
+                <div class="watch">
+                  <div class="watch-screen">
+                    <div class="wface">
+                      <span class="wface-date">Sat 21</span>
+                      <span class="wface-time" id="wface-time">15:46</span>
+                    </div>
+                    <div class="wnote">
+                      <div class="wnote-top">
+                        <img src="/assets/favicon.svg" alt="" class="wnote-icon">
+                        <span class="wnote-clock">15:46</span>
+                      </div>
+                      <div class="wnote-sash">now</div>
+                      <div class="wnote-card">
+                        <div class="w-sub">Claude Code on Mac mini wants</div>
+                        <div class="w-site">openai.com</div>
+                        <div class="w-sub">ops@acme.dev</div>
+                        <div class="w-actions">
+                          <span class="w-pill deny">Deny</span>
+                          <span class="w-pill approve" id="w-approve">Approve<span class="tap" id="tap-watch"></span></span>
+                        </div>
+                        <div class="w-answer">Approved</div>
+                        <p class="w-reason">&ldquo;You asked me to top up the API credits.&rdquo;</p>
+                        <span class="w-pill explain">Deny and Explain</span>
+                      </div>
+                    </div>
+                  </div>
+                  <img class="bezel" src="/assets/hardware/apple-watch-s11.png" alt="Apple Watch showing an Agent Keyring request: Claude Code on Mac mini wants the openai.com password, with Deny and Approve buttons">
+                </div>
+              </div>
+
+              <!-- Mac: the request panel (MacRequestPanel.swift) and the Touch ID dialog -->
+              <div class="rig rig-mac" id="rig-mac" data-state="asking">
+                <div class="mac">
+                  <div class="mac-panel">
+                    <div class="mac-asking">
+                      <div class="sui-head">
+                        <span class="sui-brand"><img src="/assets/favicon.svg" alt="" width="18" height="18"> Agent Keyring</span>
+                        <span class="sui-place">Project <strong>billing</strong></span>
+                      </div>
+                      <div class="mac-body">
+                        <div class="sui-sub">Codex on this Mac wants</div>
+                        <div class="mac-site">hetzner.com</div>
+                        <div class="sui-sub">ops@acme.dev</div>
+                        <p class="mac-quote">&ldquo;You asked me to download October&rsquo;s invoices.&rdquo;</p>
+                      </div>
+                      <div class="mac-reply-row">
+                        <div class="mac-reply">What should Codex do instead?</div>
+                        <div class="mac-deny">Deny</div>
+                      </div>
+                      <div class="mac-approve" id="mac-approve"><span id="mac-approve-label">Click to approve with Touch ID</span></div>
+                      <div class="sui-rule"></div>
+                      <div class="mac-foot">Codex can use this password for this task, 30 minutes at most.</div>
+                    </div>
+                    <div class="mac-answered">
+                      <span class="sui-check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+                      <div class="mac-ans-copy">
+                        <strong>Approved</strong>
+                        <span>Codex can use this password until 14:42 at the latest.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="tid" id="tid" aria-hidden="true">
+                    <div class="tid-icon">
+                      <img src="/assets/hardware/touchid-armed.png" alt="" class="tid-print">
+                      <span class="tid-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+                    </div>
+                    <strong>Agent Keyring</strong>
+                    <span>Agent Keyring is trying to let Codex use your hetzner.com password.</span>
+                    <div class="tid-actions"><span style="grid-column: 1 / -1">Cancel</span></div>
+                  </div>
+
+                  <svg class="pointer" id="mac-pointer" viewBox="0 0 20 26" aria-hidden="true"><path d="M2 2v19.2l5-4.6 3.3 7.4 3-1.3-3.3-7.3H17z" fill="#000" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+                </div>
+              </div>
+
+              <!-- iPhone: the Lock Screen notification, then the request (PhoneRequestView.swift) -->
+              <div class="rig rig-phone" id="rig-phone" data-step="lock" data-state="asking">
+                <div class="phone" id="phone">
+                  <div class="phone-screen">
+                    <div class="lock">
+                      <div class="lock-date">Saturday 21 November</div>
+                      <div class="lock-time">09:41</div>
+                      <div class="banner" id="lock-banner">
+                        <img src="/assets/favicon.svg" alt="" width="38" height="38">
+                        <div class="banner-copy">
+                          <div class="banner-top"><strong>github.com</strong><span>now</span></div>
+                          <div class="banner-sub">Claude Code on Linux server wants this password</div>
+                          <div class="banner-body">jappleseed: &ldquo;I need a new access token so I can push.&rdquo;</div>
+                        </div>
+                        <span class="tap" id="tap-banner"></span>
+                      </div>
+                    </div>
+
+                    <div class="app">
+                      <div class="sui-head app-head">
+                        <span class="sui-brand"><img src="/assets/favicon.svg" alt="" width="22" height="22"> Agent Keyring</span>
+                        <span class="sui-place">Project <strong>blog</strong></span>
+                      </div>
+                      <div class="app-body">
+                        <div class="app-sub">Claude Code on Linux server wants</div>
+                        <div class="app-site">github.com</div>
+                        <div class="app-sub">jappleseed</div>
+                        <p class="app-quote">&ldquo;I need a new access token so I can push.&rdquo;</p>
+                      </div>
+                      <div class="app-answers">
+                        <div class="app-reply-row">
+                          <div class="app-reply" id="app-reply">
+                            <span class="app-reply-text" id="app-reply-text">What should Claude Code do instead?</span>
+                            <span class="app-mic" aria-hidden="true">
+                              <svg class="ic-mic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 0-2 0 3 3 0 1 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 11Z"/></svg>
+                              <svg class="ic-stop" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-3.2 6.8h6.4v6.4H8.8V8.8Z"/></svg>
+                              <span class="tap" id="tap-mic"></span>
+                            </span>
+                          </div>
+                          <div class="app-deny" id="app-deny">Deny<span class="tap" id="tap-deny"></span></div>
+                        </div>
+                        <div class="app-approve">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="19" height="19" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.2 15.2a3.6 3.6 0 0 0 5.6 0"/></svg>
+                          Approve with Face ID
+                        </div>
+                        <div class="app-foot">Claude Code can use this password for this task, 30 minutes at most.</div>
+                      </div>
+                      <div class="app-result">
+                        <span class="app-x" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+                        <div>
+                          <strong>Denied</strong>
+                          <span>You told Claude Code: &ldquo;No. Use the gh CLI.&rdquo;</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <img class="bezel" src="/assets/hardware/iphone-17-pro.png" alt="iPhone showing an Agent Keyring request for the github.com password, with a reply box, Deny, and Approve with Face ID">
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="film-controls">
+            <div class="film-tabs" role="tablist" aria-label="Scenes">
+              <button type="button" class="film-tab" data-scene="0" aria-current="true"><span>Apple Watch</span><i class="tab-track"><b class="tab-fill" id="tab-fill-0"></b></i></button>
+              <button type="button" class="film-tab" data-scene="1" aria-current="false"><span>Mac</span><i class="tab-track"><b class="tab-fill" id="tab-fill-1"></b></i></button>
+              <button type="button" class="film-tab" data-scene="2" aria-current="false"><span>iPhone</span><i class="tab-track"><b class="tab-fill" id="tab-fill-2"></b></i></button>
+              <button type="button" class="film-tab" data-scene="3" aria-current="false"><span>Without Agent Keyring</span><i class="tab-track"><b class="tab-fill" id="tab-fill-3"></b></i></button>
+            </div>
+            <button type="button" class="pause-btn" id="film-pause" aria-pressed="false" aria-label="Pause the walkthrough">Pause</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Setup -->
+    <section class="band" id="setup" aria-labelledby="setup-heading">
+      <div class="wrap">
+        <div class="band-head">
+          <div>
+            <h2 id="setup-heading">Set it up</h2>
+            <p>You handle the Mac app and Apple Passwords. Your agent sets up the rest itself.</p>
+          </div>
+        </div>
+
+        <ol class="setup-list">
+          <li class="setup-item">
+            <span class="step-num" aria-hidden="true">1</span>
+            <div>
+              <h3>Install the Mac app and copy your passwords</h3>
+              <p>Download Agent Keyring from <a href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">GitHub Releases</a> (macOS 26 or later) and open it. In Apple Passwords, choose <strong>File &gt; Export All Items to App&hellip;</strong> and pick <strong>Agent Keyring</strong>. Nothing is deleted from Passwords, and every password starts on Ask.</p>
+            </div>
+          </li>
+          <li class="setup-item">
+            <span class="step-num" aria-hidden="true">2</span>
+            <div>
+              <h3>Hand your agent the setup line</h3>
+              <p>Paste the one line from the Mac app into <code>AGENTS.md</code>, <code>CLAUDE.md</code>, or straight into a chat with Claude Code or Codex. Your agent tells you what it suggests setting up next and asks before checking your network or touching anything: the Chrome extension, other computers that run your agents, or your iPhone and Apple Watch.</p>
+            </div>
+          </li>
+          <li class="setup-item">
+            <span class="step-num" aria-hidden="true">3</span>
+            <div>
+              <h3>Add your iPhone and Apple Watch (optional)</h3>
+              <p>Join the <a href="#waitlist">TestFlight waitlist below</a> (or build from source) for mobile approvals. Turn on <a href="https://tailscale.com/" rel="noopener">Tailscale</a> (free), open the iPhone app, tap Connect and approve on your Mac with Touch ID. Add your Apple Watch from the iPhone app. Your iPhone keeps its own encrypted copy so you can approve even when your Mac is asleep.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- The three rules -->
+    <section class="band" id="rules" aria-labelledby="rules-heading">
+      <div class="wrap">
+        <div class="band-head">
+          <div>
+            <h2 id="rules-heading">Each password has a rule</h2>
+            <p>Every password starts on Ask. Change the rule whenever you like.</p>
+          </div>
+        </div>
+
+        <div class="rules">
+          <div class="rule">
+            <span class="rule-icon ask" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z"/><path d="M10 20a2.2 2.2 0 0 0 4 0"/></svg>
+            </span>
+            <h3>Ask</h3>
+            <p>An agent has to ask, and you approve or deny. One approval covers that one password for that one task, 30 minutes at most.</p>
+          </div>
+          <div class="rule">
+            <span class="rule-icon auto" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5 4.5 13.5H11l-1 8L18.5 10H12l1-7.5Z"/></svg>
+            </span>
+            <h3>Automatic</h3>
+            <p>Agents on the computers you choose get it without asking. Use it for a password you&rsquo;d leave on that computer anyway, like the one for a staging site.</p>
+          </div>
+          <div class="rule">
+            <span class="rule-icon blocked" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M5.8 5.8l12.4 12.4"/></svg>
+            </span>
+            <h3>Blocked</h3>
+            <p>Once a computer receives the rule, it refuses every request. Good for your bank and your email.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="band" id="how-it-works" aria-labelledby="how-heading">
+      <div class="wrap">
+        <div class="band-head">
+          <div>
+            <h2 id="how-heading">How it works</h2>
+            <p>Your agent runs a command, <code>agent-keyring</code>, and asks for one password by website. You see the website, the account, which agent on which computer is asking, and its reason. Approve, and Agent Keyring signs in for that task. There&rsquo;s no cloud vault and no account: your passwords stay encrypted on your own devices.</p>
+          </div>
+          <a class="btn-link" href="/security/">Read the security details &rarr;</a>
+        </div>
+
+        <div class="direct" role="img" aria-label="The computer your agent runs on sends a request to your Mac, iPhone or Apple Watch, with the website, the account and the agent&rsquo;s reason. A Blocked password stops there. An approved request sends back one password, for one task and 30 minutes at most.">
+          <div class="direct-node">
+            <div class="node-icons" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="6" width="22" height="15" rx="2.5"/><path d="M2.5 25.5h27"/><path d="M11 12l3 2.5-3 2.5M16.5 17h4"/></svg>
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="22" height="9" rx="2.5"/><rect x="5" y="18" width="22" height="9" rx="2.5"/><path d="M9.5 9.5h.01M9.5 22.5h.01M14 9.5h8M14 22.5h8"/></svg>
+            </div>
+            <strong>Where your agent runs</strong>
+            <span>A Mac or a Linux server</span>
+          </div>
+
+          <div class="direct-arrows" aria-hidden="true">
+            <div class="arrow-row">
+              <span class="arrow-label">The website, the account and the agent&rsquo;s reason</span>
+              <svg viewBox="0 0 260 22" preserveAspectRatio="none"><path d="M4,11 H244" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/><polygon points="242,5 256,11 242,17" fill="var(--accent)"/><path class="flow-dot out" d="M4,11 H244" stroke-width="4.5" stroke-linecap="round" pathLength="100" stroke-dasharray="9 100"/></svg>
+            </div>
+            <div class="direct-gate"><img src="/assets/favicon.svg" alt="" width="22" height="22"><span>A Blocked password stops here</span></div>
+            <div class="arrow-row">
+              <svg viewBox="0 0 260 22" preserveAspectRatio="none"><path d="M256,11 H16" stroke="var(--approve)" stroke-width="2.5" stroke-linecap="round"/><polygon points="18,5 4,11 18,17" fill="var(--approve)"/><path class="flow-dot back" d="M256,11 H16" stroke-width="4.5" stroke-linecap="round" pathLength="100" stroke-dasharray="9 100"/></svg>
+              <span class="arrow-label">One password, for one task (30 minutes at most)</span>
+            </div>
+          </div>
+
+          <div class="direct-node">
+            <div class="node-icons" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="6" width="22" height="15" rx="2.5"/><path d="M2.5 25.5h27"/></svg>
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="14" height="26" rx="3.5"/><path d="M14 7h4"/></svg>
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="8" width="14" height="16" rx="4"/><path d="M12.5 8 13.5 3.5h5L19.5 8M12.5 24l1 4.5h5l1-4.5M24.5 14v3.5"/></svg>
+            </div>
+            <strong>Your devices</strong>
+            <span>Mac, iPhone and Apple Watch</span>
+          </div>
+        </div>
+
+        <div class="facts facts-4">
+          <div class="fact">
+            <span class="fact-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg></span>
+            <h3>Your passwords are encrypted on your own devices</h3>
+            <p>Your Mac and iPhone encrypt their approval copies with keys kept in the Secure Enclave, the chip behind Touch ID and Face ID. Those keys can&rsquo;t leave the chip. A computer allowed to use an Automatic password keeps a copy it can open itself.</p>
+          </div>
+          <div class="fact">
+            <span class="fact-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7.5 10l3 2.5-3 2.5M13 15h4"/></svg></span>
+            <h3>Works in any browser, app or CLI</h3>
+            <p>You just approve the request; your agent picks the right way to sign in. When it&rsquo;s in Chrome, Brave, Edge, Arc or Chromium with the extension loaded, the extension types the password straight into the form. In Safari, built-in agent browsers, desktop apps (via computer use) or CLI tools, your agent passes the approved password straight into the tool or app.</p>
+          </div>
+          <div class="fact">
+            <span class="fact-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.8"/><path d="M9.5 2.5h5"/></svg></span>
+            <h3>One approval, one password, one task</h3>
+            <p>An approval covers retries and ends when the agent releases it, when the computer receives your Stop, or after 30 minutes at most.</p>
+          </div>
+          <div class="fact">
+            <span class="fact-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="7" width="19" height="10" rx="2.5"/><path d="M6.5 12h.01M10.2 12h.01M13.8 12h.01M17.5 12h.01"/></svg></span>
+            <h3>Two-factor codes work too</h3>
+            <p>If you set up a site&rsquo;s two-factor code in Apple Passwords, Agent Keyring fills it in along with the password. For an Ask password, your agent never gets the setup key, so it can&rsquo;t make codes of its own later.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Comparison -->
+    <section class="band" id="compare" aria-labelledby="compare-heading">
+      <div class="wrap">
+        <div class="band-head">
+          <div>
+            <h2 id="compare-heading">Already use Apple Passwords?</h2>
+            <p>Then you don&rsquo;t need a second password manager, a new account or a subscription.</p>
+          </div>
+          <a class="btn-link" href="/compare/">Full comparison &rarr;</a>
+        </div>
+
+        <div class="table-wrap">
+          <table class="compare-table">
+            <caption>Checked November 2026.</caption>
+            <thead>
+              <tr>
+                <th scope="col"></th>
+                <th scope="col" class="col-akr">Agent Keyring</th>
+                <th scope="col">1Password for Agents</th>
+                <th scope="col">Bitwarden Agent Access</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Where your passwords live</th>
+                <td class="col-akr">Apple Passwords</td>
+                <td>1Password</td>
+                <td>Bitwarden</td>
+              </tr>
+              <tr>
+                <th scope="row">Cost</th>
+                <td class="col-akr">Free and open source (MIT)</td>
+                <td>An individual or family account on 1Password.com</td>
+                <td>Free and open source</td>
+              </tr>
+              <tr>
+                <th scope="row">Agents it works with</th>
+                <td class="col-akr">Claude Code, Codex and anything else that can run a shell command</td>
+                <td>Five partner apps. Not Claude Code or Codex</td>
+                <td>Anything that can run a shell command</td>
+              </tr>
+              <tr>
+                <th scope="row">Where you approve</th>
+                <td class="col-akr">Mac, iPhone or Apple Watch</td>
+                <td>The 1Password app, on the device the agent runs on</td>
+                <td>A terminal you keep open</td>
+              </tr>
+              <tr>
+                <th scope="row">What one approval covers</th>
+                <td class="col-akr">One password for one task, 30 minutes at most</td>
+                <td>One login, for up to 30 days</td>
+                <td>One request, or repeat requests from the same device for a time you choose</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Questions -->
+    <section class="band" id="faq" aria-labelledby="faq-heading">
+      <div class="wrap">
+        <div class="band-head">
+          <h2 id="faq-heading">Questions</h2>
+        </div>
+
+        <div class="faq-grid">
+          <div class="faq-item">
+            <h3>Does my Mac have to stay awake?</h3>
+            <p>No. Your iPhone keeps its own encrypted copy of your passwords, and an agent on another computer sends its request straight to your iPhone and Apple Watch. That agent can sign in while your MacBook is shut in a bag.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Do I need Tailscale?</h3>
+            <p>Not on one Mac. You need it to approve from your iPhone or Apple Watch, and for agents on other computers. The free plan is enough.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Does it work in Safari, desktop apps, or the browsers built into Codex, Claude and T3 Code?</h3>
+            <p>Yes. You approve once, and your agent handles how to sign in: using the browser extension in Chrome-family browsers, or passing the approved password straight into Safari, built-in agent browsers, desktop apps via computer use, or CLI tools.</p>
+          </div>
+          <div class="faq-item">
+            <h3>What is the Chrome extension for?</h3>
+            <p>It lets your agent sign in to Chrome, Brave, Edge, Arc or Chromium without the password touching the agent&rsquo;s own tool output or chat. Your agent uses it automatically when it&rsquo;s available, and falls back to the CLI anywhere else.</p>
+          </div>
+          <div class="faq-item">
+            <h3>I saved a new password. Does Agent Keyring pick it up?</h3>
+            <p>Not by itself. Apple only hands passwords to another app when you start the export, so run <strong>File &gt; Export All Items to App&hellip;</strong> again.</p>
+          </div>
+          <div class="faq-item">
+            <h3>What about passkeys and SMS codes?</h3>
+            <p>Neither. Agent Keyring handles passwords and the two-factor codes Apple Passwords generates. It can&rsquo;t use passkeys or read codes sent by SMS or email.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sign-up -->
+    <section class="band" id="waitlist" aria-labelledby="cta-heading">
+      <div class="wrap">
+        <div class="cta-strip">
+          <div>
+            <h2 id="cta-heading">Join the iPhone and Apple Watch beta</h2>
+            <p>The signed Mac app is out on <a href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">GitHub Releases</a> today and works straight away with Touch ID. Leave your email and I&rsquo;ll send you a TestFlight invite when the external iPhone and Apple Watch beta opens.</p>
+          </div>
+
+          <form class="waitlist-box" id="waitlist-form" data-endpoint="/api/waitlist" novalidate>
+            <div class="waitlist-row">
+              <label class="skip-link" for="waitlist-email">Email address</label>
+              <input id="waitlist-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+              <input name="company" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;">
+              <button type="submit" class="btn btn-primary">Email me</button>
+            </div>
+            <span class="device-checks-label">Which devices will you use it on?</span>
+            <div class="device-checks">
+              <label class="check-pill"><input type="checkbox" name="devices" value="Mac" checked> Mac</label>
+              <label class="check-pill"><input type="checkbox" name="devices" value="iPhone" checked> iPhone</label>
+              <label class="check-pill"><input type="checkbox" name="devices" value="Apple Watch"> Apple Watch</label>
+              <label class="check-pill"><input type="checkbox" name="devices" value="Linux server"> Linux server</label>
+            </div>
+            <div class="inline-note" id="waitlist-status" aria-live="polite"></div>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-row">
+      <div class="footer-links">
+        <a href="https://github.com/opentrawl/agent-keyring" rel="noopener">Source code (MIT)</a>
+        <a href="/security/">Security</a>
+        <a href="/compare/">Compare</a>
+      </div>
+      <span>Built by <a href="https://x.com/jjpcodes" rel="noopener">Josh Palmer (@jjpcodes)</a>, part of the <a href="https://github.com/opentrawl" rel="noopener">OpenTrawl</a> suite. Apple Passwords, Touch ID, Face ID and Apple Watch are trademarks of Apple Inc.</span>
+    </div>
+  </footer>
+
+  <script src="/city.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

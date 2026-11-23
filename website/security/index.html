@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Keyring security</title>
+  <meta name="description" content="Where Agent Keyring keeps your passwords, what your agent sees, how a request reaches you, and what it can&rsquo;t protect you from.">
+  <link rel="canonical" href="https://agent-keyring.jjpcodes.com/security/">
+  <link rel="alternate" type="text/markdown" href="/security.md">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Agent Keyring security",
+    "datePublished": "2026-11-21",
+    "dateModified": "2026-11-22",
+    "author": { "@type": "Person", "name": "Josh Palmer", "url": "https://jjpcodes.com" },
+    "mainEntityOfPage": "https://agent-keyring.jjpcodes.com/security/"
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap nav-bar">
+      <a class="brand" href="/">
+        <svg class="nav-mascot js-mascot" viewBox="0 0 100 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="nav-tile" x1="0.5" y1="0" x2="0.5" y2="1">
+              <stop offset="0%" stop-color="var(--mascot-tile-top)"/>
+              <stop offset="100%" stop-color="var(--mascot-tile-bottom)"/>
+            </linearGradient>
+          </defs>
+          <rect width="100" height="100" rx="22" fill="url(#nav-tile)"/>
+          <circle cx="50" cy="38.5" r="21.5" fill="var(--mascot-body)"/>
+          <path d="M40.2 51.5h19.6l7.4 30.4a3.2 3.2 0 01-3.1 4H35.9a3.2 3.2 0 01-3.1-4z" fill="var(--mascot-body)"/>
+          <g class="mascot-eyes">
+            <g class="mascot-eyes-blink">
+              <circle cx="46.3" cy="37.5" r="4.9" fill="var(--mascot-eye)"/>
+              <circle cx="47.77" cy="35.932" r="1.764" fill="#FFFFFF" fill-opacity="0.92"/>
+              <circle cx="60" cy="37.5" r="4.9" fill="var(--mascot-eye)"/>
+              <circle cx="61.47" cy="35.932" r="1.764" fill="#FFFFFF" fill-opacity="0.92"/>
+            </g>
+          </g>
+        </svg>
+        <span>Agent Keyring</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="/security/" aria-current="page">Security</a>
+        <a href="/compare/">Compare</a>
+        <a href="https://github.com/opentrawl/agent-keyring" class="hide-xs" rel="noopener">GitHub</a>
+        <a href="https://x.com/jjpcodes" class="hide-xs" rel="noopener">Made by @jjpcodes</a>
+        <button type="button" class="theme-btn" id="theme-toggle" aria-label="Switch to light mode">Light mode</button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <canvas class="city-canvas" id="city" aria-hidden="true"></canvas>
+
+    <section class="sub-hero">
+      <div class="wrap">
+        <h1>Security</h1>
+        <p>There&rsquo;s no cloud vault and no account. Your passwords stay encrypted on your own devices, and an agent gets one only when you approve it, or when you&rsquo;ve set that password to Automatic.</p>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="details-heading">
+      <div class="wrap">
+        <div class="prose-col">
+          <h2 id="details-heading">Where your passwords are</h2>
+          <p>Your Mac and iPhone encrypt their approval copies with keys in their Secure Enclave, the chip behind Touch ID and Face ID. Those keys can&rsquo;t leave the chip. Your Apple Watch keeps no passwords at all: each request arrives with the one password it needs, encrypted so only your Apple Watch can open it.</p>
+
+          <h2>What your agent sees</h2>
+          <p>You approve once, and your agent&rsquo;s skill picks the cleanest route for whatever it&rsquo;s driving. In Chrome, Brave, Edge, Arc or Chromium with the extension loaded, the agent names the form fields and the extension checks the website, types the password, submits and clears the fields so nothing enters chat or logs.</p>
+          <p>Anywhere the extension doesn&rsquo;t run (built-in agent browsers, Safari, desktop apps via computer use, or command-line tools such as <code>gh</code>), the agent passes the approved password straight into the code, app or tool through <code>agent-keyring read</code>, which refuses to print to a terminal.</p>
+
+          <h2>How a request reaches you</h2>
+          <p>Agents on your Mac ask the Mac app directly. An agent on another computer reaches your iPhone and Apple Watch with an Apple push notification, and your Mac too if it&rsquo;s awake. Your answer goes straight back to that computer over <a href="https://tailscale.com/" rel="noopener">Tailscale</a>, with the password encrypted for that one computer. There&rsquo;s no Agent Keyring server in between. Apple can see notification details, including the request ID and the fallback text &ldquo;A request is waiting.&rdquo; Your device decrypts the website, account and reason.</p>
+
+          <h2>What you&rsquo;re shown</h2>
+          <p>Every request shows the website, the account and the computer that asked. Agent Keyring fills those in itself, so an agent can&rsquo;t fake them. The agent&rsquo;s name and its reason are the agent&rsquo;s own words, which is why the reason sits in quotation marks. An agent tricked by a web page can write anything there.</p>
+          <p>Changing a rule or adding a device requires your approval, so an agent can&rsquo;t switch a password to Automatic or add a computer of its own.</p>
+
+          <h2>What an approval covers</h2>
+          <p>One password, for one task, for 30 minutes at most. Retries and the two-factor step are included. Access ends when the agent releases it, when the computer receives your Stop, or after 30 minutes. For an Ask password, the agent&rsquo;s computer gets time-limited codes for those 30 minutes, and the setup key stays on your devices.</p>
+          <p>If you deny a request, that computer waits a minute before it can ask for the same password again. Deny it twice in a row and it waits five minutes, then fifteen.</p>
+
+          <h2>Automatic passwords</h2>
+          <p>A computer you choose keeps its own encrypted copy of each Automatic password, two-factor setup key included, so agents there can sign in while you sleep. Only use Automatic for a password you&rsquo;d leave on that computer anyway. Switch it back to Ask and a computer deletes its copy when it receives the updated list from your Mac.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="who-heading">
+      <div class="wrap">
+        <div class="band-head">
+          <h2 id="who-heading">What each device keeps</h2>
+        </div>
+
+        <div class="table-wrap">
+          <table class="compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Device</th>
+                <th scope="col">What it keeps</th>
+                <th scope="col">What it can open</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Your Mac</th>
+                <td>An encrypted copy of every password you copied from Apple Passwords</td>
+                <td>One password per approval, after Touch ID</td>
+              </tr>
+              <tr>
+                <th scope="row">Your iPhone</th>
+                <td>Its own encrypted copy of your passwords</td>
+                <td>One password per approval, after Face ID</td>
+              </tr>
+              <tr>
+                <th scope="row">Your Apple Watch</th>
+                <td>No passwords</td>
+                <td>The one password that arrives with a request, when you tap Approve</td>
+              </tr>
+              <tr>
+                <th scope="row">A computer your agents run on</th>
+                <td>The website and account name of each password, its own encrypted copy of each Automatic password, and copies for your Apple Watch that it can&rsquo;t open</td>
+                <td>Its Automatic passwords, and an Ask password once you approve it</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="limits-heading">
+      <div class="wrap">
+        <div class="prose-col">
+          <h2 id="limits-heading">What it can&rsquo;t do</h2>
+          <ul>
+            <li>Watch what an agent does once it&rsquo;s signed in. Ending an approval doesn&rsquo;t sign the agent out of the website either.</li>
+            <li>Take a password back. Stop and the 30-minute limit end what Agent Keyring hands out. They don&rsquo;t erase what a computer already received.</li>
+            <li>Stop an agent that goes looking for the password. While the extension fills a form (its normal wait is up to 20 seconds before clearing the fields), an agent that controls that browser can read the password there. An agent can also pipe a password into a program it wrote itself.</li>
+            <li>Protect an unlocked Mac. Someone sitting at it can ask for passwords like any agent there. They still need your approval for an Ask password, but not for an Automatic one.</li>
+            <li>Wipe a lost iPhone. Remove it in Devices and it gets no more requests, but its copy of your passwords stays on the phone behind Face ID. If someone may get past that, change those passwords.</li>
+            <li>Keep passwords out of the agent outside the browser extension. In built-in browsers, Safari, computer use or CLI tools, the agent handles the password itself via <code>agent-keyring read</code>.</li>
+            <li>Use passkeys or codes sent by SMS or email.</li>
+            <li>Sync with Apple Passwords. Apple only hands passwords over when you start an export, so export again after you change one.</li>
+          </ul>
+
+          <div class="prose-actions">
+            <a class="btn btn-primary" href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">Download for Mac</a>
+            <a class="btn-link" href="https://github.com/opentrawl/agent-keyring/blob/main/docs/threat-model.md" rel="noopener">Read the threat model on GitHub &rarr;</a>
+            <a class="btn-link" href="https://github.com/opentrawl/agent-keyring" rel="noopener">Get the source code (MIT) &rarr;</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-row">
+      <div class="footer-links">
+        <a href="/">Home</a>
+        <a href="/compare/">Compare</a>
+        <a href="https://github.com/opentrawl/agent-keyring" rel="noopener">Source code (MIT)</a>
+      </div>
+      <span>Built by <a href="https://x.com/jjpcodes" rel="noopener">Josh Palmer (@jjpcodes)</a>, part of the <a href="https://github.com/opentrawl" rel="noopener">OpenTrawl</a> suite. Apple Passwords, Touch ID, Face ID and Apple Watch are trademarks of Apple Inc.</span>
+    </div>
+  </footer>
+
+  <script src="/city.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+User-agent: *
+Allow: /
+
+# Explicitly allow AI search, retrieval, and agent browsing crawlers
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: meta-webindexer
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+Sitemap: https://agent-keyring.jjpcodes.com/sitemap.xml
+# LLM-friendly index: https://agent-keyring.jjpcodes.com/llms.txt

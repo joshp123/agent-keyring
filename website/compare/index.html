@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Keyring vs 1Password for Agents, Bitwarden and Proton Pass</title>
+  <meta name="description" content="How Agent Keyring differs from 1Password for Agents, Bitwarden Agent Access and Proton Pass access tokens: where your passwords live, what it costs, where you approve and what the agent gets.">
+  <link rel="canonical" href="https://agent-keyring.jjpcodes.com/compare/">
+  <link rel="alternate" type="text/markdown" href="/compare.md">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "Agent Keyring vs 1Password for Agents, Bitwarden Agent Access and Proton Pass",
+    "datePublished": "2026-11-20",
+    "dateModified": "2026-11-22",
+    "author": { "@type": "Person", "name": "Josh Palmer", "url": "https://jjpcodes.com" },
+    "mainEntityOfPage": "https://agent-keyring.jjpcodes.com/compare/"
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap nav-bar">
+      <a class="brand" href="/">
+        <svg class="nav-mascot js-mascot" viewBox="0 0 100 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="nav-tile" x1="0.5" y1="0" x2="0.5" y2="1">
+              <stop offset="0%" stop-color="var(--mascot-tile-top)"/>
+              <stop offset="100%" stop-color="var(--mascot-tile-bottom)"/>
+            </linearGradient>
+          </defs>
+          <rect width="100" height="100" rx="22" fill="url(#nav-tile)"/>
+          <circle cx="50" cy="38.5" r="21.5" fill="var(--mascot-body)"/>
+          <path d="M40.2 51.5h19.6l7.4 30.4a3.2 3.2 0 01-3.1 4H35.9a3.2 3.2 0 01-3.1-4z" fill="var(--mascot-body)"/>
+          <g class="mascot-eyes">
+            <g class="mascot-eyes-blink">
+              <circle cx="46.3" cy="37.5" r="4.9" fill="var(--mascot-eye)"/>
+              <circle cx="47.77" cy="35.932" r="1.764" fill="#FFFFFF" fill-opacity="0.92"/>
+              <circle cx="60" cy="37.5" r="4.9" fill="var(--mascot-eye)"/>
+              <circle cx="61.47" cy="35.932" r="1.764" fill="#FFFFFF" fill-opacity="0.92"/>
+            </g>
+          </g>
+        </svg>
+        <span>Agent Keyring</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="/security/">Security</a>
+        <a href="/compare/" aria-current="page">Compare</a>
+        <a href="https://github.com/opentrawl/agent-keyring" class="hide-xs" rel="noopener">GitHub</a>
+        <a href="https://x.com/jjpcodes" class="hide-xs" rel="noopener">Made by @jjpcodes</a>
+        <button type="button" class="theme-btn" id="theme-toggle" aria-label="Switch to light mode">Light mode</button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <canvas class="city-canvas" id="city" aria-hidden="true"></canvas>
+
+    <section class="sub-hero">
+      <div class="wrap">
+        <h1>How Agent Keyring compares</h1>
+        <p>1Password, Bitwarden and Proton Pass can each hand a password to an agent, as long as your passwords are in their app. Agent Keyring uses the ones you already keep in Apple Passwords, and you approve on your Mac, iPhone or Apple Watch.</p>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="matrix-heading">
+      <div class="wrap">
+        <div class="band-head">
+          <h2 id="matrix-heading">Side by side</h2>
+        </div>
+
+        <div class="table-wrap">
+          <table class="compare-table">
+            <caption>Checked on 22 November 2026 against the <a href="https://support.1password.com/1password-for-agents/" rel="noopener">1Password</a>, <a href="https://github.com/bitwarden/agent-access" rel="noopener">Bitwarden</a> and <a href="https://proton.me/support/pass-access-tokens" rel="noopener">Proton Pass</a> documentation.</caption>
+            <thead>
+              <tr>
+                <th scope="col"></th>
+                <th scope="col" class="col-akr">Agent Keyring</th>
+                <th scope="col">1Password for Agents</th>
+                <th scope="col">Bitwarden Agent Access</th>
+                <th scope="col">Proton Pass access tokens</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Where your passwords live</th>
+                <td class="col-akr">Apple Passwords. You copy them to your Mac, and again when one changes</td>
+                <td>1Password</td>
+                <td>Bitwarden. The protocol is open to other password managers</td>
+                <td>Proton Pass</td>
+              </tr>
+              <tr>
+                <th scope="row">Cost</th>
+                <td class="col-akr">Free and open source (MIT)</td>
+                <td>An individual or family account on 1Password.com</td>
+                <td>Free and open source</td>
+                <td>A Proton plan that includes Pass access tokens</td>
+              </tr>
+              <tr>
+                <th scope="row">Agents it works with</th>
+                <td class="col-akr">Claude Code, Codex and anything else that can run a shell command</td>
+                <td>Five partner apps: Claude Duet, Grok Bot, Instinct, Muse and Town</td>
+                <td>Anything that can run a shell command</td>
+                <td>Anything that can run the Proton Pass command-line tool</td>
+              </tr>
+              <tr>
+                <th scope="row">Where you approve</th>
+                <td class="col-akr">Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap)</td>
+                <td>The 1Password app, on the device the agent runs on</td>
+                <td>The terminal running <code>aac listen</code></td>
+                <td>Nowhere. You choose vaults when you make the token</td>
+              </tr>
+              <tr>
+                <th scope="row">What one approval covers</th>
+                <td class="col-akr">One password for one task, 30 minutes at most</td>
+                <td>One login, for up to 30 days</td>
+                <td>One request, or repeat requests from the same device for a time you choose</td>
+                <td>Every item in the vaults you chose, for 1 hour to 1 year</td>
+              </tr>
+              <tr>
+                <th scope="row">Can the agent read the password?</th>
+                <td class="col-akr">Not in chat when the agent fills via the browser extension (an agent controlling that browser can still read the filled field). Yes when the agent falls back to the CLI for other browsers, computer use or CLI tools</td>
+                <td>No. 1Password fills it outside the agent&rsquo;s view</td>
+                <td>Yes, unless it uses <code>aac run</code>, which passes it to a program instead</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <th scope="row">What you can answer</th>
+                <td class="col-akr">Approve, deny, or deny and tell the agent what to do instead, typed or spoken</td>
+                <td>Approve, pick a different login, or deny</td>
+                <td>Approve once, approve repeats for a time you choose, or deny</td>
+                <td>Nothing to answer</td>
+              </tr>
+              <tr>
+                <th scope="row">Agents on a Linux server</th>
+                <td class="col-akr">Yes, over Tailscale</td>
+                <td>Only where the 1Password app and a partner app both run</td>
+                <td>Yes, through a relay that can&rsquo;t read the traffic</td>
+                <td>Yes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="choice-heading">
+      <div class="wrap">
+        <div class="choice-grid">
+          <div class="choice-box">
+            <h2 id="choice-heading">Choose Agent Keyring if</h2>
+            <p>Your passwords are in Apple Passwords, you work on a Mac, and your agents are Claude Code, Codex or anything else that runs shell commands, on that Mac or on a Linux server.</p>
+          </div>
+          <div class="choice-box">
+            <h2>Choose something else if</h2>
+            <p>Your passwords already live in 1Password, Bitwarden or Proton Pass, you need shared team vaults, or you want to approve from Android or Windows.</p>
+          </div>
+        </div>
+
+        <div class="prose-actions">
+          <a class="btn btn-primary" href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">Download for Mac</a>
+          <a class="btn-link" href="https://github.com/opentrawl/agent-keyring" rel="noopener">Get the source code (MIT) &rarr;</a>
+          <a class="btn-link" href="/security/">Read the security details &rarr;</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-row">
+      <div class="footer-links">
+        <a href="/">Home</a>
+        <a href="/security/">Security</a>
+        <a href="https://github.com/opentrawl/agent-keyring" rel="noopener">Source code (MIT)</a>
+      </div>
+      <span>Built by <a href="https://x.com/jjpcodes" rel="noopener">Josh Palmer (@jjpcodes)</a>, part of the <a href="https://github.com/opentrawl" rel="noopener">OpenTrawl</a> suite. Apple Passwords, Touch ID, Face ID and Apple Watch are trademarks of Apple Inc.</span>
+    </div>
+  </footer>
+
+  <script src="/city.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
