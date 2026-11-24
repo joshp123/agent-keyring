@@ -164,6 +164,8 @@
   let vy0 = 0, vy1 = 0;
   let bgDirty = true;
   let scrimDirty = true;
+  let tagsDirty = true;
+  let tagCache = { wA: 0, hA: 0, wU: 0, hU: 0, lastAX: null, lastAY: null, lastUX: null, lastUY: null };
 
   // Track separate left-flank and right-flank dirty boxes so the wide centre column costs 0 CPU
   let dL = [0, 0, 0, 0], dR = [0, 0, 0, 0];
@@ -545,21 +547,25 @@
         if (on) px(x + 4 + k * 3, yy + 1, (k + r) % 4 === 0 ? P.CYAN : sc, 255);
       }
     }
-    rect(x + w - 6, y - h - 28, 1, 16, P.LINE, 255);
-    if (((t * 1.8) | 0) % 2 === 0) px(x + w - 6, y - h - 29, P.RED, 255);
+    const isStrip = L && L.mode === 'strip';
+    const mastH = isStrip ? 8 : 16;
+    const mastTop = y - h - (isStrip ? 10 : 12) - mastH;
+    rect(x + w - 6, mastTop, 1, mastH, P.LINE, 255);
+    if (((t * 1.8) | 0) % 2 === 0) px(x + w - 6, mastTop - 1, P.RED, 255);
     rect(x + 10, y - h - 10, 6, 1, P.LINE, 255);
     rect(x + 12, y - h - 14, 2, 4, P.LINE, 255);
     const cx = x + 16 + Math.sin(t * 0.45) * 3;
-    const cy = y - h - 36;
+    const cy = y - h - (isStrip ? 14 : 36);
+    const cr = isStrip ? 0.62 : 1;
     const cloudCol = theme === 'light' ? P.DIM : P.WHITE;
-    disc(cx - 9, cy + 2, 6, cloudCol, 155);
-    disc(cx + 9, cy + 2, 6, cloudCol, 155);
-    disc(cx, cy - 2, 8, cloudCol, 195);
-    disc(cx, cy + 4, 6, cloudCol, 125);
-    rect(cx - 14, cy + 7, 29, 1, cloudCol, 240);
+    disc(cx - 9 * cr, cy + 2 * cr, 6 * cr, cloudCol, 155);
+    disc(cx + 9 * cr, cy + 2 * cr, 6 * cr, cloudCol, 155);
+    disc(cx, cy - 2 * cr, 8 * cr, cloudCol, 195);
+    disc(cx, cy + 4 * cr, 6 * cr, cloudCol, 125);
+    rect(cx - Math.round(14 * cr), cy + Math.round(7 * cr), Math.round(29 * cr), 1, cloudCol, 240);
     for (let k = 0; k < 5; k++) {
       const p = ((t * (hot ? 1.2 : 0.7) + k / 5) % 1);
-      px(cx + (k - 2) * 4, cy + 10 + p * 11, hot ? sc : P.CYAN, 255 * (1 - p * 0.55));
+      px(cx + (k - 2) * (isStrip ? 3 : 4), cy + Math.round(7 * cr) + p * (isStrip ? 5 : 11), hot ? sc : P.CYAN, 255 * (1 - p * 0.55));
     }
     if (hot) spotlightFrame(x, y, w, h, sc, t);
   }
@@ -850,14 +856,61 @@
     };
   }
 
-  function placeTag(el, a, lo, hi, pinTop) {
-    if (!el) return;
-    if (!a || !el.textContent) { el.style.opacity = '0'; return; }
-    const w = el.offsetWidth;
-    const x = clamp(a.cx * CELL - w / 2, lo, Math.max(lo, hi - w));
-    const y = pinTop === undefined ? Math.max(12, (a.top - 16) * CELL - el.offsetHeight) : pinTop;
-    el.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)';
-    el.style.opacity = '1';
+  function setTagTransform(el, keyX, keyY, x, y) {
+    if (tagCache[keyX] === x && tagCache[keyY] === y) return;
+    tagCache[keyX] = x;
+    tagCache[keyY] = y;
+    el.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+  }
+
+  function measureTags(docW) {
+    tagsDirty = false;
+    tagCache.lastAX = null;
+    tagCache.lastAY = null;
+    tagCache.lastUX = null;
+    tagCache.lastUY = null;
+    const sameSpot = scene.agent === scene.you;
+    if (L.mode === 'flank') {
+      const leftW = Math.max(110, Math.floor(L.xl * CELL - 18));
+      const rightW = Math.max(110, Math.floor(docW - L.xr * CELL - 18));
+      if (tagAgent) {
+        tagAgent.style.maxWidth = leftW + 'px';
+        tagCache.wA = tagAgent.offsetWidth;
+        tagCache.hA = tagAgent.offsetHeight;
+      }
+      if (tagYou) {
+        tagYou.style.maxWidth = rightW + 'px';
+        tagCache.wU = tagYou.offsetWidth;
+        tagCache.hU = tagYou.offsetHeight;
+      }
+    } else if (L.strip) {
+      const stripW = Math.max(200, (L.strip.r - L.strip.l) * CELL);
+      if (sameSpot) {
+        if (tagYou) {
+          tagYou.style.maxWidth = stripW + 'px';
+          tagCache.wU = tagYou.offsetWidth;
+          tagCache.hU = tagYou.offsetHeight;
+        }
+        tagCache.wA = 0;
+        tagCache.hA = 0;
+      } else {
+        if (tagAgent) tagAgent.style.maxWidth = '';
+        if (tagYou) tagYou.style.maxWidth = '';
+        const natA = tagAgent && tagAgent.textContent ? tagAgent.offsetWidth : 0;
+        const natU = tagYou && tagYou.textContent ? tagYou.offsetWidth : 0;
+        const gap = 8;
+        if (natA && natU && natA + natU + gap > stripW) {
+          const capU = Math.min(natU + 6, Math.floor(stripW * 0.46));
+          const capA = Math.max(110, stripW - capU - gap);
+          tagAgent.style.maxWidth = capA + 'px';
+          tagYou.style.maxWidth = capU + 'px';
+        }
+        tagCache.wA = tagAgent && tagAgent.textContent ? tagAgent.offsetWidth : 0;
+        tagCache.hA = tagAgent && tagAgent.textContent ? tagAgent.offsetHeight : 0;
+        tagCache.wU = tagYou && tagYou.textContent ? tagYou.offsetWidth : 0;
+        tagCache.hU = tagYou && tagYou.textContent ? tagYou.offsetHeight : 0;
+      }
+    }
   }
 
   function placeTags(t) {
@@ -866,13 +919,72 @@
     const a = sameSpot ? null : anchorOf(scene.agent, t);
     const u = anchorOf(scene.you, t);
     const docW = W * CELL;
+    if (tagsDirty) measureTags(docW);
+
     if (L.mode === 'flank') {
-      placeTag(tagAgent, a, 10, L.xl * CELL - 6);
-      placeTag(tagYou, u, L.xr * CELL + 6, docW - 10);
+      const leftLo = 10, leftHi = Math.max(leftLo + 110, L.xl * CELL - 8);
+      const rightLo = Math.min(docW - 120, L.xr * CELL + 8), rightHi = docW - 10;
+      if (tagAgent) {
+        if (!a || !tagAgent.textContent) {
+          tagAgent.style.opacity = '0';
+        } else {
+          const x = Math.round(clamp(a.cx * CELL - tagCache.wA / 2, leftLo, Math.max(leftLo, leftHi - tagCache.wA)));
+          const y = Math.round(Math.max(12, (a.top - 14) * CELL - tagCache.hA));
+          setTagTransform(tagAgent, 'lastAX', 'lastAY', x, y);
+          tagAgent.style.opacity = '1';
+        }
+      }
+      if (tagYou) {
+        if (!u || !tagYou.textContent) {
+          tagYou.style.opacity = '0';
+        } else {
+          const x = Math.round(clamp(u.cx * CELL - tagCache.wU / 2, rightLo, Math.max(rightLo, rightHi - tagCache.wU)));
+          const y = Math.round(Math.max(12, (u.top - 14) * CELL - tagCache.hU));
+          setTagTransform(tagYou, 'lastUX', 'lastUY', x, y);
+          tagYou.style.opacity = '1';
+        }
+      }
     } else if (L.strip) {
-      const top = L.strip.t * CELL + 4;
-      placeTag(tagAgent, a, 8, docW - 8, top);
-      placeTag(tagYou, u, 8, docW - 8, top + (a ? 30 : 0));
+      const stripL = L.strip.l * CELL;
+      const stripR = L.strip.r * CELL;
+      const stripW = Math.max(200, stripR - stripL);
+      const top = Math.round(L.strip.t * CELL + 2);
+      if (sameSpot) {
+        if (tagAgent) tagAgent.style.opacity = '0';
+        if (tagYou) {
+          if (!u || !tagYou.textContent) {
+            tagYou.style.opacity = '0';
+          } else {
+            const xU = stripL + Math.round((stripW - tagCache.wU) / 2);
+            setTagTransform(tagYou, 'lastUX', 'lastUY', xU, top);
+            tagYou.style.opacity = '1';
+          }
+        }
+      } else {
+        const gap = 8;
+        const rowH = Math.max(tagCache.hA, tagCache.hU);
+        if (tagAgent) {
+          if (!a || !tagAgent.textContent) {
+            tagAgent.style.opacity = '0';
+          } else {
+            const xA = clamp(Math.round(a.cx * CELL - tagCache.wA / 2), stripL, Math.max(stripL, stripR - tagCache.wU - gap - tagCache.wA));
+            const yA = top + Math.round((rowH - tagCache.hA) / 2);
+            setTagTransform(tagAgent, 'lastAX', 'lastAY', xA, yA);
+            tagAgent.style.opacity = '1';
+          }
+        }
+        if (tagYou) {
+          if (!u || !tagYou.textContent) {
+            tagYou.style.opacity = '0';
+          } else {
+            const minX = tagCache.wA ? stripL + tagCache.wA + gap : stripL;
+            const xU = clamp(Math.round(u.cx * CELL - tagCache.wU / 2), minX, Math.max(minX, stripR - tagCache.wU));
+            const yU = top + Math.round((rowH - tagCache.hU) / 2);
+            setTagTransform(tagYou, 'lastUX', 'lastUY', xU, yU);
+            tagYou.style.opacity = '1';
+          }
+        }
+      }
     }
   }
 
@@ -1050,22 +1162,38 @@
         }
       });
     } else if (strip) {
-      const y = strip.b - 13;
-      ground.push({ y: y, xa: 0, xb: W });
-      fillSpan(y - 40, 2, W - 2, rng);
-      place('home', 8, y, 1, 'agent');
-      place('cloud', 14, y, 1, 'agent');
-      place('desk', W - (MARK.desk.w + MARK.desk.dw) * 2 - 10, y, 2, 'you');
-      place('toilet', W - (MARK.toilet.w + MARK.toilet.dw) * 2 - 18, y, 2, 'you');
-      const bx0 = Math.round(W * 0.52);
-      const bx1 = Math.max(bx0 + 16, W - 64);
-      L.bike = { y: y, x0: bx0, x1: bx1, s: 2 };
-      for (let x = 8; x < W; x += 41) staticItems.push({ y: y + 1, top: y - 10, bot: y + 12, x: x, draw: drawLamp });
+      const sL = Math.max(2, strip.l + 2);
+      const sR = Math.min(W - 2, strip.r - 2);
+      const y = strip.b - 8;
+      const bikeScale = 2;
+      const bikeW = 24 * bikeScale;
+      const deskTotal = MARK.desk.w + MARK.desk.dw;
+      const toiletTotal = MARK.toilet.w + MARK.toilet.dw;
+
+      ground.push({ y: y, xa: sL, xb: sR });
+      // Subtle dimmed neighborhood buildings across the middle of the strip, leaving room for the active spots
+      const midL = sL + (MARK.home.w + MARK.home.dw) + 10;
+      const midR = sR - Math.max(toiletTotal, bikeW + 10) - 10;
+      if (midR - midL > 26) fillSpan(y, midL, midR, rng);
+
+      place('home', sL + 2, y, 1, 'agent');
+      place('cloud', sL + 6, y, 1, 'agent');
+      place('desk', Math.round((sL + sR) / 2 - deskTotal / 2), y, 1, 'you');
+      place('toilet', sR - toiletTotal - 3, y, 1, 'you');
+
+      const bx1 = Math.max(sL + 80, sR - bikeW - 4);
+      const bx0 = Math.max(sL + 74, bx1 - (viewW < 640 ? 10 : 32));
+      L.bike = { y: y + 1, x0: bx0, x1: bx1, s: bikeScale };
+
+      for (let x = sL + 12; x < sR - 4; x += 48) {
+        staticItems.push({ y: y + 1, top: y - 10, bot: y + 12, x: x, draw: drawLamp });
+      }
     }
 
     staticItems.sort(function (a, b) { return a.y - b.y; });
     bgDirty = true;
     scrimDirty = true;
+    tagsDirty = true;
   }
 
   // ---- Pass 1: Static dimmed neighbourhood (ONLY runs on layout/scroll/scene/theme) ----
@@ -1133,7 +1261,7 @@
 
   // ---- Pass 2: Quarter-res GPU-upscaled dimming veil + smooth 120fps spotlights ----
   function renderScrim(t, dt) {
-    if (L.mode !== 'flank' || !L.stage) {
+    if (!L.stage || (L.mode !== 'flank' && !L.strip)) {
       if (scrimDirty) {
         scrimCtx.clearRect(0, 0, SW, SH);
         scrimDirty = false;
@@ -1141,6 +1269,7 @@
       return;
     }
 
+    const isFlank = L.mode === 'flank';
     const sameSpot = scene.agent === scene.you;
     const a = sameSpot ? null : anchorOf(scene.agent, t);
     const u = anchorOf(scene.you, t);
@@ -1179,62 +1308,78 @@
     scrimCtx.globalCompositeOperation = 'source-over';
     scrimCtx.clearRect(0, 0, SW, SH);
 
-    const topS = (0 - offY) / SCRIM_DIV;
-    const botS = (L.heroBottom + 24 - offY) / SCRIM_DIV;
-    if (botS <= 0 || topS >= SH) return;
+    if (isFlank) {
+      const topS = (0 - offY) / SCRIM_DIV;
+      const botS = (L.heroBottom + 24 - offY) / SCRIM_DIV;
+      if (botS <= 0 || topS >= SH) return;
 
-    const veil = scrimCtx.createLinearGradient(0, topS, 0, botS);
-    if (theme === 'light') {
-      veil.addColorStop(0, 'rgba(18, 28, 56, 0.125)');
-      veil.addColorStop(0.84, 'rgba(18, 28, 56, 0.13)');
-      veil.addColorStop(1, 'rgba(18, 28, 56, 0)');
+      const veil = scrimCtx.createLinearGradient(0, topS, 0, botS);
+      if (theme === 'light') {
+        veil.addColorStop(0, 'rgba(18, 28, 56, 0.125)');
+        veil.addColorStop(0.84, 'rgba(18, 28, 56, 0.13)');
+        veil.addColorStop(1, 'rgba(18, 28, 56, 0)');
+      } else {
+        veil.addColorStop(0, 'rgba(3, 5, 12, 0.56)');
+        veil.addColorStop(0.84, 'rgba(3, 5, 12, 0.60)');
+        veil.addColorStop(1, 'rgba(3, 5, 12, 0)');
+      }
+      scrimCtx.fillStyle = veil;
+      scrimCtx.fillRect(0, Math.max(0, topS), SW, Math.min(SH, botS) - Math.max(0, topS));
+
+      // Punch bright hero column + spotlight cutouts
+      scrimCtx.globalCompositeOperation = 'destination-out';
+      const colPad = 14;
+      const xL = Math.max(0, (L.xl - colPad) / SCRIM_DIV);
+      const xR = Math.min(SW, (L.xr + colPad) / SCRIM_DIV);
+      const colGrad = scrimCtx.createLinearGradient(xL, 0, xR, 0);
+      colGrad.addColorStop(0, 'rgba(0,0,0,0)');
+      colGrad.addColorStop(0.08, 'rgba(0,0,0,1)');
+      colGrad.addColorStop(0.92, 'rgba(0,0,0,1)');
+      colGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      scrimCtx.fillStyle = colGrad;
+      scrimCtx.fillRect(xL, Math.max(0, topS), xR - xL, Math.min(SH, botS) - Math.max(0, topS));
+
+      function punch(s) {
+        if (!s) return;
+        const sx = s.x / SCRIM_DIV, sy = (s.y - offY) / SCRIM_DIV, sr = (s.r * 1.18) / SCRIM_DIV;
+        const g = scrimCtx.createRadialGradient(sx, sy, sr * 0.42, sx, sy, sr);
+        g.addColorStop(0, 'rgba(0,0,0,1)');
+        g.addColorStop(0.72, 'rgba(0,0,0,0.92)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        scrimCtx.fillStyle = g;
+        scrimCtx.beginPath();
+        scrimCtx.arc(sx, sy, sr, 0, Math.PI * 2);
+        scrimCtx.fill();
+      }
+      punch(spotA);
+      punch(spotU);
     } else {
-      veil.addColorStop(0, 'rgba(3, 5, 12, 0.56)');
-      veil.addColorStop(0.84, 'rgba(3, 5, 12, 0.60)');
-      veil.addColorStop(1, 'rgba(3, 5, 12, 0)');
-    }
-    scrimCtx.fillStyle = veil;
-    scrimCtx.fillRect(0, Math.max(0, topS), SW, Math.min(SH, botS) - Math.max(0, topS));
-
-    // Punch bright hero column + spotlight cutouts
-    scrimCtx.globalCompositeOperation = 'destination-out';
-    const colPad = 14;
-    const xL = Math.max(0, (L.xl - colPad) / SCRIM_DIV);
-    const xR = Math.min(SW, (L.xr + colPad) / SCRIM_DIV);
-    const colGrad = scrimCtx.createLinearGradient(xL, 0, xR, 0);
-    colGrad.addColorStop(0, 'rgba(0,0,0,0)');
-    colGrad.addColorStop(0.08, 'rgba(0,0,0,1)');
-    colGrad.addColorStop(0.92, 'rgba(0,0,0,1)');
-    colGrad.addColorStop(1, 'rgba(0,0,0,0)');
-    scrimCtx.fillStyle = colGrad;
-    scrimCtx.fillRect(xL, Math.max(0, topS), xR - xL, Math.min(SH, botS) - Math.max(0, topS));
-
-    function punch(s) {
-      if (!s) return;
-      const sx = s.x / SCRIM_DIV, sy = (s.y - offY) / SCRIM_DIV, sr = (s.r * 1.18) / SCRIM_DIV;
-      const g = scrimCtx.createRadialGradient(sx, sy, sr * 0.42, sx, sy, sr);
-      g.addColorStop(0, 'rgba(0,0,0,1)');
-      g.addColorStop(0.72, 'rgba(0,0,0,0.92)');
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      scrimCtx.fillStyle = g;
+      scrimCtx.save();
+      const sTop = Math.max(0, (L.strip.t - offY) / SCRIM_DIV);
+      const sBot = Math.min(SH, (L.strip.b - offY) / SCRIM_DIV);
+      if (sBot <= sTop) { scrimCtx.restore(); return; }
       scrimCtx.beginPath();
-      scrimCtx.arc(sx, sy, sr, 0, Math.PI * 2);
-      scrimCtx.fill();
+      scrimCtx.rect(0, sTop, SW, sBot - sTop);
+      scrimCtx.clip();
     }
-    punch(spotA);
-    punch(spotU);
 
     // Paint subtle bright spotlight pool behind the active characters
     scrimCtx.globalCompositeOperation = 'source-over';
     const rgb = statusRGB();
     function halo(s, muted) {
       if (!s) return;
-      const sx = s.x / SCRIM_DIV, sy = (s.y - offY) / SCRIM_DIV, sr = (s.r * 1.08) / SCRIM_DIV;
+      const sx = s.x / SCRIM_DIV, sy = (s.y - offY) / SCRIM_DIV, sr = (s.r * (isFlank ? 1.08 : 0.92)) / SCRIM_DIV;
       const g = scrimCtx.createRadialGradient(sx, sy, sr * 0.1, sx, sy, sr);
       if (theme === 'light') {
-        g.addColorStop(0, 'rgba(255, 255, 255, 0.90)');
-        g.addColorStop(0.65, muted ? 'rgba(255, 255, 255, 0.62)' : 'rgba(' + rgb + ', 0.08)');
-        g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        if (isFlank) {
+          g.addColorStop(0, 'rgba(255, 255, 255, 0.90)');
+          g.addColorStop(0.65, muted ? 'rgba(255, 255, 255, 0.62)' : 'rgba(' + rgb + ', 0.08)');
+          g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        } else {
+          g.addColorStop(0, muted ? 'rgba(130, 145, 185, 0.12)' : 'rgba(' + rgb + ', 0.16)');
+          g.addColorStop(0.65, muted ? 'rgba(130, 145, 185, 0.05)' : 'rgba(' + rgb + ', 0.06)');
+          g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        }
       } else {
         g.addColorStop(0, muted ? 'rgba(130, 150, 210, 0.14)' : 'rgba(' + rgb + ', 0.24)');
         g.addColorStop(0.62, muted ? 'rgba(100, 120, 180, 0.06)' : 'rgba(' + rgb + ', 0.09)');
@@ -1247,6 +1392,7 @@
     }
     halo(spotA, false);
     halo(spotU, scene.status === 'blocked');
+    if (!isFlank) scrimCtx.restore();
   }
 
   // ---- Pass 3: Dirty-rect 120fps active actors, wires & ambient walkers/cars ----
@@ -1351,8 +1497,29 @@
           if (u) drawYouDot(u.cx, u.top - 8, t);
         } else if (L.strip) {
           const edge = L.strip.b - 1;
-          if (a && !sameSpot) wire([[a.cx, a.bottom], [a.cx, edge]], c, out, t, st === 'blocked' || st === 'idle');
-          if (u && st !== 'blocked') wire([[u.cx, edge], [u.cx, u.bottom]], c, out, t, st === 'idle');
+          const wireY = L.strip.b - 24;
+          if (!sameSpot && a && u) {
+            const x0 = Math.round(a.right + 3);
+            const x1 = Math.round(u.left - 3);
+            const midX = Math.round((x0 + x1) / 2);
+            if (st === 'blocked') {
+              if (midX - x0 > 6) {
+                wire([[x0, wireY], [midX - 5, wireY]], P.RED, 0, t, true);
+              }
+              for (let k = -3; k <= 3; k++) {
+                rect(midX + k, wireY + k, 2, 2, P.RED, 255);
+                rect(midX + k, wireY - k, 2, 2, P.RED, 255);
+              }
+            } else if (x1 - x0 > 8) {
+              wire([[x0, wireY], [x1, wireY]], c, out, t, st === 'idle');
+              wire([[midX, wireY + 2], [midX, edge]], c, 0, t, st === 'idle');
+              drawPort(midX, edge - 1, c, t);
+            }
+          } else if (u) {
+            const ux = Math.round(u.cx);
+            wire([[ux, L.strip.b - 9], [ux, edge]], c, out, t, st === 'idle');
+            drawPort(ux, edge - 1, c, t);
+          }
         }
       }
     }
@@ -1364,7 +1531,18 @@
 
   function frame(t, dt) {
     if (!L || !den) return;
-    if (L.mode === 'strip' && !L.strip) return;
+    if (L.mode === 'strip' && !L.strip) {
+      if (bgDirty) {
+        bgDirty = false;
+        bgCtx.clearRect(0, 0, W, VH);
+        fgCtx.clearRect(0, 0, W, VH);
+      }
+      if (scrimDirty) {
+        scrimDirty = false;
+        scrimCtx.clearRect(0, 0, SW, SH);
+      }
+      return;
+    }
 
     const mRect = main.getBoundingClientRect();
     offY = -Math.round(mRect.top / CELL);
@@ -1425,6 +1603,7 @@
         statusAt = clock;
         bgDirty = true;
         scrimDirty = true;
+        tagsDirty = true;
       }
       if (reduced.matches) frame(clock, 0.016);
     },

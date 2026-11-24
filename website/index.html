@@ -525,7 +525,7 @@
             <span>A Mac or a Linux server</span>
           </div>
 
-          <div class="direct-arrows" aria-hidden="true">
+          <div class="direct-arrows direct-arrows-desktop" aria-hidden="true">
             <div class="arrow-row">
               <span class="arrow-label">The website, the account and the agent&rsquo;s reason</span>
               <svg viewBox="0 0 260 22" preserveAspectRatio="none"><path d="M4,11 H244" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/><polygon points="242,5 256,11 242,17" fill="var(--accent)"/><path class="flow-dot out" d="M4,11 H244" stroke-width="4.5" stroke-linecap="round" pathLength="100" stroke-dasharray="9 100"/></svg>
@@ -535,6 +535,20 @@
               <svg viewBox="0 0 260 22" preserveAspectRatio="none"><path d="M256,11 H16" stroke="var(--approve)" stroke-width="2.5" stroke-linecap="round"/><polygon points="18,5 4,11 18,17" fill="var(--approve)"/><path class="flow-dot back" d="M256,11 H16" stroke-width="4.5" stroke-linecap="round" pathLength="100" stroke-dasharray="9 100"/></svg>
               <span class="arrow-label">One password, for one task (30 minutes at most)</span>
             </div>
+          </div>
+
+          <div class="direct-arrows direct-arrows-mobile" aria-hidden="true">
+            <div class="direct-vlanes">
+              <div class="vlane">
+                <svg viewBox="0 0 22 68" preserveAspectRatio="none"><path d="M11,4 V54" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/><polygon points="5,52 11,64 17,52" fill="var(--accent)"/><path class="flow-dot out" d="M11,4 V54" stroke-width="4.5" stroke-linecap="round" pathLength="100" stroke-dasharray="14 100"/></svg>
+                <span class="arrow-label">The website, the account and the agent&rsquo;s reason</span>
+              </div>
+              <div class="vlane">
+                <svg viewBox="0 0 22 68" preserveAspectRatio="none"><path d="M11,64 V14" stroke="var(--approve)" stroke-width="2.5" stroke-linecap="round"/><polygon points="5,16 11,4 17,16" fill="var(--approve)"/><path class="flow-dot back" d="M11,64 V14" stroke-width="4.5" stroke-linecap="round" pathLength="100" stroke-dasharray="14 100"/></svg>
+                <span class="arrow-label">One password, for one task (30 minutes at most)</span>
+              </div>
+            </div>
+            <div class="direct-gate"><img src="/assets/favicon.svg" alt="" width="22" height="22"><span>A Blocked password stops here</span></div>
           </div>
 
           <div class="direct-node">
@@ -598,33 +612,33 @@
             <tbody>
               <tr>
                 <th scope="row">Where your passwords live</th>
-                <td class="col-akr">Apple Passwords</td>
-                <td>1Password</td>
-                <td>Bitwarden</td>
+                <td class="col-akr" data-label="Agent Keyring">Apple Passwords</td>
+                <td data-label="1Password for Agents">1Password</td>
+                <td data-label="Bitwarden Agent Access">Bitwarden</td>
               </tr>
               <tr>
                 <th scope="row">Cost</th>
-                <td class="col-akr">Free and open source (MIT)</td>
-                <td>An individual or family account on 1Password.com</td>
-                <td>Free and open source</td>
+                <td class="col-akr" data-label="Agent Keyring">Free and open source (MIT)</td>
+                <td data-label="1Password for Agents">An individual or family account on 1Password.com</td>
+                <td data-label="Bitwarden Agent Access">Free and open source</td>
               </tr>
               <tr>
                 <th scope="row">Agents it works with</th>
-                <td class="col-akr">Claude Code, Codex and anything else that can run a shell command</td>
-                <td>Five partner apps. Not Claude Code or Codex</td>
-                <td>Anything that can run a shell command</td>
+                <td class="col-akr" data-label="Agent Keyring">Claude Code, Codex and anything else that can run a shell command</td>
+                <td data-label="1Password for Agents">Five partner apps. Not Claude Code or Codex</td>
+                <td data-label="Bitwarden Agent Access">Anything that can run a shell command</td>
               </tr>
               <tr>
                 <th scope="row">Where you approve</th>
-                <td class="col-akr">Mac, iPhone or Apple Watch</td>
-                <td>The 1Password app, on the device the agent runs on</td>
-                <td>A terminal you keep open</td>
+                <td class="col-akr" data-label="Agent Keyring">Mac, iPhone or Apple Watch</td>
+                <td data-label="1Password for Agents">The 1Password app, on the device the agent runs on</td>
+                <td data-label="Bitwarden Agent Access">A terminal you keep open</td>
               </tr>
               <tr>
                 <th scope="row">What one approval covers</th>
-                <td class="col-akr">One password for one task, 30 minutes at most</td>
-                <td>One login, for up to 30 days</td>
-                <td>One request, or repeat requests from the same device for a time you choose</td>
+                <td class="col-akr" data-label="Agent Keyring">One password for one task, 30 minutes at most</td>
+                <td data-label="1Password for Agents">One login, for up to 30 days</td>
+                <td data-label="Bitwarden Agent Access">One request, or repeat requests from the same device for a time you choose</td>
               </tr>
             </tbody>
           </table>

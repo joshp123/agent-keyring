@@ -117,59 +117,59 @@
             <tbody>
               <tr>
                 <th scope="row">Where your passwords live</th>
-                <td class="col-akr">Apple Passwords. You copy them to your Mac, and again when one changes</td>
-                <td>1Password</td>
-                <td>Bitwarden. The protocol is open to other password managers</td>
-                <td>Proton Pass</td>
+                <td class="col-akr" data-label="Agent Keyring">Apple Passwords. You copy them to your Mac, and again when one changes</td>
+                <td data-label="1Password for Agents">1Password</td>
+                <td data-label="Bitwarden Agent Access">Bitwarden. The protocol is open to other password managers</td>
+                <td data-label="Proton Pass access tokens">Proton Pass</td>
               </tr>
               <tr>
                 <th scope="row">Cost</th>
-                <td class="col-akr">Free and open source (MIT)</td>
-                <td>An individual or family account on 1Password.com</td>
-                <td>Free and open source</td>
-                <td>A Proton plan that includes Pass access tokens</td>
+                <td class="col-akr" data-label="Agent Keyring">Free and open source (MIT)</td>
+                <td data-label="1Password for Agents">An individual or family account on 1Password.com</td>
+                <td data-label="Bitwarden Agent Access">Free and open source</td>
+                <td data-label="Proton Pass access tokens">A Proton plan that includes Pass access tokens</td>
               </tr>
               <tr>
                 <th scope="row">Agents it works with</th>
-                <td class="col-akr">Claude Code, Codex and anything else that can run a shell command</td>
-                <td>Five partner apps: Claude Duet, Grok Bot, Instinct, Muse and Town</td>
-                <td>Anything that can run a shell command</td>
-                <td>Anything that can run the Proton Pass command-line tool</td>
+                <td class="col-akr" data-label="Agent Keyring">Claude Code, Codex and anything else that can run a shell command</td>
+                <td data-label="1Password for Agents">Five partner apps: Claude Duet, Grok Bot, Instinct, Muse and Town</td>
+                <td data-label="Bitwarden Agent Access">Anything that can run a shell command</td>
+                <td data-label="Proton Pass access tokens">Anything that can run the Proton Pass command-line tool</td>
               </tr>
               <tr>
                 <th scope="row">Where you approve</th>
-                <td class="col-akr">Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap)</td>
-                <td>The 1Password app, on the device the agent runs on</td>
-                <td>The terminal running <code>aac listen</code></td>
-                <td>Nowhere. You choose vaults when you make the token</td>
+                <td class="col-akr" data-label="Agent Keyring">Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap)</td>
+                <td data-label="1Password for Agents">The 1Password app, on the device the agent runs on</td>
+                <td data-label="Bitwarden Agent Access">The terminal running <code>aac listen</code></td>
+                <td data-label="Proton Pass access tokens">Nowhere. You choose vaults when you make the token</td>
               </tr>
               <tr>
                 <th scope="row">What one approval covers</th>
-                <td class="col-akr">One password for one task, 30 minutes at most</td>
-                <td>One login, for up to 30 days</td>
-                <td>One request, or repeat requests from the same device for a time you choose</td>
-                <td>Every item in the vaults you chose, for 1 hour to 1 year</td>
+                <td class="col-akr" data-label="Agent Keyring">One password for one task, 30 minutes at most</td>
+                <td data-label="1Password for Agents">One login, for up to 30 days</td>
+                <td data-label="Bitwarden Agent Access">One request, or repeat requests from the same device for a time you choose</td>
+                <td data-label="Proton Pass access tokens">Every item in the vaults you chose, for 1 hour to 1 year</td>
               </tr>
               <tr>
                 <th scope="row">Can the agent read the password?</th>
-                <td class="col-akr">Not in chat when the agent fills via the browser extension (an agent controlling that browser can still read the filled field). Yes when the agent falls back to the CLI for other browsers, computer use or CLI tools</td>
-                <td>No. 1Password fills it outside the agent&rsquo;s view</td>
-                <td>Yes, unless it uses <code>aac run</code>, which passes it to a program instead</td>
-                <td>Yes</td>
+                <td class="col-akr" data-label="Agent Keyring">Not in chat when the agent fills via the browser extension (an agent controlling that browser can still read the filled field). Yes when the agent falls back to the CLI for other browsers, computer use or CLI tools</td>
+                <td data-label="1Password for Agents">No. 1Password fills it outside the agent&rsquo;s view</td>
+                <td data-label="Bitwarden Agent Access">Yes, unless it uses <code>aac run</code>, which passes it to a program instead</td>
+                <td data-label="Proton Pass access tokens">Yes</td>
               </tr>
               <tr>
                 <th scope="row">What you can answer</th>
-                <td class="col-akr">Approve, deny, or deny and tell the agent what to do instead, typed or spoken</td>
-                <td>Approve, pick a different login, or deny</td>
-                <td>Approve once, approve repeats for a time you choose, or deny</td>
-                <td>Nothing to answer</td>
+                <td class="col-akr" data-label="Agent Keyring">Approve, deny, or deny and tell the agent what to do instead, typed or spoken</td>
+                <td data-label="1Password for Agents">Approve, pick a different login, or deny</td>
+                <td data-label="Bitwarden Agent Access">Approve once, approve repeats for a time you choose, or deny</td>
+                <td data-label="Proton Pass access tokens">Nothing to answer</td>
               </tr>
               <tr>
                 <th scope="row">Agents on a Linux server</th>
-                <td class="col-akr">Yes, over Tailscale</td>
-                <td>Only where the 1Password app and a partner app both run</td>
-                <td>Yes, through a relay that can&rsquo;t read the traffic</td>
-                <td>Yes</td>
+                <td class="col-akr" data-label="Agent Keyring">Yes, over Tailscale</td>
+                <td data-label="1Password for Agents">Only where the 1Password app and a partner app both run</td>
+                <td data-label="Bitwarden Agent Access">Yes, through a relay that can&rsquo;t read the traffic</td>
+                <td data-label="Proton Pass access tokens">Yes</td>
               </tr>
             </tbody>
           </table>
