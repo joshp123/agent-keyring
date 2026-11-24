@@ -26,6 +26,12 @@
 
   applyTheme(storedTheme || (prefersDark.matches ? 'dark' : 'light'), false);
 
+  prefersDark.addEventListener('change', function (e) {
+    if (!localStorage.getItem('akr-theme')) {
+      applyTheme(e.matches ? 'dark' : 'light', false);
+    }
+  });
+
   if (themeBtn) {
     themeBtn.addEventListener('click', function () {
       const current = root.getAttribute('data-theme') || 'dark';
