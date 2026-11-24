@@ -39,5 +39,17 @@
 	<array>
 		<string>ASCredentialExchangeActivity</string>
 	</array>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<key>SUFeedURL</key>
+	<string>https://keyring.opentrawl.sh/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>plozm79Eiw9FXBlXYpZOHStIYydwLn+5iYV+DQ1aVFw=</string>
 </dict>
 </plist>

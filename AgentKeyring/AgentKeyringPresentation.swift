@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import Sparkle
 import SwiftUI
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
@@ -64,11 +65,17 @@ struct AgentKeyringMenuWindow: View {
     let menuBar: MacMenuBarModel
     let approvals: ApprovalPresenter
     let model: MirrorAppModel
+    let updater: SPUUpdater
+    let checkForUpdates: () -> Void
 
     var body: some View {
         MacMenuBarView(model: menuBar)
             .frame(width: 360)
+            .onReceive(updater.publisher(for: \.canCheckForUpdates)) { canCheck in
+                menuBar.canCheckForUpdates = canCheck
+            }
             .onAppear {
+                menuBar.canCheckForUpdates = updater.canCheckForUpdates
                 menuBar.review = { leaseID in
                     dismiss()
                     approvals.present(requestID: leaseID)
@@ -90,6 +97,10 @@ struct AgentKeyringMenuWindow: View {
                     dismiss()
                     model.openPasswordsExport()
                     presentation.requestMainWindow(.logins)
+                }
+                menuBar.checkForUpdates = {
+                    dismiss()
+                    checkForUpdates()
                 }
                 menuBar.quit = { NSApplication.shared.terminate(nil) }
             }

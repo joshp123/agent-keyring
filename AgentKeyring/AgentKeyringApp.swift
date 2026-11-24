@@ -1,12 +1,39 @@
 import AppKit
+import Combine
 import OSLog
 import AuthenticationServices
 import LocalAuthentication
+import Sparkle
 import SwiftUI
 import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
 import AgentKeyringFeature
 import AgentKeyringScreenBackends
+
+@MainActor
+private final class CheckForUpdatesViewModel: ObservableObject {
+    @Published var canCheckForUpdates = false
+
+    init(updater: SPUUpdater) {
+        updater.publisher(for: \.canCheckForUpdates)
+            .assign(to: &$canCheckForUpdates)
+    }
+}
+
+private struct CheckForUpdatesView: View {
+    @ObservedObject private var viewModel: CheckForUpdatesViewModel
+    private let updater: SPUUpdater
+
+    init(updater: SPUUpdater) {
+        self.updater = updater
+        viewModel = CheckForUpdatesViewModel(updater: updater)
+    }
+
+    var body: some View {
+        Button(MenuBarCopy.checkForUpdates, action: updater.checkForUpdates)
+            .disabled(!viewModel.canCheckForUpdates)
+    }
+}
 
 @MainActor
 final class AgentKeyringAppDelegate: NSObject, NSApplicationDelegate {
@@ -291,6 +318,20 @@ struct AgentKeyringApp: App {
     @NSApplicationDelegateAdaptor(AgentKeyringAppDelegate.self)
     private var appDelegate
 
+    private let updaterController: SPUStandardUpdaterController = {
+        #if DEBUG
+        let shouldStart = false
+        #else
+        let shouldStart = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil
+            && Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil
+        #endif
+        return SPUStandardUpdaterController(
+            startingUpdater: shouldStart,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+    }()
+
     var body: some Scene {
         Window("Agent Keyring", id: "main") {
             HomeWindow(model: appDelegate.model, presentation: appDelegate.presentation)
@@ -298,10 +339,19 @@ struct AgentKeyringApp: App {
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
         .defaultLaunchBehavior(.suppressed)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
+        }
 
         MenuBarExtra {
             AgentKeyringMenuWindow(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar,
-                approvals: appDelegate.approvals, model: appDelegate.model)
+                approvals: appDelegate.approvals, model: appDelegate.model,
+                updater: updaterController.updater) {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                updaterController.checkForUpdates(nil)
+            }
         } label: {
             AgentKeyringMenuBarLabel(presentation: appDelegate.presentation, menuBar: appDelegate.menuBar)
         }

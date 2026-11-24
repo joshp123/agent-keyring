@@ -1,14 +1,15 @@
-<!-- Written by AI on 2026.11.20 by model claude opus 5.5; updated on 2026.11.23 by model gemini-4-neon for 0.5.0 public Mac release and external TestFlight status. -->
+<!-- Written by AI on 2026.11.20 by model claude opus 5.5; updated on 2026.11.24 by model gemini-4-neon for Sparkle 2 automatic updates and signed appcast publishing. -->
 
 # Signing the Mac, iPhone and Apple Watch apps
 
-Agent Keyring ships as a signed, notarised Mac app on GitHub Releases (`0.5.0`), alongside an iPhone and Apple Watch companion app currently in internal TestFlight. Nothing for signing lives in this repository.
+Agent Keyring ships as a signed, notarised Mac app on GitHub Releases with Sparkle 2 automatic updates (`https://keyring.opentrawl.sh/appcast.xml`), alongside an iPhone and Apple Watch companion app in public TestFlight. Nothing for signing lives in this repository.
 
 ## Mac app (`script/build_release.sh`)
 
 - **Certificate:** Developer ID Application (`Developer ID Application`, manual export using the Developer ID provisioning profiles for the Mac app and its Credential Provider extension).
 - **Notarisation:** `script/build_release.sh` builds the universal (`arm64` + `amd64`) `agent-keyring` helper binary, archives and exports `Agent Keyring.app`, notarises `Agent-Keyring-<VERSION>.zip` with `xcrun notarytool submit --wait` using an App Store Connect API key, staples the ticket, and verifies `codesign`, `stapler`, and `spctl`.
-- **Publishing:** `script/publish_release.sh <VERSION>` creates the GitHub Release on `opentrawl/agent-keyring` from `.build/Release-<VERSION>/out/Agent-Keyring-<VERSION>.zip` and `Distribution/ReleaseNotes.md`.
+- **Sparkle 2 appcast:** `script/build_release.sh` checks that `SUPublicEDKey` in `AgentKeyring/Info.plist` matches the maintainer's Ed25519 key in the login Keychain (`script/fetch_sparkle_tools.sh`), checks that the build number is newer than the live feed, generates `.build/Release-<VERSION>/out/appcast.xml` pointing at `https://github.com/opentrawl/agent-keyring/releases/download/v<VERSION>/Agent-Keyring-<VERSION>.zip`, and verifies the Ed25519 signature against the zip bytes.
+- **Publishing:** `script/publish_release.sh <VERSION>` creates (or resumes) the GitHub Release on `opentrawl/agent-keyring` from `.build/Release-<VERSION>/out/Agent-Keyring-<VERSION>.zip`, the standalone CLI binaries, `SHA256SUMS.txt`, and `Distribution/ReleaseNotes.md`, confirms the release zip is live over HTTPS, conditionally uploads `appcast.xml` to the configured S3 bucket (`AGENT_KEYRING_APPCAST_BUCKET`, `Cache-Control: public, max-age=300`) using its ETag, invalidates `/appcast.xml` in CloudFront (`AGENT_KEYRING_CLOUDFRONT_DISTRIBUTION_ID`), and verifies `https://keyring.opentrawl.sh/appcast.xml` byte-for-byte.
 
 ## iPhone and Apple Watch apps (`script/build_iphone.sh`)
 

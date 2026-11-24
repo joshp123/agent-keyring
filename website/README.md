@@ -6,6 +6,8 @@ Static landing page, comparison page, and AI-agent Markdown mirrors for Agent Ke
 
 Static hosting, CDN, TLS certificate and DNS are managed in the separate OpenTofu infrastructure repo for `jjpcodes.com`.
 
+`appcast.xml` (the signed Sparkle 2 feed for the Mac app) is uploaded to the root of the static site bucket by `script/publish_release.sh` and served at `https://keyring.opentrawl.sh/appcast.xml`. When syncing `website/` to S3 with `--delete`, always pass `--exclude "appcast.xml"` so the live update feed is preserved.
+
 ## Files
 
 - `index.html`: the landing page. Hero film (what the agent says, and the device you answer on), the three rules, how passwords are protected, a short comparison, the TestFlight beta link.

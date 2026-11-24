@@ -49,6 +49,8 @@ public final class MacMenuBarModel {
     public var openDevices: () -> Void = {}
     public var openPasswords: () -> Void = {}
     public var copyAgain: () -> Void = {}
+    public var canCheckForUpdates = false
+    public var checkForUpdates: () -> Void = {}
     public var quit: () -> Void = {}
 
     private let backend: any MacMenuBarBackend
@@ -216,6 +218,8 @@ public struct MacMenuBarView: View {
             Spacer(minLength: 0)
             Menu {
                 Button(MenuBarCopy.copyAgain, action: model.copyAgain)
+                Button(MenuBarCopy.checkForUpdates, action: model.checkForUpdates)
+                    .disabled(!model.canCheckForUpdates)
                 Divider()
                 Button(MenuBarCopy.quit, action: model.quit)
             } label: {

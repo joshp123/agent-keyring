@@ -95,6 +95,7 @@ public enum MenuBarCopy {
     public static let devices = "Devices"
     public static let more = "More"
     public static let copyAgain = "Copy Passwords Again…"
+    public static let checkForUpdates = "Check for Updates…"
     public static let quit = "Quit Agent Keyring"
     /// On a denial that still holds the password off for that computer (right-click).
     public static let letAskAgain = "Let It Ask Again"
