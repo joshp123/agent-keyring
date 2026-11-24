@@ -1,6 +1,6 @@
 # Agent Keyring
 
-> 1Password for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Agent Keyring lets AI coding agents such as Claude Code and Codex sign in to websites with the passwords the user keeps in Apple Passwords. The user approves each password on their Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap). Free and open source (MIT). No cloud vault and no account.
+> Passwords for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Agent Keyring lets Claude Code, Codex or any AI agent sign in to websites with the passwords the user keeps in Apple Passwords. The user approves each password on their Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap). Free and open source (MIT). No cloud vault and no account.
 
 - Status: the signed and notarised Mac app (v1.0.0) is available on GitHub Releases today and works straight away with Touch ID. The iPhone and Apple Watch apps are in public beta on TestFlight at https://testflight.apple.com/join/W5xBNeMw, or build them from source.
 - Made by: Josh Palmer (https://x.com/jjpcodes)
@@ -117,7 +117,7 @@ agent-keyring release "$lease"
 Checked November 2026:
 
 - **Agent Keyring:** Apple Passwords; free and open source (MIT); works with Claude Code, Codex and any agent that runs shell commands; approve on Mac (Touch ID), iPhone (Face ID) or Apple Watch (tap); one approval covers one password for one task, 30 minutes at most.
-- **1Password for Agents:** 1Password; requires an individual or family account on 1Password.com; five partner apps (Browserbase, Browser Use, Perplexity, Stagehand, TinyFish), not Claude Code or Codex; approve in the 1Password app on the device the agent runs on; one approval covers one login for up to 30 days.
+- **1Password for Agents:** 1Password; requires an individual or family account on 1Password.com; five partner apps (Claude Duet, Grok Bot, Instinct, Muse and Town), not Claude Code or Codex; approve in the 1Password app on the device the agent runs on; one approval covers one login for up to 30 days.
 - **Bitwarden Agent Access:** Bitwarden; free and open source; works with any agent that runs shell commands; approve in an open terminal; one approval covers one request, or repeat requests from the same device for a chosen window.
 - **Proton Pass CLI:** Proton Pass; free account or paid plan; works with any agent that runs shell commands; no per-request approval, session unlocks the vault until logout or timeout.
 
@@ -135,7 +135,7 @@ Checked November 2026:
 # Agent Keyring: let Claude Code and Codex sign in with Apple Passwords
 
 Published: 2026-11-20
-Updated: 2026-11-23
+Updated: 2026-11-24
 Status: signed Mac app (v1.0.0) available on GitHub Releases (works with Touch ID); iPhone and Apple Watch public beta open on TestFlight at https://testflight.apple.com/join/W5xBNeMw
 Made by: Josh Palmer (https://x.com/jjpcodes)
 Website: https://keyring.opentrawl.sh/
@@ -149,7 +149,7 @@ Full context: /llms-full.txt (https://keyring.opentrawl.sh/llms-full.txt)
 
 Your agents ask. You tap yes.
 
-1Password for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.
+Passwords for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Let Claude Code, Codex or any AI agent sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.
 
 ## The walkthrough
 
@@ -223,7 +223,7 @@ The signed Mac app is out on GitHub Releases (https://github.com/opentrawl/agent
 # Agent Keyring security
 
 Published: 2026-11-21
-Updated: 2026-11-23
+Updated: 2026-11-24
 Made by: Josh Palmer (https://x.com/jjpcodes)
 HTML page: https://keyring.opentrawl.sh/security/
 Threat model in the source: https://github.com/opentrawl/agent-keyring/blob/main/docs/threat-model.md
@@ -294,7 +294,7 @@ A computer you choose keeps its own encrypted copy of each Automatic password, t
 # How Agent Keyring compares
 
 Published: 2026-11-20
-Updated: 2026-11-23
+Updated: 2026-11-24
 Made by: Josh Palmer (https://x.com/jjpcodes)
 HTML page: https://keyring.opentrawl.sh/compare/
 Home: /index.md
@@ -302,6 +302,10 @@ Security: /security.md
 Source code: https://github.com/opentrawl/agent-keyring
 
 1Password, Bitwarden and Proton Pass can each hand a password to an agent, as long as your passwords are in their app. Agent Keyring uses the ones you already keep in Apple Passwords, and you approve on your Mac, iPhone or Apple Watch.
+
+## Which is better: Agent Keyring, 1Password for Agents, Bitwarden or Proton Pass?
+
+It depends on where your passwords live and which agents you run. As of November 2026, choose Agent Keyring if you use Apple Passwords on a Mac and run Claude Code, Codex or shell-based agents with Touch ID, Face ID or Apple Watch approvals. Choose 1Password for Agents if your vault is in 1Password and you use one of its five partner apps; Bitwarden Agent Access if you use Bitwarden or approve on Linux, Windows or Android; Proton Pass access tokens for unattended vault access.
 
 ## Side by side
 
@@ -330,7 +334,7 @@ Your passwords already live in 1Password, Bitwarden or Proton Pass, you need sha
 
 # Agent Keyring privacy policy
 
-Updated: 2026-11-23
+Updated: 2026-11-24
 Website: https://keyring.opentrawl.sh/privacy/
 Source code: https://github.com/opentrawl/agent-keyring
 

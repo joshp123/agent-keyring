@@ -1,12 +1,12 @@
 # Agent Keyring
 
-**1Password for the Agentic OS.** Let your AI agents sign in as you anywhere you work, using the passwords you already keep in Apple Passwords, with your approval.
+**Passwords for the Agentic OS.** Let Claude Code, Codex, or any AI agent sign in as you anywhere you work, using the passwords you already keep in Apple Passwords, with your approval.
 
 Part of the [OpenTrawl](https://github.com/opentrawl/opentrawl) suite alongside OpenTrawl (**Spotlight for the Agentic OS**). See [keyring.opentrawl.sh](https://keyring.opentrawl.sh/) for the overview, [security model](https://keyring.opentrawl.sh/security/), and [comparisons](https://keyring.opentrawl.sh/compare/).
 
 macOS 26 or later · MIT licence
 
-**Status:** `1.0.0` is live on [Releases](https://github.com/opentrawl/agent-keyring/releases/latest) with the signed, notarised Mac app and standalone Linux/macOS CLI binaries. The iPhone and Apple Watch approval app is submitted for external TestFlight Beta App Review; join the waitlist at [keyring.opentrawl.sh](https://keyring.opentrawl.sh/#waitlist) to get the public TestFlight link as soon as Apple approves.
+**Status:** `1.0.0` is live on [Releases](https://github.com/opentrawl/agent-keyring/releases/latest) with the signed, notarised Mac app and standalone Linux/macOS CLI binaries. The iPhone and Apple Watch approval app is in public beta on [TestFlight](https://testflight.apple.com/join/W5xBNeMw).
 
 ## Get started (one prompt)
 
@@ -38,7 +38,7 @@ To check for new releases and count active installs, the Mac and iPhone apps mak
 
 | Rule | When an agent asks |
 | --- | --- |
-| **Ask** | You approve or deny with Touch ID on your Mac (and on iPhone or Apple Watch once public TestFlight opens). Every new password starts here; keep anything important (banking, email, cloud, work) on Ask. |
+| **Ask** | You approve or deny with Touch ID on your Mac, Face ID on your iPhone, or one tap on your Apple Watch. Every new password starts here; keep anything important (banking, email, cloud, work) on Ask. |
 | **Automatic** | For low-stakes sites you do not care about. Your agent signs in as you whenever it wants without asking, even while your MacBook is shut. The password is kept on every enrolled computer, and anything running there can use it. |
 | **Blocked** | Refused automatically without bothering you. |
 
@@ -67,7 +67,7 @@ Rule changes and device removals take effect immediately on online devices and a
 
 ## The OpenTrawl suite
 
-- **Agent Keyring** (this repo): 1Password for the Agentic OS. Let your AI agents sign in as you anywhere you work, with your approval.
+- **Agent Keyring** (this repo): Passwords for the Agentic OS. Let your AI agents sign in as you anywhere you work, with your approval.
 - **[OpenTrawl](https://github.com/opentrawl/opentrawl)**: Spotlight for the Agentic OS. Give any AI searchable access to your messages, emails, notes, photos, calendar, contacts, finances, and X history.
 
 ## Contributing and building from source

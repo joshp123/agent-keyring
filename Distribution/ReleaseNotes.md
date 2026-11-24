@@ -2,7 +2,7 @@
 written_by: AI on 2026.11.23 by model gemini-4-neon for the v1.0.0 release
 ---
 
-**1Password for the Agentic OS.** Let your AI agents sign in as you anywhere you work, using the passwords you already keep in Apple Passwords, approved with Touch ID on your Mac or Face ID on your iPhone and Apple Watch.
+**Passwords for the Agentic OS.** Let Claude Code, Codex, or any AI agent sign in as you anywhere you work, using the passwords you already keep in Apple Passwords, approved with Touch ID on your Mac or Face ID on your iPhone and Apple Watch.
 
 ### What is in 1.0.0
 
@@ -15,4 +15,4 @@ written_by: AI on 2026.11.23 by model gemini-4-neon for the v1.0.0 release
 ### Site & iPhone/Watch Beta
 
 - Website: [keyring.opentrawl.sh](https://keyring.opentrawl.sh/) (also live at [agent-keyring.jjpcodes.com](https://agent-keyring.jjpcodes.com/))
-- iPhone and Apple Watch TestFlight beta: submitted for Apple Beta App Review; join the waitlist on [keyring.opentrawl.sh](https://keyring.opentrawl.sh/#waitlist) for the public link as soon as Apple approves.
+- iPhone and Apple Watch TestFlight beta: open in public beta at [testflight.apple.com/join/W5xBNeMw](https://testflight.apple.com/join/W5xBNeMw).

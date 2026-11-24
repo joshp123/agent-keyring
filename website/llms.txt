@@ -1,6 +1,6 @@
 # Agent Keyring
 
-> 1Password for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Agent Keyring lets AI coding agents such as Claude Code and Codex sign in to websites with the passwords the user keeps in Apple Passwords. The user approves each password on their Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap). Free and open source (MIT). No cloud vault and no account.
+> Passwords for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Agent Keyring lets Claude Code, Codex or any AI agent sign in to websites with the passwords the user keeps in Apple Passwords. The user approves each password on their Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap). Free and open source (MIT). No cloud vault and no account.
 
 - Status: the signed and notarised Mac app (v1.0.0) is available on GitHub Releases today and works straight away with Touch ID. The iPhone and Apple Watch apps are in public beta on TestFlight at https://testflight.apple.com/join/W5xBNeMw, or build them from source.
 - Made by: Josh Palmer (https://x.com/jjpcodes)
@@ -117,7 +117,7 @@ agent-keyring release "$lease"
 Checked November 2026:
 
 - **Agent Keyring:** Apple Passwords; free and open source (MIT); works with Claude Code, Codex and any agent that runs shell commands; approve on Mac (Touch ID), iPhone (Face ID) or Apple Watch (tap); one approval covers one password for one task, 30 minutes at most.
-- **1Password for Agents:** 1Password; requires an individual or family account on 1Password.com; five partner apps (Browserbase, Browser Use, Perplexity, Stagehand, TinyFish), not Claude Code or Codex; approve in the 1Password app on the device the agent runs on; one approval covers one login for up to 30 days.
+- **1Password for Agents:** 1Password; requires an individual or family account on 1Password.com; five partner apps (Claude Duet, Grok Bot, Instinct, Muse and Town), not Claude Code or Codex; approve in the 1Password app on the device the agent runs on; one approval covers one login for up to 30 days.
 - **Bitwarden Agent Access:** Bitwarden; free and open source; works with any agent that runs shell commands; approve in an open terminal; one approval covers one request, or repeat requests from the same device for a chosen window.
 - **Proton Pass CLI:** Proton Pass; free account or paid plan; works with any agent that runs shell commands; no per-request approval, session unlocks the vault until logout or timeout.
 

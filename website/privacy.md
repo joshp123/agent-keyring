@@ -1,6 +1,6 @@
 # Agent Keyring privacy policy
 
-Updated: 2026-11-23
+Updated: 2026-11-24
 Website: https://keyring.opentrawl.sh/privacy/
 Source code: https://github.com/opentrawl/agent-keyring
 

@@ -1,7 +1,7 @@
 # Agent Keyring: let Claude Code and Codex sign in with Apple Passwords
 
 Published: 2026-11-20
-Updated: 2026-11-23
+Updated: 2026-11-24
 Status: signed Mac app (v1.0.0) available on GitHub Releases (works with Touch ID); iPhone and Apple Watch public beta open on TestFlight at https://testflight.apple.com/join/W5xBNeMw
 Made by: Josh Palmer (https://x.com/jjpcodes)
 Website: https://keyring.opentrawl.sh/
@@ -15,7 +15,7 @@ Full context: /llms-full.txt (https://keyring.opentrawl.sh/llms-full.txt)
 
 Your agents ask. You tap yes.
 
-1Password for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Claude Code and Codex sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.
+Passwords for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Let Claude Code, Codex or any AI agent sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.
 
 ## The walkthrough
 

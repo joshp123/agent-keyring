@@ -1,7 +1,16 @@
 User-agent: *
 Allow: /
 
-# Explicitly allow AI search, retrieval, and agent browsing crawlers
+# Search engines and AI answer / agent browsing crawlers
+User-agent: Googlebot
+Allow: /
+
+User-agent: bingbot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
 User-agent: OAI-SearchBot
 Allow: /
 
@@ -17,11 +26,77 @@ Allow: /
 User-agent: PerplexityBot
 Allow: /
 
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: DuckAssistBot
+Allow: /
+
+User-agent: Bravebot
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+User-agent: ExaSearchBot
+Allow: /
+
+User-agent: LinkupBot
+Allow: /
+
+User-agent: ShapBot
+Allow: /
+
 User-agent: meta-webindexer
 Allow: /
 
-User-agent: Googlebot
+User-agent: GrokBot
 Allow: /
+
+# Frontier training crawlers (so future models know Agent Keyring natively)
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+# Social and link preview fetchers
+User-agent: Twitterbot
+Allow: /
+
+User-agent: facebookexternalhit
+Allow: /
+
+User-agent: Slackbot
+Allow: /
+
+User-agent: Discordbot
+Allow: /
+
+User-agent: TelegramBot
+Allow: /
+
+# Block pure scraper freeloaders
+User-agent: meta-externalads
+User-agent: Reflectionbot
+User-agent: ElevenlabsCrawler
+User-agent: AionBot
+User-agent: TokenFoundryBot
+User-agent: Bytespider
+User-agent: CCBot
+User-agent: AwarioBot
+User-agent: QlyzeBot
+User-agent: Barkrowler
+User-agent: SERankingBacklinksBot
+User-agent: SenderBot
+User-agent: TernCrawler
+User-agent: SQLSpider
+User-agent: SpiderLing
+Disallow: /
 
 Sitemap: https://keyring.opentrawl.sh/sitemap.xml
 # LLM-friendly index: https://keyring.opentrawl.sh/llms.txt
+# Markdown content negotiation: send Accept: text/markdown on /, /security/, /compare/, or /privacy/

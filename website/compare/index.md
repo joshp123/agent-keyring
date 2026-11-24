@@ -1,7 +1,7 @@
 # How Agent Keyring compares
 
 Published: 2026-11-20
-Updated: 2026-11-23
+Updated: 2026-11-24
 Made by: Josh Palmer (https://x.com/jjpcodes)
 HTML page: https://keyring.opentrawl.sh/compare/
 Home: /index.md
@@ -9,6 +9,10 @@ Security: /security.md
 Source code: https://github.com/opentrawl/agent-keyring
 
 1Password, Bitwarden and Proton Pass can each hand a password to an agent, as long as your passwords are in their app. Agent Keyring uses the ones you already keep in Apple Passwords, and you approve on your Mac, iPhone or Apple Watch.
+
+## Which is better: Agent Keyring, 1Password for Agents, Bitwarden or Proton Pass?
+
+It depends on where your passwords live and which agents you run. As of November 2026, choose Agent Keyring if you use Apple Passwords on a Mac and run Claude Code, Codex or shell-based agents with Touch ID, Face ID or Apple Watch approvals. Choose 1Password for Agents if your vault is in 1Password and you use one of its five partner apps; Bitwarden Agent Access if you use Bitwarden or approve on Linux, Windows or Android; Proton Pass access tokens for unattended vault access.
 
 ## Side by side
 

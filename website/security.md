@@ -1,7 +1,7 @@
 # Agent Keyring security
 
 Published: 2026-11-21
-Updated: 2026-11-23
+Updated: 2026-11-24
 Made by: Josh Palmer (https://x.com/jjpcodes)
 HTML page: https://keyring.opentrawl.sh/security/
 Threat model in the source: https://github.com/opentrawl/agent-keyring/blob/main/docs/threat-model.md
