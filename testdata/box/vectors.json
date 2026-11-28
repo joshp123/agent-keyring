@@ -1,0 +1,50 @@
+{
+  "_written": "Written by AI on 2026.11.23 by model claude opus 5.5; part nonces, grants and mailboxes on 2026.11.24. Golden vectors for boxes (keyring.proto, Boxes), checked by internal/box and AgentKeyringSealingTests.",
+  "codes": [
+    {"secret": "8b1f0e9c4d2a7360b5e81c0f9a3d6e21", "code": "HCFG-X72D-59SP-1DF8-3G7S-MFBE-44",
+     "typed": ["HCFG-X72D-59SP-1DF8-3G7S-MFBE-44", "hcfgx72d59spldf83g7smfbe44", " HCFG X72D 59SP IDF8 3G7S MFBE 44 "]},
+    {"secret": "00000000000000000000000000000000", "code": "0000-0000-0000-0000-0000-0000-00",
+     "typed": ["OOOO-oooo-0000-OoOo-0000-0000-o0"]}
+  ],
+  "not_codes": ["HCFG-X72D-59SP-1DF8-3G7S-MFBE-4", "HCFG-X72D-59SP-1DF8-3G7S-MFBE-4U", "HCFG-X72D-59SP-1DF8-3G7S-MFBE-45"],
+  "link": {"relay": "https://box.example/relay",
+           "text": "agentkeyring://join?code=HCFGX72D59SP1DF83G7SMFBE44&relay=https%3A%2F%2Fbox.example%2Frelay"},
+  "join": {
+    "secret": "8b1f0e9c4d2a7360b5e81c0f9a3d6e21",
+    "request_box": "b78ac1c455298ee53e2f2c6f4a0f99462e615df47f3bc4b21d21c21dcf3628e0",
+    "request_key": "c4bc72a576649985e43de3c635fd51aea7f9ba65389f0ebafdfab9d03337c6df",
+    "response_box": "a99847ea4285b5ce42fb85a56f841d5e65f124d4580901efbed7a594bcf0f1f7",
+    "response_key": "10cbeddcb27a72bb761e04fc436b98a4171cd3aa7f8406d8a2859592f732d220",
+    "proof": "626957bf51299d18f988aabb54698b83dea53f5dc57a122b2977920529140820"
+  },
+  "seal": {
+    "box": "b78ac1c455298ee53e2f2c6f4a0f99462e615df47f3bc4b21d21c21dcf3628e0",
+    "key": "c4bc72a576649985e43de3c635fd51aea7f9ba65389f0ebafdfab9d03337c6df",
+    "message": "agentkeyring box vector",
+    "nonce": "000102030405060708090a0b",
+    "part_nonce": "202122232425262728292a2b2c2d2e2f",
+    "plaintext": "00000001202122232425262728292a2b2c2d2e2f6167656e746b657972696e6720626f7820766563746f72",
+    "sealed": "000102030405060708090a0bb352526133b7375283e24a05f85c3ebbf617926f787ef11b772ff98579642bb1087004cb5b7de004560d724eb2e586cf9d0270ed98c049874d52d1",
+    "part_1_box": "cbfdd769925086e9943afaf80825ffd8b91a56938aba3f4777923760936d6407"
+  },
+  "grant": {
+    "_of": "the request answered in seal.box with seal.key",
+    "box": "c5135262a54297fa9a1326170fbf9d5ac9c61dd33cab92bdde2b3f52ce6b18e2",
+    "read_auth": "-gfkQLRpKlMgb8nTHDL-7l3kt19R1HHsXJaV0ROPHGc",
+    "write_auth": "WdtFAvfKKpvJHxJaRump9qbqH9vZkmMd-HAvQQl8Lho"
+  },
+  "mailbox": {
+    "seed": "626957bf51299d18f988aabb54698b83dea53f5dc57a122b2977920529140820",
+    "device": "8f2a6c0d1e3b4a5968778695a4b3c2d1e0f1a2b3c4d5e6f708192a3b4c5d6e7f",
+    "slot": "af8836c1e5868099f06952e9e2f792216a0dc5b5067e953ab709d7101776eebf",
+    "key": "935678342c0aa008115f8bd63d62fe7be19be4cab0e508f22e025040676ec3f8"
+  },
+  "parts": {
+    "_message": "196618 bytes, byte i = i % 251, sealed to the join's response box with its key and seal.part_nonce",
+    "length": 196618,
+    "nonces": ["100000000000000000000000", "100000000000000000000001"],
+    "sealed_lengths": [196656, 42],
+    "sealed_sha256": ["703e317f2d420de9aa8f8d3f17ce534ced977dad4e719e6502486d3dd608338d",
+                      "5203ad816dfe0cefdde240120e2dd2b8d9226678a6ce511acf32a05512e33bd2"]
+  }
+}

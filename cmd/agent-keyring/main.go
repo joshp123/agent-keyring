@@ -11,7 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
+	pb "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
 	"github.com/opentrawl/agent-keyring/internal/authority"
 	"github.com/opentrawl/agent-keyring/internal/browserbridge"
 	"github.com/opentrawl/agent-keyring/internal/clientstate"
@@ -40,18 +40,17 @@ const help = `Agent Keyring: use a saved login for one task.
   complain --summary LINE [--command COMMAND] [--thread ID]
                             Tell whoever builds Agent Keyring it was annoying,
                             confusing or broken; more detail on standard input.
-                            Never include a password or secret
-  complaints [--since 24h]  Read agents' complaints, from the Mac
-  machines                  List the computers on this Tailscale network
-  enrol --name NAME --invite LINK
-                            Join this computer, with a link from 'invite' on the Mac
-  invite                    On the Mac: print a one-time link for one computer to join
+                            Kept on this computer. Never include a password or secret
+  complaints [--since 24h]  Read agents' complaints kept on this computer
+  enrol --name NAME --code CODE
+                            Join this computer, with a code from Add Another
+                            Computer on the Mac or iPhone
+  invite                    On the Mac: print a one-time code for one computer to join
   push-key --key-id ID --team-id ID < AuthKey_ID.p8
                             On the Mac: give the app Apple's push key
   version                   Print this command's version and build number
   logs [--since 30m] [--request ID]
-                            What this computer, the Mac, the iPhone and the Apple
-                            Watch did and why, in time order; no secrets
+                            What this computer did and why, in time order; no secrets
 
 A lease ends on release or 30 minutes after approval. It covers fill and read
 for that login; reuse it through retries and two-factor steps. Automatic
@@ -73,18 +72,20 @@ Exit status: 0 succeeded; 1 refused or unavailable; 2 incorrect usage;
              3 browser fill uncertain (inspect the page; do not retry blindly).
 Environment: AGENT_KEYRING_SOCKET overrides the local authority socket.
              AGENT_KEYRING_STATE_DIR overrides this machine's private state directory.
+             AGENT_KEYRING_RELAY_URL is the box relay to enrol through, if not
+             https://push.opentrawl.sh (for example your own agent-keyring-box).
 Run any command with --help for this guide.
 `
 
-type arguments struct {
+type cliArguments struct {
 	positionals []string
 	options     map[string]string
 	flags       map[string]bool
 	extra       []string
 }
 
-func parse(args []string) (arguments, error) {
-	result := arguments{options: map[string]string{}, flags: map[string]bool{}}
+func parseCLIArguments(args []string) (cliArguments, error) {
+	result := cliArguments{options: map[string]string{}, flags: map[string]bool{}}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
@@ -102,29 +103,35 @@ func parse(args []string) (arguments, error) {
 				return result, fmt.Errorf("--%s does not take a value.", name)
 			}
 			result.flags[name] = true
-		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "invite", "browser-profile",
+		case "task", "reason", "agent", "request", "since", "field", "tab", "username", "password", "code", "submit", "operation", "name", "browser-profile",
 			"key-id", "team-id", "summary", "command", "thread":
-			if _, exists := result.options[name]; exists {
-				return result, fmt.Errorf("Use --%s only once.", name)
+			used, err := result.parseOption(name, value, hasValue, args[i+1:])
+			if err != nil {
+				return result, err
 			}
-			if !hasValue {
-				i++
-				if i >= len(args) || strings.HasPrefix(args[i], "--") {
-					return result, fmt.Errorf("--%s needs a value.", name)
-				}
-				value = args[i]
-			}
-			if value == "" {
-				return result, fmt.Errorf("--%s needs a value.", name)
-			}
-			result.options[name] = value
+			i += used
 		default:
 			return result, fmt.Errorf("Unknown option %s. Run 'agent-keyring --help'.", arg)
 		}
 	}
 	return result, nil
 }
-func (a arguments) check(options, flags string) error {
+func (a cliArguments) parseOption(name, value string, hasValue bool, rest []string) (int, error) {
+	if _, exists := a.options[name]; exists {
+		return 0, fmt.Errorf("Use --%s only once.", name)
+	}
+	used := 0
+	if !hasValue && len(rest) > 0 && !strings.HasPrefix(rest[0], "--") {
+		value, used = rest[0], 1
+	}
+	if value == "" {
+		return 0, fmt.Errorf("--%s needs a value.", name)
+	}
+	a.options[name] = value
+	return used, nil
+}
+
+func (a cliArguments) checkCommandOptions(options, flags string) error {
 	for key := range a.options {
 		if !strings.Contains(" "+options+" ", " "+key+" ") {
 			return fmt.Errorf("--%s is not an option for this command.", key)
@@ -137,7 +144,7 @@ func (a arguments) check(options, flags string) error {
 	}
 	return nil
 }
-func (a arguments) one() (string, error) {
+func (a cliArguments) requireOneArgument() (string, error) {
 	if len(a.positionals) != 1 {
 		return "", errors.New("Supply exactly one login or lease ID. Run 'agent-keyring --help'.")
 	}
@@ -146,7 +153,7 @@ func (a arguments) one() (string, error) {
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	code, err := run(ctx, os.Args[1:])
+	code, err := dispatchKeyringCommand(ctx, os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "agent-keyring:", err)
 		if code == 0 {
@@ -155,188 +162,153 @@ func main() {
 	}
 	os.Exit(code)
 }
-func run(ctx context.Context, args []string) (int, error) {
+func dispatchKeyringCommand(ctx context.Context, args []string) (int, error) {
 	if len(args) > 0 && strings.HasPrefix(args[0], "chrome-extension://") {
-		return 0, browserbridge.Native(ctx, args[0], chooseAuthority)
+		return 0, browserbridge.RunBrowserNativeHost(ctx, args[0], chooseAuthority)
 	}
 	if len(args) == 0 || args[0] == "help" {
 		fmt.Print(help)
 		return 0, nil
 	}
 	if args[0] == "version" || args[0] == "--version" {
-		fmt.Println(version())
+		fmt.Println(keyringBuildVersion())
 		return 0, nil
 	}
-	for _, arg := range args {
-		if arg == "--help" || arg == "-h" {
-			fmt.Print(help)
-			return 0, nil
-		}
-		if arg == "--" {
-			break
-		}
-	}
-	if code, handled, err := earlier(args); handled {
-		return code, err
+	if wantsHelp(args) {
+		fmt.Print(help)
+		return 0, nil
 	}
 	command := args[0]
-	a, err := parse(args[1:])
+	a, err := parseCLIArguments(args[1:])
 	if err != nil {
 		return 2, err
 	}
-	if command == "skill" || command == "install" {
-		if command == "install" && a.options["browser-profile"] != "" {
-			if err = a.check("browser-profile", ""); err != nil || len(a.positionals) > 0 || len(a.extra) > 0 {
-				return 2, errors.New("install --browser-profile takes only the browser's user-data directory.")
-			}
-			return 0, installNativeHost(a.options["browser-profile"])
-		}
-		if command == "install" && a.flags["undo"] {
-			if len(args) != 2 {
-				return 2, errors.New("install --undo takes nothing else.")
-			}
-			return 0, undoInstall()
-		}
-		if len(args) != 1 {
-			return 2, errors.New("This command takes no arguments.")
-		}
-		return 0, integration(command)
+	if code, handled, err := runMacAuthorityCommand(ctx, command, a); handled {
+		return code, err
 	}
-	if command == "machines" {
-		if len(args) != 1 {
-			return 2, errors.New("This command takes no arguments.")
-		}
-		if err = machines(); err != nil {
-			return 1, err
-		}
-		return 0, nil
-	}
-	if command == "logs" {
-		if err = a.check("since request", ""); err != nil || len(a.positionals) != 0 || len(a.extra) != 0 {
-			return 2, errors.New("logs takes --since DURATION (such as 30m) and --request ID, both optional.")
-		}
-		var since int64
-		if text := a.options["since"]; text != "" {
-			duration, e := time.ParseDuration(text)
-			if e != nil || duration <= 0 {
-				return 2, errors.New("--since takes a duration such as 10m or 2h.")
-			}
-			since = time.Now().Add(-duration).Unix()
-		}
-		lines, e := gatherLogs(ctx, since, a.options["request"])
-		for _, line := range lines {
-			fmt.Println(safe(line))
-		}
-		if e == nil && len(lines) == 0 {
-			fmt.Fprintln(os.Stderr, "No log lines match.")
-		}
-		if e != nil {
-			return 1, e
-		}
-		return 0, nil
-	}
-	if code, handled, e := onMac(ctx, command, a); handled {
-		return code, e
-	}
-	if command == "complain" {
-		return complain(ctx, a)
-	}
-	if command == "complaints" {
+	switch command {
+	case "skill", "install":
+		return runIntegration(command, a, len(args))
+	case "logs":
+		return runLogs(ctx, a)
+	case "complain":
+		return runComplaintCommand(ctx, a)
+	case "complaints":
 		return listComplaints(ctx, a)
-	}
-	if command == "tabs" || command == "fields" {
+	case "tabs", "fields":
 		return inspectBrowser(ctx, command, a)
-	}
-	if command == "fill" {
+	case "fill":
 		return fillBrowser(ctx, a)
-	}
-	if command == "hold" {
-		if len(args) != 1 {
-			return 2, errors.New("hold takes no arguments.")
-		}
-		store, e := clientstate.Default()
-		if e != nil {
-			return 1, e
-		}
-		client, e := remote.Load(ctx, store)
-		if e != nil {
-			return 1, e
-		}
-		return 0, client.HoldUntilIdle(ctx)
-	}
-	if command == "enrol" {
-		if err = a.check("name invite", ""); err != nil {
-			return 2, err
-		}
-		if len(a.positionals) > 0 || len(a.extra) > 0 || strings.TrimSpace(a.options["name"]) == "" || a.options["invite"] == "" {
-			return 2, errors.New("enrol takes --name NAME and --invite LINK, the link 'agent-keyring invite' printed on the Mac.")
-		}
-		invite, e := remote.ParseInvite(a.options["invite"])
-		if e != nil {
-			return 2, e
-		}
-		store, e := clientstate.Default()
-		if e != nil {
-			return 1, e
-		}
-		return 0, remote.Enrol(ctx, store, invite, a.options["name"], os.Stderr)
-	}
-	if command == "invite" {
-		if len(args) != 1 {
-			return 2, errors.New("invite takes nothing else.")
-		}
-		local, e := localSetupAuthority(ctx)
-		if e != nil {
-			return 1, e
-		}
-		result, e := local.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_Setup{Setup: &pb.SetupRequest{Action: pb.SetupRequest_INVITE}}})
-		if e != nil {
-			return 1, e
-		}
-		if result.GetSetup() == nil {
-			return 1, errors.New("Agent Keyring did not confirm setup.")
-		}
-		fmt.Println(result.GetSetup().GetInvite())
-		return 0, nil
-	}
-	if !strings.Contains(" find lease status release read ", " "+command+" ") {
+	case "enrol":
+		return runEnrol(ctx, a)
+	case "invite":
+		return runInvite(ctx, len(args))
+	case "find", "lease", "status", "release", "read":
+		return runAuthorityCommand(ctx, command, a)
+	default:
 		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 	}
+}
+
+func wantsHelp(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "--help", "-h":
+			return true
+		case "--":
+			return false
+		}
+	}
+	return false
+}
+
+func runIntegration(command string, a cliArguments, argCount int) (int, error) {
+	if command == "install" && a.options["browser-profile"] != "" {
+		if err := a.checkCommandOptions("browser-profile", ""); err != nil || len(a.positionals) > 0 || len(a.extra) > 0 {
+			return 2, errors.New("install --browser-profile takes only the browser's user-data directory.")
+		}
+		return 0, installNativeHost(a.options["browser-profile"])
+	}
+	if command == "install" && a.flags["undo"] {
+		if argCount != 2 {
+			return 2, errors.New("install --undo takes nothing else.")
+		}
+		return 0, undoInstall()
+	}
+	if argCount != 1 {
+		return 2, errors.New("This command takes no arguments.")
+	}
+	return 0, runAgentIntegration(command)
+}
+
+func runLogs(ctx context.Context, a cliArguments) (int, error) {
+	if err := a.checkCommandOptions("since request", ""); err != nil || len(a.positionals) != 0 || len(a.extra) != 0 {
+		return 2, errors.New("logs takes --since DURATION (such as 30m) and --request ID, both optional.")
+	}
+	var since int64
+	if text := a.options["since"]; text != "" {
+		duration, e := time.ParseDuration(text)
+		if e != nil || duration <= 0 {
+			return 2, errors.New("--since takes a duration such as 10m or 2h.")
+		}
+		since = time.Now().Add(-duration).Unix()
+	}
+	lines, e := gatherLogs(ctx, since, a.options["request"])
+	for _, line := range lines {
+		fmt.Println(sanitizeTerminalText(line))
+	}
+	if e == nil && len(lines) == 0 {
+		fmt.Fprintln(os.Stderr, "No log lines match.")
+	}
+	if e != nil {
+		return 1, e
+	}
+	return 0, nil
+}
+
+func runEnrol(ctx context.Context, a cliArguments) (int, error) {
+	if err := a.checkCommandOptions("name code", ""); err != nil {
+		return 2, err
+	}
+	if len(a.positionals) > 0 || len(a.extra) > 0 || strings.TrimSpace(a.options["name"]) == "" || a.options["code"] == "" {
+		return 2, errors.New("enrol takes --name NAME and --code CODE, the code Add Another Computer shows on the Mac or iPhone.")
+	}
+	store, e := clientstate.DefaultClientStateStore()
+	if e != nil {
+		return 1, e
+	}
+	return 0, remote.EnrolComputerWithCode(ctx, store, a.options["code"], a.options["name"], os.Stderr)
+}
+
+func runInvite(ctx context.Context, argCount int) (int, error) {
+	if argCount != 1 {
+		return 2, errors.New("invite takes nothing else.")
+	}
+	local, e := localSetupAuthority(ctx)
+	if e != nil {
+		return 1, e
+	}
+	result, e := local.CallKeyringAuthority(ctx, &pb.AgentRequest{Request: &pb.AgentRequest_Setup{Setup: &pb.SetupRequest{Action: pb.SetupRequest_INVITE}}})
+	if e != nil {
+		return 1, e
+	}
+	if result.GetSetup() == nil {
+		return 1, errors.New("Agent Keyring did not confirm setup.")
+	}
+	fmt.Println(result.GetSetup().GetInvite())
+	return 0, nil
+}
+
+func runAuthorityCommand(ctx context.Context, command string, a cliArguments) (int, error) {
 	client, connectionError := chooseAuthority(ctx)
-	defer remote.Close() // Lets this computer's door go once any answer being taken is saved.
 	if connectionError != nil {
 		// Usage errors remain useful on machines that have not enrolled yet.
-		client.Exchange = func(context.Context, *pb.WireRequest, func(*pb.WireResponse) bool) error { return connectionError }
+		client.Exchange = func(context.Context, *pb.AgentRequest, func(*pb.AgentResponse) bool) error { return connectionError }
 	}
 	if command == "find" {
-		if err = a.check("", ""); err != nil {
-			return 2, err
-		}
-		query, e := a.one()
-		if e != nil {
-			return 2, e
-		}
-		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_FindLogins{FindLogins: &pb.FindLoginsRequest{Query: query}}})
-		if e != nil {
-			return 1, e
-		}
-		if r.GetLogins() == nil {
-			return 1, errors.New("Agent Keyring did not return search results.")
-		}
-		logins := r.GetLogins()
-		if len(logins.Logins) == 0 {
-			return 1, errors.New("No matching logins. Try a shorter site or account name, or import the login from Apple Passwords.")
-		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "LOGIN\tSITE\tACCOUNT\tACCESS\tCODE")
-		for _, login := range logins.Logins {
-			rule := map[pb.AccessRule]string{1: "Ask", 2: "Automatic", 3: "Blocked"}[login.Rule]
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\n", safe(login.LoginId), safe(strings.Join(login.Sites, ", ")), safe(login.Account), rule, login.HasOneTimeCode)
-		}
-		w.Flush()
-		return 0, nil
+		return runFind(ctx, client, a)
 	}
-	id, err := a.one()
+	id, err := a.requireOneArgument()
 	if err != nil {
 		return 2, err
 	}
@@ -345,88 +317,136 @@ func run(ctx context.Context, args []string) (int, error) {
 	}
 	switch command {
 	case "lease":
-		if err = a.check("task reason request agent", "no-wait"); err != nil {
-			return 2, err
-		}
-		if strings.TrimSpace(a.options["task"]) == "" || strings.TrimSpace(a.options["reason"]) == "" {
-			return 2, errors.New("Supply --task for this job and --reason explaining why it needs the login.")
-		}
-		requestID := a.options["request"]
-		if requestID == "" {
-			requestID = receiver.NewID()
-		}
-		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: id, TaskRef: a.options["task"], Reason: a.options["reason"], RequestId: requestID, AgentLabel: requesterLabel(a.options["agent"]), Project: requesterProject()}}})
-		if e != nil {
-			return 1, e
-		}
-		lease := r.GetLease()
-		if lease == nil || lease.LeaseId == "" {
-			return 1, errors.New("Agent Keyring did not return a lease.")
-		}
-		if lease.TaskRef != a.options["task"] || lease.Reason != a.options["reason"] {
-			fmt.Fprintf(os.Stderr, "Joined the existing lease for task %s: %s\n", safe(lease.TaskRef), safe(lease.Reason))
-		}
-		if a.flags["no-wait"] {
-			if lease.State != pb.LeaseState_LEASE_STATE_ACTIVE && lease.State != pb.LeaseState_LEASE_STATE_PENDING {
-				return 1, leaseError(lease)
-			}
-			fmt.Println(lease.LeaseId)
-			return 0, nil
-		}
-		return 0, waitLease(ctx, client, lease)
+		return runLease(ctx, client, a, id)
 	case "status":
-		if err = a.check("", "wait"); err != nil {
-			return 2, err
-		}
-		lease, e := client.Lease(ctx, id)
-		if e != nil {
-			return 1, e
-		}
-		if a.flags["wait"] {
-			return 0, waitLease(ctx, client, lease)
-		}
-		fmt.Printf("%s: %s\nTask: %s\n", safe(lease.LeaseId), leaseOutcome(lease), safe(lease.TaskRef))
-		if lease.NotAfterUnixSeconds > 0 {
-			fmt.Println("Ends:", time.Unix(lease.NotAfterUnixSeconds, 0).Local().Format(time.RFC3339))
-		}
-		if lease.Reply != "" {
-			fmt.Println("Reply:", safe(lease.Reply))
-		}
-		return 0, nil
+		return runStatus(ctx, client, a, id)
 	case "release":
-		if err = a.check("", ""); err != nil {
-			return 2, err
-		}
-		r, e := client.Call(ctx, &pb.WireRequest{Request: &pb.WireRequest_EndLease{EndLease: &pb.LeaseReference{LeaseId: id}}})
-		if e != nil {
-			return 1, e
-		}
-		if r.GetLease() == nil {
-			return 1, errors.New("Agent Keyring did not confirm release.")
-		}
-		fmt.Fprintln(os.Stderr, "Lease", leaseOutcome(r.GetLease())+".")
-		return 0, nil
+		return runRelease(ctx, client, a, id)
 	case "read":
-		if err = a.check("field", ""); err != nil {
-			return 2, err
-		}
-		field, e := receiver.Field(a.options["field"])
-		if e != nil {
-			return 2, e
-		}
-		if terminal(os.Stdout) {
-			return 2, errors.New("read requires a private receiving process, not a terminal. Read 'agent-keyring skill' before using it.")
-		}
-		lease, e := client.Lease(ctx, id)
-		if e != nil {
-			return 1, e
-		}
-		return 0, receiver.Read(ctx, client, lease, field, os.Stdout)
-	default:
-		return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
+		return runRead(ctx, client, a, id)
 	}
+	return 2, fmt.Errorf("Unknown command %q. Run 'agent-keyring --help'.", command)
 }
-func safe(value string) string {
+
+func runFind(ctx context.Context, client authority.KeyringAuthorityClient, a cliArguments) (int, error) {
+	if err := a.checkCommandOptions("", ""); err != nil {
+		return 2, err
+	}
+	query, e := a.requireOneArgument()
+	if e != nil {
+		return 2, e
+	}
+	r, e := client.CallKeyringAuthority(ctx, &pb.AgentRequest{Request: &pb.AgentRequest_FindLogins{FindLogins: &pb.FindLoginsRequest{Query: query}}})
+	if e != nil {
+		return 1, e
+	}
+	if r.GetLogins() == nil {
+		return 1, errors.New("Agent Keyring did not return search results.")
+	}
+	logins := r.GetLogins()
+	if len(logins.Logins) == 0 {
+		return 1, errors.New("No matching logins. Try a shorter site or account name, or import the login from Apple Passwords.")
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	if _, err := fmt.Fprintln(w, "LOGIN\tSITE\tACCOUNT\tACCESS\tCODE"); err != nil {
+		return 1, err
+	}
+	for _, login := range logins.Logins {
+		rule := map[pb.Rule]string{1: "Ask", 2: "Automatic", 3: "Blocked"}[login.Rule]
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\n", sanitizeTerminalText(login.LoginId), sanitizeTerminalText(strings.Join(login.Sites, ", ")), sanitizeTerminalText(login.Account), rule, login.HasOneTimeCode); err != nil {
+			return 1, err
+		}
+	}
+	return 0, w.Flush()
+}
+
+func runLease(ctx context.Context, client authority.KeyringAuthorityClient, a cliArguments, id string) (int, error) {
+	if err := a.checkCommandOptions("task reason request agent", "no-wait"); err != nil {
+		return 2, err
+	}
+	if strings.TrimSpace(a.options["task"]) == "" || strings.TrimSpace(a.options["reason"]) == "" {
+		return 2, errors.New("Supply --task for this job and --reason explaining why it needs the login.")
+	}
+	requestID := a.options["request"]
+	if requestID == "" {
+		requestID = receiver.GenerateOperationID()
+	}
+	r, e := client.CallKeyringAuthority(ctx, &pb.AgentRequest{Request: &pb.AgentRequest_RequestLease{RequestLease: &pb.RequestLeaseRequest{LoginId: id, TaskRef: a.options["task"], Reason: a.options["reason"], RequestId: requestID, AgentLabel: requesterLabel(ctx, a.options["agent"]), Project: requesterProject(ctx)}}})
+	if e != nil {
+		return 1, e
+	}
+	lease := r.GetLease()
+	if lease == nil || lease.RequestId == "" {
+		return 1, errors.New("Agent Keyring did not return a lease.")
+	}
+	if lease.GetAuthorityContext().GetTaskRef() != a.options["task"] || lease.GetAuthorityContext().GetReason() != a.options["reason"] {
+		fmt.Fprintf(os.Stderr, "Joined the existing lease for task %s: %s\n", sanitizeTerminalText(lease.GetAuthorityContext().GetTaskRef()), sanitizeTerminalText(lease.GetAuthorityContext().GetReason()))
+	}
+	if a.flags["no-wait"] {
+		if lease.State != pb.LeaseState_LEASE_STATE_APPROVED && lease.State != pb.LeaseState_LEASE_STATE_WAITING {
+			return 1, leaseError(lease)
+		}
+		fmt.Println(lease.RequestId)
+		return 0, nil
+	}
+	return 0, waitLease(ctx, client, lease)
+}
+
+func runStatus(ctx context.Context, client authority.KeyringAuthorityClient, a cliArguments, id string) (int, error) {
+	if err := a.checkCommandOptions("", "wait"); err != nil {
+		return 2, err
+	}
+	lease, e := client.FetchAuthorityLease(ctx, id)
+	if e != nil {
+		return 1, e
+	}
+	if a.flags["wait"] {
+		return 0, waitLease(ctx, client, lease)
+	}
+	fmt.Printf("%s: %s\nTask: %s\n", sanitizeTerminalText(lease.RequestId), leaseOutcome(lease), sanitizeTerminalText(lease.GetAuthorityContext().GetTaskRef()))
+	if lease.NotAfterUnixSeconds > 0 {
+		fmt.Println("Ends:", time.Unix(lease.NotAfterUnixSeconds, 0).Local().Format(time.RFC3339))
+	}
+	if lease.Reply != "" {
+		fmt.Println("Reply:", sanitizeTerminalText(lease.Reply))
+	}
+	return 0, nil
+}
+
+func runRelease(ctx context.Context, client authority.KeyringAuthorityClient, a cliArguments, id string) (int, error) {
+	if err := a.checkCommandOptions("", ""); err != nil {
+		return 2, err
+	}
+	r, e := client.CallKeyringAuthority(ctx, &pb.AgentRequest{Request: &pb.AgentRequest_EndLease{EndLease: &pb.LeaseReference{LeaseId: id}}})
+	if e != nil {
+		return 1, e
+	}
+	if r.GetLease() == nil {
+		return 1, errors.New("Agent Keyring did not confirm release.")
+	}
+	fmt.Fprintln(os.Stderr, "Lease", leaseOutcome(r.GetLease())+".")
+	return 0, nil
+}
+
+func runRead(ctx context.Context, client authority.KeyringAuthorityClient, a cliArguments, id string) (int, error) {
+	if err := a.checkCommandOptions("field", ""); err != nil {
+		return 2, err
+	}
+	field, e := receiver.ParseCredentialFieldName(a.options["field"])
+	if e != nil {
+		return 2, e
+	}
+	if isInteractiveTerminal(os.Stdout) {
+		return 2, errors.New("read requires a private receiving process, not a terminal. Read 'agent-keyring skill' before using it.")
+	}
+	lease, e := client.FetchAuthorityLease(ctx, id)
+	if e != nil {
+		return 1, e
+	}
+	return 0, receiver.ReadDeliveredCredential(ctx, client, lease, field, os.Stdout)
+}
+
+func sanitizeTerminalText(value string) string {
 	return strings.Map(func(r rune) rune {
 		if r < 32 || r == 127 {
 			return ' '
@@ -434,37 +454,43 @@ func safe(value string) string {
 		return r
 	}, value)
 }
-func terminal(file *os.File) bool {
+func isInteractiveTerminal(file *os.File) bool {
 	info, err := file.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 func leaseState(state pb.LeaseState) string {
 	switch state {
-	case 1:
+	case pb.LeaseState_LEASE_STATE_WAITING:
 		return "pending"
-	case 2:
+	case pb.LeaseState_LEASE_STATE_APPROVED:
 		return "active"
-	case 3:
+	case pb.LeaseState_LEASE_STATE_DENIED:
 		return "denied"
-	case 4:
+	case pb.LeaseState_LEASE_STATE_EXPIRED:
 		return "expired"
-	case 5:
+	case pb.LeaseState_LEASE_STATE_RELEASED:
 		return "released"
-	case 6:
+	case pb.LeaseState_LEASE_STATE_ENDED:
 		return "ended early"
-	case 7:
+	case pb.LeaseState_LEASE_STATE_CANCELLED:
 		return "cancelled"
-	case 8:
+	case pb.LeaseState_LEASE_STATE_UNANSWERED:
 		return "unanswered"
 	}
 	return "unknown"
 }
+
 // leaseOutcome is the state's word, and for a lease ended early, what ended
 // it, in the words of whoever ended it: Josh's Stop, a rule he changed, or a
 // password that left the list. Never "stopped by Josh" when he did not.
 func leaseOutcome(lease *pb.Lease) string {
-	if lease.State == pb.LeaseState_LEASE_STATE_REVOKED && len(lease.StatusLines) > 0 {
-		return "ended: " + strings.TrimSuffix(safe(lease.StatusLines[0]), ".")
+	if lease.State == pb.LeaseState_LEASE_STATE_ENDED {
+		if lines := lease.GetAuthorityContext().GetStatusLines(); len(lines) > 0 {
+			return "ended: " + strings.TrimSuffix(sanitizeTerminalText(lines[0]), ".")
+		}
+		if lease.EndedBy != "" {
+			return "ended: The user stopped it on " + sanitizeTerminalText(lease.EndedBy)
+		}
 	}
 	return leaseState(lease.State)
 }
@@ -475,32 +501,35 @@ func leaseError(lease *pb.Lease) error {
 	}
 	text := "This lease is " + leaseOutcome(lease) + "."
 	if lease.Reply != "" {
-		text += " Reply: " + safe(lease.Reply)
+		text += " Reply: " + sanitizeTerminalText(lease.Reply)
 	}
 	if lease.State == pb.LeaseState_LEASE_STATE_DENIED && lease.RetryNotBeforeUnixSeconds > 0 {
 		text += " You may ask again after " + time.Unix(lease.RetryNotBeforeUnixSeconds, 0).Format("15:04:05") + "."
 	}
-	if lease.State == pb.LeaseState_LEASE_STATE_EXPIRED || lease.State == pb.LeaseState_LEASE_STATE_REVOKED {
+	if lease.State == pb.LeaseState_LEASE_STATE_EXPIRED || lease.State == pb.LeaseState_LEASE_STATE_ENDED {
 		text += " Request a new lease only if this task still needs the login."
 	}
 	return errors.New(text)
 }
-func waitLease(ctx context.Context, client authority.Client, lease *pb.Lease) error {
-	for lease.State == pb.LeaseState_LEASE_STATE_PENDING {
-		fmt.Fprintln(os.Stderr, "Waiting for approval. Rejoin with: agent-keyring status", lease.LeaseId, "--wait")
+func waitLease(ctx context.Context, client authority.KeyringAuthorityClient, lease *pb.Lease) error {
+	for lease.State == pb.LeaseState_LEASE_STATE_WAITING {
+		fmt.Fprintln(os.Stderr, "Waiting for approval. Rejoin with: agent-keyring status", lease.RequestId, "--wait")
 		if hint := focusHint(); hint != "" {
 			fmt.Fprintln(os.Stderr, hint)
 		}
 		var next *pb.Lease
-		err := client.Stream(ctx, &pb.WireRequest{Request: &pb.WireRequest_WatchLease{WatchLease: &pb.LeaseReference{LeaseId: lease.LeaseId}}}, func(r *pb.WireResponse) bool {
+		err := client.StreamKeyringAuthority(ctx, &pb.AgentRequest{Request: &pb.AgentRequest_WatchLease{WatchLease: &pb.LeaseReference{LeaseId: lease.RequestId}}}, func(r *pb.AgentResponse) bool {
 			next = r.GetLease()
 			if next == nil {
 				return false
 			}
-			for _, line := range next.StatusLines {
-				fmt.Fprintln(os.Stderr, safe(line))
+			if next.State == pb.LeaseState_LEASE_STATE_WAITING && next.PushedUnixSeconds > 0 {
+				fmt.Fprintln(os.Stderr, "Apple took the notification for the user's iPhone and Apple Watch.")
 			}
-			return next.State == pb.LeaseState_LEASE_STATE_PENDING
+			for _, line := range next.GetAuthorityContext().GetStatusLines() {
+				fmt.Fprintln(os.Stderr, sanitizeTerminalText(line))
+			}
+			return next.State == pb.LeaseState_LEASE_STATE_WAITING
 		})
 		if err != nil {
 			return err
@@ -510,9 +539,9 @@ func waitLease(ctx context.Context, client authority.Client, lease *pb.Lease) er
 		}
 		lease = next
 	}
-	if lease.State != pb.LeaseState_LEASE_STATE_ACTIVE {
+	if lease.State != pb.LeaseState_LEASE_STATE_APPROVED {
 		return leaseError(lease)
 	}
-	fmt.Println(lease.LeaseId)
+	fmt.Println(lease.RequestId)
 	return nil
 }

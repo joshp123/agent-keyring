@@ -9,7 +9,7 @@
 package browserbridge
 
 import (
-	v1 "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v1"
+	v2 "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -147,7 +147,7 @@ type FillCommand struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LeaseId       string                 `protobuf:"bytes,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
 	OperationId   string                 `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	Fields        []*v1.FieldBinding     `protobuf:"bytes,3,rep,name=fields,proto3" json:"fields,omitempty"`
+	Fields        []*v2.FieldBinding     `protobuf:"bytes,3,rep,name=fields,proto3" json:"fields,omitempty"`
 	Submit        string                 `protobuf:"bytes,4,opt,name=submit,proto3" json:"submit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -197,7 +197,7 @@ func (x *FillCommand) GetOperationId() string {
 	return ""
 }
 
-func (x *FillCommand) GetFields() []*v1.FieldBinding {
+func (x *FillCommand) GetFields() []*v2.FieldBinding {
 	if x != nil {
 		return x.Fields
 	}
@@ -439,7 +439,7 @@ type Response struct {
 	Browser       string                 `protobuf:"bytes,3,opt,name=browser,proto3" json:"browser,omitempty"`
 	Tabs          []*Tab                 `protobuf:"bytes,4,rep,name=tabs,proto3" json:"tabs,omitempty"`
 	Inspection    *Inspection            `protobuf:"bytes,5,opt,name=inspection,proto3" json:"inspection,omitempty"`
-	Fill          *v1.FillResult         `protobuf:"bytes,6,opt,name=fill,proto3" json:"fill,omitempty"`
+	Fill          *v2.FillResult         `protobuf:"bytes,6,opt,name=fill,proto3" json:"fill,omitempty"`
 	Error         string                 `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -510,7 +510,7 @@ func (x *Response) GetInspection() *Inspection {
 	return nil
 }
 
-func (x *Response) GetFill() *v1.FillResult {
+func (x *Response) GetFill() *v2.FillResult {
 	if x != nil {
 		return x.Fill
 	}
@@ -531,7 +531,7 @@ type ExtensionRequest struct {
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Action        Action                 `protobuf:"varint,2,opt,name=action,proto3,enum=agentkeyring.browser.Action" json:"action,omitempty"`
 	Target        string                 `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
-	Fields        []*v1.FieldBinding     `protobuf:"bytes,4,rep,name=fields,proto3" json:"fields,omitempty"`
+	Fields        []*v2.FieldBinding     `protobuf:"bytes,4,rep,name=fields,proto3" json:"fields,omitempty"`
 	Submit        string                 `protobuf:"bytes,5,opt,name=submit,proto3" json:"submit,omitempty"`
 	Values        []string               `protobuf:"bytes,6,rep,name=values,proto3" json:"values,omitempty"`
 	Sites         []string               `protobuf:"bytes,7,rep,name=sites,proto3" json:"sites,omitempty"`
@@ -590,7 +590,7 @@ func (x *ExtensionRequest) GetTarget() string {
 	return ""
 }
 
-func (x *ExtensionRequest) GetFields() []*v1.FieldBinding {
+func (x *ExtensionRequest) GetFields() []*v2.FieldBinding {
 	if x != nil {
 		return x.Fields
 	}
@@ -622,7 +622,7 @@ var File_internal_browserbridge_wire_proto protoreflect.FileDescriptor
 
 const file_internal_browserbridge_wire_proto_rawDesc = "" +
 	"\n" +
-	"!internal/browserbridge/wire.proto\x12\x14agentkeyring.browser\x1a\"agentkeyring/v1/agentkeyring.proto\"\x8e\x01\n" +
+	"!internal/browserbridge/wire.proto\x12\x14agentkeyring.browser\x1a%agentkeyring/v2/local_authority.proto\"\x8e\x01\n" +
 	"\aRequest\x124\n" +
 	"\x06action\x18\x01 \x01(\x0e2\x1c.agentkeyring.browser.ActionR\x06action\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x125\n" +
@@ -630,7 +630,7 @@ const file_internal_browserbridge_wire_proto_rawDesc = "" +
 	"\vFillCommand\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\x125\n" +
-	"\x06fields\x18\x03 \x03(\v2\x1d.agentkeyring.v1.FieldBindingR\x06fields\x12\x16\n" +
+	"\x06fields\x18\x03 \x03(\v2\x1d.agentkeyring.v2.FieldBindingR\x06fields\x12\x16\n" +
 	"\x06submit\x18\x04 \x01(\tR\x06submit\"y\n" +
 	"\x03Tab\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\tR\x06target\x12\x10\n" +
@@ -658,13 +658,13 @@ const file_internal_browserbridge_wire_proto_rawDesc = "" +
 	"\n" +
 	"inspection\x18\x05 \x01(\v2 .agentkeyring.browser.InspectionR\n" +
 	"inspection\x12/\n" +
-	"\x04fill\x18\x06 \x01(\v2\x1b.agentkeyring.v1.FillResultR\x04fill\x12\x14\n" +
+	"\x04fill\x18\x06 \x01(\v2\x1b.agentkeyring.v2.FillResultR\x04fill\x12\x14\n" +
 	"\x05error\x18\a \x01(\tR\x05error\"\xed\x01\n" +
 	"\x10ExtensionRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x124\n" +
 	"\x06action\x18\x02 \x01(\x0e2\x1c.agentkeyring.browser.ActionR\x06action\x12\x16\n" +
 	"\x06target\x18\x03 \x01(\tR\x06target\x125\n" +
-	"\x06fields\x18\x04 \x03(\v2\x1d.agentkeyring.v1.FieldBindingR\x06fields\x12\x16\n" +
+	"\x06fields\x18\x04 \x03(\v2\x1d.agentkeyring.v2.FieldBindingR\x06fields\x12\x16\n" +
 	"\x06submit\x18\x05 \x01(\tR\x06submit\x12\x16\n" +
 	"\x06values\x18\x06 \x03(\tR\x06values\x12\x14\n" +
 	"\x05sites\x18\a \x03(\tR\x05sites*\x80\x01\n" +
@@ -699,20 +699,20 @@ var file_internal_browserbridge_wire_proto_goTypes = []any{
 	(*Inspection)(nil),       // 5: agentkeyring.browser.Inspection
 	(*Response)(nil),         // 6: agentkeyring.browser.Response
 	(*ExtensionRequest)(nil), // 7: agentkeyring.browser.ExtensionRequest
-	(*v1.FieldBinding)(nil),  // 8: agentkeyring.v1.FieldBinding
-	(*v1.FillResult)(nil),    // 9: agentkeyring.v1.FillResult
+	(*v2.FieldBinding)(nil),  // 8: agentkeyring.v2.FieldBinding
+	(*v2.FillResult)(nil),    // 9: agentkeyring.v2.FillResult
 }
 var file_internal_browserbridge_wire_proto_depIdxs = []int32{
 	0,  // 0: agentkeyring.browser.Request.action:type_name -> agentkeyring.browser.Action
 	2,  // 1: agentkeyring.browser.Request.fill:type_name -> agentkeyring.browser.FillCommand
-	8,  // 2: agentkeyring.browser.FillCommand.fields:type_name -> agentkeyring.v1.FieldBinding
+	8,  // 2: agentkeyring.browser.FillCommand.fields:type_name -> agentkeyring.v2.FieldBinding
 	3,  // 3: agentkeyring.browser.Inspection.tab:type_name -> agentkeyring.browser.Tab
 	4,  // 4: agentkeyring.browser.Inspection.controls:type_name -> agentkeyring.browser.Control
 	3,  // 5: agentkeyring.browser.Response.tabs:type_name -> agentkeyring.browser.Tab
 	5,  // 6: agentkeyring.browser.Response.inspection:type_name -> agentkeyring.browser.Inspection
-	9,  // 7: agentkeyring.browser.Response.fill:type_name -> agentkeyring.v1.FillResult
+	9,  // 7: agentkeyring.browser.Response.fill:type_name -> agentkeyring.v2.FillResult
 	0,  // 8: agentkeyring.browser.ExtensionRequest.action:type_name -> agentkeyring.browser.Action
-	8,  // 9: agentkeyring.browser.ExtensionRequest.fields:type_name -> agentkeyring.v1.FieldBinding
+	8,  // 9: agentkeyring.browser.ExtensionRequest.fields:type_name -> agentkeyring.v2.FieldBinding
 	10, // [10:10] is the sub-list for method output_type
 	10, // [10:10] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name

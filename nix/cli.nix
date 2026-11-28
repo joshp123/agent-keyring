@@ -21,7 +21,7 @@ buildGoModule rec {
       ../BrowserExtension
     ];
   };
-  vendorHash = "sha256-74F+jXtlupUefkrNwkBNPXhGuzxJtdQH4zie1eLp1Oo=";
+  vendorHash = "sha256-7yPVHqjOhQdxTRJV8uLl7XFAy64Q/BHHZT7wlmjSm+A=";
   subPackages = [ "cmd/agent-keyring" ];
   env.CGO_ENABLED = "0";
   doCheck = false;

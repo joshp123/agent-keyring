@@ -2,12 +2,12 @@
 name: agent-keyring
 description: "Sign in to websites and use passwords and one-time codes from the user's Apple Passwords without the values passing through your conversation, and set Agent Keyring up on the user's Mac and their other computers. Use whenever a task needs a login, a password or a two-factor code, and when the user asks you to set up Agent Keyring. Never ask the user to type or paste a password."
 metadata:
-  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5; setting up from one line on 2026-11-19 by model claude opus 5.5; denials, undoing install and this Mac's own agents on 2026-11-19 by model claude opus 5.5; no more linking, --agent and short holds after a denial on 2026-11-20 by model claude opus 5.5; Focus and two-factor codes on 2026-11-20 by model claude opus 5.5; setting up with no relay, and complaints, on 2026-11-21 by model claude opus 5.5; ask-before-scanning cardinal rule and optional browser extension setup on 2026-11-23 by model gemini-4-neon"
+  written_by: "AI on 2026-10-31 by model Claude Opus 5.5; setup updated on 2026-11-15 by model gpt-6.1-terra; one kind of lease on 2026-11-18 by model claude opus 5.5; setting up from one line on 2026-11-19 by model claude opus 5.5; denials, undoing install and this Mac's own agents on 2026-11-19 by model claude opus 5.5; no more linking, --agent and short holds after a denial on 2026-11-20 by model claude opus 5.5; Focus and two-factor codes on 2026-11-20 by model claude opus 5.5; setting up with no relay, and complaints, on 2026-11-21 by model claude opus 5.5; ask-before-scanning cardinal rule and optional browser extension setup on 2026-11-23 by model gemini-4-neon; the two installs and Mac password mode on 2026-11-23 by model claude opus 5.5; no Tailscale scan, then no Tailscale at all, on 2026-11-24 by model claude opus 5.5"
 ---
 
 # Agent Keyring
 
-Agent Keyring holds the user's saved logins. You lease one login for the task you are doing, use it as often as the task needs, and release it when you are done. The user's rule for that login decides whether the lease is approved automatically, needs their Touch ID or iPhone approval, or is refused. One approval covers your whole task, filling and reading alike, including retries and two-factor steps, for up to 30 minutes. That is how long Agent Keyring will hand out the login for the task; it does not sign you out of the website, and anything already delivered stays where it went.
+Agent Keyring holds the user's saved logins. You lease one login for the task you are doing, use it as often as the task needs, and release it when you are done. The user's rule for that login decides whether the lease is approved automatically, needs their approval (Touch ID, the Mac password on a Mac without Touch ID, or the iPhone), or is refused. One approval covers your whole task, filling and reading alike, including retries and two-factor steps, for up to 30 minutes. That is how long Agent Keyring will hand out the login for the task; it does not sign you out of the website, and anything already delivered stays where it went.
 
 The values go into the sign-in form or the program, not into your output. Keep it that way: your conversation is stored, and the user is trusting the tool with their accounts.
 
@@ -56,11 +56,13 @@ agent-keyring read "$lease" --field password | gh auth login --with-token
 
 ## Setting up
 
-The user has installed the Agent Keyring app on their Mac and copied their passwords into it, then asked you to set it up.
+The user has installed the Agent Keyring app on their Mac or iPhone and copied their passwords into it, then asked you to set it up.
 
-**Cardinal rule: propose first, act only after the user agrees.** Tell the user what you suggest doing and ask their permission before scanning their Tailscale network, probing computers over SSH, registering a browser helper, or changing any files or settings.
+**Cardinal rule: propose first, act only after the user agrees.** Tell the user what you suggest doing and ask their permission before probing computers over SSH, registering a browser helper, or changing any files or settings.
 
-How it fits together: the Mac holds the passwords and the list of the user's devices and computers. Each other computer, and the iPhone and Apple Watch, joins the Mac once, with a request the user approves on the Mac. After that, an agent on another computer asks that computer's own `agent-keyring`, which sends the request straight to the iPhone and Apple Watch and takes the answer itself: the Mac does not need to be awake. Agents on this Mac ask the Mac directly. Everything travels over Tailscale, so every computer and device must be signed in to the user's Tailscale network.
+How it fits together: the user's Macs and iPhones each hold the passwords and the list of the user's devices and computers, as equals, and keep each other up to date through the user's own iCloud. The user can have only an iPhone, with no Mac. Each other computer joins once, with a one-time code from the Mac or iPhone and a request the user approves there; the iPhone joins a Mac through iCloud, and the Apple Watch joins the iPhone. After that, an agent on another computer asks that computer's own `agent-keyring`, which sends the request straight to the user's devices and takes the answer itself: the Mac does not need to be awake. Agents on this Mac ask the Mac directly. Requests and answers pass through end-to-end encrypted boxes at `push.opentrawl.sh` (or the user's own `agent-keyring-box`), which sees only ciphertext.
+
+There are two installs. The app goes only on the user's own Macs, iPhone and Apple Watch: it holds their passwords and asks them to approve. A computer that runs agents (a headless Mac mini or Mac Studio, a Linux server, a cloud VM) gets only the `agent-keyring` command, which holds no password vault; never install the app there. A Mac without Touch ID can still be the user's own Mac with the app, approving with its Mac password; that is the user's choice, made in the app.
 
 When you talk to the user, say "password", not "login"; "computer", not "machine"; and "Apple Watch" in full.
 
@@ -72,32 +74,32 @@ When you talk to the user, say "password", not "login"; "computer", not "machine
 
 Wherever the steps below say `agent-keyring` on this Mac, use that full path, unless `command -v agent-keyring` already finds it. Never add it to their path, shell files or agent settings yourself; if they want that, they will do it or ask you. An earlier version's `install` may have changed some links; `install --undo` puts them back, and you run it only if the user asks.
 
-**2. Propose what to set up and ask permission first.** Before running `agent-keyring machines`, probing SSH hosts, or configuring anything, tell the user what you suggest setting up and ask what they want to include (skipping anything they already told you):
+**2. Propose what to set up and ask permission first.** Before probing SSH hosts or configuring anything, tell the user what you suggest setting up and ask what they want to include (skipping anything they already told you):
 
-- **Other computers:** Ask if they have other computers (such as a Mac mini or Linux server) that run agents, and ask permission before checking their Tailscale network (`agent-keyring machines`) and probing online computers over SSH to see which ones have `agent-keyring` installed.
+- **Other computers:** Ask if they have other computers (such as a Mac mini or Linux server) that run agents, and which ones, and ask permission before probing them over SSH to see which ones have `agent-keyring` installed.
 - **iPhone and Apple Watch:** Ask if they want to approve requests from their iPhone and Apple Watch.
 - **Optional browser extension (Chrome, Chromium, Brave, Edge):** Offer to set up the optional browser extension if they want agents to fill web forms directly in a Chrome-family browser profile without piping values through commands. (No extension is needed for Safari, built-in agent browsers, desktop apps or CLI tools.)
 
 If they want only this Mac with no browser extension, this Mac is already ready after step 1: tell them so and stop.
 
-**3. Check the computers they agreed to scan.** Only after the user says yes to checking their other computers, run `agent-keyring machines` to list the computers on their Tailscale network (with this Mac first), and for each online computer they want checked, test over SSH whether it has the command:
+**3. Check the computers they named.** Only after the user says yes to checking them, test each one over SSH for the command:
 
 ```sh
 ssh -o BatchMode=yes -o ConnectTimeout=5 HOST '$SHELL -lc "command -v agent-keyring"'
 ```
 
-For HOST, use the user's own name for the computer if their `~/.ssh/config` has one, and otherwise the address `machines` printed. `BatchMode` makes a password prompt fail instead of waiting; if `ssh` exits with status 255, it could not connect, and the problem is SSH, not the command. The check runs a login shell, because a plain SSH command can have a shorter path: in the `enrol` commands below, use the full path it printed in place of `agent-keyring`.
+For HOST, use the user's own name for the computer if their `~/.ssh/config` has one, and otherwise the address the user gave you. `BatchMode` makes a password prompt fail instead of waiting; if `ssh` exits with status 255, it could not connect, and the problem is SSH, not the command. The check runs a login shell, because a plain SSH command can have a shorter path: in the `enrol` commands below, use the full path it printed in place of `agent-keyring`.
 
-What you need on each remote computer: SSH without a password, Tailscale running (with firewall allowing port 17446 on Tailscale so iPhone and Apple Watch can answer requests), and the `agent-keyring` command installed. If `agent-keyring` is not installed yet on a remote Linux or macOS box, ask the user before installing it: you can download the standalone release binary from `https://github.com/opentrawl/agent-keyring/releases/latest` (`agent-keyring-linux-amd64`, `agent-keyring-linux-arm64`, or `agent-keyring-darwin-universal`), verify its SHA-256 against `SHA256SUMS.txt`, and put it at `~/.local/bin/agent-keyring` (or use `nix profile add github:opentrawl/agent-keyring#agent-keyring` if the user prefers Nix). Never install, copy, or start anything on another computer without the user's explicit go-ahead. Where something is missing, tell the user what each computer lacks and confirm which computers to add (using plain names like "Mac mini" or "Linux server", not network hostnames).
+What you need on each remote computer: SSH without a password and the `agent-keyring` command installed. It joins with a code, and its requests are answered through end-to-end encrypted boxes at `push.opentrawl.sh`, which sees only ciphertext. If `agent-keyring` is not installed yet on a remote Linux or macOS box, ask the user before installing it: you can download the standalone release binary from `https://github.com/opentrawl/agent-keyring/releases/latest` (`agent-keyring-linux-amd64`, `agent-keyring-linux-arm64`, or `agent-keyring-darwin-universal`), verify its SHA-256 against `SHA256SUMS.txt`, and put it at `~/.local/bin/agent-keyring` (or use `nix profile add github:opentrawl/agent-keyring#agent-keyring` if the user prefers Nix). Install only the command there, never the Agent Keyring app. Never install, copy, or start anything on another computer without the user's explicit go-ahead. Where something is missing, tell the user what each computer lacks and confirm which computers to add (using plain names like "Mac mini" or "Linux server", not network hostnames).
 
-**4. Add each approved computer,** with a new link for each:
+**4. Add each approved computer,** with a new code for each:
 
 ```sh
-link=$(agent-keyring invite)
-ssh HOST "agent-keyring enrol --name 'Linux server' --invite '$link'"
+code=$(agent-keyring invite)
+ssh HOST "agent-keyring enrol --name 'Linux server' --code '$code'"
 ```
 
-The link works for one computer, for ten minutes. `enrol` then waits, for up to ten minutes more, until the user approves on the Mac. Keep it running, in the background if your tool allows, and tell the user that a request to add that computer is waiting on their Mac. You can run several at once, each with its own link. When `enrol` prints `Joined`, agents there find these instructions with `agent-keyring skill` and use Agent Keyring the same way as on the Mac. If the user denies it, `enrol` stops at once with `The user denied adding this computer.` and any reply they wrote: do what the reply says, or stop and ask them. If nobody answers, `enrol` says so after ten minutes: tell the user, and make a new link only if they want to try again. If `enrol` says the computer has no Tailscale address, Tailscale is not running or not signed in there: tell the user.
+The code works for one computer, for ten minutes. `enrol` then waits, for up to ten minutes more, until the user approves on the Mac. Keep it running, in the background if your tool allows, and tell the user that a request to add that computer is waiting on their Mac. If the user has no Mac, or prefers their iPhone, ask them for the code their iPhone shows under **Devices > Add Another Computer…** instead of running `invite`; they approve that request on the iPhone with Face ID. You can run several at once, each with its own code. When `enrol` prints `Joined`, agents there find these instructions with `agent-keyring skill` and use Agent Keyring the same way as on the Mac. If the user denies it, `enrol` stops at once with `The user denied adding this computer.` and any reply they wrote: do what the reply says, or stop and ask them. If nobody answers, `enrol` says so after ten minutes: tell the user, and make a new code only if they want to try again.
 
 **5. Optional browser extension,** only if the user asked for it. Ask which browser user-data directory they want to connect, register the native messaging helper only for that profile:
 
@@ -107,7 +109,7 @@ agent-keyring install --browser-profile "/path/to/Browser/User Data"
 
 Then tell the user to load the unpacked extension once from `/Applications/Agent Keyring.app/Contents/Resources/AgentTools/BrowserExtension` in that browser profile (`chrome://extensions` with Developer mode on).
 
-**6. The iPhone and Apple Watch,** if they want them. Tell the user to open Agent Keyring on their iPhone: it finds its invitation through iCloud Keychain, and a request to add it appears on the Mac. Then to open Agent Keyring on their Apple Watch, after the iPhone: the request to add it appears on the iPhone. You cannot install the apps or see whether these joined. Requests from other computers reach only the iPhone and Apple Watch, so those computers can ask once the iPhone has joined.
+**6. The iPhone and Apple Watch,** if they want them. Tell the user to open Agent Keyring on their iPhone: it finds its invitation through iCloud Keychain, and a request to add it appears on the Mac. With no Mac, they tap **Set Up on This iPhone** and export from Apple Passwords on the iPhone (**Export Data to Another App**, then Agent Keyring). Then to open Agent Keyring on their Apple Watch, after the iPhone: the request to add it appears on the iPhone. You cannot install the apps or see whether these joined. Requests from other computers reach the iPhone, the Apple Watch, and a Mac that keeps Agent Keyring open (Open at Login in its Devices tab).
 
 **7. Finish with one message:** which computers are set up, what the user still has to do on the iPhone, Apple Watch or browser extension, and for each computer left out, what it needs.
 
@@ -121,6 +123,6 @@ Then tell the user to load the unpacked extension once from `/Applications/Agent
 - **Clearing failed.** A value may still be on the page. Don't read the fields back; close the tab with your browser tools.
 - **The site rejects the password.** The user's saved password is probably out of date. Tell them, and don't retry it.
 
-- **Agent Keyring itself got in your way.** If it was annoying, confusing or broken, run `agent-keyring complain --summary "one line" --command "what you ran"`, with any detail on standard input and never a password, then carry on with your task. It goes to whoever builds Agent Keyring, not to the user.
+- **Agent Keyring itself got in your way.** If it was annoying, confusing or broken, run `agent-keyring complain --summary "one line" --command "what you ran"`, with any detail on standard input and never a password, then carry on with your task. It is kept on that computer for whoever builds Agent Keyring, not shown to the user.
 
 `agent-keyring --help` describes every command, option and exit code.

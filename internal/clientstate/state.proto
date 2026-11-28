@@ -1,8 +1,9 @@
 // Written by AI on 2026.10.31 by model gpt-6.1-sol; the saved approval by claude opus 5.5 on 2026.11.19;
-// the direct design (no relay) by claude opus 5.5 on 2026.11.21.
+// the direct design (no relay) by claude opus 5.5 on 2026.11.21; update mailboxes and grants on 2026.11.24;
+// the doors cut by the same model the same day.
 syntax = "proto3";
 package agentkeyring.clientstate;
-import "agentkeyring/v1/agentkeyring.proto";
+import "agentkeyring/v2/local_authority.proto";
 import "agentkeyring/v2/keyring.proto";
 option go_package = "github.com/opentrawl/agent-keyring/internal/clientstate";
 // Local receiver storage, never a wire contract. PrivateKeys is stored
@@ -13,10 +14,11 @@ message PrivateKeys {
   bytes receiver_private_key = 3;
 }
 message State {
-  // 1 and 2: the relay this computer joined through. A state that has them
-  // and no Mac door joined the relay and must enrol again.
-  string relay_address = 1;
-  bytes relay_spki = 2;
+  // 1, 2, 18 and 19: the relay, then the Mac's door, this computer joined
+  // through. A state with a recipient_id and no box_url joined one of those
+  // and must enrol again with a code.
+  reserved 1, 2, 18, 19;
+  reserved "relay_address", "relay_spki", "mac_door", "mac_tls_public_key";
   string recipient_id = 3;        // This machine's id in Members.
   reserved 4, 5, 6, 7, 9, 10, 12, 15;
   repeated ExpectedRequest requests = 8;
@@ -26,37 +28,44 @@ message State {
   // The newest Members this machine has checked, as a serialized
   // agentkeyring.v2.Signed. Answers are verified against it.
   bytes members = 16;
-  // The newest Catalogue revision this machine has seen; an older one is the
-  // Mac's door replaying the past (a login no longer Automatic, still served).
+  // The newest Catalogue revision this machine has seen; an older one is a
+  // carrier replaying the past (a login no longer Automatic, still served).
   uint64 catalogue_revision = 17;
-  // The Mac's members' door, "IP:PORT" as the invitation named it (its Tailscale IP, port 17447), and its TLS key (SPKI
-  // DER), pinned from the invitation this computer joined with.
-  string mac_door = 18;
-  bytes mac_tls_public_key = 19;
-  // The last Bundle from the Mac's door whose parts all checked
-  // (agentkeyring.v2.Bundle): the catalogue, push registrations, the Apple
-  // Watch's copies and this computer's own Automatic copies.
+  // The parts of every Bundle this computer took that checked
+  // (agentkeyring.v2.Bundle): the catalogue, push registrations and this
+  // computer's own Automatic copies.
   bytes bundle = 20;
   // Apple's push credential from the Mac's approval, still sealed to this
   // computer's receiving key (agentkeyring.v2.SealedPushCredential).
   bytes push_credential = 21;
   // After a denial, when this computer may ask for each password again.
   repeated Hold holds = 22;
-  // Agents' complaints the Mac has not taken yet (agentkeyring.v2.Complaint),
-  // sent at the next contact with the Mac's door.
+  // Agents' complaints on this computer (agentkeyring.v2.Complaint), oldest
+  // first, for `agent-keyring complaints`. Sent nowhere.
   repeated bytes complaints = 23;
   // The token Apple's push service was last given, and when it was made:
   // Apple refuses a new one more often than every 20 minutes, so every
   // process on this computer uses the same one for 30.
   string apns_token = 24;
   int64 apns_token_issued_unix_seconds = 25;
+  // The box relay this computer enrolled through, with a code: its requests
+  // are answered in boxes there.
+  string box_url = 26;
+  // This computer's update mailbox, from its JoinStatus (no write_auth): the
+  // Mac's and iPhone's slots it reads before find and Automatic use.
+  agentkeyring.v2.UpdateMailbox mailbox = 27;
+  // Until when this computer uses its Automatic copies on its own: the newest
+  // Freshness it took. 0 with a mailbox: none yet, so none are used.
+  int64 fresh_until_unix_seconds = 28;
+  // A Members it verified leaves this computer out: its copies and approvals are gone.
+  bool removed = 29;
 }
 message LocalAuthority {
   string application_contents = 1;
   string bundle_id = 2;
 }
 message ExpectedRequest {
-  agentkeyring.v1.RequestLeaseRequest scope = 1;
+  agentkeyring.v2.RequestLeaseRequest scope = 1;
   string lease_id = 2;            // The Request's request_id.
   reserved 3, 4, 6, 8;            // Kept beside the relay's record: now the lease below is the record.
   // The device's signed answer over this request (agentkeyring.v2.Approval):
@@ -67,8 +76,10 @@ message ExpectedRequest {
   // saved before it is pushed. Answers are checked against these exact bytes.
   bytes request = 7;
   // Where the request is up to: its one state, with who answered, when it
-  // was pushed and arrived, and when it ends (docs/state-machines.md).
+  // was pushed, and when it ends (docs/state-machines.md).
   agentkeyring.v2.Lease lease = 9;
+  // A request answered in a box: its grant is at the relay (keyring.proto, "Grants and Stop").
+  bool grant_put = 10;
 }
 message Hold {
   string login_id = 1;
@@ -83,7 +94,7 @@ message OperationReceipt {
   int64 lease_deadline_unix_seconds = 4;
   // No outcome means Started: inspect before deliberately repeating it.
   oneof outcome {
-    agentkeyring.v1.FillOutcome fill = 5;
+    agentkeyring.v2.FillOutcome fill = 5;
     bool read_delivered = 7;
   }
   reserved 6, 8;                // A program's outcome and exit code.

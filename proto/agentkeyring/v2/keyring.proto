@@ -1,14 +1,17 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5.
+// Written by AI on 2026.11.18 by model claude opus 5.5; the relay cut on
+// 2026.11.24 by the same model; Apple Watch's own copies, grants, update
+// mailboxes and device practice the same day; the doors cut on 2026.11.24 by
+// the same model.
 //
-// Agent Keyring, version 2: sealed logins and the relay.
+// Agent Keyring, version 2: sealed logins, and how they pass between the
+// computers that ask and the devices that approve.
 //
 // Each login's secret is sealed separately to the opening key of each device
 // that may approve it (iPhone, Watch, MacBook), and to each machine allowed to
 // use it with no question (Automatic). Site and account stay readable in the
 // catalogue. Approving means a device opens the one sealed login and seals it
-// again for the machine that asked, valid for 30 minutes at most. The relay
-// stores sealed logins, requests and answers, and wakes the devices; it can
-// open nothing.
+// again for the machine that asked, valid for 30 minutes at most. Whatever
+// carries these (a box, iCloud, a push) can open nothing.
 //
 // Keys. Every key is P-256. A device holds two keys in its Secure Enclave,
 // usable only after Face ID, Touch ID, or (Watch) while unlocked on the wrist:
@@ -16,11 +19,12 @@
 // key, to which logins are sealed. One approval unlocks both. It also holds two
 // keys usable whenever it is unlocked, with no face or finger: a reply key,
 // which signs only denials with words (iOS hands a typed reply to the app where
-// Face ID cannot be shown), and a notice key, to which the relay seals what a
-// push shows. A machine holds a software receiving key, to which approvals are
-// sealed. Devices other than the Watch, and machines, also hold a TLS key for
-// their connection to the relay. Key ids are lowercase hex SHA-256 of the
-// public key bytes named below.
+// Face ID cannot be shown), and a notice key, to which the asking machine seals
+// what a push shows. A machine holds a software receiving key, to which
+// approvals are sealed. Devices other than the Watch, and machines, also hold a
+// key named tls_public_key, from when it served TLS: a machine signs its
+// requests with it. Key ids are lowercase hex SHA-256 of the public key bytes
+// named below.
 //
 // Signatures. ECDSA P-256 with SHA-256, DER encoded, over the exact payload
 // bytes in Signed. Verifiers parse those bytes; nobody re-encodes them.
@@ -28,19 +32,6 @@
 // Sealing. HPKE (RFC 9180) base mode, DHKEM(P-256, HKDF-SHA256), HKDF-SHA256,
 // AES-256-GCM. CryptoKit: HPKE.Ciphersuite.P256_SHA256_AES_GCM_256. Go:
 // crypto/hpke. The info and associated data are given with each sealed message.
-//
-// Wire. Mutual TLS 1.3 with self-signed certificates, each side pinning the
-// other's exact SubjectPublicKeyInfo; one method per connection; frames are a
-// 4-byte unsigned big-endian length then a serialized protobuf.
-// RelayRequest selects the method; each RelayResponse has end_of_stream set on
-// its last frame. Frames are at most 4 MiB. Nothing is reachable from outside the tailnet.
-//
-// The Watch cannot open raw TLS connections, so it posts its answers over
-// HTTPS to the same address and port: "POST /v2/answer" with a serialized
-// AnswerUpload as the body, no client certificate, the relay pinned by
-// Members.relay_tls_public_key. Only a signed answer from a WATCH device is
-// taken there. The reply is 200 with a serialized Lease, or 4xx with the
-// error in words. Its work arrives in a push.
 
 syntax = "proto3";
 
@@ -70,15 +61,8 @@ message Members {
   uint64 revision = 2;
   repeated Device devices = 3;
   repeated Machine machines = 4;
-  bytes relay_tls_public_key = 5;  // SPKI DER; machines and devices pin it.
-  // The machine that runs the relay and passes requests on to the iPhone and
-  // Apple Watch (the computer that stays on). Empty until one is added.
-  string relay_machine_id = 6;
-  // Revision 1 only, on a relay that announced itself (SetupOffer):
-  // HMAC-SHA256 with the offer's secret over "agentkeyring.setup.v2", the
-  // relay's SPKI and the first device's key id. An empty relay that made an
-  // offer refuses a first list without it, so the first Mac to reach it cannot take it.
-  bytes setup_proof = 7;
+  reserved 5, 6, 7;                // The relay's key, its machine and its setup proof: cut with the relay.
+  reserved "relay_tls_public_key", "relay_machine_id", "setup_proof";
 }
 
 message Device {
@@ -90,6 +74,7 @@ message Device {
   bytes tls_public_key = 6;        // SPKI DER. Empty for the Watch.
   string reply_key_id = 7;         // SHA-256 of reply_public_key.
   bytes reply_public_key = 8;      // X9.63 uncompressed. Signs only denials with words.
+  bytes notice_public_key = 9;     // X9.63 uncompressed. Cloud metadata and pushes are sealed to it.
 }
 
 enum DeviceKind {
@@ -104,9 +89,8 @@ message Machine {
   string label = 2;                // e.g. "Mac mini".
   bytes tls_public_key = 3;        // SPKI DER.
   bytes receiving_public_key = 4;  // X9.63 uncompressed. Approvals are sealed to it.
-  // May hold Automatic logins. Sealing them to this machine is what grants
-  // them; this flag tells devices to do so on import and rule changes.
-  bool automatic_allowed = 5;
+  reserved 5;                      // Every machine may hold Automatic logins now.
+  reserved "automatic_allowed";
 }
 
 // The logins and their rules: names readable, secrets never. Signed by any
@@ -130,13 +114,22 @@ message Login {
   // The version of every sealed copy of this login (SealedLogin.version).
   // Whoever publishes a catalogue carries it over unchanged; only a new import
   // of the secret changes it. Openers refuse a copy of another version.
+  // 0: no device holds its secret (it was deleted when the login was
+  // Blocked); it comes back only with the next export from Passwords.
   uint64 version = 8;
+  // When the rule was last set, in Unix milliseconds, and by which device
+  // (Device.key_id). Every device keeps, for each login, the rule with the
+  // latest time, the higher key id breaking a tie, so rule changes made on
+  // two devices at once end the same on both. 0 for a rule set before these
+  // were kept: any rule set since wins over it.
+  int64 rule_updated_unix_ms = 9;
+  string rule_actor = 10;
 }
 
 enum Rule {
   RULE_UNSPECIFIED = 0;
   RULE_ASK = 1;
-  RULE_AUTOMATIC = 2;              // Also sealed to machines with automatic_allowed.
+  RULE_AUTOMATIC = 2;              // Also sealed to every machine in Members.
   RULE_BLOCKED = 3;                // Devices refuse to open it for anyone.
 }
 
@@ -152,8 +145,8 @@ message SealedLogin {
   string opener_id = 2;            // Device.key_id or Machine.machine_id.
   bytes encapsulated_key = 3;
   bytes ciphertext = 4;
-  // The device that sealed it, by its reply key (no Face ID or Touch ID), so a
-  // relay can neither forge a copy nor pass one off as another login's:
+  // The device that sealed it, by its reply key (no Face ID or Touch ID), so
+  // whatever carries it can neither forge a copy nor pass one off as another login's:
   // ECDSA P-256 SHA-256, DER, over "agentkeyring.sealed.v2" and the
   // length-prefixed login_id, opener_id, encapsulated_key and ciphertext,
   // then version as 8 bytes big-endian. Openers check it against a device in
@@ -161,7 +154,7 @@ message SealedLogin {
   string signer_key_id = 5;        // Device.reply_key_id.
   bytes signature = 6;
   // When the secret was imported, in Unix nanoseconds. Resealing keeps it, so
-  // a relay cannot serve an older copy: it must equal the catalogue's Login.version.
+  // no carrier can serve an older copy: it must equal the catalogue's Login.version.
   uint64 version = 7;
 }
 
@@ -181,13 +174,12 @@ message LoginSecret {
 }
 
 // ---- Requests and answers --------------------------------------------------
-// Written and signed by the asking machine with its TLS key (RelayRequest.ask_signed;
-// Work.request_signature). Devices check the signature against the machine
-// their own Members lists as machine_id, show what they parse from these exact
-// bytes, check the login against their own catalogue, and answer over them.
-// The relay refuses one whose asked time is over 5 minutes from its clock,
-// which waits over 10 minutes, or whose reason is over 400 bytes or agent,
-// project or task over 100, so that a Work still fits in a push.
+// Written and signed by the asking machine with its tls_public_key's private key (SignedRequestEnvelope.request_signature).
+// Devices check the signature against the machine their own Members lists as
+// machine_id, show what they parse from these exact bytes, check the login
+// against their own catalogue, and answer over them. A request waits at most
+// 10 minutes; its reason is at most 400 bytes and its agent, project and task
+// at most 100 each, so that a SignedRequestEnvelope still fits in a push.
 message Request {
   string domain = 1;               // "agentkeyring.request.v2"
   string request_id = 2;           // Chosen by the asking machine: 16 random bytes, hex.
@@ -202,25 +194,35 @@ message Request {
   int64 answer_by_unix_seconds = 12;  // After this the request is unanswered.
   // A practice request: it names no login, goes only to this device, and is
   // approved by a signed Answer with no delivery. Signed like any request, by
-  // the machine that made it, or by the relay's TLS key for one a device asked
-  // the relay for (test_request).
+  // the machine that made it.
   string for_device_key_id = 13;
-  // The machine uses its own copy of an Automatic login: the relay grants it
-  // at once, for 30 minutes, if the catalogue says Automatic and Members
-  // allows this machine. Devices show it in use and may stop it.
+  // The machine uses its own copy of an Automatic login, at once, for 30
+  // minutes, if its signed catalogue says Automatic. Devices show it in use
+  // and may stop it.
   bool automatic = 14;
-  // Where this request's answers go: the asking machine's door, "IP:17446"
-  // with its Tailscale IP address (never a name), and the TLS key it serves
-  // with, its Machine.tls_public_key (SPKI DER). Devices pin that key and
-  // refuse an address outside Tailscale's ranges; the request's signature is
-  // what makes them the asking machine's.
-  string answer_address = 15;
-  bytes answer_tls_public_key = 16;
+  reserved 15, 16;                 // The asking machine's door and its key: cut with the doors.
+  reserved "answer_address", "answer_tls_public_key";
+  // Where this request's answers go, its answer box: devices PUT the
+  // AnswerUpload, sealed with answer_box_key (see "Boxes"), and the asking
+  // machine picks it up. Every request names one; devices refuse one that
+  // does not. answer_box_url is empty for the default, https://push.opentrawl.sh.
+  string answer_box_id = 17;       // 64 lowercase hex: 32 random bytes.
+  bytes answer_box_key = 18;       // 32 random bytes, AES-256-GCM.
+  string answer_box_url = 19;
+  // A practice request a device made, with domain
+  // "agentkeyring.practice-request.v2" in place of the request domain: the
+  // device that made it, by Device.key_id. It is signed by that device's reply
+  // key (SignedRequestEnvelope.request_signature, DER), names no login and no machine, is not
+  // Automatic, names for_device_key_id and an answer box, and is approved by a
+  // signed Answer with no delivery. A verifier takes a device's signature on
+  // a request only in this domain and only with all of these; computers never
+  // take this domain at all.
+  string asker_key_id = 20;
 }
 
 // A device's answer, the payload of a Signed by that device's signing key.
-// A plain denial with no reply may instead be sent unsigned over a device's
-// own connection (see AnswerUpload), so Deny needs no Face ID or Touch ID.
+// A plain denial with no reply may instead be sent unsigned (see
+// AnswerUpload), so Deny needs no Face ID or Touch ID.
 message Answer {
   string domain = 1;               // "agentkeyring.answer.v2"
   bytes request_sha256 = 2;        // SHA-256 of the exact Request bytes.
@@ -271,14 +273,35 @@ message Lease {
   int64 answer_by_unix_seconds = 4;
   int64 not_after_unix_seconds = 5;  // Set once approved.
   string answered_by = 6;            // Device.label, once answered.
-  string reply = 7;                  // Display only; show the words from collect's signed answer.
+  string reply = 7;                  // Display only; show the words from the signed answer.
   int64 retry_not_before_unix_seconds = 8;  // A denial holds the login off: 1, 5, then 15 minutes in a row.
   string ended_by = 9;               // Device.label when a device ended an approval early (Stop).
   bool automatic = 10;               // Granted at once by the login's Automatic rule.
   // While it waits, how far it has got, for the screens to say truthfully:
   int64 pushed_unix_seconds = 11;    // Apple accepted the push for it.
-  int64 arrived_unix_seconds = 12;   // A device said it arrived (Arrival).
-  string arrived_on = 13;            // That device's label.
+  reserved 12, 13;                   // A device said it arrived: cut with the doors.
+  reserved "arrived_unix_seconds", "arrived_on";
+  int64 requested_at_unix_seconds = 14;
+  int64 approved_at_unix_seconds = 15;
+  int64 ended_at_unix_seconds = 16;
+  // For the authority's local callers. Clear it before sending an outcome to a device.
+  LeaseAuthorityContext authority_context = 17;
+}
+
+message LeaseAuthorityContext {
+  string task_ref = 1;
+  string reason = 2;
+  // Snapshot of authorized destinations for local delivery, which can only narrow.
+  repeated string sites = 3;
+  Recipient recipient = 4;
+  repeated string status_lines = 5;
+  DeviceKind deciding_device_kind = 6;
+}
+
+message Recipient {
+  string recipient_id = 1;
+  string machine_label = 2;
+  string client_label = 3;
 }
 
 enum LeaseState {
@@ -287,8 +310,10 @@ enum LeaseState {
   LEASE_STATE_APPROVED = 2;        // Collect the delivery.
   LEASE_STATE_DENIED = 3;
   LEASE_STATE_UNANSWERED = 4;      // Nobody answered by answer_by.
-  LEASE_STATE_ENDED = 5;           // The agent said it was done, 30 minutes passed, or a device stopped it (ended_by).
+  LEASE_STATE_ENDED = 5;           // The authority or a device stopped access.
   LEASE_STATE_CANCELLED = 6;       // The agent stopped asking.
+  LEASE_STATE_EXPIRED = 7;         // The approval window passed.
+  LEASE_STATE_RELEASED = 8;        // The agent finished using it or its computer left the keyring.
 }
 
 // Everything the asking machine needs to check an answer itself: an approval,
@@ -301,137 +326,53 @@ message Approval {
 
 // ---- What a device is given -------------------------------------------------
 
-// One request for one device: on its watch_work stream, from get_work, and
-// sealed in the push that wakes it. For the Watch this is everything it needs,
-// beside the Members and Catalogue the iPhone keeps in step on it.
-message Work {
+// One request for one device, sealed in the push that wakes it. The Watch
+// opens the login from its own copies (WatchCopies), beside the Members and
+// Catalogue the iPhone keeps in step on it.
+message SignedRequestEnvelope {
   bytes request = 1;               // The exact Request bytes.
-  // The asking machine's signature over request, by its TLS key. Empty only
-  // for a device's own test request.
+  // The asking machine's signature over request, by the key Members lists as
+  // its tls_public_key; for a device's own practice request, by its reply key.
   bytes request_signature = 6;
-  SealedLogin sealed_login = 2;    // This login, sealed to this device. Absent if it may not approve it.
+  reserved 2;                      // The Apple Watch's copy in its push: the Watch keeps its own now (WatchCopies).
+  reserved "sealed_login";
   // Set once the request has ended: answered here or elsewhere, or no answer
   // in time. Show the outcome and clear the request.
   Lease outcome = 3;
-  // The login as the relay's catalogue lists it. Unsigned here: devices show
-  // and check the login from their own signed catalogue.
+  // The login as the asking machine's catalogue lists it. Unsigned here:
+  // devices show and check the login from their own signed catalogue.
   Login login = 4;
   reserved 5;                      // Rule proposals: cut with the fourth rule.
 }
 
-// The push. Apple carries nothing readable about a request. The asking machine sends:
-//   aps.alert            {"title": "Agent Keyring", "body": "A request is waiting."}
-//   aps.category         "REQUEST"
+// The push. Apple carries nothing readable about a request.
+// For a waiting request to iPhone and Apple Watch (apns-push-type alert,
+// priority 10, apns-collapse-id = request id, apns-expiration = answer_by):
+//   aps.alert               {"title": "Agent Keyring", "body": "A request is waiting."}
 //   aps.interruption-level  "time-sensitive"
-//   aps.mutable-content  1
-//   aps.thread-id        the request id
-//   aps.sound            "default"
-//   akr                  base64 of a serialized Notice
-// with the header apns-collapse-id set to the request id, so the push for the
-// outcome replaces the one for the request. The app's notification service
-// extension opens the Notice with the device's notice key and writes the
-// alert from the Work in it; one push goes to each device. The top level also
-// carries "id": the request id. Headers: apns-push-type alert, priority 10,
-// apns-expiration the request's answer_by.
-// Every outcome (answered, stopped, released, cancelled, no answer) is a silent
-// push to the same devices: apns-push-type background, priority 5, the same
-// collapse id, aps only {"content-available": 1, "thread-id": id}, with "id"
-// and "akr", whose Work has its outcome set.
+//   aps.mutable-content     1
+//   aps.category            "REQUEST" (iPhone) or "WATCH_REQUEST" (Watch), as fallback
+//                           so a timed-out extension still routes to the approval handler
+//   aps.thread-id           the request id
+//   aps.sound               "default"
+//   akr                     base64 of a serialized Notice
+// For a waiting request to a Mac, and for Automatic starts: silent background push
+// (apns-push-type background, priority 5, apns-collapse-id = request id, aps =
+// {"content-available": 1, "thread-id": id}). A Mac shows waiting requests in its own panel.
+// For an outcome (answered, stopped, released, cancelled, no answer):
+// - To iPhone and Apple Watch: priority-10 passive collapse alert (apns-push-type alert,
+//   priority 10, apns-collapse-id = request id) with aps =
+//   {"alert": {"title": "Agent Keyring", "body": "Request answered."},
+//    "interruption-level": "passive", "mutable-content": 1, "content-available": 1,
+//    "thread-id": id} (no category), so outcome collapses are not throttled like background pushes.
+// - To a Mac: silent background push (apns-push-type background, priority 5, same
+//   collapse id, aps = {"content-available": 1, "thread-id": id}).
+// Every push also carries top-level "id" (the request id) and "akr" (base64 Notice).
 // info = "agentkeyring.notice.v2"; aad = the device's Device.key_id UTF-8
-// plaintext = serialized Work.
+// plaintext = serialized SignedRequestEnvelope.
 message Notice {
   bytes encapsulated_key = 1;
   bytes ciphertext = 2;
-}
-
-// ---- The relay's methods ---------------------------------------------------
-
-message RelayRequest {
-  reserved 1, 7, 23;               // Unsigned asks, use reports, rule proposals.
-  oneof method {
-    // Asking machines.
-    Signed ask_signed = 26;        // A Request, signed by this machine's TLS key; signer_key_id is its machine_id. Returns Lease.
-    RequestReference watch = 2;            // Streams Lease until it is final.
-    RequestReference collect = 3;          // Returns Approval once approved, or denied with words.
-    RequestReference end = 4;              // Done with it, or stop asking.
-    FindRequest find = 5;                  // Returns FindResult from the catalogue.
-    Empty automatic_logins = 6;            // Returns SealedLogins sealed to this machine.
-    // Devices (by TLS key) and machines alike.
-    Empty members = 8;                     // Returns Signed (Members).
-    Empty catalogue = 9;                   // Returns Signed (Catalogue).
-    // Devices.
-    Empty watch_work = 10;                 // Streams Work: the waiting ones, then each new one or answer.
-    RequestReference get_work = 11;        // Returns Work for this device.
-    AnswerUpload answer = 12;
-    PushRegistration register_push = 13;
-    Signed publish_members = 14;
-    Signed publish_catalogue = 15;
-    SealedLogins publish_sealed_logins = 16;  // Adds or replaces each copy given; see SealedLogins.
-    Empty sealed_logins = 17;              // Returns SealedLogins sealed to this device.
-    // Joining: a machine or device not yet in Members. Streams JoinStatus.
-    JoinRequest join = 18;
-    Empty pending_joins = 19;              // Devices: returns PendingJoins.
-    // Devices: a request with no login, for this device or (from its
-    // iPhone) its Apple Watch, pushed like any other. Streams Lease until it
-    // is answered or unanswered.
-    TestRequest test_request = 20;
-    Signed report_self_test = 21;          // Devices: SelfTestReport, signed by the reply key.
-    Empty self_tests = 22;                 // Devices and machines: returns SelfTests.
-    // Devices and machines: every Members revision after this one, oldest
-    // first, so each can be checked against the one before. Returns
-    // MembersChain.
-    uint64 members_since = 24;
-    // The inviting device, joined or not: refuses a machine's join. Returns Done.
-    JoinRefusal refuse_join = 25;
-    // Devices: the device's recent log (DeviceLog), signed by its reply key.
-    // The relay keeps the latest from each device. Returns Done.
-    Signed report_log = 27;
-    // Devices and machines: the relay's own recent lines and each device's
-    // latest log, merged in time order. Returns Logs.
-    LogsRequest logs = 28;
-    // A request reached this device (Arrival): signed by the device's reply
-    // key, or unsigned with push_token_sha256, which a locked iPhone's
-    // notification extension can give. A timing note that grants nothing.
-    // Devices may also post the same bytes to "POST /v2/arrived". Returns Done.
-    Signed arrived = 29;
-    // From the relay's own computer only, while it has no members: the
-    // one-time secret our app there leaves in iCloud Keychain (RelayOffer).
-    // Returns SetupOffer.
-    Empty setup_offer = 30;
-  }
-}
-
-// One line per thing a device did, and why, with no secrets and no site or
-// account names: "<UTC time, ms, ISO 8601> <device> <part> <event> key=value ...".
-message DeviceLog {
-  string domain = 1;               // "agentkeyring.log.v2"
-  string device_key_id = 2;
-  repeated string lines = 3;       // Oldest first; the relay keeps the last 1,000.
-}
-
-message Arrival {
-  string domain = 1;               // "agentkeyring.arrival.v2"
-  string request_id = 2;
-  string device_key_id = 3;
-  int64 arrived_unix_seconds = 4;
-  // For an unsigned Arrival: SHA-256 of the push address the request was sent
-  // to, which only that device and the asking machine know.
-  bytes push_token_sha256 = 5;
-}
-
-message SetupOffer {
-  bytes secret = 1;                // 32 random bytes; the relay keeps it until its first members list.
-  bytes relay_tls_public_key = 2;  // SPKI DER.
-}
-
-// What our app on the computer that stays on leaves in iCloud Keychain, so a
-// Mac on the same Apple Account offers "Connect to Mac mini?" with nothing typed.
-message RelayOffer {
-  string relay_host = 1;
-  uint32 relay_port = 2;
-  bytes relay_tls_public_key = 3;  // SPKI DER, pinned on first contact.
-  bytes secret = 4;                // SetupOffer.secret.
-  string label = 5;                // The computer as macOS names it, e.g. "Mac mini".
 }
 
 // What Apple needs to accept a push from us: the ES256 key of the Apple
@@ -450,64 +391,6 @@ message SealedPushCredential {
   bytes ciphertext = 3;
 }
 
-message LogsRequest {
-  int64 since_unix_seconds = 1;    // 0: all it has.
-  string request_id = 2;           // Only lines that name this request.
-}
-
-message Logs {
-  repeated string lines = 1;       // Time order.
-}
-
-message RelayResponse {
-  oneof result {
-    Lease lease = 1;
-    Approval approval = 2;
-    FindResult find = 3;
-    SealedLogins sealed_logins = 4;
-    Signed signed = 5;
-    Work work = 6;
-    JoinStatus join = 7;
-    PendingJoins pending_joins = 8;
-    Empty done = 9;
-    Error error = 10;
-    SelfTests self_tests = 12;
-    MembersChain members_chain = 13;
-    Changes changes = 14;
-    Logs logs = 15;
-    SetupOffer setup_offer = 16;
-  }
-  bool end_of_stream = 11;
-}
-
-message Empty {}
-
-// The practice request (test_request). Empty for the calling device's own; an
-// iPhone names its Apple Watch, which answers it with a signed Answer like
-// any other.
-message TestRequest {
-  string for_device_key_id = 1;
-  // Chosen by the asker, 32 hex digits, and saved: the same id again rejoins
-  // that practice request instead of making another. While one waits for a
-  // device, a new id gets the waiting one: at most one per device.
-  string request_id = 2;
-}
-
-message RequestReference {
-  string request_id = 1;
-  // With end, from the machine that asked: it answered the request itself (a
-  // Mac's own agents), "approved" or "denied", so the devices show that.
-  string answered_here = 2;
-}
-
-message FindRequest {
-  string query = 1;                // Words matched against title, sites and account.
-}
-
-message FindResult {
-  repeated Login logins = 1;
-}
-
 message SealedLogins {
   repeated SealedLogin logins = 1;
   // In publish_sealed_logins: openers whose every copy is replaced, even by
@@ -518,94 +401,32 @@ message SealedLogins {
   repeated string withdrawn_login_ids = 3;
 }
 
-// Sent by the device that answered.
-// ---- Direct: no relay ------------------------------------------------------
+// ---- Answers ---------------------------------------------------------------
 //
-// Every computer that asks serves a door: HTTPS on its tailnet address, port
-// 17446, with its own TLS key (Machine.tls_public_key). The Mac's door is open
-// whenever the app runs; a command's door is held by whichever of that
-// computer's command processes binds the port first, and every waiting process
-// tries to bind it once a second, so another takes over within a second when
-// the holder exits. A device whose POST cannot connect retries for 30 seconds.
-//
-// On every door, for that computer's own requests, with no client certificate:
-//   POST /v2/answer, POST /v2/arrived: below.
-//   POST /v2/end      body: Signed EndRequest (Stop). Replies 200 with the Lease.
-//
-// The Mac also serves its members' door, on port 17447 of the same address
-// with the same key: the port JoinInvite.door_port names. Never assume 17446
-// for it. macOS's TLS can either require a client certificate or ask for none,
-// so the routes below, which need one, are on their own door, and the answer
-// door stays open to the Apple Watch and a locked iPhone, which have none.
-// On the members' door only. These need a TLS client certificate: a member's
-// TLS key, or for /v2/join the key the JoinRequest names.
-//   POST /v2/join              body: JoinRequest. Replies 200 with JoinStatus at
-//                              once if decided, else after up to 25 seconds
-//                              still WAITING; post the same request again to go
-//                              on waiting. A join expires 10 minutes after it
-//                              was first asked, connected or not.
-//   POST /v2/join/withdraw     body: JoinRequest, from the same key. Replies 200.
-//   GET  /v2/rev               Replies Revisions.
-//   GET  /v2/bundle?members=N  Replies Bundle for the caller; N is the newest
-//                              Members revision the caller holds (0 for none).
-//   POST /v2/push-registration body: Signed PushRegistration.
-//   POST /v2/copies            body: SealedLogins: the Apple Watch's copies,
-//                              made by its iPhone.
-//   POST /v2/catalogue, /v2/members  body: Signed: a change made on the iPhone.
-//   POST /v2/practice          body: Signed PracticeAsk. Replies 200 with the
-//                              practice request's id as plain text (the id
-//                              the device chose); the Mac pushes it.
-//   POST /v2/log               body: Signed DeviceLog.
-//   GET  /v2/logs?since=SECONDS  Replies Logs: the Mac's and devices' lines.
-//   POST /v2/ask               body: Signed Request, from the computer that
-//                              signed it, as it pushes the same request to the
-//                              devices. The Mac shows it in its own panel and
-//                              answers at the request's answer door like any
-//                              device: first answer wins. Replies 200.
-//   POST /v2/outcome           body: Lease, from that computer, when its
-//                              request ends any other way; the Mac's panel
-//                              shows the outcome and closes. Replies 200.
-//   POST /v2/stop              body: Signed EndRequest, from a device whose
-//                              Stop could not reach the asking computer's
-//                              door. The Mac keeps it for an hour. Replies 200.
-//   GET  /v2/stops?request=ID  From the computer that asked: replies the
-//                              Signed EndRequest left for that request, or
-//                              404. Asked before every use of an approval; if
-//                              the Mac cannot be reached, the use goes ahead
-//                              and is logged.
-//   POST /v2/complaint         body: Complaint, from a computer. Replies 200.
-//   GET  /v2/complaints?since=SECONDS  Replies Complaints.
-//
-// Every door speaks HTTP/1.1 over TLS 1.3: a body is sent with Content-Length
-// (no chunked bodies), and the door closes the connection after its reply.
-// 400 means the body could not be read, 403 that it was refused, 404 an
-// unknown route; each with a sentence in the body.
+// A device answers a request by putting an AnswerUpload in the request's
+// answer box (see "Boxes"); the asking machine picks it up, and the first
+// answer wins. A plain denial (deny_request_id) is taken from anyone who
+// knows the request id and its box key, which only the devices' sealed pushes
+// carry; it grants nothing. The asking machine sends the pushes itself, with
+// the push credential and each device's push address.
 //
 // The Mac tells the iPhone something changed with a silent push
 // (apns-push-type background, priority 5, apns-collapse-id "rev"):
 //   {"aps": {"content-available": 1}, "rev": {"members": N, "catalogue": N, "copies": N}}
-// and the iPhone fetches /v2/bundle. Nothing depends on reaching the iPhone.
-//
-// The answer door. The asking machine serves HTTPS at Request.answer_address
-// while its request waits, with the key in Request.answer_tls_public_key:
-//   POST /v2/answer   body: AnswerUpload. Replies 200 with the request's Lease
-//                     once the answer is taken, or with the Lease that already
-//                     ended it (the first answer wins); 403 with a sentence if
-//                     the answer is refused (unknown or removed device, a
-//                     changed request).
-//   POST /v2/arrived  body: Signed Arrival. Replies 200.
-// A plain denial (deny_request_id) is taken from anyone who knows the request
-// id, which only the devices' sealed pushes carry; it grants nothing.
-// The asking machine sends the pushes itself, with the push credential
-// (push_credential) and each device's push address (ask_targets).
+// and the iPhone reads iCloud. Nothing depends on reaching the iPhone.
 message AnswerUpload {
   // Approve: signed with a device's signing key. Deny with words: with its
   // signing key or its reply key.
   Signed answer = 1;
   Delivery delivery = 2;           // Approve only.
-  // Plain denial with no words, unsigned, from a device's own connection.
-  // Grants nothing. The Watch always signs, with its reply key and no words.
+  // Plain denial with no words, unsigned. Grants nothing. The Watch always
+  // signs, with its reply key and no words.
   string deny_request_id = 3;
+  // The answering device's lists, so the asking computer learns rule and
+  // device changes at each answer: Members, catalogue, push registrations, a
+  // Freshness, and with an approval that computer's own Automatic copies. The
+  // computer checks each part as it checks one from its update mailbox.
+  Bundle bundle = 4;
 }
 
 // Signed by the device's reply key, or for its Apple Watch by the iPhone's,
@@ -628,18 +449,10 @@ message EndRequest {
   int64 ended_unix_seconds = 4;
 }
 
-// A device asks the Mac for a practice request for itself or its Apple
-// Watch. Signed by its reply key.
-message PracticeAsk {
-  string domain = 1;               // "agentkeyring.practice.v2"
-  string for_device_key_id = 2;
-  string request_id = 3;           // Chosen by the device and saved: the same id rejoins.
-}
-
 // An agent's report that Agent Keyring was annoying, confusing or broken
-// (`agent-keyring complain`). Never a password or any secret. Kept on the
-// Mac for whoever builds the product; shown on no screen. A computer that
-// cannot reach the Mac keeps it and sends it at the next contact.
+// (`agent-keyring complain`). Never a password or any secret. Kept where the
+// agent ran, on the Mac or in the computer's own state, for whoever builds the
+// product (`agent-keyring complaints`); shown on no screen and sent nowhere.
 message Complaint {
   string domain = 1;               // "agentkeyring.complaint.v2"
   int64 at_unix_seconds = 2;
@@ -655,7 +468,7 @@ message Complaints {
   repeated Complaint complaints = 1;  // Oldest first.
 }
 
-// How new a computer's lists are, to fetch only what changed.
+// How new a device's lists are.
 message Revisions {
   uint64 members = 1;
   uint64 catalogue = 2;
@@ -670,14 +483,57 @@ message Bundle {
   Signed catalogue = 2;
   repeated Signed push_registrations = 3;
   // To the iPhone: its own copy of every password that is not Blocked.
-  // To a computer: the Apple Watch's copies, which it puts in its pushes, and
-  // its own copies of the passwords Automatic for it.
+  // To a computer: only its own copies of the passwords Automatic for it.
+  // Never another device's: Apple Watch keeps its own (WatchCopies).
   repeated SealedLogin copies = 4;
   Revisions revisions = 5;
   // Every Members revision after the one the caller holds, oldest first, so
   // each is checked against the one before (one may be signed by a device
   // the caller has not seen yet). members is the last of them.
   repeated Signed members_since = 6;
+  // To a computer, from an update mailbox, an answer box or a join: a signed
+  // Freshness for it. A computer uses its Automatic copies on its own only
+  // until the newest valid_until it holds.
+  Signed freshness = 7;
+}
+
+// A device vouches that a computer's lists were current: signed by the
+// device's reply key (no Face ID or Touch ID), so a Mac or iPhone can send it
+// whenever it is awake. The computer takes it only once it holds at least
+// these revisions, and never further ahead than 8 days.
+message Freshness {
+  string domain = 1;               // "agentkeyring.fresh.v2"
+  string machine_id = 2;           // The computer it is for.
+  uint64 members_revision = 3;
+  uint64 catalogue_revision = 4;
+  int64 valid_until_unix_seconds = 5;  // At most 7 days after it was signed.
+}
+
+// A computer's update mailbox (see "Update mailboxes"), made by the device
+// that approved its join. The computer is given seed and read_auth in its
+// JoinStatus; write_auth stays with the devices, which share all four
+// through iCloud (record kind "mailbox-" + machine_id).
+message UpdateMailbox {
+  string machine_id = 1;
+  bytes seed = 2;                  // 32 random bytes.
+  string read_auth = 3;            // 43 characters: 32 random bytes, base64url without padding.
+  string write_auth = 4;           // The same; empty in a JoinStatus.
+  // The relay the computer joined through, where every device writes its
+  // slot (including https://push.opentrawl.sh). Never another relay: a
+  // computer that runs its own keeps its updates off push.opentrawl.sh.
+  string relay_url = 5;
+}
+
+// Apple Watch's own copies, which its iPhone seals or passes on from the
+// other devices and sends with WatchConnectivity's transferFile, a whole
+// generation at a time: the Watch keeps the newest generation it has and
+// replaces every copy it held with these, so a Blocked or deleted password
+// goes from the Watch with the next generation. The file's metadata carries
+// "generation" too.
+message WatchCopies {
+  uint64 generation = 1;           // Rises with every batch the iPhone sends.
+  repeated SealedLogin copies = 2;
+  uint64 catalogue_revision = 3;   // Minimum signed Catalogue revision these copies belong to.
 }
 
 message JoinRequest {
@@ -691,24 +547,27 @@ message JoinRequest {
   //              tls_public_key, receiving_public_key
   //   a device:  "agentkeyring.join.v2", "device", label, key_id, kind as a
   //              decimal number, signing_public_key, opening_public_key,
-  //              tls_public_key, reply_key_id, reply_public_key
+  //              tls_public_key, reply_key_id, reply_public_key, and
+  //              notice_public_key (appended when non-empty)
   // Strings as UTF-8. A device shows only a join whose proof checks against
-  // an invitation it issued; the relay cannot make one.
+  // an invitation it issued; whatever carries it cannot make one.
   bytes proof = 3;
   // A machine: SHA-256 of its refusal key, HMAC-SHA256 under
   // JoinInvite.secret over "agentkeyring.refusal.v2", "key", machine_id
   // (each part length-prefixed as in proof). Only the inviter can refuse
   // the join, by sending that key; empty means it cannot be refused.
   bytes refusal_key_sha256 = 4;
+  // Joining with a code: 16 random bytes the JoinStatus must carry back, so
+  // an old answer from the same code cannot be passed off as this one's.
+  bytes challenge = 5;
 }
 
 // The inviting device refuses a machine's join, with words for the agent
-// waiting on it. The relay takes it only if SHA-256(key) is the join's
+// waiting on it, which takes it only if SHA-256(key) is the join's
 // refusal_key_sha256, and ends the join with JOIN_STATE_REFUSED and this.
 // The joiner shows the words only if reply_proof is HMAC-SHA256 under
 // JoinInvite.secret over "agentkeyring.refusal.v2", "reply", machine_id,
-// reply: the relay sees the key but never the secret, so it cannot change
-// them.
+// reply, so whatever carries it cannot change them.
 message JoinRefusal {
   string joiner_id = 1;            // Machine.machine_id.
   bytes key = 2;
@@ -716,66 +575,139 @@ message JoinRefusal {
   bytes reply_proof = 4;
 }
 
-// An invitation from an approving device. The Mac keeps the current one in
-// iCloud Keychain for the owner's new iPhone (a synchronizable generic
-// password: access group "7M8BR7R488.com.joshpalmer.AgentKeyring.shared",
-// service "com.joshpalmer.AgentKeyring.invitation", account "relay", value
-// this message serialized), and gives it to an agent setting up a machine as
-// "agentkeyring://join?invite=" followed by this message in base64url. Each
-// secret admits one joiner; the inviting device then issues a new one. From
-// the start of the Mac's first run until a computer that stays on exists, the
-// item holds only inviter_key_id and inviter_label: no relay and no secret.
-// So no item means no Mac yet; a name only means the Mac is set up but has no
-// computer that stays on yet; a full one is an invitation to join.
+// An invitation from an approving device, kept in iCloud Keychain for the
+// owner's new iPhone or Mac (a synchronizable generic password: access group
+// "7M8BR7R488.com.joshpalmer.AgentKeyring.shared", service
+// "com.joshpalmer.AgentKeyring.invitation", account "relay", value this
+// message serialized). The joiner proves its secret in a JoinRequest it puts
+// in iCloud. Each secret admits one joiner; the inviting device then issues a
+// new one. No item means no Mac or iPhone yet. Computers join with a code
+// instead (see "Joining with a code").
 message JoinInvite {
-  string relay_host = 1;           // The relay: goes once nothing reads it.
-  uint32 relay_port = 2;
-  bytes relay_tls_sha256 = 3;      // SHA-256 of the relay's TLS public key (SPKI).
+  reserved 1, 2, 3;                // The relay's address and key: cut with the relay.
+  reserved "relay_host", "relay_port", "relay_tls_sha256";
   string inviter_key_id = 4;       // The inviting device's key id: Members must be signed by it.
   bytes secret = 5;                // 32 random bytes.
   int64 expires_unix_seconds = 6;
   string inviter_label = 7;        // The inviting device as he named it, e.g. "MacBook Pro".
-  // The inviting Mac's door, joined directly. The item in iCloud Keychain
-  // holds all of these, with a secret, whenever the Mac app runs.
-  string door_host = 8;            // The Mac's Tailscale IP address, read from Tailscale when written: never a name.
-  uint32 door_port = 9;            // The Mac's members' door: 17447, not its answer door.
-  bytes door_tls_public_key = 10;  // The Mac's Machine.tls_public_key, SPKI DER: pin it.
-}
-
-// What a device found when it tested itself, the payload of a Signed by its
-// reply key. The relay keeps the latest per device and logs it.
-message SelfTestReport {
-  string domain = 1;               // "agentkeyring.selftest.v2"
-  string device_key_id = 2;
-  int64 tested_unix_seconds = 3;
-  repeated SelfTestCheck checks = 4;   // Also the device's setup checklist, ticked from what it can see.
-  reserved 5, 6, 7;                    // First run's journey, cut: each device's first run is its own.
-  reserved "journey", "step", "finished";
-}
-
-message SelfTestCheck {
-  string name = 1;                 // For example "notifications" or "practice".
-  bool passed = 2;
-  string error = 3;                // When it failed: the error, in words.
-}
-
-message MembersChain {
-  repeated Signed revisions = 1;   // Oldest first.
-}
-
-message SelfTests {
-  repeated Signed reports = 1;
+  reserved 8, 9, 10;               // The inviting Mac's door and its key: cut with the doors.
+  reserved "door_host", "door_port", "door_tls_public_key";
 }
 
 message JoinStatus {
   JoinState state = 1;
   // Approved: the Members that lists the joiner. Check it is signed and lists
-  // exactly the keys sent, then pin it and its relay key.
+  // exactly the keys sent, then pin it.
   Signed members = 2;
   JoinRefusal refusal = 3;         // Refused: the inviter's words, if its proof checks.
   // Approved, to a computer: Apple's push credential, sealed to its receiving key.
   SealedPushCredential push_credential = 4;
+  // Approved: the computer's lists and its own Automatic copies, with a Freshness.
+  Bundle bundle = 5;
+  // JoinRequest.challenge, carried back.
+  bytes challenge = 6;
+  reserved 7, 8, 9;                // The Mac's door and its key: cut with the doors.
+  reserved "door_host", "door_port", "door_tls_public_key";
+  // Approved: the computer's update mailbox, with no write_auth.
+  UpdateMailbox mailbox = 10;
 }
+
+// ---- Boxes ---------------------------------------------------------------------
+//
+// A box is one encrypted message on a relay that keeps nothing else
+// (https://push.opentrawl.sh, or cmd/agent-keyring-box run by anyone). The box
+// id goes in a header, never the URL, so nothing that logs URLs sees it:
+//   PUT    /v1/box  x-akr-box: ID, application/octet-stream, 1 byte to 256 KiB.
+//          x-akr-ttl: "enrol" (600 s, the default), "grant" (2700 s) or
+//          "update" (604800 s). x-akr-mode: "create" (the default: 409 if a
+//          live box has the id), "replace" (403 unless the live box was put
+//          with the same x-akr-write-auth) or "stop" (below).
+//          x-akr-read-auth, x-akr-write-auth: optional tokens, 32 to 128
+//          characters of base64url; the relay keeps only their SHA-256.
+//          201 with x-akr-etag; 429 throttled.
+//   GET    /v1/box  x-akr-box: ID [x-akr-read-auth]. 200 with the bytes,
+//          x-akr-etag, and x-akr-stopped on a grant; 404 if missing or
+//          expired; 403 if the box has a read token and this is not it. The
+//          box stays.
+//   DELETE /v1/box  x-akr-box: ID [x-akr-read-auth] [x-akr-if-etag]. 200
+//          with the bytes and the box is gone; 404 if missing or expired; 409
+//          if x-akr-if-etag is not the box's etag now (it was replaced, or is
+//          already gone); 403 for a wrong read token. A grant is never deleted.
+// id is 32 to 64 lowercase hex characters. The relay sees only ids, tokens'
+// hashes and ciphertext. Whoever waits on a box GETs it: every 0.5 s for its
+// first 15 s, every second to a minute, then every 3 s, each with up to 10%
+// jitter. It saves what the box said first, then DELETEs it with the etag it
+// read, so an answer cut off on the way is fetched again, not lost.
+//
+// Sealing a message M to box id B with key K (32 bytes):
+//   M is cut into n >= 1 parts of at most 196608 bytes, and N is 16 random
+//   bytes, new for each message. Part 0 goes in box B, its plaintext n as 4
+//   bytes big-endian, then N, then the part. Part i > 0 goes in box lowercase
+//   hex SHA-256("agentkeyring.box.part.v1" || hex(N) as ASCII || i as 4 bytes
+//   big-endian), its plaintext n as 4 bytes big-endian, then the part. Each
+//   part in box P is nonce (12 random bytes) || AES-256-GCM(K, nonce,
+//   plaintext, aad = "agentkeyring.box.v1" || P as ASCII). Parts n-1 to 1
+//   are put first, created with B's ttl and no tokens; part 0 last, as B's
+//   mode and tokens say, so whoever reads part 0 finds the rest, and parts
+//   of two messages in one replaced box never mix.
+//
+// Joining with a code. The inviter makes 16 random bytes S and shows them as
+// 26 Crockford base32 characters (0-9, A-Z without I, L, O, U; the 128 bits
+// most significant first, then two zero bits), in groups of four:
+// XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX. Readers ignore case, hyphens and spaces
+// and read I and L as 1 and O as 0. As a link:
+// "agentkeyring://join?code=" + the 26 characters, then "&relay=" + the
+// relay's URL, percent-encoded, if it is not the default. From S, each
+// HKDF-SHA256(ikm = S, salt = empty, L = 32) with info:
+//   "agentkeyring.join.v1 request box"   join request box id, as hex
+//   "agentkeyring.join.v1 request key"   its key
+//   "agentkeyring.join.v1 response box"  join status box id, as hex
+//   "agentkeyring.join.v1 response key"  its key
+//   "agentkeyring.join.v1 proof"         the secret for JoinRequest.proof
+//                                        and JoinRefusal, as JoinInvite.secret
+// The joiner puts its JoinRequest in the request box and waits on the
+// response box; the inviter waits on the request box, and puts one JoinStatus
+// (approved with its bundle and mailbox, refused, or expired) in the response
+// box. Only someone with the code can read or write either. A join box naming
+// a machine already in Members with other keys is refused.
+//
+// Grants and Stop. Before an approval is used, the asking
+// computer creates its grant: box G = lowercase hex SHA-256(
+// "agentkeyring.grant.v1" || answer_box_id as ASCII), ttl "grant", mode
+// "create", the request id sealed with answer_box_key, and the tokens
+// base64url(HKDF-SHA256(ikm = answer_box_key, salt = empty, L = 32, info =
+// "agentkeyring.grant.v1 read auth")) and the same with "... write auth".
+// The relay marks it x-akr-stopped: false. Before every use (read, fill, a
+// one-time code) the computer GETs G, and uses the approval only if
+// x-akr-stopped is false and G opens to the request id: a Stop, a missing
+// grant, a box that does not open, or no answer from the relay all refuse the
+// use. Stop on any device puts the grant (409 is fine: it is there), then
+// PUTs mode "stop" with the write token and the device's Signed EndRequest
+// sealed with answer_box_key: the relay marks it stopped for good and keeps it
+// 2700 s more. A computer that finds a Stop signed by a device in its Members
+// ends the approval for good; one it cannot check still refuses the use.
+//
+// Update mailboxes. Every computer has an UpdateMailbox, from its join.
+// Each Mac and iPhone in Members writes its own slot in it, box
+// hex(HKDF-SHA256(ikm = seed, salt = empty, L = 32, info =
+// "agentkeyring.mailbox.v1 slot " || the device's key_id)), sealed with key
+// HKDF-SHA256(seed, info = "agentkeyring.mailbox.v1 key"), ttl "update", mode
+// "replace", with the mailbox's read and write tokens. It writes there a
+// Bundle whenever it signs or takes a newer Members or Catalogue, and once a
+// day while awake: Members (and every revision since), the Catalogue, the
+// push registrations, that computer's own Automatic copies, and a Freshness.
+// A computer it removed is sent the Members that leaves it out and nothing
+// else. Before find and before using an Automatic copy, the computer GETs
+// each slot (giving up after 1.5 s and using what it holds), checks the
+// bundle as it checks one from an answer, refuses a Catalogue of the same
+// revision as the one held with other contents, and then DELETEs it with the
+// etag it read. An empty slot never extends its Freshness.
+//
+// Relay URLs are https with a host and nothing after the path: no user,
+// password, query or fragment. Redirects are not followed. Devices answer
+// only at the default relay or the one set on the device. The relay can drop
+// or withhold any box: that delays a computer's lists, which its Freshness
+// bounds, but it cannot forge or read one.
 
 enum JoinState {
   JOIN_STATE_UNSPECIFIED = 0;
@@ -786,39 +718,555 @@ enum JoinState {
   JOIN_STATE_WITHDRAWN = 5;        // The joiner cancelled, or a second joiner used the same invitation.
 }
 
-message PendingJoins {
-  repeated PendingJoin joins = 1;
-}
-
-// On watch_work, beside each Work: sent when the stream opens, whenever one of
-// these changes, and at least every 30 seconds, so a device notices a dead
-// connection and never polls. It names revisions only; the device fetches the
-// signed documents and checks them itself.
-message Changes {
-  uint64 members_revision = 1;
-  uint64 catalogue_revision = 2;
-  repeated PendingJoin pending_joins = 3;  // To a Mac only: computers and devices waiting to join.
-  uint64 reports_revision = 4;     // Rises when any device's status report changes; fetch self_tests.
-  uint32 sealed_for_you = 5;       // Sealed copies held for this device; with the catalogue's count, progress while a new device is filled.
-}
-
 message PendingJoin {
   JoinRequest request = 1;
-  string tailscale_node_name = 2;  // From the relay's Tailscale lookup of the connection.
+  reserved 2;                      // The relay's Tailscale lookup: cut with the relay.
+  reserved "tailscale_node_name";
   int64 asked_unix_seconds = 3;
 }
 
-message Error {
-  ErrorCode code = 1;
-  string message = 2;              // Safe text, never a secret.
+// ---- CloudKit end-to-end encryption ---------------------------------------
+
+message CloudEnvelopeRecipient {
+  string device_id = 1;
+  bytes key_fingerprint = 2;
+  bytes encapsulated_key = 3;
+  bytes wrapped_key = 4;
 }
 
-enum ErrorCode {
-  ERROR_CODE_UNSPECIFIED = 0;
-  ERROR_CODE_INVALID = 1;
-  ERROR_CODE_NOT_ALLOWED = 2;      // Unknown key, blocked login, or not this caller's.
-  ERROR_CODE_NOT_FOUND = 3;
-  ERROR_CODE_CONFLICT = 4;         // Already answered, or a stale revision.
-  ERROR_CODE_HELD_OFF = 5;         // Denied a moment ago; the message says until when, and his words.
-  ERROR_CODE_UNAVAILABLE = 6;
+message CloudEnvelopeHeader {
+  string kind = 1;
+  repeated CloudEnvelopeRecipient recipients = 2;
+}
+
+// Encrypted CloudKit metadata envelope ("AKRCLD02" || serialized CloudEnvelope).
+// header_bytes is serialized CloudEnvelopeHeader so AES-GCM AAD binds the exact bytes.
+message CloudEnvelope {
+  bytes header_bytes = 1;
+  bytes ciphertext = 2;
+}
+
+message CloudMailboxAnnouncement {
+  string domain = 1;               // "agentkeyring.cloud-mailbox.v2"
+  UpdateMailbox mailbox = 2;
+}
+
+// ---- WatchConnectivity -----------------------------------------------------
+
+message WatchNotificationSettings {
+  bool time_sensitive = 1;
+  bool quiet_hours = 2;
+  int32 quiet_from_minutes = 3;
+  int32 quiet_to_minutes = 4;
+}
+
+message WatchSelfTest {
+  int64 at_unix_seconds = 1;
+  bool key_opens = 2;
+  string key_error = 3;
+  bool passcode_set = 4;
+  bool on_wrist_and_unlocked = 5;
+  bool notifications_allowed = 6;
+  bool time_sensitive_allowed = 7;
+  bool push_address = 8;
+  bool practice_answered = 9;
+  string problem = 10;
+}
+
+// Control state and live replies from iPhone to Apple Watch.
+message PhoneToWatch {
+  optional bytes members = 1;
+  optional bytes catalogue = 2;
+  WatchNotificationSettings settings = 3;
+  optional double add_until_unix_seconds = 4;
+  optional string add_offer_id = 5;
+  optional bool copies_pending = 6;
+  optional bool copying_to_watch = 7;
+  optional double sent_at_unix_seconds = 8;
+  optional double reset_at_unix_seconds = 9;
+  string dismiss_request_id = 10;
+  optional bool accepted = 11;
+  optional bool cancelled = 12;
+  optional bool asked = 13;
+  optional bool stopped = 14;
+  optional bool stop_sent = 15;
+  // The relay the iPhone uses, so Apple Watch may answer in boxes there too.
+  // Empty: the default relay. Absent: the Watch keeps the one it holds.
+  optional string relay_url = 16;
+}
+
+// State, pairing, self-test, and actions from Apple Watch to iPhone.
+message WatchToPhone {
+  optional bytes watch_device = 1;
+  optional bytes watch_push = 2;
+  optional string add_offer_id = 3;
+  bool add_watch = 4;
+  bool cancel_add_watch = 5;
+  bool ask_members = 6;
+  bool need_catalogue = 7;
+  bool request_practice = 8;
+  optional string stop_request_id = 9;
+  optional string dismiss_request_id = 10;
+  optional uint64 copies_generation = 11;
+  WatchSelfTest self_test = 12;
+  repeated string log_lines = 13;
+}
+
+// ---- iPhone notification IPC (NSE <-> app) ---------------------------------
+
+message NotifiedRequest {
+  string id = 1;
+  string site = 2;
+  string account = 3;
+  string agent = 4;
+  string machine = 5;
+  string reason = 6;
+  double asked_unix_seconds = 7;
+  double deadline_unix_seconds = 8;
+  string project = 9;
+  string folder = 10;
+}
+
+// ---- Local & cloud storage -------------------------------------------------
+
+message StoredSecretStamp {
+  optional double revision_unix_seconds = 1;
+  uint64 version = 2;
+  string actor = 3;
+  optional double exported_at_unix_seconds = 4;
+}
+
+message StoredSourceIdentity {
+  string exporter_identifier = 1;
+  bytes account_id = 2;
+  bytes item_id = 3;
+}
+
+enum StoredTOTPAlgorithm {
+  STORED_TOTP_ALGORITHM_UNSPECIFIED = 0;
+  STORED_TOTP_ALGORITHM_SHA1 = 1;
+  STORED_TOTP_ALGORITHM_SHA256 = 2;
+  STORED_TOTP_ALGORITHM_SHA512 = 3;
+}
+
+message StoredCredential {
+  message Password {
+    optional string username = 1;
+    string password = 2;
+  }
+
+  message TOTP {
+    bytes secret = 1;
+    uint32 period = 2;
+    uint32 digits = 3;
+    optional string username = 4;
+    StoredTOTPAlgorithm algorithm = 5;
+    optional string issuer = 6;
+  }
+
+  oneof kind {
+    Password password = 1;
+    TOTP totp = 2;
+  }
+}
+
+message StoredVaultLogin {
+  string id = 1;
+  StoredSourceIdentity source_identity = 2;
+  optional double created_at_unix_seconds = 3;
+  optional double last_modified_at_unix_seconds = 4;
+  string title = 5;
+  optional string subtitle = 6;
+  bool is_favorite = 7;
+  repeated string origins = 8;
+  repeated StoredCredential credentials = 9;
+  repeated StoredSecretStamp imports = 10;
+  bool has_imports = 11;
+  optional uint64 secrets_deleted_at = 12;
+}
+
+message StoredSkippedSummary {
+  int32 passkey_count = 1;
+  int32 missing_password_count = 2;
+  int32 other_count = 3;
+}
+
+enum StoredImportScope {
+  STORED_IMPORT_SCOPE_UNSPECIFIED = 0;
+  STORED_IMPORT_SCOPE_FULL = 1;
+  STORED_IMPORT_SCOPE_SELECTED = 2;
+  STORED_IMPORT_SCOPE_UNKNOWN = 3;
+}
+
+message StoredVaultSnapshot {
+  string id = 1;
+  optional string previous_snapshot_id = 2;
+  double created_at_unix_seconds = 3;
+  double source_exported_at_unix_seconds = 4;
+  StoredImportScope scope = 5;
+  string exporter_identifier = 6;
+  string exporter_display_name = 7;
+  repeated StoredVaultLogin items = 8;
+  repeated string missing_item_ids = 9;
+  bool has_missing_item_ids = 10;
+  int32 skipped_credential_count = 11;
+  StoredSkippedSummary skipped_credential_summary = 12;
+  map<string, double> deleted_unix_seconds = 13;
+  bool has_deleted = 14;
+}
+
+message StoredRuleEntry {
+  string login_id = 1;
+  Rule rule = 2;
+  int64 updated_at_ms = 3;
+  string actor = 4;
+}
+
+message StoredRuleSet {
+  repeated StoredRuleEntry entries = 1;
+}
+
+message StoredVault {
+  repeated StoredVaultLogin items = 1;
+  repeated StoredRuleEntry rules = 2;
+  map<string, double> deleted_unix_seconds = 3;
+}
+
+message StoredMacKeys {
+  enum ApprovalMode {
+    APPROVAL_MODE_UNSPECIFIED = 0;
+    APPROVAL_MODE_BIOMETRIC_OR_COMPANION = 1;
+    APPROVAL_MODE_DEVICE_PASSWORD = 2;
+  }
+
+  bytes signing = 1;
+  bytes opening = 2;
+  bytes reply = 3;
+  bytes receiving = 4;
+  bytes notice = 5;
+  ApprovalMode approval_mode = 6;
+}
+
+message StoredPasswordUsage {
+  message LoginUsage {
+    uint64 asked = 1;
+    uint64 approved = 2;
+    uint64 denied = 3;
+    optional double last_asked_unix_seconds = 4;
+  }
+
+  enum Event {
+    EVENT_UNSPECIFIED = 0;
+    EVENT_ASKED = 1;
+    EVENT_APPROVED = 2;
+    EVENT_DENIED = 3;
+  }
+
+  message CountedEvents {
+    repeated Event events = 1;
+  }
+
+  map<string, LoginUsage> usage = 1; // Login ID.
+  map<string, CountedEvents> counted = 2; // Request ID.
+}
+
+message StoredCategoryCache {
+  map<string, string> categories = 1; // Domain.
+}
+
+message StoredDeviceLog {
+  repeated string lines = 1;
+}
+
+message StoredCloudCheckpoint {
+  bytes change_token = 1; // An archived CKServerChangeToken.
+  repeated string known_names = 2;
+  repeated string retrying_names = 3;
+  reserved 4;
+}
+
+message StoredMacDevice {
+  optional bytes members = 1;
+  repeated bytes members_history = 2;
+  optional bytes catalogue = 3;
+  uint64 catalogue_revision = 4;
+  uint64 copies_revision = 5;
+  map<string, bytes> registrations = 6;
+  reserved 7;
+  map<string, bytes> mailboxes = 8;
+  optional bytes cloud_accepted_members = 9;
+  optional bytes cloud_accepted_catalogue = 10;
+  StoredCloudCheckpoint cloud_checkpoint = 11;
+  repeated bytes contested_catalogues = 12; // Other devices' signed catalogues of the served one's revision.
+}
+
+message StoredMacFirstRun {
+  enum Step {
+    STEP_UNSPECIFIED = 0;
+    STEP_WELCOME = 1;
+    STEP_PRACTICE = 2;
+    STEP_PRIVACY = 3;
+    STEP_COPY = 4;
+    STEP_CONNECT_AGENT = 5;
+    STEP_READY = 6;
+    STEP_FINISHED = 7;
+  }
+
+  enum PracticeState {
+    PRACTICE_STATE_UNSPECIFIED = 0;
+    PRACTICE_STATE_NOT_SENT = 1;
+    PRACTICE_STATE_WAITING = 2;
+    PRACTICE_STATE_APPROVED = 3;
+    PRACTICE_STATE_DENIED = 4;
+  }
+
+  enum ConnectAgentState {
+    CONNECT_AGENT_STATE_UNSPECIFIED = 0;
+    CONNECT_AGENT_STATE_NOT_TRIED = 1;
+    CONNECT_AGENT_STATE_WORKED = 2;
+    CONNECT_AGENT_STATE_DENIED = 3;
+  }
+
+  Step step = 1;
+  PracticeState practice_state = 2;
+  string practice_id = 3;
+  string practice_reply = 4;
+  ConnectAgentState connect_agent_state = 5;
+  string connect_agent_name = 6;
+}
+
+message StoredSentListEntry {
+  string login_id = 1;
+  optional double last_modified_unix_seconds = 2;
+}
+
+message StoredSentList {
+  repeated StoredSentListEntry entries = 1;
+}
+
+message StoredDeviceTLSIdentity {
+  bytes private_key = 1;
+  bytes certificate = 2;
+}
+
+message StoredPhoneSharedContext {
+  optional string device_key_id = 1;
+  optional bytes members = 2;
+  optional bytes catalogue = 3;
+  WatchNotificationSettings settings = 4;
+  bool has_settings = 5;
+}
+
+message StoredPendingDeviceJoin {
+  bytes device = 1;
+  optional bytes machine = 2;
+  double asked_unix_seconds = 3;
+}
+
+message StoredPhonePendingComputerDelivery {
+  bytes join_request = 1;
+  bytes join_secret = 2;
+  string relay_url = 3;
+  string machine_id = 4;
+  string machine_label = 5;
+  bytes status_payload = 6;
+  double expires_at_unix_seconds = 7;
+  // The computer's whole UpdateMailbox, write token included, kept until delivered so a retry after a
+  // restart still has the writer.
+  bytes mailbox = 8;
+}
+
+message StoredPhoneFirstRun {
+  enum Stage {
+    STAGE_UNSPECIFIED = 0;
+    STAGE_SEARCHING = 1;
+    STAGE_WELCOME = 2;
+    STAGE_TROUBLE = 3;
+    STAGE_FOUND_MAC = 4;
+    STAGE_WAITING_FOR_MAC = 5;
+    STAGE_DENIED_BY_MAC = 6;
+    STAGE_CANT_REACH_MAC = 7;
+    STAGE_EXPIRED = 8;
+    STAGE_RECEIVING_PASSWORDS = 9;
+    STAGE_IMPORT_PASSWORDS = 10;
+    STAGE_NOTIFICATIONS = 11;
+    STAGE_ASKING_NOTIFICATIONS = 12;
+    STAGE_NOTIFICATIONS_OFF = 13;
+    STAGE_PRACTICE_OFFER = 14;
+    STAGE_PRACTICE_WAITING = 15;
+    STAGE_SETTING_UP_NOTIFICATIONS = 16;
+    STAGE_PRACTICE_NOT_ARRIVED = 17;
+    STAGE_PRACTICE_MAC_UNREACHABLE = 18;
+    STAGE_PRACTICE = 19;
+    STAGE_PRACTICE_RESULT = 20;
+    STAGE_READY_OFFER_WATCH = 21;
+    STAGE_ADD_WATCH = 22;
+    STAGE_ADD_COMPUTER = 23;
+    STAGE_FINISHED = 24;
+  }
+
+  enum PracticeOutcome {
+    PRACTICE_OUTCOME_UNSPECIFIED = 0;
+    PRACTICE_OUTCOME_APPROVED = 1;
+    PRACTICE_OUTCOME_DENIED = 2;
+    PRACTICE_OUTCOME_NO_ANSWER = 3;
+  }
+
+  Stage stage = 1;
+  optional string mac_name = 2;
+  string practice_id = 3;
+  bool practice_arrived = 4;
+  PracticeOutcome practice_outcome = 5;
+  bool watch_to_add = 6;
+}
+
+message StoredPhoneState {
+  optional bytes members = 1;
+  optional bytes cloud_accepted_members = 2;
+  optional bytes catalogue = 3;
+  optional bytes cloud_accepted_catalogue = 4;
+  optional bytes copies = 5;
+  map<string, bytes> request_envelopes = 6;
+  map<string, bool> answered = 7;
+  optional string device_key_id = 8;
+  StoredPhoneFirstRun first_run = 9;
+  bool push_seen = 10;
+  optional bytes watch_self_test = 11;
+  optional bytes watch_device = 12;
+  optional bytes watch_push = 13;
+  WatchNotificationSettings settings = 14;
+  optional string last_practice_reply = 15;
+  optional string watch_copies_pending = 16;
+  repeated bytes members_history = 17;
+  reserved 18;
+  map<string, bytes> push_registrations = 19;
+  reserved 20;
+  optional bytes own_vault_snapshot = 21;
+  optional bytes sealed_for_others = 22;
+  optional double copied_at_unix_seconds = 23;
+  optional bool remind_to_update = 24;
+  optional bytes invitation = 25;
+  StoredPendingDeviceJoin device_join = 26;
+  map<string, bytes> mailboxes = 27;
+  optional uint64 watch_copies_sent = 28;
+  optional uint64 watch_copies_held = 29;
+  optional bytes watch_copies_from_others = 30;
+  optional StoredPhonePendingComputerDelivery pending_computer_delivery = 31;
+  StoredCloudCheckpoint cloud_checkpoint = 32;
+  repeated bytes contested_catalogues = 33; // Other devices' signed catalogues of the held one's revision.
+}
+
+message StoredWatchState {
+  optional bytes members = 1;
+  optional bytes catalogue = 2;
+  WatchNotificationSettings settings = 3;
+  optional bool practice_answered = 4;
+  optional double add_until_unix_seconds = 5;
+  optional string add_offer_id = 6;
+  optional string add_tapped_offer_id = 7;
+  optional bool copies_pending = 8;
+  optional bool copying_to_watch = 9;
+  optional double practice_asked_unix_seconds = 10;
+  optional bool practice_offer_done = 11;
+  optional double last_reset_at_unix_seconds = 12;
+  optional double last_context_sent_at_unix_seconds = 13;
+  // The iPhone's relay (PhoneToWatch.relay_url) when it is not the default.
+  optional string relay_url = 14;
+}
+
+message StoredWatchInUse {
+  string id = 1;
+  string site = 2;
+  string who = 3;
+  double until_unix_seconds = 4;
+  bool ended = 5;
+}
+
+message WatchFileMetadata {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_CATALOGUE = 1;
+    KIND_COPIES = 2;
+  }
+
+  Kind kind = 1;
+  bytes digest = 2;
+  uint64 generation = 3;
+  bytes members = 4;
+}
+
+// A keyring for the screens to run on with no real secret in it: what a live
+// Mac or iPhone showed, with every password replaced by "hunter2" and every
+// two-factor seed by the same test seed. Written and read only by debug tools
+// and the screens' galleries; never sent to another device.
+// Written by AI on 2026.11.27 by model claude opus 5.5.
+message SandboxBundle {
+  repeated SandboxLogin logins = 1;
+  repeated SandboxDevice devices = 2;
+  repeated SandboxComputer computers = 3;
+  repeated SandboxRequest requests = 4;
+  string this_device_id = 5;           // The device the dump was made on.
+  optional double imported_unix_seconds = 6;
+  StoredPhoneFirstRun phone_first_run = 7;
+  bool watch_paired = 8;
+  bool watch_installed = 9;
+}
+
+message SandboxLogin {
+  string id = 1;
+  string site = 2;
+  string account = 3;
+  Rule rule = 4;
+  string category = 5;                 // An ImportCategory raw value.
+  uint32 asked = 6;
+  uint32 approved = 7;
+  uint32 denied = 8;
+  bool secret_deleted = 9;
+  string password = 10;                // Always "hunter2".
+  string totp_seed = 11;               // Empty, or the test seed.
+  bool is_test_password = 12;
+}
+
+message SandboxDevice {
+  string id = 1;
+  string name = 2;
+  DeviceKind kind = 3;
+}
+
+message SandboxComputer {
+  string id = 1;
+  string name = 2;
+  string paired_device_id = 3;         // The Mac device it is half of, if any.
+}
+
+message SandboxRequest {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_WAITING = 1;
+    STATE_APPROVED = 2;
+    STATE_DENIED = 3;
+    STATE_UNANSWERED = 4;
+    STATE_CANCELLED = 5;
+    STATE_EXPIRED = 6;
+    STATE_RELEASED = 7;
+    STATE_ENDED = 8;
+    STATE_BLOCKED_BY_RULE = 9;
+  }
+
+  string id = 1;
+  string login_id = 2;
+  string site = 3;
+  string account = 4;
+  string agent = 5;
+  string machine = 6;
+  string project = 7;
+  string folder = 8;
+  string reason = 9;
+  double asked_unix_seconds = 10;
+  State state = 11;
+  double state_unix_seconds = 12;      // Until when it waits or is in use, or when it ended.
+  string reply = 13;
+  string answered_on = 14;             // "mac", "iPhone", "watch" or "automaticRule".
+  bool by_automatic_rule = 15;
+  bool is_local = 16;
 }

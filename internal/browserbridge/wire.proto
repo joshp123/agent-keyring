@@ -2,7 +2,7 @@
 syntax = "proto3";
 package agentkeyring.browser;
 option go_package = "github.com/opentrawl/agent-keyring/internal/browserbridge";
-import "agentkeyring/v1/agentkeyring.proto";
+import "agentkeyring/v2/local_authority.proto";
 
 enum Action {
   ACTION_UNSPECIFIED = 0;
@@ -21,7 +21,7 @@ message Request {
 message FillCommand {
   string lease_id = 1;
   string operation_id = 2;
-  repeated agentkeyring.v1.FieldBinding fields = 3;
+  repeated agentkeyring.v2.FieldBinding fields = 3;
   string submit = 4;
 }
 message Tab {
@@ -51,7 +51,7 @@ message Response {
   string browser = 3;
   repeated Tab tabs = 4;
   Inspection inspection = 5;
-  agentkeyring.v1.FillResult fill = 6;
+  agentkeyring.v2.FillResult fill = 6;
   string error = 7;
 }
 // Host to extension only. Chrome requires JSON with native-endian lengths;
@@ -60,7 +60,7 @@ message ExtensionRequest {
   string id = 1;
   Action action = 2;
   string target = 3;
-  repeated agentkeyring.v1.FieldBinding fields = 4;
+  repeated agentkeyring.v2.FieldBinding fields = 4;
   string submit = 5;
   repeated string values = 6;
   repeated string sites = 7;

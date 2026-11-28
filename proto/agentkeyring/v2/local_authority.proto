@@ -1,0 +1,261 @@
+// Written by AI on 2026.11.28 by model gpt-6.2-sol.
+// The bundled CLI and Mac credential authority use these messages on one machine.
+// The socket authenticates the caller. Task references and reasons are claims.
+
+syntax = "proto3";
+
+package agentkeyring.v2;
+
+option go_package = "github.com/opentrawl/agent-keyring/gen/go/agentkeyring/v2;agentkeyringv2";
+
+import "agentkeyring/v2/keyring.proto";
+
+message FindLoginsRequest {
+  string query = 1;
+}
+
+message FindLoginsResponse {
+  repeated Login logins = 1;
+  int64 vault_refreshed_unix_seconds = 2;
+}
+
+message RequestLeaseRequest {
+  string login_id = 1;
+  // One job, not an entire long-lived chat. Required. Cooperative grouping
+  // unless an integration supplies a trusted task boundary.
+  string task_ref = 2;
+  reserved 3, 6;                // Purpose and program: one approval covers fill and read.
+  string reason = 4;            // Display as the agent's claim.
+  // Retry identity within the authenticated caller. Exact retries return the
+  // original record, even if terminal. Changed contents are CONFLICT.
+  // Fresh use after termination requires a fresh request_id.
+  string request_id = 5;
+  // Empty only on an authenticated local connection: authority selects its
+  // persistent co-located receiver for that OS user. Remote requests name the
+  // enrolled recipient. Caller must be permitted to use the resolved recipient.
+  string recipient_id = 7;
+  string agent_label = 8;        // Requester's unverified process-ancestry claim.
+  // Claim: the name of the Git repository the requester runs in, empty
+  // outside one. Shown beside the request.
+  string project = 9;
+}
+
+message LeaseReference {
+  string lease_id = 1;          // Reference only, not a bearer credential.
+}
+
+enum CredentialField {
+  CREDENTIAL_FIELD_UNSPECIFIED = 0;
+  CREDENTIAL_FIELD_USERNAME = 1;
+  CREDENTIAL_FIELD_PASSWORD = 2;
+  CREDENTIAL_FIELD_ONE_TIME_CODE = 3; // Current code only, never the seed.
+}
+
+message FillRequest {
+  string lease_id = 1;
+  Target target = 2;
+  // Optional retry key. Empty: the receiver derives it from the action digest,
+  // excluding the current document loader ID so navigation after a lost reply
+  // cannot silently make a retry a new action. The receiver keeps its own
+  // crash-safe record, so an operation with no recorded result is UNCERTAIN
+  // after any restart, never an automatic second submit.
+  string operation_id = 3;
+  // Deliberately repeat the same step after inspection, even on a new document.
+  // Generates a fresh retry key; cannot be combined with operation_id.
+  bool again = 6;
+  repeated FieldBinding fields = 4;
+  // Exact submit control in the selected frame. No caller-provided JavaScript.
+  string submit_selector = 5;
+}
+
+message Target {
+  oneof kind {
+    // Opaque profile, tab, frame and document target returned by tabs or fields.
+    string browser_tab = 3;
+  }
+  reserved 1, 2;
+  reserved "chromium", "mac_window";
+}
+
+message FieldBinding {
+  CredentialField field = 1;
+  // Exactly one editable element in the selected frame. Model chooses it.
+  // Plain CSS only; no embedded script or selector that queries other frames.
+  string selector = 2;
+}
+
+message FillResult {
+  FillOutcome outcome = 1;
+  string detail = 2;           // Safe outcome text, never page/credential contents.
+  repeated CredentialField fields_filled = 3;
+}
+
+enum FillOutcome {
+  FILL_OUTCOME_UNSPECIFIED = 0;
+  FILL_OUTCOME_SUBMITTED = 1;      // Not proof of authenticated website state.
+  FILL_OUTCOME_UNCERTAIN = 2;      // May have acted. Inspect before a new operation.
+  FILL_OUTCOME_SITE_MISMATCH = 3;
+  FILL_OUTCOME_TARGET_INVALID = 4; // Missing, ambiguous or unsuitable elements.
+  FILL_OUTCOME_TARGET_UNSUPPORTED = 5;
+  FILL_OUTCOME_LEASE_NOT_ACTIVE = 6;
+  FILL_OUTCOME_TARGET_CHANGED = 7;
+  // No success claim; values may remain. Do not read back sensitive fields.
+  FILL_OUTCOME_CLEANUP_FAILED = 8;
+  FILL_OUTCOME_FIELD_UNAVAILABLE = 9;
+}
+
+message DeliverRequest {
+  string lease_id = 1;
+  OperationKind kind = 2;
+  repeated CredentialField fields = 3;
+}
+
+enum OperationKind {
+  OPERATION_KIND_UNSPECIFIED = 0;
+  OPERATION_KIND_FILL = 1;
+  reserved 2;                         // Executing a program: `read | program` does it.
+  OPERATION_KIND_READ = 3;
+}
+
+message LocalCredentialDelivery {
+  oneof result {
+    // Local socket only. Never sent over a network.
+    CredentialValues values = 1;
+    // From another computer: the command opens the device's sealed answer itself.
+    OpenedHere sealed = 2;
+  }
+}
+
+message OpenedHere {}
+
+message CredentialValues {
+  string username = 1;
+  string password = 2;
+  string one_time_code = 3;  // Current code only.
+}
+
+// Unix socket framing: one RPC per connection. Each frame is a
+// four-byte unsigned big-endian byte length followed by serialized protobuf,
+// with a 1 MiB maximum. Zero/oversized/malformed frames terminate the connection.
+// AgentRequest selects the method. Unary responses set end_of_stream; WatchLease
+// first sends a snapshot, then changes, and ends on a terminal state/error.
+// No multiplexing or arbitrary method strings.
+message AgentRequest {
+  oneof request {
+    FindLoginsRequest find_logins = 1;
+    RequestLeaseRequest request_lease = 2;
+    LeaseReference get_lease = 3;
+    LeaseReference watch_lease = 4;
+    LeaseReference end_lease = 5;
+    FillRequest fill = 6;
+    DeliverRequest deliver = 8;
+    SetupRequest setup = 11;
+    PushKeyRequest push_key = 12;
+    ComplainRequest complain = 13;
+    ComplaintsRequest complaints = 14;
+  }
+  reserved 7, 9, 10;
+}
+
+message AgentResponse {
+  oneof response {
+    FindLoginsResponse logins = 1;
+    Lease lease = 2;
+    FillResult fill = 3;
+    RpcError error = 5;
+    LocalCredentialDelivery delivery = 7;
+    SetupResponse setup = 10;
+    Complaints complaints = 11;
+  }
+  reserved 4, 8, 9;
+  bool end_of_stream = 6;
+}
+
+// Local same-user socket only.
+message SetupRequest {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    reserved 1 to 4;               // The relay's setup: cut with the relay.
+    reserved "START_RELAY", "VERIFY_RELAY", "VERIFY_MACHINE", "RELAY_STATUS";
+    INVITE = 5;                    // A one-time code for one computer to join through the box relay.
+    reserved 6;                    // AGENTS_SET_UP: the app no longer changes links.
+    LOGS = 7;                      // The Mac's recent log.
+  }
+  Action action = 1;
+  reserved 2 to 6;                 // The relay's setup: cut with the relay.
+  reserved "host", "port", "code", "machine_name", "reason";
+  int64 since_unix_seconds = 7;    // LOGS: from this time; 0 for all.
+  string request_id = 8;           // LOGS: only lines naming this request.
+}
+
+message ComplainRequest {
+  Complaint complaint = 1;
+}
+
+message ComplaintsRequest {
+  int64 since_unix_seconds = 1;    // 0: all of them.
+}
+
+message PushKeyRequest {
+  string key_id = 1;
+  string team_id = 2;
+  bytes private_key = 3;           // PKCS#8 DER, P-256: the .p8 file without its PEM armour.
+}
+
+message SetupResponse {
+  reserved 1, 2;                   // The relay's setup: cut with the relay.
+  reserved "machine_name", "relay_status";
+  string invite = 3;
+  repeated string log_lines = 4;   // LOGS, in time order.
+}
+
+message RpcError {
+  RpcErrorCode code = 1;
+  string message = 2;          // Safe text; never arbitrary exception payloads.
+}
+
+enum RpcErrorCode {
+  RPC_ERROR_CODE_UNSPECIFIED = 0;
+  RPC_ERROR_CODE_INVALID_ARGUMENT = 1;
+  RPC_ERROR_CODE_UNAUTHENTICATED = 2;
+  RPC_ERROR_CODE_PERMISSION_DENIED = 3;
+  RPC_ERROR_CODE_NOT_FOUND = 4;
+  RPC_ERROR_CODE_CONFLICT = 5;
+  RPC_ERROR_CODE_UNAVAILABLE = 6;
+  RPC_ERROR_CODE_INTERNAL = 7;
+}
+
+// Saved lease records for the Mac authority.
+message StoredLeaseRequester {
+  string name = 1;
+  optional string working_directory = 2;
+  string machine_name = 3;
+  optional string network_address = 4;
+  optional string project = 5;
+}
+
+message StoredSavedLease {
+  Lease lease = 1;
+  StoredLeaseRequester requester = 3;
+}
+
+message StoredRequestRecord {
+  RequestLeaseRequest request = 1;
+  string lease_id = 2;
+}
+
+message StoredSuppression {
+  int64 until_unix_seconds = 1;
+  string reply = 2;
+  optional int32 in_a_row = 3;
+}
+
+message StoredLeaseSnapshot {
+  uint32 version = 1;
+  Recipient recipient = 2;
+  map<string, StoredSavedLease> leases = 3;
+  map<string, StoredRequestRecord> requests = 4;
+  map<string, StoredSuppression> suppressions = 5;
+  map<string, bytes> pushed = 6;
+  repeated string grants_put = 7;
+}

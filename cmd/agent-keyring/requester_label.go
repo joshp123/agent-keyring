@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,18 +17,23 @@ import (
 // only carry a session (sshd, login, tmux, launchd) name nobody, so a request
 // typed over SSH reads "an agent", never "sshd-session". A display claim,
 // never an authorization credential.
-func requesterLabel(given string) string {
+func requesterLabel(ctx context.Context, given string) string {
 	if os.Getenv("CLAUDECODE") == "1" {
 		return "Claude Code"
 	}
-	pid := os.Getppid()
+	return labelFromParents(given, os.Getppid(), func(pid int) []string {
+		out, err := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "ppid=", "-o", "comm=", "-o", "args=").Output()
+		if err != nil {
+			return nil
+		}
+		return strings.Fields(string(out))
+	})
+}
+
+func labelFromParents(given string, pid int, readProcess func(int) []string) string {
 	fallback := ""
 	for i := 0; i < 32 && pid > 1; i++ {
-		out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=", "-o", "comm=", "-o", "args=").Output()
-		if err != nil {
-			break
-		}
-		fields := strings.Fields(string(out))
+		fields := readProcess(pid)
 		if len(fields) < 2 {
 			break
 		}
@@ -49,16 +55,8 @@ func requesterLabel(given string) string {
 			pid = parent
 			continue // Still looking for Claude Code or Codex, which beat a given name.
 		}
-		interpreter := name == "sh" || name == "bash" || name == "zsh" || name == "dash" || name == "fish" || name == "node" || strings.HasPrefix(name, "python") || name == "ruby" || name == "perl"
-		wrapper := interpreter || name == "env"
-		if fallback == "" && interpreter && len(fields) > 3 {
-			script := fields[3]
-			if !strings.HasPrefix(script, "-") && !strings.Contains(script, "=") && strings.ContainsAny(script, "/.") {
-				fallback = filepath.Base(script)
-			}
-		}
-		if fallback == "" && !wrapper {
-			fallback = strings.TrimRight(filepath.Base(fields[1]), ":")
+		if fallback == "" {
+			fallback = processLabel(name, fields)
 		}
 		pid = parent
 	}
@@ -69,6 +67,31 @@ func requesterLabel(given string) string {
 		return name
 	}
 	return "an agent"
+}
+
+func processLabel(name string, fields []string) string {
+	switch {
+	case name == "env":
+		return ""
+	case isInterpreter(name):
+		if len(fields) > 3 {
+			script := fields[3]
+			if !strings.HasPrefix(script, "-") && !strings.Contains(script, "=") && strings.ContainsAny(script, "/.") {
+				return filepath.Base(script)
+			}
+		}
+		return ""
+	default:
+		return strings.TrimRight(filepath.Base(fields[1]), ":")
+	}
+}
+
+func isInterpreter(name string) bool {
+	switch name {
+	case "sh", "bash", "zsh", "dash", "fish", "node", "ruby", "perl":
+		return true
+	}
+	return strings.HasPrefix(name, "python")
 }
 
 // sessionOnly is a process that starts a session for a person, not an agent.
@@ -96,8 +119,8 @@ func cleanLabel(label string) string {
 
 // requesterProject is the main folder's name of the Git repository the
 // command runs in, the same for every checkout of it; empty outside one.
-func requesterProject() string {
-	out, err := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+func requesterProject(ctx context.Context) string {
+	out, err := exec.CommandContext(ctx, "git", "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
 	if err != nil {
 		return ""
 	}
