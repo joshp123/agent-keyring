@@ -47,7 +47,7 @@
         "@type": "SoftwareApplication",
         "@id": "https://keyring.opentrawl.sh/#app",
         "name": "Agent Keyring",
-        "softwareVersion": "1.0.0",
+        "softwareVersion": "1.1.0",
         "applicationCategory": "SecurityApplication",
         "operatingSystem": "macOS 26+, iOS, watchOS, Linux (CLI)",
         "url": "https://keyring.opentrawl.sh/",
@@ -70,7 +70,7 @@
           "name": "OpenTrawl",
           "url": "https://github.com/opentrawl"
         },
-        "description": "Passwords for the Agentic OS. Free, open-source (MIT) app for Mac, iPhone and Apple Watch, part of the OpenTrawl suite. Lets Claude Code, Codex or any AI agent sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch for one task and 30 minutes at most. No cloud vault and no account."
+        "description": "Passwords for the Agentic OS. Free, open-source (MIT) app for Mac, iPhone and Apple Watch, part of the OpenTrawl suite. Lets Claude Code, Codex or any AI agent sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch for one task and 30 minutes at most. No cloud vault, no account, no Tailscale needed, and a zero-data-retention encrypted relay with zero per-request logs."
       },
       {
         "@type": "FAQPage",
@@ -89,7 +89,15 @@
             "name": "Do I need Tailscale?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Not on one Mac. You need it to approve from your iPhone or Apple Watch, and for agents on other computers. The free plan is enough."
+              "text": "No. Agent computers join with a one-time code (agent-keyring enrol --code). Requests and answers pass through a zero-data-retention relay of AES-256-GCM encrypted boxes, which has zero per-request logs, keeps box IDs and access tokens out of URLs, deletes each box when picked up, stops serving unread boxes at expiry (10 minutes for a join or answer, 45 minutes for an approval grant, 7 days for an update mailbox), and lets AWS remove expired rows from DynamoDB automatically, usually within a few days. You can self-host the relay with agent-keyring-box."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What does zero data retention mean on the relay?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The relay Lambda at push.opentrawl.sh has zero console logging, no CloudWatch Logs permissions in its IAM role, and its CloudWatch log group is destroyed. Requests use fixed endpoints (/v1/box, /v1/push) with random box IDs and access tokens sent only in headers (x-akr-box, x-akr-token), keeping only hashes of access tokens while a box lives. Every box is AES-256-GCM encrypted end to end, deleted as soon as it is picked up, and stops being served the moment its time runs out, after which AWS removes expired rows from DynamoDB automatically, usually within a few days."
             }
           },
           {
@@ -113,7 +121,7 @@
             "name": "I saved a new password. Does Agent Keyring pick it up?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Not by itself. Apple only hands passwords to another app when you start the export, so run File > Export All Items to App... again."
+              "text": "Not by itself. Apple only hands passwords to another app when you start the export, so export again: File > Export All Items to App... on a Mac, or Export Data to Another App on an iPhone. Either one updates every device."
             }
           },
           {
@@ -231,7 +239,7 @@
           <h1>Your agents ask.<br>You tap yes.</h1>
           <p>Passwords for the Agentic OS. Let Claude Code, Codex or any AI agent sign in to websites with the passwords you keep in Apple Passwords, approved with Touch ID, Face ID or your Apple Watch.</p>
           <div class="hero-cta">
-            <button type="button" class="btn btn-primary js-copy-prompt" data-prompt="Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before scanning my network or changing anything.">Copy agent setup prompt</button>
+            <button type="button" class="btn btn-primary js-copy-prompt" data-prompt="Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before changing anything.">Copy agent setup prompt</button>
             <a class="btn btn-secondary" href="https://github.com/opentrawl/agent-keyring/releases/latest" rel="noopener">Download for Mac</a>
             <a class="btn-link" href="https://github.com/opentrawl/agent-keyring" rel="noopener">Source (MIT) &rarr;</a>
           </div>
@@ -433,13 +441,14 @@
         <div class="band-head">
           <div>
             <h2 id="setup-heading">Set it up</h2>
-            <p>Paste one prompt into Claude Code or Codex. Your agent downloads the Mac app, tells you what it suggests next, and asks before touching anything.</p>
+            <p>There are two installs. The app goes on your own Mac with Touch ID, your iPhone and your Apple Watch: it holds your passwords and asks you to approve. Every Mac and iPhone is an equal: import from Apple Passwords on any of them and their lists merge through your own iCloud. No Mac? The iPhone app works on its own. The <code>agent-keyring</code> command goes on the computers your agents run on, such as a headless Mac mini, a Linux server or a cloud VM: it asks for passwords and holds no vault. Don&rsquo;t install the app on a computer that agents control.</p>
+            <p>On your own Mac, paste one prompt into Claude Code or Codex. Your agent downloads the Mac app, tells you what it suggests next, and asks before touching anything.</p>
           </div>
         </div>
 
         <div class="prompt-card">
-          <code>Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before scanning my network or changing anything.</code>
-          <button type="button" class="btn btn-primary js-copy-prompt" data-prompt="Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before scanning my network or changing anything.">Copy prompt</button>
+          <code>Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before changing anything.</code>
+          <button type="button" class="btn btn-primary js-copy-prompt" data-prompt="Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before changing anything.">Copy prompt</button>
         </div>
 
         <ol class="setup-list">
@@ -465,6 +474,7 @@
             </div>
           </li>
         </ol>
+        <p>With only an iPhone: open the app, tap <strong>Set Up on This iPhone</strong>, then in Apple Passwords tap <strong>Export Data to Another App</strong> and choose <strong>Agent Keyring</strong>. Add your Apple Watch and your agent computers from the iPhone&rsquo;s Devices tab.</p>
       </div>
     </section>
 
@@ -510,7 +520,8 @@
         <div class="band-head">
           <div>
             <h2 id="how-heading">How it works</h2>
-            <p>Your agent runs a command, <code>agent-keyring</code>, and asks for one password by website. You see the website, the account, which agent on which computer is asking, and its reason. Approve, and Agent Keyring signs in for that task. There&rsquo;s no cloud vault and no account: your passwords stay encrypted on your own devices.</p>
+            <p>Your agent runs a command, <code>agent-keyring</code>, and asks for one password by website. You see the website, the account, which agent on which computer is asking, and its reason. Approve, and Agent Keyring signs in for that task. There&rsquo;s no account and no vault of ours: your passwords stay encrypted on your own devices, and your Apple devices keep each other up to date through your own iCloud. We can&rsquo;t read your passwords, Apple can&rsquo;t read them, and your internet provider can&rsquo;t read them.</p>
+            <p>When an agent on another computer asks for approval, requests and answers pass through our zero-data-retention relay at <code>push.opentrawl.sh</code>: zero per-request logs, no box IDs or tokens in URLs, and AES-256-GCM encrypted boxes deleted the moment they&rsquo;re picked up. You can also self-host it with <code>agent-keyring-box</code>.</p>
           </div>
           <a class="btn-link" href="/security/">Read the security details &rarr;</a>
         </div>
@@ -566,7 +577,7 @@
           <div class="fact">
             <span class="fact-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg></span>
             <h3>Your passwords are encrypted on your own devices</h3>
-            <p>Your Mac and iPhone encrypt their approval copies with keys kept in the Secure Enclave, the chip behind Touch ID and Face ID. Those keys can&rsquo;t leave the chip. A computer allowed to use an Automatic password keeps a copy it can open itself.</p>
+            <p>Your Mac and iPhone encrypt their approval copies with keys kept in the Secure Enclave, the chip behind Touch ID and Face ID. Those keys can&rsquo;t leave the chip. A copy sent to another of your devices through iCloud is encrypted to that device&rsquo;s key first, so iCloud only ever holds ciphertext. A computer allowed to use an Automatic password keeps a copy it can open itself.</p>
           </div>
           <div class="fact">
             <span class="fact-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7.5 10l3 2.5-3 2.5M13 15h4"/></svg></span>
@@ -659,8 +670,24 @@
             <p>No. Your iPhone keeps its own encrypted copy of your passwords, and an agent on another computer sends its request straight to your iPhone and Apple Watch. That agent can sign in while your MacBook is shut in a bag.</p>
           </div>
           <div class="faq-item">
+            <h3>Can I use a Mac mini or Mac Studio without Touch ID?</h3>
+            <p>Yes, two ways. If agents run on it, install only the <code>agent-keyring</code> command and add it from your Mac or iPhone with a one-time code. If it is your own personal Mac, the app asks how you use it and you can opt in to approving with your Mac password. Your passwords stay locked to its Secure Enclave, and no agent can open an Ask password without macOS asking for your Mac password, but a typed password is weaker than Touch ID or Face ID: an agent or tool that knows your Mac login password could approve its own requests.</p>
+          </div>
+          <div class="faq-item">
+            <h3>How do my Mac and iPhone find each other?</h3>
+            <p>Through your own iCloud Keychain, which Apple encrypts end to end. After that they keep each other up to date through your own iCloud. There is no account with us.</p>
+          </div>
+          <div class="faq-item">
+            <h3>Do I need a Mac?</h3>
+            <p>No. The iPhone app can hold your passwords on its own: export from Apple Passwords on the iPhone, add your Apple Watch, and add agent computers with a one-time code.</p>
+          </div>
+          <div class="faq-item">
             <h3>Do I need Tailscale?</h3>
-            <p>Not on one Mac. You need it to approve from your iPhone or Apple Watch, and for agents on other computers. The free plan is enough.</p>
+            <p>No. Agent computers join with a one-time code (<code>agent-keyring enrol --code</code>). Requests and answers pass through our zero-data-retention relay of AES-256-GCM encrypted boxes, which runs with zero per-request logs, keeps box IDs and access tokens out of URLs, deletes each box when it is picked up, stops serving unread boxes when their time runs out, and lets AWS remove expired rows from DynamoDB automatically (usually within a few days). You can run your own with <code>agent-keyring-box</code>.</p>
+          </div>
+          <div class="faq-item">
+            <h3>What does zero data retention mean on the relay?</h3>
+            <p>The relay Lambda at <code>push.opentrawl.sh</code> has zero <code>console.*</code> calls, no CloudWatch Logs permissions in its IAM role, and its CloudWatch log group is destroyed. Requests hit fixed endpoints (<code>/v1/box</code>, <code>/v1/push</code>) with random box IDs and access tokens sent only in headers (<code>x-akr-box</code>, <code>x-akr-token</code>), and only hashes of access tokens are kept while a box lives. Unread boxes stop being served at expiry (10 minutes for a join or answer, 45 minutes for an approval grant that Stop marks, 7 days for an update mailbox), after which AWS removes expired rows from DynamoDB automatically, usually within a few days. See <a href="/security/#zdr">Security</a> for full details.</p>
           </div>
           <div class="faq-item">
             <h3>Does it work in Safari, desktop apps, or the browsers built into Codex, Claude and T3 Code?</h3>
@@ -672,7 +699,7 @@
           </div>
           <div class="faq-item">
             <h3>I saved a new password. Does Agent Keyring pick it up?</h3>
-            <p>Not by itself. Apple only hands passwords to another app when you start the export, so run <strong>File &gt; Export All Items to App&hellip;</strong> again.</p>
+            <p>Not by itself. Apple only hands passwords to another app when you start the export, so export again: <strong>File &gt; Export All Items to App&hellip;</strong> on a Mac, or <strong>Export Data to Another App</strong> on an iPhone. Either one updates every device. You can turn on a reminder, off by default, that comes once your copy is a week old.</p>
           </div>
           <div class="faq-item">
             <h3>What about passkeys and SMS codes?</h3>

@@ -20,10 +20,7 @@ Face ID on his iPhone.
 | [0010](0010-passwords-outside-browsers.md) | Saved logins outside the browser: programs with several fields on standard input or environment variables and hidden output; `read` removed once its uses have a route; Mac app fields after a feasibility proof | Next |
 | 0002, 0003 | Earlier drafts; superseded where 0004 to 0006 say so | |
 
-Contracts: `proto/agentkeyring/v1/` (`agentkeyring.proto` for agents and
-receivers, `bundle.proto` for sealed delivery, `relay.proto` for the relay and
-approvers). Nothing is released yet, so the round 9 simplification removed
-methods; from the first release on, add and don't change.
+The contracts are in `proto/agentkeyring/v2/`. `local_authority.proto` defines the CLI and Mac socket messages. `keyring.proto` defines the shared messages for leases, logins and communication between devices.
 
 ## One seam, three parts
 

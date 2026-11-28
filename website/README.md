@@ -6,7 +6,7 @@ Static landing page, comparison page, and AI-agent Markdown mirrors for Agent Ke
 
 Static hosting, CDN, TLS certificate and DNS are managed in the separate OpenTofu infrastructure repo for `jjpcodes.com`.
 
-`appcast.xml` (the signed Sparkle 2 feed for the Mac app) is uploaded to the root of the static site bucket by `script/publish_release.sh` and served at `https://keyring.opentrawl.sh/appcast.xml`. When syncing `website/` to S3 with `--delete`, always pass `--exclude "appcast.xml"` so the live update feed is preserved.
+`appcast.xml` (the signed Sparkle 2 feed for the Mac app) is uploaded to the root of the static site bucket by `script/publish_release.sh` and served at `https://keyring.opentrawl.sh/appcast.xml`. K-anonymous site icon buckets live under `icons/v1/` (uploaded by `script/build_icon_buckets.py`) and are served at `https://keyring.opentrawl.sh/icons/v1/<prefix>.bin`. When syncing `website/` to S3 with `--delete`, always pass `--exclude "appcast.xml" --exclude "icons/*"` so the live update feed and icon buckets are preserved.
 
 ## Files
 

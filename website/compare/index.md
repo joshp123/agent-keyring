@@ -27,7 +27,7 @@ Checked on 22 November 2026 against the 1Password (https://support.1password.com
 | What one approval covers | One password for one task, 30 minutes at most | One login, for up to 30 days | One request, or repeat requests from the same device for a time you choose | Every item in the vaults you chose, for 1 hour to 1 year |
 | Can the agent read the password? | Not in chat when the agent fills via the browser extension (an agent controlling that browser can still read the filled field). Yes when the agent falls back to the CLI for other browsers, computer use or CLI tools | No. 1Password fills it outside the agent's view | Yes, unless it uses `aac run`, which passes it to a program instead | Yes |
 | What you can answer | Approve, deny, or deny and tell the agent what to do instead, typed or spoken | Approve, pick a different login, or deny | Approve once, approve repeats for a time you choose, or deny | Nothing to answer |
-| Agents on a Linux server | Yes, over Tailscale | Only where the 1Password app and a partner app both run | Yes, through a relay that can't read the traffic | Yes |
+| Agents on a Linux server | Yes, with a one-time code; no Tailscale needed | Only where the 1Password app and a partner app both run | Yes, through a relay that can't read the traffic | Yes |
 
 ## Choose Agent Keyring if
 

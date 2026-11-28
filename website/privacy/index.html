@@ -87,7 +87,7 @@
     <section class="sub-hero">
       <div class="wrap">
         <h1>Privacy policy</h1>
-        <p>Agent Keyring keeps your passwords on your own devices. There is no cloud vault, no account, and no ad or tracking SDK.</p>
+        <p>Agent Keyring keeps your passwords on your own devices. There is no account, no vault of ours, and no ad or tracking SDK.</p>
       </div>
     </section>
 
@@ -95,21 +95,30 @@
       <div class="wrap">
         <div class="prose-col">
           <h2 id="passwords-heading">Passwords and approvals</h2>
-          <p>Your passwords stay encrypted on your own Mac and iPhone, protected by keys kept in each device&rsquo;s Secure Enclave. They are never uploaded to any OpenTrawl or Agent Keyring server. When you approve a request from your iPhone or Apple Watch, the encrypted answer goes straight back to the asking computer over your Tailscale network.</p>
+          <p>Your passwords stay encrypted on your own Mac, iPhone and Apple Watch, protected by keys kept in each device&rsquo;s Secure Enclave. They are never uploaded to any OpenTrawl or Agent Keyring server. Your Macs and iPhones keep each other up to date through your own iCloud private database, which we have no access to; every password there is encrypted to the receiving device&rsquo;s Secure Enclave key first. An approval may also carry that computer&rsquo;s own copies of its Automatic passwords, each encrypted so only that computer can open it.</p>
+
+          <h2>Zero-data-retention encrypted relay</h2>
+          <p>When you pair a computer, answer an approval request, send a Stop signal or deliver a rule update, the message travels through our zero-data-retention relay at <code>push.opentrawl.sh</code> (AWS <code>eu-west-1</code>, Ireland), or your own self-hosted <code>agent-keyring-box</code>:</p>
+          <ul>
+            <li><strong>Zero per-request logs:</strong> the relay Lambda has zero <code>console.*</code> calls, its IAM role has no CloudWatch Logs permissions, and the <code>/aws/lambda/opentrawl-push-relay</code> CloudWatch log group is destroyed.</li>
+            <li><strong>No box IDs or tokens in URLs:</strong> fixed endpoints (<code>/v1/box</code>, <code>/v1/push</code>) take random box IDs and access tokens only in headers (<code>x-akr-box</code>, <code>x-akr-token</code>), and only hashes of access tokens are kept while a box lives.</li>
+            <li><strong>End-to-end encrypted boxes:</strong> every box is AES-256-GCM encrypted between your devices and the requesting computer. The relay sees only random box IDs and ciphertext and can drop or delay a message, never read or forge one.</li>
+            <li><strong>Deletion and expiry:</strong> a join, answer or update box is deleted as soon as it is picked up. Unread boxes stop being served the moment their time runs out (10 minutes for a join or answer, 45 minutes for an approval grant that Stop marks, 7 days for a computer&rsquo;s update mailbox), and AWS then removes expired rows from DynamoDB automatically, usually within a few days.</li>
+          </ul>
 
           <h2>Blind push notification relay</h2>
           <p>When an agent on another computer asks your iPhone or Apple Watch to approve a sign-in, it sends an end-to-end encrypted push payload through our stateless push relay at <code>push.opentrawl.sh</code> (hosted on AWS in <code>eu-west-1</code>, Ireland). The relay signs the request with our Apple Developer push key and forwards the opaque payload straight to Apple&rsquo;s push servers.</p>
-          <p>The relay cannot read the website, account name, reason or Watch password inside the payload. It stores no raw device tokens, no IP addresses and no message contents. To prevent abuse and count daily push volume, it keeps only short-lived SHA-256 hashes of device tokens (1 hour for rate limiting, 35 days for daily counts). If you build the apps with your own Apple Developer account, you can run your own relay or push straight to Apple instead.</p>
+          <p>The relay cannot read the website, account name or reason inside the payload. It stores no raw device tokens, no IP addresses and no message contents. To prevent abuse and count daily push volume, it keeps only short-lived SHA-256 hashes of device tokens (1 hour for rate limiting, 35 days for daily counts). If you build the apps with your own Apple Developer account, you can run your own relay or push straight to Apple instead.</p>
 
           <h2>Anonymous update check</h2>
-          <p>Once a day, Agent Keyring checks <code>https://push.opentrawl.sh/v1/version</code> to see if a newer release is available and to count active installs. That check sends a random per-install identifier, the app version, the operating system (<code>macos</code>, <code>ios</code>, <code>watchos</code> or <code>linux</code>) and CPU architecture. It never sends passwords, website names, account names or personal details, and the server does not store IP addresses. Daily and monthly install counts expire automatically after 90 days.</p>
-          <p>You can turn the update check off at any time in Agent Keyring Settings or by setting <code>AGENT_KEYRING_NO_TELEMETRY=1</code>.</p>
+          <p>Once a day, Agent Keyring checks <code>https://push.opentrawl.sh/v1/version</code> to see if a newer release is available and to count active users. That check sends one stable, anonymous, non-reversible SHA-256 hash (derived from your app-scoped iCloud user identifier when signed in so your Mac and iPhone count as one user, or a random local identifier otherwise), the app version, the operating system (<code>macos</code>, <code>ios</code>, <code>watchos</code> or <code>linux</code>) and CPU architecture. It never sends passwords, website names, account names, Apple IDs or personal details, and the server does not store IP addresses. Daily and monthly counts expire automatically after 90 days.</p>
+          <p>You can turn the update check off at any time in <strong>Devices</strong> (Mac) or <strong>Settings</strong> (iPhone), via the <code>no_telemetry</code> preference, or by setting <code>AGENT_KEYRING_NO_TELEMETRY=1</code>.</p>
 
           <h2>Beta waitlist emails</h2>
           <p>If you submit your email address and device checkboxes on <code>keyring.opentrawl.sh</code>, we store them in AWS (<code>eu-west-1</code>) solely to send you Agent Keyring beta and TestFlight invites. We do not sell, rent or share your email address with anyone.</p>
 
           <h2>Deleting your data or asking a question</h2>
-          <p>To delete your waitlist email or ask about privacy, email <a href="mailto:josh@jjpcodes.com">josh@jjpcodes.com</a> or message <a href="https://x.com/jjpcodes" rel="noopener">@jjpcodes</a>. Updated 23 November 2026.</p>
+          <p>To delete your waitlist email or ask about privacy, email <a href="mailto:josh@jjpcodes.com">josh@jjpcodes.com</a> or message <a href="https://x.com/jjpcodes" rel="noopener">@jjpcodes</a>. Updated 24 November 2026.</p>
 
           <div class="prose-actions">
             <a class="btn-link" href="/security/">Read the security details &rarr;</a>

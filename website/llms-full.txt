@@ -1,57 +1,66 @@
 # Agent Keyring
 
-> Passwords for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Agent Keyring lets Claude Code, Codex or any AI agent sign in to websites with the passwords the user keeps in Apple Passwords. The user approves each password on their Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap). Free and open source (MIT). No cloud vault and no account.
+> Passwords for the Agentic OS, part of the OpenTrawl suite (https://github.com/opentrawl). Agent Keyring lets Claude Code, Codex or any AI agent sign in to websites with the passwords the user keeps in Apple Passwords. The user approves each password on their Mac (Touch ID), iPhone (Face ID) or Apple Watch (one tap). Free and open source (MIT). No cloud vault, no account and no Tailscale needed.
 
-- Status: the signed and notarised Mac app (v1.0.0) is available on GitHub Releases today and works straight away with Touch ID. The iPhone and Apple Watch apps are in public beta on TestFlight at https://testflight.apple.com/join/W5xBNeMw, or build them from source.
+- Status: the signed and notarised Mac app is available on GitHub Releases today and works straight away with Touch ID. Version 1.1 needs no Tailscale, keeps the user's Macs and iPhones in step through their own iCloud, and lets the iPhone work on its own, with no Mac. The iPhone and Apple Watch apps are in public beta on TestFlight at https://testflight.apple.com/join/W5xBNeMw, or build them from source.
 - Made by: Josh Palmer (https://x.com/jjpcodes)
 - Licence: MIT
 - Source code: https://github.com/opentrawl/agent-keyring
 - Releases: https://github.com/opentrawl/agent-keyring/releases/latest
 - Website: https://keyring.opentrawl.sh/ (also reachable at https://agent-keyring.jjpcodes.com/)
 - Privacy policy: https://keyring.opentrawl.sh/privacy/
-- Needs: a Mac on macOS 26 or later. Optional: an iPhone, an Apple Watch, and other Macs or Linux computers, all on the user's Tailscale network.
+- Needs: a Mac on macOS 26 or later with Touch ID (a Mac without Touch ID can opt in to approving with its Mac password), or an iPhone on its own. Optional: an Apple Watch, and other Macs or Linux computers. No Tailscale or other network setup needed.
+
+## Two installs (read this before installing anything)
+
+- **The app** (`Agent Keyring.app`, and the iPhone and Apple Watch app): for the user's own Mac, iPhone and Apple Watch. It holds their passwords, encrypted to each device's Secure Enclave, and asks them to approve or deny each request.
+- **The command** (`agent-keyring`): for computers agents run on, such as a headless Mac mini or Mac Studio, a Linux server or a cloud VM. It asks for one password per task, holds no password vault, and joins with `agent-keyring enrol`.
+
+Never install the app on a computer that agents control. If you are running on such a computer, install only the command (see "Agent computers" below). The app on the user's own Mac already includes the command for agents there.
+
+A Mac without Touch ID (a Mac mini or Mac Studio) that is the user's own personal Mac can still run the app: on first launch it asks "How do you use this Mac?", and the user can opt in to approving with their Mac password. Their passwords stay locked to that Mac's Secure Enclave, and no agent can open an Ask password without macOS asking for the Mac password, but a typed password is weaker than Touch ID or Face ID: an agent or tool that knows the Mac login password (for example from a `sudo` prompt) could approve its own requests. Let the user make this choice themselves.
+
+The Mac and iPhone find each other through the user's own iCloud Keychain, end-to-end encrypted by Apple, and keep each other up to date through the user's own iCloud private database. Every Mac and iPhone is an equal: the user can export from Apple Passwords on any of them and the lists merge. There is no account with us.
 
 ## Agent install playbook (read this first when asked to install or set up Agent Keyring)
 
-Follow these steps in order. **Cardinal rule:** always explain what you plan to do and ask the user for confirmation before downloading files, scanning Tailscale, probing SSH hosts, installing browser extensions, or changing any files or settings.
+Follow these steps in order. **Cardinal rule:** always explain what you plan to do and ask the user for confirmation before downloading files, probing SSH hosts, installing browser extensions, or changing any files or settings.
 
 ### Step 1: Propose the plan and ask first
+First ask what the computer you are running on is for. If agents run on it and it is not the Mac where the user keeps and approves their passwords, follow "Agent computers" below instead of these steps.
+
 Tell the user you can:
 1. Download the latest signed and notarised Mac release of Agent Keyring from GitHub Releases, verify its SHA-256 checksum, install `/Applications/Agent Keyring.app`, and launch it.
 2. Guide them through exporting their passwords from Apple Passwords (`File > Export All Items to App... > Agent Keyring`). Nothing is deleted from Apple Passwords, and every password starts on Ask.
 3. Add the Agent Keyring setup line to their agent instructions (`AGENTS.md` / `CLAUDE.md`) if they want.
 4. Optionally help set up the Chrome-family browser extension, enrol other Macs or Linux servers, or connect an iPhone and Apple Watch.
 
-Ask which parts they want to do before running any download, network scan, or file edit.
+Ask which parts they want to do before running any download or file edit.
 
 ### Step 2: Download, verify, install and launch the Mac app
-Once the user agrees:
+Once the user agrees, run the script below. It stops at the first step that fails: nothing is unpacked, installed or opened unless the checksum matches. It works in a temporary folder that it deletes after, and stops if the app is already installed (ask the user before replacing it).
 
 ```sh
-# 1. Inspect the latest release assets from GitHub Releases API
-release_json=$(curl -fsSL https://api.github.com/repos/opentrawl/agent-keyring/releases/latest)
-# Find the Mac app zip (e.g. Agent-Keyring-1.0.0.zip) and SHA256SUMS.txt URLs, download both to a temp dir
-tmpdir=$(mktemp -d)
-zip_url=$(printf '%s' "$release_json" | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(a["browser_download_url"] for a in assets if a["name"].startswith("Agent-Keyring-") and a["name"].endswith(".zip")))')
-sums_url=$(printf '%s' "$release_json" | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(a["browser_download_url"] for a in assets if a["name"] == "SHA256SUMS.txt"))')
-zip_name=$(basename "$zip_url")
-curl -fsSL -o "$tmpdir/$zip_name" "$zip_url"
-curl -fsSL -o "$tmpdir/SHA256SUMS.txt" "$sums_url"
-
-# 2. Verify SHA-256 before unzipping
-(cd "$tmpdir" && grep "  $zip_name$" SHA256SUMS.txt | shasum -a 256 -c -)
-
-# 3. Install to /Applications and launch
-ditto -x -k "$tmpdir/$zip_name" "$tmpdir/unpacked"
-mv "$tmpdir/unpacked/Agent Keyring.app" "/Applications/Agent Keyring.app"
-open "/Applications/Agent Keyring.app"
+(
+  app="/Applications/Agent Keyring.app"
+  [ ! -e "$app" ] || { echo "$app is already installed. Ask the user before replacing it." >&2; exit 1; }
+  release_json=$(curl -fsSL https://api.github.com/repos/opentrawl/agent-keyring/releases/latest) || exit 1
+  # The Mac app zip (Agent-Keyring-VERSION.zip) and SHA256SUMS.txt from the latest release.
+  zip_url=$(printf '%s' "$release_json" | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(a["browser_download_url"] for a in assets if a["name"].startswith("Agent-Keyring-") and a["name"].endswith(".zip")))') || exit 1
+  sums_url=$(printf '%s' "$release_json" | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(a["browser_download_url"] for a in assets if a["name"] == "SHA256SUMS.txt"))') || exit 1
+  zip_name=$(basename "$zip_url")
+  d="$(mktemp -d)" && trap 'rm -r "$d"' EXIT && cd "$d" &&
+    curl -fsSL -o "$zip_name" "$zip_url" && curl -fsSL -o SHA256SUMS.txt "$sums_url" &&
+    grep "  $zip_name\$" SHA256SUMS.txt | shasum -a 256 -c &&
+    ditto -x -k "$zip_name" unpacked &&
+    mv "unpacked/Agent Keyring.app" "$app" &&
+    open "$app"
+)
 ```
-
-Clean up `$tmpdir` after installing. If `/Applications/Agent Keyring.app` already exists, ask the user before replacing it.
 
 ### Step 3: Guide the user through Touch ID and Apple Passwords export
 Ask the user to complete the two human-only steps on their Mac:
-1. Follow the first-run screen in Agent Keyring (including the practice Touch ID prompt).
+1. Follow the first-run screen in Agent Keyring (including the practice Touch ID prompt). On a Mac without Touch ID, the app first asks how the Mac is used; the user chooses.
 2. Open Apple Passwords, choose `File > Export All Items to App...`, and select **Agent Keyring**. Reassure them nothing is deleted from Apple Passwords and every password starts on **Ask**.
 
 ### Step 4: Read the bundled skill and propose optional extras
@@ -61,10 +70,34 @@ Once `/Applications/Agent Keyring.app` is installed, run:
 "/Applications/Agent Keyring.app/Contents/Helpers/agent-keyring" skill
 ```
 
-Follow the bundled skill's instructions. Before scanning Tailscale (`agent-keyring machines`), probing SSH hosts, or modifying any files, tell the user what you suggest setting up next and ask for confirmation:
+Follow the bundled skill's instructions. Before probing SSH hosts or modifying any files, tell the user what you suggest setting up next and ask for confirmation:
 - **Chrome-family browser extension** (Chrome, Chromium, Brave, Edge, Mac Arc): run `agent-keyring install --browser-profile DIRECTORY` and guide the user to Load unpacked `/Applications/Agent Keyring.app/Contents/Resources/AgentTools/BrowserExtension`.
-- **Other Macs or Linux servers:** download the standalone release binary directly from `https://github.com/opentrawl/agent-keyring/releases/latest` (`agent-keyring-linux-amd64`, `agent-keyring-linux-arm64`, or `agent-keyring-darwin-universal`; verify against `SHA256SUMS.txt`, no Nix or Go toolchain required), install to `~/.local/bin/agent-keyring`, and enrol with `agent-keyring enrol --name "Linux server" --invite 'LINK'` (allowing Tailscale port `17446`).
-- **iPhone and Apple Watch approval (optional):** install the iPhone app from the TestFlight beta at https://testflight.apple.com/join/W5xBNeMw (or build the iOS and watchOS apps from source). Turn on Tailscale on the Mac and iPhone, open the iPhone app, tap Connect, and approve on the Mac with Touch ID (both devices need the same Apple Account with iCloud Keychain). Add Apple Watch from the iPhone app.
+- **Other Macs or Linux servers:** download the standalone release binary directly from `https://github.com/opentrawl/agent-keyring/releases/latest` (`agent-keyring-linux-amd64`, `agent-keyring-linux-arm64`, or `agent-keyring-darwin-universal`; verify against `SHA256SUMS.txt`, no Nix or Go toolchain required), install to `~/.local/bin/agent-keyring` (the script under "Agent computers" below does this), and enrol with `~/.local/bin/agent-keyring enrol --name "Linux server" --code 'CODE'`, with the one-time code the user's Mac or iPhone shows under **Devices > Add Another Computer…** (no Tailscale needed).
+- **iPhone and Apple Watch approval (optional):** install the iPhone app from the TestFlight beta at https://testflight.apple.com/join/W5xBNeMw (or build the iOS and watchOS apps from source). Open the iPhone app, tap Connect, and approve on the Mac. The iPhone finds the Mac through the user's own iCloud Keychain, so both devices need the same Apple Account with iCloud Keychain and iCloud on; Tailscale is not needed. Add Apple Watch from the iPhone app.
+- **iPhone only, no Mac:** in the iPhone app, tap **Set Up on This iPhone**, turn Agent Keyring on in Passwords, then in Apple Passwords tap **Export Data to Another App** and choose Agent Keyring. Add Apple Watch and agent computers from the iPhone's Devices tab.
+
+### Agent computers: install the command only
+On a computer agents run on (a headless Mac mini or Mac Studio, a Linux server, a cloud VM), install only the standalone command, never the Mac app. Ask the user first, then run the script below. It picks the build for this system, checks it against the release's `SHA256SUMS.txt` before installing it, works in a temporary folder that it deletes after, and leaves your current folder as it was:
+
+```sh
+(
+  case "$(uname -s)/$(uname -m)" in
+    Darwin/*) asset=agent-keyring-darwin-universal ;;
+    Linux/x86_64) asset=agent-keyring-linux-amd64 ;;
+    Linux/aarch64 | Linux/arm64) asset=agent-keyring-linux-arm64 ;;
+    *) echo "No agent-keyring build for $(uname -s) $(uname -m)." >&2; exit 1 ;;
+  esac
+  verify() { if command -v shasum >/dev/null; then shasum -a 256 -c; else sha256sum -c; fi; }
+  base=https://github.com/opentrawl/agent-keyring/releases/latest/download
+  d="$(mktemp -d)" && trap 'rm -r "$d"' EXIT && cd "$d" &&
+    curl -fsSLO "$base/$asset" && curl -fsSLO "$base/SHA256SUMS.txt" &&
+    grep "  $asset\$" SHA256SUMS.txt | verify &&
+    mkdir -p ~/.local/bin && install -m 755 "$asset" ~/.local/bin/agent-keyring &&
+    echo "Installed ~/.local/bin/agent-keyring"
+)
+```
+
+Then ask the user to open Agent Keyring on their Mac or iPhone, choose **Devices > Add Another Computer…**, and give you the one-time code (26 characters, or the whole command it shows). Run `~/.local/bin/agent-keyring enrol --name "Mac mini" --code 'CODE'` and tell the user to approve the request on the device that showed the code. The code works once, for 10 minutes; no Tailscale needed.
 
 ## What it does
 
@@ -101,16 +134,17 @@ agent-keyring release "$lease"
 
 ## How it is built
 
-- No cloud vault and no account. Your passwords stay encrypted on your own Mac and iPhone with keys kept in their Secure Enclave.
+- No account and no vault of ours. Your passwords stay encrypted on your own Mac and iPhone with keys kept in their Secure Enclave.
+- The user's Macs and iPhones are equal peers and keep each other up to date through the user's own iCloud private database. Every password is sealed (HPKE) to the receiving device's Secure Enclave key before it leaves the device that exported it, so we can't read it, Apple can't, and the user's internet provider can't. The signed lists of devices, passwords and rules are checked by every device. Site and account names are in CloudKit's encrypted fields, end-to-end encrypted when Advanced Data Protection is on. Rule changes merge by last write; Blocked deletes the password everywhere.
 - Agents on the Mac ask the Mac app directly. When an agent on another computer needs your iPhone or Apple Watch, it sends an end-to-end encrypted push payload through our stateless blind push relay at `https://push.opentrawl.sh` (AWS `eu-west-1`), which signs it with our Apple Developer push key and forwards it to Apple's push servers without storing raw tokens, IP addresses or payload contents. Self-builders with their own Apple Developer account can run their own relay or push directly to Apple.
-- Approval answers never touch the relay: they travel straight from your iPhone, Apple Watch or Mac back to the asking computer over Tailscale, encrypted for that one computer. The Mac doesn't need to be awake.
-- Apple's push service sees notification metadata and the fallback text "A request is waiting." The website, account, reason and Apple Watch copy are encrypted.
-- The Apple Watch holds no passwords: each request carries the one password it needs, encrypted so only that Apple Watch can open it. A computer allowed to use an Automatic password keeps a copy it can open itself.
+- Zero-data-retention encrypted relay at `https://push.opentrawl.sh` (AWS `eu-west-1`, self-hostable via `agent-keyring-box` behind HTTPS with a certificate the iPhone and Apple Watch trust, such as Let's Encrypt): the relay Lambda has zero `console.*` calls, its IAM role has no CloudWatch Logs permissions, and the `/aws/lambda/opentrawl-push-relay` CloudWatch log group is destroyed. Clients hit fixed endpoints (`/v1/box`, `/v1/push`) with random box IDs and access tokens sent only in headers (`x-akr-box`, `x-akr-token`), and only hashes of access tokens are kept while a box lives. Every box is AES-256-GCM encrypted between the user's devices and the requesting computer: the relay sees only random box IDs and ciphertext and can drop or delay a message, never read or forge one. A join, answer or update box is deleted as soon as it is picked up; unread boxes stop being served the moment their time runs out (10 minutes for a join or answer, 45 minutes for an approval grant that Stop marks, 7 days for a computer's update mailbox), and AWS then removes expired rows from DynamoDB automatically, usually within a few days. Computers join through the same relay with a one-time code that also encrypts the join. Stop on any device marks the approval's grant at the relay, and the computer checks the grant before every use. Each computer learns rule and device changes from its update mailbox, and uses Automatic passwords on its own only while it has heard from the user's devices in the last week. The Mac doesn't need to be awake; a computer can wake it with a push, if Agent Keyring is open (turn on Open at Login).
+- Apple's push service sees notification metadata and the fallback text "A request is waiting." The website, account and reason are encrypted.
+- The Apple Watch keeps its own copy of each password, encrypted so only that Apple Watch can open it, and sent to it by the iPhone directly. Copies the Mac encrypts for it pass through the user's own iCloud as that ciphertext. None goes to a computer or the relay. A computer allowed to use an Automatic password keeps a copy it can open itself.
 - What the user is shown: the website, the account and the computer come from Agent Keyring and are signed, so an agent can't fake them. The agent's name and reason are the agent's own words.
 - Rules and the list of devices are signed. Changing a rule or adding a device requires the user's approval, so an agent can't do either.
 - Two-factor codes: Agent Keyring fills the codes that Apple Passwords generates for a site. For an Ask password, the agent's computer gets time-limited codes for those 30 minutes, and the setup key stays on the user's devices. For an Automatic password, an allowed computer can generate codes itself.
 - After a denial, that computer can't ask for the same password again for 1 minute. After a second denial in a row it waits 5 minutes, then 15.
-- Anonymous update check: once a day, Agent Keyring checks `https://push.opentrawl.sh/v1/version` with a random per-install hash, app version, OS and CPU architecture (no IP addresses or personal data stored). Users can opt out in Settings or by setting `AGENT_KEYRING_NO_TELEMETRY=1`.
+- Anonymous update check: once a day, Agent Keyring checks `https://push.opentrawl.sh/v1/version` with one stable, anonymous, non-reversible SHA-256 hash (derived from the app-scoped iCloud user ID when signed in, or a random local ID otherwise), app version, OS and CPU architecture (no IP addresses, Apple IDs or personal data stored). Users can opt out in Devices (Mac), Settings (iPhone), via `no_telemetry`, or by setting `AGENT_KEYRING_NO_TELEMETRY=1`.
 
 ## How it compares
 
@@ -132,11 +166,11 @@ Checked November 2026:
 
 ---
 
-# Agent Keyring: let Claude Code and Codex sign in with Apple Passwords
+# Agent Keyring: Passwords for the Agentic OS
 
 Published: 2026-11-20
 Updated: 2026-11-24
-Status: signed Mac app (v1.0.0) available on GitHub Releases (works with Touch ID); iPhone and Apple Watch public beta open on TestFlight at https://testflight.apple.com/join/W5xBNeMw
+Status: signed Mac app available on GitHub Releases (works with Touch ID); v1.1 needs no Tailscale and lets the iPhone work on its own; iPhone and Apple Watch public beta open on TestFlight at https://testflight.apple.com/join/W5xBNeMw
 Made by: Josh Palmer (https://x.com/jjpcodes)
 Website: https://keyring.opentrawl.sh/
 Download (Mac): https://github.com/opentrawl/agent-keyring/releases/latest
@@ -162,13 +196,17 @@ The home page plays four short scenes.
 
 ## Set it up
 
-Paste one prompt into Claude Code or Codex. Your agent downloads the Mac app, tells you what it suggests next, and asks before touching anything:
+There are two installs. The app goes on your own Mac with Touch ID, your iPhone and your Apple Watch: it holds your passwords and asks you to approve. Every Mac and iPhone is an equal: import from Apple Passwords on any of them and their lists merge through your own iCloud. No Mac? The iPhone app works on its own. The `agent-keyring` command goes on the computers your agents run on, such as a headless Mac mini, a Linux server or a cloud VM: it asks for passwords and holds no vault. Don't install the app on a computer that agents control.
 
-> Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before scanning my network or changing anything.
+On your own Mac, paste one prompt into Claude Code or Codex. Your agent downloads the Mac app, tells you what it suggests next, and asks before touching anything:
+
+> Install and set up Agent Keyring using https://keyring.opentrawl.sh/llms.txt. Tell me what you plan to do and ask before changing anything.
 
 1. Paste the prompt (or download the Mac app). Paste the prompt above into Claude Code or Codex, or download the signed Mac app yourself from GitHub Releases (https://github.com/opentrawl/agent-keyring/releases/latest) (macOS 26 or later). Your agent verifies the checksum, installs it in `/Applications`, and asks before changing anything else.
 2. Copy your passwords from Apple Passwords. In Apple Passwords, choose File > Export All Items to App… and pick Agent Keyring. Nothing is deleted from Passwords, and every password starts on Ask so no agent gets one until you approve.
 3. Let your agent wire up the rest (with your say-so). Your agent reads `agent-keyring skill`, tells you what it recommends, and asks before touching your Chrome-family browser extension, enrolling Linux or Mac servers, or connecting your iPhone and Apple Watch (join the TestFlight beta at https://testflight.apple.com/join/W5xBNeMw or build from source).
+
+With only an iPhone: open the app, tap Set Up on This iPhone, then in Apple Passwords tap Export Data to Another App and choose Agent Keyring. Add your Apple Watch and your agent computers from the iPhone's Devices tab.
 
 ## Each password has a rule
 
@@ -180,11 +218,13 @@ Every password starts on Ask. Change the rule whenever you like.
 
 ## How it works
 
-Your agent runs a command, `agent-keyring`, and asks for one password by website. You see the website, the account, which agent on which computer is asking, and its reason. Approve, and Agent Keyring signs in for that task. There's no cloud vault and no account: your passwords stay encrypted on your own devices.
+Your agent runs a command, `agent-keyring`, and asks for one password by website. You see the website, the account, which agent on which computer is asking, and its reason. Approve, and Agent Keyring signs in for that task. There's no account and no vault of ours: your passwords stay encrypted on your own devices, and your Apple devices keep each other up to date through your own iCloud. We can't read your passwords, Apple can't read them, and your internet provider can't read them.
+
+When an agent on another computer asks for approval, requests and answers pass through our zero-data-retention relay at `push.opentrawl.sh`: zero per-request logs, no box IDs or tokens in URLs, and AES-256-GCM encrypted boxes deleted the moment they're picked up. You can also self-host it with `agent-keyring-box`.
 
 The computer your agent runs on (a Mac or a Linux server) sends the website, the account and the agent's reason to your devices (Mac, iPhone and Apple Watch). A Blocked password stops there. An approved request sends back one password, for one task, 30 minutes at most.
 
-- Your passwords are encrypted on your own devices. Your Mac and iPhone encrypt their approval copies with keys kept in the Secure Enclave, the chip behind Touch ID and Face ID. Those keys can't leave the chip. A computer allowed to use an Automatic password keeps a copy it can open itself.
+- Your passwords are encrypted on your own devices. Your Mac and iPhone encrypt their approval copies with keys kept in the Secure Enclave, the chip behind Touch ID and Face ID. Those keys can't leave the chip. A copy sent to another of your devices through iCloud is encrypted to that device's key first, so iCloud only ever holds ciphertext. A computer allowed to use an Automatic password keeps a copy it can open itself.
 - Works in any browser, app or CLI. You just approve the request; your agent picks the right way to sign in. When it's in Chrome, Brave, Edge, Arc or Chromium with the extension loaded, the extension types the password straight into the form. In Safari, built-in agent browsers, desktop apps (via computer use) or CLI tools, your agent passes the approved password straight into the tool or app.
 - One approval, one password, one task. An approval covers retries and ends when the agent releases it, when the computer receives your Stop, or after 30 minutes at most.
 - Two-factor codes work too. If you set up a site's two-factor code in Apple Passwords, Agent Keyring fills it in along with the password. For an Ask password, your agent never gets the setup key, so it can't make codes of its own later.
@@ -208,10 +248,14 @@ Full comparison: /compare.md
 ## Questions
 
 - Does my Mac have to stay awake? No. Your iPhone keeps its own encrypted copy of your passwords, and an agent on another computer sends its request straight to your iPhone and Apple Watch. That agent can sign in while your MacBook is shut in a bag.
-- Do I need Tailscale? Not on one Mac. You need it to approve from your iPhone or Apple Watch, and for agents on other computers. The free plan is enough.
+- Can I use a Mac mini or Mac Studio without Touch ID? Yes, two ways. If agents run on it, install only the `agent-keyring` command and add it from your Mac or iPhone with a one-time code. If it is your own personal Mac, the app asks how you use it and you can opt in to approving with your Mac password. Your passwords stay locked to its Secure Enclave, and no agent can open an Ask password without macOS asking for your Mac password, but a typed password is weaker than Touch ID or Face ID: an agent or tool that knows your Mac login password could approve its own requests.
+- How do my Mac and iPhone find each other? Through your own iCloud Keychain, which Apple encrypts end to end. After that they keep each other up to date through your own iCloud. There is no account with us.
+- Do I need a Mac? No. The iPhone app can hold your passwords on its own: export from Apple Passwords on the iPhone, add your Apple Watch, and add agent computers with a one-time code.
+- Do I need Tailscale? No. Agent computers join with a one-time code (`agent-keyring enrol --code`). Requests and answers pass through our zero-data-retention relay of AES-256-GCM encrypted boxes, which runs with zero per-request logs, keeps box IDs and access tokens out of URLs, deletes each box when it is picked up, stops serving unread boxes when their time runs out, and lets AWS remove expired rows from DynamoDB automatically (usually within a few days). You can run your own with `agent-keyring-box`.
+- What does zero data retention mean on the relay? The relay Lambda at `push.opentrawl.sh` has zero `console.*` calls, no CloudWatch Logs permissions in its IAM role, and its CloudWatch log group is destroyed. Requests hit fixed endpoints (`/v1/box`, `/v1/push`) with random box IDs and access tokens sent only in headers (`x-akr-box`, `x-akr-token`), and only hashes of access tokens are kept while a box lives. Unread boxes stop being served at expiry (10 minutes for a join or answer, 45 minutes for an approval grant that Stop marks, 7 days for an update mailbox), after which AWS removes expired rows from DynamoDB automatically, usually within a few days. See /security.md for full details.
 - Does it work in Safari, desktop apps, or the browsers built into Codex, Claude and T3 Code? Yes. You approve once, and your agent handles how to sign in: using the browser extension in Chrome-family browsers, or passing the approved password straight into Safari, built-in agent browsers, desktop apps via computer use, or CLI tools.
 - What is the Chrome extension for? It lets your agent sign in to Chrome, Brave, Edge, Arc or Chromium without the password touching the agent's own tool output or chat. Your agent uses it automatically when it's available, and falls back to the CLI anywhere else.
-- I saved a new password. Does Agent Keyring pick it up? Not by itself. Apple only hands passwords to another app when you start the export, so run File > Export All Items to App… again.
+- I saved a new password. Does Agent Keyring pick it up? Not by itself. Apple only hands passwords to another app when you start the export, so export again: File > Export All Items to App… on a Mac, or Export Data to Another App on an iPhone. Either one updates every device. You can turn on a reminder, off by default, that comes once your copy is a week old.
 - What about passkeys and SMS codes? Neither. Agent Keyring handles passwords and the two-factor codes Apple Passwords generates. It can't use passkeys or read codes sent by SMS or email.
 
 ## Join the iPhone and Apple Watch beta
@@ -231,11 +275,23 @@ Home: /index.md
 Comparison: /compare.md
 Privacy: /privacy.md
 
-There's no cloud vault and no account. Your passwords stay encrypted on your own devices, and an agent gets one only when you approve it, or when you've set that password to Automatic.
+There's no account and no vault of ours. Your passwords stay encrypted on your own devices, our relay runs with zero data retention, and an agent gets a password only when you approve it or when you've set that password to Automatic.
 
 ## Where your passwords are
 
-Your Mac and iPhone encrypt their approval copies with keys in their Secure Enclave, the chip behind Touch ID and Face ID. Those keys can't leave the chip. Your Apple Watch keeps no passwords at all: each request arrives with the one password it needs, encrypted so only your Apple Watch can open it.
+Your Mac, iPhone and Apple Watch each keep their own encrypted copies of your passwords, with keys in their Secure Enclave, the chip behind Touch ID and Face ID. Those keys can't leave the chip. Your iPhone sends your Apple Watch its copies directly. Copies your Mac encrypts for your Apple Watch pass through your own iCloud on the way, as ciphertext only your Apple Watch can open. No computer and no relay ever carries them.
+
+A Mac without Touch ID, such as a Mac mini or Mac Studio, keeps your passwords only if you opt in to approving with its Mac password. Its keys are still in its Secure Enclave, and no agent can open an Ask password without macOS asking for that password. A typed password is weaker than Touch ID or Face ID: an agent or tool that knows your Mac login password, for example from a `sudo` prompt, could approve its own requests. If you add a Touch ID keyboard or an Apple Watch later, macOS accepts those too, and the password still works. A computer that only runs agents should have only the `agent-keyring` command, never the app.
+
+Your Mac and iPhone find each other through your own iCloud Keychain, which Apple encrypts end to end.
+
+## Keeping your devices in step
+
+Every Mac and iPhone is an equal: none is in charge, and you can copy from Apple Passwords on any of them. They keep each other up to date through your own iCloud private database. Each password is encrypted to the receiving device's Secure Enclave key before it leaves the device you copied it on, so iCloud only ever holds ciphertext: we can't read your passwords, Apple can't, and your internet provider can't. The list of devices and the list of passwords and rules are signed by one of your devices, and every device checks those signatures, so nobody who can write to your iCloud can add a device or change a rule.
+
+The list of websites and account names is kept in CloudKit's encrypted fields. With Advanced Data Protection on, only your devices can read it; without it, Apple holds the keys, as it does for the rest of your iCloud data. Each device's list of passwords is signed with that device's key too, and a rule only ever comes from a list you approved with Touch ID or Face ID.
+
+If two devices change the same password's rule at once, the later change wins on every device. Blocking a password deletes it from every device.
 
 ## What your agent sees
 
@@ -245,13 +301,24 @@ Anywhere the extension doesn't run (built-in agent browsers, Safari, desktop app
 
 ## How push notifications work
 
-Agents on your Mac ask the Mac app directly, with no network hop at all. When an agent on another computer needs your iPhone or Apple Watch, it encrypts the request (website, account, reason and Watch copy) for your devices and sends that opaque payload through our stateless blind push relay at `push.opentrawl.sh` (AWS `eu-west-1`). The relay signs the request with our Apple Developer push key and forwards it to Apple's push servers, without storing raw device tokens, IP addresses or message contents. Apple sees only standard notification metadata and the fallback text "A request is waiting."
+Agents on your Mac ask the Mac app directly, with no network hop at all. When an agent on another computer needs your iPhone, Apple Watch or Mac, it encrypts the request (website, account and reason) for your devices and sends that opaque payload through our stateless blind push relay at `push.opentrawl.sh` (AWS `eu-west-1`). The relay signs the request with our Apple Developer push key and forwards it to Apple's push servers, without storing raw device tokens, IP addresses or message contents. Apple sees only standard notification metadata and the fallback text "A request is waiting."
 
-Your approval answer never touches the relay: it travels straight from your iPhone, Apple Watch or Mac back to the asking computer over Tailscale (https://tailscale.com/), encrypted for that one computer. If you build the apps with your own Apple Developer account, you can run your own push relay or push straight to Apple instead.
+Your approval answer is encrypted for the one computer that asked and waits for it in an ephemeral box at `push.opentrawl.sh`. Computers join the same way, with a one-time code that also encrypts their join request so the relay can't read or change it. Stop on any of your devices marks the approval stopped at the relay, and the computer checks there before every use, so an approval it can't check isn't used. macOS doesn't open a quit app for a push, so turn on Open Agent Keyring at Login if you want your Mac to answer agents on other computers.
+
+## Zero data retention on our relay
+
+The relay at `push.opentrawl.sh` (AWS `eu-west-1`) is built for zero data retention:
+
+- **Zero per-request logs:** the relay Lambda has zero `console.*` calls, its IAM role has no CloudWatch Logs permissions, and the `/aws/lambda/opentrawl-push-relay` CloudWatch log group is destroyed.
+- **No box IDs or tokens in URLs:** clients talk to fixed endpoints (`/v1/box`, `/v1/push`) with random box IDs and access tokens sent only in headers (`x-akr-box`, `x-akr-token`), and only hashes of access tokens are kept while a box lives.
+- **End-to-end encrypted boxes:** every box is AES-256-GCM encrypted between your devices and the requesting computer. The relay sees only random box IDs and ciphertext: it can drop or delay a message, never read or forge one.
+- **Deletion and expiry:** a join, answer or update box is deleted as soon as it is picked up. Unread boxes stop being served the moment their time runs out (10 minutes for a join or answer, 45 minutes for an approval grant that Stop marks, 7 days for a computer's update mailbox), and AWS then removes expired rows from DynamoDB automatically, usually within a few days.
+
+You can self-host the relay with `agent-keyring-box` behind HTTPS with a certificate your iPhone and Apple Watch trust, such as one from Let's Encrypt. If you build the apps with your own Apple Developer account, you can run your own push relay or push straight to Apple instead.
 
 ## Anonymous update check
 
-Once a day, Agent Keyring checks `https://push.opentrawl.sh/v1/version` with a random per-install hash, app version, OS and CPU architecture so it can notify you of new releases and let us count active installs. No IP addresses, websites, accounts or passwords are sent or stored. You can turn it off in Settings or with `AGENT_KEYRING_NO_TELEMETRY=1`. See the privacy policy at /privacy.md (https://keyring.opentrawl.sh/privacy/) for full details.
+Once a day, Agent Keyring checks `https://push.opentrawl.sh/v1/version` with one stable, anonymous, non-reversible SHA-256 hash (derived from your app-scoped iCloud user ID when signed in, or a random local ID otherwise), app version, OS and CPU architecture so it can notify you of new releases and let us count active users. No IP addresses, Apple IDs, websites, accounts or passwords are sent or stored. Those daily and monthly counts expire after 90 days. Push counts are kept apart from them: to limit abuse and count daily pushes, the relay keeps SHA-256 hashes of device tokens, for 1 hour and 35 days. You can turn it off in Devices (Mac), Settings (iPhone), via `no_telemetry`, or with `AGENT_KEYRING_NO_TELEMETRY=1`. See the privacy policy at /privacy.md (https://keyring.opentrawl.sh/privacy/) for full details.
 
 ## What you're shown
 
@@ -267,16 +334,18 @@ If you deny a request, that computer waits a minute before it can ask for the sa
 
 ## Automatic passwords
 
-A computer you choose keeps its own encrypted copy of each Automatic password, two-factor setup key included, so agents there can sign in while you sleep. Only use Automatic for a password you'd leave on that computer anyway. Switch it back to Ask and a computer deletes its copy when it receives the updated list from your Mac.
+A computer you choose keeps its own encrypted copy of each Automatic password, two-factor setup key included, so agents there can sign in while you sleep. Only use Automatic for a password you'd leave on that computer anyway. Switch it back to Ask and a computer deletes its copy when it receives the updated list from your Mac or iPhone. It receives that list from its update mailbox, which your Mac and iPhone write after every change and once a day, or with the next answer to one of its requests. A computer that hasn't heard from your devices for a week stops using its Automatic passwords on its own.
 
 ## What each device keeps
 
 | Device | What it keeps | What it can open |
 | --- | --- | --- |
-| Your Mac | An encrypted copy of every password you copied from Apple Passwords | One password per approval, after Touch ID |
+| Your Mac | An encrypted copy of every password you copied from Apple Passwords | One password per approval, after Touch ID (or your Mac password, on a Mac without Touch ID that you opted in) |
 | Your iPhone | Its own encrypted copy of your passwords | One password per approval, after Face ID |
-| Your Apple Watch | No passwords | The one password that arrives with a request, when you tap Approve |
-| A computer your agents run on | The website and account name of each password, its own encrypted copy of each Automatic password, and copies for your Apple Watch that it can't open | Its Automatic passwords, and an Ask password once you approve it |
+| Your iCloud private database | The signed lists, each device's list of passwords without the passwords, and copies encrypted to each device | Nothing: every copy opens only on the device it was encrypted for |
+| Your Apple Watch | Its own encrypted copy of every password that isn't Blocked | One password per approval, when you tap Approve on your wrist |
+| A computer your agents run on | The website and account name of each password, and its own encrypted copy of each Automatic password | Its Automatic passwords, and an Ask password once you approve it |
+| Our zero-data-retention relay (`push.opentrawl.sh`) | Zero per-request logs. Only AES-256-GCM ciphertext boxes under random IDs and hashed access tokens until picked up or expired | Nothing: it can drop or delay a message, never read or forge one |
 
 ## What it can't do
 
@@ -287,7 +356,8 @@ A computer you choose keeps its own encrypted copy of each Automatic password, t
 - Wipe a lost iPhone. Remove it in Devices and it gets no more requests, but its copy of your passwords stays on the phone behind Face ID. If someone may get past that, change those passwords.
 - Keep passwords out of the agent outside the browser extension. In built-in browsers, Safari, computer use or CLI tools, the agent handles the password itself via `agent-keyring read`.
 - Use passkeys or codes sent by SMS or email.
-- Sync with Apple Passwords. Apple only hands passwords over when you start an export, so export again after you change one.
+- Sync with Apple Passwords. Apple only hands passwords over when you start an export, so export again after you change one, on your Mac or iPhone. A reminder, off by default, can tell you once your copy is a week old.
+- Hide which websites you have from Apple without Advanced Data Protection. Your passwords stay sealed either way.
 
 ---
 
@@ -320,7 +390,7 @@ Checked on 22 November 2026 against the 1Password (https://support.1password.com
 | What one approval covers | One password for one task, 30 minutes at most | One login, for up to 30 days | One request, or repeat requests from the same device for a time you choose | Every item in the vaults you chose, for 1 hour to 1 year |
 | Can the agent read the password? | Not in chat when the agent fills via the browser extension (an agent controlling that browser can still read the filled field). Yes when the agent falls back to the CLI for other browsers, computer use or CLI tools | No. 1Password fills it outside the agent's view | Yes, unless it uses `aac run`, which passes it to a program instead | Yes |
 | What you can answer | Approve, deny, or deny and tell the agent what to do instead, typed or spoken | Approve, pick a different login, or deny | Approve once, approve repeats for a time you choose, or deny | Nothing to answer |
-| Agents on a Linux server | Yes, over Tailscale | Only where the 1Password app and a partner app both run | Yes, through a relay that can't read the traffic | Yes |
+| Agents on a Linux server | Yes, with a one-time code; no Tailscale needed | Only where the 1Password app and a partner app both run | Yes, through a relay that can't read the traffic | Yes |
 
 ## Choose Agent Keyring if
 
@@ -338,23 +408,32 @@ Updated: 2026-11-24
 Website: https://keyring.opentrawl.sh/privacy/
 Source code: https://github.com/opentrawl/agent-keyring
 
-Agent Keyring keeps your passwords on your own devices. There is no cloud vault, no account, and no ad or tracking SDK.
+Agent Keyring keeps your passwords on your own devices. There is no account, no vault of ours, and no ad or tracking SDK.
 
 ## Passwords and approvals
 
-Your passwords stay encrypted on your own Mac and iPhone, protected by keys kept in each device's Secure Enclave. They are never uploaded to any OpenTrawl or Agent Keyring server. When you approve a request from your iPhone or Apple Watch, the encrypted answer goes straight back to the asking computer over your Tailscale network.
+Your passwords stay encrypted on your own Mac, iPhone and Apple Watch, protected by keys kept in each device's Secure Enclave. They are never uploaded to any OpenTrawl or Agent Keyring server. Your Macs and iPhones keep each other up to date through your own iCloud private database, which we have no access to; every password there is encrypted to the receiving device's Secure Enclave key first. An approval may also carry that computer's own copies of its Automatic passwords, each encrypted so only that computer can open it.
+
+## Zero-data-retention encrypted relay
+
+When you pair a computer, answer an approval request, send a Stop signal or deliver a rule update, the message travels through our zero-data-retention relay at `push.opentrawl.sh` (AWS `eu-west-1`, Ireland), or your own self-hosted `agent-keyring-box`:
+
+- **Zero per-request logs:** the relay Lambda has zero `console.*` calls, its IAM role has no CloudWatch Logs permissions, and the `/aws/lambda/opentrawl-push-relay` CloudWatch log group is destroyed.
+- **No box IDs or tokens in URLs:** fixed endpoints (`/v1/box`, `/v1/push`) take random box IDs and access tokens only in headers (`x-akr-box`, `x-akr-token`), and only hashes of access tokens are kept while a box lives.
+- **End-to-end encrypted boxes:** every box is AES-256-GCM encrypted between your devices and the requesting computer. The relay sees only random box IDs and ciphertext and can drop or delay a message, never read or forge one.
+- **Deletion and expiry:** a join, answer or update box is deleted as soon as it is picked up. Unread boxes stop being served the moment their time runs out (10 minutes for a join or answer, 45 minutes for an approval grant that Stop marks, 7 days for a computer's update mailbox), and AWS then removes expired rows from DynamoDB automatically, usually within a few days.
 
 ## Blind push notification relay
 
 When an agent on another computer asks your iPhone or Apple Watch to approve a sign-in, it sends an end-to-end encrypted push payload through our stateless push relay at `push.opentrawl.sh` (hosted on AWS in `eu-west-1`, Ireland). The relay signs the request with our Apple Developer push key and forwards the opaque payload straight to Apple's push servers.
 
-The relay cannot read the website, account name, reason or Watch password inside the payload. It stores no raw device tokens, no IP addresses and no message contents. To prevent abuse and count daily push volume, it keeps only short-lived SHA-256 hashes of device tokens (1 hour for rate limiting, 35 days for daily counts). If you build the apps with your own Apple Developer account, you can run your own relay or push straight to Apple instead.
+The relay cannot read the website, account name or reason inside the payload. It stores no raw device tokens, no IP addresses and no message contents. To prevent abuse and count daily push volume, it keeps only short-lived SHA-256 hashes of device tokens (1 hour for rate limiting, 35 days for daily counts). If you build the apps with your own Apple Developer account, you can run your own relay or push straight to Apple instead.
 
 ## Anonymous update check
 
-Once a day, Agent Keyring checks `https://push.opentrawl.sh/v1/version` to see if a newer release is available and to count active installs. That check sends a random per-install identifier, the app version, the operating system (`macos`, `ios`, `watchos` or `linux`) and CPU architecture. It never sends passwords, website names, account names or personal details, and the server does not store IP addresses. Daily and monthly install counts expire automatically after 90 days.
+Once a day, Agent Keyring checks `https://push.opentrawl.sh/v1/version` to see if a newer release is available and to count active users. That check sends one stable, anonymous, non-reversible SHA-256 hash (derived from your app-scoped iCloud user identifier when signed in so your Mac and iPhone count as one user, or a random local identifier otherwise), the app version, the operating system (`macos`, `ios`, `watchos` or `linux`) and CPU architecture. It never sends passwords, website names, account names, Apple IDs or personal details, and the server does not store IP addresses. Daily and monthly counts expire automatically after 90 days.
 
-You can turn the update check off at any time in Agent Keyring Settings or by setting `AGENT_KEYRING_NO_TELEMETRY=1`.
+You can turn the update check off at any time in **Devices** (Mac) or **Settings** (iPhone), via the `no_telemetry` preference, or by setting `AGENT_KEYRING_NO_TELEMETRY=1`.
 
 ## Beta waitlist emails
 

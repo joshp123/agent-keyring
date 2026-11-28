@@ -353,10 +353,10 @@ to Josh. Interrupt him only when his action is needed.
 
 ## Wire contract
 
-`proto/agentkeyring/v1/agentkeyring.proto` defines both service roles and the local
-wire messages. These are not gRPC frames. Each connection handles one method:
-four-byte big-endian length, then one protobuf WireRequest; responses use the
-same framing and WireResponse. Frames are limited to 1 MiB. Unary replies end the
+`proto/agentkeyring/v2/local_authority.proto` defines the local wire messages.
+Each connection handles one method. The CLI sends a four-byte big-endian
+length followed by an `AgentRequest` protobuf. The authority uses the same
+framing for each `AgentResponse`. Frames are limited to 1 MiB. Unary replies end the
 stream; Watch first emits current state, then changes until terminal/error.
 No method-name strings or multiplexing. Invalid/unknown enum values and missing
 required oneof variants are rejected, not interpreted as defaults. Safe typed

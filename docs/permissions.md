@@ -1,5 +1,5 @@
 ---
-written_by: ai (gpt-6.1-sol, 2026-10-31), from the current entitlements and call paths
+written_by: ai (gpt-6.1-sol, 2026-10-31), from the current entitlements and call paths; network access updated for 1.1 by claude opus 5.5 on 2026-11-24
 ---
 
 # What Agent Keyring is allowed to do
@@ -11,7 +11,7 @@ written_by: ai (gpt-6.1-sol, 2026-10-31), from the current entitlements and call
 | Agent Keyring app | App Sandbox | Keeps its encrypted mirror, rules and task history in its own container. |
 | | AutoFill credential provider | Receives the logins you export from Apple Passwords. It cannot start an export or read Apple Passwords directly. |
 | | Its own Keychain items | Holds the mirror encryption key, Secure Enclave signing keys and checkpoints for rules and leases. These items do not synchronize with iCloud. |
-| | Incoming and outgoing network access | Serves local agents over `agent.sock` and connects to the paired relay. The app checks that the relay connection uses a tailnet address before sending data. |
+| | Incoming and outgoing network access | Serves local agents over `agent.sock`, and connects over HTTPS to your iCloud, Apple's push service and the box relay (`push.opentrawl.sh`, or your own). It listens on no network port. |
 | | Notifications | Offers a reminder when the mirrored copy is out of date. |
 | `agent-keyring` command | No macOS privacy permission | Requests a lease and sends approved values to a program's stdin, a private process pipe or a Chrome debugging connection. |
 
@@ -24,10 +24,10 @@ Other agents' computer-use permissions are separate from Agent Keyring. A proces
 | Permission or key | Used for |
 | --- | --- |
 | Face ID and a Secure Enclave key | Authorizes and signs an approval or a denial containing a reply. |
-| Notifications | Shows requests forwarded through the relay. Delivery requires the relay's push configuration. |
-| Network access | Connects to the paired relay over the tailnet. |
+| Notifications | Shows requests that the computer asking pushes through Apple's push service. |
+| Network access | Connects over HTTPS to your iCloud and the box relay. |
 
-The relay approval flow can use the iPhone without importing passwords there: the Mac sends the approved credential from its mirror. The current Mac and phone approval flow does not use iCloud or a camera for pairing.
+The iPhone finds the Mac through your iCloud Keychain and keeps in step with it through your iCloud. It uses no camera for pairing.
 
 ## When approval is needed
 

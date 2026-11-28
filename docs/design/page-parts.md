@@ -34,12 +34,12 @@ Every first-run page, device flow and everyday screen is built from the parts in
 | `KeyringPane { top } content: { … } bottom: { … }` | A tab of the everyday window: the band at the top, the Table or List edge to edge, the bar at the bottom. It owns the margins and the background. |
 | `KeyringMenuBarWindow { … }` and `KeyringSection(name) { rows }` | The menu bar's window, and a named group of rows inside it or anywhere. |
 | `KeyringPill(words, tone:)` and `KeyringTag(words)` | A state in a pill ("1 waiting", "All quiet", "Offline") and a word that marks a name ("Test password"). |
-| `PasswordsExportPicture(guideStep:earlierVersion:)` | Apple's export screens for the Copy your passwords guide, with the thing to click ringed. |
+| `PasswordsExportPicture(guideStep:)` | Apple's export screens for the Copy your passwords guide, with the thing to click ringed. |
 | `KeyringHint` | A tinted card: Focus, trust, "Not showing up?". |
 | `KeyringMascot(mood)` | The keyhole with eyes, in the moods `.calm`, `.curious`, `.waiting`, `.approved`, `.denied` and `.offline`. |
 | `KeyringPalette`, `KeyringSpace`, `KeyringRadius`, `KeyringSize` | The tokens from the Paper file's board 5. |
 
-`KeyringGallery.parts` in `Gallery.swift` shows each part in use.
+`KeyringGallery.parts` in `KeyringScreenGallery.swift` shows each part in use.
 
 ## Adding a page to the checks
 
@@ -88,7 +88,7 @@ swift run PanelRender /full/path/to/renders/mac
 
 When the simulator runs short of memory, set `KEYRING_GALLERY_PART=1/4` (then 2/4, 3/4 and 4/4; with xcodebuild, `TEST_RUNNER_KEYRING_GALLERY_PART`) to check every fourth entry per run.
 
-The `AgentKeyringDesignChecks` scheme builds only the parts, `AgentKeyringApprovalUI` and these tests, because `AgentKeyringFeature` does not build for iOS. No window opens on screen.
+The `AgentKeyringDesignChecks` scheme builds only the parts, `AgentKeyringApprovalUI` and these tests, because `AgentKeyringScreenBackends` builds only for macOS. No window opens on screen.
 
 ### Simulators
 
@@ -105,12 +105,12 @@ Every boot and shutdown of a simulator leaves crash reports from Apple's own ser
 
 `swift test --filter AgentKeyringCopyTests` reads the copy tables as source: every `*Copy.swift` and `*Words.swift` file, and the Watch app's `WatchCopy`. It fails on:
 
-- an em dash anywhere in the repository, comments included;
+- an em dash in user-facing copy;
 - a spaced hyphen used as a dash;
 - "relay", "lease", "chip keys" or "always-on Mac";
 - an American spelling, from a list in the test.
 
-`KEYRING_COPY_OUT=/path/to/copy.md swift test --filter AgentKeyringCopyTests` writes every string, grouped by table and section, so the whole app reads in one go. Each rendered screen's `.txt` gives the same words in place on that screen.
+Each rendered screen's `.txt` gives the words in place on that screen.
 
 ## What the pictures do not show
 
