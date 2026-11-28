@@ -1,0 +1,86 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - depguard
+    - errcheck
+    - errorlint
+    - funlen
+    - gocognit
+    - govet
+    - ineffassign
+    - noctx
+    - staticcheck
+    - unused
+  settings:
+    staticcheck:
+      # Run Staticcheck bug checks. CLI diagnostics use sentence punctuation.
+      checks: ["SA*"]
+    funlen:
+      lines: 80
+      statements: 50
+      ignore-comments: true
+    gocognit:
+      min-complexity: 20
+    depguard:
+      rules:
+        libraries:
+          files:
+            - "**/internal/**"
+          deny:
+            - pkg: github.com/opentrawl/agent-keyring/cmd/
+              desc: Commands depend on libraries.
+            - pkg: github.com/opentrawl/agent-keyring/developer/
+              desc: Developer tools stay out of shipped libraries.
+            - pkg: github.com/opentrawl/agent-keyring/script/
+              desc: Maintenance tools stay out of shipped libraries.
+        receiving:
+          list-mode: strict
+          files:
+            - "**/internal/authority/**"
+            - "**/internal/browserbridge/**"
+            - "**/internal/receiver/**"
+          allow:
+            - $gostd
+            - github.com/opentrawl/agent-keyring/gen/go/
+            - github.com/opentrawl/agent-keyring/internal/authority$
+            - github.com/opentrawl/agent-keyring/internal/clientstate$
+            - github.com/opentrawl/agent-keyring/internal/receiver$
+            - google.golang.org/protobuf/
+        standalone:
+          list-mode: strict
+          files:
+            - "**/developer/test-apns/**"
+            - "**/internal/apns/**"
+            - "**/internal/box/**"
+            - "**/internal/boxserver/**"
+            - "**/internal/tlsid/**"
+            - "**/script/**"
+          allow:
+            - $gostd
+        box-command:
+          list-mode: strict
+          files:
+            - "**/cmd/agent-keyring-box/**"
+          allow:
+            - $gostd
+            - github.com/opentrawl/agent-keyring/internal/boxserver$
+        local-state:
+          list-mode: strict
+          files:
+            - "**/internal/clientstate/**"
+            - "**/internal/keyring/**"
+          allow:
+            - $gostd
+            - github.com/opentrawl/agent-keyring/gen/go/
+            - google.golang.org/protobuf/
+  exclusions:
+    generated: strict
+    paths:
+      - ^gen/
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

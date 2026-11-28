@@ -70,3 +70,6 @@ fastlane/test_output
 
 # Portable CLI
 build/
+
+# Local private design fixtures and captures (never commit)
+.private/

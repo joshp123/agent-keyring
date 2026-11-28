@@ -1,0 +1,47 @@
+only_rules:
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+  - function_parameter_count
+  - force_try
+  - force_cast
+  - unused_closure_parameter
+  - blanket_disable_command
+  - custom_rules
+
+excluded:
+  - AgentKeyringPackage/Sources/AgentKeyringProtocol/agentkeyring
+  - AgentKeyringPackage/.build
+  - .build
+  - AgentKeyringPackage/Tests
+  - AgentKeyringPackage/Tools
+
+file_length:
+  warning: 600
+  error: 600
+  ignore_comment_only_lines: false
+
+type_body_length:
+  warning: 400
+  error: 400
+
+function_body_length:
+  warning: 80
+  error: 80
+
+cyclomatic_complexity:
+  warning: 20
+  error: 20
+  ignores_case_statements: true
+
+function_parameter_count:
+  warning: 6
+  error: 6
+
+custom_rules:
+  empty_catch_block:
+    name: "Empty catch block"
+    regex: 'catch\s*\{\s*\}'
+    message: "Handle or log the error; never swallow it silently."
+    severity: error

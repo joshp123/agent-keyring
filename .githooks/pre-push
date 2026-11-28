@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+checked=" "
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # A deleted ref has an all-zero SHA, regardless of the repository's object format.
+  [[ "$local_sha" =~ ^0+$ ]] && continue
+  [[ "$checked" == *" $local_sha "* ]] && continue
+  "$ROOT/script/check.sh" --full "$local_sha" </dev/null
+  checked+="$local_sha "
+done

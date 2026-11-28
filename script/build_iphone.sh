@@ -79,7 +79,7 @@ BUNDLE_PREFIX="${BUNDLE_PREFIX%.Phone}"
 PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 mkdir -p "$PROFILES_DIR"
 PROFILE_ENTRIES=""
-for target in Phone Phone.NotificationService Phone.NotificationContent Phone.watchkitapp Phone.watchkitapp.NotificationService; do
+for target in Phone Phone.NotificationService Phone.NotificationContent Phone.CredentialProvider Phone.watchkitapp Phone.watchkitapp.NotificationService; do
   name="Agent Keyring App Store $target"
   asc profiles list --name "$name" --profile-type IOS_APP_STORE --fields name,profileContent,uuid --output json \
     | /usr/bin/python3 -c '
