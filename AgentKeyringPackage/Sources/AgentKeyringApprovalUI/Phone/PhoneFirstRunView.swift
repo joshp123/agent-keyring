@@ -5,6 +5,7 @@
 // Every word comes from PhoneCopy; the page owns every margin and colour.
 
 #if os(iOS)
+import AgentKeyringApprovalCore
 import AgentKeyringDesign
 import SwiftUI
 import UIKit
@@ -17,19 +18,22 @@ struct PhoneFirstRunView: View {
     var body: some View {
         let mac = model.snapshot.macName
         switch stage {
-        case .searching(let longWait):
-            KeyringPage(title: PhoneCopy.continueFrom(nil), sentence: PhoneCopy.continueFromDetail, alignment: .centre, mascot: .waiting,
-                        status: .waiting(PhoneCopy.lookingForMac),
-                        secondary: longWait ? .link(PhoneCopy.havingTrouble) { send(.havingTrouble) } : nil) { trust }
+        case .searching:
+            KeyringPage(alignment: .centre, mascot: .waiting, status: .waiting(PhoneCopy.lookingForMac))
+        case .welcome:
+            KeyringPage(title: PhoneCopy.welcomeTitle, sentence: PhoneCopy.welcomeDetail, alignment: .centre, mascot: .calm,
+                        primary: .advance(PhoneCopy.setUpHere) { setUpHere() },
+                        secondary: .link(PhoneCopy.alreadySetUpOnMac) { send(.havingTrouble) })
         case .trouble:
-            KeyringPage(title: PhoneCopy.troubleTitle, sentence: PhoneCopy.troubleBanner, mascot: .offline,
-                        primary: .advance(PhoneCopy.tryAgain) { send(.tryAgain) }) {
+            KeyringPage(title: PhoneCopy.troubleTitle, sentence: PhoneCopy.troubleLead, mascot: .curious,
+                        primary: .advance(PhoneCopy.tryAgain) { send(.tryAgain) },
+                        secondary: .plain(PhoneCopy.back) { send(.cancel) }) {
                 KeyringSteps(PhoneCopy.troubleSteps)
             }
         case .foundMac:
-            KeyringPage(step: (1, 3), title: PhoneCopy.continueFrom(mac), sentence: PhoneCopy.continueFromDetail, alignment: .centre, mascot: .calm,
+            KeyringPage(step: (1, 3), title: PhoneCopy.continueFrom(mac), sentence: PhoneCopy.continueFromDetail(mac), alignment: .centre, mascot: .calm,
                         primary: .advance(PhoneCopy.connectTo(mac)) { send(.connect) },
-                        secondary: .link(PhoneCopy.havingTrouble) { send(.havingTrouble) }) { trust }
+                        secondary: .plain(PhoneCopy.setUpHere) { setUpHere() }) { trust }
         case .waitingForMac:
             KeyringPage(step: (1, 3), title: PhoneCopy.approveOn(mac), sentence: PhoneCopy.approveOnDetail(mac), alignment: .centre, mascot: .waiting,
                         status: .waiting(PhoneCopy.waitingFor(mac)), secondary: .plain(PhoneCopy.cancel) { send(.cancel) })
@@ -42,36 +46,37 @@ struct PhoneFirstRunView: View {
         case .expired:
             KeyringPage(step: (1, 3), title: PhoneCopy.joinExpiredTitle, sentence: PhoneCopy.joinExpiredDetail(mac), alignment: .centre, mascot: .offline,
                         primary: .advance(PhoneCopy.askAgain) { send(.askAgain) }, secondary: .plain(PhoneCopy.cancel) { send(.cancel) })
+        case .importPasswords:
+            PhoneCopyPasswordsPage(model: model, inFirstRun: true)
         case .receivingPasswords:
-            KeyringPage(step: (1, 3), title: PhoneCopy.receivingTitle, alignment: .centre, mascot: .waiting,
-                        status: .waiting(PhoneCopy.receivingDetail(model.snapshot.filling)))
+            KeyringPage(step: (1, 3), title: PhoneCopy.receivingTitle, alignment: .centre, mascot: .waiting) {
+                PhoneProgressCard(
+                    symbol: "lock.shield",
+                    title: PhoneCopy.receivingDetail(model.snapshot.filling),
+                    done: model.snapshot.filling?.copied,
+                    total: model.snapshot.filling?.of,
+                    footnote: PhoneCopy.otherDevicesGetCopies
+                )
+            }
         case .notifications, .askingNotifications, .notificationsOff:
             notifications
         case .practiceOffer:
             practicePage(primary: .advance(PhoneCopy.sendPractice) { sendPractice() }, secondary: skip) {
-                KeyringHint(symbol: "bell.badge", title: PhoneCopy.practicePreviewTitle, PhoneCopy.practicePreview)
                 KeyringHint(symbol: "moon.fill", PhoneCopy.practiceNote, tone: .plain)
             }
         case let .practiceWaiting(id, arrived):
-            if arrived && hasWaitingPractice(id) {
-                practicePage(primary: .advance(PhoneCopy.answerItHere) { send(.practiceTapped) },
-                             secondary: .plain(PhoneCopy.sendAnother) { sendPractice() }, aside: skip) {
-                    KeyringHint(symbol: "bell.badge", title: PhoneCopy.practicePreviewTitle, PhoneCopy.practicePreview)
-                }
+            if arrived && hasActivePractice(id) {
+                practiceArrivedPage
             } else {
                 practicePage(status: .waiting(PhoneCopy.practiceWaiting), aside: skip) { EmptyView() }
             }
-        case let .practice(id):
-            if hasWaitingPractice(id) {
-                practicePage(status: .waiting(PhoneCopy.practiceWaiting), aside: skip) { EmptyView() }
-            } else {
-                practicePage(status: .waiting(PhoneCopy.practiceWaiting),
-                             primary: .plain(PhoneCopy.tryAgain) { sendPractice() }, secondary: skip) { EmptyView() }
-            }
+        case .practice:
+            practiceArrivedPage
         case .settingUpNotifications:
-            practicePage(status: .takingLong(PhoneCopy.practiceSettingUp), secondary: skip) { EmptyView() }
+            practicePage(status: .takingLong(PhoneCopy.practiceSettingUp),
+                         primary: .advance(PhoneCopy.tryAgain) { sendPractice() }, secondary: skip) { EmptyView() }
         case let .practiceNotArrived(id):
-            let canAnswerHere = hasWaitingPractice(id)
+            let canAnswerHere = hasActivePractice(id)
             practicePage(status: .takingLong(PhoneCopy.practiceNotArrived),
                          primary: canAnswerHere ? .advance(PhoneCopy.answerItHere) { send(.practiceTapped) } : .advance(PhoneCopy.tryAgain) { sendPractice() },
                          secondary: canAnswerHere ? .plain(PhoneCopy.tryAgain) { sendPractice() } : skip,
@@ -79,7 +84,7 @@ struct PhoneFirstRunView: View {
                 KeyringHint(symbol: "moon.fill", PhoneCopy.notificationsFocus, tone: .focus)
             }
         case .practiceMacUnreachable:
-            practicePage(status: .problem(PhoneCopy.practiceMacAsleep(mac)),
+            practicePage(status: .problem(PhoneCopy.practiceNotSent),
                          primary: .advance(PhoneCopy.tryAgain) { sendPractice() }, secondary: skip) { EmptyView() }
         case let .practiceResult(outcome):
             practicePage(primary: .advance(PhoneCopy.continueButton) { continueAfterPractice() },
@@ -88,20 +93,27 @@ struct PhoneFirstRunView: View {
                                     tone: outcome == .approved ? .approved : .denied)
             }
         case let .readyOfferWatch(watchToAdd):
+            // With no computer or Mac yet, agents have nowhere to ask from: Ready offers to add one.
+            let addComputer: KeyringAction? = model.snapshot.hasComputer ? nil : .link(PhoneCopy.addAComputer) { send(.addAComputer) }
             KeyringPage(title: PhoneCopy.readyTitle, sentence: PhoneCopy.readyDetail, alignment: .centre, mascot: .approved,
                         primary: watchToAdd ? .advance(PhoneCopy.addAppleWatch) { send(.addAppleWatch) } : .advance(PhoneCopy.done) { send(.done) },
-                        secondary: watchToAdd ? .plain(PhoneCopy.done) { send(.done) } : nil) {
+                        secondary: watchToAdd ? .plain(PhoneCopy.done) { send(.done) } : nil, aside: addComputer) {
                 if watchToAdd { KeyringHint(symbol: "applewatch", title: PhoneCopy.addWatchOfferTitle, PhoneCopy.addWatchOfferDetail) }
             }
         case .addWatch:
             PhoneAddWatchView(flow: model.snapshot.addWatch, model: model)
+        case .addComputer:
+            NavigationStack {
+                PhoneAddComputerPage(model: model)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button(PhoneCopy.done) { send(.done) } } }
+            }
         case .finished:
             EmptyView()
         }
     }
 
     private var trust: some View {
-        KeyringHint(symbol: "lock.fill", title: PhoneCopy.trustTitle, PhoneCopy.trustDetail)
+        KeyringHint(symbol: "lock.fill", title: PhoneCopy.trustTitle, PhoneCopy.trustDetail(model.snapshot.macName))
     }
 
     /// The checklist ticks only from what iOS lets the app read.
@@ -131,7 +143,7 @@ struct PhoneFirstRunView: View {
 
     /// A ticked row once on, a neutral pending circle before iOS has asked, or an orange mark with what to do.
     private func check(_ name: String, _ on: Bool, asked: Bool, isPrimaryRow: Bool = false, fix: String) -> some View {
-        let status: KeyringCheckRow.Status = on ? .done : (asked ? .needsAttention : .pending)
+        let status: KeyringCheckStatus = on ? .done : (asked ? .needsAttention : .pending)
         let detail: String? = on ? nil : ((!asked && !isPrimaryRow) ? nil : fix)
         return KeyringCheckRow(name, status: status, toDo: detail)
     }
@@ -142,13 +154,27 @@ struct PhoneFirstRunView: View {
                     primary: primary, secondary: secondary, aside: aside, content: content)
     }
 
-    private var skip: KeyringAction { .link(PhoneCopy.skipForNow) { continueAfterPractice() } }
-    private func hasWaitingPractice(_ id: String) -> Bool {
-        guard case let .waitingForYou(until)? = model.request(id: id)?.state else { return false }
-        return until > .now
+    /// Calm arrived state: points up to the real iOS notification banner without a competing primary button.
+    private var practiceArrivedPage: some View {
+        practicePage(primary: .plain(PhoneCopy.sendAnother) { sendPractice() },
+                     secondary: .link(PhoneCopy.answerItHere) { send(.practiceTapped) },
+                     aside: skip) {
+            KeyringHint(symbol: "bell.badge", PhoneCopy.practiceArrived)
+        }
     }
 
-    private func send(_ event: PhoneFirstRun.Event) { Task { await model.firstRun(event) } }
+    private var skip: KeyringAction { .link(PhoneCopy.skipForNow) { continueAfterPractice() } }
+    private func hasActivePractice(_ id: String) -> Bool {
+        guard let state = model.accessRequest(id: id)?.state else { return false }
+        switch state {
+        case let .waitingForYou(until): return until > .now
+        case .sendingAnswer: return true
+        default: return false
+        }
+    }
+
+    private func send(_ event: PhoneFirstRunEvent) { Task { await model.sendFirstRunEvent(event) } }
+    private func setUpHere() { Task { await model.setUpHere() } }
     private func sendPractice() { send(.sendPractice(id: PhoneFirstRun.newPracticeID())) }
     private func continueAfterPractice() { send(.continueAfterPractice(watchToAdd: model.snapshot.watch.toAdd)) }
 
@@ -190,7 +216,15 @@ struct PhoneAddWatchView: View {
             KeyringPage(step: (2, 2), title: PhoneCopy.addWatchTitle, status: .problem(PhoneCopy.watchNeedsPasscode),
                         primary: .advance(PhoneCopy.tryAgain) { tap(.tryAgain) }, secondary: cancel)
         case let .encrypting(done, total):
-            KeyringPage(step: (2, 2), title: PhoneCopy.addWatchTitle, status: .waiting(PhoneCopy.encryptingForWatch(done, total)))
+            KeyringPage(step: (2, 2), title: PhoneCopy.addWatchTitle, alignment: .centre, mascot: .waiting) {
+                PhoneProgressCard(
+                    symbol: "applewatch",
+                    title: PhoneCopy.encryptingForWatch(done, total),
+                    done: done,
+                    total: total,
+                    footnote: PhoneCopy.tapAddOnWatchDetail
+                )
+            }
         case let .copiesFailed(reason):
             KeyringPage(step: (2, 2), title: PhoneCopy.addWatchTitle, status: .problem(PhoneCopy.watchCopiesFailed(reason)),
                         primary: .advance(PhoneCopy.tryAgain) { tap(.tryAgain) }, secondary: cancel)
@@ -203,6 +237,6 @@ struct PhoneAddWatchView: View {
     }
 
     private var cancel: KeyringAction { .plain(PhoneCopy.cancel) { tap(.cancel) } }
-    private func tap(_ tap: PhoneAddWatchTap) { Task { await model.addWatch(tap) } }
+    private func tap(_ tap: PhoneAddWatchTap) { Task { await model.handleAddWatchTap(tap) } }
 }
 #endif

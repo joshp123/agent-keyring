@@ -1,22 +1,29 @@
 // Written by AI on 2026.11.16 by model Claude Opus 5.5.
 //
 // One action approves, where Josh is already looking: Apple's Touch ID and
-// Apple Watch control sits in the window that asked, never in a macOS dialog.
+// Apple Watch control (or the Mac password) sits in the window that asked.
 // Used for rule changes, removals and sending imported logins; the request,
 // connect and join panels have their own copy of the same flow.
 
 #if os(macOS)
 import AgentKeyringApprovalCore
 import AgentKeyringDesign
-import LocalAuthentication
 import Observation
 import SwiftUI
 
-/// Touch ID or the Watch. "TouchIDOnly" (a launch argument, -TouchIDOnly YES)
-/// leaves the Watch out, so a rehearsal never asks his wrist.
-var ownerApprovalPolicy: LAPolicy {
-    UserDefaults.standard.bool(forKey: "TouchIDOnly") ? .deviceOwnerAuthenticationWithBiometrics
-        : .deviceOwnerAuthenticationWithBiometricsOrCompanion
+/// One look at macOS's dialog, and the work it unlocks. The app gives each
+/// question its own (AgentKeyringScreenBackends, `LocalOwnerAuthentication`),
+/// so the screens never hold a LocalAuthentication context.
+@MainActor
+public protocol OwnerAuthentication: AnyObject {
+    /// macOS can ask now.
+    var canAsk: Bool { get }
+    /// macOS's own dialog, with `reason`. True once Josh approved.
+    func evaluate(reason: String) async throws -> Bool
+    /// Runs the work Josh approved. Nothing it signs can open another dialog: it fails instead.
+    func performApproved() async throws
+    /// Closes the dialog if it is up, and ensures this approval can never be used again.
+    func invalidate()
 }
 
 @MainActor
@@ -29,13 +36,15 @@ public final class OwnerApproval: Identifiable {
     public let note: String?
     /// Shown by the Watch and in macOS's own records of the approval.
     let reason: String
-    public private(set) var context: LAContext?
+    /// macOS can ask: the button opens its dialog. False when it could not be asked, or once the question is over.
+    public var canBegin: Bool { authentication != nil }
     public private(set) var failure: String?
     /// From the click until macOS's dialog is answered.
     public var isWaiting: Bool { task != nil }
     var timeoutDuration: Duration = .seconds(60)
 
-    private let perform: @MainActor (LAContext) async throws -> Void
+    private let authenticate: @MainActor () -> any OwnerAuthentication
+    private var authentication: (any OwnerAuthentication)?
     private let finish: @MainActor (Bool) -> Void
     private var task: Task<Void, Never>?
     private var timeout: Task<Void, Never>?
@@ -43,23 +52,21 @@ public final class OwnerApproval: Identifiable {
     private var finished = false
 
     /// - Parameters:
-    ///   - perform: runs after Josh has approved, with the evaluated context.
-    ///     The context refuses any further interaction, so nothing it signs
-    ///     can open a macOS dialog; it fails instead.
-    ///   - finish: true once `perform` succeeded, false when Josh cancels.
-    public init(action: String, note: String? = nil, reason: String, perform: @escaping @MainActor (LAContext) async throws -> Void,
+    ///   - authenticate: makes a new approval for each attempt; its `performApproved` runs the work.
+    ///   - finish: true once the work succeeded, false when Josh cancels.
+    public init(action: String, note: String? = nil, reason: String, authenticate: @escaping @MainActor () -> any OwnerAuthentication,
         finish: @escaping @MainActor (Bool) -> Void) {
         self.action = action
         self.note = note
         self.reason = reason
-        self.perform = perform
+        self.authenticate = authenticate
         self.finish = finish
         prepare()
     }
 
     /// Josh clicked: macOS's own dialog asks for Touch ID or the Watch.
     public func begin() {
-        guard !finished, task == nil, let context else { return }
+        guard !finished, task == nil, let authentication else { return }
         let current = attempt
         timeout = Task {
             do { try await Task.sleep(for: timeoutDuration) } catch { return }
@@ -69,17 +76,16 @@ public final class OwnerApproval: Identifiable {
         }
         task = Task {
             do {
-                let approved = try await evaluate(context)
+                let approved = try await evaluate(authentication)
                 guard approved, attempt == current else { return }
                 try Task.checkCancellation()
-                context.interactionNotAllowed = true
                 timeout?.cancel()
-                try await perform(context)
+                try await authentication.performApproved()
                 guard attempt == current else { return }
                 task = nil
                 finished = true
-                context.invalidate()
-                self.context = nil
+                authentication.invalidate()
+                self.authentication = nil
                 finish(true)
             } catch is CancellationError {
             } catch {
@@ -90,16 +96,11 @@ public final class OwnerApproval: Identifiable {
         }
     }
 
-    private func evaluate(_ context: LAContext) async throws -> Bool {
-        #if DEBUG
-        if StandInKey.isOn { return true }
-        #endif
-        context.touchIDAuthenticationAllowableReuseDuration = 0
-        context.localizedFallbackTitle = ""
-        let cancelEvaluation: @MainActor @Sendable () -> Void = { context.invalidate() }
+    private func evaluate(_ authentication: any OwnerAuthentication) async throws -> Bool {
+        let box = UncheckedAuthentication(authentication)
         return try await withTaskCancellationHandler {
-            try await context.evaluatePolicy(ownerApprovalPolicy, localizedReason: reason)
-        } onCancel: { Task { @MainActor in cancelEvaluation() } }
+            try await authentication.evaluate(reason: reason)
+        } onCancel: { Task { @MainActor in box.value.invalidate() } }
     }
 
     public func retry() {
@@ -125,13 +126,14 @@ public final class OwnerApproval: Identifiable {
 
     private func prepare() {
         failure = nil
-        let next = LAContext()
-        guard canAsk(next, ownerApprovalPolicy) else {
-            failure = "Touch ID or Apple Watch isn't available. Check that one is ready."
+        let next = authenticate()
+        guard next.canAsk else {
+            next.invalidate()
+            failure = AccessRequestCopy.approverUnavailable()
             return
         }
         attempt = UUID()
-        context = next
+        authentication = next
     }
 
     private func stop() {
@@ -140,9 +142,15 @@ public final class OwnerApproval: Identifiable {
         task = nil
         timeout?.cancel()
         timeout = nil
-        context?.invalidate()
-        context = nil
+        authentication?.invalidate()
+        authentication = nil
     }
+}
+
+/// An approval carried into a cancellation handler, which runs off the main actor and only hops back to it.
+private struct UncheckedAuthentication: @unchecked Sendable {
+    let value: any OwnerAuthentication
+    init(_ value: any OwnerAuthentication) { self.value = value }
 }
 
 /// A question that needs Josh's approval and nothing else, beside his
@@ -156,12 +164,15 @@ public struct MacQuestionPanelView: View {
     let title: String
     let message: String
     let approval: OwnerApproval
+    /// Renders draw any approver on any Mac; nil reads macOS.
+    let approverInRender: MacApproverKind?
 
-    public init(lead: String, title: String, message: String, approval: OwnerApproval) {
+    public init(lead: String, title: String, message: String, approval: OwnerApproval, approverInRender: MacApproverKind? = nil) {
         self.lead = lead
         self.title = title
         self.message = message
         self.approval = approval
+        self.approverInRender = approverInRender
     }
 
     public var body: some View {
@@ -176,14 +187,12 @@ public struct MacQuestionPanelView: View {
         // No cancel on disappear: the presenter invalidates the approval when it takes the panel down.
     }
 
-    /// Clicking opens macOS's Touch ID or Apple Watch dialog; while it is up, the button says what to do.
-    /// When neither could be asked, the button asks again.
+    /// Clicking opens macOS's dialog; while it is up, the button says what to do.
+    /// When it could not be asked, the button asks again.
     private var approve: KeyringAction {
-        guard approval.context != nil else { return .approve(SetupCopy.tryAgain) { approval.retry() } }
-        let touchID = ownerApprovalSymbol() == "touchid"
-        let title = approval.isWaiting ? (touchID ? AccessRequestCopy.useTouchID : AccessRequestCopy.useWatch)
-            : (touchID ? AccessRequestCopy.clickForTouchID : AccessRequestCopy.clickForWatch)
-        return .approve(title, isEnabled: !approval.isWaiting) { approval.begin() }
+        guard approval.canBegin else { return .approve(SetupCopy.tryAgain) { approval.retry() } }
+        let title = AccessRequestCopy.approveTitle(approverInRender ?? MacApprover.shared.approver, waiting: approval.isWaiting)
+        return .approve(title ?? AccessRequestCopy.noApprover, isEnabled: !approval.isWaiting && title != nil) { approval.begin() }
     }
 }
 

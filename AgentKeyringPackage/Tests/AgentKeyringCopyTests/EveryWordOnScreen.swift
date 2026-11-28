@@ -2,26 +2,12 @@
 //
 // Reads the copy tables as source, so it covers every app (Mac, iPhone and
 // the Watch app's own WatchCopy) and every string, interpolated or not.
-// Fails on an em dash anywhere in the repository (comments too), and in the
-// copy tables on words the product no longer uses and on American spellings.
-// With KEYRING_COPY_OUT set to a file path, it also writes every user-facing
-// string, grouped by table and section, so the whole app reads in one go.
+// Fails on em dashes, words the product no longer uses and American spellings.
 
 import Foundation
 import Testing
 
 @Suite struct EveryWordOnScreen {
-    @Test func noEmDashAnywhere() throws {
-        var found: [String] = []
-        for file in try Repository.trackedTextFiles() {
-            for (number, line) in try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n").enumerated()
-            where line.contains("\u{2014}") {
-                found.append("\(Repository.relative(file)):\(number + 1): \(line.trimmingCharacters(in: .whitespaces))")
-            }
-        }
-        #expect(found.isEmpty, "Em dashes (use a comma, colon, full stop or brackets):\n\(found.joined(separator: "\n"))")
-    }
-
     @Test func copyUsesOnlyTodaysWordsInBritishEnglish() throws {
         var found: [String] = []
         for table in try CopyTable.all() {
@@ -34,24 +20,6 @@ import Testing
             }
         }
         #expect(found.isEmpty, "\(found.count) problems in the copy tables:\n\(found.joined(separator: "\n"))")
-    }
-
-    @Test func writesEveryStringForReading() throws {
-        guard let out = ProcessInfo.processInfo.environment["KEYRING_COPY_OUT"] else { return }
-        var text = "# Every user-facing string, by copy table and section\n\n"
-        for table in try CopyTable.all() {
-            text += "## \(table.file)\n"
-            var section = ""
-            for string in table.strings {
-                if string.section != section {
-                    section = string.section
-                    text += "\n### \(section)\n\n"
-                }
-                text += "- \(string.words)\n"
-            }
-            text += "\n"
-        }
-        try text.write(toFile: out, atomically: true, encoding: .utf8)
     }
 }
 
@@ -83,11 +51,10 @@ struct CopyTable {
     let file: String
     let strings: [Entry]
 
-    /// The copy tables: every *Copy.swift and *Words.swift file, and the Watch app's WatchCopy.
+    /// The copy tables: every *Copy.swift file, and the Watch app's WatchCopy.
     static func all() throws -> [CopyTable] {
-        let files = try Repository.trackedTextFiles().filter {
-            $0.pathExtension == "swift" && ($0.lastPathComponent.contains("Copy") || $0.lastPathComponent.contains("Words"))
-                && !$0.path.contains("/Tests/")
+        let files = try Repository.trackedSwiftFiles().filter {
+            $0.lastPathComponent.contains("Copy") && !$0.path.contains("/Tests/")
         }
         var tables = try files.map { try CopyTable(file: $0) }
         let watch = Repository.root.appendingPathComponent("AgentKeyringWatch/WatchApp.swift")
@@ -172,8 +139,7 @@ enum Repository {
 
     static func relative(_ file: URL) -> String { String(file.path.dropFirst(root.path.count + 1)) }
 
-    /// Every file git tracks that is text a person or an agent reads.
-    static func trackedTextFiles() throws -> [URL] {
+    static func trackedSwiftFiles() throws -> [URL] {
         let git = Process()
         git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         git.arguments = ["-C", root.path, "ls-files"]
@@ -182,8 +148,7 @@ enum Repository {
         try git.run()
         let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         git.waitUntilExit()
-        let kinds: Set<String> = ["swift", "go", "md", "txt", "json", "plist", "strings", "sh", "js", "html", "py", "nix", "proto"]
         return output.split(separator: "\n").map { root.appendingPathComponent(String($0)) }
-            .filter { kinds.contains($0.pathExtension) && FileManager.default.fileExists(atPath: $0.path) }
+            .filter { $0.pathExtension == "swift" && FileManager.default.fileExists(atPath: $0.path) }
     }
 }

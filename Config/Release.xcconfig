@@ -4,5 +4,7 @@
 
 #include "Shared.xcconfig"
 
-// No additional release-specific overrides needed
-// All release settings use Xcode project defaults
+// Developer ID builds: Production, set outright. Left out, a Developer ID Mac app uses
+// CloudKit's Development environment without saying so.
+AGENT_KEYRING_CLOUDKIT_ENVIRONMENT = Production
+AGENT_KEYRING_APNS_ENVIRONMENT = production

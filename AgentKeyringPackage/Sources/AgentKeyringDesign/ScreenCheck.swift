@@ -25,7 +25,7 @@ public struct KeyringScreen: Sendable, Hashable {
     }
 
     /// The screens a part or page is checked on, on the platform the check runs on.
-    public static func all(for kind: KeyringGalleryEntry.Kind) -> [KeyringScreen] {
+    public static func all(for kind: KeyringGalleryEntryKind) -> [KeyringScreen] {
         switch kind {
         case .macWindow:
             [.init("light", size: KeyringSize.macWindow, scrolls: false), .init("dark", size: KeyringSize.macWindow, scrolls: false, colorScheme: .dark)]
@@ -50,7 +50,7 @@ public struct KeyringCheckResult {
 
 @MainActor
 public enum ScreenCheck {
-    public static func run(_ view: some View, on screen: KeyringScreen) -> KeyringCheckResult {
+    public static func runLayoutCheck(_ view: some View, on screen: KeyringScreen) -> KeyringCheckResult {
         func prepared(_ audit: KeyringAudit?) -> some View {
             view
                 .environment(\.keyringAudit, audit)
@@ -76,23 +76,73 @@ public enum ScreenCheck {
     }
 
     #if os(macOS)
+    private final class RetinaOffscreenWindow: NSWindow {
+        override var backingScaleFactor: CGFloat { 2.0 }
+        override var isKeyWindow: Bool { true }
+        override var isMainWindow: Bool { true }
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { true }
+    }
+
+    private static func applyRetinaScale(to view: NSView) {
+        view.wantsLayer = true
+        view.layer?.contentsScale = 2.0
+        for subview in view.subviews { applyRetinaScale(to: subview) }
+    }
+
+    private static func applyRetinaScale(to layer: CALayer) {
+        layer.contentsScale = 2.0
+        for sublayer in layer.sublayers ?? [] { applyRetinaScale(to: sublayer) }
+    }
+
     private static func height(_ root: some View, width: CGFloat) -> CGFloat {
         NSHostingView(rootView: root.frame(width: width)).fittingSize.height
     }
 
     private static func draw(_ root: some View, _ size: CGSize, _ scheme: ColorScheme) -> CGImage? {
-        let host = NSHostingView(rootView: root.frame(width: size.width, height: size.height).background(KeyringPalette.surface))
+        let host = NSHostingView(
+            rootView: root
+                .frame(width: size.width, height: size.height)
+                .background(KeyringPalette.canvas)
+                .environment(\.displayScale, 2.0)
+                .environment(\.controlActiveState, .key)
+        )
         host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        let window = RetinaOffscreenWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.appearance = appearance
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         var image: CGImage?
+        let pxW = max(1, Int((host.bounds.width * 2.0).rounded()))
+        let pxH = max(1, Int((host.bounds.height * 2.0).rounded()))
         // Twice: the first pass settles layout that depends on measured sizes.
         for _ in 0..<2 {
+            applyRetinaScale(to: host)
+            if let layer = host.layer { applyRetinaScale(to: layer) }
             RunLoop.main.run(until: .now.addingTimeInterval(0.15))
-            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
-            host.cacheDisplay(in: host.bounds, to: bitmap)
+            applyRetinaScale(to: host)
+            if let layer = host.layer { applyRetinaScale(to: layer) }
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: pxW,
+                pixelsHigh: pxH,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ) else { continue }
+            bitmap.size = host.bounds.size
+            if let appearance {
+                appearance.performAsCurrentDrawingAppearance {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                }
+            } else {
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+            }
             image = bitmap.cgImage
         }
         window.contentView = nil
@@ -118,7 +168,7 @@ public enum ScreenCheck {
             controller.view.layoutIfNeeded()
             RunLoop.main.run(until: .now.addingTimeInterval(0.15))
             let format = UIGraphicsImageRendererFormat()
-            format.scale = 2
+            format.scale = 3
             image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { context in
                 window.layer.render(in: context.cgContext)
             }.cgImage

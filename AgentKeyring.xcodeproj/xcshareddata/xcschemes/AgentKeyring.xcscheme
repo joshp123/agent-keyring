@@ -35,17 +35,6 @@
          </TestPlanReference>
       </TestPlans>
       <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "8BC265732DEDD3F500F279A4"
-               BuildableName = "AgentKeyring.xctest"
-               BlueprintName = "AgentKeyringUITests"
-               ReferencedContainer = "container:AgentKeyring.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

@@ -4,8 +4,9 @@
 // first run's step 1, or one sent to this Mac from Devices.
 
 #if os(macOS)
+import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
-import AgentKeyringFeature
+import AgentKeyringEngine
 import Foundation
 import LocalAuthentication
 import Observation
@@ -14,10 +15,10 @@ import Observation
 @MainActor
 public final class SelfTestBackend: MacApprovalBackend {
     public static let requestID = "agent-keyring-self-test"
-    private let model: MirrorAppModel
+    private let model: MacKeyringEngine
     private var context: LAContext?
 
-    public init(model: MirrorAppModel) {
+    public init(model: MacKeyringEngine) {
         self.model = model
     }
 
@@ -33,14 +34,14 @@ public final class SelfTestBackend: MacApprovalBackend {
                 .approved(by: .mac, until: model.testedAt ?? .now)
             }
         }
-        return .practice(id: Self.requestID, state: state)
+        return .practiceAccessRequest(id: Self.requestID, state: state)
     }
 
-    public func updates(requestID: String) -> AsyncStream<AccessRequest> {
+    public func accessRequestUpdates(requestID: String) -> AsyncStream<AccessRequest> {
         streamUntilFinal(Observations { [weak self] in self?.request })
     }
 
-    public func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
+    public func approveAccessRequest(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
         // The request he clicked on: a late Touch ID answers only that one.
         let practice = model.firstRun.waitingPractice
         let context = LAContext()
@@ -48,7 +49,7 @@ public final class SelfTestBackend: MacApprovalBackend {
         defer { if self.context === context { self.context = nil } }
         do {
             try await model.runSelfTest(reason: MessageCopy.practiceInDialog, context: context, onAuthenticated: onAuthenticated)
-            if let practice { model.send(.practiceApproved(id: practice)) }
+            if let practice { model.sendFirstRunEvent(.practiceApproved(id: practice)) }
             model.notePracticeHere(.approved(at: .now))
         } catch let error as CredentialReleaseAuthorizationError where error.isCancel {
             throw CancellationError()
@@ -61,9 +62,9 @@ public final class SelfTestBackend: MacApprovalBackend {
         context = nil
     }
 
-    public func deny(requestID: String, reply: String?) async throws -> AccessRequestState {
+    public func denyAccessRequest(requestID: String, reply: String?) async throws -> AccessRequestState {
         cancelAuthentication(requestID: requestID)
-        if let practice = model.firstRun.waitingPractice { model.send(.practiceDenied(id: practice, reply: reply ?? "")) }
+        if let practice = model.firstRun.waitingPractice { model.sendFirstRunEvent(.practiceDenied(id: practice, reply: reply ?? "")) }
         model.notePracticeHere(.denied(at: .now, reply: reply ?? ""))
         return request.state
     }

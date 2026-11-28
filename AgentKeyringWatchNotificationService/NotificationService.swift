@@ -7,7 +7,6 @@
 // for the app's own layout.
 
 import AgentKeyringSealing
-import AgentKeyringWatchCore
 import UserNotifications
 
 final class NotificationService: UNNotificationServiceExtension {
@@ -16,31 +15,19 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
             contentHandler(request.content); return
         }
-        let log = DeviceLog(device: "watch-notice")
-        var arriving: WatchRequest?
+        let log = KeyringDiagnosticLog.watch
         do {
-            let saved = WatchStore().read()
+            let saved = WatchKeychainStateStore().readWatchState()
             let opened = try WatchRequest.from(userInfo: content.userInfo, keys: WatchKeys(), saved: saved)
-            WatchWords.write(opened, into: content, breaksThroughFocus: saved.breaksThroughFocus)
+            WatchRequestDisplayCopy.fillNotificationContent(opened, into: content, breaksThroughFocus: saved.breaksThroughFocus)
             // An approval from any device arrives here as its outcome: record it in the dedicated
             // in-use store without ever writing saved.v3 (owned by the main Watch app).
-            WatchStore().noteOutcome(opened)
-            log.note("push", "named", ["request": opened.id])
-            if case .waiting = opened.state { arriving = opened }
+            WatchKeychainStateStore().noteOutcome(opened)
+            log.noteDeviceEvent("push", "named", ["request": opened.id])
         } catch {
-            log.note("push", "refused", ["reason": "\(error)"])
-            WatchWords.writeFallback(into: content)
+            log.noteDeviceEvent("push", "refused", ["reason": "\(error)"])
+            WatchRequestDisplayCopy.writeFallback(into: content)
         }
-        guard let arriving else { return contentHandler(content) }
-        // The relay hears that the request reached the wrist.
-        let done = UncheckedContent(handler: contentHandler, content: content)
-        ArrivalNote.send(request: arriving.id, log: log, { try await WatchAnswers().arrived(arriving) }, show: done.call)
+        contentHandler(content)
     }
-}
-
-/// The content handler and the content, carried into the task that calls it once.
-private struct UncheckedContent: @unchecked Sendable {
-    let handler: (UNNotificationContent) -> Void
-    let content: UNNotificationContent
-    func call() { handler(content) }
 }

@@ -9,8 +9,6 @@
 import AgentKeyringApprovalCore
 import AgentKeyringDesign
 import AppKit
-import LocalAuthentication
-import LocalAuthenticationEmbeddedUI
 import Observation
 import OSLog
 import SwiftUI
@@ -18,17 +16,11 @@ import SwiftUI
 private let approvalLogger = Logger(subsystem: "com.agentkeyring.app", category: "Approval")
 
 public func ownerAuthenticationFailure(_ error: Error, fallback: String) -> String {
-    let native = error as NSError
-    if native.domain == LAError.errorDomain, let code = LAError.Code(rawValue: native.code) {
-        switch code {
-        case .systemCancel, .appCancel, .userCancel:
-            return "Approval was interrupted."
-        case .companionNotAvailable, .biometryNotAvailable, .biometryNotEnrolled, .biometryNotPaired, .biometryDisconnected:
-            return "Touch ID or Apple Watch isn't available. Check that one is ready."
-        default: break
-        }
+    switch OwnerAuthenticationFailure(error) {
+    case .interrupted: "Approval was interrupted."
+    case .approverUnavailable: AccessRequestCopy.approverUnavailable()
+    case .other: (error as? LocalizedError)?.errorDescription ?? fallback
     }
-    return (error as? LocalizedError)?.errorDescription ?? fallback
 }
 
 /// Everything the Mac panel needs from the outside world.
@@ -36,49 +28,58 @@ public func ownerAuthenticationFailure(_ error: Error, fallback: String) -> Stri
 public protocol MacApprovalBackend: AnyObject {
     /// The request now, then each time it changes: answered on the iPhone,
     /// withdrawn by the agent, unanswered at its deadline. Ends when it is final.
-    func updates(requestID: String) -> AsyncStream<AccessRequest>
+    func accessRequestUpdates(requestID: String) -> AsyncStream<AccessRequest>
     /// Asks for Touch ID or the Watch in macOS's own dialog, then records the
     /// answer. `onAuthenticated` runs once Josh has confirmed, before the
     /// answer is sent. Returns the new state.
-    func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState
+    func approveAccessRequest(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState
     /// Closes a dialog still waiting for Touch ID or the Watch.
     func cancelAuthentication(requestID: String)
     /// A reply to an agent on another machine is signed, so it asks for Touch ID too.
-    func deny(requestID: String, reply: String?) async throws -> AccessRequestState
+    func denyAccessRequest(requestID: String, reply: String?) async throws -> AccessRequestState
     /// Lifts the 30-minute hold-off a denial puts on this login, so the agent may ask again.
     func allowAskingAgain(requestID: String) async throws -> AccessRequestState
+}
+
+/// What Josh is doing in this panel. The request's own state is the
+/// backend's alone; this only says what he has started here and how it went.
+public enum ApprovalPanelLocalAction: Equatable, Sendable {
+    case idle
+    /// macOS's dialog is waiting for Touch ID or the Watch.
+    case authenticating
+    /// His answer is on its way.
+    case sending(AnswerChoice)
+    /// He denied it here, so the password is held off for 30 minutes.
+    case denied
+    /// He lifted the hold-off here ("Let it ask again").
+    case lifted
+    /// What he started didn't go through; he can try again.
+    case failed(String)
 }
 
 @MainActor
 @Observable
 public final class MacApprovalModel {
-    /// What Josh is doing in this panel. The request's own state is the
-    /// backend's alone; this only says what he has started here and how it went.
-    public enum Local: Equatable, Sendable {
-        case idle
-        /// macOS's dialog is waiting for Touch ID or the Watch.
-        case authenticating
-        /// His answer is on its way.
-        case sending(AnswerChoice)
-        /// He denied it here, so the password is held off for 30 minutes.
-        case denied
-        /// He lifted the hold-off here ("Let it ask again").
-        case lifted
-        /// What he started didn't go through; he can try again.
-        case failed(String)
-    }
 
     /// The request as the backend last reported it.
     private var reported: AccessRequest
-    public private(set) var local = Local.idle
+    public private(set) var local = ApprovalPanelLocalAction.idle
     /// Other requests queued behind this one.
     public var moreWaiting: Int
     /// What Josh has typed for the agent. Deny sends it; empty means a plain denial.
     public var replyDraft = ""
-    /// The lid is shut, so Touch ID is off.
-    public var lidClosed: Bool { lidClosedInRender ?? (MacApprover.shared.state == .lidClosed) }
-    /// Renders draw either lid state on any Mac.
-    var lidClosedInRender: Bool?
+    /// The reply box is open. Kept here, not in the view, so focusing the panel again keeps it and its draft.
+    public var isReplying = false
+    /// Why this Mac can't approve now: the lid is shut, or the Touch ID keyboard is gone. Nil when it can.
+    public var cannotApproveHere: MacApproverState? {
+        let state = stateInRender ?? MacApprover.shared.state
+        return state == .lidClosed || state == .touchIDMissing ? state : nil
+    }
+    /// Renders draw any state, and any approver, on any Mac.
+    var stateInRender: MacApproverState?
+    var approverInRender: MacApproverKind?
+    /// What approves on this Mac now, for the green button's words.
+    var approver: MacApproverKind { approverInRender ?? MacApprover.shared.approver }
     /// The iPhone or Apple Watch also has this request, so it can be answered there.
     public var approvesElsewhere = false
     /// Called when Josh is done with the panel.
@@ -117,16 +118,16 @@ public final class MacApprovalModel {
     }
 
     /// Josh clicked Approve: macOS asks for Touch ID or the Watch.
-    public func approve() {
+    public func approveAccessRequest() {
         guard canStart, reported.state.isWaitingForYou else { return }
         local = .authenticating
         Task {
             do {
-                let state = try await backend.approve(requestID: reported.id) { self.local = .sending(.approve) }
+                let state = try await backend.approveAccessRequest(requestID: reported.id) { self.local = .sending(.approve) }
                 reported.state = state
                 endApproval(.idle)
                 if !state.isWaitingForYou { answered() }
-            } catch where Self.isCancel(error) {
+            } catch where OwnerAuthenticationFailure.isCancel(error) {
                 endApproval(.idle)
             } catch {
                 let native = error as NSError
@@ -137,7 +138,7 @@ public final class MacApprovalModel {
     }
 
     /// A Deny clicked while macOS's dialog was up has taken over; the dialog's end leaves it alone.
-    private func endApproval(_ next: Local) {
+    private func endApproval(_ next: ApprovalPanelLocalAction) {
         if local == .authenticating || local == .sending(.approve) { local = next }
     }
 
@@ -147,33 +148,24 @@ public final class MacApprovalModel {
         backend.cancelAuthentication(requestID: reported.id)
     }
 
-    /// Cancel, Escape, clicking away or closing the panel: not an answer.
-    /// Backends report those as `CancellationError` or as LocalAuthentication's own cancels.
-    private static func isCancel(_ error: Error) -> Bool {
-        if error is CancellationError { return true }
-        let native = error as NSError
-        guard native.domain == LAError.errorDomain, let code = LAError.Code(rawValue: native.code) else { return false }
-        return [.userCancel, .systemCancel, .appCancel].contains(code)
-    }
-
     /// Test only: an update from the backend.
     func replace(_ latest: AccessRequest) async { reported = latest }
 
     /// Follows the request until the panel closes. Call from `.task`.
     public func followUpdates() async {
-        for await latest in backend.updates(requestID: reported.id) {
+        for await latest in backend.accessRequestUpdates(requestID: reported.id) {
             reported = latest
             if !latest.state.isWaitingForYou { cancelApproval(); answered() }
         }
     }
 
-    public func deny() async {
+    public func denyAccessRequest() async {
         cancelApproval()
         let reply = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard local == .idle || local == .authenticating || failure != nil else { return }
         local = .sending(.deny)
         do {
-            reported.state = try await backend.deny(requestID: reported.id, reply: reply.isEmpty ? nil : reply)
+            reported.state = try await backend.denyAccessRequest(requestID: reported.id, reply: reply.isEmpty ? nil : reply)
             local = .denied
             if !reported.state.isWaitingForYou { answered() }
         } catch {
@@ -199,19 +191,6 @@ public final class MacApprovalModel {
     }
 }
 
-/// Touch ID when the lid is open, otherwise the Watch.
-public func ownerApprovalSymbol(_ context: LAContext = LAContext()) -> String {
-    canAsk(context, .deviceOwnerAuthenticationWithBiometrics) ? "touchid" : "applewatch"
-}
-
-/// Whether macOS can ask for this policy now; always, with the stand-in key.
-func canAsk(_ context: LAContext, _ policy: LAPolicy) -> Bool {
-    #if DEBUG
-    if StandInKey.isOn { return true }
-    #endif
-    return context.canEvaluatePolicy(policy, error: nil)
-}
-
 /// Hosts the panel beside the window Josh is working in (see
 /// ApprovalPanelPlacement). Non-activating: the app Josh is typing in keeps focus until
 /// he clicks the panel.
@@ -222,6 +201,14 @@ public final class MacApprovalPanelController {
     public init() {}
 
     private var requestHost: RequestPanelHost?
+
+    /// The request on screen now, if any.
+    public var shownRequestID: String? { requestHost?.model.request.id }
+
+    /// Brings the request already on screen forward, keeping its reply draft; `openReply` opens its reply box.
+    public func focus(openReply: Bool) {
+        requestHost?.focus(openReply: openReply)
+    }
 
     public func show(_ model: MacApprovalModel) {
         close()
@@ -234,6 +221,7 @@ public final class MacApprovalPanelController {
 
     func showPanel(_ content: some View) {
         close()
+        MacApprover.shared.refresh()
         let panel = KeyringPanel.floating(content)
         panel.setFrame(ApprovalPanelPlacement.frame(panel: panel.frame.size,
             focusedWindow: ApprovalPanelPlacement.focusedWindow(), pointer: NSEvent.mouseLocation,

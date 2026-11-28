@@ -4,6 +4,8 @@
 // at Dynamic Type sizes, hairlines instead of cards. Change a value here and
 // every screen follows.
 
+import AgentKeyringApprovalCore
+import AgentKeyringDesign
 import SwiftUI
 
 public enum KeyringColour {
@@ -59,17 +61,6 @@ extension NSColor {
 }
 #endif
 
-/// A 0.5 pt rule, the only divider the screens use.
-public struct Hairline: View {
-    public init() {}
-    public var body: some View {
-        Rectangle()
-            .fill(.separator)
-            .frame(height: 0.5)
-            .accessibilityHidden(true)
-    }
-}
-
 /// Filled, full-width, strongly coloured: Approve and Deny. With a quiet
 /// fill and coloured text for the secondary answers (End now, Done).
 public struct DecisionButtonStyle: ButtonStyle {
@@ -111,5 +102,16 @@ extension ButtonStyle where Self == DecisionButtonStyle {
     /// A light fill with coloured text, for the answers that aren't Approve or Deny.
     public static func quiet(text: Color = .primary, height: CGFloat = KeyringMetric.buttonHeight) -> Self {
         DecisionButtonStyle(colour: Color.primary.opacity(0.08), text: text, height: height)
+    }
+}
+
+extension LoginRule {
+    /// How the rule's pill looks.
+    public var visual: KeyringRuleVisual {
+        switch self {
+        case .ask: .ask
+        case .automatic: .automatic
+        case .blocked: .blocked
+        }
     }
 }

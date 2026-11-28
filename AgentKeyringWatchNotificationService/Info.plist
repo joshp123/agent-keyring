@@ -6,11 +6,6 @@
     <string>Agent Keyring</string>
     <key>AgentKeyringKeychainGroup</key>
     <string>$(AppIdentifierPrefix)$(AGENT_KEYRING_BUNDLE_ID).watch</string>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-    </dict>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionPointIdentifier</key>

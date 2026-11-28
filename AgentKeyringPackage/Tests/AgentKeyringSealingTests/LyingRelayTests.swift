@@ -2,7 +2,7 @@
 // A relay that lies about which password a request is for. The relay writes
 // the request and sends a login beside it; only the Catalogue is signed. The
 // iPhone and Apple Watch name and approve a request from the signed Catalogue
-// (Sealing.signedLogin), so a bank password can't be passed off as example.com.
+// (CredentialSealing.signedLogin), so a bank password can't be passed off as example.com.
 // Below it, the push environment read from the signing profile.
 
 import AgentKeyringProtocol
@@ -33,21 +33,21 @@ struct LyingRelayTests {
 
     /// The relay asks for the bank password and sends example.com's details beside it.
     @Test func theSignedCatalogueNamesTheRequestNotTheRelay() throws {
-        var work = Agentkeyring_V2_Work()
-        work.request = try request(for: "bank").serializedData()
-        work.login = login("example", "example.com")  // the lie
-        let named = try Sealing.signedLogin(for: Sealing.parseRequest(work.request), in: catalogue)
+        var envelope = Agentkeyring_V2_SignedRequestEnvelope()
+        envelope.request = try request(for: "bank").serializedData()
+        envelope.login = login("example", "example.com")  // the lie
+        let named = try CredentialSealing.signedLogin(for: CredentialSealing.parseRequest(envelope.request), in: catalogue)
         #expect(named.sites == ["https://bank.example"])
         #expect(named.account == "you@bank.example")
     }
 
     @Test func aBlockedPasswordCanNotBeApproved() {
-        #expect(throws: Sealing.Failure.notAllowedForSigner) { try Sealing.signedLogin(for: request(for: "blocked"), in: catalogue) }
+        #expect(throws: CredentialSealingError.notAllowedForSigner) { try CredentialSealing.signedLogin(for: request(for: "blocked"), in: catalogue) }
     }
 
     @Test func aPasswordMissingFromTheCatalogueCanNotBeApproved() {
-        #expect(throws: Sealing.Failure.wrongLogin) { try Sealing.signedLogin(for: request(for: "invented"), in: catalogue) }
-        #expect(throws: Sealing.Failure.wrongLogin) { try Sealing.signedLogin(for: request(for: "bank"), in: nil) }
+        #expect(throws: CredentialSealingError.wrongLogin) { try CredentialSealing.signedLogin(for: request(for: "invented"), in: catalogue) }
+        #expect(throws: CredentialSealingError.wrongLogin) { try CredentialSealing.signedLogin(for: request(for: "bank"), in: nil) }
     }
 
     /// The relay sends the bank's sealed copy with a request for example.com: the approval refuses to carry it.
@@ -55,8 +55,8 @@ struct LyingRelayTests {
         var secret = Agentkeyring_V2_LoginSecret()
         secret.loginID = "bank"; secret.username = "josh"; secret.password = "bank-password"
         let machine = P256.KeyAgreement.PrivateKey()
-        #expect(throws: Sealing.Failure.notForThisRequest) {
-            try Sealing.approve(request: request(for: "example").serializedData(), secret: secret, sites: ["https://example.com"],
+        #expect(throws: CredentialSealingError.notForThisRequest) {
+            try CredentialSealing.buildSignedApproval(request: request(for: "example").serializedData(), secret: secret, sites: ["https://example.com"],
                                 receivingKey: machine.publicKey, signerKeyID: "device") { _ in Data() }
         }
     }

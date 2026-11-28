@@ -18,38 +18,51 @@ enum MacGallery {
     private static let phone = "iPhone"
     private static let computer = "Research Team Linux Build Server"
     private static let reply = "Use the invoice already in my Downloads folder instead, it is the same one, then carry on with the report."
-    private static let command = DeviceSheetCopy.enrolCommand("agentkeyring://join?invite=CiBhNWYzZTk4YzQxN2IyMGQ2ZjE5ODBhN2M1ZTNiMjQxMBIRUmVzZWFyY2ggVGVhbSBNYWMaCjEwMC42NC4wLjI")
+    private static let command = DeviceSheetCopy.enrolCommand("HCFG-X72D-59SP-1DF8-3G7S-MFBE-44")
 
     static var entries: [KeyringGalleryEntry] {
-        firstRun + guideSteps + sheets + cards
+        thisMac + firstRun + sheets + cards
+    }
+
+    // MARK: Before first run, on a Mac with no Touch ID
+
+    private static var thisMac: [KeyringGalleryEntry] {
+        let failure = MessageCopy.keysNotMade(NSError(domain: "com.apple.LocalAuthentication", code: -1000,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to get the biometric database hash for this Mac’s keys."]))
+        return [
+            .init("this-mac-ask", .macWindow) { ThisMacPage(.askHowUsed, actions: .init()) },
+            .init("this-mac-for-agents", .macWindow) { ThisMacPage(.forAgents, actions: .init()) },
+            .init("this-mac-personal", .macWindow) { ThisMacPage(.personalMac(failure: nil), actions: .init()) },
+            .init("this-mac-personal-failed", .macWindow) { ThisMacPage(.personalMac(failure: failure), actions: .init()) },
+            .init("this-mac-no-secure-enclave", .macWindow) { ThisMacPage(.noSecureEnclave, actions: .init()) },
+            .init("this-mac-keys-failed", .macWindow) { ThisMacPage(.keysFailed(failure), actions: .init()) },
+        ]
     }
 
     // MARK: First run
 
-    private static func practice(_ state: MacPracticePage.State, _ approver: MacApprover.State = .ready) -> MacPracticePage {
-        MacPracticePage(state, approver: approver, actions: .init())
-    }
-
-    private static func copy(_ state: MacCopyPage.State, step: Int = 1, earlier: Bool = false, inFirstRun: Bool = true,
-                             items: Int? = nil) -> MacCopyPage {
-        MacCopyPage(state, guideStep: step, earlierVersion: earlier, inFirstRun: inFirstRun, items: items, actions: .init())
-    }
-
-    /// Each of the guide's five steps, with and without the earlier version on this Mac.
-    private static var guideSteps: [KeyringGalleryEntry] {
-        (1...FirstRunCopy.guide.count).flatMap { step in
-            [false, true].map { earlier in
-                KeyringGalleryEntry("first-run-copy-guide-step-\(step)\(earlier ? "-earlier-version" : "")", .macWindow) {
-                    copy(.waiting, step: step, earlier: earlier)
-                }
-            }
-        }
+    private static func practice(_ state: MacPracticePageState, _ approver: MacApproverState = .ready,
+                                 mode: MacApprovalMode = .biometricOrCompanion) -> MacPracticePage {
+        MacPracticePage(state, approver: approver, mode: mode, actions: .init())
     }
 
     private static let agentNote = FirstRunCopy.agentNote(appPath: "/Applications/Agent Keyring.app")
 
+    private static let sampleReviewRows: [MacReviewPasswordRow] = [
+        .init(id: UUID(), displayName: "Cloudflare", host: "dash.cloudflare.com", account: "alex@example.com", categoryLabel: SelectiveImportCopy.categoryCodingTitle, isSelected: true, isSensitive: false),
+        .init(id: UUID(), displayName: "OpenAI", host: "platform.openai.com", account: "alex@example.com", categoryLabel: SelectiveImportCopy.categoryAITitle, isSelected: true, isSensitive: false),
+        .init(id: UUID(), displayName: "Claude", host: "console.anthropic.com", account: "alex@example.com", categoryLabel: SelectiveImportCopy.categoryAITitle, isSelected: true, isSensitive: false),
+        .init(id: UUID(), displayName: "AWS", host: "console.aws.amazon.com", account: "alex@example.com", categoryLabel: SelectiveImportCopy.categoryCodingTitle, isSelected: true, isSensitive: false),
+        .init(id: UUID(), displayName: "GitHub", host: "github.com", account: "alex-dev", categoryLabel: SelectiveImportCopy.categoryCodingTitle, isSelected: true, isSensitive: false),
+    ]
+
     private static var firstRun: [KeyringGalleryEntry] { [
-        .init("first-run-welcome", .macWindow) { MacWelcomePage {} },
+        .init("first-run-welcome", .macWindow) { MacWelcomePage(mode: .biometricOrCompanion) {} },
+        .init("first-run-welcome-mac-password", .macWindow) { MacWelcomePage(mode: .devicePassword) {} },
+        .init("first-run-welcome-iphone-found", .macWindow) { MacWelcomePage(mode: .devicePassword, iPhone: .found(name: "iPhone")) {} },
+        .init("first-run-welcome-iphone-asking", .macWindow) { MacWelcomePage(iPhone: .asking(name: "iPhone")) {} },
+        .init("first-run-welcome-iphone-not-added", .macWindow) { MacWelcomePage(iPhone: .notAdded(name: "iPhone")) {} },
+        .init("first-run-welcome-iphone-joined", .macWindow) { MacWelcomePage(iPhone: .joined(name: "iPhone")) {} },
         .init("first-run-practice-not-sent", .macWindow) { practice(.notSent) },
         .init("first-run-practice-waiting", .macWindow) { practice(.waiting) },
         .init("first-run-practice-approved", .macWindow) { practice(.approved) },
@@ -57,21 +70,62 @@ enum MacGallery {
         .init("first-run-practice-denied-with-reply", .macWindow) { practice(.denied(reply: reply)) },
         .init("first-run-practice-lid-closed", .macWindow) { practice(.notSent, .lidClosed) },
         .init("first-run-practice-needs-fingerprint", .macWindow) { practice(.notSent, .needsFingerprint) },
-        .init("first-run-copy-guide", .macWindow) { copy(.guide) },
-        .init("first-run-copy-taking-long", .macWindow) { copy(.noneArrived, step: 4) },
-        .init("first-run-copy-taking-long-step-2", .macWindow) { copy(.noneArrived, step: 2, earlier: true) },
-        .init("first-run-copy-taking-long-step-4-earlier-version", .macWindow) { copy(.noneArrived, step: 4, earlier: true) },
-        .init("first-run-copy-failed-step-4-earlier-version", .macWindow) {
-            copy(.failed("Passwords could not finish sending your passwords. Start the export again in Passwords. Your earlier copy was not changed."),
-                 step: 4, earlier: true)
+        .init("first-run-practice-touch-id-missing", .macWindow) { practice(.notSent, .touchIDMissing) },
+        .init("first-run-practice-mac-password", .macWindow) { practice(.notSent, mode: .devicePassword) },
+        .init("first-run-privacy", .macWindow) { MacPrivacyPage() },
+        .init("first-run-import-choose", .macWindow) { MacSelectiveImportPage(.init(step: .choose)) },
+        .init("first-run-import-pick-few", .macWindow) { MacSelectiveImportPage(.init(step: .pickFew(guideStep: 1))) },
+        .init("first-run-import-categories", .macWindow) { MacSelectiveImportPage(.init(step: .pickCategories)) },
+        .init("first-run-import-export-bridge", .macWindow) {
+            MacSelectiveImportPage(.init(step: .exportBridge(
+                selectedCategoryTitles: [SelectiveImportCopy.categoryCodingTitle, SelectiveImportCopy.categoryAITitle],
+                isAllPasswords: false
+            )))
         },
-        .init("first-run-copy-copying", .macWindow) { copy(.copying, step: 5) },
-        .init("first-run-copy-copied", .macWindow) { copy(.copied(count: 1_547), step: 5) },
-        .init("first-run-copy-failed", .macWindow) {
-            copy(.failed("Passwords could not finish sending your passwords. Start the export again in Passwords. Your earlier copy was not changed."), step: 2)
+        .init("first-run-import-review-filtered", .macWindow) {
+            MacSelectiveImportPage(.init(step: .review(
+                items: Self.sampleReviewRows,
+                isCategoryMode: true,
+                sensitiveExcludedCount: 0,
+                sensitiveExcludedExamples: [],
+                isSaving: false
+            )))
         },
-        .init("copy-from-main-window", .macPanel(width: KeyringSize.macWindow.width - KeyringSize.macSidebar)) {
-            copy(.waiting, step: 5, inFirstRun: false, items: 1_547)
+        .init("first-run-import-review-all", .macWindow) {
+            MacSelectiveImportPage(.init(step: .review(
+                items: Self.sampleReviewRows
+                    + (0..<486).map { i in
+                        MacReviewPasswordRow(id: UUID(), displayName: "Site \(i)", host: "site\(i).example", account: "", categoryLabel: nil, isSelected: false, isSensitive: false)
+                    }
+                    + (0..<29).map { i in
+                        MacReviewPasswordRow(id: UUID(), displayName: "Bank \(i)", host: "bank\(i).example", account: "", categoryLabel: SelectiveImportCopy.categorySensitiveLabel, isSelected: false, isSensitive: true)
+                    },
+                isCategoryMode: false,
+                sensitiveExcludedCount: 29,
+                sensitiveExcludedExamples: ["1Password (2)", "American Express Cards", "Wise", "HMRC", "Monzo"],
+                isSaving: false
+            )))
+        },
+        .init("first-run-import-receipt", .macWindow) {
+            MacSelectiveImportPage(.init(step: .receipt(.init(
+                filteredCount: 412,
+                savedCount: 6,
+                notSavedCount: 406,
+                savedSites: [
+                    .init(displayName: "Cloudflare", host: "cloudflare.com"),
+                    .init(displayName: "OpenAI", host: "openai.com"),
+                    .init(displayName: "Claude", host: "claude.ai"),
+                    .init(displayName: "GitHub", host: "github.com"),
+                    .init(displayName: "AWS", host: "aws.amazon.com"),
+                    .init(displayName: "Vercel", host: "vercel.com"),
+                ]
+            ))))
+        },
+        .init("add-password-sheet", .macPanel(width: MacAddPasswordSheet.width)) {
+            MacAddPasswordSheet(onSave: { _, _, _, _, _ in }, onCancel: {})
+        },
+        .init("first-run-import-syncing", .macWindow) {
+            MacSelectiveImportPage(.init(step: .syncingFromDevice(from: phone), status: .waiting(FirstRunCopy.copying), isBusy: true))
         },
         .init("allow-export-sheet", .macPanel(width: MacAllowExportSheet.width)) { MacAllowExportSheet(openSettings: {}, cancel: {}) },
         .init("first-run-connect-agent", .macWindow) { MacConnectAgentPage(.notTried, agentNote: agentNote, actions: .init()) },
@@ -88,14 +142,14 @@ enum MacGallery {
 
     // MARK: Adding an iPhone or a computer
 
-    private static func iPhone(_ state: MacAddIPhoneSheet.State) -> MacAddIPhoneSheet { MacAddIPhoneSheet(state, checkAgain: {}, close: {}) }
-    private static func computer(_ state: MacAddComputerSheet.State) -> MacAddComputerSheet { MacAddComputerSheet(state, actions: .init()) }
+    private static func iPhone(_ state: MacAddIPhoneSheetState) -> MacAddIPhoneSheet { MacAddIPhoneSheet(state, checkAgain: {}, close: {}) }
+    private static func computer(_ state: MacAddComputerSheetState) -> MacAddComputerSheet { MacAddComputerSheet(state, actions: .init()) }
 
     private static var sheets: [KeyringGalleryEntry] {
-        let width = KeyringGalleryEntry.Kind.macPanel(width: MacDeviceSheet.width)
+        let width = KeyringGalleryEntryKind.macPanel(width: MacDeviceSheet.width)
         return [
-            .init("add-iphone-no-tailscale", width) { iPhone(.noTailscale) },
-            .init("add-iphone-door-problem", width) { iPhone(.doorProblem(MessageCopy.doorClosed("another program is using port 17447."))) },
+            .init("add-iphone-no-icloud", width) { iPhone(.noICloud) },
+            .init("add-iphone-problem", width) { iPhone(.problem(MessageCopy.noKeysYet)) },
             .init("add-iphone-waiting", width) { iPhone(.waiting(notAdded: nil)) },
             .init("add-iphone-not-added", width) { iPhone(.waiting(notAdded: phone)) },
             .init("add-iphone-join-asked", width) { iPhone(.joinAsked(name: phone)) },
@@ -104,7 +158,6 @@ enum MacGallery {
                 iPhone(.stopped(name: phone, done: 1_250, total: 1_547, reason: "This Mac couldn’t save the copies."))
             },
             .init("add-iphone-added", width) { iPhone(.added(name: phone)) },
-            .init("add-computer-no-tailscale", width) { computer(.noTailscale) },
             .init("add-computer-starting", width) { computer(.starting) },
             .init("add-computer-invite", width) { computer(.invite(command: command, until: "14:32")) },
             .init("add-computer-join-asked", width) { computer(.joinAsked(name: computer)) },
@@ -131,17 +184,10 @@ enum MacGallery {
                       agentReason: "", askedAt: .now, state: state)
     }
 
-    private static func question(_ changes: (Int, Int, Int)) -> some View {
-        MacQuestionPanelView(lead: SetupCopy.sendChangesLead, title: SetupCopy.sendChangesTitle(changes.0 + changes.1 + changes.2),
-                             message: SetupCopy.sendChangesBody(added: changes.0, changed: changes.1, removed: changes.2),
-                             approval: OwnerApproval(action: SetupCopy.allow.lowercased(), reason: SetupCopy.sendChangesReason,
-                                                     perform: { _ in }, finish: { _ in }))
-    }
-
     private static var cards: [KeyringGalleryEntry] {
-        let width = KeyringGalleryEntry.Kind.macPanel(width: MacApprovalPanelView.width)
+        let width = KeyringGalleryEntryKind.macPanel(width: MacApprovalPanelView.width)
         let waiting = AccessRequestState.waitingForYou(until: .distantFuture)
-        let practice = AccessRequest.practice(id: "p", state: waiting)
+        let practice = AccessRequest.practiceAccessRequest(id: "p", state: waiting)
         return [
             .init("card-request", width) { ReviewRendering.panel(request(waiting)) },
             .init("card-request-from-another-computer", width) {
@@ -152,11 +198,16 @@ enum MacGallery {
             .init("card-request-typed-reply", width) { ReviewRendering.panel(request(waiting), reply: reply) },
             .init("card-request-waiting-for-touch-id", width) { ReviewRendering.panel(request(waiting), waiting: true) },
             .init("card-request-lid-closed", width) { ReviewRendering.panel(request(waiting), lidClosed: true, approvesElsewhere: true) },
+            .init("card-request-touch-id-missing", width) { ReviewRendering.panel(request(waiting), touchIDMissing: true) },
+            .init("card-request-touch-id-missing-elsewhere", width) { ReviewRendering.panel(request(waiting), touchIDMissing: true, approvesElsewhere: true) },
+            .init("card-request-mac-password", width) { ReviewRendering.panel(request(waiting), approver: .password) },
+            .init("card-request-waiting-for-mac-password", width) { ReviewRendering.panel(request(waiting), waiting: true, approver: .password) },
+            .init("card-request-watch", width) { ReviewRendering.panel(request(waiting), approver: .watch) },
             .init("card-request-approved", width) { ReviewRendering.panel(request(.approved(by: .mac, until: .now.addingTimeInterval(1_800)))) },
             .init("card-request-denied-with-reply", width) { ReviewRendering.panel(request(.denied(by: .mac, reply: reply, askAgainAfter: nil))) },
             .init("card-request-no-answer", width) { ReviewRendering.panel(request(.unanswered)) },
             .init("card-practice", width) { ReviewRendering.panel(practice) },
-            .init("card-practice-approved", width) { ReviewRendering.panel(.practice(id: "p", state: .approved(by: .mac, until: .now))) },
+            .init("card-practice-approved", width) { ReviewRendering.panel(.practiceAccessRequest(id: "p", state: .approved(by: .mac, until: .now))) },
             .init("card-add-iphone", width) { ReviewRendering.panel(join(SetupCopy.addIPhoneLead, phone, SetupCopy.addIPhoneBody, replies: false)) },
             .init("card-add-iphone-copying", width) {
                 ReviewRendering.panel(join(SetupCopy.addIPhoneLead, phone, SetupCopy.addIPhoneBody, replies: false,
@@ -170,13 +221,11 @@ enum MacGallery {
                 ReviewRendering.panel(join(SetupCopy.addComputerLead, computer, SetupCopy.addComputerBody, replies: true,
                                            state: .denied(by: .mac, reply: nil, askAgainAfter: nil)))
             },
-            .init("question-send-changes", width) { question((1_212, 24, 13)) },
-            .init("question-send-changes-removed-only", width) { question((0, 0, 2)) },
-            .init("question-send-changes-one", width) { question((0, 1, 0)) },
             .init("question-automatic-copies", width) {
                 MacQuestionPanelView(lead: SetupCopy.automaticCopiesLead, title: SetupCopy.automaticCopiesTitle, message: SetupCopy.automaticCopiesBody,
                                      approval: OwnerApproval(action: SetupCopy.allow.lowercased(), reason: SetupCopy.automaticCopiesReason,
-                                                             perform: { _ in }, finish: { _ in }))
+                                                             authenticate: { [world = SandboxWorld()] in SandboxOwnerAuthentication(world) },
+                                                             finish: { _ in }), approverInRender: .touchID)
             },
         ]
     }

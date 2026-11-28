@@ -9,6 +9,18 @@
 		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 		<string>$(AppIdentifierPrefix)$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring.shared</string>
 	</array>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.$(AGENT_KEYRING_BUNDLE_ID_PREFIX).AgentKeyring</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>$(AGENT_KEYRING_CLOUDKIT_ENVIRONMENT)</string>
+	<key>com.apple.developer.aps-environment</key>
+	<string>$(AGENT_KEYRING_APNS_ENVIRONMENT)</string>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.network.server</key>

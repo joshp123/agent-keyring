@@ -4,15 +4,21 @@
 // dark, for a design check against Paper. First run is drawn by the galleries (2026.11.21). Nothing appears on screen.
 // Since 2026.11.21 (claude opus 5.5) it also draws every Mac part and page
 // in the galleries through the cut-off check, and prints what it found.
+// Since 2026.11.27 (claude opus 5.5) the main window runs on the sandbox world:
+// the built-in one, or a keyring dumped with every password "hunter2"
+// (--bundle <file>).
+import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
 import AgentKeyringDesign
+import AgentKeyringSealing
 import AppKit
-import UniformTypeIdentifiers
-import LocalAuthentication
 import SwiftUI
+import UniformTypeIdentifiers
 
 _ = NSApplication.shared
-let out = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/tmp/panel-render")
+let arguments = Array(CommandLine.arguments.dropFirst())
+let bundlePath = arguments.firstIndex(of: "--bundle").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+let out = URL(fileURLWithPath: arguments.first { $0 != "--bundle" && $0 != bundlePath } ?? "/tmp/panel-render")
 try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 let request = AccessRequest(id: "r", login: RequestedLogin(site: "example.com", account: "you@example.com"),
     agent: RequestingAgent(name: "Codex", machine: "Mac mini", address: "100.64.0.2", folder: "~/code/bookkeeping", project: "bookkeeping"),
@@ -22,8 +28,8 @@ var plainFolder = request; plainFolder.agent.project = nil; plainFolder.agent.fo
 var home = request; home.agent.project = nil; home.agent.folder = "~"
 var approved = request; approved.state = .approved(by: .mac, until: .now.addingTimeInterval(1800))
 var denied = request; denied.state = .denied(by: .mac, reply: "The invoice is in my email. Use that.", askAgainAfter: nil)
-let practice = AccessRequest.practice(id: "practice", state: .waitingForYou(until: .distantFuture))
-let practiceApproved = AccessRequest.practice(id: "practice", state: .approved(by: .mac, until: .now))
+let practice = AccessRequest.practiceAccessRequest(id: "practice", state: .waitingForYou(until: .distantFuture))
+let practiceApproved = AccessRequest.practiceAccessRequest(id: "practice", state: .approved(by: .mac, until: .now))
 var cancelled = request; cancelled.state = .cancelled
 let addComputer = AccessRequest(id: "c", login: RequestedLogin(site: "Mac mini", account: ""),
     agent: RequestingAgent(name: "Claude Code", machine: "", address: "", isLocal: true),
@@ -63,34 +69,37 @@ let cases: [(String, AnyView)] = [
     ("practice-approved", AnyView(ReviewRendering.panel(practiceApproved))),
     ("menu-bar-tip", AnyView(MenuBarTipView())),
 ]
-final class StubBackend: MainWindowBackend {
-    func updates() -> AsyncStream<MainSnapshot> { AsyncStream { $0.finish() } }
-    func saveRules(_ changes: [UUID: LoginRule], context: LAContext) async throws {}
-    func remove(id: String, context: LAContext) async throws {}
-    func rename(id: String, to newName: String, context: LAContext) async throws {}
-    func importAgain() {}
-    func sendPractice(deviceID: String) {}
-    func sendUpdates() {}
+/// The built-in sandbox world, seen from its MacBook Pro, or a dumped one (--bundle <file>).
+@MainActor func world(sampleOnly: Bool = false) -> SandboxWorld {
+    var state = SandboxState.builtIn()
+    if let bundlePath {
+        do { state = try SandboxBundleCodec.state(from: Data(contentsOf: URL(fileURLWithPath: bundlePath))) } catch {
+            print("Couldn't read the bundle at \(bundlePath): \(error)")
+            exit(1)
+        }
+    } else {
+        state.thisDeviceID = "macbook"
+        state.practice = ["iphone": .withApple]
+    }
+    if sampleOnly {
+        state.logins = state.logins.filter(\.isTestPassword)
+        state.devices = state.devices.filter { $0.kind == .mac }
+        state.mac.sampleOnly = true
+    }
+    return SandboxWorld(state)
 }
-let logins = [("example.com", LoginRule.ask, true), ("news.example", .ask, false), ("forum.example", .automatic, false), ("old.example", .blocked, false)]
-    .map { LoginRow(id: UUID(), site: $0.0, account: "you@example.com", rule: $0.1, asked: 3, approved: 2, denied: 1, isTestPassword: $0.2) }
-let everything = MainSnapshot(logins: logins, importedAt: .now,
-    approvers: [ApproverRow(id: "d1", kind: .thisMac, name: "MacBook Pro", canPractise: true),
-        ApproverRow(id: "d2", kind: .iPhone, name: "iPhone", practice: .arrived, canPractise: false),
-        ApproverRow(id: "d3", kind: .watch, name: "Apple Watch", canPractise: true)],
-    computers: [ComputerRow(id: "m2", name: "Mac mini"), ComputerRow(id: "m3", name: "Linux server")])
-@MainActor func mainWindow(_ snapshot: MainSnapshot, tab: MacMainModel.Tab) -> AnyView {
-    let model = MacMainModel(backend: StubBackend(), initial: snapshot)
+@MainActor func mainWindow(_ world: SandboxWorld, tab: MacMainWindowTab) -> AnyView {
+    let model = MacMainModel(backend: SandboxMainBackend(world), initial: world.state.macSnapshot)
     model.tab = tab
     return AnyView(MacMainWindowView(model: model) { _, _ in AnyView(EmptyView()) }.frame(width: 860, height: 640))
 }
 MainActor.assumeIsolated {
     // The main window in a real window, off screen, so its toolbar and native controls draw as macOS draws them.
     _ = NSApplication.shared
-    for (name, snapshot, tab) in [("window-passwords", everything, MacMainModel.Tab.logins), ("window-devices", everything, .devices),
-        ("window-sample-only", MainSnapshot(logins: [logins[0]], importedAt: .now, sampleOnly: true, approvers: [everything.approvers[0]]), .logins)] {
+    for (name, sampleOnly, tab) in [("window-passwords", false, MacMainWindowTab.logins), ("window-devices", false, .devices),
+        ("window-sample-only", true, .logins)] {
         for (appearance, label) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
-            let host = NSHostingController(rootView: mainWindow(snapshot, tab: tab))
+            let host = NSHostingController(rootView: mainWindow(world(sampleOnly: sampleOnly), tab: tab))
             host.sceneBridgingOptions = [.toolbars, .title]
             let window = NSWindow(contentViewController: host)
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
@@ -120,7 +129,7 @@ MainActor.assumeIsolated {
 MainActor.assumeIsolated {
     for entry in KeyringGallery.parts + PageGallery.entries {
         for screen in KeyringScreen.all(for: entry.kind) {
-            let result = ScreenCheck.run(entry.view, on: screen)
+            let result = ScreenCheck.runLayoutCheck(entry.view, on: screen)
             let name = "gallery-\(entry.id)-\(screen.name)"
             if let image = result.image, let destination = CGImageDestinationCreateWithURL(
                 out.appendingPathComponent(name + ".png") as CFURL, UTType.png.identifier as CFString, 1, nil) {

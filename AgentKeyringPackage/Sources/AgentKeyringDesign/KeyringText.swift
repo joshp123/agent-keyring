@@ -39,51 +39,49 @@ public enum KeyringTextRole: Sendable {
     /// A title inside such a picture.
     case pictureTitle
 
+    /// Strict 4-step Apple HIG type hierarchy in Allo:
+    /// 1. Title / Subject (DisplayBold: 22 to 26pt Mac, 28 to 30pt iPhone)
+    /// 2. Primary row / body / button (13pt Mac, 16pt iPhone: Medium for titles/buttons, Regular for body/numbers)
+    /// 3. Secondary / meta / caption (12pt Mac, 13pt iPhone: Regular, ink2)
+    /// 4. Section micro-label (11pt Mac, 12pt iPhone: Medium, uppercase tracked)
     var font: Font {
         #if os(macOS)
         switch self {
-        case .stepMarker: .system(size: 13, weight: .semibold)
-        case .title: .system(size: 24, weight: .bold)
-        case .heroTitle: .system(size: 26, weight: .bold)
-        case .sentence, .body: .system(size: 15)
-        case .heading: .system(size: 15, weight: .semibold)
-        case .meta: .system(size: 13)
-        case .site: .system(size: 32, weight: .bold)
-        case .caption: .system(size: 12)
-        case .sectionName: .system(size: 11, weight: .semibold)
-        case .code: .system(size: 13, design: .monospaced)
-        case .label: .system(size: 13, weight: .semibold)
-        case .pictureText: .system(size: 10)
-        case .pictureTitle: .system(size: 11, weight: .semibold)
+        case .title: KeyringFont.fixed(KeyringFont.PostScript.displayBold, size: 22)
+        case .heroTitle: KeyringFont.fixed(KeyringFont.PostScript.displayBold, size: 24)
+        case .site: KeyringFont.fixed(KeyringFont.PostScript.displayBold, size: 26)
+        case .heading, .label: KeyringFont.fixed(KeyringFont.PostScript.medium, size: 13)
+        case .sentence, .body: KeyringFont.fixed(KeyringFont.PostScript.regular, size: 13)
+        case .meta, .caption: KeyringFont.fixed(KeyringFont.PostScript.regular, size: 12)
+        case .sectionName, .stepMarker: KeyringFont.fixed(KeyringFont.PostScript.medium, size: 11)
+        case .code: .system(size: 12, design: .monospaced)
+        case .pictureText: KeyringFont.fixed(KeyringFont.PostScript.regular, size: 10)
+        case .pictureTitle: KeyringFont.fixed(KeyringFont.PostScript.medium, size: 11)
         }
         #elseif os(watchOS)
         switch self {
-        case .stepMarker: .footnote.weight(.semibold)
-        case .title, .heroTitle: .headline
-        case .sentence, .meta, .caption, .sectionName: .footnote
-        case .body: .body
-        case .heading: .body.weight(.semibold)
-        case .site: .title3.weight(.bold)
+        case .title, .heroTitle: KeyringFont.scaled(KeyringFont.PostScript.displayBold, size: 17, relativeTo: .headline)
+        case .site: KeyringFont.scaled(KeyringFont.PostScript.displayBold, size: 19, relativeTo: .title3)
+        case .heading, .label: KeyringFont.scaled(KeyringFont.PostScript.medium, size: 15, relativeTo: .body)
+        case .body: KeyringFont.scaled(KeyringFont.PostScript.regular, size: 15, relativeTo: .body)
+        case .sentence, .meta, .caption: KeyringFont.scaled(KeyringFont.PostScript.regular, size: 13, relativeTo: .footnote)
+        case .sectionName, .stepMarker: KeyringFont.scaled(KeyringFont.PostScript.medium, size: 12, relativeTo: .caption2)
         case .code: .footnote.monospaced()
-        case .label: .body.weight(.semibold)
-        case .pictureText: .caption2
-        case .pictureTitle: .caption2.weight(.semibold)
+        case .pictureText: KeyringFont.scaled(KeyringFont.PostScript.regular, size: 11, relativeTo: .caption2)
+        case .pictureTitle: KeyringFont.scaled(KeyringFont.PostScript.medium, size: 11, relativeTo: .caption2)
         }
         #else
         switch self {
-        case .stepMarker: .footnote.weight(.semibold)
-        case .title: .title.weight(.bold)
-        case .heroTitle: .title.weight(.bold)
-        case .sentence, .body: .body
-        case .heading: .body.weight(.semibold)
-        case .meta: .subheadline
-        case .site: .largeTitle.weight(.bold)
-        case .caption: .footnote
-        case .sectionName: .footnote.weight(.semibold)
+        case .title, .heroTitle: KeyringFont.scaled(KeyringFont.PostScript.displayBold, size: 28, relativeTo: .title)
+        case .site: KeyringFont.scaled(KeyringFont.PostScript.displayBold, size: 30, relativeTo: .largeTitle)
+        case .heading, .label: KeyringFont.scaled(KeyringFont.PostScript.medium, size: 16, relativeTo: .body)
+        case .sentence, .body: KeyringFont.scaled(KeyringFont.PostScript.regular, size: 16, relativeTo: .body)
+        case .meta: KeyringFont.scaled(KeyringFont.PostScript.regular, size: 14, relativeTo: .subheadline)
+        case .caption: KeyringFont.scaled(KeyringFont.PostScript.regular, size: 13, relativeTo: .footnote)
+        case .sectionName, .stepMarker: KeyringFont.scaled(KeyringFont.PostScript.medium, size: 12, relativeTo: .caption)
         case .code: .callout.monospaced()
-        case .label: .body.weight(.semibold)
-        case .pictureText: .caption2
-        case .pictureTitle: .caption.weight(.semibold)
+        case .pictureText: KeyringFont.scaled(KeyringFont.PostScript.regular, size: 11, relativeTo: .caption2)
+        case .pictureTitle: KeyringFont.scaled(KeyringFont.PostScript.medium, size: 12, relativeTo: .caption)
         }
         #endif
     }
@@ -91,11 +89,17 @@ public enum KeyringTextRole: Sendable {
     /// The same text one type step down, for `TextFit.siteName`.
     var smallerFont: Font {
         #if os(macOS)
-        self == .site ? .system(size: 24, weight: .bold) : .system(size: 13, weight: .semibold)
+        self == .site
+            ? KeyringFont.fixed(KeyringFont.PostScript.displayBold, size: 20)
+            : KeyringFont.fixed(KeyringFont.PostScript.medium, size: 12)
         #elseif os(watchOS)
-        self == .site ? .headline : .footnote.weight(.semibold)
+        self == .site
+            ? KeyringFont.scaled(KeyringFont.PostScript.displayBold, size: 16, relativeTo: .headline)
+            : KeyringFont.scaled(KeyringFont.PostScript.medium, size: 13, relativeTo: .footnote)
         #else
-        self == .site ? .title.weight(.bold) : .callout.weight(.semibold)
+        self == .site
+            ? KeyringFont.scaled(KeyringFont.PostScript.displayBold, size: 24, relativeTo: .title)
+            : KeyringFont.scaled(KeyringFont.PostScript.medium, size: 14, relativeTo: .subheadline)
         #endif
     }
 

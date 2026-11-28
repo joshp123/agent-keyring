@@ -6,6 +6,7 @@
 // KEYRING_RENDER_DIR set it also draws each one to a PNG. Add a page here
 // as soon as it exists (docs/design/page-parts.md).
 
+@_exported import AgentKeyringApprovalCore
 import AgentKeyringDesign
 import SwiftUI
 

@@ -18,16 +18,9 @@
   "testTargets" : [
     {
       "target" : {
-        "containerPath" : "container:AgentKeyring.xcodeproj",
-        "identifier" : "8BC265732DEDD3F500F279A4",
-        "name" : "AgentKeyringUITests"
-      }
-    },
-    {
-      "target" : {
         "containerPath" : "container:AgentKeyringPackage",
-        "identifier" : "AgentKeyringFeatureTests",
-        "name" : "AgentKeyringFeatureTests"
+        "identifier" : "AgentKeyringEngineTests",
+        "name" : "AgentKeyringEngineTests"
       }
     }
   ],

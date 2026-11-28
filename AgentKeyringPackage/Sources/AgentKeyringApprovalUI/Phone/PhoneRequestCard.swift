@@ -4,6 +4,7 @@
 // touched and held: who asks, the site, the account, and the agent's words.
 
 #if os(iOS)
+import AgentKeyringApprovalCore
 import AgentKeyringDesign
 import SwiftUI
 

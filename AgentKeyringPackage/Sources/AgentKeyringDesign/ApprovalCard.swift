@@ -62,7 +62,7 @@ public struct KeyringApprovalCard: View {
             #if os(watchOS)
             KeyringRequestHeader(lead: lead, subject: subject, detail: detail)
             buttons
-            KeyringRequestHeader.Words(reason: reason, explanation: explanation)
+            KeyringRequestReasonText(reason: reason, explanation: explanation)
             #else
             KeyringRequestHeader(lead: lead, subject: subject, detail: detail, reason: reason, explanation: explanation)
             buttons
@@ -89,6 +89,7 @@ public struct KeyringApprovalCard: View {
     @ViewBuilder private var buttons: some View {
         #if os(macOS)
         if let reply {
+            // Matching capsule geometry: 36pt reply field (radius 18) matches the 36pt capsule buttons beside it.
             HStack(alignment: .bottom, spacing: KeyringSpace.s2) {
                 ZStack(alignment: .topLeading) {
                     KeyringPrompt(replyPrompt, showing: reply.wrappedValue.isEmpty)
@@ -105,10 +106,10 @@ public struct KeyringApprovalCard: View {
                         }
                         .onSubmit { deny.perform() }
                 }
-                .padding(.horizontal, KeyringSpace.s3)
+                .padding(.horizontal, KeyringSpace.s4)
                 .padding(.vertical, 9)
                 .frame(minHeight: 36, alignment: .leading)
-                .background(KeyringPalette.fill, in: .rect(cornerRadius: 10, style: .continuous))
+                .background(KeyringPalette.fill, in: .rect(cornerRadius: 18, style: .continuous))
                 KeyringButton(deny).environment(\.keyringButtonsFill, false)
             }
             approveSlot
@@ -116,28 +117,53 @@ public struct KeyringApprovalCard: View {
             approveSlot
             KeyringButton(deny)
         }
-        #else
+        #elseif os(watchOS)
         VStack(spacing: KeyringSpace.s2) {
-            // Side by side while both labels fit on one line; else Approve above Deny.
-            if let approve {
+            if let explain {
+                HStack(spacing: KeyringSpace.s2) {
+                    KeyringButton(deny)
+                    KeyringButton(explain)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                KeyringButton(deny)
+            }
+            approveSlot
+        }
+        #else
+        // Deny and Deny & Reply share Row 1 at equal weight; Approve takes full width on Row 2.
+        // At large accessibility text sizes, stacks cleanly so no label ever splits or clips.
+        VStack(spacing: KeyringSpace.s2) {
+            if let explain {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: KeyringSpace.s2) {
                         KeyringButton(deny)
-                        KeyringButton(approve)
+                        KeyringButton(explain)
                     }
                     .fixedSize(horizontal: false, vertical: true)
                     VStack(spacing: KeyringSpace.s2) {
-                        KeyringButton(approve)
                         KeyringButton(deny)
+                        KeyringButton(explain)
                     }
                 }
-            } else {
                 approveSlot
+            } else {
                 KeyringButton(deny)
+                approveSlot
             }
-            if let explain { KeyringButton(explain) }
         }
         #endif
+    }
+}
+
+/// The reason and the explanation alone, for the Watch, where they come after the buttons.
+public struct KeyringRequestReasonText: View {
+    let reason: String?
+    let explanation: String?
+    public init(reason: String?, explanation: String? = nil) { self.reason = reason; self.explanation = explanation }
+    public var body: some View {
+        if let reason { KeyringText("“\(reason)”", as: .body) }
+        if let explanation { KeyringText(explanation, as: .meta) }
     }
 }
 
@@ -166,20 +192,12 @@ public struct KeyringRequestHeader: View {
                 KeyringText(subject, as: .site, fit: .siteName)
                 if let detail { KeyringText(detail, as: .meta) }
             }
-            Words(reason: reason, explanation: explanation)
+            .multilineTextAlignment(.center)
+            KeyringRequestReasonText(reason: reason, explanation: explanation)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
     }
 
-    /// The reason and the explanation alone, for the Watch, where they come after the buttons.
-    public struct Words: View {
-        let reason: String?
-        let explanation: String?
-        public init(reason: String?, explanation: String? = nil) { self.reason = reason; self.explanation = explanation }
-        public var body: some View {
-            if let reason { KeyringText("“\(reason)”", as: .body) }
-            if let explanation { KeyringText(explanation, as: .meta) }
-        }
-    }
 }

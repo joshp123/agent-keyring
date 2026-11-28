@@ -1,13 +1,13 @@
 // Written by AI on 2026.11.21 by model Claude Opus 5.5.
 
 #if os(watchOS)
-import AgentKeyringWatchCore
+import AgentKeyringSealing
 import Foundation
 
 /// Every word Apple Watch shows, from master-copy-audit-21-nov.md. Apple Watch keeps no passwords, so no line
 /// says it receives or syncs them.
 public enum WatchCopy {
-    public static func page(_ setup: WatchSetup) -> (title: String, detail: String?) {
+    public static func page(_ setup: WatchOnboardingStep) -> (title: String, detail: String?) {
         switch setup {
         case .noPasscode: ("Passcode needed", "Turn on a passcode for this Watch in Apple’s Watch app.")
         case .setUpIPhone: ("Set up iPhone first", "Set up Agent Keyring on your iPhone, then tap Add Apple Watch in Devices.")
@@ -24,18 +24,18 @@ public enum WatchCopy {
     }
     static let continueButton = "Continue"
     static let add = "Add"
-    static let tryPractice = "Try Practice"
+    static let tryPractice = "Send Practice Request"
     static let done = "Done"
     static let cancel = "Cancel"
     static let checkAgain = "Check Again"
-    /// Not in the ledger: when Try Practice cannot reach the iPhone, or the iPhone cannot reach the Mac.
-    static let practiceNotAsked = "Couldn’t send a practice request. Make sure your iPhone and Mac are awake with Tailscale on."
+    /// Not in the ledger: when Send Practice Request cannot reach the iPhone, or the iPhone cannot reach the Mac.
+    static let practiceNotAsked = "Couldn’t send a practice request. Make sure your iPhone is nearby and online."
     static let addFailed = "Couldn’t reach your iPhone. Open Agent Keyring on your iPhone and try again."
     static let openingRequest = "Opening request…"
     static let deny = "Deny"
     static let approve = "Approve"
-    static let denyAndExplain = "Deny and Explain"
-    static let whatInstead = "What should the agent do instead?"
+    static let denyAndExplain = "Deny & Reply"
+    static let whatInstead = "Reply…"
     static let unreadable = "Open Agent Keyring on your iPhone to see this request."
     static let practiceLead = "Practice request"
     public static func answered(approve: Bool, _ result: WatchAnswerResult) -> String {
@@ -43,6 +43,8 @@ public enum WatchCopy {
         case (_, .alreadyAnswered): "Already answered"
         case (true, .sent): "Approved"
         case (false, .sent): "Denied"
+        case (true, .submitted): "Approval sent"
+        case (false, .submitted): "Denial sent"
         case (true, .failed): "Not approved. Try on your iPhone."
         case (false, .failed): "Not sent. Try on your iPhone."
         }
@@ -51,6 +53,8 @@ public enum WatchCopy {
     static let stop = "Stop"
     /// Not in the ledger: when Stop can't reach the iPhone.
     static let stopFailed = "Couldn’t stop it. Try on your iPhone."
+    /// Not in the ledger: Stop is on its way, and ends the approval before the computer next uses it.
+    static let stopSent = "Stop sent but not confirmed. Try again."
     static func until(_ date: Date) -> String {
         "until " + date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en_GB")))
     }

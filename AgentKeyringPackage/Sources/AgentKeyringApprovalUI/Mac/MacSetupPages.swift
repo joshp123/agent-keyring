@@ -3,44 +3,88 @@
 //
 // The Mac's first run, one page per state, built only from the page parts.
 // Each page draws the plain value it is given; the app maps first run's saved
-// state (AgentKeyringFeature/FirstRun.swift) and the facts beside it to these
+// state (AgentKeyringEngine/Mac/MacFirstRunFlow.swift) and the facts beside it to these
 // values, and wires the buttons. Nothing here keeps state of its own.
 
 #if os(macOS)
+import AgentKeyringApprovalCore
 import AgentKeyringDesign
 import SwiftUI
 
-/// Welcome, before the steps: no step list, as the board draws it.
+/// Welcome, before the steps: no step list, as the board draws it. When Agent Keyring is already set up on
+/// his iPhone, Welcome offers to join that list instead, as the iPhone offers to join a Mac's.
 public struct MacWelcomePage: View {
+    /// Joining the list on his iPhone, as `JoiningIPhone` (AgentKeyringEngine) says.
+    public enum IPhone: Equatable, Sendable {
+        case found(name: String)
+        case asking(name: String)
+        case notAdded(name: String)
+        case joined(name: String)
+    }
+
+    let mode: MacApprovalMode
+    let iPhone: IPhone?
+    let connect: () -> Void
+    let cancel: () -> Void
     let getStarted: () -> Void
 
-    public init(getStarted: @escaping () -> Void) { self.getStarted = getStarted }
+    public init(mode: MacApprovalMode = .current, iPhone: IPhone? = nil, connect: @escaping () -> Void = {},
+                cancel: @escaping () -> Void = {}, getStarted: @escaping () -> Void) {
+        self.mode = mode
+        self.iPhone = iPhone
+        self.connect = connect
+        self.cancel = cancel
+        self.getStarted = getStarted
+    }
 
-    private static let badges: [KeyringDeviceRow<EmptyView>.Badge] = [.brand, .approve, .focus]
+    private static let badges: [KeyringDeviceRowBadge] = [.brand, .brand, .brand]
 
     public var body: some View {
-        KeyringPage(title: FirstRunCopy.title, sentence: FirstRunCopy.intro, sentenceColour: KeyringPalette.brand,
-                    alignment: .centre, mascot: .calm,
-                    primary: .advance(FirstRunCopy.getStarted, perform: getStarted)) {
-            VStack(alignment: .leading, spacing: KeyringSpace.s3) {
-                ForEach(Array(FirstRunCopy.points.enumerated()), id: \.element.title) { index, point in
-                    KeyringDeviceRow(symbol: point.symbol, name: point.title, detail: point.body,
-                                     badge: Self.badges[min(index, Self.badges.count - 1)])
+        page.frame(width: KeyringSize.macWindow.width, height: KeyringSize.macWindow.height)
+    }
+
+    @ViewBuilder private var page: some View {
+        switch iPhone {
+        case nil:
+            KeyringPage(title: FirstRunCopy.title, sentence: FirstRunCopy.intro, sentenceColour: KeyringPalette.brand,
+                        alignment: .centre, mascot: .calm,
+                        primary: .advance(FirstRunCopy.getStarted, perform: getStarted)) {
+                VStack(alignment: .leading, spacing: KeyringSpace.s3) {
+                    ForEach(Array(FirstRunCopy.points(mode).enumerated()), id: \.element.title) { index, point in
+                        KeyringDeviceRow(symbol: point.symbol, name: point.title, detail: point.body,
+                                         badge: Self.badges[min(index, Self.badges.count - 1)])
+                    }
                 }
             }
+        case let .found(name)?:
+            KeyringPage(title: FirstRunCopy.continueFrom(name), sentence: FirstRunCopy.continueFromDetail(name, mode: mode),
+                        alignment: .centre, mascot: .calm,
+                        primary: .advance(FirstRunCopy.connectTo(name), perform: connect),
+                        secondary: .plain(FirstRunCopy.setUpHere, perform: getStarted)) {
+                KeyringHint(symbol: "lock.fill", title: FirstRunCopy.trustTitle, FirstRunCopy.trustDetail(name))
+            }
+        case let .asking(name)?:
+            KeyringPage(title: FirstRunCopy.approveOn(name), sentence: FirstRunCopy.approveOnDetail(name), alignment: .centre, mascot: .waiting,
+                        status: .waiting(FirstRunCopy.waitingFor(name)), secondary: .plain(FirstRunCopy.cancel, perform: cancel))
+        case let .notAdded(name)?:
+            KeyringPage(title: FirstRunCopy.notAddedOn(name), sentence: FirstRunCopy.notAddedDetail, alignment: .centre, mascot: .denied,
+                        primary: .advance(FirstRunCopy.askAgain, perform: connect),
+                        secondary: .plain(FirstRunCopy.setUpHere, perform: getStarted))
+        case let .joined(name)?:
+            KeyringPage(title: FirstRunCopy.connectedTo(name), sentence: FirstRunCopy.connectedDetail(name), alignment: .centre, mascot: .approved,
+                        primary: .advance(FirstRunCopy.continueButton, perform: getStarted))
         }
-        .frame(width: KeyringSize.macWindow.width, height: KeyringSize.macWindow.height)
     }
 }
 
 /// The setup window for step 1 to 4: the steps on the left, done up to this one.
 public struct MacFirstRunWindow<Page: View>: View {
     let step: Int
-    let mascot: KeyringMascot.Mood
+    let mascot: KeyringMascotMood
     let page: Page
 
     /// `step`: 1 to 4.
-    public init(step: Int, mascot: KeyringMascot.Mood = .calm, @ViewBuilder page: () -> Page) {
+    public init(step: Int, mascot: KeyringMascotMood = .calm, @ViewBuilder page: () -> Page) {
         self.step = step
         self.mascot = mascot
         self.page = page()
@@ -53,33 +97,129 @@ public struct MacFirstRunWindow<Page: View>: View {
     }
 }
 
+// MARK: Before first run: how this Mac is used
+
+public enum ThisMacPageState: Equatable, Sendable {
+    case askHowUsed
+    case forAgents
+    case personalMac(failure: String?)
+    case noSecureEnclave
+    case keysFailed(String)
+}
+
+public struct ThisMacPageActions {
+    public var chooseForAgents: () -> Void = {}
+    public var choosePersonalMac: () -> Void = {}
+    public var usePassword: () -> Void = {}
+    public var tryAgain: () -> Void = {}
+    public var back: () -> Void = {}
+    public var quit: () -> Void = {}
+    public init() {}
+}
+
+/// A Mac with no keys yet that has no Touch ID, or no Secure Enclave, or
+/// whose keys failed: one page per state of `MacHardwareSetupFlow` (AgentKeyringEngine),
+/// in the Welcome page's window, before the steps.
+public struct ThisMacPage: View {
+
+    let state: ThisMacPageState
+    let actions: ThisMacPageActions
+
+    public init(_ state: ThisMacPageState, actions: ThisMacPageActions) {
+        self.state = state
+        self.actions = actions
+    }
+
+    public var body: some View {
+        page.frame(width: KeyringSize.macWindow.width, height: KeyringSize.macWindow.height)
+    }
+
+    @ViewBuilder private var page: some View {
+        switch state {
+        case .askHowUsed:
+            KeyringPage(title: ThisMacCopy.askTitle, sentence: ThisMacCopy.askBody,
+                        aside: .link(ThisMacCopy.quit, perform: actions.quit)) {
+                KeyringRowGroup {
+                    KeyringDeviceRow(symbol: "server.rack", name: ThisMacCopy.forAgents, detail: ThisMacCopy.forAgentsDetail, badge: .brand) {
+                        KeyringButton(.advance(ThisMacCopy.choose, perform: actions.chooseForAgents))
+                    }
+                    KeyringDeviceRow(symbol: "person.crop.circle", name: ThisMacCopy.personalMac, detail: ThisMacCopy.personalMacDetail, badge: .focus) {
+                        KeyringButton(.plain(ThisMacCopy.choose, perform: actions.choosePersonalMac))
+                    }
+                }
+            }
+        case .forAgents:
+            KeyringPage(title: ThisMacCopy.forAgentsTitle, sentence: ThisMacCopy.forAgentsBody,
+                        primary: .advance(ThisMacCopy.quit, perform: actions.quit), secondary: .plain(ThisMacCopy.back, perform: actions.back)) {
+                MacInstallCommandBlocks()
+                KeyringText(ThisMacCopy.notNeeded, as: .meta)
+            }
+        case let .personalMac(failure):
+            KeyringPage(title: ThisMacCopy.personalTitle, sentence: ThisMacCopy.personalBody, status: failure.map(KeyringStatus.problem),
+                        primary: .advance(ThisMacCopy.usePassword, perform: actions.usePassword),
+                        secondary: .plain(ThisMacCopy.back, perform: actions.back)) {
+                KeyringHint(symbol: "touchid", ThisMacCopy.touchIDLater, tone: .plain)
+            }
+        case .noSecureEnclave:
+            KeyringPage(title: ThisMacCopy.noChipTitle, sentence: ThisMacCopy.noChipBody,
+                        primary: .advance(ThisMacCopy.quit, perform: actions.quit)) {
+                MacInstallCommandBlocks()
+            }
+        case let .keysFailed(reason):
+            KeyringPage(title: ThisMacCopy.keysFailedTitle, status: .problem(reason),
+                        primary: .advance(ThisMacCopy.tryAgain, perform: actions.tryAgain),
+                        aside: .link(ThisMacCopy.quit, perform: actions.quit))
+        }
+    }
+}
+
+/// The setup steps for a Mac for agents, with the command tucked behind Copy Prompt / Copy Command.
+struct MacInstallCommandBlocks: View {
+    var body: some View {
+        KeyringSteps(ThisMacCopy.agentSetupSteps)
+        HStack(spacing: KeyringSpace.s2) {
+            KeyringButton(.advance(DeviceSheetCopy.copyPrompt) { Self.copy(ThisMacCopy.installPrompt) })
+            KeyringButton(.plain(DeviceSheetCopy.copyCommand) { Self.copy(ThisMacCopy.installCommand) })
+        }
+    }
+
+    private static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
 // MARK: Step 1: Try a password request
 
+public enum MacPracticePageState: Equatable, Sendable {
+    case notSent
+    /// The practice card is beside the window.
+    case waiting
+    case approved
+    case denied(reply: String)
+}
+
+public struct MacPracticePageActions {
+    public var send: () -> Void = {}
+    public var openTouchIDSettings: () -> Void = {}
+    public var back: () -> Void = {}
+    public var continueOn: () -> Void = {}
+    public init() {}
+}
+
 public struct MacPracticePage: View {
-    public enum State: Equatable, Sendable {
-        case notSent
-        /// The practice card is beside the window.
-        case waiting
-        case approved
-        case denied(reply: String)
-    }
 
-    let state: State
-    /// Touch ID as it is now: with the lid closed or no fingerprint, the practice request cannot be answered here.
-    let approver: MacApprover.State
-    let actions: Actions
+    let state: MacPracticePageState
+    /// Touch ID as it is now: with the lid closed, no fingerprint or no Touch ID keyboard, the practice request cannot be answered here.
+    let approver: MacApproverState
+    /// How this Mac approves, for "Approve: click the green button, then …".
+    let mode: MacApprovalMode
+    let actions: MacPracticePageActions
 
-    public struct Actions {
-        public var send: () -> Void = {}
-        public var openTouchIDSettings: () -> Void = {}
-        public var back: () -> Void = {}
-        public var continueOn: () -> Void = {}
-        public init() {}
-    }
-
-    public init(_ state: State, approver: MacApprover.State, actions: Actions) {
+    public init(_ state: MacPracticePageState, approver: MacApproverState, mode: MacApprovalMode = .current, actions: MacPracticePageActions) {
         self.state = state
         self.approver = approver
+        self.mode = mode
         self.actions = actions
     }
 
@@ -92,7 +232,7 @@ public struct MacPracticePage: View {
 
     public var body: some View {
         MacFirstRunWindow(step: 1, mascot: mascot) {
-            KeyringPage(step: (1, 4), title: FirstRunCopy.practiceTitle, sentence: FirstRunCopy.practiceBody,
+            KeyringPage(step: (1, 5), title: FirstRunCopy.practiceTitle, sentence: FirstRunCopy.practiceBody,
                         primary: .advance(FirstRunCopy.continueButton, isEnabled: answered, perform: actions.continueOn),
                         secondary: .plain(FirstRunCopy.back, perform: actions.back)) {
                 switch state {
@@ -110,7 +250,7 @@ public struct MacPracticePage: View {
                 switch approver {
                 case .ready:
                     VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-                        KeyringText(FirstRunCopy.howToApprove)
+                        KeyringText(FirstRunCopy.howToApprove(mode))
                         KeyringText(FirstRunCopy.howToDeny)
                     }
                 case .lidClosed:
@@ -118,12 +258,14 @@ public struct MacPracticePage: View {
                 case .needsFingerprint:
                     KeyringStatusLine(.problem(FirstRunCopy.needsFingerprint),
                                       action: .link(FirstRunCopy.openTouchIDSettings, perform: actions.openTouchIDSettings))
+                case .touchIDMissing:
+                    KeyringStatusLine(.problem(FirstRunCopy.touchIDMissing))
                 }
             }
         }
     }
 
-    private var mascot: KeyringMascot.Mood {
+    private var mascot: KeyringMascotMood {
         switch state {
         case .notSent: .calm
         case .waiting: .curious
@@ -133,111 +275,7 @@ public struct MacPracticePage: View {
     }
 }
 
-// MARK: Step 2: Copy your passwords
-
-/// "Copy your passwords": first run's step 2, and the main window's Copy Again.
-public struct MacCopyPage: View {
-    public enum State: Equatable, Sendable {
-        case guide
-        /// After Open Passwords: the guide stays, and nothing hurries him.
-        case waiting
-        /// Five minutes after Open Passwords, nothing has arrived.
-        case noneArrived
-        case copying
-        /// His passwords are copied (first run only: the main window goes back to its list).
-        case copied(count: Int)
-        /// The last copy failed, with the reason.
-        case failed(String)
-    }
-
-    let state: State
-    /// Which of the guide's five steps shows: 1 to 5.
-    let guideStep: Int
-    /// The earlier Agent Keyring is on this Mac, so Passwords lists two names alike.
-    let earlierVersion: Bool
-    /// In first run: step 2 of 4, with Back and Use Test Password Only. Otherwise Cancel.
-    let inFirstRun: Bool
-    /// His own passwords' count once they have arrived, for Apple's last sheet in the picture; nil before.
-    let items: Int?
-    let actions: Actions
-
-    public struct Actions {
-        public var openPasswords: () -> Void = {}
-        public var showGuideStep: (Int) -> Void = { _ in }
-        public var notInList: () -> Void = {}
-        public var useTestPasswordOnly: () -> Void = {}
-        public var back: () -> Void = {}
-        public var continueOn: () -> Void = {}
-        public var cancel: () -> Void = {}
-        public init() {}
-    }
-
-    public init(_ state: State, guideStep: Int, earlierVersion: Bool, inFirstRun: Bool, items: Int? = nil, actions: Actions) {
-        self.state = state
-        self.guideStep = min(max(guideStep, 1), FirstRunCopy.guide.count)
-        self.earlierVersion = earlierVersion
-        self.inFirstRun = inFirstRun
-        self.items = items
-        self.actions = actions
-    }
-
-    private var isCopied: Bool {
-        if case .copied = state { true } else { false }
-    }
-
-    private var status: KeyringStatus? {
-        switch state {
-        case .guide, .waiting, .copied: nil
-        case .noneArrived: .takingLong(FirstRunCopy.noneArrived)
-        case .copying: .waiting(FirstRunCopy.copying)
-        case let .failed(reason): .problem(reason)
-        }
-    }
-
-    private var primary: KeyringAction {
-        if case .copied = state { return .advance(FirstRunCopy.continueButton, perform: actions.continueOn) }
-        return .advance(FirstRunCopy.openPasswords, isEnabled: state != .copying, perform: actions.openPasswords)
-    }
-
-    private var page: some View {
-        KeyringPage(step: inFirstRun ? (2, 4) : nil, title: FirstRunCopy.copyTitle, sentence: isCopied ? nil : FirstRunCopy.copyBody,
-                    status: status, primary: primary,
-                    secondary: inFirstRun ? .plain(FirstRunCopy.back, perform: actions.back) : .plain(FirstRunCopy.cancel, perform: actions.cancel),
-                    aside: inFirstRun && !isCopied ? .link(FirstRunCopy.useTestPasswordOnly, perform: actions.useTestPasswordOnly) : nil) {
-            if case let .copied(count) = state {
-                KeyringConfirmation(FirstRunCopy.copiedHeadline(count), detail: FirstRunCopy.copiedDetail, tone: .approved)
-            } else {
-                // Full-width guide card so Apple's picture sits cleanly centred and never crowds the window edges.
-                VStack(alignment: .leading, spacing: KeyringSpace.s2) {
-                    KeyringText(FirstRunCopy.guideStep(guideStep), as: .stepMarker)
-                    KeyringStepRow(guideStep, FirstRunCopy.guide[guideStep - 1]) {
-                        if guideStep == 4, earlierVersion, status == nil { KeyringText(FirstRunCopy.earlierVersion, as: .meta) }
-                    }
-                    if let items {
-                        PasswordsExportPicture(guideStep: guideStep, earlierVersion: earlierVersion, items: items)
-                    } else {
-                        PasswordsExportPicture(guideStep: guideStep, earlierVersion: earlierVersion)
-                    }
-                    HStack(spacing: KeyringSpace.s2) {
-                        KeyringButton(.plain(FirstRunCopy.previous, isEnabled: guideStep > 1) { actions.showGuideStep(guideStep - 1) })
-                        KeyringButton(.plain(FirstRunCopy.next, isEnabled: guideStep < FirstRunCopy.guide.count) { actions.showGuideStep(guideStep + 1) })
-                        Spacer(minLength: 0)
-                        KeyringButton(.link(FirstRunCopy.notInList, perform: actions.notInList))
-                    }
-                }
-            }
-        }
-    }
-
-    public var body: some View {
-        if inFirstRun {
-            let mood: KeyringMascot.Mood = isCopied ? .approved : (state == .noneArrived ? .waiting : .calm)
-            MacFirstRunWindow(step: 2, mascot: mood) { page }
-        } else {
-            page.frame(width: KeyringSize.macWindow.width - KeyringSize.macSidebar, height: KeyringSize.macWindow.height)
-        }
-    }
-}
+// MARK: AutoFill export sheet
 
 /// "Agent Keyring isn't in the list?": a sheet over the copy page.
 public struct MacAllowExportSheet: View {
@@ -262,33 +300,34 @@ public struct MacAllowExportSheet: View {
 
 // MARK: Step 3: Connect an agent
 
+public enum MacConnectAgentOutcome: Equatable, Sendable {
+    case notTried
+    case worked(agent: String)
+    case denied(agent: String)
+}
+
+public struct MacConnectAgentPageActions {
+    public var skipTest: () -> Void = {}
+    public var back: () -> Void = {}
+    public var continueOn: () -> Void = {}
+    public init() {}
+}
+
 public struct MacConnectAgentPage: View {
-    public enum Outcome: Equatable, Sendable {
-        case notTried
-        case worked(agent: String)
-        case denied(agent: String)
-    }
 
-    let outcome: Outcome
+    let outcome: MacConnectAgentOutcome
     let agentNote: String
-    let actions: Actions
+    let actions: MacConnectAgentPageActions
 
-    public struct Actions {
-        public var skipTest: () -> Void = {}
-        public var back: () -> Void = {}
-        public var continueOn: () -> Void = {}
-        public init() {}
-    }
-
-    public init(_ outcome: Outcome, agentNote: String = FirstRunCopy.agentNote, actions: Actions) {
+    public init(_ outcome: MacConnectAgentOutcome, agentNote: String = FirstRunCopy.agentNote, actions: MacConnectAgentPageActions) {
         self.outcome = outcome
         self.agentNote = agentNote
         self.actions = actions
     }
 
     public var body: some View {
-        MacFirstRunWindow(step: 3, mascot: outcome == .notTried ? .calm : .approved) {
-            KeyringPage(step: (3, 4), title: FirstRunCopy.connectTitle, sentence: FirstRunCopy.connectBody, status: status,
+        MacFirstRunWindow(step: 4, mascot: outcome == .notTried ? .calm : .approved) {
+            KeyringPage(step: (4, 5), title: FirstRunCopy.connectTitle, sentence: FirstRunCopy.connectBody, status: status,
                         primary: .advance(FirstRunCopy.continueButton, isEnabled: outcome != .notTried, perform: actions.continueOn),
                         secondary: .plain(FirstRunCopy.back, perform: actions.back),
                         aside: outcome == .notTried ? .link(FirstRunCopy.skipTest, perform: actions.skipTest) : nil) {
@@ -340,45 +379,46 @@ public struct MacAgentNoteSheet: View {
 
 // MARK: Step 4: Ready
 
+/// What Ready says was copied.
+public enum SetupCopiedSummary: Equatable, Sendable {
+    case passwords(Int)
+    case testPasswordOnly
+}
+
+/// Each row as the members list says now.
+public struct SetupDevicesSummary: Equatable, Sendable {
+    public var iPhone: String?
+    public var watch: String?
+    public var computers: [String]
+    public init(iPhone: String? = nil, watch: String? = nil, computers: [String] = []) {
+        self.iPhone = iPhone
+        self.watch = watch
+        self.computers = computers
+    }
+}
+
+public struct MacReadyPageActions {
+    public var addIPhone: () -> Void = {}
+    public var addComputer: () -> Void = {}
+    public var showPasswords: () -> Void = {}
+    public init() {}
+}
+
 public struct MacReadyPage: View {
-    /// What Ready says was copied.
-    public enum Copied: Equatable, Sendable {
-        case passwords(Int)
-        case testPasswordOnly
-    }
 
-    /// Each row as the members list says now.
-    public struct Devices: Equatable, Sendable {
-        public var iPhone: String?
-        public var watch: String?
-        public var computers: [String]
-        public init(iPhone: String? = nil, watch: String? = nil, computers: [String] = []) {
-            self.iPhone = iPhone
-            self.watch = watch
-            self.computers = computers
-        }
-    }
+    let copied: SetupCopiedSummary
+    let devices: SetupDevicesSummary
+    let actions: MacReadyPageActions
 
-    let copied: Copied
-    let devices: Devices
-    let actions: Actions
-
-    public struct Actions {
-        public var addIPhone: () -> Void = {}
-        public var addComputer: () -> Void = {}
-        public var showPasswords: () -> Void = {}
-        public init() {}
-    }
-
-    public init(copied: Copied, devices: Devices, actions: Actions) {
+    public init(copied: SetupCopiedSummary, devices: SetupDevicesSummary, actions: MacReadyPageActions) {
         self.copied = copied
         self.devices = devices
         self.actions = actions
     }
 
     public var body: some View {
-        MacFirstRunWindow(step: 4, mascot: .approved) {
-            KeyringPage(step: (4, 4), primary: .advance(FirstRunCopy.showPasswords, perform: actions.showPasswords)) {
+        MacFirstRunWindow(step: 5, mascot: .approved) {
+            KeyringPage(step: (5, 5), primary: .advance(FirstRunCopy.showPasswords, perform: actions.showPasswords)) {
                 KeyringConfirmation(FirstRunCopy.ready, detail: {
                     switch copied {
                     case let .passwords(count): FirstRunCopy.readyCopied(count)

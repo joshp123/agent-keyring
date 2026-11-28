@@ -5,10 +5,10 @@
 // and hands both to the iPhone, which adds it. Whichever app is opened first,
 // or neither, the two finish setting up when they next meet.
 
+import AgentKeyringDesign
 import AgentKeyringProtocol
-import AgentKeyringWatchCore
+import AgentKeyringSealing
 import AgentKeyringWatchUI
-import LocalAuthentication
 import OSLog
 import SwiftUI
 import UserNotifications
@@ -20,18 +20,31 @@ let log = Logger(subsystem: "com.joshpalmer.AgentKeyring.Watch", category: "watc
 @main
 struct AgentKeyringWatchApp: App {
     @WKApplicationDelegateAdaptor(WatchDelegate.self) private var delegate
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        KeyringFont.register()
+        // Before any request is checked: a relay set at launch, else the one the iPhone last sent.
+        WatchRelayConfiguration.launchSetting = UserDefaults.standard.string(forKey: "AgentKeyringRelayURL")
+        WatchRelayConfiguration.applyRelayOverride(WatchKeychainStateStore().readWatchState())
         // A new install: removing the app cleared its own settings but not its keychain. The keys stay.
         if !UserDefaults.standard.bool(forKey: "installed") {
-            WatchStore().delete()
+            WatchKeychainStateStore().deleteWatchState()
             UserDefaults.standard.set(true, forKey: "installed")
         }
     }
 
     var body: some Scene {
-        WindowGroup { WatchHome(model: WatchModel.shared) }
-        WKNotificationScene(controller: RequestController.self, category: WatchWords.requestCategory)
+        WindowGroup {
+            WatchHome(model: WatchModel.shared)
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    if phase == .active {
+                        WatchLink.shared.onForeground()
+                        Task { await WatchModel.shared.pickUpDeliveredRequestNotification() }
+                    }
+                }
+        }
+        WKNotificationScene(controller: RequestController.self, category: WatchRequestDisplayCopy.requestCategory)
     }
 }
 
@@ -40,41 +53,118 @@ struct AgentKeyringWatchApp: App {
 final class WatchModel {
     static let shared = WatchModel()
 
-    var inUse: [WatchInUse] = {
-        #if DEBUG
-        // -SampleInUse YES: one approval in use, for looking at "In use".
-        if UserDefaults.standard.bool(forKey: "SampleInUse") {
-            return [WatchInUse(id: "u1", site: "example.com", who: "Codex on Linux server", until: .now.addingTimeInterval(1500))]
+    var foregroundRequest: RequestModel?
+    private(set) var foregroundRequestID: String?
+    private var handledForegroundRequestIDs: Set<String> = []
+    private var queuedForegroundRequests: [(id: String, userInfo: [AnyHashable: Any])] = []
+
+    /// Presents a delivered notification's request card directly when the Watch app is already open
+    /// in the foreground (where watchOS files incoming notifications quietly into Notification Center
+    /// instead of showing the full-screen notification scene). Never replaces an active request card
+    /// under the user's finger: new arrivals queue cleanly until the current card dismisses.
+    func presentForegroundRequest(_ userInfo: [AnyHashable: Any], id: String) {
+        guard !id.isEmpty, foregroundRequestID != id, !handledForegroundRequestIDs.contains(id) else { return }
+        if foregroundRequest != nil {
+            if !queuedForegroundRequests.contains(where: { $0.id == id }) {
+                queuedForegroundRequests.append((id: id, userInfo: userInfo))
+            }
+            return
         }
-        #endif
-        return WatchStore().readInUse()
+        showForegroundRequest(userInfo, id: id)
+    }
+
+    private func showForegroundRequest(_ userInfo: [AnyHashable: Any], id: String) {
+        let requestModel = RequestModel(backend: LiveWatchRequestBackend())
+        requestModel.dismiss = { [weak self] in
+            self?.dismissForegroundRequest(id: id)
+        }
+        requestModel.show(userInfo)
+        foregroundRequestID = id
+        foregroundRequest = requestModel
+        WKInterfaceDevice.current().play(.notification)
+    }
+
+    func markRequestHandled(_ id: String) {
+        guard !id.isEmpty else { return }
+        handledForegroundRequestIDs.insert(id)
+        queuedForegroundRequests.removeAll { $0.id == id }
+    }
+
+    func dismissForegroundRequest(id: String? = nil) {
+        if let id {
+            queuedForegroundRequests.removeAll { $0.id == id }
+            if foregroundRequestID != id { return }
+        }
+        foregroundRequest?.close()
+        foregroundRequest = nil
+        foregroundRequestID = nil
+        if let next = queuedForegroundRequests.first {
+            queuedForegroundRequests.removeFirst()
+            showForegroundRequest(next.userInfo, id: next.id)
+        }
+    }
+
+    /// Picks up a real APNs request notification that watchOS delivered straight to Notification Center
+    /// without invoking `willPresent` (for example while the paired iPhone screen is unlocked), and sweeps
+    /// any expired or already-ended notifications from Notification Center.
+    func pickUpDeliveredRequestNotification() async {
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+        let store = WatchKeychainStateStore()
+        let saved = store.readWatchState()
+        let keys = WatchKeys()
+        var staleIdentifiers: [String] = []
+        var candidate: (notification: UNNotification, id: String)?
+
+        for notification in delivered {
+            let content = notification.request.content
+            let id = content.threadIdentifier.isEmpty ? notification.request.identifier : content.threadIdentifier
+            let aps = content.userInfo["aps"] as? [AnyHashable: Any]
+            let isPassive = content.interruptionLevel == .passive || (aps?["interruption-level"] as? String) == "passive"
+            if let opened = try? WatchRequest.from(userInfo: content.userInfo, keys: keys, saved: saved) {
+                if case .ended = opened.state {
+                    store.noteOutcome(opened)
+                    markRequestHandled(id)
+                    staleIdentifiers.append(notification.request.identifier)
+                    staleIdentifiers.append(id)
+                    continue
+                }
+                if opened.answerBy <= .now {
+                    markRequestHandled(id)
+                    staleIdentifiers.append(notification.request.identifier)
+                    staleIdentifiers.append(id)
+                    continue
+                }
+            } else if isPassive {
+                markRequestHandled(id)
+                staleIdentifiers.append(notification.request.identifier)
+                staleIdentifiers.append(id)
+                continue
+            }
+            if candidate == nil,
+               content.categoryIdentifier == WatchRequestDisplayCopy.requestCategory,
+               !handledForegroundRequestIDs.contains(id) {
+                candidate = (notification, id)
+            }
+        }
+        if !staleIdentifiers.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: Array(Set(staleIdentifiers)))
+            Task { await WatchLink.shared.refreshSetup() }
+        }
+        guard foregroundRequest == nil, let match = candidate else { return }
+        KeyringDiagnosticLog.watch.noteDeviceEvent("notification", "picked up delivered", ["request": match.id])
+        presentForegroundRequest(match.notification.request.content.userInfo, id: match.id)
+    }
+
+    var inUse: [WatchInUse] = {
+        return WatchKeychainStateStore().readInUse()
     }()
-    var setup: WatchSetup = {
-        #if DEBUG
-        // For comparing screens with Paper in the simulator: -SampleSetup notifications.
-        let samples: [String: WatchSetup] = ["no-passcode": .noPasscode, "set-up-iphone": .setUpIPhone, "start-on-iphone": .startOnIPhone,
-                                             "ready-to-add": .readyToAdd, "preparing": .preparing,
-                                             "notifications": .notifications, "notifications-off": .notificationsOff,
-                                             "setting-up": .settingUpNotifications, "added": .addedOfferPractice,
-                                             "practice-waiting": .practiceWaiting, "ready": .ready]
-        if let name = UserDefaults.standard.string(forKey: "SampleSetup"), let sample = samples[name] { return sample }
-        #endif
-        let saved = WatchStore().read()
-        var error: NSError?
-        let passcode = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
-        let listed = saved.lists((try? WatchKeys().keyID()) ?? "")
-        let addOffered = saved.addUntil.map { $0 > .now } ?? false
-        return WatchSetup(passcode: passcode,
-                          phoneJoined: saved.signedMembers != nil,
-                          listed: listed,
-                          addOffered: addOffered,
-                          addTapped: saved.isAddTappedForCurrentOffer,
-                          copiesPending: saved.copiesPending == true,
-                          copyingToWatch: saved.copyingToWatch == true,
-                          notifications: .allowed,
-                          pushAddress: WatchLink.shared.pushToken != nil || saved.practiceOfferDone == true,
-                          practiceAsked: saved.practiceAnswered == true ? nil : saved.practiceAsked,
-                          practiceOfferDone: saved.practiceOfferDone == true)
+    var setup: WatchOnboardingStep = {
+        return WatchLink.makeSetup(
+            saved: WatchKeychainStateStore().readWatchState(),
+            notifications: .allowed,
+            hasPushToken: WatchLink.shared.pushToken != nil
+        )
     }()
 }
 
@@ -85,44 +175,51 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         center.setNotificationCategories([WatchDelegate.requestCategory])
         WatchLink.shared.activate()
         WKApplication.shared().registerForRemoteNotifications()
-        #if DEBUG
-        // For looking at the request card in the simulator: -AskNotifications YES.
-        if UserDefaults.standard.bool(forKey: "AskNotifications") {
-            Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
-        }
-        #endif
     }
 
     func applicationDidBecomeActive() {
-        Task {
-            await WatchLink.shared.refreshSetup()
-            await WatchLink.shared.sendHandOver()
-        }
+        WatchLink.shared.onForeground()
     }
 
     /// No notification actions of Apple's: Approve, Deny and Deny and Explain are our own three buttons in the
     /// request's card, one kind, and with no action of Apple's there is nothing for a Double Tap to choose.
-    static let requestCategory = UNNotificationCategory(identifier: WatchWords.requestCategory, actions: [], intentIdentifiers: [])
+    static let requestCategory = UNNotificationCategory(identifier: WatchRequestDisplayCopy.requestCategory, actions: [], intentIdentifiers: [])
 
     func didRegisterForRemoteNotifications(withDeviceToken deviceToken: Data) {
         WatchLink.shared.pushToken = deviceToken
-        Task { await WatchLink.shared.refreshSetup(); await WatchLink.shared.sendHandOver() }
+        Task { await WatchLink.shared.refreshSetup(); await WatchLink.shared.sendHandOver(force: true) }
     }
 
-    /// A silent push: a request was answered or ended. Its notification goes, and "In use" follows its outcome.
+    /// An outcome push (silent or passive collapse alert): a request was answered or ended.
+    /// Its notification goes, and "In use" follows its outcome.
     func didReceiveRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> WKBackgroundFetchResult {
-        guard (userInfo["aps"] as? [String: Any])?["alert"] == nil, let id = userInfo["id"] as? String else { return .noData }
-        watchLog.note("notification", "removed", ["request": id, "by": "silent push"])
-        let center = UNUserNotificationCenter.current()
-        center.removeDeliveredNotifications(withIdentifiers: [id])
-        let same = await center.deliveredNotifications().filter { $0.request.content.threadIdentifier == id }.map(\.request.identifier)
-        center.removeDeliveredNotifications(withIdentifiers: same)
-        let store = WatchStore()
-        if let request = try? WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: store.read()) {
+        let aps = userInfo["aps"] as? [AnyHashable: Any]
+        let isSilent = aps?["alert"] == nil
+        let isPassive = (aps?["interruption-level"] as? String) == "passive"
+        guard (isSilent || isPassive), let id = userInfo["id"] as? String, !id.isEmpty else { return .noData }
+        await Self.handleOutcomeNotification(id: id, userInfo: userInfo, by: isSilent ? "silent push" : "passive alert")
+        return .newData
+    }
+
+    static func handleOutcomeNotification(id: String, userInfo: [AnyHashable: Any], by source: String) async {
+        KeyringDiagnosticLog.watch.noteDeviceEvent("notification", "removed", ["request": id, "by": source])
+        await removeDeliveredNotification(id: id)
+        let store = WatchKeychainStateStore()
+        if let request = try? WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: store.readWatchState()) {
             store.noteOutcome(request)
+            if request.isPractice, store.readWatchState().practiceAnswered != true {
+                store.update {
+                    $0.practiceAnswered = true
+                    $0.practiceOfferDone = true
+                }
+                Task { await WatchLink.shared.sendHandOver(force: true) }
+            }
             await WatchLink.shared.refreshSetup()
         }
-        return .newData
+        await MainActor.run {
+            WatchModel.shared.markRequestHandled(id)
+            WatchModel.shared.dismissForegroundRequest(id: id)
+        }
     }
 
     func didFailToRegisterForRemoteNotificationsWithError(_ error: Error) {
@@ -144,54 +241,7 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
         }
     }
 
-    /// Sends the answer from the request's card. The reply is the request's Lease: if another device's
-    /// answer ended it first, or it timed out/cancelled before our reply arrived, that is the outcome.
-    static func answer(_ request: WatchRequest, approve: Bool, words: String) async -> WatchAnswerResult {
-        watchLog.note("answer", "started", ["request": request.id, "choice": approve ? "approve" : words.isEmpty ? "deny" : "deny-with-words"])
-        let saved = WatchStore().read()
-        let mine = (try? WatchKeys().keyID()).flatMap { id in saved.signedMembers?.devices.first { $0.keyID == id }?.label }
-        do {
-            let lease: Agentkeyring_V2_Lease
-            if approve {
-                lease = try await WatchAnswers().approve(request)
-            } else {
-                lease = try await WatchAnswers().deny(request, words: words)
-            }
-            await removeDeliveredNotification(id: request.id)
-            let answeredByOther = mine != nil && !lease.answeredBy.isEmpty && lease.answeredBy != mine
-            let expectedState: Agentkeyring_V2_LeaseState = approve ? .approved : .denied
-            let alreadySettled = answeredByOther || lease.state != expectedState
-            if !request.isPractice {
-                let store = WatchStore()
-                if lease.state == .approved, lease.notAfterUnixSeconds > 0 {
-                    store.addInUse(WatchInUse(id: request.id, site: request.site, who: request.who,
-                                              until: Date(timeIntervalSince1970: Double(lease.notAfterUnixSeconds))))
-                } else {
-                    store.removeInUse(request.id)
-                }
-            }
-            if alreadySettled {
-                watchLog.note("answer", "already answered", ["request": request.id, "state": "\(lease.state)", "by": lease.answeredBy])
-                await WatchLink.shared.refreshSetup()
-                return .alreadyAnswered
-            }
-            watchLog.note("answer", "sent", ["request": request.id])
-            if request.isPractice, WatchStore().read().practiceAnswered != true {
-                WatchStore().update {
-                    $0.practiceAnswered = true
-                    $0.practiceOfferDone = true
-                }
-                await WatchLink.shared.sendHandOver()
-            }
-            await WatchLink.shared.refreshSetup()
-            return .sent
-        } catch {
-            WatchLink.shared.report(problem: "\(approve ? "Approve" : "Deny") was not delivered: \(error)")
-            return .failed
-        }
-    }
-
-    private static func removeDeliveredNotification(id: String) async {
+    static func removeDeliveredNotification(id: String) async {
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [id])
         let same = await center.deliveredNotifications().filter { $0.request.content.threadIdentifier == id }.map(\.request.identifier)
@@ -200,7 +250,106 @@ final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCe
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        let content = notification.request.content
+        let id = content.threadIdentifier.isEmpty ? notification.request.identifier : content.threadIdentifier
+        let aps = content.userInfo["aps"] as? [AnyHashable: Any]
+        let isPassiveOutcome = content.interruptionLevel == .passive
+            || (aps?["interruption-level"] as? String) == "passive"
+        if isPassiveOutcome {
+            let info = WatchUserInfo(content.userInfo)
+            completionHandler([])
+            Task {
+                await Self.handleOutcomeNotification(id: id, userInfo: info.value, by: "passive alert")
+            }
+            return
+        }
+        if content.categoryIdentifier == WatchRequestDisplayCopy.requestCategory || content.userInfo["akr"] != nil {
+            let info = WatchUserInfo(content.userInfo)
+            KeyringDiagnosticLog.watch.noteDeviceEvent("notification", "willPresent", ["request": id])
+            completionHandler([])
+            Task { @MainActor in
+                WatchModel.shared.presentForegroundRequest(info.value, id: id)
+            }
+            return
+        }
         completionHandler([.banner, .list, .sound])
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
+        let content = response.notification.request.content
+        let id = content.threadIdentifier.isEmpty ? response.notification.request.identifier : content.threadIdentifier
+        let info = WatchUserInfo(content.userInfo)
+        if content.categoryIdentifier == WatchRequestDisplayCopy.requestCategory || content.userInfo["akr"] != nil {
+            Task { @MainActor in
+                WatchModel.shared.presentForegroundRequest(info.value, id: id)
+            }
+        }
+        completionHandler()
+    }
+}
+
+@MainActor
+final class LiveWatchRequestBackend: WatchRequestBackend {
+    func openRequest(_ userInfo: [AnyHashable: Any]) throws -> WatchRequest {
+        try WatchRequest.from(userInfo: userInfo, keys: WatchKeys(), saved: WatchKeychainStateStore().readWatchState())
+    }
+
+    func askForMembers() async -> Bool {
+        await WatchLink.shared.askForMembers()
+    }
+
+    func reportProblem(_ message: String) {
+        WatchLink.shared.report(problem: message)
+    }
+
+    func answer(_ request: WatchRequest, approve: Bool, words: String) async -> WatchAnswerResult {
+        if request.answerBy <= .now {
+            noteOutcome(request)
+            KeyringDiagnosticLog.watch.noteDeviceEvent("answer", "expired", ["request": request.id])
+            return .alreadyAnswered
+        }
+        KeyringDiagnosticLog.watch.noteDeviceEvent("answer", "started", ["request": request.id, "choice": approve ? "approve" : words.isEmpty ? "deny" : "deny-with-words"])
+        do {
+            if approve {
+                _ = try await WatchApprovalAnswerSender().sendApproval(request)
+            } else {
+                _ = try await WatchApprovalAnswerSender().sendDenial(request, words: words)
+            }
+            noteOutcome(request)
+            KeyringDiagnosticLog.watch.noteDeviceEvent("answer", "sent to the box", ["request": request.id])
+            finishAnswer(isPractice: request.isPractice)
+            return .submitted
+        } catch WatchKeyringError.alreadyAnswered {
+            noteOutcome(request)
+            KeyringDiagnosticLog.watch.noteDeviceEvent("answer", "already answered", ["request": request.id])
+            return .alreadyAnswered
+        } catch {
+            reportProblem("\(approve ? "Approve" : "Deny") was not delivered: \(error)")
+            return .failed
+        }
+    }
+
+    private func noteOutcome(_ request: WatchRequest) {
+        Task { await WatchDelegate.removeDeliveredNotification(id: request.id) }
+        WatchLink.shared.sendDismissRequest(request.id)
+        WatchModel.shared.markRequestHandled(request.id)
+        if case .ended = request.state {
+            WatchKeychainStateStore().noteOutcome(request)
+        }
+    }
+
+    private func finishAnswer(isPractice: Bool) {
+        Task {
+            if isPractice, WatchKeychainStateStore().readWatchState().practiceAnswered != true {
+                WatchKeychainStateStore().update {
+                    $0.practiceAnswered = true
+                    $0.practiceOfferDone = true
+                }
+                await WatchLink.shared.sendHandOver(force: true)
+            }
+            await WatchLink.shared.refreshSetup()
+        }
     }
 }
 

@@ -4,7 +4,7 @@
 // words written into the box as they are heard. Apple's own on-device
 // transcription (SpeechAnalyzer with SpeechTranscriber); nothing leaves the
 // iPhone and nothing of ours is trained or shipped. The language's speech
-// model is fetched during setup (`PhoneSpeechModel.prepare()`), so the first
+// model is fetched during setup (`PhoneSpeechModel.prepareSpeechModel()`), so the first
 // tap works. When it cannot listen, it says why in one line; it never moves to
 // the keyboard without a word. Every step is logged.
 
@@ -14,27 +14,28 @@ import Foundation
 import Observation
 import Speech
 
+public enum PhoneSpeechState: Equatable {
+    case unknown
+    case downloading(percent: Int)
+    case ready(Locale)
+    /// No on-device model for this language.
+    case unsupported(language: String)
+    case failed(String)
+}
+
 /// The speech model for this iPhone's language: one for the app, fetched once.
 @MainActor @Observable
 public final class PhoneSpeechModel {
-    public enum State: Equatable {
-        case unknown
-        case downloading(percent: Int)
-        case ready(Locale)
-        /// No on-device model for this language.
-        case unsupported(language: String)
-        case failed(String)
-    }
 
     public static let shared = PhoneSpeechModel()
     /// Where log lines go: the app points this at its own log.
     public static var log: (_ event: String, _ fields: [String: String]) -> Void = { _, _ in }
 
-    public private(set) var state = State.unknown
+    public private(set) var state = PhoneSpeechState.unknown
     private var fetching: Task<Void, Never>?
 
     /// Fetches the model if it is missing. Called during setup and again before listening.
-    public func prepare() {
+    public func prepareSpeechModel() {
         guard fetching == nil else { return }
         if case .ready = state { return }
         fetching = Task { await fetch(); fetching = nil }
@@ -113,7 +114,10 @@ final class PhoneDictation {
     private var sessionToken: UUID?
     private let log = PhoneSpeechModel.log
 
-    var isListening: Bool { if case .listening = state { true } else { state == .starting } }
+    /// True only once microphone permission has been granted and audio capture has started.
+    var isListening: Bool { if case .listening = state { true } else { false } }
+    /// True while starting up or actively listening, for toggle/stop lifecycle guards.
+    var isActive: Bool { isListening || state == .starting }
 
     /// What has been heard, for the reply box.
     var heard: String {
@@ -122,12 +126,12 @@ final class PhoneDictation {
     }
 
     func toggle() async {
-        if isListening { await stop() } else { await start() }
+        if isActive { await stop() } else { await start() }
     }
 
     func start() async {
         if let stoppingTask { _ = await stoppingTask.value }
-        if isListening { return }
+        if isActive { return }
         let token = UUID()
         sessionToken = token
         state = .starting
@@ -138,7 +142,7 @@ final class PhoneDictation {
         }
         guard sessionToken == token else { return }
         let model = PhoneSpeechModel.shared
-        model.prepare()
+        model.prepareSpeechModel()
         if case .downloading = model.state {} else { await model.waitUntilSettled() }
         guard sessionToken == token else { return }
         switch model.state {
@@ -225,7 +229,7 @@ final class PhoneDictation {
     func stop() async -> String {
         if let existing = stoppingTask { return await existing.value }
         let activeToken = sessionToken
-        let wasActive = isListening || engine != nil || analyzer != nil || (activeToken != nil && Self.activeAudioOwner == activeToken)
+        let wasActive = isActive || engine != nil || analyzer != nil || (activeToken != nil && Self.activeAudioOwner == activeToken)
         // If we are still awaiting startup (no engine yet), invalidate immediately so startup aborts.
         if engine == nil && analyzer == nil {
             sessionToken = nil

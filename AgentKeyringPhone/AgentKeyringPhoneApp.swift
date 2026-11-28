@@ -5,12 +5,24 @@
 
 import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
-import AgentKeyringPhoneApprover
-import AgentKeyringRelaySupport
+import AgentKeyringDesign
+import AgentKeyringEngine
 import AgentKeyringSealing
+import AgentKeyringSiteIcons
+import AuthenticationServices
 import SwiftUI
 import UIKit
 import UserNotifications
+
+private struct PhoneSiteIconProvider: SiteIconProviding {
+    func cachedIconData(forHost host: String, displayName: String) -> Data? {
+        SiteIconStore.shared.cachedIconData(forHost: host, displayName: displayName)
+    }
+
+    func iconData(forHost host: String, displayName: String) async -> Data? {
+        await SiteIconStore.shared.iconData(forHost: host, displayName: displayName)
+    }
+}
 
 @main
 struct AgentKeyringPhoneApp: App {
@@ -20,26 +32,27 @@ struct AgentKeyringPhoneApp: App {
     var body: some Scene {
         WindowGroup {
             PhoneRootView(model: delegate.model)
+                .environment(\.siteIconProvider, PhoneSiteIconProvider())
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     // In front: fetch what changed from the Mac, or until joined look for its join card.
                     if phase == .active {
-                        delegate.keyring?.start()
-                        PhoneDiagnostics.log.collect()
-                        Task { await delegate.model.recheckNotifications() }
-                        Task { await VersionCheck.checkIfDue(platform: "ios") }
-                    } else if phase == .background { delegate.keyring?.stop() }
+                        if delegate.keyring != nil {
+                            delegate.keyring?.startBackgroundWork()
+                            KeyringDiagnosticLog.iPhone.collect()
+                            Task { await delegate.model.recheckNotifications() }
+                            Task {
+                                let account = await CloudVault()?.fetchCloudUserRecordName()
+                                await VersionCheck.checkIfDue(platform: "ios", accountSeed: account)
+                            }
+                        }
+                    } else if phase == .background { delegate.keyring?.stopBackgroundWork() }
                 }
-                // The code on the Mac is an agentkeyring://join link, so the Camera app opens it here too.
-                .onOpenURL { url in Task { await delegate.model.join(invitation: url.absoluteString) } }
+                // Passwords' Export Data to Another App, with Agent Keyring chosen.
+                .onContinueUserActivity(ASCredentialExchangeActivity) { delegate.receiveImport($0) }
                 .onChange(of: delegate.model.snapshot.joined, initial: true) { _, joined in
-                    // Joined: ask Apple for a push address, and fetch the speech model so the first tap on the microphone works.
-                    if joined { delegate.askForPushAddress(); PhoneSpeechModel.shared.prepare() }
+                    // Joined: fetch the speech model so the first tap on the microphone works.
+                    if joined { PhoneSpeechModel.shared.prepareSpeechModel() }
                 }
-                // The Watch learns of every change to the list of devices, its own admission first of all.
-                .onChange(of: delegate.model.snapshot.devices, initial: true) { delegate.watch?.sendMembers() }
-                // Apple Watch follows the iPhone's notification settings.
-                .onChange(of: delegate.model.snapshot.settings) { delegate.watch?.sendMembers() }
-                .onChange(of: delegate.model.snapshot.logins) { delegate.watch?.sendMembers() }
         }
     }
 }
@@ -47,26 +60,33 @@ struct AgentKeyringPhoneApp: App {
 @MainActor
 final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     let backend: any PhoneBackend
-    /// The real backend; nil when the app runs on Paper's sample (`-Sample YES`).
-    let keyring: PhoneKeyring?
+    /// The real backend; nil when the app runs on a sandbox world (`-Sandbox YES` or `-SandboxBundle <file>`).
+    let keyring: PhoneKeyringEngine?
     let model: PhoneModel
     private(set) var watch: WatchLink?
 
     override init() {
-        // Paper's sample exists only in debug builds, for comparing screens in the simulator.
+        KeyringFont.configureNavigationAppearance()
+        PhoneBackgroundTime.beginTask = { name in
+            let id = UIApplication.shared.beginBackgroundTask(withName: name)
+            return { if id != .invalid { UIApplication.shared.endBackgroundTask(id) } }
+        }
+        if let relayURL = UserDefaults.standard.string(forKey: "AgentKeyringRelayURL") {
+            RelayBoxClient.overrideURL = relayURL
+        }
+        // A sandbox world exists only in debug builds, for looking at the screens with no real keyring behind them.
         #if DEBUG
-        let sampled = UserDefaults.standard.bool(forKey: "Sample")
+        let sandbox = Self.sandboxWorld()
         #else
-        let sampled = false
+        let sandbox: SandboxWorld? = nil
         #endif
-        if sampled {
-            let sample = PhoneSampleBackend(step: UserDefaults.standard.string(forKey: "SampleStep"))
-            backend = sample; keyring = nil
-            model = PhoneModel(backend: sample, initial: sample.current)
+        if let sandbox {
+            backend = sandbox; keyring = nil
+            model = PhoneModel(backend: sandbox, initial: sandbox.phoneSnapshot)
         } else {
             // A new install: removing the app cleared its own files but not its keychain. The keys stay.
             if !UserDefaults.standard.bool(forKey: "installed") {
-                PhoneSharedContext(accessGroup: Self.keychainGroup).delete()
+                PhoneSharedContext(accessGroup: Self.keychainGroup).deleteSharedContext()
                 UserDefaults.standard.set(true, forKey: "installed")
             }
             #if targetEnvironment(simulator)
@@ -74,22 +94,66 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             #else
             let keys: any PhoneDeviceKeys = PhoneEnclaveKeys(accessGroup: Self.keychainGroup)
             #endif
-            let real = PhoneKeyring(directory: .applicationSupportDirectory.appending(path: "AgentKeyring", directoryHint: .isDirectory),
+            let real = PhoneKeyringEngine(directory: .applicationSupportDirectory.appending(path: "AgentKeyring", directoryHint: .isDirectory),
                                     shared: PhoneSharedContext(accessGroup: Self.keychainGroup), keys: keys,
-                                    identity: { try RelayTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v2") })
+                                    identity: { try DeviceTLSIdentity.loadOrCreate(service: "com.joshpalmer.AgentKeyring.Phone.relay-tls.v2") })
             backend = real; keyring = real
             model = PhoneModel(backend: real, initial: real.snapshot)
         }
         super.init()
         PhoneSpeechModel.log = { event, fields in
-            PhoneDiagnostics.log.note("speech", event, KeyValuePairs(dictionaryLiteral: ("detail", fields.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))))
+            KeyringDiagnosticLog.iPhone.noteDeviceEvent("speech", event, KeyValuePairs(dictionaryLiteral: ("detail", fields.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))))
         }
-        if let keyring { watch = WatchLink(keyring: keyring) }
+        if let keyring {
+            keyring.onNeedPushAddress = { [weak self] in self?.askForPushAddress() }
+            watch = WatchLink(keyring: keyring)
+        }
         #if DEBUG
-        // For comparing screens with Paper in the simulator: -SampleTab logins, -SampleShow r1.
-        if let tab = UserDefaults.standard.string(forKey: "SampleTab").flatMap(PhoneTab.init(rawValue:)) { model.tab = tab }
-        if let show = UserDefaults.standard.string(forKey: "SampleShow") { model.openDecide(show) }
+        // -SandboxExport <name>: this iPhone's keyring, every password "hunter2", into Documents/<name>.
+        if let keyring, let name = UserDefaults.standard.string(forKey: "SandboxExport"), !name.isEmpty {
+            do {
+                try keyring.sandboxBundle().write(to: URL.documentsDirectory.appending(path: name), options: .atomic)
+                KeyringDiagnosticLog.iPhone.noteDeviceEvent("app", "note", ["msg": "Sandbox bundle written to Documents/\(name)"])
+            } catch { KeyringDiagnosticLog.iPhone.noteDeviceEvent("app", "note", ["msg": "Sandbox bundle not written: \(error)"]) }
+        }
         #endif
+    }
+
+    #if DEBUG
+    /// -Sandbox YES: the built-in world. -SandboxBundle <file>: a keyring dumped with -SandboxExport.
+    /// -SandboxStep <name>: a first-run or Apple Watch page (SandboxState.phoneFirstRunSteps, phoneWatchSteps).
+    static func sandboxWorld() -> SandboxWorld? {
+        let defaults = UserDefaults.standard
+        var state: SandboxState
+        if let path = defaults.string(forKey: "SandboxBundle"), !path.isEmpty {
+            do { state = try PhoneKeyringEngine.sandboxState(from: Data(contentsOf: URL(fileURLWithPath: path))) } catch {
+                fatalError("Couldn't read the sandbox bundle at \(path): \(error)")
+            }
+        } else if defaults.bool(forKey: "Sandbox") {
+            state = .builtIn()
+        } else {
+            return nil
+        }
+        if let step = defaults.string(forKey: "SandboxStep") { state.showPhone(step: step) }
+        return SandboxWorld(state)
+    }
+    #endif
+
+    /// An export from Passwords: its token, for the keyring to fetch and seal.
+    func receiveImport(_ activity: NSUserActivity) {
+        guard activity.activityType == ASCredentialExchangeActivity,
+              let token = (activity.userInfo?[ASCredentialImportToken] as? UUID) ?? (activity.userInfo?[ASCredentialImportToken] as? NSUUID).map({ $0 as UUID }) else {
+            KeyringDiagnosticLog.iPhone.noteDeviceEvent("app", "note", ["msg": "An export from Passwords arrived with no token"])
+            return
+        }
+        Task { await keyring?.receiveImport(token: token) }
+    }
+
+    func application(_ application: UIApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any UIUserActivityRestoring]?) -> Void) -> Bool {
+        guard userActivity.activityType == ASCredentialExchangeActivity else { return false }
+        receiveImport(userActivity)
+        return true
     }
 
     /// Asks Apple for this iPhone's push address; first run says so if none has come 30 seconds later.
@@ -102,22 +166,44 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         Task {
             do {
                 try await keyring?.registerPush(token: deviceToken, topic: Bundle.main.bundleIdentifier ?? "", production: production)
-                PhoneDiagnostics.note("Push address registered with the Mac")
-            } catch { PhoneDiagnostics.note("Could not register for pushes: \(error)") }
+                KeyringDiagnosticLog.iPhone.noteDeviceEvent("app", "note", ["msg": "Push address registered with the Mac"])
+            } catch { KeyringDiagnosticLog.iPhone.noteDeviceEvent("app", "note", ["msg": "Could not register for pushes: \(error)"]) }
         }
     }
 
     /// A silent push: a request was answered or ended, so its notification goes wherever it was answered;
     /// or the Mac's lists changed ("rev"), so they are fetched.
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
-        if let id = PhoneNotification.ended(userInfo) { PhoneNotifications.remove(id) }
+        if let id = PhoneNotification.ended(userInfo) { PhoneDeliveredNotifications.removeRequestNotification(id) }
+        if CloudVault.isCloudNotification(userInfo) {
+            await keyring?.cloudChanged()
+            return .newData
+        }
+        // When the app is active and notifications are allowed, iOS runs the notification service
+        // extension first and then delivers visible alert pushes to userNotificationCenter(_:willPresent:).
+        // Returning here keeps in-app UI from reacting before the real iOS banner drops in.
+        if application.applicationState == .active, Self.isVisibleAlertPush(userInfo) {
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            if status == .authorized || status == .provisional {
+                return .noData
+            }
+        }
         guard userInfo["rev"] != nil || userInfo["akr"] != nil else { return .noData }
         await keyring?.received(userInfo)
         return .newData
     }
 
+    private static func isVisibleAlertPush(_ userInfo: [AnyHashable: Any]) -> Bool {
+        if PhoneNotification.ended(userInfo) != nil { return false }
+        guard let aps = userInfo["aps"] as? [AnyHashable: Any] else { return false }
+        if aps["alert"] != nil { return true }
+        if let mutable = aps["mutable-content"] as? Int, mutable != 0 { return true }
+        if let mutable = aps["mutable-content"] as? Bool, mutable { return true }
+        return false
+    }
+
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        PhoneDiagnostics.note("Apple refused a push address: \(error)")
+        KeyringDiagnosticLog.iPhone.noteDeviceEvent("app", "note", ["msg": "Apple refused a push address: \(error)"])
     }
 
     /// The keychain group the app shares with its notification service extension. None in the simulator.
@@ -173,11 +259,11 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     }
 
     private func answer(_ id: String, userInfo: [AnyHashable: Any], action: String) async {
-        PhoneDiagnostics.log.note("notification", "action", ["request": id, "action": action])
+        KeyringDiagnosticLog.iPhone.noteDeviceEvent("notification", "action", ["request": id, "action": action])
         let keyring = self.keyring
         await model.handleNotification(id: id, action: action) {
             if action == PhoneNotification.denyAction {
-                await keyring?.received(userInfo)
+                await keyring?.received(userInfo, pushDelivered: true)
             } else {
                 await keyring?.notificationOpened(id, userInfo)
             }
@@ -186,13 +272,27 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                           willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        let info = UncheckedUserInfo(notification.request.content.userInfo)
-        await keyring?.received(info.value)
-        // With the app open, a request or rule change shows a banner; an outcome does not.
+                                           willPresent notification: UNNotification,
+                                           withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let content = notification.request.content
-        return content.categoryIdentifier == PhoneNotification.requestCategory || content.interruptionLevel == .timeSensitive
+        let info = UncheckedUserInfo(content.userInfo)
+        // Passive outcome collapse notifications clear any waiting alert and update in-app state silently.
+        if content.interruptionLevel == .passive || PhoneNotification.ended(content.userInfo) != nil {
+            let id = PhoneNotification.requestID(content.userInfo) ?? (content.threadIdentifier.isEmpty ? nil : content.threadIdentifier)
+            completionHandler([])
+            Task { @MainActor in
+                if let id { PhoneDeliveredNotifications.removeRequestNotification(id) }
+                await keyring?.received(info.value, pushDelivered: true)
+            }
+            return
+        }
+        // With the app open, a request or rule change shows a banner; an outcome does not.
+        // Present the native iOS banner first so in-app UI never jumps ahead of it.
+        let options: UNNotificationPresentationOptions =
+            content.categoryIdentifier == PhoneNotification.requestCategory || content.interruptionLevel == .timeSensitive
             ? [.banner, .list, .sound] : [.list]
+        completionHandler(options)
+        Task { @MainActor in await keyring?.received(info.value, pushDelivered: true) }
     }
 }
 

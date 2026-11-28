@@ -1,18 +1,22 @@
 // Written by AI on 2026.11.21 by model Claude Opus 5.5.
 //
 // Apple Watch's pages, from the shared page parts: one per state of
-// WatchSetup, "In use" with Stop, and a request's card. They hold no state of
+// WatchOnboardingStep, "In use" with Stop, and a request's card. They hold no state of
 // their own beyond a button's busy moment; the app gives them what to show and
 // what each button does. In a package target so the cut-off check hosts them
 // (WatchGallery). Every word is in WatchCopy.
 
 #if os(watchOS)
 import AgentKeyringDesign
-import AgentKeyringWatchCore
+import AgentKeyringSealing
 import SwiftUI
 
 /// How an answer from the card went.
-public enum WatchAnswerResult: Sendable { case sent, alreadyAnswered, failed }
+public enum WatchAnswerResult: Sendable { case sent, submitted, alreadyAnswered, failed }
+
+/// How Stop went: the relay confirmed the approval stopped; the Stop was sent but the relay did not confirm
+/// it, so it may still be in use; or it could not be sent.
+public enum WatchStopResult: Sendable { case stopped, sent, failed }
 
 /// What a request's card shows: one state, so an answer can only follow the request on screen, and only once.
 public enum WatchCard: Sendable, Equatable {
@@ -21,30 +25,44 @@ public enum WatchCard: Sendable, Equatable {
     case unreadable
     case showing(WatchRequest)
     case sending(WatchRequest)
-    case answered(WatchRequest, String)
+    case answered(WatchRequest, String, approved: Bool = false)
 }
 
 /// A request's card: who asks, the site and the account, Deny and Approve, then Deny and Explain, all before
 /// the reason, so a long reason never pushes them off the screen.
 public struct WatchRequestCard: View {
     let card: WatchCard
+    let notificationTopInset: CGFloat
     let respond: (_ approve: Bool, _ words: String) -> Void
     /// Set by the cut-off check, which lays a scrolling page out at full length.
     @Environment(\.keyringUnrollsScrolling) private var unrolls
 
-    public init(card: WatchCard, respond: @escaping (_ approve: Bool, _ words: String) -> Void) {
+    public init(
+        card: WatchCard,
+        notificationTopInset: CGFloat = 0,
+        respond: @escaping (_ approve: Bool, _ words: String) -> Void
+    ) {
         self.card = card
+        self.notificationTopInset = notificationTopInset
         self.respond = respond
     }
 
     public var body: some View {
-        switch card {
-        case .opening: KeyringPage(alignment: .centre, status: .waiting(WatchCopy.openingRequest))
-        case .unreadable: KeyringPage(title: WatchCopy.unreadable, alignment: .centre)
-        case let .showing(request), let .sending(request):
-            if case let .ended(outcome) = request.state { ended(request, outcome, approved: false) } else { open(request) }
-        case let .answered(request, line): ended(request, line, approved: line == WatchCopy.answered(approve: true, .sent))
+        Group {
+            switch card {
+            case .opening: KeyringPage(alignment: .centre, status: .waiting(WatchCopy.openingRequest))
+            case .unreadable: KeyringPage(title: WatchCopy.unreadable, alignment: .centre)
+            case let .showing(request), let .sending(request):
+                if case let .ended(outcome, approved) = request.state {
+                    ended(request, outcome, approved: approved)
+                } else {
+                    open(request)
+                }
+            case let .answered(request, line, approved):
+                ended(request, line, approved: approved)
+            }
         }
+        .padding(.top, notificationTopInset)
     }
 
     private func open(_ request: WatchRequest) -> some View {
@@ -59,6 +77,8 @@ public struct WatchRequestCard: View {
                     let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty { respond(false, trimmed) }
                 })
+            .padding(.horizontal, KeyringSpace.s3)
+            .padding(.bottom, KeyringSpace.s4)
         return Group { if unrolls { content } else { ScrollView { content } } }
     }
 
@@ -75,13 +95,13 @@ public enum WatchSetupAction: Sendable { case add, cancelAdd, allowNotifications
 
 /// Where Apple Watch's setup stands, one page per state.
 public struct WatchSetupPage: View {
-    let setup: WatchSetup
+    let setup: WatchOnboardingStep
     let practiceFailed: Bool
     let addFailed: Bool
     let act: @MainActor (WatchSetupAction) async -> Void
-    @State private var busyFor: WatchSetup?
+    @State private var busyFor: WatchOnboardingStep?
 
-    public init(setup: WatchSetup, practiceFailed: Bool = false, addFailed: Bool = false, act: @escaping @MainActor (WatchSetupAction) async -> Void) {
+    public init(setup: WatchOnboardingStep, practiceFailed: Bool = false, addFailed: Bool = false, act: @escaping @MainActor (WatchSetupAction) async -> Void) {
         self.setup = setup
         self.practiceFailed = practiceFailed
         self.addFailed = addFailed
@@ -90,18 +110,22 @@ public struct WatchSetupPage: View {
 
     public var body: some View {
         let page = WatchCopy.page(setup)
-        KeyringPage(title: page.title, sentence: page.detail, alignment: .centre, mascot: mascot,
-                    status: statusLine,
+        let isWaitingPage = setup == .preparing || setup == .practiceWaiting
+        KeyringPage(title: isWaitingPage ? nil : page.title, sentence: page.detail, alignment: .centre, mascot: mascot,
+                    status: isWaitingPage ? .waiting(page.title) : statusLine,
                     primary: primary, secondary: setup == .addedOfferPractice ? action(WatchCopy.done, .plain, .done) : nil)
+            .onChange(of: setup) { _, _ in busyFor = nil }
     }
 
     private var statusLine: KeyringStatus? {
+        if busyFor == .readyToAdd && setup == .readyToAdd { return .waiting(WatchCopy.page(.preparing).title) }
+        if busyFor == .addedOfferPractice && setup == .addedOfferPractice { return .waiting(WatchCopy.page(.practiceWaiting).title) }
         if practiceFailed && setup == .addedOfferPractice { return .problem(WatchCopy.practiceNotAsked) }
         if addFailed && setup == .readyToAdd { return .problem(WatchCopy.addFailed) }
         return nil
     }
 
-    private var mascot: KeyringMascot.Mood {
+    private var mascot: KeyringMascotMood {
         switch setup {
         case .ready, .addedOfferPractice: .approved
         case .preparing, .practiceWaiting, .settingUpNotifications: .waiting
@@ -122,7 +146,7 @@ public struct WatchSetupPage: View {
         }
     }
 
-    private func action(_ title: String, _ kind: KeyringAction.Kind, _ what: WatchSetupAction) -> KeyringAction {
+    private func action(_ title: String, _ kind: KeyringActionKind, _ what: WatchSetupAction) -> KeyringAction {
         let current = setup
         let isBusy = busyFor == current
         return KeyringAction(title, kind, isEnabled: !isBusy) {
@@ -138,18 +162,26 @@ public struct WatchSetupPage: View {
 /// "In use", each approval with Stop.
 public struct WatchInUsePage: View {
     let items: [WatchInUse]
-    let stop: @MainActor (String) async -> Bool
+    let stop: @MainActor (String) async -> WatchStopResult
     @State private var stopping: String?
     @State private var failed: String?
+    @State private var sent: String?
 
-    public init(items: [WatchInUse], stop: @escaping @MainActor (String) async -> Bool) {
+    /// `sentFor`: an approval whose Stop is on its way, for the gallery to show that line.
+    public init(items: [WatchInUse], sentFor: String? = nil, stop: @escaping @MainActor (String) async -> WatchStopResult) {
         self.items = items
         self.stop = stop
+        _sent = State(initialValue: sentFor)
+    }
+
+    private var status: KeyringStatus? {
+        if let failed, items.contains(where: { $0.id == failed }) { return .problem(WatchCopy.stopFailed) }
+        if let sent, items.contains(where: { $0.id == sent }) { return .waiting(WatchCopy.stopSent) }
+        return nil
     }
 
     public var body: some View {
-        let activeFailure = failed.flatMap { id in items.contains { $0.id == id } ? id : nil }
-        KeyringPage(title: WatchCopy.inUse, status: activeFailure.map { _ in .problem(WatchCopy.stopFailed) }) {
+        KeyringPage(title: WatchCopy.inUse, status: status) {
             ForEach(items) { item in
                 VStack(alignment: .leading, spacing: KeyringSpace.s1) {
                     KeyringText(item.site, as: .site, fit: .siteName)
@@ -157,7 +189,9 @@ public struct WatchInUsePage: View {
                     KeyringButton(.plain(WatchCopy.stop, isEnabled: stopping == nil) {
                         stopping = item.id
                         Task {
-                            failed = await stop(item.id) ? nil : item.id
+                            let result = await stop(item.id)
+                            failed = result == .failed ? item.id : nil
+                            sent = result == .sent ? item.id : nil
                             stopping = nil
                         }
                     })
@@ -167,6 +201,7 @@ public struct WatchInUsePage: View {
         }
         .onChange(of: items.map(\.id)) { _, ids in
             if let failed, !ids.contains(failed) { self.failed = nil }
+            if let sent, !ids.contains(sent) { self.sent = nil }
         }
     }
 }
@@ -175,17 +210,17 @@ public struct WatchInUsePage: View {
 @MainActor
 public enum WatchGallery {
     static let longRequest = WatchRequest(
-        work: Data(), id: "r1", site: "accounts.longcompany-example.co.uk", account: "firstname.lastname+work@company.example",
+        envelope: Data(), id: "r1", site: "accounts.longcompany-example.co.uk", account: "firstname.lastname+work@company.example",
         sites: [], agent: "Claude Code", wants: "Claude Code on MacBook Pro (16-inch) wants", project: "bookkeeping",
         reason: "You asked me to download October’s invoice from the billing page and file it in the bookkeeping folder for the accountant.",
         state: .waiting, who: "Claude Code on MacBook Pro", inUseUntil: nil, isPractice: false)
     static let practice = WatchRequest(
-        work: Data(), id: "p1", site: "example.com", account: "you@example.com", sites: [], agent: "Agent Keyring",
+        envelope: Data(), id: "p1", site: "example.com", account: "you@example.com", sites: [], agent: "Agent Keyring",
         wants: "Practice: an agent wants", project: nil, reason: "You asked me to download October’s invoice.",
         state: .waiting, who: "Practice", inUseUntil: nil, isPractice: true)
 
     public static var entries: [KeyringGalleryEntry] {
-        let setups: [(String, WatchSetup)] = [
+        let setups: [(String, WatchOnboardingStep)] = [
             ("no-passcode", .noPasscode), ("set-up-iphone", .setUpIPhone), ("start-on-iphone", .startOnIPhone),
             ("ready-to-add", .readyToAdd), ("preparing", .preparing), ("notifications", .notifications),
             ("notifications-off", .notificationsOff), ("setting-up", .settingUpNotifications),
@@ -197,17 +232,13 @@ public enum WatchGallery {
             KeyringGalleryEntry("watch-request-practice", .watch) { WatchRequestCard(card: .showing(practice)) { _, _ in } },
             KeyringGalleryEntry("watch-request-unreadable", .watch) { WatchRequestCard(card: .unreadable) { _, _ in } },
             KeyringGalleryEntry("watch-request-approved", .watch) {
-                WatchRequestCard(card: .answered(longRequest, WatchCopy.answered(approve: true, .sent))) { _, _ in }
+                WatchRequestCard(card: .answered(longRequest, WatchCopy.answered(approve: true, .sent), approved: true)) { _, _ in }
             },
             KeyringGalleryEntry("watch-request-already-answered", .watch) {
                 WatchRequestCard(card: .answered(longRequest, WatchCopy.answered(approve: true, .alreadyAnswered))) { _, _ in }
             },
             KeyringGalleryEntry("watch-request-not-sent", .watch) {
                 WatchRequestCard(card: .answered(longRequest, WatchCopy.answered(approve: false, .failed))) { _, _ in }
-            },
-            KeyringGalleryEntry("watch-in-use", .watch) {
-                WatchInUsePage(items: [WatchInUse(id: "u1", site: "accounts.longcompany-example.co.uk", who: "Claude Code on MacBook Pro",
-                                                  until: Date(timeIntervalSince1970: 1_795_000_000))]) { _ in true }
             },
         ]
     }

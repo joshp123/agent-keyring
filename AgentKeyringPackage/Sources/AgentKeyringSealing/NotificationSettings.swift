@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct NotificationSettings: Codable, Hashable, Sendable {
+public struct NotificationSettings: Hashable, Sendable {
     /// Requests may break through a Focus, such as Sleep.
     public var timeSensitive = true
     /// During quiet hours requests arrive without breaking through a Focus.

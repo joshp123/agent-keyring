@@ -16,65 +16,117 @@ public struct MacDevicesTab: View {
     public init(model: MacMainModel) { self.model = model }
 
     public var body: some View {
-        Form {
-            // After Not Now on sending changes: the way to send them later.
-            if model.snapshot.unsentChanges > 0 {
-                Section {
-                    KeyringDeviceRow(symbol: "arrow.triangle.2.circlepath", name: MainWindowCopy.unsentChanges(model.snapshot.unsentChanges),
-                                     detail: MainWindowCopy.unsentChangesDetail, tone: .needsDoing) {
-                        KeyringButton(.plain(MainWindowCopy.sendUpdates, perform: model.sendUpdates))
+        ScrollView {
+            VStack(alignment: .leading, spacing: KeyringSpace.s4) {
+                KeyringText(MainWindowCopy.devicesTab, as: .title)
+
+                // Touch ID was cancelled after a copy, or sending failed: the way to send them now.
+                if model.snapshot.unsentChanges > 0 {
+                    card {
+                        KeyringDeviceRow(symbol: "arrow.triangle.2.circlepath", name: MainWindowCopy.unsentChanges(model.snapshot.unsentChanges),
+                                         detail: MainWindowCopy.unsentChangesDetail, tone: .needsDoing) {
+                            KeyringButton(.plain(MainWindowCopy.sendUpdates, perform: model.sendUnsentChanges))
+                        }
+                        .padding(.horizontal, KeyringSpace.s4)
+                        .padding(.vertical, KeyringSpace.s3)
                     }
                 }
-            }
-            if !model.snapshot.notices.isEmpty {
-                Section {
-                    ForEach(model.snapshot.notices, id: \.self) { KeyringStatusLine(.takingLong(Self.words($0))) }
+
+                if !model.snapshot.notices.isEmpty {
+                    card {
+                        VStack(alignment: .leading, spacing: KeyringSpace.s2) {
+                            ForEach(model.snapshot.notices, id: \.self) { KeyringStatusLine(.takingLong(Self.words($0))) }
+                        }
+                        .padding(.horizontal, KeyringSpace.s4)
+                        .padding(.vertical, KeyringSpace.s3)
+                    }
                 }
-            }
-            Section {
-                ForEach(model.snapshot.approvers) { approver in
-                    KeyringDeviceRow(symbol: Self.symbol(approver.kind), name: Self.name(approver), detail: Self.detail(approver),
-                                     tone: Self.tone(approver.practice)) {
-                        HStack(spacing: KeyringSpace.s2) {
-                            KeyringButton(.plain(MainWindowCopy.sendPractice, isEnabled: approver.canPractise) { model.sendPractice(approver.id) })
-                            if approver.kind != .thisMac {
-                                KeyringButton(.plain(MainWindowCopy.rename, isEnabled: !model.isWorking) {
-                                    model.askToRename(approver.id, name: approver.name)
-                                })
-                                KeyringButton(.plain(MainWindowCopy.remove, isEnabled: !model.isWorking) {
-                                    model.askToRemove(approver.id, name: approver.name, isComputer: false)
-                                })
+
+                VStack(alignment: .leading, spacing: KeyringSpace.s2) {
+                    KeyringText(MainWindowCopy.whereYouApprove, as: .sectionName)
+                    card {
+                        ForEach(Array(model.snapshot.approvers.enumerated()), id: \.element.id) { index, approver in
+                            if index > 0 { Divider() }
+                            KeyringDeviceRow(symbol: Self.symbol(approver.kind), name: Self.name(approver), detail: Self.detail(approver),
+                                             tone: Self.tone(approver)) {
+                                HStack(spacing: KeyringSpace.s2) {
+                                    KeyringButton(.plain(MainWindowCopy.sendPractice, isEnabled: approver.canPractise) { model.sendPracticeRequest(approver.id) })
+                                        .fixedSize()
+                                    // Reserve the trailing 24pt slot on thisMac so every Practice button aligns vertically.
+                                    if approver.kind != .thisMac {
+                                        Menu {
+                                            Button(MainWindowCopy.rename) {
+                                                model.askToRename(approver.id, name: approver.name)
+                                            }
+                                            Button(MainWindowCopy.remove, role: .destructive) {
+                                                model.askToRemove(approver.id, name: approver.name, isComputer: false)
+                                            }
+                                        } label: {
+                                            Image(systemName: "ellipsis.circle")
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(KeyringPalette.ink2)
+                                        }
+                                        .menuStyle(.borderlessButton)
+                                        .menuIndicator(.hidden)
+                                        .frame(width: 24, height: 24)
+                                        .disabled(model.isWorking)
+                                        .accessibilityLabel(MainWindowCopy.moreActions)
+                                    } else {
+                                        Color.clear
+                                            .frame(width: 24, height: 24)
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                                .fixedSize()
+                            }
+                            .padding(.horizontal, KeyringSpace.s4)
+                            .padding(.vertical, KeyringSpace.s3)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: KeyringSpace.s2) {
+                    KeyringText(MainWindowCopy.otherComputers, as: .sectionName)
+                    card {
+                        if model.snapshot.computers.isEmpty {
+                            KeyringText(MainWindowCopy.noOtherComputers, as: .meta)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, KeyringSpace.s4)
+                                .padding(.vertical, KeyringSpace.s3)
+                        } else {
+                            ForEach(Array(model.snapshot.computers.enumerated()), id: \.element.id) { index, computer in
+                                if index > 0 { Divider() }
+                                KeyringDeviceRow(symbol: "desktopcomputer", name: computer.name) {
+                                    Menu {
+                                        Button(MainWindowCopy.rename) {
+                                            model.askToRename(computer.id, name: computer.name)
+                                        }
+                                        Button(MainWindowCopy.remove, role: .destructive) {
+                                            model.askToRemove(computer.id, name: computer.name, isComputer: true)
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis.circle")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(KeyringPalette.ink2)
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .menuIndicator(.hidden)
+                                    .frame(width: 24, height: 24)
+                                    .disabled(model.isWorking)
+                                    .accessibilityLabel(MainWindowCopy.moreActions)
+                                }
+                                .padding(.horizontal, KeyringSpace.s4)
+                                .padding(.vertical, KeyringSpace.s3)
                             }
                         }
-                        // The row's control is one button; two side by side would share its width and cut each other off.
-                        .fixedSize()
                     }
                 }
-            } header: {
-                KeyringText(MainWindowCopy.whereYouApprove, as: .sectionName)
             }
-            Section {
-                if model.snapshot.computers.isEmpty {
-                    KeyringText(MainWindowCopy.noOtherComputers, as: .meta)
-                }
-                ForEach(model.snapshot.computers) { computer in
-                    KeyringDeviceRow(symbol: "desktopcomputer", name: computer.name) {
-                        HStack(spacing: KeyringSpace.s2) {
-                            KeyringButton(.plain(MainWindowCopy.rename, isEnabled: !model.isWorking) {
-                                model.askToRename(computer.id, name: computer.name)
-                            })
-                            KeyringButton(.plain(MainWindowCopy.remove, isEnabled: !model.isWorking) {
-                                model.askToRemove(computer.id, name: computer.name, isComputer: true)
-                            })
-                        }
-                        .fixedSize()
-                    }
-                }
-            } header: {
-                KeyringText(MainWindowCopy.otherComputers, as: .sectionName)
-            }
+            .padding(.horizontal, KeyringSpace.s6)
+            .padding(.vertical, KeyringSpace.s5)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .formStyle(.grouped)
+        .background(KeyringPalette.canvas)
         .alert(MainWindowCopy.renameTitle,
                isPresented: Binding(get: { if case .rename = model.deviceDialog { true } else { false } },
                                     set: { if !$0, case .rename = model.deviceDialog { model.dismissDeviceDialog() } })) {
@@ -86,14 +138,23 @@ public struct MacDevicesTab: View {
             isPresented: Binding(get: { if case .remove = model.deviceDialog { true } else { false } },
                                  set: { if !$0, case .remove = model.deviceDialog { model.dismissDeviceDialog() } })) {
             Button(MainWindowCopy.removeConfirm, role: .destructive) {
-                if case let .remove(id, _, _) = model.deviceDialog { model.remove(id) }
+                if case let .remove(id, _, _) = model.deviceDialog { model.removeDevice(id) }
             }
             Button(MainWindowCopy.cancel, role: .cancel) { model.dismissDeviceDialog() }
         } message: {
-            if case let .remove(_, name, isComputer) = model.deviceDialog {
-                Text(isComputer ? MainWindowCopy.removeComputer(name) : MainWindowCopy.removeDevice(name))
+            if case let .remove(id, name, isComputer) = model.deviceDialog {
+                let alsoAsks = model.snapshot.approvers.first { $0.id == id }?.alsoAsks == true
+                Text(isComputer ? MainWindowCopy.removeComputer(name) : alsoAsks ? MainWindowCopy.removeMac(name) : MainWindowCopy.removeDevice(name))
             }
         }
+    }
+
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) { content() }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(KeyringPalette.surface, in: .rect(cornerRadius: KeyringRadius.card))
+            .clipShape(.rect(cornerRadius: KeyringRadius.card))
+            .overlay(RoundedRectangle(cornerRadius: KeyringRadius.card).strokeBorder(KeyringPalette.line))
     }
 
     private var removeTitle: String {
@@ -101,17 +162,16 @@ public struct MacDevicesTab: View {
         return MainWindowCopy.removeTitle("")
     }
 
-    static func words(_ notice: DoorNotice) -> String {
+    static func words(_ notice: DevicesNotice) -> String {
         switch notice {
-        case .noTailscale: MessageCopy.noTailscale
+        case .noICloud: MessageCopy.noICloud
         case .noPushKey: MessageCopy.noPushKey
-        case .failed: MainWindowCopy.doorFailed
         }
     }
 
-    static func symbol(_ kind: ApproverRow.Kind) -> String {
+    static func symbol(_ kind: ApproverDeviceKind) -> String {
         switch kind {
-        case .thisMac: "laptopcomputer"
+        case .thisMac, .mac: "laptopcomputer"
         case .iPhone: "iphone"
         case .watch: "applewatch"
         }
@@ -121,19 +181,29 @@ public struct MacDevicesTab: View {
         approver.kind == .thisMac ? MainWindowCopy.thisMacName(approver.name) : approver.name
     }
 
-    /// How it approves; while a practice request is under way or just answered, where that is up to.
+    /// How it approves; readiness when setup isn't finished, or practice progress when running.
     static func detail(_ approver: ApproverRow) -> String {
-        switch approver.practice {
+        switch approver.readiness {
+        case .waitingForNotifications:
+            return MessageCopy.noPushAddress(approver.name)
+        case let .syncingCopies(done, total):
+            return SetupCopy.copyingTo(done: done, total: total)
+        case .unavailable:
+            return AccessRequestCopy.noApprover
+        case .ready:
+            break
+        }
+        return switch approver.practice {
         case nil:
             switch approver.kind {
             case .thisMac: MainWindowCopy.macAnswers
             case .iPhone: MainWindowCopy.phoneAnswers
             case .watch: MainWindowCopy.watchAnswers
+            case .mac: MainWindowCopy.otherMacAnswers
             }
         case .waitingHere?: MainWindowCopy.practiceHere
         case .sending?: MainWindowCopy.practiceSending
-        case .withApple?: MainWindowCopy.practiceWithApple
-        case .arrived?: approver.kind == .watch ? MainWindowCopy.practiceOnWatch : MainWindowCopy.practiceOnPhone
+        case .withApple?: MainWindowCopy.practiceSent(toWatch: approver.kind == .watch)
         case .approved?: MainWindowCopy.practiceApproved
         case .denied?: MainWindowCopy.practiceDenied
         case .noAnswer?: MainWindowCopy.practiceNoAnswer
@@ -141,12 +211,37 @@ public struct MacDevicesTab: View {
         }
     }
 
-    static func tone<Trailing>(_ practice: PracticeStatus?) -> KeyringDeviceRow<Trailing>.Tone {
-        switch practice {
-        case nil, .noAnswer?: .plain
-        case .waitingHere?, .sending?, .withApple?, .arrived?: .waiting
-        case .approved?: .approved
-        case .denied?, .failed?: .denied
+    static func tone(_ approver: ApproverRow) -> KeyringDeviceRowTone {
+        switch approver.readiness {
+        case .waitingForNotifications, .unavailable: return .needsDoing
+        case .syncingCopies: return .waiting
+        case .ready: break
+        }
+        switch approver.practice {
+        case nil, .noAnswer?: return .plain
+        case .waitingHere?, .sending?, .withApple?: return .waiting
+        case .failed?: return .needsDoing
+        case .approved?: return .approved
+        case .denied?: return .denied
+        }
+    }
+}
+extension DevicesSnapshot {
+    /// The Mac's rows: this Mac first, then every other device he approves on.
+    public func macApprovers(thisMac: ApproverRow, readiness: (SignedListApprover) -> DeviceReadiness,
+                             practice: (SignedListApprover) -> PracticeStatus?) -> [ApproverRow] {
+        [thisMac] + approvers.filter { $0.id != thisMac.id }.map { approver in
+            let ready = readiness(approver)
+            let practice = practice(approver)
+            let kind: ApproverDeviceKind = switch approver.device.kind {
+            case .iPhone: .iPhone
+            case .watch: .watch
+            case .mac: .mac
+            }
+            // This Mac pushes practice requests to iPhones and Watches; another Mac is not sent one.
+            return ApproverRow(id: approver.id, kind: kind, name: approver.device.name, practice: practice,
+                               canPractise: kind != .mac && ready == .ready && practice?.isUnderWay != true,
+                               readiness: ready, alsoAsks: approver.alsoAsks)
         }
     }
 }

@@ -1,227 +1,66 @@
 // Written by AI on 2026.11.18 by model Claude Opus 5.5.
 //
 // What the iPhone app shows and what it can ask for. Views read the model;
-// everything real (the Mac's door, push, the Secure Enclave and Face ID) sits
-// behind PhoneBackend.
+// everything real (iCloud, the relay, push, the Secure Enclave and Face ID)
+// sits behind PhoneBackend.
 
+import AgentKeyringApprovalCore
 import Foundation
 import Observation
-import UserNotifications
-
-/// A saved login as the iPhone lists it. Site and account are readable;
-/// the password stays sealed.
-public struct PhoneLogin: Identifiable, Hashable, Sendable {
-    public enum Rule: Hashable, Sendable {
-        case ask, automatic, blocked
-    }
-
-    public let id: String
-    public var site: String
-    public var account: String
-    public var rule: Rule
-
-    public init(id: String, site: String, account: String, rule: Rule) {
-        self.id = id; self.site = site; self.account = account; self.rule = rule
-    }
-}
-
-public struct PhoneDevice: Identifiable, Hashable, Sendable {
-    public enum Role: Hashable, Sendable {
-        /// A device that approves: this iPhone, a Watch, a MacBook.
-        case approves
-        /// A machine whose agents ask.
-        case asks
-    }
-
-    public let id: String
-    public var name: String
-    /// How it approves, or what it does: "Face ID", "Always on. Passes requests…".
-    public var detail: String?
-    public var role: Role
-    public var isThisIPhone: Bool
-    /// Practice on its row: a device he answers on, other than this iPhone.
-    public var canPractice: Bool
-    /// Remove on its row: not this iPhone, and not a Mac's computer row (its device row removes both).
-    public var canRemove: Bool
-
-    public init(id: String, name: String, detail: String? = nil, role: Role, isThisIPhone: Bool = false,
-                canPractice: Bool = false, canRemove: Bool = true) {
-        self.id = id; self.name = name; self.detail = detail; self.role = role; self.isThisIPhone = isThisIPhone
-        self.canPractice = canPractice; self.canRemove = canRemove
-    }
-}
-
-public enum PhoneTab: String, Hashable, Sendable {
-    case home, logins, devices
-}
-
-/// One sentence in Activity when something needs him, or an offer he can dismiss.
-public enum PhoneNotice: Hashable, Sendable, Identifiable {
-    /// Apple has not yet given this iPhone a push address.
-    case stillConnecting
-    /// The Mac can't be reached, so lists and practice requests wait for it; its name if known.
-    case macOffline(String?)
-    /// An Apple Watch is paired and has not been added.
-    case addAppleWatch
-
-    public var id: String {
-        switch self {
-        case .stillConnecting: "stillConnecting"
-        case .macOffline: "macOffline"
-        case .addAppleWatch: "addAppleWatch"
-        }
-    }
-    public var dismissable: Bool { self == .addAppleWatch }
-}
-
-public struct PhoneFill: Hashable, Sendable {
-    public var copied: Int
-    public var of: Int
-    public init(copied: Int, of: Int) { self.copied = copied; self.of = of }
-}
-
-/// What the iPhone can see of its Apple Watch, each a fact the Apple Watch step ticks. The iPhone cannot
-/// open or install the Watch app; it can only see these.
-public struct PhoneWatchFacts: Hashable, Sendable {
-    /// An Apple Watch is paired with this iPhone (WatchConnectivity).
-    public var paired = false
-    /// Agent Keyring's Watch app is installed on it.
-    public var installed = false
-    /// The Watch app has run and sent this iPhone its keys.
-    public var opened = false
-    /// It is in the list of devices.
-    public var added = false
-    /// It is listed in Members, but its encrypted password copies have not yet been acknowledged by the Mac.
-    public var copiesPending = false
-    public var notificationsAllowed = false
-    /// Apple has given it a push address.
-    public var pushAddress = false
-    /// It has answered a practice request.
-    public var practiceAnswered = false
-
-    public init() {}
-
-    /// Paired and either not added or still missing its encrypted password copies:
-    /// keeps the Add Apple Watch flow reachable until copying completes.
-    public var toAdd: Bool { paired && (!added || copiesPending) }
-}
-
-/// What iOS lets the app see of its notification settings: the facts the notifications checklist ticks.
-/// Whether a Focus such as Sleep lets requests through is not among them: no app can read it.
-public struct PhoneNotificationFacts: Hashable, Sendable {
-    public var allowed = false
-    public var banners = false
-    public var lockScreen = false
-    public var timeSensitive = false
-    /// Delivered in a Scheduled Summary, which would hold requests back.
-    public var inScheduledSummary = false
-
-    public init() {}
-
-    public init(_ settings: UNNotificationSettings) {
-        allowed = settings.authorizationStatus == .authorized
-        banners = settings.alertSetting == .enabled
-        lockScreen = settings.lockScreenSetting == .enabled
-        timeSensitive = settings.timeSensitiveSetting == .enabled
-        inScheduledSummary = settings.scheduledDeliverySetting == .enabled
-    }
-}
-
-/// The two notification settings (Paper, "On iPhone and Apple Watch", Settings).
-public struct PhoneSettings: Hashable, Sendable {
-    public var timeSensitive: Bool
-    public var quietHours: Bool
-    /// Minutes after midnight.
-    public var quietFrom: Int
-    public var quietTo: Int
-
-    public init(timeSensitive: Bool = true, quietHours: Bool = false, quietFrom: Int = 23 * 60, quietTo: Int = 7 * 60) {
-        self.timeSensitive = timeSensitive; self.quietHours = quietHours; self.quietFrom = quietFrom; self.quietTo = quietTo
-    }
-}
-
-public struct PhoneSnapshot: Hashable, Sendable {
-    /// Monotonic revision set by the backend so delayed AsyncStream snapshots never overwrite newer state.
-    public var revision: UInt64 = 0
-    public var requests: [AccessRequest]
-    public var logins: [PhoneLogin]
-    public var devices: [PhoneDevice]
-    public var firstRun: PhoneFirstRun
-    /// First run's practice request, in the real request's layout, while it is open.
-    public var practiceRequest: AccessRequest?
-    /// The reply sent with a denied practice request, if any, to echo on the confirmation card.
-    public var practiceDeniedReply: String?
-    /// The Mac this iPhone joined, by name.
-    public var macName: String?
-    /// What this iPhone can see of its Apple Watch, for the Apple Watch step.
-    public var watch = PhoneWatchFacts()
-    public var notices: [PhoneNotice] = []
-    public var settings = PhoneSettings()
-    public var notificationFacts = PhoneNotificationFacts()
-    /// Adding Apple Watch, while its flow is open.
-    public var addWatch: PhoneAddWatch?
-    /// While this iPhone's copies of the passwords arrive after joining: how many are here, of how many.
-    public var filling: PhoneFill?
-    /// Requests whose answer is not delivered yet: the asking computer's door cannot be reached, and it is retried.
-    public var undelivered: Set<String> = []
-    /// In the signed list of devices.
-    public var joined = false
-
-    public init(firstRun: PhoneFirstRun, requests: [AccessRequest] = [], logins: [PhoneLogin] = [], devices: [PhoneDevice] = [],
-                practiceRequest: AccessRequest? = nil) {
-        self.firstRun = firstRun; self.requests = requests; self.logins = logins; self.devices = devices
-        self.practiceRequest = practiceRequest
-    }
-}
-
-/// Stop could not reach the asking computer, so it waits with the Mac until that computer next asks.
-public struct PhoneStopWaitsWithMac: Error { public init() {} }
-
-@MainActor
-public protocol PhoneBackend: AnyObject {
-    /// The current snapshot first, then one each time anything changes.
-    func updates() -> AsyncStream<PhoneSnapshot>
-    /// Face ID, then the answer goes to the machine that asked. `reusingUnlock`:
-    /// a Face ID unlock of the phone in the last few seconds counts, so an
-    /// Approve pressed on the Lock Screen needs one look, not two.
-    func approve(_ requestID: String, reusingUnlock: Bool) async throws
-    func deny(_ requestID: String, reply: String?) async throws
-    func stop(_ requestID: String) async throws
-    /// Changing a rule is signed by this iPhone after Face ID.
-    func setRule(_ rule: PhoneLogin.Rule, forLogin loginID: String) async throws
-    /// Removing a device is signed by this iPhone after Face ID.
-    func remove(device deviceID: String) async throws
-    /// Uses the Mac's join card from an `agentkeyring://join` link, for the simulator, which has no iCloud Keychain.
-    func join(invitation: String) async throws
-    /// A step of first run: a tap, or what iOS answered.
-    func firstRun(_ event: PhoneFirstRun.Event) async
-    /// What iOS now allows, read each time the app comes to the front and after its question.
-    func notificationFacts(_ facts: PhoneNotificationFacts) async
-    /// A practice request to this iPhone (nil) or to another device he answers on. For this iPhone, returns
-    /// the one already waiting, to be shown again, instead of making a second.
-    func sendPractice(to deviceID: String?) async -> String?
-    func dismiss(_ notice: PhoneNotice) async
-    func setSettings(_ settings: PhoneSettings) async
-    /// A tap in the Apple Watch flow.
-    func addWatch(_ tap: PhoneAddWatchTap) async
-}
 
 @MainActor
 @Observable
 public final class PhoneModel {
+    /// Single coupled state for an in-flight request answer so choice and request ID never desync.
+    public struct ActiveAnswer: Equatable, Sendable {
+        public let id: String
+        public let choice: AnswerChoice
+    }
+
+    public struct RuleConfirmation: Identifiable, Equatable, Sendable {
+        public let id = UUID()
+        public let plan: RuleChangePlan<String>
+        /// The logins whose rule changes, as listed.
+        public let logins: [PhoneLogin]
+
+        /// What changing the picked logins to `target` does; nil when nothing would change.
+        public init?(_ target: LoginRule, picked: [PhoneLogin]) {
+            let plan = RuleChangePlan(target: target, selected: picked.map(\.planned))
+            guard !plan.isNoOp else { return nil }
+            let affected = Set(plan.affectedLoginIDs)
+            self.plan = plan
+            self.logins = picked.filter { affected.contains($0.id) }
+        }
+
+        public var targetRule: LoginRule { plan.target }
+    }
+
     public private(set) var snapshot: PhoneSnapshot
     public var tab = PhoneTab.home
+    /// Selected login ID when pushed into Password Detail.
+    public var detailLoginID: String?
+    /// Pushes `PhoneCopyPasswordsPage(inFirstRun: false)` from Passwords tab.
+    public var showCopyPasswords = false
+    /// Plain-text category filter on Passwords (nil = All 10 categories).
+    public var categoryFilter: String? = nil
+    /// Explicit discoverable multi-select Edit Mode on iPhone Passwords.
+    public var isEditingRules = false
+    public var selectedForEdit: Set<String> = []
+    public var ruleConfirmation: RuleConfirmation? = nil
     /// Single explicit state machine for every modal sheet, notification open, and per-request reply draft.
     public private(set) var sheet = PhoneSheetState()
-    public private(set) var answering: AnswerChoice?
+    public private(set) var activeAnswer: ActiveAnswer?
+    public var answering: AnswerChoice? { activeAnswer?.choice }
     /// The specific request ID currently authenticating or sending an answer.
-    public private(set) var answeringID: String?
+    public var answeringID: String? { activeAnswer?.id }
     public private(set) var failure: String?
     /// In-flight guards for non-request actions so double taps never overlap Face ID or 30s retries.
     public private(set) var isAskingNotifications = false
     public private(set) var isAuthorizingWatch = false
     public private(set) var stoppingIDs: Set<String> = []
     public private(set) var isChangingRuleOrDevice = false
+    public private(set) var isSyncing = false
+    public private(set) var isResetting = false
 
     private let backend: any PhoneBackend
     /// Request ID whose notification notice is currently being decoded/refreshed.
@@ -245,7 +84,7 @@ public final class PhoneModel {
     }
 
     public func followUpdates() async {
-        for await next in backend.updates() {
+        for await next in backend.phoneSnapshotUpdates() {
             applySnapshot(next)
         }
     }
@@ -257,8 +96,8 @@ public final class PhoneModel {
         let previous = snapshot
         snapshot = next
 
-        if let openID = sheet.requestID, openID != loadingNotificationID, openID != answeringID {
-            let current = request(id: openID)
+        if let openID = sheet.requestID, openID != loadingNotificationID, openID != answeringID, sheet.requestMode != .settled {
+            let current = accessRequest(id: openID)
             let stillPresentable = current.map { $0.state.isWaitingForYou || $0.state.isSending } ?? false
             if !stillPresentable {
                 sheet.apply(.requestEnded(id: openID))
@@ -295,7 +134,7 @@ public final class PhoneModel {
             .sorted { $0.askedAt > $1.askedAt }
     }
 
-    public func request(id: String) -> AccessRequest? {
+    public func accessRequest(id: String) -> AccessRequest? {
         snapshot.requests.first { $0.id == id }
             ?? (snapshot.practiceRequest?.id == id ? snapshot.practiceRequest : nil)
     }
@@ -307,7 +146,7 @@ public final class PhoneModel {
         notificationToken &+= 1
         loadingNotificationID = nil
         sheet.apply(.openDecide(id: id))
-        if replacingAddWatch { Task { await backend.addWatch(.cancel) } }
+        if replacingAddWatch { Task { await backend.handleAddWatchTap(.cancel) } }
     }
 
     public func explain(_ id: String) {
@@ -317,7 +156,16 @@ public final class PhoneModel {
         notificationToken &+= 1
         loadingNotificationID = nil
         sheet.apply(.openExplain(id: id))
-        if replacingAddWatch { Task { await backend.addWatch(.cancel) } }
+        if replacingAddWatch { Task { await backend.handleAddWatchTap(.cancel) } }
+    }
+
+    public func openSettled(_ id: String) {
+        guard answeringID == nil else { return }
+        sheet.apply(.openSettled(id: id))
+    }
+
+    public func approveForPreview(_ id: String) {
+        sheet.apply(.approveStarted(id: id))
     }
 
     public func openSettings() {
@@ -325,7 +173,7 @@ public final class PhoneModel {
         let replacingAddWatch = sheet.presentation == .addWatch
         notificationToken &+= 1
         sheet.apply(.openSettings)
-        if replacingAddWatch { Task { await backend.addWatch(.cancel) } }
+        if replacingAddWatch { Task { await backend.handleAddWatchTap(.cancel) } }
     }
 
     public func backToDecide() {
@@ -345,15 +193,15 @@ public final class PhoneModel {
 
     /// Dismisses the active sheet cleanly (scoped to `expectedItem` so a stale SwiftUI dismiss callback
     /// from an older sheet can never dismiss a newer sheet).
-    public func dismissSheet(expectedItem: PhoneSheetState.SheetItem? = nil) {
+    public func dismissSheet(expectedItem: PhoneSheetItem? = nil) {
         if let expectedItem, sheet.item != expectedItem { return }
         let openRequestID = sheet.requestID
         let wasAddWatch = (sheet.presentation == .addWatch)
         sheet.apply(.dismiss(expectedItem: expectedItem))
         if let openRequestID, openRequestID == snapshot.firstRun.practiceID || openRequestID == snapshot.practiceRequest?.id {
-            Task { await firstRun(.practiceDismissed) }
+            Task { await sendFirstRunEvent(.practiceDismissed) }
         } else if wasAddWatch {
-            Task { await addWatch(.cancel) }
+            Task { await handleAddWatchTap(.cancel) }
         }
         if !queuedNotifications.isEmpty, answeringID == nil, loadingNotificationID == nil {
             Task { @MainActor [weak self] in await self?.drainQueuedNotifications() }
@@ -378,8 +226,8 @@ public final class PhoneModel {
                 if answeringID != id { enqueueNotification(id: id, action: action, loadNotice: loadNotice) }
                 return
             }
-            guard let current = request(id: id), current.state.isWaitingForYou else { return }
-            await answer(id, choice: .deny) { try await backend.deny(id, reply: nil) }
+            guard let current = accessRequest(id: id), current.state.isWaitingForYou else { return }
+            await answer(id, choice: .deny) { try await backend.denyAccessRequest(id, reply: nil) }
             return
         }
 
@@ -400,7 +248,7 @@ public final class PhoneModel {
         default:
             sheet.apply(.notificationTapped(id: id, isWaiting: true, endedNote: nil))
         }
-        if replacingAddWatch { Task { await backend.addWatch(.cancel) } }
+        if replacingAddWatch { Task { await backend.handleAddWatchTap(.cancel) } }
 
         let refreshed = await loadNotice()
         // Keep `loadingNotificationID == id` during `applySnapshot` so a returned snapshot containing
@@ -411,7 +259,7 @@ public final class PhoneModel {
         // A newer explicit tap or sheet change took over while `loadNotice` was suspended: never act behind its back.
         guard token == notificationToken, sheet.requestID == id else { return }
 
-        guard let current = request(id: id) else {
+        guard let current = accessRequest(id: id) else {
             sheet.apply(.notificationTapped(id: id, isWaiting: false, endedNote: PhoneCopy.staleRequestNote(.unanswered)))
             await drainQueuedNotifications()
             return
@@ -427,7 +275,7 @@ public final class PhoneModel {
         }
 
         if action == PhoneNotification.approveAction {
-            await approve(id, reusingUnlock: true)
+            await approveAccessRequest(id, reusingUnlock: true)
         } else {
             await drainQueuedBackgroundDenies()
         }
@@ -459,61 +307,57 @@ public final class PhoneModel {
         }
     }
 
-    public func approve(_ id: String, reusingUnlock: Bool = false) async {
+    public func approveAccessRequest(_ id: String, reusingUnlock: Bool = false) async {
         guard answeringID == nil else { return }
         sheet.apply(.approveStarted(id: id))
-        await answer(id, choice: .approve) { try await backend.approve(id, reusingUnlock: reusingUnlock) }
+        await answer(id, choice: .approve) { try await backend.approveAccessRequest(id, reusingUnlock: reusingUnlock) }
     }
 
-    public func deny(_ id: String, withDraft: Bool = true) async {
+    public func denyAccessRequest(_ id: String, withDraft: Bool = true) async {
         guard answeringID == nil else { return }
         let reply = withDraft ? sheet.draft(for: id).trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        await answer(id, choice: .deny) { try await backend.deny(id, reply: reply.isEmpty ? nil : reply) }
+        await answer(id, choice: .deny) { try await backend.denyAccessRequest(id, reply: reply.isEmpty ? nil : reply) }
     }
 
-    public func stop(_ id: String) async {
+    public func endApprovedAccess(_ id: String) async {
         guard !stoppingIDs.contains(id) else { return }
         stoppingIDs.insert(id)
         defer { stoppingIDs.remove(id) }
-        do { try await backend.stop(id) } catch is PhoneStopWaitsWithMac {
-            failure = PhoneCopy.stopLeftWithMac
+        do { try await backend.endApprovedAccess(id) } catch is PhoneStopNotConfirmed {
+            failure = PhoneCopy.stopNotConfirmed
         } catch {
             var until: Date?
-            if case let .approved(_, end)? = request(id: id)?.state { until = end }
+            if case let .approved(_, end)? = accessRequest(id: id)?.state { until = end }
             failure = PhoneCopy.stopFailed(until: until)
         }
     }
 
-    public func setRule(_ rule: PhoneLogin.Rule, forLogin id: String) async {
+    /// Send Updates on Devices: the merged list signed and sent from this iPhone.
+    public func sendUnsentChanges() async {
         guard !isChangingRuleOrDevice else { return }
         isChangingRuleOrDevice = true
         defer { isChangingRuleOrDevice = false }
-        do { try await backend.setRule(rule, forLogin: id) }
+        do { try await backend.sendUnsentChanges() }
         catch is CancellationError {}
         catch { failure = PhoneCopy.changeFailed }
     }
 
-    public func remove(device id: String) async {
+    public func removeDevice(device id: String) async {
         guard !isChangingRuleOrDevice else { return }
         isChangingRuleOrDevice = true
         defer { isChangingRuleOrDevice = false }
-        do { try await backend.remove(device: id) }
+        do { try await backend.removeDevice(device: id) }
         catch is CancellationError {}
         catch { failure = PhoneCopy.changeFailed }
-    }
-
-    public func join(invitation: String) async {
-        try? await backend.join(invitation: invitation)
     }
 
     /// What iOS now allows, read again each time the app comes to the front: he may
     /// have turned notifications on in Settings, and first run then carries on by itself.
     public func recheckNotifications() async {
         guard !isAskingNotifications else { return }
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        await backend.notificationFacts(PhoneNotificationFacts(settings))
-        guard settings.authorizationStatus != .notDetermined else { return }
-        await backend.firstRun(.notificationsAnswered(allowed: settings.authorizationStatus == .authorized))
+        let status = await backend.checkNotifications()
+        guard status.asked else { return }
+        await backend.sendFirstRunEvent(.notificationsAnswered(allowed: status.facts.allowed))
     }
 
     /// iOS's own question, raised by Continue on the screen that says why.
@@ -521,32 +365,30 @@ public final class PhoneModel {
         guard snapshot.firstRun == .notifications, !isAskingNotifications else { return }
         isAskingNotifications = true
         defer { isAskingNotifications = false }
-        await backend.firstRun(.continueTapped)
-        let allowed = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
-        await backend.notificationFacts(PhoneNotificationFacts(await UNUserNotificationCenter.current().notificationSettings()))
-        await backend.firstRun(.notificationsAnswered(allowed: allowed))
+        await backend.sendFirstRunEvent(.continueTapped)
+        let allowed = await backend.askForNotifications()
+        await backend.sendFirstRunEvent(.notificationsAnswered(allowed: allowed))
     }
 
-    public func firstRun(_ event: PhoneFirstRun.Event) async {
-        await backend.firstRun(event)
+    public func sendFirstRunEvent(_ event: PhoneFirstRunEvent) async {
+        await backend.sendFirstRunEvent(event)
         if snapshot.firstRun == .finished { tab = .home }
     }
 
-    public func sendPractice(to deviceID: String? = nil) async {
-        if let waiting = await backend.sendPractice(to: deviceID) { openDecide(waiting) }
+    public func sendPracticeRequest(to deviceID: String? = nil) async {
+        if let waiting = await backend.sendPracticeRequest(to: deviceID) { openDecide(waiting) }
     }
-    public func dismiss(_ notice: PhoneNotice) async { await backend.dismiss(notice) }
-    public func setSettings(_ settings: PhoneSettings) async { await backend.setSettings(settings) }
+    public func savePhoneSettings(_ settings: PhoneSettings) async { await backend.savePhoneSettings(settings) }
 
-    public func addWatch(_ tap: PhoneAddWatchTap) async {
+    public func handleAddWatchTap(_ tap: PhoneAddWatchTap) async {
         if tap == .continueWithFaceID {
             guard !isAuthorizingWatch else { return }
             isAuthorizingWatch = true
             defer { isAuthorizingWatch = false }
-            await backend.addWatch(tap)
+            await backend.handleAddWatchTap(tap)
             return
         }
-        await backend.addWatch(tap)
+        await backend.handleAddWatchTap(tap)
         if tap == .open, snapshot.firstRun == .finished, snapshot.addWatch != nil,
            sheet.presentation == .none, answeringID == nil, loadingNotificationID == nil {
             sheet.apply(.openAddWatch)
@@ -555,10 +397,59 @@ public final class PhoneModel {
 
     public func dismissFailure() { failure = nil }
 
+    /// Set Up on This iPhone: Face ID, then this iPhone keeps the passwords itself.
+    public func setUpHere() async {
+        guard !isChangingRuleOrDevice else { return }
+        isChangingRuleOrDevice = true
+        defer { isChangingRuleOrDevice = false }
+        do { try await backend.setUpHere() }
+        catch is CancellationError {}
+        catch let failure as PhoneSetUpFailure { self.failure = failure.sentence }
+        catch { failure = PhoneCopy.setUpFailed }
+    }
+
+    /// `asking`: iOS asks him to turn it on; otherwise it is only read.
+    public func turnOnInPasswords(asking: Bool = true) async -> Bool { await backend.turnOnInPasswords(asking: asking) }
+    public func handleAddComputerTap(_ tap: PhoneAddComputerTap) async { await backend.handleAddComputerTap(tap) }
+
+    /// Add or Don't Add, for a Mac or iPhone asking to join through iCloud.
+    public func answerDeviceJoin(add: Bool) async {
+        guard !isChangingRuleOrDevice else { return }
+        isChangingRuleOrDevice = true
+        defer { isChangingRuleOrDevice = false }
+        do { try await backend.answerDeviceJoin(add: add) }
+        catch is CancellationError {}
+        catch { failure = PhoneCopy.addDeviceFailed }
+    }
+
+    public func syncWithICloudNow() async {
+        guard !isSyncing, !isResetting else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        await backend.syncWithICloudNow()
+    }
+
+    public func resetKeyring(includingICloud: Bool) async {
+        guard !isResetting else { return }
+        isResetting = true
+        defer { isResetting = false }
+        do {
+            try await backend.resetKeyring(includingICloud: includingICloud)
+            if sheet.presentation == .settings || sheet.presentation == .addWatch {
+                sheet.apply(.dismiss(expectedItem: sheet.item))
+            }
+        } catch is CancellationError {
+        } catch {
+            if sheet.presentation == .settings {
+                sheet.apply(.dismiss(expectedItem: sheet.item))
+            }
+            failure = PhoneCopy.resetFailed
+        }
+    }
+
     private func answer(_ id: String, choice: AnswerChoice, send: () async throws -> Void) async {
-        guard answering == nil, answeringID == nil else { return }
-        answering = choice
-        answeringID = id
+        guard activeAnswer == nil else { return }
+        activeAnswer = ActiveAnswer(id: id, choice: choice)
         var ended = false
         do {
             try await send()
@@ -571,16 +462,75 @@ public final class PhoneModel {
             if choice == .approve { sheet.apply(.approveCancelled(id: id)) }
             failure = PhoneCopy.answerFailed
         }
-        answering = nil
-        answeringID = nil
+        activeAnswer = nil
         if !ended, let openID = sheet.requestID {
-            let current = request(id: openID)
+            let current = accessRequest(id: openID)
             let stillPresentable = current.map { $0.state.isWaitingForYou || $0.state.isSending } ?? false
             if !stillPresentable {
                 sheet.apply(.requestEnded(id: openID))
             }
         }
         await drainQueuedNotifications()
+    }
+}
+
+// MARK: - Passwords rule editing (multi-select Edit Mode and one password's rule)
+
+extension PhoneModel {
+    public func beginEditingRules() {
+        isEditingRules = true
+        selectedForEdit.removeAll()
+        ruleConfirmation = nil
+    }
+
+    public func endEditingRules() {
+        isEditingRules = false
+        selectedForEdit.removeAll()
+        ruleConfirmation = nil
+    }
+
+    public func toggleEditSelection(_ id: String) {
+        if selectedForEdit.contains(id) {
+            selectedForEdit.remove(id)
+        } else {
+            selectedForEdit.insert(id)
+        }
+    }
+
+    public func requestRuleChange(_ rule: LoginRule) {
+        guard let confirmation = RuleConfirmation(rule, picked: snapshot.logins.filter { selectedForEdit.contains($0.id) }) else {
+            selectedForEdit.removeAll()
+            return
+        }
+        ruleConfirmation = confirmation
+    }
+
+    public func cancelRuleChange() {
+        ruleConfirmation = nil
+    }
+
+    public func confirmRuleChange() async {
+        guard let confirmation = ruleConfirmation, !isChangingRuleOrDevice else { return }
+        isChangingRuleOrDevice = true
+        defer { isChangingRuleOrDevice = false }
+        do {
+            try await backend.setLoginRule(confirmation.targetRule, forLogins: confirmation.plan.affectedLoginIDs)
+            ruleConfirmation = nil
+            selectedForEdit.removeAll()
+            isEditingRules = false
+        } catch is CancellationError {
+        } catch {
+            failure = PhoneCopy.changeFailed
+        }
+    }
+
+    public func setLoginRule(_ rule: LoginRule, forLogin id: String) async {
+        guard !isChangingRuleOrDevice else { return }
+        isChangingRuleOrDevice = true
+        defer { isChangingRuleOrDevice = false }
+        do { try await backend.setLoginRule(rule, forLogin: id) }
+        catch is CancellationError {}
+        catch { failure = PhoneCopy.changeFailed }
     }
 }
 

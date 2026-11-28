@@ -7,11 +7,12 @@
 #if os(macOS)
 import SwiftUI
 
+public enum KeyringSetupStepProgress: Sendable { case done, current, upcoming }
+
 public struct KeyringSetupStep: Sendable, Hashable {
-    public enum Progress: Sendable { case done, current, upcoming }
     public let title: String
-    public let progress: Progress
-    public init(_ title: String, _ progress: Progress) {
+    public let progress: KeyringSetupStepProgress
+    public init(_ title: String, _ progress: KeyringSetupStepProgress) {
         self.title = title
         self.progress = progress
     }
@@ -20,14 +21,14 @@ public struct KeyringSetupStep: Sendable, Hashable {
 public struct KeyringSetupWindow<Page: View>: View {
     let heading: String
     let steps: [KeyringSetupStep]
-    let mascot: KeyringMascot.Mood
+    let mascot: KeyringMascotMood
     let page: Page
 
     /// - Parameters:
     ///   - heading: over the steps, such as "Setup on this Mac".
     ///   - steps: every step, each done, current or upcoming.
     ///   - page: a `KeyringPage`.
-    public init(heading: String, steps: [KeyringSetupStep], mascot: KeyringMascot.Mood = .calm, @ViewBuilder page: () -> Page) {
+    public init(heading: String, steps: [KeyringSetupStep], mascot: KeyringMascotMood = .calm, @ViewBuilder page: () -> Page) {
         self.heading = heading
         self.steps = steps
         self.mascot = mascot
@@ -52,9 +53,9 @@ public struct KeyringSetupWindow<Page: View>: View {
                 .scrollDisabled(true)
                 .scrollContentBackground(.hidden)
                 KeyringMascot(mascot)
-                    .frame(width: 112, height: 112)
+                    .frame(width: KeyringSize.macSidebar - 2 * KeyringSpace.s6, height: KeyringSize.macSidebar - 2 * KeyringSpace.s6)
                     .frame(maxWidth: .infinity)
-                    .padding(.bottom, KeyringSpace.s8)
+                    .padding(.bottom, KeyringSpace.s6)
             }
             .padding(.top, KeyringSpace.s8)
             .frame(width: KeyringSize.macSidebar)
@@ -76,7 +77,7 @@ public struct KeyringSetupWindow<Page: View>: View {
         .padding(.vertical, KeyringSpace.s1)
     }
 
-    private func symbol(_ progress: KeyringSetupStep.Progress) -> String {
+    private func symbol(_ progress: KeyringSetupStepProgress) -> String {
         switch progress {
         case .done: "checkmark.circle.fill"
         case .current: "circle.fill"
@@ -84,7 +85,7 @@ public struct KeyringSetupWindow<Page: View>: View {
         }
     }
 
-    private func colour(_ progress: KeyringSetupStep.Progress) -> Color {
+    private func colour(_ progress: KeyringSetupStepProgress) -> Color {
         switch progress {
         case .done: KeyringPalette.approve
         case .current: KeyringPalette.brand

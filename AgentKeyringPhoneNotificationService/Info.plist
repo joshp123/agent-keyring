@@ -6,11 +6,6 @@
     <string>$(AppIdentifierPrefix)com.joshpalmer.AgentKeyring.shared</string>
     <key>CFBundleDisplayName</key>
     <string>Agent Keyring</string>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-    </dict>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionPointIdentifier</key>

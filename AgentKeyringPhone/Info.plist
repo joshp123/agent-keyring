@@ -4,26 +4,14 @@
 <dict>
     <key>AgentKeyringKeychainGroup</key>
     <string>$(AppIdentifierPrefix)com.joshpalmer.AgentKeyring.shared</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>Agent Keyring join code</string>
-            <key>CFBundleURLSchemes</key>
-            <array><string>agentkeyring</string></array>
-        </dict>
-    </array>
+    <key>AgentKeyringCloudContainer</key>
+    <string>iCloud.com.joshpalmer.AgentKeyring</string>
+    <key>NSUserActivityTypes</key>
+    <array><string>ASCredentialExchangeActivity</string></array>
     <key>CFBundleDisplayName</key>
     <string>Agent Keyring</string>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-    </dict>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
-    <key>NSCameraUsageDescription</key>
-    <string>Scan the code on your Mac to add this iPhone.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Speak your reply when you deny an agent’s request.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

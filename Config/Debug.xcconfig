@@ -4,5 +4,7 @@
 
 #include "Shared.xcconfig"
 
-// No additional debug-specific overrides needed
-// All debug settings use Xcode project defaults
+// iCloud and Apple's push service: their development environments, so a run from Xcode
+// never touches the Production CloudKit schema that shipped builds use.
+AGENT_KEYRING_CLOUDKIT_ENVIRONMENT = Development
+AGENT_KEYRING_APNS_ENVIRONMENT = development

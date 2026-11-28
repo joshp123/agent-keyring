@@ -4,6 +4,7 @@
 // and held (Paper, "The request", "After you touch and hold it").
 
 import AgentKeyringApprovalUI
+import AgentKeyringSealing
 import SwiftUI
 import UIKit
 import UserNotifications

@@ -25,12 +25,15 @@ public enum MessageCopy {
     public static let practiceInDialog = "use a practice password for example.com, you@example.com"
     public static func add(_ name: String) -> String { "add \(name)" }
     public static let addADevice = "add a device"
-    public static func remove(_ name: String) -> String { "remove \(name)" }
-    public static func rename(_ name: String, to next: String) -> String { "rename \(name) to \(next)" }
+    public static func removeDeviceReason(_ name: String) -> String { "remove \(name)" }
+    public static func renameDeviceReason(_ name: String, to next: String) -> String { "rename \(name) to \(next)" }
 
-    // MARK: Approving with Touch ID or Apple Watch
+    // MARK: Approving with Touch ID, Apple Watch or the Mac password
 
-    public static let approvalUnavailable = "Approval isn't available. Check Touch ID or Apple Watch, then try again."
+    public static var approvalUnavailable: String {
+        MacApprovalMode.current == .devicePassword ? "Approval isn't available. Check that this Mac has a login password, then try again."
+            : "Approval isn't available. Check that your Touch ID keyboard is connected or your Apple Watch is nearby, then try again."
+    }
     public static func declined(_ owner: String) -> String { "\(owner) declined the request." }
     public static let approvalInterrupted = "Approval was interrupted. Try again."
     public static let approvalNotConfirmed = "Approval didn't confirm. Try again."
@@ -42,7 +45,10 @@ public enum MessageCopy {
     // MARK: Rules
 
     public static let confirmationInterrupted = "Confirmation was interrupted. Try again."
-    public static let touchIDUnavailable = "Touch ID or Apple Watch isn't available. Check that one is ready and try again."
+    public static var touchIDUnavailable: String {
+        MacApprovalMode.current == .devicePassword ? "macOS couldn't ask for your Mac password. Try again."
+            : "Touch ID or Apple Watch isn't available. Connect your Touch ID keyboard or check your Apple Watch, then try again."
+    }
     public static let macOSCouldNotConfirm = "macOS couldn't confirm you. Try again."
     public static let rulesNotSaved = "Agent Keyring couldn't save the rules. Try again. If it keeps happening, restart Agent Keyring."
     public static let rulesBeingSaved = "Access rules are already being saved. Wait for that save to finish."
@@ -53,9 +59,12 @@ public enum MessageCopy {
 
     public static let passwordGone = "The password is no longer available."
     public static let passwordBlocked = "This password is now blocked for agents."
+    /// To an agent asking for a password unblocked since: nothing to ask the user to approve.
+    public static let secretDeletedForAgent = "This password was deleted from Agent Keyring when it was blocked. Ask the user to copy their passwords again from Passwords, then ask again."
     public static let copyUnreadable = "Agent Keyring's copy of your passwords could not be opened. Passwords was not changed."
     public static let passwordsWontOpen = "Passwords could not be opened."
     public static let exportSentNothing = "Passwords opened Agent Keyring without sending your passwords. Try the export again."
+    public static let exportOnlyPasskeys = "Those items had only passkeys, not passwords. Select a login with a password in Passwords and try again."
     public static func exportFailed(_ kind: ExportFailure, hadEarlierCopy: Bool) -> String {
         let sentence = switch kind {
         case .notSent: "Passwords did not send your passwords. Start the export again in Passwords."
@@ -74,39 +83,56 @@ public enum MessageCopy {
     // MARK: The reminder to copy again
 
     public static func copyIsOld(days: Int) -> String { "Agent Keyring's copy of your passwords is \(days.formatted()) days old." }
-    public static let exportInstruction = "File > Export All Items to App"
+    public static let exportInstruction = "File > Export Selected Items to App (or Export All)"
     public static let updateFromPasswords = "Update from Passwords"
 
     // MARK: Devices and computers
 
     public static let noKeysYet = "This Mac has no keys yet."
+    /// This Mac's saved keys could not be read. They are never replaced, so it says what to try.
+    public static func keysUnreadable(_ error: Error) -> String {
+        "Agent Keyring couldn't read this Mac's keys: \(reason(error)) Restart your Mac, then open Agent Keyring again."
+    }
+    public static let noMacPassword = "This Mac has no login password, so macOS can’t ask for one. Set a password for your user in System Settings, Users & Groups, then try again."
+    public static func keysNotMade(_ error: Error) -> String {
+        "Agent Keyring couldn't make this Mac's keys in its Secure Enclave: \(reason(error))"
+    }
+    private static func reason(_ error: Error) -> String {
+        let words = (error as? LocalizedError)?.errorDescription ?? (error as NSError).localizedDescription
+        return words.hasSuffix(".") ? words : words + "."
+    }
     public static let noIPhoneOrWatch = "This Mac has no iPhone or Apple Watch added yet."
-    public static let notATailscaleAddress = "That address isn't on Tailscale. Check that Tailscale is on for both devices."
     public static let nothingJoining = "Nothing is waiting to join with that name."
-    /// This Mac has no Tailscale address: Tailscale is not installed, not running, or signed out.
-    public static let noTailscale = "Tailscale is off on this Mac, so your iPhone, Apple Watch and other computers can't reach it. Turn on Tailscale, then try again."
-    /// Said when a device or computer is added: both ends need Tailscale.
-    public static func bothNeedTailscale(_ name: String) -> String { "This Mac and \(name) both need Tailscale turned on to reach each other." }
-    public static func doorClosed(_ reason: String) -> String { "This Mac couldn't start listening for your devices: \(reason)" }
+    public static let noICloud = "This Mac isn't signed in to iCloud, so it can't keep your iPhone and Apple Watch in step. Sign in to iCloud in System Settings."
+    /// Said to an agent whose computer tried to join with a code while it was already added or already waiting.
+    public static func answeredElsewhere(_ computer: String) -> String { "Another of your devices answered \(computer)'s request first." }
+    public static let alreadyAdded = "This computer is already added, or already waiting to be. Nothing changed."
+    /// Before an agent uses an approval: the relay could not say whether a device stopped it.
+    public static let stopNotChecked = "Agent Keyring couldn't check that this approval wasn't stopped, so it wasn't used. Try again in a moment."
+    public static func stoppedOn(_ device: String) -> String { "The user stopped it on \(device)." }
+    /// After "Agent Keyring is trying to" in macOS's dialog, right after a copy from Passwords.
+    /// What is sent, so he sees what he confirms: "send 3 added, 1 changed and 2 removed passwords to your other devices".
+    public static func sendChangesReason(added: Int, changed: Int, removed: Int) -> String {
+        let parts = [(added, "added"), (changed, "changed"), (removed, "removed")].filter { $0.0 > 0 }.map { "\($0.0.formatted()) \($0.1)" }
+        guard let last = parts.last else { return "send your password changes to your other devices" }
+        let listed = parts.count == 1 ? last : parts.dropLast().joined(separator: ", ") + " and " + last
+        return "send \(listed) \(added + changed + removed == 1 ? "password" : "passwords") to your other devices"
+    }
     public static let noPushKey = "This Mac can't notify your iPhone or Apple Watch yet: it has no push key. An agent adds it with agent-keyring push-key."
-    public static func noPushAddress(_ name: String) -> String { "\(name) hasn't given this Mac its notification address yet. Open Agent Keyring on it." }
+    public static func noPushAddress(_ name: String) -> String { "Finish setting up notifications in Agent Keyring on \(name)." }
     public static let joinRanOut = "This request to join ran out after ten minutes. Ask again from the other device."
     public static let invalidPushKey = "That isn't Apple's push key (a .p8 file)."
 
-    // MARK: Reaching another device or computer
+    // MARK: Another device's key
 
-    public static let unreachable = "Couldn't reach the other device. Check that Tailscale is on for both and that it's awake."
-    public static let connectionEnded = "The connection to the other device ended. Try again."
-    public static let notOnTailscale = "That device isn't on Tailscale. Check that Tailscale is on for both devices."
-    public static let messageTooLarge = "That message is too large to send."
-    public static let unreadableReply = "The other device sent something Agent Keyring couldn't read. Try again."
     public static let unacceptedKey = "The other device's key isn't one Agent Keyring accepts."
 
     // MARK: Answering another computer's request
 
     public static let noCopyOnThisMac = "This Mac has no copy of this password. Copy your passwords again from Passwords."
+    public static let secretNotDeleted = "Agent Keyring couldn't delete a blocked password from this Mac. It will try again when it next opens."
+    public static let secretDeletedOnThisMac = "This password was deleted when it was blocked. Copy your passwords again from Passwords to use it."
     public static func answerNotDelivered(_ computer: String) -> String {
-        "Your answer didn't reach \(computer). Check that it's awake and on Tailscale, then try again, or answer on your iPhone."
+        "Your answer didn't reach \(computer). Check that this Mac is online, then try again, or answer on your iPhone."
     }
-    public static func answerRefused(_ computer: String, _ words: String) -> String { "\(computer) didn't take your answer: \(words)" }
 }

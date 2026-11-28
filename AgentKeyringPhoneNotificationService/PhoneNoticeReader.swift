@@ -1,7 +1,7 @@
 // Written by AI on 2026.11.18 by model Claude Opus 5.5.
 
-import AgentKeyringApprovalUI
-import AgentKeyringPhoneApprover
+import AgentKeyringApprovalCore
+import AgentKeyringSealing
 import Foundation
 import UserNotifications
 
@@ -12,18 +12,18 @@ enum PhoneNoticeReader {
 
     /// Time Sensitive unless he turned it off or it is quiet hours (the iPhone's Settings).
     static func level() -> UNNotificationInterruptionLevel {
-        PhoneKeyring.breaksThroughFocus(shared) ? .timeSensitive : .active
+        PhoneNoticeDecoder.breaksThroughFocus(shared) ? .timeSensitive : .active
     }
 
     /// The request a push is about, and who answered it if it has ended.
-    static func words(_ userInfo: [AnyHashable: Any]) -> PhoneKeyring.PhoneNotified? {
+    static func words(_ userInfo: [AnyHashable: Any]) -> DecodedPushNotificationRequest? {
         #if targetEnvironment(simulator)
         // The simulator has no Secure Enclave; its test pushes carry the words already opened.
-        if let request = PhoneNotification.decode(userInfo) { return PhoneKeyring.PhoneNotified(request: request, answeredBy: nil, door: nil) }
+        if let request = PhoneNotification.decode(userInfo) { return DecodedPushNotificationRequest(request: request, answeredBy: nil) }
         return nil
         #else
-        let keys = PhoneEnclaveKeys(accessGroup: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String)
-        return PhoneKeyring.notifiedRequest(userInfo, shared: shared) { try keys.openNotice($0, deviceKeyID: $1) }
+        let opener = PhoneNoticeOpener(accessGroup: Bundle.main.object(forInfoDictionaryKey: "AgentKeyringKeychainGroup") as? String)
+        return PhoneNoticeDecoder.notifiedRequest(userInfo, shared: shared) { try opener.openNotice($0, deviceKeyID: $1) }
         #endif
     }
 

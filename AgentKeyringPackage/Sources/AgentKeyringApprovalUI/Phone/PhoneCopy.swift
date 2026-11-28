@@ -1,15 +1,30 @@
 // Written by AI on 2026.11.18 by model Claude Opus 5.5; rewritten from the master copy ledger of 21 November 2026.
 //
-// Every word the iPhone app and its notifications show, in screen order. The
+// Every word the iPhone app shows, in screen order. The
 // words come from master-copy-audit-21-nov.md; where it and the truth
 // disagree, the truth wins, and the line says so.
 
+import AgentKeyringApprovalCore
 import Foundation
 
-public enum PhoneCopy {
-    public static let appName = "Agent Keyring"
-    /// The Mac's name until the join card carries it.
-    static func mac(_ name: String?) -> String { name ?? "your Mac" }
+public enum RequestHistoryOutcome { case approved, denied, noAnswer }
+
+extension PhoneCopy {
+    public static let appName = SharedCopy.appName
+    /// The inviting device's name, as a sentence says it: "your Mac" until the join card carries a name, and
+    /// "your other iPhone" for an iPhone, whose name is only "iPhone".
+    static func mac(_ name: String?) -> String {
+        switch name {
+        case nil: "your Mac"
+        case "iPhone"?: "your other iPhone"
+        case let name?: name
+        }
+    }
+    /// The same, at the start of a sentence.
+    static func macAtStart(_ name: String?) -> String {
+        let said = mac(name)
+        return said.hasPrefix("your ") ? "Y" + said.dropFirst() : said
+    }
 
     // MARK: Common buttons
 
@@ -24,30 +39,36 @@ public enum PhoneCopy {
     public static let skipForNow = "Skip for Now"
     public static let checkAgain = "Check Again"
     public static let doThisLater = "Do This Later"
-    public static let havingTrouble = "Having trouble?"
 
-    // MARK: Add iPhone: finding the Mac and joining
+    // MARK: Add iPhone: the first screen, finding the Mac and joining
 
-    public static let lookingForMac = "Looking for your Mac via iCloud…"
+    public static let lookingForMac = "Looking for your Mac in your iCloud Keychain…"
+    public static let welcomeTitle = "Welcome to Agent Keyring"
+    public static let welcomeDetail = "Copy your passwords from Passwords to this iPhone, then approve your AI agents’ password requests with Face ID. You can add a Mac or other computers at any time."
+    public static let alreadySetUpOnMac = "Already set up on your Mac?"
     public static func continueFrom(_ name: String?) -> String { "Continue setup from \(mac(name))" }
-    public static let continueFromDetail = "Connect this iPhone to approve password requests from your AI agents with Face ID."
+    public static func continueFromDetail(_ name: String?) -> String {
+        "This iPhone found \(mac(name)) through your iCloud Keychain. Connect to approve password requests from your AI agents with Face ID."
+    }
     public static let trustTitle = "End-to-end encrypted and signed"
-    public static let trustDetail = "Your Mac encrypts a copy of your passwords for this iPhone’s Secure Enclave and signs them against tampering, so nothing in between can read or change them."
+    public static func trustDetail(_ name: String?) -> String {
+        "\(macAtStart(name)) encrypts a copy of your passwords for this iPhone’s Secure Enclave and signs it against tampering, so nothing in between can read or change them."
+    }
     public static func connectTo(_ name: String?) -> String { "Connect to \(mac(name))" }
-    public static let troubleBanner = "Can’t find your Mac right now"
     public static let troubleTitle = "Check these four things"
+    public static let troubleLead = "This iPhone finds your Mac through your iCloud Keychain."
     public static let troubleSteps = [
         "Agent Keyring is open on your Mac.",
-        "Tailscale is turned on for both your Mac and this iPhone.",
+        "Your Mac is awake and online.",
         "Both devices use the same Apple Account.",
         "iCloud Passwords & Keychain is on in Settings.",
     ]
     public static func cantReach(_ name: String?) -> String { "Can’t reach \(mac(name))" }
     public static func cantReachDetail(_ name: String?) -> String {
-        "Check that Tailscale is turned on for both your Mac and this iPhone, and that \(mac(name)) is awake."
+        "Make sure \(mac(name)) is awake and online with Agent Keyring open, and that this iPhone is signed in to iCloud."
     }
     public static func approveOn(_ name: String?) -> String { "Approve on \(mac(name))" }
-    public static func approveOnDetail(_ name: String?) -> String { "Confirm with Touch ID on \(mac(name)) to connect this iPhone." }
+    public static func approveOnDetail(_ name: String?) -> String { "Confirm on \(mac(name)) to connect this iPhone." }
     public static func waitingFor(_ name: String?) -> String { "Waiting for \(mac(name))" }
     public static func notApprovedOn(_ name: String?) -> String { "Not approved on \(mac(name))" }
     public static let notApprovedDetail = "This iPhone wasn’t added. You can ask again when you’re ready."
@@ -55,7 +76,7 @@ public enum PhoneCopy {
     public static func joinExpiredDetail(_ name: String?) -> String { "Tap below to ask \(mac(name)) again." }
     public static let receivingTitle = "Copying your passwords"
     public static func receivingDetail(_ fill: PhoneFill?) -> String {
-        fill.map { "\($0.copied) of \($0.of) passwords received." } ?? "Your Mac is encrypting a copy of each password for this iPhone."
+        fill.map { "\($0.copied) of \($0.of) passwords received." } ?? "Encrypting a copy of each password for this iPhone…"
     }
 
     // MARK: Add iPhone: notifications
@@ -80,9 +101,8 @@ public enum PhoneCopy {
     // MARK: Add iPhone: practice
 
     public static let practiceTitle = "Try a practice notification"
-    public static let practiceLead = "Tap below to send yourself a practice password request. Touch and hold it to try Approve, Deny, or Deny and Explain. No real passwords are shared."
-    public static let practicePreviewTitle = "Practice request: example.com"
-    public static let practicePreview = "you@example.com: “You asked me to download October’s invoice.” Touch and hold to Approve, Deny, or Deny and Explain."
+    public static let practiceLead = "Tap below to send yourself a practice password request. Touch and hold it to try Approve, Deny, or Deny & Reply. No real passwords are shared."
+    public static let practiceArrived = "Touch and hold the notification at the top of your screen, or swipe down Notification Centre, to Approve, Deny, or Deny & Reply."
     public static let practiceNote = "If nothing arrives within 30 seconds, tap Answer It Here, or open Settings > Focus to allow Agent Keyring during Sleep or Driving Focus."
     public static let sendPractice = "Send Practice Request"
     public static let sendAnother = "Send Another"
@@ -90,9 +110,8 @@ public enum PhoneCopy {
     public static let practiceSettingUp = "Setting up Apple notifications… Try again in a moment."
     public static let practiceNotArrived = "Didn’t see the notification? Focus may have silenced it, or notifications may be off."
     public static let answerItHere = "Answer It Here"
-    public static func practiceMacAsleep(_ name: String?) -> String {
-        "\(mac(name)) sends practice requests, so it needs to be awake with Agent Keyring open. Real requests come from the computer that asks."
-    }
+    /// This iPhone could not send itself the practice request: no connection, or no push address yet.
+    public static let practiceNotSent = "The practice request couldn’t be sent. Check that this iPhone is online, then try again."
     public static func practiceResult(_ outcome: PhonePracticeOutcome, reply: String? = nil) -> String {
         switch outcome {
         case .approved: "Practice approved."
@@ -102,6 +121,62 @@ public enum PhoneCopy {
         case .noAnswer: "The practice request ended with no answer."
         }
     }
+
+    // MARK: Add iPhone: set up on this iPhone, with no Mac
+
+    public static let setUpHere = "Set Up on This iPhone"
+    public static let setUpFailed = "This iPhone wasn’t set up. Try again."
+
+    // MARK: Adding passwords from Apple Passwords, on this iPhone
+
+    public static let copyTitle = "Add passwords from Apple Passwords"
+    public static let copyLead = "Agent Keyring keeps its own copy, encrypted for this iPhone’s Secure Enclave. Neither we nor Apple can read it."
+    public static let copySteps = [
+        "Turn on Agent Keyring in Apple Passwords, below.",
+        "Open Apple Passwords and tap the More button.",
+        "Tap Export Data to Another App, then choose Agent Keyring.",
+        "Confirm with Face ID. Your passwords arrive here.",
+    ]
+    public static let turnOnInPasswords = "Turn On in Apple Passwords"
+    public static let turnedOnInPasswords = "Agent Keyring is on in Apple Passwords."
+    public static let copyWaiting = "Waiting for Apple Passwords…"
+    public static let copyingNow = "Encrypting your passwords for this iPhone…"
+    public static let copyFromPasswords = "Add from Apple Passwords…"
+    public static func copiedOn(_ date: Date) -> String { "Added from Apple Passwords on \(day(date))." }
+    public static func copiedOnStale(_ date: Date) -> String { "Added from Apple Passwords on \(day(date)). Update from Apple Passwords to pick up changes." }
+    public static let notCopiedYet = "No passwords added from Apple Passwords yet."
+    public static let otherDevicesGetCopies = "Your other devices get their own encrypted copies through your own iCloud."
+
+    // MARK: Add another computer, from this iPhone
+
+    public static let addComputerRow = "Add Agent Computer"
+    /// Ready, with no computer or Mac added yet.
+    public static let addAComputer = "Add Agent Computer"
+    public static let addComputerTitle = "Add agent computer"
+    public static let addComputerLead = "Run this on the computer, or paste it to an agent there. The code works once, for 10 minutes."
+    public static let copyCommand = "Copy Command"
+    public static let shareCommand = "Share…"
+    public static let commandCopied = "Copied"
+    public static func waitingForComputer(until: Date) -> String { "Waiting for the computer. The code works until \(clock(until))." }
+    public static func computerAsks(_ name: String) -> String { "\(name) asks to join" }
+    public static let computerAsksDetail = "Agents on it will be able to ask you for passwords. Each request comes to this iPhone."
+    public static let dontAdd = "Don’t Add"
+    public static func adding(_ name: String) -> String { "Adding \(name)…" }
+    public static func computerAdded(_ name: String) -> String { "\(name) is added" }
+    public static let computerAddedDetail = "Its agents can now ask you for passwords."
+    public static func computerNotAdded(_ name: String) -> String { "\(name) wasn’t added." }
+    public static let codeExpired = "The code ran out. Make a new one to try again."
+    public static let newCode = "New Code"
+
+    // MARK: A Mac or another iPhone joining this iPhone's list, through iCloud
+
+    public static func addDeviceLead(isMac: Bool) -> String { isMac ? "Add this Mac to Agent Keyring?" : "Add this iPhone to Agent Keyring?" }
+    public static func addDeviceBody(isMac: Bool) -> String {
+        isMac ? "It gets its own encrypted copy of your passwords, locked in its Secure Enclave, and can approve password requests. Agents on it can ask you for passwords."
+            : "It gets its own encrypted copy of your passwords, locked in its Secure Enclave, and can approve password requests with Face ID."
+    }
+    public static let add = "Add"
+    public static let addDeviceFailed = "It wasn’t added. Ask again from the other device."
 
     // MARK: Add iPhone: ready, and the offer to add Apple Watch
 
@@ -146,34 +221,31 @@ public enum PhoneCopy {
         let reason = reason.hasSuffix(".") ? String(reason.dropLast()) : reason
         return "Couldn’t finish preparing passwords for your Apple Watch. \(reason)."
     }
-    /// The reason in a failure line: the Mac refused it, or could not be reached. Never a raw error.
-    public static let macRefused = "Your Mac refused it"
-    public static let macNotReached = "Your Mac couldn’t be reached"
+    /// The reason in a failure line: the Watch did not take its passwords, or this iPhone lacks some. Never a raw error.
     public static let watchAdded = "Apple Watch added"
     public static let watchAddedDetail = "You can now approve password requests with one tap on your wrist."
 
     // MARK: The request, in the app and in the held notification
 
-    public static func wants(_ agent: RequestingAgent) -> String { agent.machine.isEmpty ? "\(agent.name) wants" : "\(agent.name) on \(agent.machine) wants" }
-    public static func quoted(_ reason: String) -> String { "“\(reason)”" }
-    public static let deny = "Deny"
-    public static let approve = "Approve"
-    public static let approveWithFaceID = "Approve with Face ID"
+    public static func wants(_ agent: RequestingAgent) -> String { agent.machine.isEmpty ? agent.name : "\(agent.name) · \(agent.machine)" }
+    public static let deny = SharedCopy.deny
+    public static let approve = SharedCopy.approve
+    public static let approveWithFaceID = SharedCopy.approve
     public static let approving = "Approving…"
     public static let back = "Back"
-    public static let denyAndExplain = "Deny and Explain"
-    public static func lasts(_ agent: RequestingAgent) -> String { "\(agent.name) can use this password for this task, 30 minutes at most." }
+    public static let denyAndExplain = SharedCopy.denyAndReply
+    public static func lasts(_ agent: RequestingAgent) -> String { "\(agent.name) can use this password for this task." }
     public static let practiceLasts = "Practice only. No passwords are shared."
     public static func askedAgo(_ date: Date, now: Date = .now) -> String {
         let minutes = max(0, Int(now.timeIntervalSince(date) / 60))
         return minutes == 0 ? "Asked just now" : "Asked \(minutes) min ago"
     }
-    public static let tellTheAgent = "Tell the agent what to do instead"
-    public static let replyPrompt = "Type, or tap the microphone and speak"
-    public static let denyAndSend = "Deny and Send"
+    public static let tellTheAgent = "Reply to the agent"
+    public static let replyPrompt = SharedCopy.replyPlaceholder
+    public static let denyAndSend = SharedCopy.denyAndSend
     public static let approveInstead = "Approve Instead"
     public static let listening = "Listening…"
-    public static let speakHint = "Tap the square to stop speaking, then tap Deny and Send."
+    public static let speakHint = "Tap the square to stop speaking, then tap Deny & Send."
     public static let speakReply = "Speak your reply"
     public static let stopSpeaking = "Stop speaking"
     #if os(iOS)
@@ -198,131 +270,87 @@ public enum PhoneCopy {
         }
     }
 
-    // MARK: The notification on the Lock Screen
-
-    public static func notificationTitle(_ request: AccessRequest) -> String { request.login.site }
-    /// The ledger puts who asks in the subtitle; iOS cuts a subtitle to one line, so it leads the body instead.
-    public static func notificationSubtitle(_ agent: RequestingAgent) -> String {
-        agent.machine.isEmpty ? "\(agent.name) wants this password" : "\(agent.name) on \(agent.machine) wants this password"
-    }
-    public static func notificationBody(_ request: AccessRequest) -> String {
-        "\(request.login.account): \(quoted(request.agentReason))"
-    }
-    public static let practiceNotificationBody = "Practice request: “You asked me to download October’s invoice.”"
-    public static let notificationFallbackTitle = "An agent wants to use a password."
-    public static let notificationFallbackBody = "Open Agent Keyring to see the request."
-    /// The push that replaces a request on the Lock Screen once it has ended.
-    public static func outcomeBody(_ request: AccessRequest, answeredBy device: String?) -> String {
-        let on = device.map { " on your \($0)" } ?? ""
-        switch request.state {
-        case let .approved(_, until): return "Approved\(on). \(request.agent.name) can use this password until \(clock(until)) at the latest."
-        case let .denied(_, reply?, _): return "Denied\(on). You told \(request.agent.name): \(quoted(reply))"
-        case .denied: return "Denied\(on)."
-        case .unanswered: return "No answer. The request ended after 10 minutes, and \(request.agent.name) can ask again."
-        case .cancelled: return "Cancelled. \(request.agent.name) stopped asking before you answered."
-        default: return "This request has ended."
-        }
-    }
-
     // MARK: The practice request
 
-    /// With no computer: "Practice request: an agent wants".
-    public static let practiceAgent = "Practice request: an agent"
-    public static let practiceSite = "example.com"
-    public static let practiceAccount = "you@example.com"
-    public static let practiceReason = "You asked me to download October’s invoice."
     public static let practiceLabel = "Practice request"
 
-    // MARK: Home
+    // MARK: Activity
 
-    public static let home = "Home"
-    public static func waitingPill(_ count: Int) -> String { "\(count.formatted()) waiting" }
-    public static let allQuiet = "All quiet"
-    public static let waitingForYou = "Waiting for you"
+    public static let home = SharedCopy.activity
+    public static func waitingPill(_ count: Int) -> String { SharedCopy.requestsWaiting(count) }
+    public static let allQuiet = SharedCopy.noRequestsWaiting
+    public static let waitingForYou = SharedCopy.waiting
     public static let inUse = "In use"
-    public static let earlierToday = "Earlier today"
-    /// The truth about these lists: the iPhone knows only the requests whose push or answer reached it.
-    public static let seenOnThisIPhone = "Requests this iPhone has seen. One answered on your Mac shows here once its notice reaches this iPhone."
-    public static let nothingWaiting = "Nothing waiting. Nothing in use."
+    public static let earlierToday = SharedCopy.today
+    public static let nothingWaiting = SharedCopy.noRequestsWaiting
     public static let stop = "Stop"
     public static func until(_ date: Date) -> String { "until \(clock(date))" }
-    /// Who asked, in a list: "Codex on Mac mini", or "Practice request".
+    /// Who asked, in a list: "Codex · Mac mini", or "Practice request".
     public static func who(_ request: AccessRequest) -> String {
         if request.isPractice { return practiceLabel }
-        return request.agent.machine.isEmpty ? request.agent.name : "\(request.agent.name) on \(request.agent.machine)"
+        return request.agent.machine.isEmpty ? request.agent.name : "\(request.agent.name) · \(request.agent.machine)"
     }
     public static func inUseDetail(_ request: AccessRequest, until: Date) -> String { "\(who(request)) · \(self.until(until))" }
     public static func historyDetail(_ request: AccessRequest) -> String { "\(who(request)) · \(clock(request.askedAt))" }
-    public enum Outcome { case approved, denied, noAnswer }
-    public static func outcome(_ state: AccessRequestState) -> (Outcome, String) {
+    public static func outcome(_ state: AccessRequestState) -> (RequestHistoryOutcome, String) {
         switch state {
-        case .approved(by: .automaticRule, _): (.approved, "Automatic")
-        case .approved, .expired, .released: (.approved, "Approved")
-        case .ended: (.approved, "Stopped")
-        case .blockedByRule: (.denied, "Blocked")
-        case .denied: (.denied, "Denied")
-        case .unanswered: (.noAnswer, "No answer")
-        case .cancelled, .waitingForYou, .sendingAnswer, .waitingForMac: (.noAnswer, "Cancelled")
+        case .approved, .expired, .released: (.approved, SharedCopy.approved)
+        case .ended: (.approved, SharedCopy.ended)
+        case .blockedByRule: (.denied, SharedCopy.ruleBlocked)
+        case .denied: (.denied, SharedCopy.denied)
+        case .sendingAnswer: (.noAnswer, SharedCopy.sending)
+        case .waitingForMac: (.noAnswer, SharedCopy.waitingForMac)
+        case .unanswered: (.noAnswer, SharedCopy.noAnswer)
+        case .cancelled, .waitingForYou: (.noAnswer, SharedCopy.cancelled)
         }
     }
     public static let stillConnecting = "This iPhone is still connecting. Until it finishes, requests appear only while Agent Keyring is open."
-    public static func macOffline(_ name: String?) -> String {
-        "Can’t reach \(mac(name)). Requests still come from the computers that ask; changes to your passwords arrive once it is back."
-    }
     public static func notice(_ notice: PhoneNotice) -> String {
         switch notice {
         case .stillConnecting: stillConnecting
-        case let .macOffline(name): macOffline(name)
-        case .addAppleWatch: addWatchOfferDetail
+        case .iCloudSignedOut: iCloudSignedOut
         }
     }
-    public static let stopLeftWithMac = "Stop reaches that computer the next time one of its agents uses Agent Keyring."
+    public static let stopNotConfirmed = "Stop was sent, but Agent Keyring couldn’t confirm it. Try again."
     public static func stopFailed(until: Date?) -> String {
         "Couldn’t stop it. Try again." + (until.map { " It ends by itself at \(clock($0))." } ?? "")
     }
 
     // MARK: Passwords
 
-    public static let passwords = "Passwords"
-    public static let askLegend = "**Ask:** you approve each time an agent wants it."
-    public static let automaticLegend = "**Automatic:** agents on the computers you choose get it without asking you."
-    public static let blockedLegend = "**Blocked:** no agent can ever use it."
-    public static let twoFactorLegend = "**Two-factor codes:** for Ask passwords, the secret stays on your devices and agents get only the current code. For Automatic passwords, the chosen computer holds its own encrypted copy."
-    public static let sortWithAI = "To set rules for many passwords at once, use Sort with AI on your Mac."
+    public static let passwords = SharedCopy.passwords
+    public static let categories = SharedCopy.categories
+    public static let recentRequests = SharedCopy.recent
+    public static let noRequestsForPassword = "No requests yet."
+    public static let agentAccess = "Rule"
+    public static let askLegend = "**Ask First:** you approve each time an agent wants it."
+    public static let automaticLegend = "**Always Allowed:** agents on your agent computers get it without asking you."
+    public static let blockedLegend = "**Blocked:** no agent can ever use it, and its password is deleted from Agent Keyring."
+    public static let twoFactorLegend = "**Two-factor codes:** for Ask First passwords, the secret stays on your devices and agents get only the current code. For Always Allowed passwords, your agent computers hold their own encrypted copy."
     public static func passwordsCount(_ count: Int) -> String { "\(count.formatted()) passwords" }
     public static let search = "Search"
     public static let filter = "Show"
-    public static let all = "All"
-    public static func rule(_ rule: PhoneLogin.Rule) -> String {
+    public static let all = SharedCopy.all
+    public static func ruleExplanation(_ rule: LoginRule) -> String {
         switch rule {
-        case .ask: "Ask"
-        case .automatic: "Automatic"
-        case .blocked: "Blocked"
+        case .ask: SharedCopy.ruleAskFirstShort
+        case .automatic: SharedCopy.ruleAlwaysAllowedShort
+        case .blocked: SharedCopy.ruleBlockedShort
         }
     }
     public static let changeFailed = "That change wasn’t saved. Try again."
-    /// Face ID's sentence when a password becomes Automatic.
-    public static func automaticReason(site: String, from: PhoneLogin.Rule, computers: [String]) -> String {
-        "\(site) changes from \(rule(from)) to Automatic. Agents on \(list(computers)) will get it without asking."
-    }
-    /// "A", "A and B", "A, B and C".
-    public static func list(_ names: [String]) -> String {
-        names.count <= 1 ? (names.first ?? "") : names.dropLast().joined(separator: ", ") + " and " + names.last!
-    }
 
     // MARK: Devices
 
-    public static let devices = "Devices"
-    public static let youApproveOn = "Where you approve password requests"
-    public static let agentsAskFrom = "Other computers"
+    public static let devices = SharedCopy.devices
+    public static let youApproveOn = SharedCopy.whereYouApprove
+    public static let agentsAskFrom = SharedCopy.agentComputers
     public static let thisIPhone = "This iPhone"
-    public static let answersWithFaceID = "Face ID"
-    public static let answersWithTap = "One tap"
-    public static let answersWithTouchID = "Touch ID"
-    public static let connected = "Its agents can ask you"
-    public static let addAppleWatchRow = "Add Apple Watch…"
+    public static let connected = "Agents can ask"
+    public static let agentComputersFooter = "Agents on these computers can ask for your passwords."
+    public static let addAppleWatchRow = "Add Apple Watch"
     public static let practiceShort = "Send Practice Request"
-    public static let remove = "Remove"
+    public static let remove = SharedCopy.remove
     public static func removeQuestion(_ name: String) -> String { "Remove \(name)?" }
     /// `alsoAsks`: a Mac both approves and has agents that ask; one Remove takes both.
     public static func removeDetail(_ device: PhoneDevice, alsoAsks: Bool = false) -> String {
@@ -335,28 +363,37 @@ public enum PhoneCopy {
 
     // MARK: Settings
 
-    public static let settings = "Settings"
+    public static let settings = SharedCopy.settings
     public static let timeSensitive = "Time Sensitive Notifications"
-    public static let timeSensitiveDetail = "When on, requests are marked Time Sensitive, so a Focus that allows Time Sensitive notifications lets them through. To get them while you sleep, open Settings > Focus > Sleep > Apps and turn on Time Sensitive Notifications."
+    public static let timeSensitiveDetail = "When on, requests are marked Time Sensitive, so Do Not Disturb, Sleep or Driving Focus lets them through if Time Sensitive Notifications are allowed in Settings > Focus."
     public static let quietHours = "Quiet Hours"
     public static let from = "From"
     public static let to = "To"
-    public static let quietHoursDetail = "During these hours, requests arrive silently and wait in Notification Centre."
+    public static let quietHoursDetail = "Overrides Time Sensitive Notifications during these hours so requests arrive silently in Notification Centre instead of waking you. Your Apple Watch follows these settings."
     public static let watchFollows = "Your Apple Watch follows these settings."
+    public static let remindToUpdate = "Remind Me to Update Passwords"
+    public static let remindToUpdateDetail = "One notification once your passwords from Apple Passwords are a week old, then none for a week."
+    public static let anonymousTelemetry = SharedCopy.analyticsTitle
+    public static let anonymousTelemetryDetail = SharedCopy.analyticsDetail
+    public static let syncNow = "Sync Now"
+    public static let syncingNow = "Syncing…"
+    public static let resetApp = "Reset Agent Keyring…"
+    public static let resetTitle = "Reset Agent Keyring?"
+    public static let resetThisIPhone = "Reset This iPhone"
+    public static let resetEverything = "Reset Everything (Including iCloud)"
+    public static let resetDetail = "Reset This iPhone clears local data here and returns to setup. Reset Everything also deletes your Agent Keyring data from iCloud so you can start from scratch. Your passwords in Apple Passwords are not affected."
+    public static let resetFailed = "Agent Keyring couldn’t finish resetting. Check your iCloud connection and try again."
+    public static let iCloudSignedOut = "This iPhone isn’t signed in to iCloud, so your other devices don’t get changes made here."
 
-    // MARK: What Face ID says it is for
-
-    public static let faceIDPractice = "Approve the practice request."
-    public static func faceIDApprove(agent: String, computer: String, site: String) -> String {
-        "Let \(agent) on \(computer) use \(site) for up to 30 minutes."
+    /// Under a password in the list: its account, and whether its password was deleted when it was blocked.
+    public static func loginDetail(account: String, secretDeleted: Bool) -> String? {
+        let deleted = MainWindowCopy.deletedWhenBlocked
+        guard secretDeleted else { return account.isEmpty ? nil : account }
+        return account.isEmpty ? deleted : account + "\n" + deleted
     }
-    public static func faceIDRemove(_ name: String) -> String { "Remove \(name)." }
-    public static let faceIDAddWatch = "Let your Apple Watch approve requests."
-    public static func faceIDSetRule(site: String, rule: PhoneLogin.Rule) -> String { "Set \(site) to \(self.rule(rule))." }
-    public static let anAgent = "An agent"
-    public static let passwordNotOnThisIPhone = "This password isn’t on this iPhone yet. Open Agent Keyring on your Mac, then try again."
 
-    public static func clock(_ date: Date) -> String {
-        date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en_GB")))
+    static func day(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(date: .long, time: .omitted).locale(Locale(identifier: "en_GB")))
     }
+
 }

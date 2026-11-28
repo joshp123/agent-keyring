@@ -16,6 +16,7 @@ import AgentKeyringApprovalUI
 #if os(watchOS)
 import AgentKeyringWatchUI
 #endif
+import CoreText
 import Foundation
 import ImageIO
 import SwiftUI
@@ -24,6 +25,21 @@ import UniformTypeIdentifiers
 
 @MainActor
 @Suite struct NothingIsCutOff {
+    /// Proves the bundled Allo variable font registers and resolves via Core Text
+    /// instead of silently falling back to Helvetica.
+    @Test func alloFontResolvesWithoutHelveticaFallback() {
+        #expect(KeyringFont.register(), "AlloVariable.ttf failed to register from AgentKeyringDesign bundle")
+        for psName in [
+            KeyringFont.PostScript.regular,
+            KeyringFont.PostScript.semibold,
+            KeyringFont.PostScript.displayBold,
+        ] {
+            let font = CTFontCreateWithName(psName as CFString, 17, nil)
+            let family = CTFontCopyFamilyName(font) as String
+            #expect(family == "Allo Variable", "Expected Allo Variable for \(psName), got \(family)")
+        }
+    }
+
     @Test func everyPartFitsAtTheSmallestSize() throws {
         try checkAll(KeyringGallery.parts)
     }
@@ -52,14 +68,14 @@ import UniformTypeIdentifiers
         }
         .padding(18)
         .frame(width: 380)
-        let result = ScreenCheck.run(cutOff, on: KeyringScreen("light", size: CGSize(width: 380, height: 0), scrolls: true))
+        let result = ScreenCheck.runLayoutCheck(cutOff, on: KeyringScreen("light", size: CGSize(width: 380, height: 0), scrolls: true))
         #expect(result.findings.contains { if case .truncated = $0 { true } else { false } }, "\(result.findings)")
     }
 
     /// A button too narrow for its one word ("Ap-prove") must be reported.
     @Test func theCheckCatchesAWordSplitAcrossLines() {
         let narrow = KeyringText("Approve", as: .title).frame(width: 40)
-        let result = ScreenCheck.run(narrow, on: KeyringScreen("light", size: CGSize(width: 40, height: 0), scrolls: true))
+        let result = ScreenCheck.runLayoutCheck(narrow, on: KeyringScreen("light", size: CGSize(width: 40, height: 0), scrolls: true))
         #expect(result.findings.contains(.brokenWord("Approve")), "\(result.findings)")
     }
 
@@ -83,10 +99,10 @@ import UniformTypeIdentifiers
     @Test func paragraphsAreMeasuredFromTheirOwnStart() {
         let rules = KeyringText("Ask: approve each time here.\nAutomatic: chosen computers get it.\nBlocked: no agent can use it.", as: .body)
             .frame(width: 150)
-        let fine = ScreenCheck.run(rules, on: KeyringScreen("light", size: CGSize(width: 150, height: 0), scrolls: true))
+        let fine = ScreenCheck.runLayoutCheck(rules, on: KeyringScreen("light", size: CGSize(width: 150, height: 0), scrolls: true))
         #expect(fine.findings.isEmpty, "\(fine.findings)")
         let split = KeyringText("Fine.\nUnbreakablewordthatistoolong", as: .title).frame(width: 120)
-        let broken = ScreenCheck.run(split, on: KeyringScreen("light", size: CGSize(width: 120, height: 0), scrolls: true))
+        let broken = ScreenCheck.runLayoutCheck(split, on: KeyringScreen("light", size: CGSize(width: 120, height: 0), scrolls: true))
         #expect(broken.findings.contains(.brokenWord("Fine.\nUnbreakablewordthatistoolong")), "\(broken.findings)")
     }
 
@@ -98,7 +114,7 @@ import UniformTypeIdentifiers
             KeyringButton(.plain("Send Practice Request") {})
         }
         .frame(width: 260)
-        let result = ScreenCheck.run(row, on: KeyringScreen("light", size: CGSize(width: 260, height: 0), scrolls: true))
+        let result = ScreenCheck.runLayoutCheck(row, on: KeyringScreen("light", size: CGSize(width: 260, height: 0), scrolls: true))
         // iPhone wraps a squeezed label; the Mac cuts it off. Either must be reported.
         #expect(result.findings.contains(.wrappedLabel("Send Practice Request")) || result.findings.contains(.truncated("Send Practice Request")),
                 "\(result.findings)")
@@ -109,9 +125,35 @@ import UniformTypeIdentifiers
         let tooTall = VStack(alignment: .leading, spacing: 40) {
             ForEach(0..<12) { KeyringText("Line \($0) of a page that is too tall for the setup window.", as: .title) }
         }
-        let result = ScreenCheck.run(tooTall, on: KeyringScreen("light", size: CGSize(width: 534, height: 560), scrolls: false))
+        let result = ScreenCheck.runLayoutCheck(tooTall, on: KeyringScreen("light", size: CGSize(width: 534, height: 560), scrolls: false))
         #expect(result.findings.contains { if case .outside = $0 { true } else if case .notDrawn = $0 { true } else { false } }, "\(result.findings)")
     }
+
+    #if os(macOS)
+    /// Every step of the Copy your passwords guide renders at the exact same
+    /// height so the Previous and Next buttons never jump vertically.
+    @Test func copyGuidePictureHeightIsIdenticalAcrossAllFiveSteps() {
+        let width: CGFloat = 454
+        let heights: [CGFloat] = (1...5).map { step in
+            let view = PasswordsExportPicture(guideStep: step).frame(width: width)
+            return NSHostingView(rootView: view).fittingSize.height
+        }
+        for (index, height) in heights.enumerated() {
+            #expect(abs(height - heights[0]) < 1.0,
+                    "Guide step \(index + 1) rendered at height \(height), expected \(heights[0]); all heights: \(heights)")
+        }
+        #if canImport(AgentKeyringApprovalUI)
+        let rowHeights: [CGFloat] = FirstRunCopy.guide.enumerated().map { index, text in
+            let view = KeyringStepRow(index + 1, text).frame(minHeight: 40, alignment: .topLeading).frame(width: width)
+            return NSHostingView(rootView: view).fittingSize.height
+        }
+        for (index, height) in rowHeights.enumerated() {
+            #expect(abs(height - rowHeights[0]) < 1.0,
+                    "Step row \(index + 1) rendered at height \(height), expected \(rowHeights[0]); all heights: \(rowHeights)")
+        }
+        #endif
+    }
+    #endif
 }
 
 /// Checks each entry on each of its screens, writing pictures if asked.
@@ -125,9 +167,12 @@ func checkAll(_ entries: [KeyringGalleryEntry]) throws {
         let numbers = value.split(separator: "/").compactMap { Int($0) }
         return numbers.count == 2 && (1...numbers[1]).contains(numbers[0]) ? (numbers[0], numbers[1]) : nil
     } ?? (1, 1)
+    let filter = ProcessInfo.processInfo.environment["KEYRING_RENDER_FILTER"]?
+        .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } ?? []
     for (index, entry) in entries.enumerated() where index % part.1 == part.0 - 1 {
+        if !filter.isEmpty, !filter.contains(where: { entry.id.contains($0) }) { continue }
         for screen in KeyringScreen.all(for: entry.kind) { try autoreleasepool {
-            let result = ScreenCheck.run(entry.view, on: screen)
+            let result = ScreenCheck.runLayoutCheck(entry.view, on: screen)
             #expect(result.findings.isEmpty, "\(entry.id) (\(screen.name)):\n  \(result.findings.map(\.description).joined(separator: "\n  "))")
             #expect(!result.words.isEmpty, "\(entry.id) (\(screen.name)) reported no words: is it built from the parts?")
             guard let folder else { return }

@@ -3,7 +3,7 @@
 // The Watch app's own screen: the page for where setup stands, or "In use",
 // from AgentKeyringWatchUI, with what each button does.
 
-import AgentKeyringWatchCore
+import AgentKeyringSealing
 import AgentKeyringWatchUI
 import SwiftUI
 import UserNotifications
@@ -14,20 +14,9 @@ struct WatchHome: View {
     @State private var addFailed = false
 
     var body: some View {
-        #if DEBUG
-        // For looking at the request card in the simulator: -SampleCard YES (-SamplePractice YES for the practice's).
-        if UserDefaults.standard.bool(forKey: "SampleCard") { SampleCard() } else { home }
-        #else
-        home
-        #endif
-    }
-
-    private var home: some View {
-        // "In use" while something is in use; otherwise the page for where setup stands.
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            let inUse = model.inUse.filter { $0.until > context.date }
-            if model.setup == .ready && !inUse.isEmpty {
-                WatchInUsePage(items: inUse) { await WatchLink.shared.stop($0) }
+        Group {
+            if model.setup == .ready && !model.inUse.isEmpty {
+                WatchInUsePage(items: model.inUse) { await WatchLink.shared.stop($0) }
             } else {
                 WatchSetupPage(setup: model.setup, practiceFailed: practiceFailed, addFailed: addFailed) { await act($0) }
             }
@@ -35,6 +24,35 @@ struct WatchHome: View {
         .onChange(of: model.setup) { _, next in
             if next != .addedOfferPractice { practiceFailed = false }
             if next != .readyToAdd { addFailed = false }
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { model.foregroundRequest != nil },
+            set: { if !$0 { model.dismissForegroundRequest() } }
+        )) {
+            if let requestModel = model.foregroundRequest {
+                RequestView(model: requestModel)
+            }
+        }
+        .task(id: model.setup) {
+            // Re-evaluate time-bounded states (Add offer expiry, preparing, practice wait) even if
+            // a one-shot timer missed while watchOS suspended the app, and pick up any delivered
+            // APNs practice notification if watchOS filed it quietly while the iPhone was unlocked.
+            guard model.setup == .readyToAdd || model.setup == .preparing || model.setup == .practiceWaiting else { return }
+            var ticks = 0
+            while !Task.isCancelled {
+                if model.setup == .practiceWaiting {
+                    await model.pickUpDeliveredRequestNotification()
+                    try? await Task.sleep(for: .seconds(1))
+                    ticks += 1
+                    if ticks % 10 == 0 {
+                        await WatchLink.shared.refreshSetup()
+                    }
+                } else {
+                    try? await Task.sleep(for: .seconds(10))
+                    guard !Task.isCancelled else { return }
+                    await WatchLink.shared.refreshSetup()
+                }
+            }
         }
     }
 
@@ -63,10 +81,3 @@ struct WatchHome: View {
         }
     }
 }
-
-#if DEBUG
-private struct SampleCard: View {
-    @State private var model = RequestModel()
-    var body: some View { RequestView(model: model).onAppear { model.show(["akrSample": true]) } }
-}
-#endif

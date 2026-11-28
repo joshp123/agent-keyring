@@ -2,13 +2,13 @@
 // the Paper file "Agent Keyring", page "The request", board "On the Mac".
 //
 // The request beside the pointer. It never takes the keyboard when it
-// appears. Approve asks for Touch ID or the Watch in macOS's own dialog, which
+// appears. Approve asks for Touch ID, the Watch or the Mac password in macOS's own dialog, which
 // comes only after Josh's click and gives the keyboard back when it closes.
 
 #if os(macOS)
+import AgentKeyringApprovalCore
 import AgentKeyringDesign
 import AppKit
-import LocalAuthentication
 import SwiftUI
 
 /// The design's tokens, light and dark, for the menu bar window and the main
@@ -33,13 +33,19 @@ enum RequestToken {
 /// "Agent Keyring (Holistic)", board 2). Rebuilt on 2026.11.21 by model claude opus 5.5.
 struct MacApprovalPanelView: View {
     @Bindable var model: MacApprovalModel
+    var onDismiss: (() -> Void)? = nil
 
-    /// The card's width with the panel's margin round it.
-    static let width = KeyringSize.macCard + 2 * KeyringSpace.s5
+    /// The card's width with the panel's tinted canvas margin round it.
+    static let width: CGFloat = 400
 
     private var request: AccessRequest { model.request }
     private var agent: String { request.agent.name }
     private var isPractice: Bool { request.access == .practice }
+
+    init(model: MacApprovalModel, onDismiss: (() -> Void)? = nil) {
+        self.model = model
+        self.onDismiss = onDismiss
+    }
 
     var body: some View {
         Group {
@@ -48,10 +54,20 @@ struct MacApprovalPanelView: View {
             default: answered
             }
         }
-        .padding(KeyringSpace.s5)
+        .padding(KeyringSpace.s4)
+        .background(KeyringPalette.surface, in: .rect(cornerRadius: KeyringRadius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: KeyringRadius.card, style: .continuous).strokeBorder(KeyringPalette.line))
+        .padding(KeyringSpace.s3)
         .frame(width: Self.width)
-        .background(KeyringPalette.surface, in: .rect(cornerRadius: KeyringRadius.panel, style: .continuous))
+        .background(KeyringPalette.canvas, in: .rect(cornerRadius: KeyringRadius.panel, style: .continuous))
         .task { await model.followUpdates() }
+        .task {
+            guard !ReviewRendering.isOn else { return }
+            while !Task.isCancelled {
+                MacApprover.shared.refresh()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
         .onDisappear { model.cancelApproval() }
     }
 
@@ -63,19 +79,20 @@ struct MacApprovalPanelView: View {
         var replies: Bool
         var replyPrompt: String
         var footer: String?
+        var isSetUp: Bool
     }
 
     private var words: Words {
         switch request.access {
         case .login:
             Words(lead: AccessRequestCopy.wants(request.agent), detail: request.login.account, reason: request.agentReason, replies: true,
-                  replyPrompt: AccessRequestCopy.replyPlaceholder(agent), footer: AccessRequestCopy.footer(agent))
+                  replyPrompt: AccessRequestCopy.replyPlaceholder(agent), footer: nil, isSetUp: false)
         case .practice:
             Words(lead: FirstRunCopy.practiceWants, detail: request.login.account, reason: request.agentReason, replies: true,
-                  replyPrompt: FirstRunCopy.practiceReplyPrompt, footer: FirstRunCopy.practiceFooter)
+                  replyPrompt: FirstRunCopy.practiceReplyPrompt, footer: FirstRunCopy.practiceFooter, isSetUp: false)
         case let .setUp(lead, detail, footer, _, replies, _):
             Words(lead: lead, explanation: detail.isEmpty ? nil : detail, replies: replies, replyPrompt: SetupCopy.denyNotePrompt,
-                  footer: footer.isEmpty ? nil : footer)
+                  footer: footer.isEmpty ? nil : footer, isSetUp: true)
         }
     }
 
@@ -84,53 +101,148 @@ struct MacApprovalPanelView: View {
         return nil
     }
 
-    private var asking: some View {
+    @ViewBuilder private var asking: some View {
         let words = words
-        return VStack(spacing: KeyringSpace.s3) {
-            KeyringApprovalCard(lead: words.lead, subject: request.login.site, detail: words.detail,
-                                reason: words.reason.flatMap { $0.isEmpty ? nil : $0 }, explanation: words.explanation,
-                                reply: words.replies ? $model.replyDraft : nil, replyPrompt: words.replyPrompt,
-                                approve: model.lidClosed ? nil : approve,
-                                inPlaceOfApprove: model.approvesElsewhere ? AccessRequestCopy.approveElsewhere : AccessRequestCopy.openTheLid,
-                                deny: KeyringAction(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny,
-                                                    words.replies ? .deny : .denyLink, isEnabled: sending == nil) {
-                                    Task { await model.deny() }
-                                },
-                                footer: words.footer, header: SetupCopy.appName)
+        VStack(spacing: KeyringSpace.s3) {
+            if words.isSetUp {
+                VStack(alignment: .leading, spacing: KeyringSpace.s4) {
+                    brandBar
+                    HStack(alignment: .top, spacing: KeyringSpace.s3) {
+                        Image(systemName: request.login.site.localizedCaseInsensitiveContains("iphone") ? "iphone" : "desktopcomputer")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(KeyringPalette.brand)
+                            .frame(width: 36, height: 36)
+                            .background(KeyringPalette.brandTint, in: .rect(cornerRadius: 10, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            KeyringText(words.lead, as: .heading)
+                            if let explanation = words.explanation {
+                                KeyringText(explanation, as: .meta)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    VStack(spacing: KeyringSpace.s2) {
+                        KeyringButton(.plain(sending == .deny ? AccessRequestCopy.denying : "Don’t Add", isEnabled: sending == nil) {
+                            Task { await model.denyAccessRequest() }
+                        })
+                        if model.cannotApproveHere == nil {
+                            KeyringButton(approve)
+                        } else {
+                            KeyringText(
+                                model.approvesElsewhere ? AccessRequestCopy.approveElsewhere
+                                    : model.cannotApproveHere == .touchIDMissing ? AccessRequestCopy.connectTouchID : AccessRequestCopy.openTheLid,
+                                as: .meta
+                            )
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        }
+                    }
+                    .environment(\.keyringButtonsFill, true)
+                    .environment(\.keyringButtonTall, true)
+                }
+            } else {
+                KeyringUnifiedApprovalCard(
+                    site: request.login.site,
+                    account: words.detail?.isEmpty == false ? words.detail : nil,
+                    agent: isPractice ? "Practice" : request.agent.name,
+                    machine: isPractice ? "" : (request.agent.isLocal ? "This Mac" : request.agent.machine),
+                    reason: words.reason.flatMap { $0.isEmpty ? nil : $0 },
+                    footer: words.footer,
+                    showBrandBar: true,
+                    onDismiss: onDismiss ?? {},
+                    compact: false,
+                    approve: model.cannotApproveHere == nil ? approve : nil,
+                    inPlaceOfApprove: model.approvesElsewhere ? AccessRequestCopy.approveElsewhere
+                        : model.cannotApproveHere == .touchIDMissing ? AccessRequestCopy.connectTouchID : AccessRequestCopy.openTheLid,
+                    deny: .deny(sending == .deny ? AccessRequestCopy.denying : AccessRequestCopy.deny, isEnabled: sending == nil) {
+                        Task { await model.denyAccessRequest() }
+                    },
+                    denyAndReply: words.replies ? .denySecondary(AccessRequestCopy.denyAndReply, isEnabled: sending == nil) {
+                        model.isReplying = true
+                    } : nil,
+                    replyDraft: model.isReplying ? $model.replyDraft : nil,
+                    replyPrompt: words.replyPrompt,
+                    onCancelReply: {
+                        model.replyDraft = ""
+                        model.isReplying = false
+                    },
+                    onSendReply: {
+                        Task { await model.denyAccessRequest() }
+                    },
+                    sendReplyTitle: MenuBarCopy.sendReply,
+                    busy: sending != nil
+                ) {
+                    SiteIconView(host: request.login.site, size: 30)
+                }
+            }
             if let failure = model.failure { KeyringStatusLine(.problem(failure)) }
         }
     }
 
-    private enum Approver { case touchID, watch, none }
-
-    private var approver: Approver {
-        let context = LAContext()
-        if canAsk(context, .deviceOwnerAuthenticationWithBiometrics) { return .touchID }
-        return canAsk(context, .deviceOwnerAuthenticationWithCompanion) ? .watch : .none
+    private var brandBar: some View {
+        HStack(spacing: KeyringSpace.s2) {
+            KeyringKeyholeMark(size: 16, colour: KeyringPalette.brand)
+            KeyringText(SetupCopy.appName, as: .meta, colour: KeyringPalette.ink)
+            if model.moreWaiting > 0 {
+                KeyringText(AccessRequestCopy.moreWaiting(model.moreWaiting), as: .caption, colour: KeyringPalette.brand)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(KeyringPalette.brandTint, in: Capsule(style: .circular))
+            }
+            Spacer(minLength: 0)
+            Button(action: onDismiss ?? {}) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(KeyringPalette.ink2)
+                    .frame(width: 22, height: 22)
+                    .background(KeyringPalette.fill, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
     }
 
     /// One green button, the card's full width. Clicking it opens macOS's
-    /// Touch ID or Apple Watch dialog; while that is up, it says what to do.
-    /// With the lid shut there is none: the card says why in its place.
+    /// dialog for Touch ID, the Watch or the Mac password; while that is up,
+    /// it says what to do. With the lid shut or the Touch ID keyboard gone
+    /// there is none: the card says why in its place.
     private var approve: KeyringAction {
         if sending == .approve { return .approve(AccessRequestCopy.approving, isEnabled: false) {} }
         let waiting = model.isWaitingForTouch
-        let title = switch approver {
-        case .touchID: waiting ? AccessRequestCopy.useTouchID : AccessRequestCopy.clickForTouchID
-        case .watch: waiting ? AccessRequestCopy.useWatch : AccessRequestCopy.clickForWatch
-        case .none: AccessRequestCopy.noApprover
-        }
-        return .approve(title, isEnabled: !waiting && sending == nil && approver != .none) { model.approve() }
+        let title = AccessRequestCopy.approveTitle(model.approver, waiting: waiting)
+        let symbol = waiting ? nil : AccessRequestCopy.approveSymbol(model.approver)
+        return .approve(title ?? AccessRequestCopy.noApprover, symbol: symbol, isEnabled: !waiting && sending == nil && title != nil) { model.approveAccessRequest() }
     }
 
     @ViewBuilder private var answered: some View {
-        switch request.state {
-        case .approved:
-            KeyringConfirmation(outcomeTitle, detail: outcomeDetail)
-        case .denied, .blockedByRule:
-            KeyringConfirmation(outcomeTitle, detail: outcomeDetail, tone: .denied)
-        default:
-            KeyringHint(symbol: "clock", title: outcomeTitle, outcomeDetail ?? AccessRequestCopy.outcomeWord(request.state), tone: .plain)
+        VStack(alignment: .leading, spacing: KeyringSpace.s3) {
+            brandBar
+            if !words.isSetUp {
+                HStack(alignment: .center, spacing: KeyringSpace.s2 + 2) {
+                    SiteIconView(host: request.login.site, size: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        KeyringText(request.login.site, as: .heading, fit: .siteName)
+                        if !request.login.account.isEmpty {
+                            KeyringText(request.login.account, as: .meta, fit: .siteName)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .trailing, spacing: 1) {
+                        KeyringText(isPractice ? "Practice" : request.agent.name, as: .meta, colour: KeyringPalette.ink)
+                        if !isPractice {
+                            KeyringText(request.agent.isLocal ? "This Mac" : request.agent.machine, as: .caption, colour: KeyringPalette.ink2)
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: true)
+                }
+            }
+            switch request.state {
+            case .approved:
+                KeyringConfirmation(outcomeTitle, detail: outcomeDetail)
+            case .denied, .blockedByRule:
+                KeyringConfirmation(outcomeTitle, detail: outcomeDetail, tone: .denied)
+            default:
+                KeyringHint(symbol: "clock", title: outcomeTitle, outcomeDetail ?? AccessRequestCopy.outcomeWord(request.state), tone: .plain)
+            }
         }
     }
 
@@ -142,7 +254,12 @@ struct MacApprovalPanelView: View {
     private var outcomeTitle: String {
         switch request.state {
         case .approved where setUp != nil: SetupCopy.added(request.login.site)
-        case let .approved(surface, _): surface == .iPhone ? AccessRequestCopy.approvedOnPhone : AccessRequestCopy.approved
+        case let .approved(surface, _):
+            switch surface {
+            case .iPhone: AccessRequestCopy.approvedOnPhone
+            case .watch: AccessRequestCopy.approvedOnWatch
+            default: AccessRequestCopy.approved
+            }
         case .denied: AccessRequestCopy.denied
         case .unanswered: AccessRequestCopy.noAnswer
         case .cancelled: AccessRequestCopy.cancelled
@@ -170,28 +287,24 @@ struct MacApprovalPanelView: View {
 public enum ReviewRendering {
     nonisolated(unsafe) public static var isOn = false
 
-    private final class Backend: MacApprovalBackend {
-        let request: AccessRequest
-        init(_ request: AccessRequest) { self.request = request }
-        func updates(requestID: String) -> AsyncStream<AccessRequest> { AsyncStream { $0.finish() } }
-        func cancelAuthentication(requestID: String) {}
-        func approve(requestID: String, onAuthenticated: @MainActor () -> Void) async throws -> AccessRequestState {
-            try await Task.sleep(for: .seconds(3600)); return request.state
-        }
-        func deny(requestID: String, reply: String?) async throws -> AccessRequestState { request.state }
-        func allowAskingAgain(requestID: String) async throws -> AccessRequestState { request.state }
-    }
-
-    /// `waiting`: as while macOS's dialog is open. `lidClosed` and
-    /// `approvesElsewhere` as `ApprovalPresenter` sets them.
-    @MainActor public static func panel(_ request: AccessRequest, reply: String = "", waiting: Bool = false,
-        lidClosed: Bool = false, approvesElsewhere: Bool = false) -> some View {
+    /// `waiting`: as while macOS's dialog is open. `lidClosed`, `touchIDMissing` and
+    /// `approvesElsewhere` as `ApprovalPresenter` sets them. `approver`: Touch ID unless given.
+    @MainActor public static func panel(_ request: AccessRequest, reply: String = "", replying: Bool = false, waiting: Bool = false,
+        lidClosed: Bool = false, touchIDMissing: Bool = false, approvesElsewhere: Bool = false,
+        approver: MacApproverKind = .touchID) -> some View {
         isOn = true
-        let model = MacApprovalModel(request: request, backend: Backend(request))
+        var state = SandboxState.builtIn()
+        state.thisDeviceID = "macbook"
+        state.requests = [SandboxRequest(request)]
+        // While macOS's dialog would be up, Touch ID never answers.
+        let world = SandboxWorld(state, effects: SandboxEffectRunner([.ownerApproval: .delayed(.seconds(3600))]))
+        let model = MacApprovalModel(request: request, backend: SandboxPanelBackend(world))
         model.replyDraft = reply
-        model.lidClosedInRender = lidClosed
+        model.isReplying = replying || !reply.isEmpty
+        model.stateInRender = lidClosed ? .lidClosed : touchIDMissing ? .touchIDMissing : .ready
+        model.approverInRender = approver
         model.approvesElsewhere = approvesElsewhere
-        if waiting { model.approve() }
+        if waiting { model.approveAccessRequest() }
         return MacApprovalPanelView(model: model)
     }
 }
@@ -234,7 +347,10 @@ final class RequestPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    static let authenticationDialogBundleID = "com.apple.LocalAuthentication.UIAgent"
+    nonisolated static let authenticationDialogBundleID = "com.apple.LocalAuthentication.UIAgent"
+
+    /// Only the Touch ID or Apple Watch dialog is closed when focus moves away; the password dialog is not.
+    nonisolated static func cancelsWhenFocusMoves(_ mode: MacApprovalMode) -> Bool { mode == .biometricOrCompanion }
 
     /// Whether a point (AppKit coordinates) is on macOS's Touch ID dialog.
     static func isOnAuthenticationDialog(_ point: NSPoint) -> Bool {
@@ -292,7 +408,7 @@ final class RequestPanel: NSPanel {
         makeFirstResponder(field)
     }
 
-    private static func textInputs(in view: NSView) -> [NSView] {
+    static func textInputs(in view: NSView) -> [NSView] {
         (view is NSTextField || view is NSTextView ? [view] : []) + view.subviews.flatMap(textInputs)
     }
 
@@ -349,9 +465,11 @@ final class FirstClickHostingView: NSHostingView<AnyView> {
 @MainActor
 final class RequestPanelHost {
     let panel = RequestPanel()
+    let model: MacApprovalModel
     private let hosting: FirstClickHostingView
 
     init(model: MacApprovalModel) {
+        self.model = model
         hosting = FirstClickHostingView(rootView: AnyView(EmptyView()))
         // Only report a size; never let SwiftUI resize the window itself.
         hosting.sizingOptions = [.intrinsicContentSize]
@@ -360,12 +478,18 @@ final class RequestPanelHost {
                 self?.fit(height: height)
             })
         panel.contentView = hosting
-        // macOS's dialog stops listening once another app is in front, but
-        // stays on screen looking ready; close it and offer Approve again.
-        panel.onOtherAppActivated = { [weak model] in model?.cancelApproval() }
+        // macOS's Touch ID dialog stops listening once another app is in
+        // front, but stays on screen looking ready; close it and offer
+        // Approve again. The password dialog keeps listening, and Josh may
+        // click elsewhere while he types, so it is left alone.
+        panel.onOtherAppActivated = { [weak model] in
+            guard let model, RequestPanel.cancelsWhenFocusMoves(MacApprover.shared.mode) else { return }
+            model.cancelApproval()
+        }
         panel.onClickElsewhere = { [weak model] point in
-            guard !RequestPanel.isOnAuthenticationDialog(point) else { return }
-            model?.cancelApproval()
+            guard let model, model.isWaitingForTouch, RequestPanel.cancelsWhenFocusMoves(MacApprover.shared.mode),
+                !RequestPanel.isOnAuthenticationDialog(point) else { return }
+            model.cancelApproval()
         }
     }
 
@@ -381,7 +505,23 @@ final class RequestPanelHost {
         }
     }
 
+    /// Brings the shown panel forward without rebuilding it, and with `openReply` opens its reply box and
+    /// puts the caret there: Josh asked for it from Activity or the menu bar, so the panel may take the keyboard.
+    func focus(openReply: Bool) {
+        panel.orderFrontRegardless()
+        guard openReply else { return }
+        model.isReplying = true
+        // The box exists once SwiftUI has drawn the change.
+        DispatchQueue.main.async { [panel, hosting] in
+            hosting.layoutSubtreeIfNeeded()
+            panel.makeKey()
+            guard let field = RequestPanel.textInputs(in: hosting).first else { return }
+            panel.makeFirstResponder(field)
+        }
+    }
+
     func show() {
+        MacApprover.shared.refresh()
         hosting.layoutSubtreeIfNeeded()
         let size = CGSize(width: MacApprovalPanelView.width, height: max(hosting.intrinsicContentSize.height, 100).rounded(.up))
         let screens = NSScreen.screens.map(\.visibleFrame)

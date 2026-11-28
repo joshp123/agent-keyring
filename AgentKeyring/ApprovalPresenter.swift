@@ -6,9 +6,10 @@
 // Josh's other computers, oldest first. Replaces the transitional system Touch ID prompt.
 
 import AgentKeyringApprovalUI
-import AgentKeyringFeature
+import AgentKeyringEngine
 import AgentKeyringProtocol
 import AgentKeyringScreenBackends
+import AgentKeyringSealing
 import AppKit
 import Foundation
 import LocalAuthentication
@@ -22,14 +23,13 @@ final class ApprovalPresenter {
         /// An agent's request on another computer, shown here as that computer pushes it to the devices.
         case remote(String)
         case joining(String)
-        case sendChanges
         case automaticCopies
         case selfTest
 
         var isRequest: Bool {
             switch self {
             case .local, .remote: true
-            case .joining, .sendChanges, .automaticCopies, .selfTest: false
+            case .joining, .automaticCopies, .selfTest: false
             }
         }
     }
@@ -61,16 +61,18 @@ final class ApprovalPresenter {
         case question(OwnerApproval)
     }
 
-    private let model: MirrorAppModel
+    private let model: MacKeyringEngine
     private let localBackend: LeaseApprovalBackend
     private let remoteBackend: RemoteRequestBackend
     private let additionBackend: AdditionBackend
     private let selfTestBackend: SelfTestBackend
     private let panel = MacApprovalPanelController()
     private var presented = Presented.idle
+    /// Pending items Josh hid from the floating overlay without denying (still waiting in the menu bar).
+    private var hidden: Set<Item> = []
     private var following: Task<Void, Never>?
 
-    init(model: MirrorAppModel) {
+    init(model: MacKeyringEngine) {
         self.model = model
         self.localBackend = LeaseApprovalBackend(model: model)
         self.remoteBackend = RemoteRequestBackend(model: model)
@@ -78,12 +80,17 @@ final class ApprovalPresenter {
         self.selfTestBackend = SelfTestBackend(model: model)
     }
 
-    /// Follows everything that waits for Josh, and the lid and Touch ID through `waiting`.
+    /// Follows everything that waits for Josh, and the lid, Touch ID and Watch state.
     func start() {
         MacApprover.shared.follow()
-        let observations = Observations { [weak self] in self?.waiting ?? [] }
+        let observations = Observations { [weak self] () -> ([Item], MacApproverState) in
+            let approverState = MacApprover.shared.state
+            return (self?.waiting ?? [], approverState)
+        }
         following = Task { [weak self] in
-            for await items in observations { self?.update(items) }
+            for await (items, approverState) in observations {
+                self?.update(items, approverState: approverState)
+            }
         }
     }
 
@@ -96,39 +103,92 @@ final class ApprovalPresenter {
         return device.devicesUnreachable == nil
     }
 
-    /// Brings a waiting request forward, from the menu bar's Review.
-    func present(requestID: String) {
-        if let item = waiting.first(where: { $0 == .local(requestID) || $0 == .remote(requestID) }) { show(first: [item]) }
+    private func autoPresentable(_ items: [Item], approverState: MacApproverState) -> [Item] {
+        items.filter { item in
+            !hidden.contains(item)
+                && ApprovalPresentationPolicy.shouldAutoPresent(
+                    isRequest: item.isRequest,
+                    approverState: approverState,
+                    approvesElsewhere: approvesElsewhere(item)
+                )
+        }
+    }
+
+    private func wasAnsweredElsewhere(_ item: Item) -> Bool {
+        switch item {
+        case let .local(id):
+            guard let lease = try? model.leaseStore.get(id) else { return false }
+            let device = lease.authorityContext.decidingDeviceKind
+            return device == .iphone || device == .watch || lease.state == .cancelled
+        case let .remote(id):
+            guard let ask = model.device?.remoteAsks[id], case let .ended(lease) = ask.state else { return false }
+            let ownLabel = model.device?.members?.devices.first { $0.keyID == model.device?.ownDeviceID }?.label
+            let answeredHere = !lease.answeredBy.isEmpty && lease.answeredBy == ownLabel
+            return !answeredHere
+        case .joining, .automaticCopies, .selfTest:
+            return false
+        }
+    }
+
+    /// Brings a waiting request forward, from the menu bar's Review or Activity's Deny & Reply. A request
+    /// already on screen is focused where it is, keeping what Josh has typed; `openReply` opens its reply box.
+    func focusRequest(id: String, openReply: Bool = false) {
+        guard let item = waiting.first(where: { $0 == .local(id) || $0 == .remote(id) }) else { return }
+        hidden.remove(item)
+        if presented.item != item { show(first: [item]) }
+        guard presented.item == item else { return }
+        panel.focus(openReply: openReply)
     }
 
     /// Brings a joining device forward, from the menu bar or Machines window.
     func present(enrolmentID: String) {
-        if waiting.contains(.joining(enrolmentID)) { show(first: [.joining(enrolmentID)]) }
+        let item = Item.joining(enrolmentID)
+        if waiting.contains(item) {
+            hidden.remove(item)
+            show(first: [item])
+        }
     }
 
     private var waiting: [Item] {
         let device = model.device
         // A device being given its copies stays up, showing how far, until it is done.
-        let joining = (device?.joins.map { Item.joining(MacDevice.joinID($0)) } ?? []) + (device?.filling.map { [Item.joining($0.deviceKeyID)] } ?? [])
-        let local = model.leaseStore.waitingRequests.map { (Item.local($0.leaseID), $0.requestedAtUnixSeconds) }
+        let joining = (device?.joins.map { Item.joining(MacSyncCoordinator.joinID($0)) } ?? []) + (device?.filling.map { [Item.joining($0.deviceKeyID)] } ?? [])
+        let local = model.leaseStore.waitingRequests.map { (Item.local($0.requestID), $0.requestedAtUnixSeconds) }
             + (device?.waitingRemoteAsks.map { (Item.remote($0.id), $0.request.askedUnixSeconds) } ?? [])
-        let questions: [Item] = (model.resyncAsked ? [.sendChanges] : [])
-            + (model.automaticCopiesMissing ? [.automaticCopies] : [])
+        let questions: [Item] = model.automaticCopiesMissing ? [.automaticCopies] : []
         // Only after Send Practice Request; the window says "Open the lid" or "Add a fingerprint" in its place.
         let selfTest: [Item] = (model.firstRun.waitingPractice != nil || model.practiceWaitingHere) && MacApprover.shared.state == .ready ? [.selfTest] : []
         return selfTest + joining + questions + local.sorted { $0.1 < $1.1 }.map(\.0)
     }
 
-    private func update(_ items: [Item]) {
+    private func update(_ items: [Item], approverState: MacApproverState) {
+        hidden = hidden.intersection(items)
         switch presented {
         case .idle:
-            show(first: items)
+            show(first: autoPresentable(items, approverState: approverState))
         case let .showing(item, shown):
             presented.request?.moreWaiting = items.filter { $0 != item && $0.isRequest }.count
-            guard !items.contains(item) else { return }
-            // A denial stays up long enough to take back with "Let it ask again";
-            // the practice request goes at once, as first run's window says what happened.
-            let linger: Duration = item == .selfTest ? .zero : presented.request?.isHoldingOff == true ? .seconds(10) : .seconds(2.5)
+            presented.request?.approvesElsewhere = approvesElsewhere(item)
+            if items.contains(item) {
+                if item.isRequest,
+                   presented.request?.request.state.isWaitingForYou == true,
+                   !ApprovalPresentationPolicy.shouldAutoPresent(
+                       isRequest: true,
+                       approverState: approverState,
+                       approvesElsewhere: approvesElsewhere(item)
+                   ) {
+                    dismiss()
+                }
+                return
+            }
+            let linger = ApprovalPresentationPolicy.dismissLinger(
+                isSelfTest: item == .selfTest,
+                answeredElsewhere: wasAnsweredElsewhere(item)
+            )
+            if linger == .zero {
+                dismiss()
+                return
+            }
             presented = .closing(item, shown, Task { [weak self] in
                 try? await Task.sleep(for: linger)
                 guard !Task.isCancelled else { return }
@@ -149,18 +209,12 @@ final class ApprovalPresenter {
             case let .request(approval):
                 approval.approvesElsewhere = approvesElsewhere(item)
                 panel.show(approval)
-                approval.close = { [weak self] in self?.dismiss() }
+                approval.close = { [weak self] in self?.hide(item) }
             case let .question(approval):
-                if item == .automaticCopies {
-                    panel.show(question: SetupCopy.automaticCopiesTitle, lead: SetupCopy.automaticCopiesLead, message: SetupCopy.automaticCopiesBody, approval: approval)
-                } else {
-                    let changes = model.unsentChanges
-                    panel.show(question: SetupCopy.sendChangesTitle(changes.total), lead: SetupCopy.sendChangesLead,
-                        message: SetupCopy.sendChangesBody(added: changes.added, changed: changes.changed, removed: changes.removed), approval: approval)
-                }
+                panel.show(question: SetupCopy.automaticCopiesTitle, lead: SetupCopy.automaticCopiesLead, message: SetupCopy.automaticCopiesBody, approval: approval)
             }
             presented = .showing(item, shown)
-            DiagnosticLog.record("panel", "shown", ["item": "\(item)"])
+            KeyringDiagnosticLog.mac.noteDeviceEvent("panel", "shown", ["item": "\(item)"])
             return
         }
     }
@@ -173,15 +227,10 @@ final class ApprovalPresenter {
         switch item {
         case .selfTest: return request(selfTestBackend.request, selfTestBackend)
         case let .local(id):
-            return request(model.leaseStore.waitingRequests.first { $0.leaseID == id }.map(model.accessRequest(for:)), localBackend)
+            return request(model.leaseStore.waitingRequests.first { $0.requestID == id }.map(model.accessRequest(for:)), localBackend)
         case let .remote(id):
-            return request(remoteBackend.request(id), remoteBackend)
-        case let .joining(id): return request(additionBackend.request(id), additionBackend)
-        case .sendChanges:
-            let model = model
-            return .question(ask(reason: SetupCopy.sendChangesReason,
-                perform: { context in try await model.sendChanges(context: context) },
-                declined: { model.declineSendingChanges() }))
+            return request(remoteBackend.accessRequest(id), remoteBackend)
+        case let .joining(id): return request(additionBackend.accessRequest(id), additionBackend)
         case .automaticCopies:
             let model = model
             return .question(ask(reason: SetupCopy.automaticCopiesReason,
@@ -207,14 +256,20 @@ final class ApprovalPresenter {
         }
     }
 
+    private func hide(_ item: Item) {
+        if waiting.contains(item) { hidden.insert(item) }
+        dismiss()
+    }
+
     private func dismiss() {
-        show(first: waiting)
+        show(first: autoPresentable(waiting, approverState: MacApprover.shared.state))
     }
 
     /// A yes-or-no question beside Josh's window, approved in place.
     private func ask(reason: String, perform: @escaping @MainActor (LAContext) async throws -> Void,
         declined: @escaping @MainActor () -> Void) -> OwnerApproval {
-        OwnerApproval(action: SetupCopy.allow.lowercased(), reason: reason, perform: perform) { [weak self] approved in
+        OwnerApproval(action: SetupCopy.allow.lowercased(), reason: reason,
+                      authenticate: { LocalOwnerAuthentication(perform: perform) }) { [weak self] approved in
             if !approved { declined() }
             self?.dismiss()
         }

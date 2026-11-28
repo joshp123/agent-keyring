@@ -4,8 +4,9 @@
 // tables in RFC 0007. The screens never see protobuf types; this is the one
 // place that reads them.
 
+import AgentKeyringApprovalCore
 import AgentKeyringApprovalUI
-import AgentKeyringFeature
+import AgentKeyringEngine
 import AgentKeyringProtocol
 import Foundation
 
@@ -13,14 +14,14 @@ public enum LeaseScreenMapping {
     /// - Parameters:
     ///   - requester: the process attribution the store kept for the lease.
     ///   - login: the vault record the lease names, if it still exists.
-    public static func accessRequest(_ lease: Agentkeyring_V1_Lease, requester: CredentialLeaseRequester?,
+    public static func accessRequest(_ lease: Agentkeyring_V2_Lease, requester: CredentialLeaseRequester?,
         login: CredentialCandidate?) -> AccessRequest {
-        let agentName = requester?.name ?? lease.recipient.clientLabel
-        let machine = requester?.machineName ?? lease.recipient.machineLabel
+        let agentName = requester?.name ?? lease.authorityContext.recipient.clientLabel
+        let machine = requester?.machineName ?? lease.authorityContext.recipient.machineLabel
         return AccessRequest(
-            id: lease.leaseID,
+            id: lease.requestID,
             login: RequestedLogin(
-                site: siteLabel(lease.sites.first ?? login?.origins.first ?? login?.title ?? "Unknown site"),
+                site: siteLabel(lease.authorityContext.sites.first ?? login?.origins.first ?? login?.title ?? "Unknown site"),
                 account: login?.username ?? login?.title ?? "Unknown account"),
             agent: RequestingAgent(
                 name: agentName,
@@ -30,22 +31,22 @@ public enum LeaseScreenMapping {
                 project: requester?.project,
                 isLocal: true),
             access: .login,
-            agentReason: lease.reason,
+            agentReason: lease.authorityContext.reason,
             askedAt: date(lease.requestedAtUnixSeconds),
             state: state(lease),
             events: events(lease, agentName: agentName, machine: machine),
-            byAutomaticRule: lease.approvedBy == .automaticRule)
+            byAutomaticRule: lease.automatic)
     }
 
-    static func state(_ lease: Agentkeyring_V1_Lease) -> AccessRequestState {
+    static func state(_ lease: Agentkeyring_V2_Lease) -> AccessRequestState {
         let ended = date(lease.endedAtUnixSeconds)
         switch lease.state {
-        case .pending:
-            return .waitingForYou(until: date(lease.pendingUntilUnixSeconds))
-        case .active:
-            return .approved(by: surface(lease.approvedBy), until: date(lease.notAfterUnixSeconds))
+        case .waiting:
+            return .waitingForYou(until: date(lease.answerByUnixSeconds))
+        case .approved:
+            return .approved(by: decisionSurface(lease), until: date(lease.notAfterUnixSeconds))
         case .denied:
-            return .denied(by: surface(lease.approvedBy), reply: lease.reply.isEmpty ? nil : lease.reply,
+            return .denied(by: decisionSurface(lease), reply: lease.reply.isEmpty ? nil : lease.reply,
                 askAgainAfter: lease.retryNotBeforeUnixSeconds > 0 ? date(lease.retryNotBeforeUnixSeconds) : nil)
         case .unanswered:
             return .unanswered
@@ -55,28 +56,30 @@ public enum LeaseScreenMapping {
             return .expired(at: ended)
         case .released:
             return .released(at: ended)
-        case .revoked:
+        case .ended:
             return .ended(at: ended)
-        default:
+        case .unspecified, .UNRECOGNIZED:
             return .unanswered
         }
     }
 
-    static func surface(_ approvedBy: Agentkeyring_V1_ApprovedBy) -> ApprovalSurface {
-        switch approvedBy {
-        case .automaticRule: .automaticRule
-        case .iphone: .iPhone
-        default: .mac
+    static func decisionSurface(_ lease: Agentkeyring_V2_Lease) -> ApprovalSurface {
+        if lease.automatic { return .automaticRule }
+        switch lease.authorityContext.decidingDeviceKind {
+        case .iphone: return .iPhone
+        case .watch: return .watch
+        case .mac, .unspecified, .UNRECOGNIZED: return .mac
         }
     }
 
-    static func events(_ lease: Agentkeyring_V1_Lease, agentName: String, machine: String) -> [AccessRequestEvent] {
+    static func events(_ lease: Agentkeyring_V2_Lease, agentName: String, machine: String) -> [AccessRequestEvent] {
         var events = [AccessRequestEvent(date(lease.requestedAtUnixSeconds), "\(agentName) asked on \(machine)")]
         if lease.approvedAtUnixSeconds > 0 {
-            let how = switch lease.approvedBy {
+            let how = switch decisionSurface(lease) {
             case .automaticRule: "Approved by rule"
-            case .iphone: "You approved with Face ID"
-            default: "You approved on your Mac"
+            case .iPhone: "You approved with Face ID"
+            case .watch: "You approved on Apple Watch"
+            case .mac: "You approved on your Mac"
             }
             events.append(AccessRequestEvent(date(lease.approvedAtUnixSeconds), how))
         }
@@ -87,8 +90,8 @@ public enum LeaseScreenMapping {
             case .cancelled: "\(agentName) stopped asking"
             case .expired: "Ended after 30 minutes"
             case .released: "\(agentName) said it was done"
-            case .revoked: "Ended early"
-            default: "Ended"
+            case .ended: "Ended early"
+            case .unspecified, .waiting, .approved, .UNRECOGNIZED: "Ended"
             }
             events.append(AccessRequestEvent(date(lease.endedAtUnixSeconds), what))
         }

@@ -5,28 +5,29 @@
 
 import SwiftUI
 
+/// Apple's screens, in the order they appear.
+public enum PasswordsExportGuideStep: Sendable, CaseIterable {
+    /// The File menu, with Export Selected Items to App…
+    case fileMenu
+    /// "Some items will not be exported." Only for people with Sign in with Apple or shared items.
+    case someItemsAlert
+    /// The Export Passwords sheet.
+    case exportSheet
+    /// macOS asking for Touch ID or the Mac's password.
+    case touchID
+    /// Select a Destination, with Agent Keyring chosen.
+    case selectDestination
+    /// Export N items to "Agent Keyring"?
+    case confirm
+}
+
 /// What the Passwords app shows at one step of the "Copy your passwords"
 /// guide, drawn close enough to recognise, with the thing to click ringed.
 public struct PasswordsExportPicture: View {
-    /// Apple's screens, in the order they appear.
-    public enum Screen: Sendable, CaseIterable {
-        /// The File menu, with Export All Items to App…
-        case fileMenu
-        /// "Some items will not be exported." Only for people with Sign in with Apple or shared items.
-        case someItemsAlert
-        /// The Export Passwords sheet.
-        case exportSheet
-        /// macOS asking for Touch ID or the Mac's password.
-        case touchID
-        /// Select a Destination, with Agent Keyring chosen.
-        case selectDestination
-        /// Export N items to "Agent Keyring"?
-        case confirm
-    }
 
     /// The guide's five steps and the screens each one shows. Step 2 shows the
     /// alert some people see first, then the sheet everyone sees.
-    public static func screens(forGuideStep step: Int) -> [Screen] {
+    public static func screens(forGuideStep step: Int) -> [PasswordsExportGuideStep] {
         switch step {
         case 1: [.fileMenu]
         case 2: [.someItemsAlert, .exportSheet]
@@ -36,19 +37,20 @@ public struct PasswordsExportPicture: View {
         }
     }
 
-    let screens: [Screen]
-    let earlierVersion: Bool
+    let screens: [PasswordsExportGuideStep]
     let items: Int
 
     /// - Parameters:
     ///   - guideStep: 1 to 5, as the page's guide counts them.
-    ///   - earlierVersion: also show the earlier "AgentKeyring" in Select a Destination, dimmed.
     ///   - items: the number Apple's last sheet shows; a sample is fine, Apple counts it.
-    public init(guideStep: Int, earlierVersion: Bool = false, items: Int = 547) {
+    public init(guideStep: Int, items: Int = 2) {
         self.screens = Self.screens(forGuideStep: guideStep)
-        self.earlierVersion = earlierVersion
         self.items = items
     }
+
+    /// Uniform height across all 5 guide steps so the picture card and the
+    /// Previous/Next buttons beneath it stay still as you step through.
+    public static let cardHeight: CGFloat = 164
 
     public var body: some View {
         HStack(alignment: .center, spacing: KeyringSpace.s4) {
@@ -59,21 +61,47 @@ public struct PasswordsExportPicture: View {
                 drawing(screen)
             }
         }
-        .padding(KeyringSpace.s3)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, KeyringSpace.s3)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: Self.cardHeight)
         .background(KeyringPalette.fill, in: .rect(cornerRadius: KeyringRadius.card))
         .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder private func drawing(_ screen: Screen) -> some View {
+    @ViewBuilder private func drawing(_ screen: PasswordsExportGuideStep) -> some View {
         switch screen {
         case .fileMenu: FileMenu()
         case .someItemsAlert: SomeItemsAlert()
         case .exportSheet: ExportSheet()
         case .touchID: TouchIDDialog()
-        case .selectDestination: SelectDestination(earlierVersion: earlierVersion)
+        case .selectDestination: SelectDestination()
         case .confirm: Confirm(items: items)
         }
+    }
+}
+
+/// Compact File menu preview highlighting "Export All Items to App…" for the category / all-passwords bridge.
+public struct PasswordsExportAllMenuPicture: View {
+    public init() {}
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(PasswordsExportCopy.exportAllFileMenu.enumerated()), id: \.offset) { _, item in
+                if let item {
+                    let chosen = item == PasswordsExportCopy.exportAllItems
+                    KeyringText(item, as: .pictureText, colour: chosen ? .white : KeyringPalette.ink2)
+                        .padding(.horizontal, KeyringSpace.s2)
+                        .padding(.vertical, 3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(chosen ? appleBlue : .clear, in: .rect(cornerRadius: 5))
+                }
+            }
+        }
+        .padding(5)
+        .frame(width: 196)
+        .background(KeyringPalette.surface, in: .rect(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(KeyringPalette.line))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -84,17 +112,21 @@ private let appleBlue = Color(hex: 0x1F7BFF)
 private struct Panel<Content: View>: View {
     let width: CGFloat
     let alignment: HorizontalAlignment
+    let spacing: CGFloat
+    let padding: CGFloat
     @ViewBuilder let content: Content
 
-    init(width: CGFloat, alignment: HorizontalAlignment = .leading, @ViewBuilder content: () -> Content) {
+    init(width: CGFloat, alignment: HorizontalAlignment = .leading, spacing: CGFloat = 6, padding: CGFloat = 10, @ViewBuilder content: () -> Content) {
         self.width = width
         self.alignment = alignment
+        self.spacing = spacing
+        self.padding = padding
         self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: alignment, spacing: 6) { content }
-            .padding(10)
+        VStack(alignment: alignment, spacing: spacing) { content }
+            .padding(padding)
             .frame(width: width, alignment: Alignment(horizontal: alignment, vertical: .top))
             .background(KeyringPalette.surface, in: .rect(cornerRadius: 10, style: .continuous))
             .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
@@ -149,25 +181,25 @@ private struct FileMenu: View {
                         .background(menu == "File" ? KeyringPalette.line : .clear, in: .capsule)
                 }
             }
-            .padding(.horizontal, KeyringSpace.s3).padding(.vertical, 4)
+            .padding(.horizontal, KeyringSpace.s3).padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(KeyringPalette.surface.opacity(0.7))
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(PasswordsExportCopy.fileMenu.enumerated()), id: \.offset) { _, item in
                     if let item {
-                        let chosen = item == PasswordsExportCopy.exportAllItems
+                        let chosen = item == PasswordsExportCopy.exportSelectedItems
                         KeyringText(item, as: .pictureText, colour: chosen ? .white : KeyringPalette.ink)
-                            .padding(.horizontal, KeyringSpace.s2).padding(.vertical, 2)
+                            .padding(.horizontal, KeyringSpace.s2).padding(.vertical, 1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(chosen ? appleBlue : .clear, in: .rect(cornerRadius: 4))
                             .clickHere(chosen)
                     } else {
-                        Divider().padding(.vertical, 2)
+                        Divider()
                     }
                 }
             }
-            .padding(KeyringSpace.s1)
-            .frame(width: 190)
+            .padding(2)
+            .frame(width: 215)
             .background(KeyringPalette.surface, in: .rect(cornerRadius: 8, style: .continuous))
             .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
             .padding(.leading, 74)
@@ -223,11 +255,10 @@ private struct ExportSheet: View {
 
 private struct TouchIDDialog: View {
     var body: some View {
-        Panel(width: 190) {
-            Image(systemName: "touchid").font(.system(size: 24)).foregroundStyle(Color(hex: 0xE5455C))
-                .padding(KeyringSpace.s1)
+        Panel(width: 265, spacing: 3, padding: 8) {
+            Image(systemName: "touchid").font(.system(size: 16)).foregroundStyle(Color(hex: 0xE5455C))
+                .padding(2)
                 .clickHere(pointer: false)
-                .padding(.bottom, KeyringSpace.s1)
                 .accessibilityHidden(true)
             KeyringText(PasswordsExportCopy.touchIDTitle, as: .pictureTitle)
             KeyringText(PasswordsExportCopy.touchIDBody, as: .pictureText)
@@ -238,8 +269,6 @@ private struct TouchIDDialog: View {
 }
 
 private struct SelectDestination: View {
-    let earlierVersion: Bool
-
     var body: some View {
         Panel(width: 250) {
             Image(systemName: "square.2.layers.3d").font(.system(size: 20)).foregroundStyle(appleBlue)
@@ -255,16 +284,6 @@ private struct SelectDestination: View {
                 .padding(.horizontal, KeyringSpace.s2).padding(.vertical, 4)
                 .background(KeyringPalette.line, in: .rect(cornerRadius: 6))
                 .clickHere()
-                if earlierVersion {
-                    HStack(spacing: KeyringSpace.s2) {
-                        Image(systemName: "key.horizontal.fill").font(.system(size: 8)).foregroundStyle(.white)
-                            .frame(width: 16, height: 16).background(Color(hex: 0x15233D), in: .rect(cornerRadius: 4))
-                            .accessibilityHidden(true)
-                        KeyringText(PasswordsExportCopy.earlierVersion, as: .pictureText, colour: KeyringPalette.ink3)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, KeyringSpace.s2).padding(.vertical, 4)
-                }
             }
             HStack(spacing: KeyringSpace.s1) {
                 Spacer(minLength: 0)
@@ -280,8 +299,8 @@ private struct Confirm: View {
     let items: Int
 
     var body: some View {
-        Panel(width: 270) {
-            KeyringMascot(.calm).frame(width: 28, height: 28).frame(maxWidth: .infinity)
+        Panel(width: 280, spacing: 5, padding: 8) {
+            KeyringMascot(.calm).frame(width: 24, height: 24).frame(maxWidth: .infinity)
             KeyringText(PasswordsExportCopy.confirmTitle(items), as: .pictureTitle)
             KeyringText(PasswordsExportCopy.confirmBody(items), as: .pictureText, colour: KeyringPalette.ink2)
             HStack(spacing: KeyringSpace.s1) {
@@ -289,7 +308,7 @@ private struct Confirm: View {
                 PictureButton(title: PasswordsExportCopy.cancel)
                 PictureButton(title: PasswordsExportCopy.continueInAgentKeyring, prominent: true, marked: true)
             }
-            .padding(.top, KeyringSpace.s1)
+            .padding(.top, 2)
         }
     }
 }

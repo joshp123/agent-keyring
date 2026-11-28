@@ -6,52 +6,52 @@
 // its reason (Paper, "The request": the Lock Screen), or the outcome once
 // the request has ended (Paper, "Wherever you are").
 
-import AgentKeyringApprovalUI
-import AgentKeyringPhoneApprover
+import AgentKeyringApprovalCore
 import AgentKeyringSealing
 import UserNotifications
 
 final class NotificationService: UNNotificationServiceExtension {
+    private var contentHandler: ((UNNotificationContent) -> Void)?
+    private var bestAttemptContent: UNMutableNotificationContent?
+
     override func didReceive(_ request: UNNotificationRequest,
                              withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        self.contentHandler = contentHandler
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else {
             contentHandler(request.content); return
         }
+        bestAttemptContent = content
         guard let words = PhoneNoticeReader.words(content.userInfo) else {
+            content.categoryIdentifier = ""
             content.interruptionLevel = PhoneNoticeReader.level()
-            content.title = PhoneCopy.notificationFallbackTitle
-            content.body = PhoneCopy.notificationFallbackBody
+            content.title = PhoneNotificationCopy.notificationFallbackTitle
+            content.body = PhoneNotificationCopy.notificationFallbackBody
             contentHandler(content); return
         }
         content.threadIdentifier = words.request.id
-        content.title = PhoneCopy.notificationTitle(words.request)
+        content.title = PhoneNotificationCopy.notificationTitle(words.request)
         if case let .waitingForYou(deadline) = words.request.state {
             content.userInfo[PhoneNotification.wordsKey] = PhoneNotification.encode(words.request, deadline: deadline)
             // No subtitle: iOS cuts it to one line. Who asks leads the body, which wraps; the reason comes last.
             content.subtitle = ""
-            content.body = words.request.isPractice ? PhoneCopy.practiceNotificationBody
-                : PhoneCopy.notificationSubtitle(words.request.agent) + ".\n" + PhoneCopy.notificationBody(words.request)
+            content.body = words.request.isPractice ? PhoneNotificationCopy.practiceNotificationBody
+                : PhoneNotificationCopy.notificationSubtitle(words.request.agent) + ".\n" + PhoneNotificationCopy.notificationBody(words.request)
             content.categoryIdentifier = PhoneNotification.requestCategory
             content.interruptionLevel = PhoneNoticeReader.level()
-            // The relay hears that the request reached this iPhone.
-            let id = words.request.id
-            let door = words.door.map { (host: $0.host, port: $0.port, key: $0.key) }
-            let done = UncheckedContent(handler: contentHandler, content: content)
-            ArrivalNote.send(request: id, log: PhoneDiagnostics.log, { try await PhoneKeyring.noteArrival(id, door: door, shared: PhoneNoticeReader.shared) },
-                             show: done.call)
-            return
         } else {
-            content.body = PhoneCopy.outcomeBody(words.request, answeredBy: words.answeredBy)
+            content.body = PhoneNotificationCopy.outcomeBody(words.request, answeredBy: words.answeredBy)
             content.categoryIdentifier = ""
             content.interruptionLevel = .passive
         }
+        KeyringDiagnosticLog.iPhone.noteDeviceEvent("push", "named", ["request": words.request.id])
         contentHandler(content)
+    }
+
+    override func serviceExtensionTimeWillExpire() {
+        KeyringDiagnosticLog.iPhone.noteDeviceEvent("push", "expired", [:])
+        if let contentHandler, let bestAttemptContent {
+            contentHandler(bestAttemptContent)
+        }
     }
 }
 
-/// The content handler and the content, carried into the task that calls it once.
-private struct UncheckedContent: @unchecked Sendable {
-    let handler: (UNNotificationContent) -> Void
-    let content: UNNotificationContent
-    func call() { handler(content) }
-}

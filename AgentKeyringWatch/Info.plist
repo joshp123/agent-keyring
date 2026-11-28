@@ -8,11 +8,6 @@
     <true/>
     <key>WKCompanionAppBundleIdentifier</key>
     <string>$(AGENT_KEYRING_BUNDLE_ID)</string>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-    </dict>
     <key>UIBackgroundModes</key>
     <array><string>remote-notification</string></array>
     <key>AgentKeyringKeychainGroup</key>

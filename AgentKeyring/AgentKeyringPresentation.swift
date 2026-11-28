@@ -1,18 +1,18 @@
+import AgentKeyringApprovalUI
+import AgentKeyringEngine
 import AppKit
 import Observation
 import Sparkle
 import SwiftUI
-import AgentKeyringApprovalUI
-import AgentKeyringFeature
 
 @MainActor
 @Observable
 final class AgentKeyringPresentation {
     private(set) var mainWindowRequest = 0
     /// The tab the main window shows when it opens after first run.
-    var tab = MacMainModel.Tab.logins
+    var tab = MacMainWindowTab.logins
 
-    func requestMainWindow(_ tab: MacMainModel.Tab? = nil) {
+    func requestMainWindow(_ tab: MacMainWindowTab? = nil) {
         if let tab { self.tab = tab }
         mainWindowRequest &+= 1
     }
@@ -61,28 +61,29 @@ final class AgentKeyringPresentation {
 /// close the window before they open something else.
 struct AgentKeyringMenuWindow: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openSettings) private var openSettings
     let presentation: AgentKeyringPresentation
     let menuBar: MacMenuBarModel
     let approvals: ApprovalPresenter
-    let model: MirrorAppModel
+    let model: MacKeyringEngine
     let updater: SPUUpdater
     let checkForUpdates: () -> Void
 
     var body: some View {
         MacMenuBarView(model: menuBar)
-            .frame(width: 360)
+            .onChange(of: model.setup, initial: true) { menuBar.copyAgainShown = model.setup == .ready }
             .onReceive(updater.publisher(for: \.canCheckForUpdates)) { canCheck in
                 menuBar.canCheckForUpdates = canCheck
             }
             .onAppear {
                 menuBar.canCheckForUpdates = updater.canCheckForUpdates
-                menuBar.review = { leaseID in
-                    dismiss()
-                    approvals.present(requestID: leaseID)
-                }
                 menuBar.reviewEnrolment = { enrolmentID in
                     dismiss()
                     approvals.present(enrolmentID: enrolmentID)
+                }
+                menuBar.openActivity = {
+                    dismiss()
+                    presentation.requestMainWindow(.activity)
                 }
                 menuBar.openDevices = {
                     dismiss()
@@ -92,10 +93,15 @@ struct AgentKeyringMenuWindow: View {
                     dismiss()
                     presentation.requestMainWindow(.logins)
                 }
-                // The main window shows "Copy your passwords" while the copy is open.
+                menuBar.openSettings = {
+                    dismiss()
+                    openSettings()
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                }
+                // The main window shows the selective import flow while the copy is open.
                 menuBar.copyAgain = {
                     dismiss()
-                    model.openPasswordsExport()
+                    model.openPasswordsCopyFlow()
                     presentation.requestMainWindow(.logins)
                 }
                 menuBar.checkForUpdates = {

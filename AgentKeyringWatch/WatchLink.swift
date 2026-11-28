@@ -1,33 +1,45 @@
-// Written by AI on 2026.11.18 by model claude opus 5.5.
-//
-// The one hand-over between the Watch and its iPhone, over Watch
-// Connectivity. The Watch sends what its self-test found, its push address,
-// and its keys once he has tapped Add; the iPhone sends the signed Members and
-// Catalogue, its settings, and the end of the Face ID confirmation it holds
-// while it waits for this Watch to ask. Each side sends with both
-// transferUserInfo and updateApplicationContext, so it arrives whichever app
-// runs first.
+// Written by AI on 2026.11.18 by model claude opus 5.5; hardened WatchConnectivity concurrency, I/O isolation and multi-transport Add on 2026.11.25 by model gemini-4-neon.
+// Transport split on 2026.11.27 by model GPT-6.2 Sol.
 
 import AgentKeyringProtocol
 import AgentKeyringSealing
-import AgentKeyringWatchCore
-import CryptoKit
+import AgentKeyringWatchUI
 import Foundation
 import LocalAuthentication
 import UserNotifications
 import WatchConnectivity
 
-/// The Watch app's lines, or its notification extension's, in the ring they share.
-let watchLog = DeviceLog(device: "watch")
 
-final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
+final class WatchLink: NSObject, @unchecked Sendable {
     static let shared = WatchLink()
 
+    nonisolated private static let pbKey = "pb"
+    nonisolated private static let resetAtKey = "resetAtUnixSeconds"
+    private let ioQueue = DispatchQueue(label: "com.joshpalmer.AgentKeyring.Watch.io", qos: .userInitiated)
     private let lock = NSLock()
+    private let state = WatchStateCoordinator(log: .watch)
     private var _pushToken: Data?
     private var _lastProblem: String?
     private var _refreshGeneration: UInt64 = 0
+    private var _pullInFlight = false
+    private var handOverSchedule = WatchStateCoordinator.HandOverSchedule()
+    private var _lastForegroundAt: Date = .distantPast
     private var idle: [() -> Void] = []
+
+    private static func encode(_ message: Agentkeyring_V2_WatchToPhone) -> [String: Any] {
+        guard let data = try? message.serializedData() else { return [:] }
+        return [pbKey: data]
+    }
+
+    private static func decode(_ payload: [String: Any]) -> Agentkeyring_V2_PhoneToWatch? {
+        guard let data = payload[pbKey] as? Data else { return nil }
+        return try? Agentkeyring_V2_PhoneToWatch(serializedBytes: data)
+    }
+
+    private static func isAddWatchTransfer(_ userInfo: [String: Any]) -> Bool {
+        guard let data = userInfo[pbKey] as? Data else { return false }
+        return (try? Agentkeyring_V2_WatchToPhone(serializedBytes: data))?.addWatch == true
+    }
 
     var pushToken: Data? {
         get { lock.withLock { _pushToken } }
@@ -38,11 +50,49 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         set { lock.withLock { _lastProblem = newValue } }
     }
 
+    private func runIO<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { done in
+            ioQueue.async { done.resume(returning: work()) }
+        }
+    }
+
     func activate() {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
         if session.delegate == nil { session.delegate = self }
         if session.activationState != .activated { session.activate() }
+    }
+
+    private func waitForSession(checks: Int, reachable: Bool = false) async {
+        activate()
+        let session = WCSession.default
+        for _ in 0..<checks {
+            if session.activationState == .activated && (!reachable || session.isReachable) { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    func onForeground() {
+        let shouldRun: Bool = lock.withLock {
+            let now = Date()
+            guard now.timeIntervalSince(_lastForegroundAt) > 0.5 else { return false }
+            _lastForegroundAt = now
+            return true
+        }
+        guard shouldRun else { return }
+        activate()
+        Task {
+            if WCSession.default.activationState == .activated {
+                await self.runIO {
+                    if let message = Self.decode(WCSession.default.receivedApplicationContext) {
+                        self.receive(message, current: true)
+                    }
+                }
+            }
+            await self.refreshSetup()
+            Task { await self.pullLatestFromPhone() }
+            Task { await self.sendHandOver() }
+        }
     }
 
     /// Runs `done` once nothing more is waiting to arrive from the iPhone.
@@ -61,381 +111,434 @@ final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
         waiting.forEach { $0() }
     }
 
-    // MARK: Sending
-
-    /// Builds the Watch's device identity and optional push registration, independent of self-test or logs.
-    private func pairingPayload(includeDevice: Bool, offerID: String? = nil) throws -> [String: Any] {
-        let keys = WatchKeys()
-        var payload: [String: Any] = [:]
-        if includeDevice {
-            payload["watchDevice"] = try keys.device().serializedData()
-            if let offerID { payload["addOfferID"] = offerID }
-        }
-        if let token = pushToken {
-            var push = Agentkeyring_V2_PushRegistration()
-            push.deviceKeyID = try keys.keyID()
-            push.apnsToken = token
-            push.apnsTopic = Bundle.main.bundleIdentifier ?? ""
-            push.apnsProduction = PushEnvironment.isProduction
-            push.noticePublicKey = try keys.noticePublicKey()
-            payload["watchPush"] = try push.serializedData()
-        }
-        return payload
-    }
-
-    /// The Watch's keys, push address and self-test, for the iPhone to add it.
-    func sendHandOver() async {
-        let session = WCSession.default
-        guard session.activationState == .activated else { return }
-        let keys = WatchKeys()
-        // The Watch's recent log lines ride along; keep under WatchConnectivity's 65 KB context limit.
-        watchLog.collect()
-        var payload: [String: Any] = ["watchSelfTest": await selfTest(keys), "log": watchLog.lines(last: 60)]
-        do {
-            let saved = WatchStore().read()
-            let keyID = try keys.keyID()
-            let tappedOfferID = saved.addTappedOfferID
-            let includeDevice = tappedOfferID != nil && tappedOfferID == saved.effectiveAddOfferID && !saved.lists(keyID)
-            let pairing = try pairingPayload(includeDevice: includeDevice, offerID: includeDevice ? tappedOfferID : nil)
-            for (k, v) in pairing { payload[k] = v }
-        } catch {
-            lastProblem = "The Watch could not make its keys: \(error)"
-        }
-        do { try session.updateApplicationContext(payload) } catch { log.error("context: \(error.localizedDescription, privacy: .public)") }
-    }
-
-    /// A problem the person sees as one plain line; the detail goes to the iPhone, which reports it.
-    func report(problem: String) {
-        watchLog.note("app", "problem", ["msg": problem])
-        lastProblem = problem
-        log.error("\(problem, privacy: .public)")
-        Task { await sendHandOver() }
-    }
-
-    /// What the Watch can find out about itself, with no one doing anything.
-    func selfTest(_ keys: WatchKeys) async -> [String: Any] {
-        var result: [String: Any] = ["at": Int(Date().timeIntervalSince1970)]
-        do {
-            // A login sealed to this Watch's opening key, opened by its chip.
-            var secret = LoginSecret()
-            secret.loginID = "self-test"
-            secret.password = "example"
-            let openerID = try keys.keyID()
-            let opening = try P256.KeyAgreement.PublicKey(x963Representation: keys.openingPublicKey())
-            let sealed = try Sealing.seal(secret, version: 0, to: opening, openerID: openerID,
-                                          signer: Sealing.Signer(keyID: Sealing.keyID(keys.replyPublicKey()), sign: keys.signReply))
-            result["keyOpens"] = try keys.open(sealed).password == "example"
-        } catch { result["keyOpens"] = false; result["keyError"] = "\(error)" }
-        var error: NSError?
-        result["passcodeSet"] = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        result["onWristAndUnlocked"] = (try? await context.evaluatePolicy(.deviceOwnerAuthenticationWithWristDetection, localizedReason: "Check")) ?? false
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        result["notificationsAllowed"] = settings.authorizationStatus == .authorized
-        result["timeSensitiveAllowed"] = settings.timeSensitiveSetting == .enabled
-        result["pushAddress"] = pushToken != nil
-        result["practiceAnswered"] = WatchStore().read().practiceAnswered == true
-        if let lastProblem { result["problem"] = lastProblem }
-        return result
-    }
-
-    // MARK: Receiving
-
-    /// `current`: the iPhone's latest context, whose Add offer stands; queued user info may be older.
-    @discardableResult
-    private func receive(_ payload: [String: Any], current: Bool) -> Date? {
-        let store = WatchStore()
-        let keyID = (try? WatchKeys().keyID()) ?? ""
-        var resolvedAddUntil: Date?
-        var wasRemoved = false
-        store.update { saved in
-            let wasListed = !keyID.isEmpty && saved.lists(keyID)
-            let addUntil = current ? (payload["addUntil"] as? Double).map(Date.init(timeIntervalSince1970:)) : saved.addUntil
-            let addOfferID = current ? (payload["addOfferID"] as? String) : saved.addOfferID
-            let copiesPending = current ? (payload["copiesPending"] as? Bool) : saved.copiesPending
-            let copyingToWatch = current ? (payload["copyingToWatch"] as? Bool) : saved.copyingToWatch
-            resolvedAddUntil = addUntil
-            var next = saved.merging(members: payload["members"] as? Data, catalogue: payload["catalogue"] as? Data,
-                                     settings: payload["settings"] as? Data, addUntil: addUntil, addOfferID: addOfferID,
-                                     copiesPending: copiesPending, copyingToWatch: copyingToWatch)
-            let nowListed = !keyID.isEmpty && next.lists(keyID)
-            if nowListed {
-                if next.copiesPending != true && next.copyingToWatch != true {
-                    next.addTappedOfferID = nil
-                } else if next.copyingToWatch == true, let activeOffer = next.addOfferID, !activeOffer.isEmpty {
-                    // If Face ID was renewed for a listed Watch with pending copies, track the active offer ID.
-                    next.addTappedOfferID = activeOffer
-                }
-            } else if wasListed {
-                // Removed from Members: wipe Watch-local setup/practice flags so a future re-add starts fresh.
-                wasRemoved = true
-                next.addTappedOfferID = nil
-                next.copiesPending = nil
-                next.copyingToWatch = nil
-                next.practiceAnswered = nil
-                next.practiceOfferDone = nil
-                next.practiceAsked = nil
-                next.inUse = nil
-            } else if next.copyingToWatch != true {
-                let expired = addUntil == nil || (addUntil ?? .distantPast) <= .now
-                if expired || next.effectiveAddOfferID != next.addTappedOfferID {
-                    next.addTappedOfferID = nil
+    func sendHandOver(force: Bool = false) async {
+        guard WCSession.default.activationState == .activated else { return }
+        guard lock.withLock({ handOverSchedule.begin(force: force) }) else { return }
+        while true {
+            let selfTest = await runSelfTest()
+            await runIO {
+                let handOver = self.state.handOver(selfTest: selfTest, pushToken: self.pushToken)
+                if let problem = handOver.keyError { self.lastProblem = problem }
+                do {
+                    try WCSession.default.updateApplicationContext(Self.encode(handOver.message))
+                } catch {
+                    log.error("context: \(error.localizedDescription, privacy: .public)")
+                    KeyringDiagnosticLog.watch.noteDeviceEvent("watchlink", "handover context failed", ["error": "\(error)"])
                 }
             }
-            saved = next
+            if !lock.withLock({ handOverSchedule.finish() }) { return }
         }
-        if wasRemoved {
-            store.clearInUse()
-            lastProblem = nil
-        }
-        // The iPhone's wait ends at its deadline: Add then goes from the screen by itself.
-        if let addUntil = resolvedAddUntil, addUntil > .now {
-            Task { try? await Task.sleep(for: .seconds(addUntil.timeIntervalSinceNow + 1)); await self.refreshSetup() }
-        }
-        return resolvedAddUntil
     }
 
-    /// Add on this Watch: sends its keys immediately via live message when the iPhone app is open,
-    /// falling back cleanly with an honest error instead of hanging indefinitely.
+    func sendDismissRequest(_ id: String) {
+        guard !id.isEmpty, WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        sendDurably(WatchStateCoordinator.dismissRequest(id), on: session)
+    }
+
+    private func sendDurably(_ message: Agentkeyring_V2_WatchToPhone, on session: WCSession) {
+        let payload = Self.encode(message)
+        if session.isReachable { session.sendMessage(payload, replyHandler: nil, errorHandler: nil) }
+        session.transferUserInfo(payload)
+    }
+
+    func report(problem: String) {
+        KeyringDiagnosticLog.watch.noteDeviceEvent("app", "problem", ["msg": problem])
+        lastProblem = problem
+        log.error("\(problem, privacy: .public)")
+        Task { await sendHandOver(force: true) }
+    }
+
+    private func checkOnWristWithTimeout(timeout: Duration = .seconds(2)) async -> Bool {
+        await withCheckedContinuation { done in
+            let gate = OneShotContinuation(done)
+            Task {
+                try? await Task.sleep(for: timeout)
+                gate.resume(false)
+            }
+            ioQueue.async {
+                let context = LAContext()
+                context.interactionNotAllowed = true
+                context.evaluatePolicy(.deviceOwnerAuthenticationWithWristDetection, localizedReason: "Check") { ok, _ in
+                    gate.resume(ok)
+                }
+            }
+        }
+    }
+    private static func passcodeIsSet() -> Bool {
+        LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+    }
+
+    private func runSelfTest() async -> Agentkeyring_V2_WatchSelfTest {
+        let onWrist = await checkOnWristWithTimeout()
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        let notificationsAllowed = settings.authorizationStatus == .authorized
+        let timeSensitiveAllowed = settings.timeSensitiveSetting == .enabled
+        return await runIO {
+            self.state.selfTest(passcode: Self.passcodeIsSet(), onWrist: onWrist,
+                                notificationsAllowed: notificationsAllowed, timeSensitiveAllowed: timeSensitiveAllowed,
+                                hasPushToken: self.pushToken != nil, problem: self.lastProblem)
+        }
+    }
+
+    // Called on ioQueue, including all WatchConnectivity delegate deliveries.
+    private func receive(_ message: Agentkeyring_V2_PhoneToWatch, current: Bool) {
+        let update = state.receive(message, current: current)
+        updateAfterReceive(addUntil: update.addUntil, removed: update.removed)
+    }
+
+    private func updateAfterReceive(addUntil: Date?, removed: Bool) {
+        if removed { lastProblem = nil }
+        if let addUntil, addUntil > .now {
+            Task {
+                try? await Task.sleep(for: .seconds(addUntil.timeIntervalSinceNow + 1))
+                await self.refreshSetup()
+            }
+        }
+    }
+
+    private func sendMessageWithTimeout(_ message: Agentkeyring_V2_WatchToPhone, timeout: Duration = .seconds(8)) async -> Agentkeyring_V2_PhoneToWatch? {
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isReachable else { return nil }
+        let encoded = Self.encode(message)
+        return await withCheckedContinuation { done in
+            let gate = OneShotContinuation(done)
+            Task {
+                try? await Task.sleep(for: timeout)
+                gate.resume(nil)
+            }
+            session.sendMessage(encoded, replyHandler: { reply in
+                gate.resume(Self.decode(reply))
+            }, errorHandler: { error in
+                KeyringDiagnosticLog.watch.noteDeviceEvent("watchlink", "sendMessage failed", ["error": "\(error)"])
+                gate.resume(nil)
+            })
+        }
+    }
+
+    func pullLatestFromPhone() async {
+        let shouldStart: Bool = lock.withLock {
+            guard !_pullInFlight else { return false }
+            _pullInFlight = true
+            return true
+        }
+        guard shouldStart else { return }
+        defer { lock.withLock { _pullInFlight = false } }
+
+        let session = WCSession.default
+        await waitForSession(checks: 20)
+        guard session.activationState == .activated, session.isReachable else { return }
+        let request = await runIO { self.state.membersRequest().request }
+        guard let reply = await sendMessageWithTimeout(request, timeout: .seconds(5)) else { return }
+        await runIO { self.receive(reply, current: true) }
+        await refreshSetup()
+    }
+
     func add() async -> Bool {
         let session = WCSession.default
-        activate()
-        for _ in 0..<20 where session.activationState != .activated {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-        guard session.activationState == .activated else {
-            watchLog.note("setup", "add failed", ["reason": "session not activated"])
-            return false
-        }
-        guard let offerID = WatchStore().read().effectiveAddOfferID, !offerID.isEmpty else {
-            watchLog.note("setup", "add failed", ["reason": "no active offer"])
+        KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add tapped", ["activation": "\(session.activationState.rawValue)", "reachable": "\(session.isReachable)"])
+        guard let offerID = await runIO({ self.state.beginAdd() }) else {
+            KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add failed", ["reason": "no active offer"])
             await refreshSetup()
             return false
         }
-        let pairing: [String: Any]
-        do {
-            pairing = try pairingPayload(includeDevice: true, offerID: offerID)
-        } catch {
-            lastProblem = "The Watch could not make its keys: \(error)"
-            watchLog.note("setup", "add failed", ["reason": "\(error)"])
-            return false
-        }
-        WatchStore().update { $0.addTappedOfferID = offerID }
-        watchLog.note("setup", "add tapped", [:])
         await refreshSetup()
 
-        // Always publish a lean context without waiting on selfTest or 200 log lines.
-        do { try session.updateApplicationContext(pairing) } catch { log.error("add context: \(error.localizedDescription, privacy: .public)") }
-
-        for _ in 0..<20 where !session.isReachable {
-            try? await Task.sleep(for: .milliseconds(100))
+        await waitForSession(checks: 20)
+        guard session.activationState == .activated else {
+            KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add failed", ["reason": "session not activated"])
+            return await addFailed(offerID: offerID)
         }
-        if session.isReachable {
-            var message = pairing
-            message["addWatch"] = true
-            let replyData: Data? = await withCheckedContinuation { done in
-                session.sendMessage(message, replyHandler: {
-                    done.resume(returning: try? PropertyListSerialization.data(fromPropertyList: $0, format: .binary, options: 0))
-                }, errorHandler: { error in
-                    watchLog.note("setup", "add message failed", ["error": "\(error)"])
-                    done.resume(returning: nil)
-                })
-            }
-            if let replyData, let reply = try? PropertyListSerialization.propertyList(from: replyData, format: nil) as? [String: Any] {
-                receive(reply, current: true)
-                let accepted = reply["accepted"] as? Bool ?? true
-                if !accepted {
-                    WatchStore().update { if $0.addTappedOfferID == offerID { $0.addTappedOfferID = nil } }
-                    await refreshSetup()
-                    return false
-                }
+
+        let prepared: (request: Agentkeyring_V2_WatchToPhone, keyID: String)
+        do {
+            guard let queued = try await runIO({ self.queueAdd(offerID: offerID) }).get() else {
                 await refreshSetup()
-                Task { await self.sendHandOver() }
                 return true
             }
+            prepared = queued
+        } catch {
+            lastProblem = "The Watch could not make its keys: \(error)"
+            KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add failed", ["reason": "\(error)"])
+            return await addFailed(offerID: offerID)
         }
-        // iPhone app was not reachable over Bluetooth: clear this offer's tap instead of trapping the Watch forever.
-        WatchStore().update { if $0.addTappedOfferID == offerID { $0.addTappedOfferID = nil } }
+
+        let deadline = Date().addingTimeInterval(10)
+        var triedLiveMessage = false
+        while Date() < deadline {
+            switch await runIO({ self.state.addProgress(offerID: offerID, keyID: prepared.keyID) }) {
+            case .accepted: return await addAccepted(via: "background")
+            case .cancelled: return true
+            case .waiting: break
+            }
+            if !triedLiveMessage, session.isReachable {
+                triedLiveMessage = true
+                let remaining = max(1.5, min(6.0, deadline.timeIntervalSinceNow))
+                if let reply = await sendMessageWithTimeout(prepared.request, timeout: .seconds(remaining)) {
+                    await runIO { self.receive(reply, current: true) }
+                    if reply.hasAccepted, !reply.accepted {
+                        KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add rejected", [:])
+                        return await addFailed(offerID: offerID)
+                    }
+                    return await addAccepted(via: "live")
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        switch await runIO({ self.state.addProgress(offerID: offerID, keyID: prepared.keyID) }) {
+        case .accepted: return await addAccepted(via: "background-late")
+        case .cancelled: return true
+        case .waiting: break
+        }
+        KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add failed", ["reason": triedLiveMessage ? "reply timed out" : "iphone not reachable",
+                                           "reachable": "\(session.isReachable)"])
+        await runIO {
+            self.state.clearAdd(offerID: offerID)
+            self.replaceAddTransfer(with: self.state.cancelMessage(offerID: offerID), on: WCSession.default)
+        }
+        Task { await self.sendHandOver(force: true) }
         await refreshSetup()
         return false
     }
 
-    /// Cancel while waiting on "Preparing your Watch…": clears local state and tells the iPhone
-    /// to abort the matching offer so a previously sent Add cannot still enrol on the iPhone.
-    func cancelAdd() async {
-        let store = WatchStore()
-        let before = store.read()
-        // Prefer the current offer ID reported by the iPhone (covers renewed Face ID retries).
-        let offerID = before.addOfferID ?? before.addTappedOfferID
-        store.update { $0.addTappedOfferID = nil }
-        watchLog.note("setup", "add cancelled", [:])
-        await refreshSetup()
-        let session = WCSession.default
-        guard session.activationState == .activated, let offerID, !offerID.isEmpty else { return }
-        let cancelPayload: [String: Any] = ["cancelAddWatch": true, "addOfferID": offerID]
-        if session.isReachable {
-            let replyData: Data? = await withCheckedContinuation { done in
-                session.sendMessage(cancelPayload, replyHandler: {
-                    done.resume(returning: try? PropertyListSerialization.data(fromPropertyList: $0, format: .binary, options: 0))
-                }, errorHandler: { _ in done.resume(returning: nil) })
+    private func queueAdd(offerID: String) -> Result<(Agentkeyring_V2_WatchToPhone, String)?, Error> {
+        Result {
+            let prepared = try state.prepareAdd(offerID: offerID, pushToken: pushToken)
+            // Check for cancellation on the same queue as the transfer.
+            guard state.isSendingAdd(offerID: offerID) else { return nil }
+            let session = WCSession.default
+            do {
+                try session.updateApplicationContext(Self.encode(prepared.context))
+            } catch {
+                log.error("add context: \(error.localizedDescription, privacy: .public)")
+                KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add context failed", ["error": "\(error)"])
             }
-            if let replyData, let reply = try? PropertyListSerialization.propertyList(from: replyData, format: nil) as? [String: Any] {
-                receive(reply, current: true)
-                await refreshSetup()
-                if let cancelled = reply["cancelled"] as? Bool {
-                    if !cancelled {
-                        watchLog.note("setup", "cancel refused by iPhone", ["reason": "upload already in flight or offer ended"])
-                    }
-                    Task { await self.sendHandOver() }
-                    return
-                }
-                watchLog.note("setup", "cancel not acknowledged by iPhone", ["reason": "older iPhone build"])
-            }
+            replaceAddTransfer(with: prepared.request, on: session)
+            return (prepared.request, prepared.keyID)
         }
-        session.transferUserInfo(cancelPayload)
-        Task { await self.sendHandOver() }
     }
 
-    /// Try Practice: only an iPhone or the Mac can ask the Mac for a practice request, so the iPhone asks.
-    func askForPractice() async -> Bool {
-        let session = WCSession.default
-        activate()
-        for _ in 0..<30 where session.activationState != .activated || !session.isReachable { try? await Task.sleep(for: .milliseconds(100)) }
-        guard session.isReachable else { return false }
-        let asked: Bool = await withCheckedContinuation { done in
-            session.sendMessage(["practice": true], replyHandler: { done.resume(returning: $0["asked"] as? Bool ?? false) },
-                                errorHandler: { _ in done.resume(returning: false) })
+    private func addAccepted(via route: String) async -> Bool {
+        KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add accepted", ["via": route])
+        await refreshSetup()
+        Task { await self.sendHandOver(force: true) }
+        return true
+    }
+
+    private func addFailed(offerID: String) async -> Bool {
+        await runIO { self.state.clearAdd(offerID: offerID) }
+        await refreshSetup()
+        return false
+    }
+
+    private func replaceAddTransfer(with message: Agentkeyring_V2_WatchToPhone, on session: WCSession) {
+        for transfer in session.outstandingUserInfoTransfers where Self.isAddWatchTransfer(transfer.userInfo) {
+            transfer.cancel()
         }
-        watchLog.note("practice", asked ? "asked" : "not asked", [:])
+        session.transferUserInfo(Self.encode(message))
+    }
+
+    func cancelAdd() async {
+        let cancel = await runIO { self.state.cancelAdd() }
+        KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "add cancelled", [:])
+        await refreshSetup()
+        let session = WCSession.default
+        guard session.activationState == .activated, let cancel else { return }
+        if let reply = await sendMessageWithTimeout(cancel, timeout: .seconds(5)) {
+            await runIO { self.receive(reply, current: true) }
+            await refreshSetup()
+            if !reply.cancelled {
+                KeyringDiagnosticLog.watch.noteDeviceEvent("setup", "cancel refused by iPhone", ["reason": "upload already in flight or offer ended"])
+            }
+            Task { await self.sendHandOver(force: true) }
+            return
+        }
+        await runIO { self.replaceAddTransfer(with: cancel, on: WCSession.default) }
+        Task { await self.sendHandOver(force: true) }
+    }
+}
+
+extension WatchLink: WCSessionDelegate {
+    func askForPractice() async -> Bool {
+        await waitForSession(checks: 30, reachable: true)
+        guard WCSession.default.isReachable else { return false }
+        let asked = await sendMessageWithTimeout(WatchStateCoordinator.practiceRequest(), timeout: .seconds(10))?.asked ?? false
+        KeyringDiagnosticLog.watch.noteDeviceEvent("practice", asked ? "asked" : "not asked", [:])
         if asked {
-            WatchStore().update { $0.practiceAsked = .now }
-            Task { try? await Task.sleep(for: .seconds(WatchSetup.practiceWait + 1)); await self.refreshSetup() }
+            await runIO { self.state.practiceRequested() }
+            Task { try? await Task.sleep(for: .seconds(WatchOnboardingStep.practiceWait + 1)); await self.refreshSetup() }
         }
         await refreshSetup()
         return asked
     }
 
-    /// Cancel while waiting for the practice request: the offer comes back.
     func cancelPractice() async {
-        WatchStore().update { $0.practiceAsked = nil }
+        await runIO { self.state.cancelPractice() }
         await refreshSetup()
     }
 
-    /// Done on the practice offer.
     func practiceOfferDone() async {
-        WatchStore().update { $0.practiceOfferDone = true }
+        await runIO { self.state.practiceOfferDone() }
         await refreshSetup()
     }
 
-    /// Where setup stands, worked out again from what the Watch can read about itself.
+    static func makeSetup(saved: WatchPersistedState, notifications: WatchNotificationPermission, hasPushToken: Bool) -> WatchOnboardingStep {
+        shared.state.makeSetup(saved: saved, notifications: notifications, hasPushToken: hasPushToken,
+                               passcode: passcodeIsSet())
+    }
+
     /// Uses a monotonic generation so an older async notificationSettings() lookup never overwrites newer state.
     func refreshSetup() async {
-        #if DEBUG
-        if UserDefaults.standard.string(forKey: "SampleSetup") != nil { return }
-        #endif
         let generation: UInt64 = lock.withLock {
             _refreshGeneration &+= 1
             return _refreshGeneration
         }
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-        let saved = WatchStore().read()
-        var error: NSError?
-        let setup = WatchSetup(passcode: LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error),
-                               // Any Members at all means the iPhone has joined a Mac.
-                               phoneJoined: saved.signedMembers != nil,
-                               listed: saved.lists((try? WatchKeys().keyID()) ?? ""),
-                               addOffered: saved.addUntil.map { $0 > .now } ?? false,
-                               addTapped: saved.isAddTappedForCurrentOffer,
-                               copiesPending: saved.copiesPending == true,
-                               copyingToWatch: saved.copyingToWatch == true,
-                               notifications: status == .notDetermined ? .notAsked : status == .denied ? .denied : .allowed,
-                               pushAddress: pushToken != nil,
-                               practiceAsked: saved.practiceAnswered == true ? nil : saved.practiceAsked,
-                               practiceOfferDone: saved.practiceOfferDone == true)
-        let inUse = WatchStore().readInUse()
+        let notifications: WatchNotificationPermission = status == .notDetermined ? .notAsked : status == .denied ? .denied : .allowed
+        let snapshot = await runIO {
+            self.state.setupSnapshot(notifications: notifications, hasPushToken: self.pushToken != nil,
+                                     passcode: Self.passcodeIsSet())
+        }
         await MainActor.run {
             let isLatest = self.lock.withLock { self._refreshGeneration == generation }
             guard isLatest else { return }
-            WatchModel.shared.setup = setup
-            WatchModel.shared.inUse = inUse
+            WatchModel.shared.setup = snapshot.setup
+            WatchModel.shared.inUse = snapshot.inUse
         }
     }
 
-    /// Stop on Apple Watch: the iPhone ends the approval at the asking computer's door. True once it has.
-    func stop(_ id: String) async -> Bool {
-        let session = WCSession.default
-        activate()
-        for _ in 0..<30 where session.activationState != .activated || !session.isReachable { try? await Task.sleep(for: .milliseconds(100)) }
-        guard session.isReachable else { return false }
-        let stopped: Bool = await withCheckedContinuation { done in
-            session.sendMessage(["stop": id], replyHandler: { done.resume(returning: $0["stopped"] as? Bool ?? false) },
-                                errorHandler: { _ in done.resume(returning: false) })
-        }
-        if stopped {
-            WatchStore().removeInUse(id)
+    func stop(_ id: String) async -> WatchStopResult {
+        await waitForSession(checks: 30, reachable: true)
+        guard WCSession.default.isReachable else { return .failed }
+        let reply = await sendMessageWithTimeout(WatchStateCoordinator.stopRequest(id), timeout: .seconds(10))
+        let result: WatchStopResult = reply?.stopped == true ? .stopped : reply?.stopSent == true ? .sent : .failed
+        KeyringDiagnosticLog.watch.noteDeviceEvent("stop", "\(result)", ["request": id])
+        if result == .stopped {
+            await runIO { self.state.removeInUse(id) }
             await refreshSetup()
         }
-        return stopped
+        return result
     }
 
-    /// Asks the iPhone for the current list of devices, for a request this Watch
-    /// cannot read: the iPhone answers at once if it can be woken, and also sends
-    /// it the usual way. True if a newer list arrived.
     func askForMembers() async -> Bool {
         let session = WCSession.default
-        // Opening a notification may have just started the app: its session activates a moment later.
-        activate()
-        for _ in 0..<30 where session.activationState != .activated { try? await Task.sleep(for: .milliseconds(100)) }
+        await waitForSession(checks: 30)
         guard session.activationState == .activated else { return false }
-        let before = WatchStore().read()
-        session.transferUserInfo(["askMembers": true])
+        let (before, request) = await runIO { self.state.membersRequest() }
+        await runIO { _ = WCSession.default.transferUserInfo(Self.encode(request)) }
         for _ in 0..<30 where !session.isReachable { try? await Task.sleep(for: .milliseconds(100)) }
         guard session.isReachable else { return false }
-        // The reply crosses as a property list: its members bytes and the answer address.
-        let reply: Data? = await withCheckedContinuation { done in
-            session.sendMessage(["askMembers": true], replyHandler: {
-                done.resume(returning: try? PropertyListSerialization.data(fromPropertyList: $0, format: .binary, options: 0))
-            }, errorHandler: { _ in done.resume(returning: nil) })
+        guard let reply = await sendMessageWithTimeout(request, timeout: .seconds(8)) else { return false }
+        let changed = await runIO {
+            self.receive(reply, current: true)
+            return self.state.savedState() != before
         }
-        guard let reply, let payload = try? PropertyListSerialization.propertyList(from: reply, format: nil) as? [String: Any] else { return false }
-        receive(payload, current: true)
         await refreshSetup()
-        return WatchStore().read() != before
+        return changed
     }
 
     func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
-        guard state == .activated else {
-            drainIdle()
-            return
-        }
-        let context = session.receivedApplicationContext
-        if !context.isEmpty { receive(context, current: true) }
+        guard state == .activated else { return drainIdle() }
+        applyContext(session.receivedApplicationContext)
         Task {
             await self.refreshSetup()
-            await self.sendHandOver()
             self.drainIdle()
+            Task { await self.pullLatestFromPhone() }
+            Task { await self.sendHandOver() }
         }
+    }
+
+    func sessionReachabilityDidChange(_ session: WCSession) {
+        guard session.isReachable else { return }
+        Task { await self.pullLatestFromPhone() }
     }
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        receive(applicationContext, current: true)
-        Task {
-            await self.refreshSetup()
-            self.drainIdle()
-        }
+        applyContext(applicationContext)
+        refreshAndDrain()
+    }
+
+    private func applyContext(_ payload: [String: Any]) {
+        guard let message = Self.decode(payload) else { return }
+        ioQueue.sync { receive(message, current: true) }
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        receive(userInfo, current: false)
-        Task {
-            await self.refreshSetup()
-            self.drainIdle()
-        }
+        receivePayload(userInfo, current: false)
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        receive(message, current: true)
-        Task { await self.refreshSetup() }
+        receivePayload(message, current: true)
+    }
+
+    private func receivePayload(_ payload: [String: Any], current: Bool) {
+        guard let message = Self.decode(payload) else {
+            if !current { drainIdle() }
+            return
+        }
+        let id = message.dismissRequestID
+        if id.isEmpty {
+            ioQueue.sync { receive(message, current: current) }
+            refreshAndDrain(drain: !current)
+        } else {
+            Task {
+                KeyringDiagnosticLog.watch.noteDeviceEvent("notification", "removed", ["request": id, "by": "iphone"])
+                await WatchDelegate.removeDeliveredNotification(id: id)
+                await MainActor.run {
+                    WatchModel.shared.markRequestHandled(id)
+                    WatchModel.shared.dismissForegroundRequest(id: id)
+                }
+                if !current { self.drainIdle() }
+            }
+        }
+    }
+
+    private func refreshAndDrain(drain: Bool = true) {
+        Task {
+            await self.refreshSetup()
+            if drain { self.drainIdle() }
+        }
+    }
+
+    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        defer { Task { self.drainIdle() } }
+        guard let data = file.metadata?[Self.pbKey] as? Data,
+              let metadata = try? Agentkeyring_V2_WatchFileMetadata(serializedBytes: data) else {
+            KeyringDiagnosticLog.watch.noteDeviceEvent("transfer", "unreadable metadata", [:])
+            return
+        }
+        // WatchConnectivity removes the file once the delegate returns.
+        let contents = try? Data(contentsOf: file.fileURL)
+        let resetAt = file.metadata?[Self.resetAtKey] as? Double ?? 0
+        let receipt = ioQueue.sync {
+            let receipt = state.receiveFile(contents, metadata: metadata, resetAt: resetAt)
+            updateAfterReceive(addUntil: receipt.addUntil, removed: receipt.removed)
+            return receipt
+        }
+        if let message = receipt.response { sendDurably(message, on: session) }
+        if receipt.refreshSetup {
+            Task {
+                await self.refreshSetup()
+                if receipt.handOver { await self.sendHandOver(force: true) }
+            }
+        }
+    }
+}
+
+private final class OneShotContinuation<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    init(_ continuation: CheckedContinuation<Value, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ value: Value) {
+        let pending = lock.withLock {
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume(returning: value)
     }
 }

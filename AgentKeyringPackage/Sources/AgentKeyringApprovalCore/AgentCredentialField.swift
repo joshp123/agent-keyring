@@ -1,4 +1,4 @@
-public enum AgentCredentialField: String, Codable, CaseIterable, Sendable {
+public enum AgentCredentialField: String, CaseIterable, Sendable {
     case username
     case password
     case totp

@@ -10,9 +10,15 @@ public enum PasswordsExportCopy {
     public static let fileMenu: [String?] = [
         "New Password…", "New Window", "New Shared Group…", nil,
         "Import Passwords from File…", nil,
-        "Export All Items to App…", "Export All Passwords to File…", nil, "Close",
+        "Export Selected Items to App…", "Export Selected Passwords to File…", nil, "Close",
     ]
+    public static let exportSelectedItems = "Export Selected Items to App…"
     public static let exportAllItems = "Export All Items to App…"
+    public static let exportAllFileMenu: [String?] = [
+        "Import Passwords from File…",
+        "Export All Items to App…",
+        "Export All Passwords to File…",
+    ]
 
     public static let someItemsTitle = "Some items will not be exported."
 
@@ -24,12 +30,19 @@ public enum PasswordsExportCopy {
 
     public static let destinationTitle = "Select a Destination"
     public static let agentKeyring = "Agent Keyring"
-    public static let earlierVersion = "AgentKeyring"
 
-    public static func confirmTitle(_ count: Int) -> String { "Export \(count.formatted()) items to “Agent Keyring”?" }
+    public static func confirmTitle(_ count: Int) -> String {
+        count == 1 ? "Export 1 item to “Agent Keyring”?" : "Export \(count.formatted()) items to “Agent Keyring”?"
+    }
     public static func confirmBody(_ count: Int) -> String {
-        let more = max(count - 2, 0)
-        return "“Agent Keyring” will receive your login information for “example.com”, “mail.example” and \(more.formatted()) more. This app will be able to use the items you export to access your accounts."
+        switch count {
+        case ...1:
+            return "“Agent Keyring” will receive your login information for “example.com”. This app will be able to use the item you export to access your account."
+        case 2:
+            return "“Agent Keyring” will receive your login information for “example.com” and “mail.example”. This app will be able to use the items you export to access your accounts."
+        default:
+            return "“Agent Keyring” will receive your login information for “example.com”, “mail.example” and \((count - 2).formatted()) more. This app will be able to use the items you export to access your accounts."
+        }
     }
     public static let continueInAgentKeyring = "Continue in “Agent Keyring”"
 
